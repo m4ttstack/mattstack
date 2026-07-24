@@ -55,8 +55,10 @@ export async function createSandboxRepo(): Promise<SandboxRepo> {
 export async function createSandboxRepoWithRemote(): Promise<SandboxRepoWithRemote> {
   const repo = await createSandboxRepo();
 
-  // Create a bare clone to act as the remote
-  const remoteDir = await mkdtemp(join(tmpdir(), 'gitq-remote-'));
+  // Create a bare clone to act as the remote. realpath the temp dir so path
+  // equality holds on macOS (mkdtemp returns /var/..., git resolves to /private/var/...).
+  const rawRemoteDir = await mkdtemp(join(tmpdir(), 'gitq-remote-'));
+  const remoteDir = realpathSync(rawRemoteDir);
   execFileSync('git', ['clone', '--bare', repo.dir, remoteDir], { stdio: 'pipe' });
 
   // Point the working repo's origin at the bare repo
