@@ -66,7 +66,9 @@ To get unstuck: resolve the conflict with raw git (edit files, `git add`), then 
 
 Hard failures (bad usage, unknown command, no such stack, missing GitLab token, and so on) go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Don't try to parse stderr as JSON; nothing gets written to stdout for these.
 
-A command can also exit `1` after emitting its normal stdout JSON: `sync`/`continue`, `absorb`, `publish`, and `undo` report structured per branch (or per MR) results, and the process exits `1` if any individual result failed even though the command itself ran to completion. Check the JSON's per item `success` fields for that case, not just the exit code.
+A command can also exit `1` after emitting its normal stdout JSON: `sync`/`continue`, `absorb`, and `publish` report structured per branch (or per MR) results, and the process exits `1` if any individual result failed even though the command itself ran to completion. Check the JSON's per item `success` fields for that case, not just the exit code.
+
+`undo` doesn't fit that pattern: it reports one top level `success` for the whole restore, not a result per branch. Branches that git no longer has (deleted externally after the operation being undone) get skipped rather than failing the restore; `undo` still exits `0` on a partial restore, even one where every snapshotted branch ended up skipped, so check the JSON's `skippedBranches` array (informational, not pass/fail) to see what got left out. It exits `1` only when the log entry had no branch snapshots to restore in the first place, or on a hard failure per above.
 
 ## where state lives
 
