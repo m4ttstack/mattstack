@@ -601,4 +601,40 @@ describe('gitq CLI', () => {
     expect(parsed.success).toBe(true);
     expect(parsed.restoredBranches.sort()).toEqual(['feat/branch-1', 'main']);
   });
+
+  test('undo drops a branch git no longer has instead of re-tracking it', async () => {
+    const { repo, configDir } = await makeRepo();
+    setConfigDir(configDir);
+
+    // main -> branch-1 -> branch-2 -> branch-3
+    const { stack, shas } = await buildLinearStack(repo.dir, repo.git, 3);
+    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: '', stacks: [stack] });
+
+    const branchSnapshots: Record<string, string> = {};
+    for (const node of stack.nodes) branchSnapshots[node.branch] = shas.get(node.branch)!;
+    const entry = OperationLog.create('cascade-rebase', stack, branchSnapshots);
+    await OperationLog.save(entry);
+
+    // Simulate the branch being deleted after the snapshotted operation —
+    // undo() will skip it but still reports success:true overall.
+    repo.git('checkout', 'main');
+    repo.git('branch', '-D', 'feat/branch-2');
+
+    const { stdout, exitCode } = await runCli(['undo', '--json'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.success).toBe(true);
+    expect(parsed.skippedBranches).toEqual(['feat/branch-2']);
+
+    const stacksOut = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    const nodes = stacksOut.stacks[0].nodes as { branch: string; parent: string }[];
+    const branches = nodes.map((n) => n.branch);
+    expect(branches).not.toContain('feat/branch-2');
+    expect(branches.sort()).toEqual(['feat/branch-1', 'feat/branch-3']);
+
+    // branch-3 was reparented onto branch-2's parent (branch-1) instead of
+    // being left pointing at a branch git no longer has.
+    const branch3 = nodes.find((n) => n.branch === 'feat/branch-3');
+    expect(branch3?.parent).toBe('feat/branch-1');
+  });
 });
