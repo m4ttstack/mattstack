@@ -1,0 +1,76 @@
+# gitq
+
+gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to GitLab to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. a board (server + web client) and a set of higher level skills built on top of this CLI are later plans, not here yet.
+
+## install
+
+```bash
+bun install
+bun link
+```
+
+`bun link` puts a `gitq` binary on your PATH pointed at this checkout.
+
+## commands
+
+Every command accepts `-C <path>` (run as if invoked from `<path>`, default cwd) and `--json` (emit machine readable JSON on stdout instead of the human summary). Commands that operate on more than one tracked stack take `--stack <name>` to disambiguate; it's optional when the repo has exactly one stack.
+
+Read only:
+
+- `gitq stacks`: list tracked stacks and each one's branch chain (root to tip).
+- `gitq diagnose`: per branch situation report for every tracked stack (merged, needs rebase, conflicted, etc).
+- `gitq preflight`: predict rebase conflicts and check for a dirty worktree before you run `sync`.
+- `gitq log`: show the operation log (global across all repos, not scoped to the current one).
+
+Tracking (which branches gitq knows about; none of these touch git refs):
+
+- `gitq track <stackName> --root <branch>`: start tracking a new stack rooted at `<branch>`.
+- `gitq untrack <stackName>`: stop tracking a stack.
+- `gitq add <branch> --parent <branch> [--stack <name>]`: add a branch node to a stack under a parent.
+- `gitq remove <branch> [--stack <name>]`: remove a leaf branch node from a stack (refuses if it has children; reparent or remove them first).
+
+Cascade rebase:
+
+- `gitq sync [--stack <name>]`: rebase every branch in the stack onto its parent's new head, in order. Exits `2` and leaves git mid rebase on a conflict (see below).
+- `gitq continue`: resume a paused cascade after you've resolved the conflict and staged it. May exit `2` again on the next conflict.
+- `gitq abort`: abort the in progress rebase and clear the pause file.
+
+Surgery:
+
+- `gitq absorb [--stack <name>] [--preview]`: distribute uncommitted changes to the branches whose commits touched those files, then restack. `--preview` shows the attribution without committing anything.
+- `gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]`: tail split: move everything from `<sha>` onward on `<branch>` into a new child branch.
+- `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file: move files matching the glob(s) off `<branch>` into a new branch.
+- `gitq fold <branch> [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent.
+- `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch (and cascade rebase its descendants) onto a different parent. Can pause on a conflict exactly like `sync` does; resolve the same way.
+- `gitq rename <old> <new> [--stack <name>]`: rename a branch, in git and in the stack tree.
+- `gitq reset <branch> [--stack <name>]`: reset a local branch to match `origin/<branch>` (for when it diverged, e.g. someone force pushed).
+
+GitLab:
+
+- `gitq publish [--stack <name>] [--mr-meta <path>]`: open or update an MR per local only branch in the stack. `--mr-meta` points at a JSON file of `{"<branch>": {"title": "...", "description": "..."}}` to set MR titles/descriptions; branches not listed get defaults.
+- `gitq import`: pull stacks for the current repo's remote back from GitLab into local tracking.
+
+Other:
+
+- `gitq undo`: undo the last reversible operation from the operation log, restoring the branches it touched to their pre operation state.
+
+## the conflict protocol
+
+`gitq sync` (and `gitq reparent`, when its cascade hits a conflict) rebases branches one at a time. When a rebase step conflicts, gitq leaves git in a normal mid rebase state (same as running `git rebase` by hand would) and writes `<gitdir>/gitq-pause.json` recording which branch and commit it stopped on. The command exits `2`, not `1`, so a caller can tell "we paused on purpose" apart from a real failure.
+
+To get unstuck: resolve the conflict with raw git (edit files, `git add`), then run `gitq continue`. It picks up the rebase from where it paused and keeps walking the rest of the stack; it can exit `2` again immediately if the next branch also conflicts, same protocol. If you'd rather bail out, `gitq abort` aborts the rebase in progress and clears the pause file.
+
+`gitq sync` refuses to start a new cascade while a pause file is already present for the repo; finish or abort the paused one first.
+
+## errors
+
+Errors go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Only the success path emits JSON to stdout. Don't try to parse stderr as JSON.
+
+## where state lives
+
+- `~/.config/gitq/`: stack stores (one JSON file per repo, keyed by a hash of the repo path, under `stacks/`), plus `settings.json`, `repos.json`, and the global `operation-log.json`. Override the base directory with `GITQ_CONFIG_DIR`.
+- `<gitdir>/gitq-pause.json`: present only while a cascade is paused on a conflict, per repo (worktree safe, since it's keyed off the git dir, not the worktree root).
+
+## GitLab token
+
+`publish` and `import` need a token. gitq looks at `GITLAB_TOKEN` in the environment first, then falls back to the `gitlabToken` field in `~/.rt/secrets.json`. gitlab.com only for now, no self hosted instances.
