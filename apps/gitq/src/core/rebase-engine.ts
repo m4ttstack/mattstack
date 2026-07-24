@@ -71,9 +71,9 @@ export interface DriftWarning {
 }
 
 export interface PreFlightReport {
-  /** True if the working tree has unstaged modifications (blocks rebase). */
+  /** True if the working tree has any uncommitted state — untracked, staged, or unstaged (blocks rebase). */
   dirty: boolean;
-  /** True if there are staged (index) changes — e.g. from port-file. Not a blocker for conflict prediction. */
+  /** True if there are staged (index) changes. Informational only; `dirty` already covers this case. */
   hasStagedChanges: boolean;
   /** Branches predicted to conflict (via `git merge-tree`) with file details. */
   conflictBranches: ConflictPrediction[];
@@ -116,12 +116,13 @@ function normalizeMergeTreeKind(kind: string): string {
 /**
  * Run pre-flight checks before a rebase operation.
  *
- * 1. Check for unstaged changes (blocks rebase). Staged changes (e.g. from
- *    port-file) are tracked separately and do NOT block conflict prediction.
+ * 1. Check for any uncommitted state — untracked, staged, or unstaged (blocks
+ *    rebase). v2 has no port-file flow, so there's no case where staged-only
+ *    changes are safe to cascade through: any dirty working tree blocks it.
  * 2. Optionally dry-run conflicts via `git merge-tree` for each branch.
  */
 async function preflight(cwd: string, stack: Stack, branches: string[]): Promise<PreFlightReport> {
-  const dirty = await GitShell.hasUnstagedChanges(cwd);
+  const dirty = await GitShell.isDirty(cwd);
   const staged = await GitShell.hasStagedChanges(cwd);
   const conflictBranches: ConflictPrediction[] = [];
   const threadWarnings: ThreadWarning[] = [];
@@ -147,9 +148,8 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
       }
     }
 
-    // Run conflict prediction unless there are unstaged changes (which would
-    // corrupt the merge-tree result). Staged-only changes are OK — they're
-    // expected state after port-file operations.
+    // Run conflict prediction unless the working tree is dirty (any
+    // uncommitted state would corrupt the merge-tree result).
     if (!dirty) {
       // For branches whose parent is merged with a tombstone, use a 3-way
       // merge-tree with the tombstone as the explicit base. This accurately
