@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { createSandboxRepo, cleanupRepo, buildLinearStack } from './helpers.ts';
 import { setConfigDir } from '../../src/core/config-paths.ts';
 import { saveStore } from '../../src/core/persistence.ts';
+import { OperationLog } from '../../src/core/operation-log.ts';
+import { StackManager } from '../../src/core/stack-manager.ts';
 import type { Stack } from '../../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '../../bin/gitq');
@@ -84,7 +86,19 @@ describe('gitq CLI', () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.stacks).toHaveLength(1);
     expect(parsed.stacks[0].stackName).toBe(stack.stackName);
-    expect(parsed.stacks[0].diagnostics.nodes.length).toBe(2);
+    const nodes = parsed.stacks[0].diagnostics.nodes;
+    expect(nodes.length).toBe(2);
+
+    // Value-level assertions on the flattened node (nodes.length alone doesn't
+    // catch a broken/empty NodeDirective surviving the Map -> array flatten).
+    const firstNode = nodes[0];
+    expect(firstNode.branch).toBe(stack.nodes[0]!.branch);
+    expect(typeof firstNode.situation).toBe('string');
+    expect(firstNode.situation.length).toBeGreaterThan(0);
+    // statusLine is the field NodeDirective guarantees non-null (`badge` is
+    // `{ ... } | null`); assert on the one the type actually promises.
+    expect(typeof firstNode.statusLine).toBe('string');
+    expect(firstNode.statusLine.length).toBeGreaterThan(0);
   });
 
   test('preflight --json reports a clean report for a healthy stack', async () => {
@@ -102,5 +116,30 @@ describe('gitq CLI', () => {
     const { stdout, exitCode } = await runCli(['log', '--json'], repo.dir, configDir);
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout)).toEqual({ entries: [] });
+  });
+
+  test('log surfaces a populated operation log entry', async () => {
+    const { repo, configDir } = await makeRepo();
+    // Same construction as tests/operation-log.test.ts: OperationLog.create + save.
+    // setConfigDir here (in-process) so the save lands in the sibling config dir
+    // that the spawned CLI below reads via GITQ_CONFIG_DIR.
+    setConfigDir(configDir);
+
+    let stack = StackManager.createStack('test-stack', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    const branchSnapshots = { main: 'sha-main', 'feat/a': 'sha-a' };
+    const entry = OperationLog.create('sync', stack, branchSnapshots);
+    await OperationLog.save(entry);
+
+    const { stdout: jsonOut, exitCode: jsonExit } = await runCli(['log', '--json'], repo.dir, configDir);
+    expect(jsonExit).toBe(0);
+    const parsed = JSON.parse(jsonOut);
+    expect(parsed.entries).toHaveLength(1);
+    expect(parsed.entries[0].operation).toBe('sync');
+    expect(Object.keys(parsed.entries[0].branchSnapshots)).toEqual(['main', 'feat/a']);
+
+    const { stdout: humanOut, exitCode: humanExit } = await runCli(['log'], repo.dir, configDir);
+    expect(humanExit).toBe(0);
+    expect(humanOut).toContain('sync');
   });
 });
