@@ -165,4 +165,24 @@ describe('gitq CLI', () => {
     expect(stderr).toContain('stack-one');
     expect(stderr).toContain('stack-two');
   });
+
+  test('duplicate track exits 1 and leaves the existing stack alone', async () => {
+    const { repo, configDir } = await makeRepo();
+    await runCli(['track', 'mystack', '--root', 'main'], repo.dir, configDir);
+    const { exitCode, stderr } = await runCli(['track', 'mystack', '--root', 'main'], repo.dir, configDir);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('already exists');
+    const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    expect(list.stacks).toHaveLength(1);
+  });
+
+  test('untrack of an unknown stack name exits 1 and leaves the store unchanged', async () => {
+    const { repo, configDir } = await makeRepo();
+    await runCli(['track', 'mystack', '--root', 'main'], repo.dir, configDir);
+    const { exitCode, stderr } = await runCli(['untrack', 'nope'], repo.dir, configDir);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('nope');
+    const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    expect(list.stacks.map((s: { stackName: string }) => s.stackName)).toEqual(['mystack']);
+  });
 });

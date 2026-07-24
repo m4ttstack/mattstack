@@ -25,6 +25,7 @@ export async function trackCommand(ctx: CliContext): Promise<number> {
   const root = typeof ctx.flags.root === 'string' ? ctx.flags.root : null;
   if (!stackName || !root) return fail('usage: gitq track <stackName> --root <branch>');
   const store = await loadStore(ctx.repoRoot);
+  if (store.stacks.some((s) => s.stackName === stackName)) return fail(`stack ${stackName} already exists`);
   const stack = StackManager.createStack(stackName, root);
   await saveStore(ctx.repoRoot, { ...store, stacks: [...store.stacks, stack] });
   emit(ctx, `tracked ${stackName} (root ${root})`, { stack });
@@ -35,6 +36,9 @@ export async function untrackCommand(ctx: CliContext): Promise<number> {
   const [stackName] = ctx.args;
   if (!stackName) return fail('usage: gitq untrack <stackName>');
   const store = await loadStore(ctx.repoRoot);
+  if (!store.stacks.some((s) => s.stackName === stackName)) {
+    return fail(`no stack named ${stackName} (have: ${store.stacks.map((s) => s.stackName).join(', ') || 'none'})`);
+  }
   await saveStore(ctx.repoRoot, { ...store, stacks: store.stacks.filter((s) => s.stackName !== stackName) });
   emit(ctx, `untracked ${stackName}`, { removed: stackName });
   return 0;
