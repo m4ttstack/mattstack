@@ -19,10 +19,15 @@ import type { Stack } from '../../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '../../bin/gitq');
 
-export async function runCli(args: string[], cwd: string, configDir: string) {
+export async function runCli(
+  args: string[],
+  cwd: string,
+  configDir: string,
+  envOverride: Record<string, string | undefined> = {},
+) {
   const proc = Bun.spawn(['bun', BIN, ...args], {
     cwd,
-    env: { ...process.env, GITQ_CONFIG_DIR: configDir },
+    env: { ...process.env, GITQ_CONFIG_DIR: configDir, ...envOverride },
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -546,5 +551,54 @@ describe('gitq CLI', () => {
 
     const localHead = repo.git('rev-parse', 'feat/y');
     expect(localHead).toBe(remoteHead);
+  });
+
+  // ── Forge commands + undo (Task 15) ─────────────────────────────────────
+
+  test('publish without a token fails cleanly', async () => {
+    const repo = await createSandboxRepoWithRemote();
+    const configDir = `${repo.dir}-config`;
+    const fakeHome = await mkdtemp(join(tmpdir(), 'gitq-home-'));
+    dirsToClean.push(repo.dir, configDir, repo.remoteDir, fakeHome);
+
+    await runCli(['track', 'mystack', '--root', 'main'], repo.dir, configDir);
+    await runCli(['add', 'feat/a', '--parent', 'main'], repo.dir, configDir);
+
+    // Blank GITLAB_TOKEN and point HOME at an empty temp dir so the
+    // ~/.rt/secrets.json fallback in resolveGitLabToken can't leak a real
+    // token from the machine running these tests.
+    const res = await runCli(['publish', '--json'], repo.dir, configDir, { GITLAB_TOKEN: '', HOME: fakeHome });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('no gitlab token');
+  });
+
+  test('publish rejects malformed --mr-meta', async () => {
+    const repo = await createSandboxRepoWithRemote();
+    const configDir = `${repo.dir}-config`;
+    dirsToClean.push(repo.dir, configDir, repo.remoteDir);
+
+    // No stack tracked here: --mr-meta is validated before store/stack
+    // resolution, so this fails on the malformed meta regardless.
+    const metaPath = `${repo.dir}/meta.json`;
+    await Bun.write(metaPath, '{"branch": "not an object"}');
+    const res = await runCli(['publish', '--mr-meta', metaPath, '--json'], repo.dir, configDir);
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('mr-meta');
+  });
+
+  test('undo restores a branch snapshot recorded in the operation log', async () => {
+    const { repo, configDir } = await makeRepo();
+    setConfigDir(configDir);
+
+    const { stack, shas } = await buildLinearStack(repo.dir, repo.git, 1);
+    const branchSnapshots = { main: shas.get('main')!, 'feat/branch-1': shas.get('feat/branch-1')! };
+    const entry = OperationLog.create('sync', stack, branchSnapshots);
+    await OperationLog.save(entry);
+
+    const { stdout, exitCode } = await runCli(['undo', '--json'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.success).toBe(true);
+    expect(parsed.restoredBranches.sort()).toEqual(['feat/branch-1', 'main']);
   });
 });

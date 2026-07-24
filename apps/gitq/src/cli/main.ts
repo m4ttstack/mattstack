@@ -15,6 +15,8 @@ import {
   renameCommand,
   resetCommand,
 } from './commands/surgery.ts';
+import { publishCommand, importCommand } from './commands/forge.ts';
+import { undoCommand } from './commands/undo.ts';
 
 type Command = (ctx: CliContext) => Promise<number>;
 
@@ -36,6 +38,9 @@ const COMMANDS: Record<string, Command> = {
   reparent: reparentCommand,
   rename: renameCommand,
   reset: resetCommand,
+  publish: publishCommand,
+  import: importCommand,
+  undo: undoCommand,
 };
 
 export async function main(argv: string[]): Promise<number> {
