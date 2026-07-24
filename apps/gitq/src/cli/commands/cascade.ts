@@ -5,7 +5,13 @@ import { emit, fail } from '../output.ts';
 import { pickStack } from './crud.ts';
 import { readPause, writePause, clearPause } from '../pause-file.ts';
 
-async function finish(ctx: CliContext, stackId: string, result: CascadeResult): Promise<number> {
+/**
+ * Persist a CascadeResult: writes the pause file (before saving the store,
+ * see ordering note below) when paused, or clears it and saves when
+ * completed. Shared by sync/continue here and by surgery commands (e.g.
+ * reparent) whose descendant cascade can pause the same way.
+ */
+export async function finishCascade(ctx: CliContext, stackId: string, result: CascadeResult): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
   const updatedStore = {
     ...store,
@@ -44,7 +50,7 @@ export async function syncCommand(ctx: CliContext): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
   const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack);
-  return finish(ctx, stack.id, result);
+  return finishCascade(ctx, stack.id, result);
 }
 
 export async function continueCommand(ctx: CliContext): Promise<number> {
@@ -54,7 +60,7 @@ export async function continueCommand(ctx: CliContext): Promise<number> {
   const stack = store.stacks.find((s) => s.id === pause.stackId);
   if (!stack) return fail(`paused stack ${pause.stackId} no longer exists`);
   const result = await RebaseEngine.continueCascade(ctx.repoRoot, stack, pause.pauseInfo);
-  return finish(ctx, stack.id, result);
+  return finishCascade(ctx, stack.id, result);
 }
 
 export async function abortCommand(ctx: CliContext): Promise<number> {

@@ -400,4 +400,151 @@ describe('gitq CLI', () => {
     expect(JSON.parse(cont2.stdout).state).toBe('completed');
     expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(false);
   });
+
+  // ── Surgery commands (Task 14) ──────────────────────────────────────────
+
+  test('absorb --preview names the attributed branch and leaves git status unchanged', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    repo.git('checkout', 'feat/branch-2');
+    await writeFile(join(repo.dir, 'file-1-a.txt'), 'branch 1 commit A updated\n', 'utf-8');
+
+    const statusBefore = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
+
+    const { stdout, exitCode } = await runCli(['absorb', '--preview', '--json'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.result.attributed['feat/branch-1']).toContain('file-1-a.txt');
+
+    const statusAfter = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
+    expect(statusAfter).toBe(statusBefore);
+  });
+
+  test('absorb (no --preview) distributes the change and reports it absorbed', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    repo.git('checkout', 'feat/branch-2');
+    await writeFile(join(repo.dir, 'file-1-a.txt'), 'branch 1 commit A updated\n', 'utf-8');
+
+    const { stdout, exitCode } = await runCli(['absorb', '--json'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.result.absorbed).toBe(true);
+    expect(parsed.result.attributions.some((a: { branch: string }) => a.branch === 'feat/branch-1')).toBe(true);
+
+    const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
+    expect(dirty.trim()).toBe('');
+  });
+
+  test('fold lands child commits on parent and removes the node from stacks --json', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+
+    const { stdout, exitCode } = await runCli(['fold', 'feat/branch-2', '--json'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.result.foldedBranch).toBe('feat/branch-2');
+    expect(parsed.result.intoParent).toBe('feat/branch-1');
+
+    const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    const branches = list.stacks[0].nodes.map((n: { branch: string }) => n.branch);
+    expect(branches).not.toContain('feat/branch-2');
+    expect(branches).toContain('feat/branch-1');
+
+    repo.git('checkout', 'feat/branch-1');
+    const log = execFileSync('git', ['log', '--oneline', '-5'], { cwd: repo.dir }).toString();
+    expect(log).toContain('feat/branch-2: commit A');
+    expect(log).toContain('feat/branch-2: commit B');
+  });
+
+  test('split --at tail-splits commits after the given sha into a new branch', async () => {
+    const { repo, configDir } = await makeRepo();
+    setConfigDir(configDir);
+    repo.git('checkout', '-b', 'feat/x');
+    const shaA = await commit(repo.dir, repo.git, 'a.txt', 'a\n', 'commit A');
+    await commit(repo.dir, repo.git, 'b.txt', 'b\n', 'commit B');
+
+    let stack = StackManager.createStack('split-test', 'main');
+    stack = StackManager.addNode(stack, 'feat/x', 'main');
+    stack = StackManager.updateNode(stack, 'feat/x', { lastKnownHead: repo.git('rev-parse', 'HEAD') });
+    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: '', stacks: [stack] });
+    repo.git('checkout', 'main');
+
+    const { stdout, exitCode } = await runCli(
+      ['split', 'feat/x', '--at', shaA, '--name', 'feat/x-tail', '--json'],
+      repo.dir,
+      configDir,
+    );
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.result.newBranch).toBe('feat/x-tail');
+    expect(parsed.result.movedCommits).toHaveLength(1);
+
+    const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    const branches = list.stacks[0].nodes.map((n: { branch: string }) => n.branch);
+    expect(branches).toContain('feat/x');
+    expect(branches).toContain('feat/x-tail');
+  });
+
+  test('reparent moves a branch under a new parent', async () => {
+    const { repo, configDir } = await makeRepoWithStack(3);
+
+    const { stdout, exitCode } = await runCli(
+      ['reparent', 'feat/branch-3', '--onto', 'feat/branch-1', '--json'],
+      repo.dir,
+      configDir,
+    );
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.result.oldParent).toBe('feat/branch-2');
+    expect(parsed.result.newParent).toBe('feat/branch-1');
+
+    const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    const node = list.stacks[0].nodes.find((n: { branch: string }) => n.branch === 'feat/branch-3');
+    expect(node.parent).toBe('feat/branch-1');
+  });
+
+  test('rename renames the git branch and updates the stack tree', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+
+    const { stdout, exitCode } = await runCli(['rename', 'feat/branch-2', 'feat/branch-2-renamed', '--json'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+
+    const gitBranches = execFileSync('git', ['branch', '--list'], { cwd: repo.dir }).toString();
+    expect(gitBranches).not.toContain('feat/branch-2\n');
+    expect(gitBranches).toContain('feat/branch-2-renamed');
+
+    const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    const branches = list.stacks[0].nodes.map((n: { branch: string }) => n.branch);
+    expect(branches).toContain('feat/branch-2-renamed');
+    expect(branches).not.toContain('feat/branch-2');
+    expect(JSON.parse(stdout).result.updatedStack.nodes.map((n: { branch: string }) => n.branch)).toContain('feat/branch-2-renamed');
+  });
+
+  test('reset resets a diverged local branch back to origin', async () => {
+    const repo = await createSandboxRepoWithRemote();
+    const configDir = `${repo.dir}-config`;
+    dirsToClean.push(repo.dir, configDir, repo.remoteDir);
+    setConfigDir(configDir);
+
+    repo.git('checkout', '-b', 'feat/y');
+    const remoteHead = await commit(repo.dir, repo.git, 'y.txt', 'y\n', 'feat/y: add y.txt');
+    repo.git('push', 'origin', 'feat/y');
+    repo.git('checkout', 'main');
+
+    let stack = StackManager.createStack('reset-test', 'main');
+    stack = StackManager.addNode(stack, 'feat/y', 'main');
+    stack = StackManager.updateNode(stack, 'feat/y', { lastKnownHead: remoteHead });
+    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: '', stacks: [stack] });
+
+    // Diverge locally: amend feat/y so its local head no longer matches origin.
+    repo.git('checkout', 'feat/y');
+    await commit(repo.dir, repo.git, 'y2.txt', 'y2\n', 'feat/y: extra local commit');
+    repo.git('checkout', 'main');
+
+    const { stdout, exitCode } = await runCli(['reset', 'feat/y', '--json'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.result.newHead).toBe(remoteHead);
+
+    const localHead = repo.git('rev-parse', 'feat/y');
+    expect(localHead).toBe(remoteHead);
+  });
 });

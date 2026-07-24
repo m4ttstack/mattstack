@@ -7,6 +7,14 @@ import { preflightCommand } from './commands/preflight.ts';
 import { logCommand } from './commands/log.ts';
 import { trackCommand, untrackCommand, addCommand, removeCommand } from './commands/crud.ts';
 import { syncCommand, continueCommand, abortCommand } from './commands/cascade.ts';
+import {
+  absorbCommand,
+  splitCommand,
+  foldCommand,
+  reparentCommand,
+  renameCommand,
+  resetCommand,
+} from './commands/surgery.ts';
 
 type Command = (ctx: CliContext) => Promise<number>;
 
@@ -22,6 +30,12 @@ const COMMANDS: Record<string, Command> = {
   sync: syncCommand,
   continue: continueCommand,
   abort: abortCommand,
+  absorb: absorbCommand,
+  split: splitCommand,
+  fold: foldCommand,
+  reparent: reparentCommand,
+  rename: renameCommand,
+  reset: resetCommand,
 };
 
 export async function main(argv: string[]): Promise<number> {
