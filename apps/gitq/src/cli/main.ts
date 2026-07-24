@@ -2,11 +2,17 @@ import { parseArgs } from 'node:util';
 import { createContext, type CliContext } from './context.ts';
 import { fail } from './output.ts';
 import { stacksCommand } from './commands/stacks.ts';
+import { diagnoseCommand } from './commands/diagnose.ts';
+import { preflightCommand } from './commands/preflight.ts';
+import { logCommand } from './commands/log.ts';
 
 type Command = (ctx: CliContext) => Promise<number>;
 
 const COMMANDS: Record<string, Command> = {
   stacks: stacksCommand,
+  diagnose: diagnoseCommand,
+  preflight: preflightCommand,
+  log: logCommand,
 };
 
 export async function main(argv: string[]): Promise<number> {
