@@ -48,7 +48,7 @@ Surgery:
 GitLab:
 
 - `gitq publish [--stack <name>] [--mr-meta <path>]`: open or update an MR per local only branch in the stack. `--mr-meta` points at a JSON file of `{"<branch>": {"title": "...", "description": "..."}}` to set MR titles/descriptions; branches not listed get defaults.
-- `gitq import`: pull stacks for the current repo's remote back from GitLab into local tracking.
+- `gitq import [--replace]`: pull stacks for the current repo's remote back from GitLab into local tracking. This rebuilds the whole local store and re-mints stack ids, so it refuses when the repo already has tracked stacks unless you pass `--replace` (the store check runs before the token check, so the refusal works offline). Meant for recovery, not routine use.
 
 Other:
 
@@ -60,11 +60,13 @@ Other:
 
 To get unstuck: resolve the conflict with raw git (edit files, `git add`), then run `gitq continue`. It picks up the rebase from where it paused and keeps walking the rest of the stack; it can exit `2` again immediately if the next branch also conflicts, same protocol. If you'd rather bail out, `gitq abort` aborts the rebase in progress and clears the pause file.
 
-`gitq sync` refuses to start a new cascade while a pause file is already present for the repo; finish or abort the paused one first.
+In the paused JSON (`--json`), `pauseInfo.conflictFiles` is always present (the list of conflicted file paths), while `pauseInfo.conflictTypes` is added when git can classify them, pairing each file with its two-letter porcelain status code (e.g. `UU` both modified, `AA` both added, `UD` modified/deleted). Read `conflictFiles` for the plain list; read `conflictTypes` when you want the codes.
+
+Every state-mutating command (`add`, `remove`, `untrack`, the surgery commands, `publish`, `import`, `undo`, and starting a fresh `sync`) refuses while a pause file is present for the repo; finish or abort the paused cascade first. The read-only commands and `continue`/`abort` are exempt.
 
 ## errors
 
-Hard failures (bad usage, unknown command, no such stack, missing GitLab token, and so on) go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Don't try to parse stderr as JSON; nothing gets written to stdout for these.
+Hard failures (bad usage, unknown command, no such stack, missing GitLab token, refusing to run while a cascade is paused, refusing to overwrite a non-empty store on `import` without `--replace`, and so on) go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Don't try to parse stderr as JSON; nothing gets written to stdout for these.
 
 A command can also exit `1` after emitting its normal stdout JSON: `sync`/`continue`, `absorb`, and `publish` report structured per branch (or per MR) results, and the process exits `1` if any individual result failed even though the command itself ran to completion. Check the JSON's per item `success` fields for that case, not just the exit code.
 

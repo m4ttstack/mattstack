@@ -60,6 +60,7 @@ export async function main(argv: string[]): Promise<number> {
       files: { type: 'string' },
       preview: { type: 'boolean' },
       'mr-meta': { type: 'string' },
+      replace: { type: 'boolean' },
     },
   });
 
