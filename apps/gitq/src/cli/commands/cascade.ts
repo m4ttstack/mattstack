@@ -7,13 +7,18 @@ import { readPause, writePause, clearPause } from '../pause-file.ts';
 
 async function finish(ctx: CliContext, stackId: string, result: CascadeResult): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
-  await saveStore(ctx.repoRoot, {
+  const updatedStore = {
     ...store,
     stacks: store.stacks.map((s) => (s.id === stackId ? result.updatedStack : s)),
-  });
+  };
 
   if (result.state === 'paused' && result.pauseInfo) {
+    // Write the pause file BEFORE saving the store: this preserves the
+    // invariant "pause file present iff a rebase is in progress". A crash
+    // between the two writes must not leave git mid-rebase with no pause
+    // file, since sync's refuse-guard keys off the pause file's presence.
     await writePause(ctx.gitDir, { stackId, pauseInfo: result.pauseInfo });
+    await saveStore(ctx.repoRoot, updatedStore);
     const types = (result.pauseInfo.conflictTypes ?? [])
       .map((c) => `${c.type} ${c.file}`).join('\n  ');
     emit(
@@ -24,6 +29,7 @@ async function finish(ctx: CliContext, stackId: string, result: CascadeResult): 
     return 2;
   }
 
+  await saveStore(ctx.repoRoot, updatedStore);
   await clearPause(ctx.gitDir);
   emit(ctx, `${result.state}: ${result.results.map((r) => `${r.branch} ${r.success ? 'ok' : `FAILED (${r.error})`}`).join(', ')}`, {
     state: result.state,

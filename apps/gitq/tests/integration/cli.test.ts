@@ -105,6 +105,44 @@ async function makeConflictedStack(): Promise<{ repo: SandboxRepoWithRemote; con
   return { repo, configDir };
 }
 
+/**
+ * Variant of makeConflictedStack() where the tracked branch has TWO commits
+ * that both touch the same line of shared.txt, the second building on the
+ * first. Used to drive a re-pause: resolving the first rebase conflict by
+ * keeping the rebase target's content (`git checkout --ours` — during a
+ * rebase "ours" is the branch being rebased *onto*, not the replayed commit)
+ * leaves the second commit's patch expecting content that's no longer
+ * there, so it conflicts again on `gitq continue`.
+ */
+async function makeDoubleConflictedStack(): Promise<{ repo: SandboxRepoWithRemote; configDir: string }> {
+  const repo = await createSandboxRepoWithRemote();
+  const configDir = `${repo.dir}-config`;
+  dirsToClean.push(repo.dir, configDir, repo.remoteDir);
+
+  await commit(repo.dir, repo.git, 'shared.txt', 'line one\nline two\nline three\n', 'add shared.txt');
+  repo.git('push', 'origin', 'main');
+
+  repo.git('checkout', '-b', 'feat/conflict');
+  await commit(repo.dir, repo.git, 'shared.txt', 'line one\nbranch change 1\nline three\n', 'feat/conflict: commit1');
+  await commit(repo.dir, repo.git, 'shared.txt', 'line one\nbranch change 2\nline three\n', 'feat/conflict: commit2');
+  repo.git('checkout', 'main');
+
+  const cloneDir = await mkdtemp(join(tmpdir(), 'gitq-ext-'));
+  dirsToClean.push(cloneDir);
+  execFileSync('git', ['clone', repo.remoteDir, cloneDir], { stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.email', 'ext@gitq.dev'], { cwd: cloneDir, stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.name', 'External'], { cwd: cloneDir, stdio: 'pipe' });
+  await writeFile(join(cloneDir, 'shared.txt'), 'line one\ntrunk change\nline three\n', 'utf-8');
+  execFileSync('git', ['add', 'shared.txt'], { cwd: cloneDir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-m', 'trunk: edit shared.txt'], { cwd: cloneDir, stdio: 'pipe' });
+  execFileSync('git', ['push', 'origin', 'main'], { cwd: cloneDir, stdio: 'pipe' });
+
+  await runCli(['track', 'conflict-stack', '--root', 'main'], repo.dir, configDir);
+  await runCli(['add', 'feat/conflict', '--parent', 'main'], repo.dir, configDir);
+
+  return { repo, configDir };
+}
+
 describe('gitq CLI', () => {
   test('stacks --json on a repo with no stacks', async () => {
     const { repo, configDir } = await makeRepo();
@@ -275,5 +313,91 @@ describe('gitq CLI', () => {
     // no rebase in progress and no conflict markers left in the working tree
     const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
     expect(status.trim()).toBe('');
+  });
+
+  test('sync refuses when a pause file already exists', async () => {
+    const { repo, configDir } = await makeConflictedStack();
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+
+    const gitDir = `${repo.dir}/.git`;
+    const pauseBefore = await Bun.file(`${gitDir}/gitq-pause.json`).text();
+
+    const secondSync = await runCli(['sync'], repo.dir, configDir);
+    expect(secondSync.exitCode).toBe(1);
+    expect(secondSync.stderr).toContain('paused');
+
+    // pause file untouched by the refused sync
+    const pauseAfter = await Bun.file(`${gitDir}/gitq-pause.json`).text();
+    expect(pauseAfter).toBe(pauseBefore);
+
+    // clean up git state before the sandbox repo is torn down
+    const abort = await runCli(['abort'], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+  });
+
+  test('continue with no pause file exits 1', async () => {
+    const { repo, configDir } = await makeRepo();
+    const { exitCode, stderr } = await runCli(['continue'], repo.dir, configDir);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('nothing to continue');
+  });
+
+  test('continue when the paused stack no longer exists exits 1', async () => {
+    const { repo, configDir } = await makeConflictedStack();
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+
+    const untrack = await runCli(['untrack', 'conflict-stack'], repo.dir, configDir);
+    expect(untrack.exitCode).toBe(0);
+
+    const cont = await runCli(['continue'], repo.dir, configDir);
+    expect(cont.exitCode).toBe(1);
+    expect(cont.stderr).toContain('no longer exists');
+
+    // clean up git state before the sandbox repo is torn down
+    const abort = await runCli(['abort'], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+  });
+
+  test('a second conflict on continue rewrites the pause file, then resolves to completion', async () => {
+    const { repo, configDir } = await makeDoubleConflictedStack();
+    const gitDir = `${repo.dir}/.git`;
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+    const firstPause = JSON.parse(sync.stdout);
+    expect(firstPause.state).toBe('paused');
+    expect(firstPause.pauseInfo.conflictTypes[0].type).toBe('UU');
+
+    // Resolve by keeping the rebase target's content. During a rebase,
+    // `--ours` is the branch being rebased *onto* (not the replayed commit),
+    // so this leaves the second commit's patch conflicting again.
+    await Bun.spawn(['git', 'checkout', '--ours', '--', 'shared.txt'], { cwd: repo.dir }).exited;
+    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: repo.dir }).exited;
+
+    const cont1 = await runCli(['continue', '--json'], repo.dir, configDir);
+    expect(cont1.exitCode).toBe(2);
+    const secondPause = JSON.parse(cont1.stdout);
+    expect(secondPause.state).toBe('paused');
+    expect(secondPause.pauseInfo.conflictTypes[0].type).toBe('UU');
+    // Fresh pause info from the second commit's rebase progress, not a stale
+    // copy of the first pause.
+    expect(secondPause.pauseInfo.commitIndex).toBe(2);
+    expect(secondPause.pauseInfo.commitTotal).toBe(2);
+
+    const pauseFileContents = JSON.parse(await Bun.file(`${gitDir}/gitq-pause.json`).text());
+    expect(pauseFileContents.pauseInfo.commitIndex).toBe(2);
+
+    // resolve the second conflict the same way and finish
+    await Bun.spawn(['git', 'checkout', '--ours', '--', 'shared.txt'], { cwd: repo.dir }).exited;
+    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: repo.dir }).exited;
+
+    const cont2 = await runCli(['continue', '--json'], repo.dir, configDir);
+    expect(cont2.exitCode).toBe(0);
+    expect(JSON.parse(cont2.stdout).state).toBe('completed');
+    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(false);
   });
 });
