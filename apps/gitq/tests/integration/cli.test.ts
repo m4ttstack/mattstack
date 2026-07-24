@@ -34,4 +34,12 @@ describe('gitq CLI', () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain('unknown command');
   });
+
+  test('-C <repoDir> resolves context from a different cwd', async () => {
+    const repo = await createSandboxRepo();
+    const configDir = `${repo.dir}-config`;
+    const { stdout, exitCode } = await runCli(['-C', repo.dir, 'stacks', '--json'], join(repo.dir, '..'), configDir);
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ stacks: [] });
+  });
 });

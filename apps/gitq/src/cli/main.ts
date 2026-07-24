@@ -14,6 +14,19 @@ export async function main(argv: string[]): Promise<number> {
     args: argv,
     strict: false,
     allowPositionals: true,
+    options: {
+      C: { type: 'string' },
+      json: { type: 'boolean' },
+      stack: { type: 'string' },
+      root: { type: 'string' },
+      parent: { type: 'string' },
+      onto: { type: 'string' },
+      at: { type: 'string' },
+      name: { type: 'string' },
+      files: { type: 'string' },
+      preview: { type: 'boolean' },
+      'mr-meta': { type: 'string' },
+    },
   });
 
   const [name, ...rest] = positionals.map(String);
