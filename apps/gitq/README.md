@@ -64,7 +64,9 @@ To get unstuck: resolve the conflict with raw git (edit files, `git add`), then 
 
 ## errors
 
-Errors go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Only the success path emits JSON to stdout. Don't try to parse stderr as JSON.
+Hard failures (bad usage, unknown command, no such stack, missing GitLab token, and so on) go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Don't try to parse stderr as JSON; nothing gets written to stdout for these.
+
+A command can also exit `1` after emitting its normal stdout JSON: `sync`/`continue`, `absorb`, `publish`, and `undo` report structured per branch (or per MR) results, and the process exits `1` if any individual result failed even though the command itself ran to completion. Check the JSON's per item `success` fields for that case, not just the exit code.
 
 ## where state lives
 
