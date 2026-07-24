@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 
-const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'gitq');
+const DEFAULT_CONFIG_DIR = process.env.GITQ_CONFIG_DIR ?? join(homedir(), '.config', 'gitq');
 let _configDir = DEFAULT_CONFIG_DIR;
 
 /** Deterministic hash of a repo path → config filename. */
