@@ -1,0 +1,727 @@
+import { execFile } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+}
+
+type CommandCallback = (command: string, args: string[], cwd: string, exitCode: number, duration: number) => void;
+
+let _onCommand: CommandCallback | null = null;
+
+/** Set a global callback that fires after every git command. Pass null to clear. */
+export function setCommandHook(cb: CommandCallback | null): void {
+  _onCommand = cb;
+}
+
+/** Run a git command and return stdout. Throws on non-zero exit. */
+function git(args: string[], cwd: string): Promise<ExecResult> {
+  const hook = _onCommand;
+  const start = hook ? performance.now() : 0;
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) {
+        if (hook) hook('git', args, cwd, 1, Math.round(performance.now() - start));
+        const message = `git ${args.join(' ')} failed: ${stderr.trim() || err.message}`;
+        reject(new Error(message));
+        return;
+      }
+      if (hook) hook('git', args, cwd, 0, Math.round(performance.now() - start));
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+    });
+  });
+}
+
+/** Parse CONFLICT lines from merge-tree stdout into structured entries. */
+function parseMergeTreeConflicts(output: string): { file: string; kind: string }[] {
+  const conflicts: { file: string; kind: string }[] = [];
+  // Two formats:
+  //   CONFLICT (content): Merge conflict in <path>
+  //   CONFLICT (modify/delete): <path> deleted/added ...
+  //   CONFLICT (file location): <path> added in ...
+  const reContent = /CONFLICT \(([^)]+)\): Merge conflict in (\S+)/g;
+  const reOther = /CONFLICT \(([^)]+)\): (\S+)/g;
+
+  let m: RegExpExecArray | null;
+  // First pass: content conflicts ("Merge conflict in <path>")
+  while ((m = reContent.exec(output)) !== null) {
+    conflicts.push({ kind: m[1]!, file: m[2]! });
+  }
+  // Second pass: other conflict types (path is right after ": ")
+  while ((m = reOther.exec(output)) !== null) {
+    const file = m[2]!;
+    // Skip if we already captured this via the content regex, or if it's "Merge"
+    if (file === 'Merge') continue;
+    if (conflicts.some((c) => c.file === file)) continue;
+    conflicts.push({ kind: m[1]!, file });
+  }
+  return conflicts.length > 0 ? conflicts : [{ file: 'unknown', kind: 'conflict' }];
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface WorktreeEntry {
+  path: string;
+  head: string;
+  branch: string | null;
+  bare: boolean;
+  locked: boolean;
+}
+
+// ── GitShell ─────────────────────────────────────────────────────────────────
+
+/**
+ * Thin, typed wrapper around the git CLI.
+ * All methods require a `cwd` (the repo root).
+ */
+export const GitShell = {
+  /** Get the current branch name. */
+  async getCurrentBranch(cwd: string): Promise<string> {
+    const { stdout } = await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+    return stdout;
+  },
+
+  /** Get the HEAD commit SHA of a branch. */
+  async getBranchHead(cwd: string, branch: string): Promise<string> {
+    const { stdout } = await git(['rev-parse', branch], cwd);
+    return stdout;
+  },
+
+  /** Get the merge-base between two refs. */
+  async getMergeBase(cwd: string, a: string, b: string): Promise<string> {
+    const { stdout } = await git(['merge-base', a, b], cwd);
+    return stdout;
+  },
+
+  /** Check whether a branch exists locally. */
+  async branchExists(cwd: string, branch: string): Promise<boolean> {
+    try {
+      await git(['rev-parse', '--verify', branch], cwd);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /** Create a new branch from a starting point and check it out. */
+  async createBranch(cwd: string, name: string, from: string): Promise<void> {
+    await git(['checkout', '-b', name, from], cwd);
+  },
+
+  /** Switch to an existing branch. */
+  async checkoutBranch(cwd: string, branch: string): Promise<void> {
+    await git(['checkout', branch], cwd);
+  },
+
+  /**
+   * Rebase a branch onto a new base.
+   * `git rebase --onto <newBase> <oldBase> <branch>`
+   */
+  async rebaseOnto(cwd: string, newBase: string, oldBase: string, branch: string): Promise<void> {
+    await git(['rebase', '--onto', newBase, oldBase, branch], cwd);
+  },
+
+  /** Force-push with lease (safe force-push). */
+  async pushForceWithLease(cwd: string, branch: string, remote = 'origin'): Promise<void> {
+    await git(['push', '--force-with-lease', remote, branch], cwd);
+  },
+
+  /** Check if the working tree has uncommitted changes (staged or unstaged). */
+  async isDirty(cwd: string): Promise<boolean> {
+    const { stdout } = await git(['status', '--porcelain'], cwd);
+    return stdout.length > 0;
+  },
+
+  /**
+   * Check for unstaged (working tree) modifications only.
+   * Returns false when only staged changes exist (e.g. after port-file).
+   */
+  async hasUnstagedChanges(cwd: string): Promise<boolean> {
+    try {
+      await git(['diff', '--quiet'], cwd);
+      return false; // exit 0 = no unstaged changes
+    } catch {
+      return true; // exit 1 = unstaged changes exist
+    }
+  },
+
+  /** Check if there are staged (index) changes. */
+  async hasStagedChanges(cwd: string): Promise<boolean> {
+    try {
+      await git(['diff', '--cached', '--quiet'], cwd);
+      return false; // exit 0 = no staged changes
+    } catch {
+      return true; // exit 1 = staged changes exist
+    }
+  },
+
+  /** Get the git log for a branch (one line per commit). */
+  async log(cwd: string, branch: string, n = 20): Promise<string[]> {
+    const { stdout } = await git(['log', '--oneline', `-${n}`, branch], cwd);
+    return stdout ? stdout.split('\n') : [];
+  },
+
+  /** Get the repo root directory. */
+  async getRepoRoot(cwd: string): Promise<string> {
+    const { stdout } = await git(['rev-parse', '--show-toplevel'], cwd);
+    return stdout;
+  },
+
+  /** Get the remote URL (e.g. origin). */
+  async getRemoteUrl(cwd: string, remote = 'origin'): Promise<string> {
+    const { stdout } = await git(['remote', 'get-url', remote], cwd);
+    return stdout;
+  },
+
+  /**
+   * Three-way merge-tree — predicts conflicts without touching the working tree.
+   * Uses `--write-tree` mode (Git 2.38+): exits non-zero when conflicts are detected.
+   */
+  async mergeTree(cwd: string, branch1: string, branch2: string): Promise<string> {
+    const { stdout } = await git(['merge-tree', '--write-tree', branch1, branch2], cwd);
+    return stdout;
+  },
+
+  /**
+   * Three-way merge-tree with an explicit merge base — predicts conflicts
+   * for `git rebase --onto <branch1> <mergeBase> <branch2>` scenarios.
+   * Uses `--merge-base` (Git 2.38+) to specify the fork point.
+   */
+  async mergeTreeWithBase(cwd: string, branch1: string, branch2: string, mergeBase: string): Promise<string> {
+    const { stdout } = await git(['merge-tree', '--write-tree', `--merge-base=${mergeBase}`, branch1, branch2], cwd);
+    return stdout;
+  },
+
+  /**
+   * Dry-run merge-tree that returns structured conflict details instead of throwing.
+   * Returns null if clean, or an array of { file, kind } conflict entries.
+   *
+   * Uses execFile directly because `merge-tree --write-tree` writes CONFLICT
+   * details to stdout (not stderr), and we need stdout even on non-zero exit.
+   */
+  async mergeTreeDryRun(
+    cwd: string,
+    branch1: string,
+    branch2: string,
+    mergeBase?: string | null,
+  ): Promise<{ file: string; kind: string }[] | null> {
+    const args = mergeBase
+      ? ['merge-tree', '--write-tree', `--merge-base=${mergeBase}`, branch1, branch2]
+      : ['merge-tree', '--write-tree', branch1, branch2];
+
+    return new Promise((resolve) => {
+      execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+        if (!err) {
+          resolve(null); // clean merge
+          return;
+        }
+        // Non-zero exit — parse CONFLICT lines from stdout
+        resolve(parseMergeTreeConflicts(stdout));
+      });
+    });
+  },
+
+  /** Get structured commit log for a branch (sha + subject). */
+  async logDetailed(cwd: string, branch: string, n = 50): Promise<{ sha: string; subject: string }[]> {
+    const { stdout } = await git(['log', '--format=%H %s', `-${n}`, branch], cwd);
+    if (!stdout) return [];
+    return stdout.split('\n').map((line) => {
+      const spaceIdx = line.indexOf(' ');
+      return {
+        sha: line.slice(0, spaceIdx),
+        subject: line.slice(spaceIdx + 1),
+      };
+    });
+  },
+
+  /** Hard-reset the current branch to a specific ref. */
+  async resetHard(cwd: string, ref: string): Promise<void> {
+    await git(['reset', '--hard', ref], cwd);
+  },
+
+  /** Get the diff between two refs (e.g. for AI description generation). */
+  async diff(cwd: string, base: string, head: string): Promise<string> {
+    const { stdout } = await git(['diff', `${base}...${head}`], cwd);
+    return stdout;
+  },
+
+  /** Get the working tree diff (staged + unstaged vs HEAD). Useful during paused rebase. */
+  async diffWorkingTree(cwd: string): Promise<string> {
+    const { stdout } = await git(['diff', 'HEAD'], cwd);
+    return stdout;
+  },
+
+  /**
+   * Get rebase progress (commit position / total).
+   * Reads from `.git/rebase-merge/msgnum` and `end`.
+   * Returns null if no rebase is in progress.
+   */
+  getRebaseProgress(cwd: string): { current: number; total: number } | null {
+    try {
+      // Handle worktrees: .git might be a file pointing to the real git dir
+      let gitDir = join(cwd, '.git');
+      try {
+        const content = readFileSync(gitDir, 'utf-8').trim();
+        if (content.startsWith('gitdir: ')) {
+          const relative = content.slice('gitdir: '.length);
+          gitDir = relative.startsWith('/') ? relative : join(cwd, relative);
+        }
+      } catch { /* .git is a directory, not a file — use as-is */ }
+
+      const rebaseDir = join(gitDir, 'rebase-merge');
+      if (!existsSync(rebaseDir)) return null;
+
+      const current = parseInt(readFileSync(join(rebaseDir, 'msgnum'), 'utf-8').trim(), 10);
+      const total = parseInt(readFileSync(join(rebaseDir, 'end'), 'utf-8').trim(), 10);
+      return { current, total };
+    } catch {
+      return null;
+    }
+  },
+
+  /** List files with unmerged conflict markers (during a rebase/merge conflict). */
+  async listConflictedFiles(cwd: string): Promise<string[]> {
+    const { stdout } = await git(['diff', '--name-only', '--diff-filter=U'], cwd);
+    return stdout ? stdout.split('\n').filter(Boolean) : [];
+  },
+
+  /**
+   * List conflicted files with their conflict type codes.
+   * Uses `git status --porcelain` to extract unmerged entries.
+   * Type codes: UU (both modified), UD (ours modified, theirs deleted),
+   * DU (ours deleted, theirs modified), AU (added by us, unmerged),
+   * UA (unmerged, added by them), AA (both added).
+   */
+  async listConflictedFilesWithTypes(cwd: string): Promise<{ file: string; type: string }[]> {
+    const { stdout } = await git(['status', '--porcelain'], cwd);
+    if (!stdout) return [];
+    return stdout.split('\n')
+      .filter((line) => {
+        const xy = line.slice(0, 2);
+        // Unmerged statuses: DD, AU, UD, UA, DU, AA, UU
+        return xy === 'DD' || xy === 'AU' || xy === 'UD' ||
+               xy === 'UA' || xy === 'DU' || xy === 'AA' || xy === 'UU';
+      })
+      .map((line) => ({
+        type: line.slice(0, 2),
+        file: line.slice(3),
+      }));
+  },
+
+  /** Continue a paused rebase after conflicts have been resolved. */
+  async rebaseContinue(cwd: string): Promise<void> {
+    await git(['-c', 'core.editor=true', 'rebase', '--continue'], cwd);
+  },
+
+  /** Abort a rebase in progress, restoring the branch to its pre-rebase state. */
+  async rebaseAbort(cwd: string): Promise<void> {
+    await git(['rebase', '--abort'], cwd);
+  },
+
+  /** Skip the current commit during a rebase (when the commit is redundant). */
+  async rebaseSkip(cwd: string): Promise<void> {
+    await git(['rebase', '--skip'], cwd);
+  },
+
+  /** Resolve conflicted files to the HEAD (target) version. */
+  async checkoutOurs(cwd: string, file: string): Promise<void> {
+    await git(['checkout', '--ours', '--', file], cwd);
+  },
+
+  /** Resolve conflicted files to the incoming (merge/rebase source) version. */
+  async checkoutTheirs(cwd: string, file: string): Promise<void> {
+    await git(['checkout', '--theirs', '--', file], cwd);
+  },
+
+  /** Stage all changes (including untracked). */
+  async stageAll(cwd: string): Promise<void> {
+    await git(['add', '-A'], cwd);
+  },
+
+  /** Restore merge conflict markers for specific files (undo a checkout --ours). */
+  async checkoutMerge(cwd: string, file: string): Promise<void> {
+    await git(['checkout', '-m', '--', file], cwd);
+  },
+
+  /** Check if there are staged changes relative to HEAD (for detecting empty commits). */
+  async hasStagedDiff(cwd: string): Promise<boolean> {
+    try {
+      const { stdout } = await git(['diff', '--cached', '--quiet', 'HEAD'], cwd);
+      return false; // exit 0 = no diff
+    } catch {
+      return true; // exit 1 = has diff
+    }
+  },
+
+  /** Check if a rebase is currently in progress by looking for git state directories. */
+  isRebaseInProgress(cwd: string): boolean {
+    try {
+      const gitDir = join(cwd, '.git');
+      return existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply'));
+    } catch {
+      return false;
+    }
+  },
+
+  /** Get the SHA of the commit currently being replayed during a rebase conflict. */
+  getStoppedSha(cwd: string): string | null {
+    try {
+      const gitDir = join(cwd, '.git');
+      const stoppedPath = join(gitDir, 'rebase-merge', 'stopped-sha');
+      if (existsSync(stoppedPath)) {
+        return readFileSync(stoppedPath, 'utf-8').trim();
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Get the lines added by a specific commit to a specific file.
+   * Returns the added lines (without the '+' prefix) for superset comparison.
+   */
+  async getCommitDiffAddedLines(cwd: string, sha: string, file: string): Promise<string[]> {
+    try {
+      const { stdout } = await git(['diff', `${sha}~1`, sha, '--', file], cwd);
+      if (!stdout) return [];
+      return stdout
+        .split('\n')
+        .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+        .map((line) => line.slice(1)); // remove '+' prefix
+    } catch {
+      return [];
+    }
+  },
+
+  /** Get the content of a file at a specific revision. */
+  async showFile(cwd: string, revision: string, file: string): Promise<{ stdout: string }> {
+    return git(['show', `${revision}:${file}`], cwd);
+  },
+
+  /** Fetch from a remote (defaults to origin). */
+  async fetch(cwd: string, remote = 'origin'): Promise<void> {
+    await git(['fetch', remote], cwd);
+  },
+
+  /** Rename a local branch. */
+  async renameBranch(cwd: string, oldName: string, newName: string): Promise<void> {
+    await git(['branch', '-m', oldName, newName], cwd);
+  },
+
+  /** List files changed between two refs. */
+  async getFilesChangedInRange(cwd: string, fromRef: string, toRef: string): Promise<string[]> {
+    const { stdout } = await git(['diff', '--name-only', fromRef, toRef], cwd);
+    return stdout ? stdout.split('\n').filter(Boolean) : [];
+  },
+
+  /** Stash all changes (including untracked files). */
+  async stash(cwd: string): Promise<void> {
+    await git(['stash', 'push', '-u'], cwd);
+  },
+
+  /** Pop the most recent stash entry. */
+  async stashPop(cwd: string): Promise<void> {
+    await git(['stash', 'pop'], cwd);
+  },
+
+  /** Drop the most recent stash entry. */
+  async stashDrop(cwd: string): Promise<void> {
+    await git(['stash', 'drop'], cwd);
+  },
+
+  /** Restore a single file from a ref (e.g. from stash). */
+  async checkoutFileFromRef(cwd: string, ref: string, filePath: string): Promise<void> {
+    await git(['checkout', ref, '--', filePath], cwd);
+  },
+
+  /** Amend the last commit without changing its message. */
+  async amendNoEdit(cwd: string): Promise<void> {
+    await git(['commit', '--amend', '--no-edit', '--allow-empty'], cwd);
+  },
+
+  /** Get all changed files: modified (unstaged) + staged + untracked. */
+  async getChangedFiles(cwd: string): Promise<{ modified: string[]; staged: string[]; untracked: string[] }> {
+    const [modResult, stagedResult, untrackedResult] = await Promise.all([
+      git(['diff', '--name-only'], cwd),
+      git(['diff', '--name-only', '--cached'], cwd),
+      git(['ls-files', '--others', '--exclude-standard'], cwd),
+    ]);
+    return {
+      modified: modResult.stdout ? modResult.stdout.split('\n').filter(Boolean) : [],
+      staged: stagedResult.stdout ? stagedResult.stdout.split('\n').filter(Boolean) : [],
+      untracked: untrackedResult.stdout ? untrackedResult.stdout.split('\n').filter(Boolean) : [],
+    };
+  },
+
+  /** Stage specific files. */
+  async add(cwd: string, files: string[]): Promise<void> {
+    await git(['add', ...files], cwd);
+  },
+
+  /** Cherry-pick a range of commits (exclusive base..head). */
+  async cherryPick(cwd: string, base: string, head: string): Promise<void> {
+    await git(['cherry-pick', `${base}..${head}`], cwd);
+  },
+
+  /** Force-delete a local branch. */
+  async deleteBranch(cwd: string, branch: string): Promise<void> {
+    await git(['branch', '-D', branch], cwd);
+  },
+
+  /** List files changed between a branch and its merge-base with a parent. */
+  async diffNameOnly(cwd: string, base: string, head: string): Promise<string[]> {
+    const { stdout } = await git(['diff', '--name-only', base, head], cwd);
+    return stdout ? stdout.split('\n').filter(Boolean) : [];
+  },
+
+  /** Checkout specific files from a ref into the working tree. */
+  async checkoutFiles(cwd: string, ref: string, files: string[]): Promise<void> {
+    await git(['checkout', ref, '--', ...files], cwd);
+  },
+
+  /** Commit with a message. */
+  async commit(cwd: string, message: string): Promise<string> {
+    await git(['commit', '-m', message], cwd);
+    const { stdout } = await git(['rev-parse', 'HEAD'], cwd);
+    return stdout;
+  },
+
+  /** Remove files from the working tree and index. */
+  async rm(cwd: string, files: string[]): Promise<void> {
+    await git(['rm', '-f', ...files], cwd);
+  },
+
+  /** List files in a tree (ref). */
+  async lsTree(cwd: string, ref: string): Promise<string[]> {
+    const { stdout } = await git(['ls-tree', '-r', '--name-only', ref], cwd);
+    return stdout ? stdout.split('\n').filter(Boolean) : [];
+  },
+
+  /** List files under a specific directory path in a tree (ref). */
+  async lsTreePath(cwd: string, ref: string, path: string): Promise<string[]> {
+    const { stdout } = await git(['ls-tree', '-r', '--name-only', ref, '--', path], cwd);
+    return stdout ? stdout.split('\n').filter(Boolean) : [];
+  },
+
+  /**
+   * Get file change statuses between two refs.
+   * Returns entries with status (M, A, D, R) and paths.
+   * For renames (R), `to` contains the destination path.
+   */
+  async diffNameStatus(
+    cwd: string,
+    ref1: string,
+    ref2: string,
+  ): Promise<{ status: string; path: string; to?: string }[]> {
+    const { stdout } = await git(['diff', '--name-status', ref1, ref2], cwd);
+    if (!stdout) return [];
+    return stdout.split('\n').filter(Boolean).map((line) => {
+      const parts = line.split('\t');
+      const status = parts[0]!.charAt(0); // R100 → R
+      if (status === 'R' || status === 'C') {
+        return { status, path: parts[1]!, to: parts[2]! };
+      }
+      return { status, path: parts[1]! };
+    });
+  },
+
+  /** List all local branches. */
+  async listLocalBranches(cwd: string): Promise<string[]> {
+    const { stdout } = await git(['branch', '--list', '--format=%(refname:short)'], cwd);
+    return stdout ? stdout.split('\n').filter(Boolean) : [];
+  },
+
+  /** List all worktrees with their checked-out branches. */
+  async listWorktrees(cwd: string): Promise<WorktreeEntry[]> {
+    const { stdout } = await git(['worktree', 'list', '--porcelain'], cwd);
+    const entries: WorktreeEntry[] = [];
+    let current: Partial<WorktreeEntry> = {};
+
+    for (const line of stdout.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        if (current.path) entries.push(current as WorktreeEntry);
+        current = { path: line.slice(9), head: '', branch: null, bare: false, locked: false };
+      } else if (line.startsWith('HEAD ')) {
+        current.head = line.slice(5);
+      } else if (line.startsWith('branch ')) {
+        current.branch = line.slice(7).replace(/^refs\/heads\//, '');
+      } else if (line === 'bare') {
+        current.bare = true;
+      } else if (line === 'locked' || line.startsWith('locked ')) {
+        current.locked = true;
+      } else if (line === 'detached') {
+        current.branch = null;
+      }
+    }
+    if (current.path) entries.push(current as WorktreeEntry);
+    return entries;
+  },
+
+  /** Get the git common dir (canonical repo identity shared across worktrees). */
+  async getCommonDir(cwd: string): Promise<string> {
+    const { stdout } = await git(['rev-parse', '--git-common-dir'], cwd);
+    const { resolve } = await import('node:path');
+    const commonDir = resolve(cwd, stdout);
+    const parent = resolve(commonDir, '..');
+    return parent;
+  },
+
+  /** Check if `ancestor` is an ancestor of `descendant`. */
+  async isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+    try {
+      await git(['merge-base', '--is-ancestor', ancestor, descendant], cwd);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * Reflog-based fork point detection (Git 2.6+).
+   * Finds where `branch` originally diverged from `upstream`, even after
+   * `upstream` was rebased. Returns null if the reflog doesn't cover the
+   * fork (entries expired or fresh clone).
+   */
+  async getMergeBaseForkPoint(cwd: string, upstream: string, branch: string): Promise<string | null> {
+    try {
+      const { stdout } = await git(['merge-base', '--fork-point', upstream, branch], cwd);
+      return stdout || null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Patch-ID based duplicate detection via `git cherry`.
+   * Returns each commit in `upstream..head` annotated with whether it is
+   * unique (`+`) or has an equivalent patch already in upstream (`-`).
+   */
+  async cherry(cwd: string, upstream: string, head: string): Promise<{ sha: string; unique: boolean }[]> {
+    const { stdout } = await git(['cherry', '-v', upstream, head], cwd);
+    if (!stdout) return [];
+    return stdout.split('\n').filter(Boolean).map((line) => {
+      const unique = line.startsWith('+');
+      const sha = line.slice(2, line.indexOf(' ', 2));
+      return { sha, unique };
+    });
+  },
+
+  /** Validate that a git object exists. Returns the object type or null if missing. */
+  async catFileType(cwd: string, sha: string): Promise<string | null> {
+    try {
+      const { stdout } = await git(['cat-file', '-t', sha], cwd);
+      return stdout || null;
+    } catch {
+      return null;
+    }
+  },
+
+  // ── Divergence detection ─────────────────────────────────────────────
+
+  /**
+   * Detect the divergence state between a local branch and its remote tracking branch.
+   *
+   * Returns:
+   * - 'identical': local and remote are at the same commit
+   * - 'ahead': local has commits remote doesn't (needs push)
+   * - 'behind': remote has commits local doesn't (needs pull / reset)
+   * - 'diverged': both have unique commits (force-push or rebase needed)
+   * - 'remote-gone': remote tracking branch doesn't exist
+   * - 'local-gone': local branch doesn't exist
+   */
+  async branchDivergence(
+    cwd: string,
+    branch: string,
+    remote = 'origin',
+  ): Promise<{
+    state: 'identical' | 'ahead' | 'behind' | 'diverged' | 'remote-gone' | 'local-gone';
+    localHead: string | null;
+    remoteHead: string | null;
+    ahead: number;
+    behind: number;
+  }> {
+    const remoteBranch = `${remote}/${branch}`;
+
+    // Check local existence
+    let localHead: string | null;
+    try {
+      localHead = await GitShell.getBranchHead(cwd, branch);
+    } catch {
+      return { state: 'local-gone', localHead: null, remoteHead: null, ahead: 0, behind: 0 };
+    }
+
+    // Check remote existence
+    let remoteHead: string | null;
+    try {
+      remoteHead = await GitShell.getBranchHead(cwd, remoteBranch);
+    } catch {
+      return { state: 'remote-gone', localHead, remoteHead: null, ahead: 0, behind: 0 };
+    }
+
+    if (localHead === remoteHead) {
+      return { state: 'identical', localHead, remoteHead, ahead: 0, behind: 0 };
+    }
+
+    // Count commits unique to each side
+    const ahead = await GitShell.revCount(cwd, remoteBranch, branch);
+    const behind = await GitShell.revCount(cwd, branch, remoteBranch);
+
+    if (behind === 0) return { state: 'ahead', localHead, remoteHead, ahead, behind };
+    if (ahead === 0) return { state: 'behind', localHead, remoteHead, ahead, behind };
+    return { state: 'diverged', localHead, remoteHead, ahead, behind };
+  },
+
+  /** Count commits reachable from `to` but not from `from`. */
+  async revCount(cwd: string, from: string, to: string): Promise<number> {
+    try {
+      const { stdout } = await git(['rev-list', '--count', `${from}..${to}`], cwd);
+      return parseInt(stdout, 10) || 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  /**
+   * Reset a local branch to match its remote tracking branch.
+   * If the branch is currently checked out, uses `git reset --hard`.
+   * Otherwise, updates the branch ref directly.
+   */
+  async resetBranchToRemote(cwd: string, branch: string, remote = 'origin'): Promise<void> {
+    const remoteBranch = `${remote}/${branch}`;
+    const current = await GitShell.getCurrentBranch(cwd);
+
+    if (current === branch) {
+      await git(['reset', '--hard', remoteBranch], cwd);
+    } else {
+      // Update the branch ref without checking it out
+      await git(['branch', '-f', branch, remoteBranch], cwd);
+    }
+  },
+
+  /**
+   * Get structured commit log for a range (sha + subject).
+   * Wraps `git log --format='%H %s' <range>`.
+   * Range can be `A..B` (commits in B not in A) or a branch name.
+   */
+  async logOneLine(cwd: string, range: string): Promise<{ sha: string; message: string }[]> {
+    try {
+      const { stdout } = await git(['log', '--format=%H %s', range], cwd);
+      if (!stdout) return [];
+      return stdout.split('\n').filter(Boolean).map((line) => {
+        const spaceIdx = line.indexOf(' ');
+        return {
+          sha: line.slice(0, spaceIdx),
+          message: line.slice(spaceIdx + 1),
+        };
+      });
+    } catch {
+      return [];
+    }
+  },
+};
+
