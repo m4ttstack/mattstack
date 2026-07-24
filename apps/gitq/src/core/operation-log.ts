@@ -31,6 +31,12 @@ export interface OperationEntry {
   commands: CommandRecord[];
   branchSnapshots: Record<string, string>;
   stackSnapshot: Stack;
+  /**
+   * Absolute repo worktree root this operation ran in. Optional so entries
+   * written before repo scoping (no field) still parse. `gitq log`/`gitq undo`
+   * scope to the current repo via {@link entryBelongsToRepo}.
+   */
+  repoPath?: string;
 }
 
 /** Callback signature for the GitShell command hook. */
@@ -56,7 +62,12 @@ export function getOperationLogPath(): string {
 
 export const OperationLog = {
   /** Start a new operation entry with branch snapshots captured from the current stack. */
-  create(operation: OperationType, stack: Stack, branchSnapshots: Record<string, string>): OperationEntry {
+  create(
+    operation: OperationType,
+    stack: Stack,
+    branchSnapshots: Record<string, string>,
+    repoPath?: string,
+  ): OperationEntry {
     return {
       id: randomUUID(),
       timestamp: Date.now(),
@@ -64,6 +75,7 @@ export const OperationLog = {
       commands: [],
       branchSnapshots,
       stackSnapshot: structuredClone(stack),
+      ...(repoPath ? { repoPath } : {}),
     };
   },
 
@@ -119,3 +131,16 @@ export const OperationLog = {
     return entries.length > 0 ? (entries[entries.length - 1] ?? null) : null;
   },
 };
+
+/**
+ * Whether an entry belongs to (is visible/undoable in) the given repo.
+ *
+ * The operation log is a single global file. An entry belongs to a repo when
+ * its `repoPath` matches, so `gitq log`/`gitq undo` in one repo don't surface
+ * or restore another repo's operations. Legacy entries written before repo
+ * scoping (no `repoPath`) are treated as belonging to whichever repo asks,
+ * since there's no scope recorded to exclude them.
+ */
+export function entryBelongsToRepo(entry: OperationEntry, repoPath: string): boolean {
+  return entry.repoPath === undefined || entry.repoPath === repoPath;
+}

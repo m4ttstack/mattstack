@@ -1,11 +1,12 @@
 import type { Stack } from '../../core/types.ts';
-import { OperationLog } from '../../core/operation-log.ts';
+import { OperationLog, entryBelongsToRepo } from '../../core/operation-log.ts';
 import { canUndo, undo } from '../../core/undo.ts';
 import { loadStore, saveStore } from '../../core/persistence.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { StackManager } from '../../core/stack-manager.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
+import { requireNoPause } from '../pause-file.ts';
 
 /**
  * Remove nodes for branches git no longer has, reparenting their children to
@@ -28,8 +29,15 @@ function dropMissingNodes(stack: Stack, missingBranches: Set<string>): Stack {
 }
 
 export async function undoCommand(ctx: CliContext): Promise<number> {
-  const entry = await OperationLog.getLastEntry();
-  if (!entry) return fail('nothing to undo (operation log is empty)');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
+
+  // Scope to this repo: the operation log is a single global file, but an
+  // operation is only undoable in the repo it ran in (its branch snapshots
+  // reference that repo's refs). Pick the most recent entry belonging here.
+  const entries = await OperationLog.load();
+  const entry = [...entries].reverse().find((e) => entryBelongsToRepo(e, ctx.repoRoot));
+  if (!entry) return fail('nothing to undo (no operations for this repo)');
   if (!canUndo(entry)) return fail(`cannot undo "${entry.operation}" (not reversible)`);
 
   const result = await undo(ctx.repoRoot, entry);
