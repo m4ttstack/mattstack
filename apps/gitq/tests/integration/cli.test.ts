@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { createSandboxRepo, cleanupRepo, buildLinearStack } from './helpers.ts';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import {
+  createSandboxRepo,
+  createSandboxRepoWithRemote,
+  cleanupRepo,
+  buildLinearStack,
+  commit,
+  type SandboxRepoWithRemote,
+} from './helpers.ts';
 import { setConfigDir } from '../../src/core/config-paths.ts';
 import { saveStore } from '../../src/core/persistence.ts';
 import { OperationLog } from '../../src/core/operation-log.ts';
@@ -53,6 +63,46 @@ async function makeRepoWithStack(depth = 2): Promise<{ repo: Awaited<ReturnType<
   setConfigDir(configDir);
   await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: '', stacks: [stack] });
   return { repo, configDir, stack };
+}
+
+/**
+ * Build a one-branch stack that is guaranteed to conflict on `gitq sync`:
+ * trunk (origin/main) and the tracked branch both edit the same line of
+ * shared.txt after forking from a common commit. Mirrors the conflict
+ * fixture in tests/integration/cascade-rebase.test.ts, but wired through a
+ * real remote (createSandboxRepoWithRemote) and the CLI's track/add commands
+ * since `gitq sync` fetches from origin.
+ */
+async function makeConflictedStack(): Promise<{ repo: SandboxRepoWithRemote; configDir: string }> {
+  const repo = await createSandboxRepoWithRemote();
+  const configDir = `${repo.dir}-config`;
+  dirsToClean.push(repo.dir, configDir, repo.remoteDir);
+
+  // Common ancestor commit, pushed so origin/main and the branch share it.
+  await commit(repo.dir, repo.git, 'shared.txt', 'line one\nline two\nline three\n', 'add shared.txt');
+  repo.git('push', 'origin', 'main');
+
+  // Branch edits the middle line.
+  repo.git('checkout', '-b', 'feat/conflict');
+  await commit(repo.dir, repo.git, 'shared.txt', 'line one\nbranch change\nline three\n', 'feat/conflict: edit shared.txt');
+  repo.git('checkout', 'main');
+
+  // Simulate an external push to trunk that edits the same line differently,
+  // so origin/main advances without moving local main (gitq never touches trunk).
+  const cloneDir = await mkdtemp(join(tmpdir(), 'gitq-ext-'));
+  dirsToClean.push(cloneDir);
+  execFileSync('git', ['clone', repo.remoteDir, cloneDir], { stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.email', 'ext@gitq.dev'], { cwd: cloneDir, stdio: 'pipe' });
+  execFileSync('git', ['config', 'user.name', 'External'], { cwd: cloneDir, stdio: 'pipe' });
+  await writeFile(join(cloneDir, 'shared.txt'), 'line one\ntrunk change\nline three\n', 'utf-8');
+  execFileSync('git', ['add', 'shared.txt'], { cwd: cloneDir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-m', 'trunk: edit shared.txt'], { cwd: cloneDir, stdio: 'pipe' });
+  execFileSync('git', ['push', 'origin', 'main'], { cwd: cloneDir, stdio: 'pipe' });
+
+  await runCli(['track', 'conflict-stack', '--root', 'main'], repo.dir, configDir);
+  await runCli(['add', 'feat/conflict', '--parent', 'main'], repo.dir, configDir);
+
+  return { repo, configDir };
 }
 
 describe('gitq CLI', () => {
@@ -184,5 +234,46 @@ describe('gitq CLI', () => {
     expect(stderr).toContain('nope');
     const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
     expect(list.stacks.map((s: { stackName: string }) => s.stackName)).toEqual(['mystack']);
+  });
+
+  test('sync -> conflict -> resolve -> continue', async () => {
+    const { repo, configDir } = await makeConflictedStack();
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+    const paused = JSON.parse(sync.stdout);
+    expect(paused.state).toBe('paused');
+    expect(paused.pauseInfo.conflictTypes[0].type).toBe('UU');
+
+    // pause file exists in the git dir (sandbox repos are plain, so .git is a directory)
+    const gitDir = `${repo.dir}/.git`;
+    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(true);
+
+    // resolve the standard git way, then continue
+    await Bun.spawn(['git', 'checkout', '--theirs', '--', 'shared.txt'], { cwd: repo.dir }).exited;
+    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: repo.dir }).exited;
+    const cont = await runCli(['continue', '--json'], repo.dir, configDir);
+    expect(cont.exitCode).toBe(0);
+    expect(JSON.parse(cont.stdout).state).toBe('completed');
+    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(false);
+  });
+
+  test('sync -> conflict -> abort clears pause and leaves no rebase in progress', async () => {
+    const { repo, configDir } = await makeConflictedStack();
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+
+    const gitDir = `${repo.dir}/.git`;
+    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(true);
+
+    const abort = await runCli(['abort', '--json'], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+    expect(JSON.parse(abort.stdout)).toEqual({ state: 'aborted' });
+    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(false);
+
+    // no rebase in progress and no conflict markers left in the working tree
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
+    expect(status.trim()).toBe('');
   });
 });

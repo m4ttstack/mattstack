@@ -6,6 +6,7 @@ import { diagnoseCommand } from './commands/diagnose.ts';
 import { preflightCommand } from './commands/preflight.ts';
 import { logCommand } from './commands/log.ts';
 import { trackCommand, untrackCommand, addCommand, removeCommand } from './commands/crud.ts';
+import { syncCommand, continueCommand, abortCommand } from './commands/cascade.ts';
 
 type Command = (ctx: CliContext) => Promise<number>;
 
@@ -18,6 +19,9 @@ const COMMANDS: Record<string, Command> = {
   untrack: untrackCommand,
   add: addCommand,
   remove: removeCommand,
+  sync: syncCommand,
+  continue: continueCommand,
+  abort: abortCommand,
 };
 
 export async function main(argv: string[]): Promise<number> {
