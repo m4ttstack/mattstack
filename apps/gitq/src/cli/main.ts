@@ -5,6 +5,7 @@ import { stacksCommand } from './commands/stacks.ts';
 import { diagnoseCommand } from './commands/diagnose.ts';
 import { preflightCommand } from './commands/preflight.ts';
 import { logCommand } from './commands/log.ts';
+import { trackCommand, untrackCommand, addCommand, removeCommand } from './commands/crud.ts';
 
 type Command = (ctx: CliContext) => Promise<number>;
 
@@ -13,6 +14,10 @@ const COMMANDS: Record<string, Command> = {
   diagnose: diagnoseCommand,
   preflight: preflightCommand,
   log: logCommand,
+  track: trackCommand,
+  untrack: untrackCommand,
+  add: addCommand,
+  remove: removeCommand,
 };
 
 export async function main(argv: string[]): Promise<number> {

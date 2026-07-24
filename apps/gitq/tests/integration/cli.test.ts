@@ -142,4 +142,27 @@ describe('gitq CLI', () => {
     expect(humanExit).toBe(0);
     expect(humanOut).toContain('sync');
   });
+
+  test('track/add/remove/untrack lifecycle', async () => {
+    const { repo, configDir } = await makeRepo();
+    await runCli(['track', 'mystack', '--root', 'main'], repo.dir, configDir);
+    const add = await runCli(['add', 'feature-a', '--parent', 'main'], repo.dir, configDir);
+    expect(add.exitCode).toBe(0);
+    const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    expect(list.stacks[0].nodes.map((n: { branch: string }) => n.branch)).toEqual(['feature-a']);
+    await runCli(['remove', 'feature-a'], repo.dir, configDir);
+    await runCli(['untrack', 'mystack'], repo.dir, configDir);
+    const after = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    expect(after.stacks).toEqual([]);
+  });
+
+  test('add on a 2-stack repo without --stack exits 1 and lists stack names', async () => {
+    const { repo, configDir } = await makeRepo();
+    await runCli(['track', 'stack-one', '--root', 'main'], repo.dir, configDir);
+    await runCli(['track', 'stack-two', '--root', 'main'], repo.dir, configDir);
+    const { exitCode, stderr } = await runCli(['add', 'feature-a', '--parent', 'main'], repo.dir, configDir);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('stack-one');
+    expect(stderr).toContain('stack-two');
+  });
 });
