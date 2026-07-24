@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { mkdtemp, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
@@ -9,6 +10,7 @@ import {
   cleanupRepo,
   buildLinearStack,
   commit,
+  type SandboxRepo,
   type SandboxRepoWithRemote,
 } from './helpers.ts';
 import { setConfigDir } from '../../src/core/config-paths.ts';
@@ -148,6 +150,96 @@ async function makeDoubleConflictedStack(): Promise<{ repo: SandboxRepoWithRemot
   return { repo, configDir };
 }
 
+/**
+ * Build main → b1 → b2 where absorb amends the ANCESTOR (b1) and the descendant
+ * restack (b2) then conflicts. b1 net-touches F.txt; b2 touches F.txt in its
+ * first commit but reverts it in its second (adding other.txt), so F.txt's net
+ * diff belongs to b1 — attribution amends b1 — yet replaying b2's first commit
+ * onto the amended b1 collides. The tree is left on b2 with an uncommitted F.txt
+ * change ready to absorb. Store persisted to the sibling config dir.
+ */
+async function makeAbsorbCascadeConflictRepo(): Promise<{ repo: SandboxRepo; configDir: string }> {
+  const repo = await createSandboxRepo();
+  const configDir = `${repo.dir}-config`;
+  dirsToClean.push(repo.dir, configDir);
+  setConfigDir(configDir);
+  const { dir, git } = repo;
+
+  await commit(dir, git, 'F.txt', 'base\n', 'main: add F');
+  let stack = StackManager.createStack('absorb-cascade', 'main');
+
+  git('checkout', '-b', 'b1');
+  const b1 = await commit(dir, git, 'F.txt', 'b1v\n', 'b1: F->b1v');
+  stack = StackManager.addNode(stack, 'b1', 'main');
+  stack = StackManager.updateNode(stack, 'b1', { lastKnownHead: b1 });
+
+  git('checkout', '-b', 'b2');
+  await commit(dir, git, 'F.txt', 'b2mid\n', 'b2: F->b2mid');
+  // Second commit reverts F.txt to b1's version (net-zero on F across b1..b2)
+  // and adds other.txt, so F.txt is attributed to b1, not b2.
+  await writeFile(join(dir, 'F.txt'), 'b1v\n', 'utf-8');
+  await writeFile(join(dir, 'other.txt'), 'o\n', 'utf-8');
+  git('add', '-A');
+  git('commit', '-m', 'b2: revert F, add other.txt');
+  const b2 = git('rev-parse', 'HEAD');
+  stack = StackManager.addNode(stack, 'b2', 'b1');
+  stack = StackManager.updateNode(stack, 'b2', { lastKnownHead: b2 });
+
+  await saveStore(dir, { repoPath: dir, remoteUrl: '', stacks: [stack] });
+
+  // Uncommitted change to F.txt (attributed to b1, the deepest net toucher).
+  git('checkout', 'b2');
+  await writeFile(join(dir, 'F.txt'), 'wt\n', 'utf-8');
+
+  return { repo, configDir };
+}
+
+/**
+ * Build main → b1 → b2 plus a sibling `sib` off main. Reparenting b1 onto sib
+ * rebases b1 cleanly (b1 edits line 5, sib edits line 2 — disjoint), but the
+ * descendant cascade of b2 (which edits line 2) then conflicts on F.txt against
+ * sib's line-2 change. Store persisted to the sibling config dir.
+ */
+async function makeReparentCascadeConflictRepo(): Promise<{ repo: SandboxRepo; configDir: string }> {
+  const repo = await createSandboxRepo();
+  const configDir = `${repo.dir}-config`;
+  dirsToClean.push(repo.dir, configDir);
+  setConfigDir(configDir);
+  const { dir, git } = repo;
+
+  await commit(dir, git, 'F.txt', 'L1\nL2\nL3\nL4\nL5\n', 'main: add F');
+  let stack = StackManager.createStack('reparent-cascade', 'main');
+
+  git('checkout', '-b', 'b1');
+  const b1 = await commit(dir, git, 'F.txt', 'L1\nL2\nL3\nL4\nXXX\n', 'b1: L5->XXX');
+  stack = StackManager.addNode(stack, 'b1', 'main');
+  stack = StackManager.updateNode(stack, 'b1', { lastKnownHead: b1 });
+
+  git('checkout', '-b', 'b2');
+  const b2 = await commit(dir, git, 'F.txt', 'L1\nYYY\nL3\nL4\nXXX\n', 'b2: L2->YYY');
+  stack = StackManager.addNode(stack, 'b2', 'b1');
+  stack = StackManager.updateNode(stack, 'b2', { lastKnownHead: b2 });
+
+  git('checkout', 'main');
+  git('checkout', '-b', 'sib');
+  const sib = await commit(dir, git, 'F.txt', 'L1\nSIB\nL3\nL4\nL5\n', 'sib: L2->SIB');
+  stack = StackManager.addNode(stack, 'sib', 'main');
+  stack = StackManager.updateNode(stack, 'sib', { lastKnownHead: sib });
+
+  git('checkout', 'main');
+  await saveStore(dir, { repoPath: dir, remoteUrl: '', stacks: [stack] });
+
+  return { repo, configDir };
+}
+
+/** True if git is mid-rebase in a plain (non-worktree) sandbox repo. */
+function rebaseInProgress(repoDir: string): boolean {
+  return (
+    existsSync(join(repoDir, '.git', 'rebase-merge')) ||
+    existsSync(join(repoDir, '.git', 'rebase-apply'))
+  );
+}
+
 describe('gitq CLI', () => {
   test('stacks --json on a repo with no stacks', async () => {
     const { repo, configDir } = await makeRepo();
@@ -208,7 +300,7 @@ describe('gitq CLI', () => {
     const { repo, configDir } = await makeRepo();
     const { stdout, exitCode } = await runCli(['log', '--json'], repo.dir, configDir);
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({ entries: [] });
+    expect(JSON.parse(stdout)).toEqual({ entries: [], otherRepoCount: 0 });
   });
 
   test('log surfaces a populated operation log entry', async () => {
@@ -355,8 +447,12 @@ describe('gitq CLI', () => {
     const sync = await runCli(['sync', '--json'], repo.dir, configDir);
     expect(sync.exitCode).toBe(2);
 
-    const untrack = await runCli(['untrack', 'conflict-stack'], repo.dir, configDir);
-    expect(untrack.exitCode).toBe(0);
+    // Simulate the paused stack disappearing from the store (e.g. edited out
+    // externally). `gitq untrack` can't be used here anymore: like every other
+    // state-mutating command it now refuses while a cascade is paused, so we
+    // rewrite the store directly to reach continue's "no longer exists" path.
+    setConfigDir(configDir);
+    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: '', stacks: [] });
 
     const cont = await runCli(['continue'], repo.dir, configDir);
     expect(cont.exitCode).toBe(1);
@@ -636,5 +732,176 @@ describe('gitq CLI', () => {
     // being left pointing at a branch git no longer has.
     const branch3 = nodes.find((n) => n.branch === 'feat/branch-3');
     expect(branch3?.parent).toBe('feat/branch-1');
+  });
+
+  // ── Final-review fixes (Plan 1) ─────────────────────────────────────────
+
+  // Finding 1: the recorder actually writes the operation log.
+  test('fold records an operation-log entry visible in gitq log', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+
+    const fold = await runCli(['fold', 'feat/branch-2', '--json'], repo.dir, configDir);
+    expect(fold.exitCode).toBe(0);
+
+    const log = JSON.parse((await runCli(['log', '--json'], repo.dir, configDir)).stdout);
+    expect(log.entries).toHaveLength(1);
+    expect(log.entries[0].operation).toBe('fold');
+    expect(log.entries[0].repoPath).toBe(repo.dir);
+
+    const human = await runCli(['log'], repo.dir, configDir);
+    expect(human.stdout).toContain('fold');
+  });
+
+  // Finding 1: recorder + undo work end-to-end on a reversible op (reparent).
+  test('undo restores branch heads after a recorded reparent', async () => {
+    const { repo, configDir } = await makeRepoWithStack(3);
+    const b3Before = execFileSync('git', ['rev-parse', 'feat/branch-3'], { cwd: repo.dir }).toString().trim();
+
+    // Move branch-2 onto main; its descendant branch-3 cascades to a new head.
+    const reparent = await runCli(['reparent', 'feat/branch-2', '--onto', 'main', '--json'], repo.dir, configDir);
+    expect(reparent.exitCode).toBe(0);
+    const b3After = execFileSync('git', ['rev-parse', 'feat/branch-3'], { cwd: repo.dir }).toString().trim();
+    expect(b3After).not.toBe(b3Before);
+
+    const log = JSON.parse((await runCli(['log', '--json'], repo.dir, configDir)).stdout);
+    expect(log.entries.some((e: { operation: string }) => e.operation === 'reparent')).toBe(true);
+
+    const undo = await runCli(['undo', '--json'], repo.dir, configDir);
+    expect(undo.exitCode).toBe(0);
+    expect(JSON.parse(undo.stdout).success).toBe(true);
+
+    const b3Restored = execFileSync('git', ['rev-parse', 'feat/branch-3'], { cwd: repo.dir }).toString().trim();
+    expect(b3Restored).toBe(b3Before);
+  });
+
+  // Finding 1: the log is scoped per repo (cross-repo footgun).
+  test('operation log is scoped per repo: a second repo neither sees nor undoes it', async () => {
+    // Two repos sharing ONE config dir (hence one global operation-log file).
+    const repoA = await createSandboxRepo();
+    const repoB = await createSandboxRepo();
+    const configDir = `${repoA.dir}-shared-config`;
+    dirsToClean.push(repoA.dir, repoB.dir, configDir);
+    setConfigDir(configDir);
+
+    const { stack } = await buildLinearStack(repoA.dir, repoA.git, 2);
+    await saveStore(repoA.dir, { repoPath: repoA.dir, remoteUrl: '', stacks: [stack] });
+
+    const fold = await runCli(['fold', 'feat/branch-2', '--json'], repoA.dir, configDir);
+    expect(fold.exitCode).toBe(0);
+
+    // A sees its own entry.
+    const logA = JSON.parse((await runCli(['log', '--json'], repoA.dir, configDir)).stdout);
+    expect(logA.entries).toHaveLength(1);
+
+    // B (same config dir) sees none of A's entries, but counts them.
+    const logB = JSON.parse((await runCli(['log', '--json'], repoB.dir, configDir)).stdout);
+    expect(logB.entries).toHaveLength(0);
+    expect(logB.otherRepoCount).toBe(1);
+
+    // B cannot undo A's operation.
+    const undoB = await runCli(['undo'], repoB.dir, configDir);
+    expect(undoB.exitCode).toBe(1);
+    expect(undoB.stderr).toContain('no operations for this repo');
+  });
+
+  // Finding 2: absorb whose descendant restack conflicts must not false-succeed.
+  test('absorb aborts and exits 1 when the restack conflicts (no mid-rebase left)', async () => {
+    const { repo, configDir } = await makeAbsorbCascadeConflictRepo();
+
+    const res = await runCli(['absorb'], repo.dir, configDir);
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('b2');
+    expect(res.stderr).toContain('gitq sync');
+
+    // git is NOT left mid-rebase and the working tree is clean.
+    expect(rebaseInProgress(repo.dir)).toBe(false);
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
+    expect(status.trim()).toBe('');
+
+    // no phantom operation-log entry for the failed absorb.
+    const log = JSON.parse((await runCli(['log', '--json'], repo.dir, configDir)).stdout);
+    expect(log.entries).toHaveLength(0);
+  });
+
+  // Finding 3: every state-mutating command refuses while a cascade is paused.
+  test('rename refuses while a cascade is paused, leaving the pause file untouched', async () => {
+    const { repo, configDir } = await makeConflictedStack();
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+
+    const gitDir = `${repo.dir}/.git`;
+    const pauseBefore = await Bun.file(`${gitDir}/gitq-pause.json`).text();
+
+    const rename = await runCli(['rename', 'feat/conflict', 'feat/renamed'], repo.dir, configDir);
+    expect(rename.exitCode).toBe(1);
+    expect(rename.stderr).toContain('paused');
+    expect(rename.stderr).toMatch(/continue|abort/);
+
+    const pauseAfter = await Bun.file(`${gitDir}/gitq-pause.json`).text();
+    expect(pauseAfter).toBe(pauseBefore);
+
+    // clean up git state before teardown
+    const abort = await runCli(['abort'], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+  });
+
+  test('add refuses while a cascade is paused, leaving the store unchanged', async () => {
+    const { repo, configDir } = await makeConflictedStack();
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+
+    const before = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+
+    const add = await runCli(['add', 'x', '--parent', 'main'], repo.dir, configDir);
+    expect(add.exitCode).toBe(1);
+    expect(add.stderr).toContain('paused');
+    expect(add.stderr).toMatch(/continue|abort/);
+
+    const after = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    expect(after).toEqual(before);
+
+    // clean up git state before teardown
+    const abort = await runCli(['abort'], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+  });
+
+  // Finding 4: reparent's cascade pause carries the same rich pauseInfo as sync.
+  test('reparent cascade conflict pauses with conflictTypes populated', async () => {
+    const { repo, configDir } = await makeReparentCascadeConflictRepo();
+
+    const res = await runCli(['reparent', 'b1', '--onto', 'sib', '--json'], repo.dir, configDir);
+    expect(res.exitCode).toBe(2);
+    const paused = JSON.parse(res.stdout);
+    expect(paused.state).toBe('paused');
+    expect(paused.pauseInfo.currentBranch).toBe('b2');
+    expect(paused.pauseInfo.phase).toBe('cascade');
+    expect(paused.pauseInfo.conflictTypes.length).toBeGreaterThan(0);
+    expect(paused.pauseInfo.conflictTypes[0].type).toBe('UU');
+
+    expect(await Bun.file(`${repo.dir}/.git/gitq-pause.json`).exists()).toBe(true);
+
+    const abort = await runCli(['abort'], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+  });
+
+  // Finding 5: import refuses to clobber a non-empty store without --replace,
+  // and the refusal is reached before the token check (so it works offline).
+  test('import refuses to overwrite a tracked store without --replace (offline)', async () => {
+    const repo = await createSandboxRepoWithRemote();
+    const configDir = `${repo.dir}-config`;
+    const fakeHome = await mkdtemp(join(tmpdir(), 'gitq-home-'));
+    dirsToClean.push(repo.dir, configDir, repo.remoteDir, fakeHome);
+
+    // Seed a store with a stack.
+    await runCli(['track', 'mystack', '--root', 'main'], repo.dir, configDir);
+
+    // Blank the token + point HOME at an empty dir: if the store check ran
+    // AFTER the token check this would fail with 'no gitlab token' instead.
+    const res = await runCli(['import'], repo.dir, configDir, { GITLAB_TOKEN: '', HOME: fakeHome });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('--replace');
+    expect(res.stderr).not.toContain('token');
   });
 });

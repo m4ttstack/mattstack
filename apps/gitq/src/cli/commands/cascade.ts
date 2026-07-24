@@ -3,7 +3,8 @@ import { loadStore, saveStore } from '../../core/persistence.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { pickStack } from './crud.ts';
-import { readPause, writePause, clearPause } from '../pause-file.ts';
+import { readPause, writePause, clearPause, requireNoPause } from '../pause-file.ts';
+import { withOperationLog } from '../op-log.ts';
 
 /**
  * Persist a CascadeResult: writes the pause file (before saving the store,
@@ -46,11 +47,16 @@ export async function finishCascade(ctx: CliContext, stackId: string, result: Ca
 }
 
 export async function syncCommand(ctx: CliContext): Promise<number> {
-  if (await readPause(ctx.gitDir)) return fail('a cascade is already paused here. finish it: gitq continue (or gitq abort)');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
-  const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack);
-  return finishCascade(ctx, stack.id, result);
+  // Log unless the cascade paused (exit 2): a paused cascade is resolved with
+  // continue/abort, not undo.
+  return withOperationLog(ctx, stack, 'sync', async () => {
+    const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack);
+    return finishCascade(ctx, stack.id, result);
+  }, (code) => code !== 2);
 }
 
 export async function continueCommand(ctx: CliContext): Promise<number> {
@@ -59,8 +65,12 @@ export async function continueCommand(ctx: CliContext): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
   const stack = store.stacks.find((s) => s.id === pause.stackId);
   if (!stack) return fail(`paused stack ${pause.stackId} no longer exists`);
-  const result = await RebaseEngine.continueCascade(ctx.repoRoot, stack, pause.pauseInfo);
-  return finishCascade(ctx, stack.id, result);
+  // Log a completed continue (exit 0/1) so it lands in `gitq log`; a re-pause
+  // (exit 2) is not recorded.
+  return withOperationLog(ctx, stack, 'sync', async () => {
+    const result = await RebaseEngine.continueCascade(ctx.repoRoot, stack, pause.pauseInfo);
+    return finishCascade(ctx, stack.id, result);
+  }, (code) => code !== 2);
 }
 
 export async function abortCommand(ctx: CliContext): Promise<number> {

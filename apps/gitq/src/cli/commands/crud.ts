@@ -3,6 +3,7 @@ import { loadStore, saveStore } from '../../core/persistence.ts';
 import type { Stack, StackStore } from '../../core/types.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
+import { requireNoPause } from '../pause-file.ts';
 
 /** Resolve --stack, defaulting to the repo's only stack. Throws with the available names otherwise. */
 export function pickStack(store: StackStore, flags: Record<string, string | boolean>): Stack {
@@ -35,6 +36,8 @@ export async function trackCommand(ctx: CliContext): Promise<number> {
 export async function untrackCommand(ctx: CliContext): Promise<number> {
   const [stackName] = ctx.args;
   if (!stackName) return fail('usage: gitq untrack <stackName>');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   if (!store.stacks.some((s) => s.stackName === stackName)) {
     return fail(`no stack named ${stackName} (have: ${store.stacks.map((s) => s.stackName).join(', ') || 'none'})`);
@@ -48,6 +51,8 @@ export async function addCommand(ctx: CliContext): Promise<number> {
   const [branch] = ctx.args;
   const parent = typeof ctx.flags.parent === 'string' ? ctx.flags.parent : null;
   if (!branch || !parent) return fail('usage: gitq add <branch> --parent <branch> [--stack <name>]');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
   const updated = StackManager.addNode(stack, branch, parent);
@@ -59,6 +64,8 @@ export async function addCommand(ctx: CliContext): Promise<number> {
 export async function removeCommand(ctx: CliContext): Promise<number> {
   const [branch] = ctx.args;
   if (!branch) return fail('usage: gitq remove <branch> [--stack <name>]');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
   const updated = StackManager.removeNode(stack, branch);

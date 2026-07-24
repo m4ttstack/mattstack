@@ -3,6 +3,7 @@ import { GitShell } from '../../core/git-shell.ts';
 import { loadStore, saveStore } from '../../core/persistence.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
+import { requireNoPause } from '../pause-file.ts';
 import { pickStack } from './crud.ts';
 import { createGitLabProvider } from '../provider.ts';
 
@@ -56,6 +57,9 @@ async function parseMrMeta(path: string): Promise<Record<string, { title: string
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 export async function publishCommand(ctx: CliContext): Promise<number> {
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
+
   // Validate --mr-meta before touching the store/network: a malformed file
   // should fail the same way regardless of stack state or token presence.
   const mrMetaPath = typeof ctx.flags['mr-meta'] === 'string' ? ctx.flags['mr-meta'] : null;
@@ -89,6 +93,21 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
 }
 
 export async function importCommand(ctx: CliContext): Promise<number> {
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
+
+  // Import rebuilds the local store from scratch — replacing every tracked
+  // stack and re-minting their ids. Refuse to clobber a non-empty store unless
+  // --replace is given. Check this BEFORE resolving the provider/token so the
+  // guard works offline (no token needed to be told what would be lost).
+  const existing = await loadStore(ctx.repoRoot);
+  const replace = ctx.flags.replace === true;
+  if (existing.stacks.length > 0 && !replace) {
+    return fail(
+      `import would discard ${existing.stacks.length} locally tracked stack(s) and re-mint stack ids; pass --replace to overwrite the local store`,
+    );
+  }
+
   const remoteUrl = await GitShell.getRemoteUrl(ctx.repoRoot);
   const { provider } = createGitLabProvider(remoteUrl);
 
