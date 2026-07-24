@@ -846,6 +846,27 @@ describe('gitq CLI', () => {
     expect(abort.exitCode).toBe(0);
   });
 
+  test('add refuses while a cascade is paused, leaving the store unchanged', async () => {
+    const { repo, configDir } = await makeConflictedStack();
+
+    const sync = await runCli(['sync', '--json'], repo.dir, configDir);
+    expect(sync.exitCode).toBe(2);
+
+    const before = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+
+    const add = await runCli(['add', 'x', '--parent', 'main'], repo.dir, configDir);
+    expect(add.exitCode).toBe(1);
+    expect(add.stderr).toContain('paused');
+    expect(add.stderr).toMatch(/continue|abort/);
+
+    const after = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+    expect(after).toEqual(before);
+
+    // clean up git state before teardown
+    const abort = await runCli(['abort'], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+  });
+
   // Finding 4: reparent's cascade pause carries the same rich pauseInfo as sync.
   test('reparent cascade conflict pauses with conflictTypes populated', async () => {
     const { repo, configDir } = await makeReparentCascadeConflictRepo();

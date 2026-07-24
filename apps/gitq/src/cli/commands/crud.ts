@@ -51,6 +51,8 @@ export async function addCommand(ctx: CliContext): Promise<number> {
   const [branch] = ctx.args;
   const parent = typeof ctx.flags.parent === 'string' ? ctx.flags.parent : null;
   if (!branch || !parent) return fail('usage: gitq add <branch> --parent <branch> [--stack <name>]');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
   const updated = StackManager.addNode(stack, branch, parent);
@@ -62,6 +64,8 @@ export async function addCommand(ctx: CliContext): Promise<number> {
 export async function removeCommand(ctx: CliContext): Promise<number> {
   const [branch] = ctx.args;
   if (!branch) return fail('usage: gitq remove <branch> [--stack <name>]');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
   const updated = StackManager.removeNode(stack, branch);
