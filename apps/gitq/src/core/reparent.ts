@@ -110,9 +110,18 @@ async function cascadeDescendants(
     results.push(result);
 
     if (!result.success) {
-      const conflictFiles = await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
+      // Mirror sync's pause construction (rebase-engine.ts doCascadeLoop): capture
+      // two-letter conflict type codes and rebase progress so `gitq continue` and
+      // consumers see the same rich pauseInfo they get from `gitq sync`.
+      const typedConflicts = await GitShell.listConflictedFilesWithTypes(cwd).catch(
+        () => [] as { file: string; type: string }[],
+      );
+      const conflictFiles = typedConflicts.length > 0
+        ? typedConflicts.map((c) => c.file)
+        : await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
       if (conflictFiles.length > 0) {
         const idx = descendants.indexOf(desc);
+        const progress = GitShell.getRebaseProgress(cwd);
         return {
           results,
           updatedStack,
@@ -124,6 +133,9 @@ async function cascadeDescendants(
             completedBranches: results.filter((r) => r.success).map((r) => r.branch),
             mergedBranch: null,
             newBase: movedBranch,
+            phase: 'cascade',
+            conflictTypes: typedConflicts,
+            ...(progress ? { commitIndex: progress.current, commitTotal: progress.total } : {}),
           },
         };
       }
