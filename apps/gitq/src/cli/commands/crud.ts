@@ -3,6 +3,7 @@ import { loadStore, saveStore } from '../../core/persistence.ts';
 import type { Stack, StackStore } from '../../core/types.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
+import { requireNoPause } from '../pause-file.ts';
 
 /** Resolve --stack, defaulting to the repo's only stack. Throws with the available names otherwise. */
 export function pickStack(store: StackStore, flags: Record<string, string | boolean>): Stack {
@@ -35,6 +36,8 @@ export async function trackCommand(ctx: CliContext): Promise<number> {
 export async function untrackCommand(ctx: CliContext): Promise<number> {
   const [stackName] = ctx.args;
   if (!stackName) return fail('usage: gitq untrack <stackName>');
+  const paused = await requireNoPause(ctx);
+  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   if (!store.stacks.some((s) => s.stackName === stackName)) {
     return fail(`no stack named ${stackName} (have: ${store.stacks.map((s) => s.stackName).join(', ') || 'none'})`);
