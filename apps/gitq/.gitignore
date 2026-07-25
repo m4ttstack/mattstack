@@ -3,3 +3,4 @@ state/
 config.json
 .env
 .local-dev/
+logs/
