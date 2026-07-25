@@ -918,13 +918,12 @@ describe('gitq CLI', () => {
     expect(paused.pauseInfo.conflictTypes.length).toBeGreaterThan(0);
     expect(paused.pauseInfo.conflictTypes[0].type).toBe('UU');
 
-    // reparent's own descendant cascade rebases directly in ctx.repoRoot (no
-    // detached worktree flow, unlike sync), so pauseInfo carries no
-    // worktreePath. It carries treePath instead, naming the launch tree
-    // where the native rebase actually lives (distinct from the leased slot
-    // below, which only holds the pause file and the lease).
-    expect(paused.pauseInfo.worktreePath).toBeUndefined();
-    expect(paused.pauseInfo.treePath).toBe(repo.dir);
+    // reparent's descendant cascade runs detached in the leased work slot
+    // (same contract as sync), so pauseInfo carries worktreePath naming that
+    // slot, not treePath naming the launch tree.
+    expect(paused.pauseInfo.worktreePath).toBeDefined();
+    expect(paused.pauseInfo.worktreePath).toMatch(/gitq-\d+$/);
+    expect(paused.pauseInfo.treePath).toBeUndefined();
 
     // The pause FILE still lives in the leased work slot's git dir
     // (finishCascade's four-arg form), found via the lease.

@@ -467,7 +467,7 @@ async function isFullyRedundant(
  * dirty, mid-rebase, or drifted slot refuses (the detached rebase result is
  * simply discarded, which is harmless). Returns a RebaseResult.
  */
-async function finalizeBranchRef(
+export async function finalizeBranchRef(
   cwd: string,
   branch: string,
   oldHead: string,
@@ -1164,17 +1164,23 @@ export const RebaseEngine = {
    * Useful for the "mid-stack amend" situation: user edited feat/layer-2,
    * only feat/layer-3 and feat/layer-4 need restacking.
    */
-  async restackFrom(cwd: string, stack: Stack, branch: string, workDir?: string): Promise<CascadeResult> {
+  async restackFrom(
+    cwd: string,
+    stack: Stack,
+    branch: string,
+    workDir?: string,
+    seedHeads?: Record<string, string>,
+  ): Promise<CascadeResult> {
     const descendants = StackManager.getDescendants(stack, branch);
     if (descendants.length === 0) {
       return { results: [], updatedStack: stack, state: 'completed' };
     }
 
-    // Recorded pre-rebase heads matter here too: deeper descendants of the
-    // amended `branch` see their parents rewritten as the loop walks down.
-    // New-base targets stay node.parent verbatim (descendants of `branch`
-    // are never root-parented).
-    const preRebaseHeads: Record<string, string> = {};
+    // Seeded heads let a caller that already rewrote `branch` (reparent's
+    // own rebase, absorb's amends) hand over its pre-rewrite head, so the
+    // children compute their fork point off the OLD head instead of a
+    // merge-base against rewritten history.
+    const preRebaseHeads: Record<string, string> = { ...(seedHeads ?? {}) };
     const { resolveBase } = makeCascadeResolvers(cwd, stack, branch, preRebaseHeads);
 
     return doCascadeLoop(

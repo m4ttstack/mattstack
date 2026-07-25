@@ -172,16 +172,17 @@ export async function reparentCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
-  // reparentBranch cascades the moved branch's descendants; that cascade can
-  // pause on a conflict exactly like `gitq sync` does. Lease a work slot for
-  // the duration so a paused reparent, like a paused sync, is guarded by a
-  // per-stack lease that `gitq continue`/`gitq abort` can resolve from
-  // anywhere. Its own (non-cascade) rebase stays in ctx.repoRoot as before.
+  // reparentBranch runs both its own --onto rebase and the moved branch's
+  // descendant cascade detached in the leased work slot; either can pause
+  // or refuse on a conflict exactly like `gitq sync` does. Lease a work slot
+  // for the duration so a paused reparent, like a paused sync, is guarded by
+  // a per-stack lease that `gitq continue`/`gitq abort` can resolve from
+  // anywhere.
   return withLeasedSlot(ctx, stack, 'reparent', (workDir) =>
     // Log unless we paused (exit 2): a paused cascade is resolved via
     // continue/abort, not undo, so recording it would be misleading.
     withOperationLog(ctx, stack, 'reparent', async () => {
-      const result = await reparentBranch(ctx.repoRoot, stack, branch, onto);
+      const result = await reparentBranch(ctx.repoRoot, stack, branch, onto, workDir);
 
       // Reuse the same pause-file protocol sync uses so `gitq continue`/
       // `gitq abort` can resume it.
