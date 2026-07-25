@@ -1,9 +1,10 @@
 import { ForgeSync } from '../../core/forge-sync.ts';
 import { GitShell } from '../../core/git-shell.ts';
-import { loadStore, saveStore } from '../../core/persistence.ts';
+import { loadStore, updateStore } from '../../core/persistence.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
-import { requireNoPause } from '../pause-file.ts';
+import { requireStackFree } from '../slots.ts';
+import { listLeases } from '../../core/leases.ts';
 import { pickStack } from './crud.ts';
 import { createGitLabProvider } from '../provider.ts';
 
@@ -57,9 +58,6 @@ async function parseMrMeta(path: string): Promise<Record<string, { title: string
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 export async function publishCommand(ctx: CliContext): Promise<number> {
-  const paused = await requireNoPause(ctx);
-  if (paused !== null) return paused;
-
   // Validate --mr-meta before touching the store/network: a malformed file
   // should fail the same way regardless of stack state or token presence.
   const mrMetaPath = typeof ctx.flags['mr-meta'] === 'string' ? ctx.flags['mr-meta'] : null;
@@ -72,17 +70,19 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
 
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
+  const guarded = await requireStackFree(ctx, stack.id);
+  if (guarded !== null) return guarded;
 
   const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(ctx.repoRoot));
   const { provider, projectPath } = createGitLabProvider(remoteUrl);
 
   const result = await ForgeSync.publishStack(provider, stack, projectPath, ctx.repoRoot, descriptions);
 
-  await saveStore(ctx.repoRoot, {
-    ...store,
+  await updateStore(ctx.repoRoot, (fresh) => ({
+    ...fresh,
     remoteUrl,
-    stacks: store.stacks.map((s) => (s.id === result.updatedStack.id ? result.updatedStack : s)),
-  });
+    stacks: fresh.stacks.map((s) => (s.id === result.updatedStack.id ? result.updatedStack : s)),
+  }));
 
   const ok = result.results.every((r) => r.success);
   const human = result.results.length
@@ -93,8 +93,11 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
 }
 
 export async function importCommand(ctx: CliContext): Promise<number> {
-  const paused = await requireNoPause(ctx);
-  if (paused !== null) return paused;
+  // Import has no single stack to guard (it replaces the whole store), so
+  // refuse outright when any cascade is active anywhere in the repo.
+  if ((await listLeases(ctx.commonDir)).length > 0) {
+    return fail('cascades are active; finish or abort them first');
+  }
 
   // Import rebuilds the local store from scratch — replacing every tracked
   // stack and re-minting their ids. Refuse to clobber a non-empty store unless
@@ -112,7 +115,12 @@ export async function importCommand(ctx: CliContext): Promise<number> {
   const { provider } = createGitLabProvider(remoteUrl);
 
   const store = await ForgeSync.importFromForge(provider, ctx.repoRoot, remoteUrl);
-  await saveStore(ctx.repoRoot, store);
+  // Import intentionally replaces the whole store (guarded above by the
+  // non-empty + --replace check), not a merge with concurrent writes; the
+  // callback ignores the fresh value on purpose. Still routed through
+  // updateStore so the write is serialized under the same lock as every
+  // other mutator instead of a bare saveStore.
+  await updateStore(ctx.repoRoot, () => store);
 
   emit(ctx, `imported ${store.stacks.length} stack(s)`, { store });
   return 0;

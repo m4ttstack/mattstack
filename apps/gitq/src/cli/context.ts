@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { realpathSync } from 'node:fs';
 
 const exec = promisify(execFile);
 
@@ -8,6 +9,8 @@ export interface CliContext {
   repoRoot: string;
   /** Absolute git dir (worktree-safe; where pause files live). */
   gitDir: string;
+  /** Repo identity: realpath of the git common dir, shared by all worktrees. */
+  commonDir: string;
   json: boolean;
   /** Positional args after the command name. */
   args: string[];
@@ -20,13 +23,15 @@ export async function createContext(
   args: string[],
   flags: Record<string, string | boolean>,
 ): Promise<CliContext> {
-  const [{ stdout: top }, { stdout: gitDir }] = await Promise.all([
+  const [{ stdout: top }, { stdout: gitDir }, common] = await Promise.all([
     exec('git', ['rev-parse', '--show-toplevel'], { cwd: startDir }),
     exec('git', ['rev-parse', '--absolute-git-dir'], { cwd: startDir }),
+    exec('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: startDir }),
   ]);
   return {
     repoRoot: top.trim(),
     gitDir: gitDir.trim(),
+    commonDir: realpathSync(common.stdout.trim()),
     json: flags.json === true,
     args,
     flags,

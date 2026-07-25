@@ -6,7 +6,7 @@ export async function logCommand(ctx: CliContext): Promise<number> {
   // The log is a single global file (per GITQ_CONFIG_DIR). Show only entries
   // for this repo; count (but don't list) entries that belong to other repos.
   const all = await OperationLog.load();
-  const entries = all.filter((e) => entryBelongsToRepo(e, ctx.repoRoot));
+  const entries = all.filter((e) => entryBelongsToRepo(e, ctx.commonDir));
   const otherRepoCount = all.length - entries.length;
 
   const lines = entries.map((e) => {

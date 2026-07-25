@@ -30,8 +30,11 @@ async function snapshotBranches(cwd: string, stack: Stack): Promise<Record<strin
  * (default: a clean exit `0`). A thrown `fn` never logs. This is the piece that
  * makes `gitq undo`/`gitq log` reflect real operations; without it both are inert.
  *
- * The entry is scoped to `ctx.repoRoot` so it's only visible/undoable in the
- * repo it ran in.
+ * The entry carries both `repoPath` (this worktree) and `commonDir` (the
+ * repo's shared identity across every worktree); `gitq log` and `gitq undo`
+ * both scope by `commonDir` via {@link entryBelongsToRepo}, so an operation
+ * run in one worktree is still visible/undoable from a sibling worktree of
+ * the same repo.
  */
 export async function withOperationLog(
   ctx: CliContext,
@@ -41,7 +44,7 @@ export async function withOperationLog(
   shouldLog: (exitCode: number) => boolean = (code) => code === 0,
 ): Promise<number> {
   const snapshots = await snapshotBranches(ctx.repoRoot, stack);
-  const entry = OperationLog.create(operation, stack, snapshots, ctx.repoRoot);
+  const entry = { ...OperationLog.create(operation, stack, snapshots, ctx.repoRoot), commonDir: ctx.commonDir };
   setCommandHook(OperationLog.commandHook(entry));
   let exitCode: number;
   try {

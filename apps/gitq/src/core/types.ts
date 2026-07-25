@@ -93,4 +93,7 @@ export interface StackStore {
 
   /** All stacks for this repo. */
   stacks: Stack[];
+
+  /** Repo identity: realpath of the git common dir. Present after first save/migration. */
+  commonDir?: string;
 }

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Stack } from './types.ts';
 import { getOperationLogFilePath } from './config-paths.ts';
 import { readJson, writeJsonAtomic } from './json-store.ts';
+import { withFileLock } from './lockfile.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,8 @@ export interface OperationEntry {
    * scope to the current repo via {@link entryBelongsToRepo}.
    */
   repoPath?: string;
+  /** Repo identity (realpath of the git common dir); absent on legacy entries. */
+  commonDir?: string;
 }
 
 /** Callback signature for the GitShell command hook. */
@@ -103,17 +106,19 @@ export const OperationLog = {
 
   /** Persist an entry to the log (FIFO capped at MAX_ENTRIES). */
   async save(entry: OperationEntry): Promise<void> {
-    let entries: OperationEntry[];
-    try {
-      entries = await readJson<OperationEntry[]>(getOperationLogFilePath(), []);
-    } catch {
-      entries = [];
-    }
-    entries.push(entry);
-    if (entries.length > MAX_ENTRIES) {
-      entries = entries.slice(entries.length - MAX_ENTRIES);
-    }
-    await writeJsonAtomic(getOperationLogFilePath(), entries);
+    await withFileLock(getOperationLogFilePath(), async () => {
+      let entries: OperationEntry[];
+      try {
+        entries = await readJson<OperationEntry[]>(getOperationLogFilePath(), []);
+      } catch {
+        entries = [];
+      }
+      entries.push(entry);
+      if (entries.length > MAX_ENTRIES) {
+        entries = entries.slice(entries.length - MAX_ENTRIES);
+      }
+      await writeJsonAtomic(getOperationLogFilePath(), entries);
+    });
   },
 
   /** Read all operation entries from the log. */
@@ -133,14 +138,11 @@ export const OperationLog = {
 };
 
 /**
- * Whether an entry belongs to (is visible/undoable in) the given repo.
- *
- * The operation log is a single global file. An entry belongs to a repo when
- * its `repoPath` matches, so `gitq log`/`gitq undo` in one repo don't surface
- * or restore another repo's operations. Legacy entries written before repo
- * scoping (no `repoPath`) are treated as belonging to whichever repo asks,
- * since there's no scope recorded to exclude them.
+ * Does a log entry belong to this repo? `identity` may be the repo's common
+ * dir (preferred) or a worktree path (legacy callers). Entries stamped with
+ * neither field predate scoping and match every repo.
  */
-export function entryBelongsToRepo(entry: OperationEntry, repoPath: string): boolean {
-  return entry.repoPath === undefined || entry.repoPath === repoPath;
+export function entryBelongsToRepo(entry: OperationEntry, identity: string): boolean {
+  if (entry.commonDir === undefined && entry.repoPath === undefined) return true;
+  return entry.commonDir === identity || entry.repoPath === identity;
 }

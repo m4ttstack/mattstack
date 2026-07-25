@@ -1,43 +1,55 @@
 import { RebaseEngine, type CascadeResult } from '../../core/rebase-engine.ts';
-import { loadStore, saveStore } from '../../core/persistence.ts';
+import { loadStore, updateStore } from '../../core/persistence.ts';
+import { GitShell } from '../../core/git-shell.ts';
+import { releaseLease } from '../../core/leases.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { pickStack } from './crud.ts';
-import { readPause, writePause, clearPause, requireNoPause } from '../pause-file.ts';
+import { readPause, writePause, clearPause } from '../pause-file.ts';
 import { withOperationLog } from '../op-log.ts';
+import { findParkedLease, requireStackFree, slotGitDir, withLeasedSlot } from '../slots.ts';
 
 /**
  * Persist a CascadeResult: writes the pause file (before saving the store,
- * see ordering note below) when paused, or clears it and saves when
- * completed. Shared by sync/continue here and by surgery commands (e.g.
- * reparent) whose descendant cascade can pause the same way.
+ * see ordering note below) into the WORK SLOT's git dir when paused, or
+ * clears it and saves when done. The locked updateStore keeps concurrent
+ * cascades from losing each other's writes.
  */
-export async function finishCascade(ctx: CliContext, stackId: string, result: CascadeResult): Promise<number> {
-  const store = await loadStore(ctx.repoRoot);
-  const updatedStore = {
-    ...store,
-    stacks: store.stacks.map((s) => (s.id === stackId ? result.updatedStack : s)),
-  };
+export async function finishCascade(
+  ctx: CliContext,
+  stackId: string,
+  result: CascadeResult,
+  workDir: string,
+): Promise<number> {
+  const pauseDir = await slotGitDir(workDir);
 
   if (result.state === 'paused' && result.pauseInfo) {
-    // Write the pause file BEFORE saving the store: this preserves the
-    // invariant "pause file present iff a rebase is in progress". A crash
-    // between the two writes must not leave git mid-rebase with no pause
-    // file, since sync's refuse-guard keys off the pause file's presence.
-    await writePause(ctx.gitDir, { stackId, pauseInfo: result.pauseInfo });
-    await saveStore(ctx.repoRoot, updatedStore);
+    // Pause file BEFORE the store save: "pause file present iff a rebase is
+    // in progress" must survive a crash between the two writes.
+    await writePause(pauseDir, { stackId, pauseInfo: result.pauseInfo });
+    await updateStore(ctx.repoRoot, (store) => ({
+      ...store,
+      stacks: store.stacks.map((s) => (s.id === stackId ? result.updatedStack : s)),
+    }));
     const types = (result.pauseInfo.conflictTypes ?? [])
       .map((c) => `${c.type} ${c.file}`).join('\n  ');
+    // Name the tree that actually holds the paused rebase, not the leased
+    // slot: native pauses (reconcile phase, reparent's cascade) rebase in
+    // the launch tree (treePath), not the work slot (workDir).
+    const rebaseTree = result.pauseInfo.worktreePath ?? result.pauseInfo.treePath ?? ctx.repoRoot;
     emit(
       ctx,
-      `paused on ${result.pauseInfo.currentBranch} (commit ${result.pauseInfo.commitIndex ?? '?'}/${result.pauseInfo.commitTotal ?? '?'}):\n  ${types}\nresolve with git, stage, then: gitq continue (or gitq abort)`,
+      `paused on ${result.pauseInfo.currentBranch} in ${rebaseTree} (commit ${result.pauseInfo.commitIndex ?? '?'}/${result.pauseInfo.commitTotal ?? '?'}):\n  ${types}\nresolve with git in that worktree, stage, then: gitq continue (or gitq abort)`,
       { state: 'paused', pauseInfo: result.pauseInfo },
     );
     return 2;
   }
 
-  await saveStore(ctx.repoRoot, updatedStore);
-  await clearPause(ctx.gitDir);
+  await updateStore(ctx.repoRoot, (store) => ({
+    ...store,
+    stacks: store.stacks.map((s) => (s.id === stackId ? result.updatedStack : s)),
+  }));
+  await clearPause(pauseDir);
   emit(ctx, `${result.state}: ${result.results.map((r) => `${r.branch} ${r.success ? 'ok' : `FAILED (${r.error})`}`).join(', ')}`, {
     state: result.state,
     results: result.results,
@@ -47,35 +59,66 @@ export async function finishCascade(ctx: CliContext, stackId: string, result: Ca
 }
 
 export async function syncCommand(ctx: CliContext): Promise<number> {
-  const paused = await requireNoPause(ctx);
-  if (paused !== null) return paused;
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
-  // Log unless the cascade paused (exit 2): a paused cascade is resolved with
-  // continue/abort, not undo.
-  return withOperationLog(ctx, stack, 'sync', async () => {
-    const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack);
-    return finishCascade(ctx, stack.id, result);
-  }, (code) => code !== 2);
+  const guarded = await requireStackFree(ctx, stack.id);
+  if (guarded !== null) return guarded;
+  return withLeasedSlot(ctx, stack, 'sync', (workDir) =>
+    withOperationLog(ctx, stack, 'sync', async () => {
+      const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack, workDir);
+      return finishCascade(ctx, stack.id, result, workDir);
+    }, (code) => code !== 2),
+  );
 }
 
 export async function continueCommand(ctx: CliContext): Promise<number> {
-  const pause = await readPause(ctx.gitDir);
-  if (!pause) return fail('nothing to continue (no pause file)');
   const store = await loadStore(ctx.repoRoot);
+  const named = typeof ctx.flags.stack === 'string'
+    ? store.stacks.find((s) => s.stackName === ctx.flags.stack)?.id
+    : undefined;
+  const located = await findParkedLease(ctx, named);
+  if ('error' in located) return fail(located.error);
+  const { lease } = located;
+  const pauseDir = await slotGitDir(lease.slotPath);
+  const pause = await readPause(pauseDir);
+  if (!pause) return fail(`lease found but no pause file in ${lease.slotPath}; run: gitq abort`);
   const stack = store.stacks.find((s) => s.id === pause.stackId);
   if (!stack) return fail(`paused stack ${pause.stackId} no longer exists`);
-  // Log a completed continue (exit 0/1) so it lands in `gitq log`; a re-pause
-  // (exit 2) is not recorded.
   return withOperationLog(ctx, stack, 'sync', async () => {
-    const result = await RebaseEngine.continueCascade(ctx.repoRoot, stack, pause.pauseInfo);
-    return finishCascade(ctx, stack.id, result);
+    // Pass the PAUSE's tree, not the lease slot: a native pause (reconcile
+    // phase, or reparent's cascade) is cwd-anchored to the launch tree
+    // (treePath) rather than a leased worktree (worktreePath), and must
+    // continue there regardless of where `gitq continue` itself was invoked.
+    const result = await RebaseEngine.continueCascade(
+      ctx.repoRoot, stack, pause.pauseInfo, pause.pauseInfo.worktreePath ?? pause.pauseInfo.treePath,
+    );
+    const code = await finishCascade(ctx, stack.id, result, lease.slotPath);
+    if (code !== 2) {
+      await GitShell.detachAt(lease.slotPath, 'HEAD').catch(() => {});
+      await releaseLease(ctx.commonDir, stack.id);
+    }
+    return code;
   }, (code) => code !== 2);
 }
 
 export async function abortCommand(ctx: CliContext): Promise<number> {
-  await RebaseEngine.abortCascade(ctx.repoRoot);
-  await clearPause(ctx.gitDir);
+  const store = await loadStore(ctx.repoRoot);
+  const named = typeof ctx.flags.stack === 'string'
+    ? store.stacks.find((s) => s.stackName === ctx.flags.stack)?.id
+    : undefined;
+  const located = await findParkedLease(ctx, named);
+  if ('error' in located) return fail(located.error);
+  const { lease } = located;
+  const pauseDir = await slotGitDir(lease.slotPath);
+  const pause = await readPause(pauseDir);
+  // Abort where the rebase actually lives: the pause's worktree when set
+  // (detached flow), else the pause's recorded launch tree (native pauses:
+  // reconcile phase, reparent's cascade). Falls back to cwd only for legacy
+  // pauses that predate both fields.
+  await RebaseEngine.abortCascade(ctx.repoRoot, pause?.pauseInfo.worktreePath ?? pause?.pauseInfo.treePath);
+  await clearPause(pauseDir);
+  await GitShell.detachAt(lease.slotPath, 'HEAD').catch(() => {});
+  await releaseLease(ctx.commonDir, lease.stackId);
   emit(ctx, 'aborted', { state: 'aborted' });
   return 0;
 }
