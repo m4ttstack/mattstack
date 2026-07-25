@@ -41,9 +41,7 @@ Config is read once at startup. Editing `config.json` needs a restart. See [Conf
 bun run serve
 ```
 
-```
-gitq board on http://localhost:11008
-```
+It prints one line and keeps running: `gitq board on http://localhost:<port>`, where `<port>` is whatever `config.json` (or `PORT`) resolved to, `11008` by default.
 
 The first page load is the slow one: it runs the git queries for every configured repo, plus a GitLab fetch if a token is available. After that the snapshot is cached for 60 seconds and served stale while it refreshes in the background, so a reload during that window is instant. The `refresh` button in the top bar forces a fresh collection.
 
@@ -62,7 +60,7 @@ Each repo gets a section headed by its name, followed by one work-slot chip per 
 
 A stack panel shows the stack name, then the root branch, then each branch in tree order. Per branch you may see:
 
-- **A status badge**, the same situation `gitq diagnose` reports, lowercased: `behind`, `local`, `needs sync`, `drift`, `diverged`, `merged`, `deleted`, `conflicts`, `ci failed`, or `<n> threads`. Hovering shows the full status line. See [Reading the tree](/getting-started/reading-the-tree) for what each one means.
+- **A status badge**, a short label of its own (not the `situation` string lowercased, `behind` is not `behind-parent`): `behind`, `local`, `needs sync`, `drift`, `diverged`, `merged`, `deleted`, `conflicts`, `ci failed`, or `<n> threads`. Hovering shows the full status line. See [Reading the tree](/getting-started/reading-the-tree) for what each one means.
 - **`conflict predicted`**, shown only when the branch has no status badge of its own and `gitq preflight` predicts a rebase conflict for it. It is a hint, not a verdict.
 - **A worktree chip** naming the worktree the branch is checked out in, highlighted when that worktree is dirty. A dirty checkout is what makes a cascade refuse to move that branch.
 - **An MR link** like `!42`, opening the merge request in GitLab. MR and pipeline data need the same token as `publish`; without one the board still renders from the last known MR fields in the store.

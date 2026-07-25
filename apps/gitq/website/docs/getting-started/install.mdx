@@ -18,7 +18,7 @@ bun link
 
 `bun link` registers this checkout as the package `gitq` and puts a `gitq` executable on your `PATH`. That executable is `bin/gitq` from the checkout (the `bin` field in `package.json` maps `gitq` to `bin/gitq`), and `bin/gitq` starts with `#!/usr/bin/env bun`, so Bun has to stay installed and on your `PATH` too.
 
-Because the link points at the checkout rather than at a copy, updating gitq is just `git pull` in the clone. Nothing to rebuild, nothing to relink.
+Because the link points at the checkout rather than at a copy, updating gitq is just `git pull` in the clone. Nothing to relink, but re-run `bun install` if the pulled commit changed dependencies.
 
 ## Confirm it works
 
@@ -49,7 +49,7 @@ gitq keeps almost nothing in your repository. At a glance:
 | --- | --- |
 | `~/.config/gitq/` | The stack stores (one JSON file per repo under `stacks/`), plus `settings.json`, `repos.json`, and the global `operation-log.json`. Override the base directory with the `GITQ_CONFIG_DIR` environment variable. |
 | `<commonDir>/gitq/leases.json` | The per-repo work-slot lease registry: which stack currently holds which work worktree. |
-| `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. |
+| `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. During a normal cascade that `<gitdir>` is the leased work slot's, not your checkout's. See [Pause protocol](/concepts/pause-protocol). |
 
 `GITQ_CONFIG_DIR` is read once per process, so exporting it for a single command is enough to point gitq at a throwaway store. That is worth knowing before you try anything experimental. See [State](/concepts/state) for the full picture.
 

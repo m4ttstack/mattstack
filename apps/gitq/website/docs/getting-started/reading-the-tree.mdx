@@ -40,7 +40,7 @@ demo:
   feat-docs: local-only
 ```
 
-One block per stack, one line per branch, in stack order: `  <branch>: <situation>`. A branch that is currently checked out in one of your worktrees gets a suffix naming it, `  feat-api: behind-parent [in gitq-2]`, which is how you find out why a cascade is about to refuse to move that branch.
+One block per stack, one line per branch, in stack order: `  <branch>: <situation>`. A branch that is currently checked out in a sibling worktree (never a work slot: those run detached) gets a suffix naming it, `  feat-api: behind-parent [in feature-tree]`, which is how you find out why a cascade is about to refuse to move that branch.
 
 Reach for it as the default "where am I" command, and always before `sync`, so you know what the cascade is going to change.
 
@@ -52,7 +52,7 @@ Each branch gets exactly one situation, decided by the first rule that matches, 
 | --- | --- |
 | `rebase-in-progress` | This branch is the one currently checked out, and git is mid rebase in this worktree. Finish or abort before anything else. |
 | `local-remote-diverged` | The local branch and `origin/<branch>` have both moved independently, usually because someone force pushed. Either reset to the remote or force push over it. |
-| `branch-deleted-remote` | The branch used to exist on the remote and no longer does. If the branch was recorded as merged, this is the normal end of its life and it is safe to remove from the stack; otherwise something deleted it out from under you. |
+| `branch-deleted-remote` | The branch used to exist on the remote and no longer does. If the branch was recorded as merged and has no children, this is the normal end of its life and it is safe to remove from the stack; with children, removal is blocked until they cascade first. Otherwise (not merged), something deleted it out from under you. |
 | `drift-parent-merged` | Both problems at once: this branch's MR targets something other than its stack parent, and that parent has been merged. Sync fixes it. |
 | `parent-merged-drifted` | The parent was merged, and this branch no longer contains the parent's last known head, so the merge cannot be reconciled by a plain rebase. Needs a cascade. |
 | `parent-merged` | The parent branch was merged. Also reported for a branch that is itself merged: with children, meaning they need a cascade before anything can be removed, and without children, meaning it is safe to remove from the stack. The `statusLine` field in `--json` distinguishes the three. |
@@ -85,7 +85,7 @@ One line per stack with the working tree state, then either the predicted confli
 
 Reach for it before a `sync` you are not sure about, especially a long stack or one you have not touched in a while. It is the difference between finding out about a conflict now and finding out halfway through a cascade.
 
-`preflight` predicts; it does not promise. It replays the rebase to look for conflicts, so it can miss cases that only appear once earlier branches have actually been rewritten.
+`preflight` predicts; it does not promise. It runs one `git merge-tree` three-way merge per branch to look for conflicts, so it can miss cases that only appear once earlier branches have actually been rewritten. It also skips prediction entirely when the working tree is dirty: `no predicted conflicts` next to `dirty=true` means "not checked", not "clean".
 
 ## Machine readable output
 

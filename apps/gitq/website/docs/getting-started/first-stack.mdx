@@ -11,7 +11,7 @@ Every command and every output block below came from a real run. Only the commit
 
 :::note gitq measures a stack against `origin/<root>`
 
-A stack's root branch is compared against, and rebased onto, `origin/<root>`, not the local branch. In a repo with no `origin` remote, `gitq diagnose` cannot see that trunk moved and `gitq sync` fails outright at the fetch. So this tutorial gives the scratch repo a remote: a local bare repository standing in for GitLab. No network involved.
+gitq compares the stack root against `origin/<root>`, not your local branch, and branches whose parent is the root rebase directly onto `origin/<root>` when you sync. Your local trunk branch is never rewritten. In a repo with no `origin` remote, `gitq diagnose` cannot see that trunk moved and `gitq sync` fails outright at the fetch. So this tutorial gives the scratch repo a remote: a local bare repository standing in for GitLab. No network involved.
 
 :::
 
@@ -176,7 +176,7 @@ demo: dirty=false
   no predicted conflicts
 ```
 
-`preflight` replays the rebase in memory to predict conflicts, and tells you whether the working tree is dirty, before anything moves. See [Reading the tree](/getting-started/reading-the-tree).
+`preflight` predicts conflicts by running a `git merge-tree` three-way merge per branch against its parent, and tells you whether the working tree is dirty, before anything moves. It skips prediction entirely when the tree is dirty, so `no predicted conflicts` only means "clean" when `dirty=false`. See [Reading the tree](/getting-started/reading-the-tree).
 
 ## 8. Restack the whole thing
 
@@ -216,7 +216,7 @@ Before the sync that same graph was forked: the three feature commits hung off `
 
 ```mermaid
 graph TD
-  base["main (e29b0ff)"] --> trunk["main (d1cf2c1) add changelog"]
+  base["e29b0ff initial commit"] --> trunk["main (d1cf2c1) add changelog"]
   trunk --> api["feat-api (1a79e73)"]
   api --> handlers["feat-handlers (3feff18)"]
   handlers --> docs["feat-docs (a77d465)"]
@@ -243,7 +243,7 @@ It fetched, resolved `origin/main` as the new base, then walked the stack in top
 
 ## Clean up
 
-The scratch repo is disposable: `rm -rf /tmp/gitq-demo /tmp/gitq-demo-origin.git`. That deletes the branches but not gitq's record of them, since the stack store lives in `~/.config/gitq/`. Drop the record too:
+The scratch repo is disposable: `rm -rf /tmp/gitq-demo /tmp/gitq-demo-origin.git`. That deletes the branches but not gitq's record of them, since the stack store lives in `~/.config/gitq/`. It also does not remove the work slot that `sync` leased for the cascade, which lives outside the repo at `~/.cache/gitq/work/<hash>/gitq-1` (the `<hash>` is derived from this repo's path). If you delete `/tmp/gitq-demo` and recreate it at the same path later, remove that directory too, otherwise the next `gitq sync` hits a raw `fatal: '.../gitq-1' already exists` from git. Drop the record too:
 
 ```bash
 gitq untrack demo
