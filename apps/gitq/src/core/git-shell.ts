@@ -405,7 +405,16 @@ export const GitShell = {
   /** Check if a rebase is currently in progress by looking for git state directories. */
   isRebaseInProgress(cwd: string): boolean {
     try {
-      const gitDir = join(cwd, '.git');
+      // Handle worktrees: .git might be a file pointing to the real git dir
+      let gitDir = join(cwd, '.git');
+      try {
+        const content = readFileSync(gitDir, 'utf-8').trim();
+        if (content.startsWith('gitdir: ')) {
+          const relative = content.slice('gitdir: '.length);
+          gitDir = relative.startsWith('/') ? relative : join(cwd, relative);
+        }
+      } catch { /* .git is a directory, not a file — use as-is */ }
+
       return existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply'));
     } catch {
       return false;
