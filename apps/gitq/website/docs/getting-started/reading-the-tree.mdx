@@ -1,0 +1,92 @@
+---
+title: Reading the tree
+sidebar_position: 3
+---
+
+# Reading the tree
+
+Three read-only commands answer almost every question you will have about a stack. None of them touch a git ref, none of them need a token, and all three are safe to run at any time, including while a cascade is paused.
+
+The output below is from the repo built in [Your first stack](/getting-started/first-stack).
+
+## `gitq stacks`: what is the shape?
+
+Answers: which stacks does this repo have, and what is the branch chain of each one, root to tip?
+
+```bash
+gitq stacks
+```
+
+```
+demo (root main): feat-api -> feat-handlers -> feat-docs
+```
+
+The format is `<stackName> (root <rootBranch>): <branch> -> <branch> -> ...`, one line per tracked stack, or `no stacks` when the repo has none. A tracked stack with no branches yet prints `empty`.
+
+This is the store's view, not git's. It tells you what gitq believes the tree is; it says nothing about whether those branches are up to date, or whether they still exist in git. Reach for it when you need the stack's name (to pass to `--stack`), or to confirm that an `add`, `remove`, or a piece of surgery landed the way you expected.
+
+## `gitq diagnose`: what needs doing?
+
+Answers: for every branch in every tracked stack, what is its situation right now?
+
+```bash
+gitq diagnose
+```
+
+```
+demo:
+  feat-api: behind-parent
+  feat-handlers: local-only
+  feat-docs: local-only
+```
+
+One block per stack, one line per branch, in stack order: `  <branch>: <situation>`. A branch that is currently checked out in one of your worktrees gets a suffix naming it, `  feat-api: behind-parent [in gitq-2]`, which is how you find out why a cascade is about to refuse to move that branch.
+
+Reach for it as the default "where am I" command, and always before `sync`, so you know what the cascade is going to change.
+
+### The situations
+
+Each branch gets exactly one situation, decided by the first rule that matches, in this priority order. Everything below it is the classifier in `src/core/stack-diagnostics.ts`, in the order it actually checks.
+
+| Situation | Plain English |
+| --- | --- |
+| `rebase-in-progress` | This branch is the one currently checked out, and git is mid rebase in this worktree. Finish or abort before anything else. |
+| `local-remote-diverged` | The local branch and `origin/<branch>` have both moved independently, usually because someone force pushed. Either reset to the remote or force push over it. |
+| `branch-deleted-remote` | The branch used to exist on the remote and no longer does. If the branch was recorded as merged, this is the normal end of its life and it is safe to remove from the stack; otherwise something deleted it out from under you. |
+| `drift-parent-merged` | Both problems at once: this branch's MR targets something other than its stack parent, and that parent has been merged. Sync fixes it. |
+| `parent-merged-drifted` | The parent was merged, and this branch no longer contains the parent's last known head, so the merge cannot be reconciled by a plain rebase. Needs a cascade. |
+| `parent-merged` | The parent branch was merged. Also reported for a branch that is itself merged: with children, meaning they need a cascade before anything can be removed, and without children, meaning it is safe to remove from the stack. The `statusLine` field in `--json` distinguishes the three. |
+| `behind-parent` | The parent's head is not an ancestor of this branch, so the parent moved ahead. This is the plain "needs a rebase" case, and the one `sync` exists for. |
+| `drift` | The branch's MR targets a branch other than its stack parent. The tree and the MR chain disagree about who the parent is. |
+| `local-only` | The branch has never been published. Not a problem, just a statement: there is no MR and no remote branch to compare against. |
+| `ci-failed` | Published, up to date, and its pipeline is red. |
+| `has-threads` | Published, up to date, and its MR has unresolved discussion threads. The count is in the status line. |
+| `synced` | Nothing to do. |
+
+Two things worth knowing about how these are computed:
+
+- **The root is compared against `origin/<root>`, not the local branch.** A branch whose parent is the stack root is `behind-parent` when it is behind the remote trunk. Committing to your local `main` without pushing changes nothing, and in a repo with no remote at all, `diagnose` cannot detect staleness against the root and quietly reports the branches as `local-only`.
+- **The dirty worktree and mid-rebase blocks are separate.** They do not appear in the human output. In `--json` they come back as `globalBlocks` on the stack, plus a `blocked` field on every affected node, and a `banner` summarising the stack's headline problem.
+
+## `gitq preflight`: is it safe to sync?
+
+Answers: if I ran `sync` right now, would it conflict, and is anything in my way?
+
+```bash
+gitq preflight
+```
+
+```
+demo: dirty=false
+  no predicted conflicts
+```
+
+One line per stack with the working tree state, then either the predicted conflicts (per branch, each conflicted file with its two-letter git status code) or `no predicted conflicts`. When a stack branch is checked out in one of your worktrees, a `slot conflicts:` section is appended naming the branch, the worktree, and whether that worktree is dirty, because a dirty checkout is what will make a cascade refuse to move that branch.
+
+Reach for it before a `sync` you are not sure about, especially a long stack or one you have not touched in a while. It is the difference between finding out about a conflict now and finding out halfway through a cascade.
+
+`preflight` predicts; it does not promise. It replays the rebase to look for conflicts, so it can miss cases that only appear once earlier branches have actually been rewritten.
+
+## Machine readable output
+
+All three take `--json` and emit a structured document on stdout instead of the human summary, and the JSON is a superset: `diagnose --json` carries the per node `statusLine`, `badge`, `primaryAction`, `blocked`, and `removal` fields that drive the board, plus the stack's `edges`, `banner`, and `globalBlocks`. All three also include a `worktrees` array. See [JSON output](/reference/json-output) for the shapes, and [Global flags](/reference/global-flags) for `--json` and `-C`.
