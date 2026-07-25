@@ -130,6 +130,51 @@ export const GitShell = {
     await git(['push', '--force-with-lease', remote, branch], cwd);
   },
 
+  /** All worktrees of the repo: path, HEAD sha, and checked-out branch (null when detached). */
+  async worktreeList(cwd: string): Promise<{ path: string; head: string; branch: string | null }[]> {
+    const { stdout } = await git(['worktree', 'list', '--porcelain'], cwd);
+    const out: { path: string; head: string; branch: string | null }[] = [];
+    let current: { path?: string; head?: string; branch: string | null } = { branch: null };
+    for (const line of stdout.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        current = { path: line.slice('worktree '.length), branch: null };
+      } else if (line.startsWith('HEAD ')) {
+        current.head = line.slice('HEAD '.length);
+      } else if (line.startsWith('branch refs/heads/')) {
+        current.branch = line.slice('branch refs/heads/'.length);
+      } else if (line.trim() === '' && current.path && current.head) {
+        out.push({ path: current.path, head: current.head, branch: current.branch });
+        current = { branch: null };
+      }
+    }
+    if (current.path && current.head) {
+      out.push({ path: current.path, head: current.head, branch: current.branch });
+    }
+    return out;
+  },
+
+  /** Create a detached worktree at `path` pointing at `ref`. */
+  async worktreeAddDetached(cwd: string, path: string, ref: string): Promise<void> {
+    await git(['worktree', 'add', '--detach', path, ref], cwd);
+  },
+
+  /** Detach HEAD in `cwd` at `ref` without touching any branch ref. */
+  async detachAt(cwd: string, ref: string): Promise<void> {
+    await git(['checkout', '--detach', ref], cwd);
+  },
+
+  /** Rebase the current (detached) HEAD: replays oldBase..HEAD onto newBase. */
+  async rebaseOntoDetached(cwd: string, newBase: string, oldBase: string): Promise<void> {
+    await git(['rebase', '--onto', newBase, oldBase], cwd);
+  },
+
+  /** Compare-and-swap a branch ref. Throws (without moving the ref) when the
+      branch no longer points at expectedOldSha. Exempt from git's
+      checked-out-branch guard, which is exactly why finalization uses it. */
+  async updateRefCas(cwd: string, branch: string, newSha: string, expectedOldSha: string): Promise<void> {
+    await git(['update-ref', `refs/heads/${branch}`, newSha, expectedOldSha], cwd);
+  },
+
   /** Check if the working tree has uncommitted changes (staged or unstaged). */
   async isDirty(cwd: string): Promise<boolean> {
     const { stdout } = await git(['status', '--porcelain'], cwd);
