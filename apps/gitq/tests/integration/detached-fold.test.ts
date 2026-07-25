@@ -167,4 +167,21 @@ describe('detached fold', () => {
       Bun.spawnSync(['git', '-C', slotPath, ...args]).stdout.toString().trim();
     expect(gitAt('rev-parse', 'HEAD')).toBe(repo.git('rev-parse', 'feature-a'));
   });
+
+  test('folded branch in a clean slot, parent held in the launch tree: slot falls back to detached', async () => {
+    const { repo, stack, workDir } = await foldScenario();
+    repo.git('checkout', 'feature-a');
+    const slotPath = await addNamedWorktree(repo, 'b-slot', 'feature-b');
+
+    await foldBranch(repo.dir, stack, 'feature-b', workDir);
+
+    const gitAt = (...args: string[]) =>
+      Bun.spawnSync(['git', '-C', slotPath, ...args]).stdout.toString().trim();
+    const parentHead = repo.git('rev-parse', 'feature-a');
+    expect(gitAt('rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD');
+    expect(gitAt('rev-parse', 'HEAD')).toBe(parentHead);
+    expect(() => repo.git('rev-parse', '--verify', 'refs/heads/feature-b')).toThrow();
+    expect(repo.git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('feature-a');
+    expect(await GitShell.isDirty(repo.dir)).toBe(false);
+  });
 });
