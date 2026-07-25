@@ -13,7 +13,7 @@ Every block below came from a real run, with `/Users/you/repos/myrepo` standing 
 
 ## One store, every worktree
 
-gitq keys its stack store by the repo's *identity*, not by the directory you happened to run it from: the real path of the shared `.git` (the common dir), hashed. Every worktree of a repo — the primary checkout, every sibling, every work slot — resolves to that same common dir, so they all read and write the same `stacks/<hash>.json`. Run `gitq stacks` from any worktree in the pool and you see the same tracked stacks; run `gitq add` from one and it's visible from all the others immediately, no syncing step involved. See [Where state lives](/concepts/state#the-config-directory) for the mechanism.
+gitq keys its stack store by the repo's *identity*, not by the directory you happened to run it from: the real path of the shared `.git` (the common dir), hashed. Every worktree of a repo (the primary checkout, every sibling, every work slot) resolves to that same common dir, so they all read and write the same `stacks/<hash>.json`. Run `gitq stacks` from any worktree in the pool and you see the same tracked stacks; run `gitq add` from one and it's visible from all the others immediately, no syncing step involved. See [Where state lives](/concepts/state#the-config-directory) for the mechanism.
 
 The same identity keying is why leases and the operation log are pool-wide too: `<commonDir>/gitq/leases.json` is one file for the whole pool, and `gitq log` / `gitq undo` see every operation run from any worktree of the repo.
 
@@ -66,7 +66,7 @@ gitq stacks --json
 
 :::note The `-C` flag works from anywhere
 
-`gitq -C <path> <command>` runs a command against a specific worktree without `cd`-ing into it first — useful when you are driving several worktrees of a pool from one shell.
+`gitq -C <path> <command>` runs a command against a specific worktree without `cd`-ing into it first, useful when you are driving several worktrees of a pool from one shell.
 
 :::
 
@@ -160,7 +160,7 @@ demo:
   feat-ui: local-only
 ```
 
-The fix is the one the message names — go to `feat-api-review`, commit or stash, then retry from wherever is convenient:
+The fix is the one the message names: go to `feat-api-review`, commit or stash, then retry from wherever is convenient:
 
 ```bash
 git -C /Users/you/repos/myrepo/feat-api-review checkout -- api.ts
@@ -173,7 +173,7 @@ completed: feat-api ok, feat-ui ok
 
 ## `continue` and `abort` from anywhere
 
-A paused cascade lives in a work slot, which is addressed by the lease, not by whatever worktree you happened to `cd` into. `gitq continue` and `gitq abort` both resolve the parked lease from scratch on every invocation, so they work from any worktree of the pool — including a sibling that has nothing to do with the stack that paused:
+A paused cascade lives in a work slot, which is addressed by the lease, not by whatever worktree you happened to `cd` into. `gitq continue` and `gitq abort` both resolve the parked lease from scratch on every invocation, so they work from any worktree of the pool, including a sibling that has nothing to do with the stack that paused:
 
 ```bash
 cd /Users/you/repos/myrepo/main
@@ -197,7 +197,7 @@ gitq continue
 completed: feat-api ok, feat-ui ok
 ```
 
-That worked because `feat-api-review` is still a worktree of the same repo — same common dir, same lease registry. It is not tied to being the worktree that launched the sync.
+That worked because `feat-api-review` is still a worktree of the same repo: same common dir, same lease registry. It is not tied to being the worktree that launched the sync.
 
 ### More than one stack parked
 
@@ -240,7 +240,7 @@ completed: feat-api ok, feat-ui ok
 Three commands carry worktree state in their `--json`, all through the same `worktrees` array (`path`, `name`, `branch`, `dirty`, `isWorkSlot`, `lease`):
 
 - **`gitq stacks --json`** and **`gitq diagnose --json`** both include it verbatim, for whatever you want to cross-reference against the stack data in the same document.
-- **`gitq diagnose`**, human-readable, appends `[in <worktree>]` to a branch's line when a non-work-slot worktree has it checked out. That worktree does not have to be a sibling — if you run `diagnose` from the very worktree holding the branch, it still names your own checkout, not just someone else's.
+- **`gitq diagnose`**, human-readable, appends `[in <worktree>]` to a branch's line when a non-work-slot worktree has it checked out. That worktree does not have to be a sibling: if you run `diagnose` from the very worktree holding the branch, it still names your own checkout, not just someone else's.
 - **`gitq preflight --json`** adds a `slotConflicts` array per stack: `{ branch, slot, dirty }` for every branch of that stack checked out in a non-work-slot worktree, whether or not that worktree is dirty. The human form prints it as a `slot conflicts:` section:
 
   ```bash
@@ -254,7 +254,7 @@ Three commands carry worktree state in their `--json`, all through the same `wor
     feat-api: feat-api-review
   ```
 
-  A slot conflict by itself is not a problem — this example is a clean sibling that would auto-reset fine. It is information, the same way `preflight`'s conflict prediction is: read it before a sync so a dirty sibling refusal is not a surprise, not because every entry needs action. See [Reading the tree](/getting-started/reading-the-tree).
+  A slot conflict by itself is not a problem: this example is a clean sibling that would auto-reset fine. It is information, the same way `preflight`'s conflict prediction is: read it before a sync so a dirty sibling refusal is not a surprise, not because every entry needs action. See [Reading the tree](/getting-started/reading-the-tree).
 
 ## Next
 

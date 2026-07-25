@@ -37,13 +37,23 @@ It reads the same global `operation-log.json` that `undo` reads, filtered to thi
 gitq undo
 ```
 
-`undo` takes the **most recent operation-log entry that belongs to this repo** — not a specific one you name, and not filtered by branch or stack, just "the last thing that happened here." If that entry isn't reversible, it says so and stops:
+`undo` takes the **most recent operation-log entry that belongs to this repo**: not a specific one you name, and not filtered by branch or stack, just "the last thing that happened here." If that entry isn't reversible, it says so and stops:
 
 ```
 gitq: cannot undo "split" (not reversible)
 ```
 
-Only four operation types are reversible: **`sync`**, **`cascade-rebase`**, **`reparent`**, and **`absorb`**. `split`, `fold`, and `rename` are logged but not reversible — they were deliberate one-way structural changes when you made them — and `reset` is never logged at all, so there's nothing for `undo` to find. See [Restructure a stack](/guides/restructure-a-stack) for why.
+Only four operation types are reversible: **`sync`**, **`cascade-rebase`**, **`reparent`**, and **`absorb`**. `split`, `fold`, and `rename` are logged but not reversible (they were deliberate one-way structural changes when you made them), and `reset` is never logged at all, so there's nothing for `undo` to find. See [Restructure a stack](/guides/restructure-a-stack) for why.
+
+:::danger A failed `absorb` leaves `undo` pointing at the wrong operation
+
+`absorbCommand` runs inside `withOperationLog` with no custom `shouldLog`, so the default rule applies: an entry is only written on a clean exit (`(code) => code === 0`). When the restack after a successful commit conflicts, absorb aborts the rebase, keeps the branch edits it already committed, and exits `1`. No entry is written for that run.
+
+`gitq undo` cannot tell any of this happened. It still just takes the most recent entry belonging to this repo, and after a failed absorb that entry belongs to whatever operation ran *before* it. `undo` does not fail, does not warn, and silently restores that earlier operation instead, as if the absorb had never run.
+
+Check [`gitq log`](#see-what-happened-first) first if you are not sure what the last logged entry actually is. The real recovery for a failed absorb is `gitq sync`, not `undo`. See [Absorb uncommitted changes](/guides/absorb-changes#undo) for the full explanation.
+
+:::
 
 A plain undo, restoring every branch the operation touched:
 
@@ -60,7 +70,7 @@ Exit `0`. Every branch (including the stack's root) is reset to the head it had 
 
 ### `skippedBranches`
 
-Between the operation running and you undoing it, a snapshotted branch's git ref can stop existing — someone deleted it by hand, a script cleaned it up, whatever the reason. `undo` does not fail for that; it restores everything it still can and reports the rest separately:
+Between the operation running and you undoing it, a snapshotted branch's git ref can stop existing: someone deleted it by hand, a script cleaned it up, whatever the reason. `undo` does not fail for that; it restores everything it still can and reports the rest separately:
 
 ```bash
 git branch -D feat-b
@@ -79,7 +89,7 @@ echo $?
 0
 ```
 
-**Exit `0`, on a partial restore.** `success` in the JSON result is about whether the restore mechanism itself worked, not about whether every branch came back — check `skippedBranches` (also in the JSON, alongside `restoredBranches`) if you need to know exactly what didn't. The stack tree is updated to match: `feat-b`'s node is dropped from the store (its children, if it had any, are reparented to its parent) rather than left pointing at a branch that no longer exists.
+**Exit `0`, on a partial restore.** `success` in the JSON result is about whether the restore mechanism itself worked, not about whether every branch came back. Check `skippedBranches` (also in the JSON, alongside `restoredBranches`) if you need to know exactly what didn't. The stack tree is updated to match: `feat-b`'s node is dropped from the store (its children, if it had any, are reparented to its parent) rather than left pointing at a branch that no longer exists.
 
 ```bash
 gitq stacks
@@ -91,7 +101,7 @@ demo (root main): feat-a
 
 ## A branch diverged from origin
 
-Someone force-pushed the branch on GitLab — a rebase, an amend, whatever — and your local ref no longer matches. `gitq reset <branch>` snaps it back:
+Someone force-pushed the branch on GitLab (a rebase, an amend, whatever) and your local ref no longer matches. `gitq reset <branch>` snaps it back:
 
 ```bash
 gitq reset feat-a
@@ -114,7 +124,7 @@ Exit `0`. Three things to know before you reach for it:
   gitq: Working tree has uncommitted changes. Commit or stash first.
   ```
 
-  Exit `1`, and nothing moves. Like `rename`, it also refuses up front — same message shape as [`rename`'s refusal](/guides/restructure-a-stack#rename) — if the branch is checked out somewhere other than your launch worktree, dirty or not.
+  Exit `1`, and nothing moves. Like `rename`, it also refuses up front, with the same message shape as [`rename`'s refusal](/guides/restructure-a-stack#rename), if the branch is checked out somewhere other than your launch worktree, dirty or not.
 
 - **It is never recorded in the operation log**, so `gitq undo` has nothing to give back afterward. Whatever the branch pointed at before `reset` ran is gone unless you noted the sha yourself:
 
@@ -171,11 +181,11 @@ git log --oneline -1 feat-a
 fb1414b feat-a touches README
 ```
 
-**It does not rewind branches the cascade already finished** before it hit the conflict — those refs were already moved, and stay moved. A paused cascade is never written to the operation log either (a pause is resolved with `continue`/`abort`, not `undo`), so there's no log entry for `gitq undo` to act on afterward. If you need to walk back branches the cascade *did* finish before you aborted the rest, that's a manual `git reset` to whatever you remember, or re-running the cascade from a known-good state. See [Resolve a conflict](/guides/resolve-a-conflict#bailing-out-with-gitq-abort) for the full walkthrough of what abort does and doesn't touch.
+**It does not rewind branches the cascade already finished** before it hit the conflict: those refs were already moved, and stay moved. A paused cascade is never written to the operation log either (a pause is resolved with `continue`/`abort`, not `undo`), so there's no log entry for `gitq undo` to act on afterward. If you need to walk back branches the cascade *did* finish before you aborted the rest, that's a manual `git reset` to whatever you remember, or re-running the cascade from a known-good state. See [Resolve a conflict](/guides/resolve-a-conflict#bailing-out-with-gitq-abort) for the full walkthrough of what abort does and doesn't touch.
 
 ## The store is wrong or gone
 
-Deleted `~/.config/gitq/stacks/<hash>.json` by accident, or the tree in it just doesn't match reality anymore and hand-editing isn't worth it. If GitLab still has the MRs, `gitq import --replace` rebuilds the store from there — the reverse direction of `publish`, forge state overwriting local state:
+Deleted `~/.config/gitq/stacks/<hash>.json` by accident, or the tree in it just doesn't match reality anymore and hand-editing isn't worth it. If GitLab still has the MRs, `gitq import --replace` rebuilds the store from there: the reverse direction of `publish`, forge state overwriting local state:
 
 ```bash
 gitq import --replace
@@ -197,19 +207,19 @@ Two refusals guard it, both checked from source rather than a live run here sinc
   gitq: cascades are active; finish or abort them first
   ```
 
-  Exit `1`. Unlike every other mutating command's per-stack lease guard, this one fires on **any** lease, running or parked, for any stack — `import` is about to discard the store those leases are tracked against, not just one stack's.
+  Exit `1`. Unlike every other mutating command's per-stack lease guard, this one fires on **any** lease, running or parked, for any stack: `import` is about to discard the store those leases are tracked against, not just one stack's.
 
 :::warning It re-mints stack ids, every time
 
-Every stack `import` creates gets a brand-new random id (`crypto.randomUUID()` in `StackManager.createStack`), with no relationship to whatever id the same stack had before, even if you're importing back the exact MRs you just exported. The name you see in `gitq stacks` is a readable slug derived from the tip branch's MR title, so it can look stable across two imports — the underlying `id` never is. Anything keyed to the old id, most importantly any `gitq undo` history for operations run before the import, stops resolving to a current stack the moment you replace it.
+Every stack `import` creates gets a brand-new random id (`crypto.randomUUID()` in `StackManager.createStack`), with no relationship to whatever id the same stack had before, even if you're importing back the exact MRs you just exported. The name you see in `gitq stacks` is a readable slug derived from the tip branch's MR title, so it can look stable across two imports, but the underlying `id` never is. Anything keyed to the old id, most importantly any `gitq undo` history for operations run before the import, stops resolving to a current stack the moment you replace it.
 
 :::
 
-Treat it as a recovery tool for a broken store, not a routine refresh — `gitq sync` is what you want for a stack that's merely behind. See [Publish to GitLab](/guides/publish-to-gitlab#import-replace) for the full command reference.
+Treat it as a recovery tool for a broken store, not a routine refresh: `gitq sync` is what you want for a stack that's merely behind. See [Publish to GitLab](/guides/publish-to-gitlab#import-replace) for the full command reference.
 
 ## A lease is stuck
 
-Something claims a stack is mid-cascade — `stack has a parked sync lease on ...` on every mutating command — and you don't believe it, or the process behind it is long dead. The lease registry is one file per repo:
+Something claims a stack is mid-cascade (`stack has a parked sync lease on ...` on every mutating command) and you don't believe it, or the process behind it is long dead. The lease registry is one file per repo:
 
 ```
 <commonDir>/gitq/leases.json
@@ -232,11 +242,11 @@ Something claims a stack is mid-cascade — `stack has a parked sync lease on ..
 }
 ```
 
-`running` leases whose process (`pid`) is already dead are reaped automatically the next time any lease is acquired — a killed cascade doesn't block the next one. `parked` leases are never auto-reaped, on purpose: a conflict waiting on you is legitimately long-lived, and clearing it out from under you would strand a real mid-rebase state in the slot.
+`running` leases whose process (`pid`) is already dead are reaped automatically the next time any lease is acquired, so a killed cascade doesn't block the next one. `parked` leases are never auto-reaped, on purpose: a conflict waiting on you is legitimately long-lived, and clearing it out from under you would strand a real mid-rebase state in the slot.
 
-**The supported fix is finishing or aborting the cascade the lease belongs to** — `gitq continue` or `gitq abort`, exactly as in [the pause protocol](/concepts/pause-protocol#the-resolve-loop). That's true even if you're certain the process is dead and the conflict is unrecoverable: `gitq abort` doesn't care whether anything is still running, it just aborts the rebase where it lives and releases the lease.
+**The supported fix is finishing or aborting the cascade the lease belongs to**: `gitq continue` or `gitq abort`, exactly as in [the pause protocol](/concepts/pause-protocol#the-resolve-loop). That's true even if you're certain the process is dead and the conflict is unrecoverable: `gitq abort` doesn't care whether anything is still running, it just aborts the rebase where it lives and releases the lease.
 
-Editing or deleting `leases.json` by hand while a cascade is genuinely running or parked is how you actually lose track of things: the pause file is still on disk, the rebase is still half-done in the slot, and now `gitq continue` can't find the lease that pointed at it. If you've done this and are stuck, `gitq abort`'s job is exactly to reconcile a lease and a pause file that came apart — it aborts wherever the pause file says the rebase lives, `parked` lease in the registry or not. See [Where state lives](/concepts/state#inside-the-repo) for the rest of what's safe and not safe to touch by hand.
+Editing or deleting `leases.json` by hand while a cascade is genuinely running or parked is how you actually lose track of things: the pause file is still on disk, the rebase is still half-done in the slot, and now `gitq continue` can't find the lease that pointed at it. If you've done this and are stuck, `gitq abort`'s job is exactly to reconcile a lease and a pause file that came apart: it aborts wherever the pause file says the rebase lives, `parked` lease in the registry or not. See [Where state lives](/concepts/state#inside-the-repo) for the rest of what's safe and not safe to touch by hand.
 
 ## Next
 

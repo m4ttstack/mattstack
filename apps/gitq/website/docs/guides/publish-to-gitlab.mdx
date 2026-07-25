@@ -5,7 +5,7 @@ sidebar_position: 5
 
 # Publish to GitLab
 
-`gitq publish` turns the local-only branches in a stack into a chain of GitLab merge requests, each one targeting the branch below it. It is the only gitq command that talks to a network API, the only one that needs a token, and — inside the agent skill flow — the only one with a human gate in front of it.
+`gitq publish` turns the local-only branches in a stack into a chain of GitLab merge requests, each one targeting the branch below it. It is the only gitq command that talks to a network API, the only one that needs a token, and (inside the agent skill flow) the only one with a human gate in front of it.
 
 This page is verified line by line against `src/cli/commands/forge.ts`, `src/core/forge-sync.ts`, `src/cli/provider.ts`, and `src/core/secrets.ts`, not against a live run: publishing hits the real GitLab API, so there is no throwaway repo to demonstrate it against the way the other guides do. The command shapes and JSON below are the actual interfaces, not a captured transcript.
 
@@ -26,7 +26,7 @@ The base URL is hardcoded to `https://gitlab.com`. There is no self-hosted GitLa
 
 ## What `publish` does, per branch
 
-`publish` walks the stack in topological order (parents before children) and acts only on nodes whose `status` is `local-only` **and** which have no `mrIid` yet — that is, branches that have never had an MR created for them by gitq. A branch that already has one, however stale its content, is skipped entirely: nothing is pushed for it and nothing about its MR is touched.
+`publish` walks the stack in topological order (parents before children) and acts only on nodes whose `status` is `local-only` **and** which have no `mrIid` yet: that is, branches that have never had an MR created for them by gitq. A branch that already has one, however stale its content, is skipped entirely: nothing is pushed for it and nothing about its MR is touched.
 
 For each branch it does act on, in order:
 
@@ -45,7 +45,7 @@ feat-api: https://gitlab.com/group/project/-/merge_requests/101
 feat-ui: https://gitlab.com/group/project/-/merge_requests/102
 ```
 
-Exit `0` when every attempted branch succeeded, `1` if any failed — check the per-branch `success` field under `--json` rather than assuming a failure means nothing happened; branches before the failing one are already pushed and already have MRs.
+Exit `0` when every attempted branch succeeded, `1` if any failed. Check the per-branch `success` field under `--json` rather than assuming a failure means nothing happened; branches before the failing one are already pushed and already have MRs.
 
 With nothing local-only to publish:
 
@@ -72,17 +72,17 @@ Without it, a new MR's title is the branch name and its description is empty. `-
 }
 ```
 
-Both `title` and `description` are required strings for every entry you include — `gitq` validates the whole file before touching the store or the network, and a malformed entry fails the command outright with a message naming the branch:
+Both `title` and `description` are required strings for every entry you include: `gitq` validates the whole file before touching the store or the network, and a malformed entry fails the command outright with a message naming the branch:
 
 ```
 gitq: invalid --mr-meta: entry "feat-ui" must be {"title": string, "description": string}
 ```
 
-A branch you omit from the file falls back to the branch-name-as-title, empty-description default. A branch already published (skipped by the `local-only` filter above) ignores any entry for it in the file — there is no code path that reads `--mr-meta` for a branch that already has an MR.
+A branch you omit from the file falls back to the branch-name-as-title, empty-description default. A branch already published (skipped by the `local-only` filter above) ignores any entry for it in the file: there is no code path that reads `--mr-meta` for a branch that already has an MR.
 
 ## Re-running `publish`
 
-Because the filter is "no MR yet," running `publish` again after adding a new branch on top of an already-published stack publishes only the new branch — it extends the chain, targeting the new branch's MR at whatever the previous tip's MR already is. It does **not**:
+Because the filter is "no MR yet," running `publish` again after adding a new branch on top of an already-published stack publishes only the new branch: it extends the chain, targeting the new branch's MR at whatever the previous tip's MR already is. It does **not**:
 
 - Push new commits for a branch that already has an MR (a rebased, already-published branch needs its own `git push --force-with-lease`, run by hand or via whatever your normal publish flow is outside gitq).
 - Update an existing MR's title or description, even if you pass `--mr-meta` covering that branch.
@@ -96,11 +96,11 @@ The top-level `README.md` describes `publish` as opening "or update[ing]" an MR 
 
 ## The human gate lives in the skill, not the CLI
 
-`gitq publish` itself pushes and opens MRs the moment you run it — there is no confirmation prompt in the CLI. The gate exists one layer up, in `gitq:publish`'s workflow: the skill drafts the MR titles and descriptions, shows you the whole plan, and waits for a yes before it ever invokes `gitq publish`. If you run the bare CLI command yourself, you are the gate. See [Drive gitq with agents](/guides/agent-skills) for what the skill does around this command.
+`gitq publish` itself pushes and opens MRs the moment you run it; there is no confirmation prompt in the CLI. The gate exists one layer up, in `gitq:publish`'s workflow: the skill drafts the MR titles and descriptions, shows you the whole plan, and waits for a yes before it ever invokes `gitq publish`. If you run the bare CLI command yourself, you are the gate. See [Drive gitq with agents](/guides/agent-skills) for what the skill does around this command.
 
 ## `import --replace`: recovery, not routine {#import-replace}
 
-`gitq import` rebuilds the local store from GitLab directly: it fetches every open MR, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it found. It is the reverse of `publish` — forge state becomes the source of truth instead of the local store — and it exists for one situation: **your local store is gone or wrong, and GitLab still has the truth.**
+`gitq import` rebuilds the local store from GitLab directly: it fetches every open MR, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it found. It is the reverse of `publish` (forge state becomes the source of truth instead of the local store), and it exists for one situation: **your local store is gone or wrong, and GitLab still has the truth.**
 
 It refuses to run over a non-empty store without `--replace`:
 
@@ -112,7 +112,7 @@ gitq import
 gitq: import would discard 2 locally tracked stack(s) and re-mint stack ids; pass --replace to overwrite the local store
 ```
 
-Exit `1`, checked **before** the token or the network are touched, on purpose — you get told what would be lost even offline. The reason it refuses at all: import does not merge, it replaces. Every stack `import` creates gets a fresh, random id (`crypto.randomUUID()`, unrelated to anything a previous `track`, `add`, or an earlier `import` assigned), so anything keyed to the old ids — most importantly, any `gitq undo` history for operations run before the import — stops resolving to a current stack the moment you replace it. The stack *names* it derives are a readable slug from the tip branch's MR title or branch name (deduplicated on collision), which can look stable across two imports of the same MRs, but the `id` underneath never is.
+Exit `1`, checked **before** the token or the network are touched, on purpose: you get told what would be lost even offline. The reason it refuses at all: import does not merge, it replaces. Every stack `import` creates gets a fresh, random id (`crypto.randomUUID()`, unrelated to anything a previous `track`, `add`, or an earlier `import` assigned), so anything keyed to the old ids, most importantly any `gitq undo` history for operations run before the import, stops resolving to a current stack the moment you replace it. The stack *names* it derives are a readable slug from the tip branch's MR title or branch name (deduplicated on collision), which can look stable across two imports of the same MRs, but the `id` underneath never is.
 
 `--replace` also refuses outright while any cascade in the repo is active:
 
@@ -124,9 +124,9 @@ gitq import --replace
 gitq: cascades are active; finish or abort them first
 ```
 
-Exit `1`, and unlike the per-stack lease guard everywhere else, this one fires on **any** lease in the repo, parked or running, for any stack — because import is about to discard the store those leases are tracked against.
+Exit `1`, and unlike the per-stack lease guard everywhere else, this one fires on **any** lease in the repo, parked or running, for any stack, because import is about to discard the store those leases are tracked against.
 
-Reach for it when [Recover](/guides/recover) says to, not as a way to "refresh" a stack that is merely behind — that is what `gitq sync` is for.
+Reach for it when [Recover](/guides/recover) says to, not as a way to "refresh" a stack that is merely behind: that is what `gitq sync` is for.
 
 ## Next
 
