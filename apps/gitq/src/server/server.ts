@@ -21,6 +21,7 @@ const build = await Bun.build({
   entrypoints: [join(import.meta.dir, '..', 'client', 'client.tsx')],
   target: 'browser',
   minify: true,
+  define: { 'process.env.NODE_ENV': '"production"' },
 });
 if (!build.success) {
   console.error(build.logs.join('\n'));
