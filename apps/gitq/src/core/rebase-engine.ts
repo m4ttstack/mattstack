@@ -2,6 +2,8 @@ import type { Stack, StackNode, RebaseState } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
 import { toErrorMessage } from './error-utils.ts';
+import { findSlotForBranch, getWorktreeMap } from './worktrees.ts';
+import type { SlotInfo } from './worktrees.ts';
 
 // ── Result types ─────────────────────────────────────────────────────────────
 
@@ -34,6 +36,8 @@ export interface CascadePauseInfo {
    * parent's OLD head instead of a merge-base against the rewritten one.
    */
   preRebaseHeads?: Record<string, string>;
+  /** Worktree holding the paused rebase (the leased work slot). Absent for legacy cwd-anchored cascades. */
+  worktreePath?: string;
   /**
    * Which phase paused. `'reconcile'` means the branch is being synced with
    * its merged parent's final state before the cascade rebase.
@@ -453,6 +457,43 @@ async function isFullyRedundant(
   }
 }
 
+/**
+ * Move `branch` from oldHead to newHead after a detached rebase, applying the
+ * slot policy: a clean human slot sitting exactly on oldHead is re-verified
+ * (TOCTOU guard), the ref CAS-moved, and the slot reset to the new head; a
+ * dirty, mid-rebase, or drifted slot refuses (the detached rebase result is
+ * simply discarded, which is harmless). Returns a RebaseResult.
+ */
+async function finalizeBranchRef(
+  cwd: string,
+  branch: string,
+  oldHead: string,
+  newHead: string,
+): Promise<RebaseResult> {
+  try {
+    const map = await getWorktreeMap(cwd);
+    const owner = findSlotForBranch(map, branch);
+    if (owner) {
+      const fresh = await GitShell.isDirty(owner.path).catch(() => true);
+      const stillOnOld = (await GitShell.getBranchHead(owner.path, 'HEAD')) === oldHead;
+      if (fresh || owner.rebaseInProgress || !stillOnOld) {
+        return {
+          branch,
+          success: false,
+          error: `branch is checked out in slot "${owner.name}" (${owner.path}) which is ${fresh ? 'dirty' : owner.rebaseInProgress ? 'mid-rebase' : 'not on the branch head'}; commit or stash there, or free the slot, then retry`,
+        };
+      }
+      await GitShell.updateRefCas(cwd, branch, newHead, oldHead);
+      await GitShell.resetHard(owner.path, newHead);
+      return { branch, success: true };
+    }
+    await GitShell.updateRefCas(cwd, branch, newHead, oldHead);
+    return { branch, success: true };
+  } catch (err) {
+    return { branch, success: false, error: toErrorMessage(err) };
+  }
+}
+
 // ── Shared cascade loop ──────────────────────────────────────────────────────
 
 async function doCascadeLoop(
@@ -463,6 +504,7 @@ async function doCascadeLoop(
   resolveNewBase: (node: StackNode) => string,
   pauseContext: { mergedBranch: string | null; newBase: string },
   preRebaseHeads: Record<string, string> = {},
+  workDir?: string,
 ): Promise<CascadeResult> {
   let updatedStack = initialStack;
   const results: RebaseResult[] = [];
@@ -503,6 +545,21 @@ async function doCascadeLoop(
     // branched. Uses reflog fork-point to replay only the child's own commits.
     const directParent = initialStack.nodes.find((n) => n.branch === node.parent);
     if (directParent?.status === 'merged') {
+      // Reconciliation (cherry-pick / rebaseSingle against the tombstone)
+      // always runs in `cwd`, even when a workDir is set for the main
+      // cascade. If the branch is checked out in a non-work slot, refuse
+      // rather than mutate that slot's checkout out from under it.
+      if (workDir) {
+        const owner = findSlotForBranch(await getWorktreeMap(cwd), node.branch);
+        if (owner) {
+          results.push({
+            branch: node.branch,
+            success: false,
+            error: `branch is checked out in slot "${owner.name}" (${owner.path}); reconciliation with a squash-merged parent requires cwd to be free of that checkout — free the slot, then retry`,
+          });
+          break;
+        }
+      }
       // Resolve tombstone: prefer live branch tip over stale lastKnownHead
       let tombstone: string | null = null;
       try {
@@ -623,9 +680,64 @@ async function doCascadeLoop(
     // skip the rebase — just fast-forward the branch pointer.
     const cascadeRedundant = await isFullyRedundant(cwd, targetBase, node.branch);
     if (cascadeRedundant) {
-      await GitShell.checkoutBranch(cwd, node.branch);
-      await GitShell.resetHard(cwd, targetBase);
-      results.push({ branch: node.branch, success: true });
+      if (workDir) {
+        const oldHead = preRebaseHeads[node.branch];
+        const targetSha = await GitShell.getBranchHead(cwd, targetBase);
+        const ff = oldHead
+          ? await finalizeBranchRef(cwd, node.branch, oldHead, targetSha)
+          : { branch: node.branch, success: false, error: 'missing pre-rebase head for fast-forward' };
+        results.push(ff);
+        if (!ff.success) break;
+      } else {
+        await GitShell.checkoutBranch(cwd, node.branch);
+        await GitShell.resetHard(cwd, targetBase);
+        results.push({ branch: node.branch, success: true });
+      }
+    } else if (workDir) {
+      // Detached flow: rebase in the work slot, then CAS-finalize the ref.
+      const oldHead = preRebaseHeads[node.branch] ?? (await GitShell.getBranchHead(cwd, node.branch));
+      let rebased = true;
+      try {
+        await GitShell.detachAt(workDir, oldHead);
+        await GitShell.rebaseOntoDetached(workDir, targetBase, baseResult.oldBase);
+      } catch (err) {
+        rebased = false;
+        const typedConflicts = await GitShell.listConflictedFilesWithTypes(workDir).catch(() => []);
+        const conflictFiles = typedConflicts.length > 0
+          ? typedConflicts.map((c) => c.file)
+          : await GitShell.listConflictedFiles(workDir).catch(() => [] as string[]);
+        if (conflictFiles.length > 0) {
+          const completedBranches = results.filter((r) => r.success).map((r) => r.branch);
+          const remainingBranches = nodes.slice(i + 1).map((n) => n.branch);
+          return {
+            results,
+            updatedStack,
+            state: 'paused',
+            pauseInfo: {
+              currentBranch: node.branch,
+              conflictFiles,
+              remainingBranches,
+              completedBranches,
+              mergedBranch: pauseContext.mergedBranch,
+              newBase: pauseContext.newBase,
+              currentTarget: targetBase,
+              phase: 'cascade',
+              conflictTypes: typedConflicts,
+              preRebaseHeads: { ...preRebaseHeads },
+              worktreePath: workDir,
+            },
+          };
+        }
+        results.push({ branch: node.branch, success: false, error: toErrorMessage(err) });
+        break;
+      }
+      if (rebased) {
+        const newHead = await GitShell.getBranchHead(workDir, 'HEAD');
+        const fin = await finalizeBranchRef(cwd, node.branch, oldHead, newHead);
+        await GitShell.detachAt(workDir, newHead).catch(() => {});
+        results.push(fin);
+        if (!fin.success) break;
+      }
     } else {
       const result = await RebaseEngine.rebaseSingle(cwd, targetBase, baseResult.oldBase, node.branch);
       results.push(result);
@@ -726,6 +838,7 @@ export const RebaseEngine = {
     stack: Stack,
     mergedBranch: string,
     newBase: string,
+    workDir?: string,
   ): Promise<CascadeResult> {
     const descendants = StackManager.getDescendants(stack, mergedBranch);
     return doCascadeLoop(
@@ -735,6 +848,8 @@ export const RebaseEngine = {
       makeTombstoneResolver(cwd, mergedBranch),
       (node) => (node.parent === mergedBranch ? newBase : node.parent),
       { mergedBranch, newBase },
+      {},
+      workDir,
     );
   },
 
@@ -748,16 +863,18 @@ export const RebaseEngine = {
     cwd: string,
     stack: Stack,
     pauseInfo: CascadePauseInfo,
+    workDir?: string,
   ): Promise<CascadeResult> {
+    const treeDir = workDir ?? pauseInfo.worktreePath ?? cwd;
     try {
-      await GitShell.rebaseContinue(cwd);
+      await GitShell.rebaseContinue(treeDir);
     } catch {
-      const conflictFiles = await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
+      const conflictFiles = await GitShell.listConflictedFiles(treeDir).catch(() => [] as string[]);
       if (conflictFiles.length > 0) {
         // Refresh conflict types with current conflict data (not stale from initial pause)
-        const typedConflicts = await GitShell.listConflictedFilesWithTypes(cwd).catch(() => [] as { file: string; type: string }[]);
+        const typedConflicts = await GitShell.listConflictedFilesWithTypes(treeDir).catch(() => [] as { file: string; type: string }[]);
         // Read rebase progress from git internals
-        const progress = GitShell.getRebaseProgress(cwd);
+        const progress = GitShell.getRebaseProgress(treeDir);
         return {
           results: [],
           updatedStack: stack,
@@ -781,7 +898,35 @@ export const RebaseEngine = {
     }
 
     let updatedStack = stack;
-    const results: RebaseResult[] = [{ branch: pauseInfo.currentBranch, success: true }];
+
+    // ── Detached-flow finalization ───────────────────────────────────────
+    // When this pause came from the detached cascade flow (worktreePath
+    // set), the branch ref has NOT moved yet — the rebase landed in the
+    // work slot only. Finalize it now via the same CAS + slot-policy path
+    // the main loop uses, then re-detach the slot.
+    let firstResult: RebaseResult = { branch: pauseInfo.currentBranch, success: true };
+    if (pauseInfo.worktreePath) {
+      const newHead = await GitShell.getBranchHead(treeDir, 'HEAD');
+      const oldHead = pauseInfo.preRebaseHeads?.[pauseInfo.currentBranch];
+      if (!oldHead) {
+        return {
+          results: [{
+            branch: pauseInfo.currentBranch,
+            success: false,
+            error: 'missing pre-rebase head for finalization — cannot safely move the branch ref',
+          }],
+          updatedStack: stack,
+          state: 'completed',
+        };
+      }
+      const fin = await finalizeBranchRef(cwd, pauseInfo.currentBranch, oldHead, newHead);
+      await GitShell.detachAt(treeDir, newHead).catch(() => {});
+      if (!fin.success) {
+        return { results: [fin], updatedStack: stack, state: 'completed' };
+      }
+      firstResult = fin;
+    }
+    const results: RebaseResult[] = [firstResult];
 
     // ── Reconcile phase follow-up ────────────────────────────────────────
     // When continuing from a reconciliation pause, the child is now synced
@@ -876,6 +1021,7 @@ export const RebaseEngine = {
       newBaseResolver,
       { mergedBranch: pauseInfo.mergedBranch, newBase: pauseInfo.newBase },
       resumeHeads,
+      treeDir === cwd ? undefined : treeDir,
     );
 
     const combined: CascadeResult = {
@@ -891,8 +1037,8 @@ export const RebaseEngine = {
   },
 
   /** Abort a paused cascade rebase. Runs `git rebase --abort`. */
-  async abortCascade(cwd: string): Promise<void> {
-    await GitShell.rebaseAbort(cwd);
+  async abortCascade(cwd: string, workDir?: string): Promise<void> {
+    await GitShell.rebaseAbort(workDir ?? cwd);
   },
 
   /**
@@ -905,7 +1051,7 @@ export const RebaseEngine = {
    * Useful for the "mid-stack amend" situation: user edited feat/layer-2,
    * only feat/layer-3 and feat/layer-4 need restacking.
    */
-  async restackFrom(cwd: string, stack: Stack, branch: string): Promise<CascadeResult> {
+  async restackFrom(cwd: string, stack: Stack, branch: string, workDir?: string): Promise<CascadeResult> {
     const descendants = StackManager.getDescendants(stack, branch);
     if (descendants.length === 0) {
       return { results: [], updatedStack: stack, state: 'completed' };
@@ -926,6 +1072,7 @@ export const RebaseEngine = {
       (node) => node.parent,
       { mergedBranch: null, newBase: branch },
       preRebaseHeads,
+      workDir,
     );
   },
 
@@ -941,7 +1088,7 @@ export const RebaseEngine = {
    * Uses merge-base approach (not tombstones) since this is a normal
    * pull-and-restack, not a squash-merge recovery.
    */
-  async syncLocalStack(cwd: string, stack: Stack): Promise<CascadeResult> {
+  async syncLocalStack(cwd: string, stack: Stack, workDir?: string): Promise<CascadeResult> {
     const trunk = stack.root;
     const remoteTrunk = `origin/${trunk}`;
 
@@ -974,6 +1121,7 @@ export const RebaseEngine = {
       (node) => resolveParentRef(node),
       { mergedBranch: null, newBase: remoteTrunk },
       preRebaseHeads,
+      workDir,
     );
   },
 };
