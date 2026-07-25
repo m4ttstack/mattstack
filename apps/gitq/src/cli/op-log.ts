@@ -41,7 +41,7 @@ export async function withOperationLog(
   shouldLog: (exitCode: number) => boolean = (code) => code === 0,
 ): Promise<number> {
   const snapshots = await snapshotBranches(ctx.repoRoot, stack);
-  const entry = OperationLog.create(operation, stack, snapshots, ctx.repoRoot);
+  const entry = { ...OperationLog.create(operation, stack, snapshots, ctx.repoRoot), commonDir: ctx.commonDir };
   setCommandHook(OperationLog.commandHook(entry));
   let exitCode: number;
   try {

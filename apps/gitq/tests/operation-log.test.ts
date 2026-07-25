@@ -1,25 +1,35 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import type { Stack } from '../src/core/types.ts';
 
-// Shared state the mock and tests both reference via globalThis
+// Shared state the mock and tests both reference via globalThis. Keyed by
+// path (not a single value) because OperationLog.save now takes a sidecar
+// file lock (withFileLock) around its write, so the log data file and its
+// `.lock` file must be tracked as distinct entries.
 declare global {
   // eslint-disable-next-line no-var
-  var __opLogMockStore: string | null;
+  var __opLogMockStore: Map<string, string>;
 }
-globalThis.__opLogMockStore = null;
+globalThis.__opLogMockStore = new Map();
 
 mock.module('node:fs/promises', () => ({
   mkdir: async () => {},
-  readFile: async () => {
-    if (globalThis.__opLogMockStore === null) {
+  readFile: async (path: string) => {
+    if (!globalThis.__opLogMockStore.has(path)) {
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     }
-    return globalThis.__opLogMockStore;
+    return globalThis.__opLogMockStore.get(path)!;
   },
-  writeFile: async (_path: string, data: string) => {
-    globalThis.__opLogMockStore = data;
+  writeFile: async (path: string, data: string) => {
+    globalThis.__opLogMockStore.set(path, data);
   },
-  rename: async () => {},
+  rename: async (oldPath: string, newPath: string) => {
+    const data = globalThis.__opLogMockStore.get(oldPath);
+    globalThis.__opLogMockStore.delete(oldPath);
+    if (data !== undefined) globalThis.__opLogMockStore.set(newPath, data);
+  },
+  unlink: async (path: string) => {
+    globalThis.__opLogMockStore.delete(path);
+  },
 }));
 
 let uuidCounter = 0;
@@ -54,7 +64,7 @@ function makeStack(id = 'test-stack'): Stack {
 
 beforeEach(() => {
   uuidCounter = 0;
-  globalThis.__opLogMockStore = null;
+  globalThis.__opLogMockStore = new Map();
 });
 
 describe('OperationLog.create', () => {

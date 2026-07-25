@@ -1,4 +1,5 @@
-import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 export interface LockOptions {
   /** Give up after this long waiting for the lock. */
@@ -39,6 +40,8 @@ export async function withFileLock<T>(
   const staleMs = opts.staleMs ?? 10_000;
   const isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
   const deadline = Date.now() + timeoutMs;
+
+  await mkdir(dirname(filePath), { recursive: true });
 
   for (;;) {
     try {
