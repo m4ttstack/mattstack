@@ -25,6 +25,8 @@ The format is `<stackName> (root <rootBranch>): <branch> -> <branch> -> ...`, on
 
 This is the store's view, not git's. It tells you what gitq believes the tree is; it says nothing about whether those branches are up to date, or whether they still exist in git. Reach for it when you need the stack's name (to pass to `--stack`), or to confirm that an `add`, `remove`, or a piece of surgery landed the way you expected.
 
+See [`gitq stacks`](/reference/read-only/stacks) for the full flag and JSON reference.
+
 ## `gitq diagnose`: what needs doing?
 
 Answers: for every branch in every tracked stack, what is its situation right now?
@@ -68,6 +70,8 @@ Two things worth knowing about how these are computed:
 - **The root is compared against `origin/<root>`, not the local branch.** A branch whose parent is the stack root is `behind-parent` when it is behind the remote trunk. Committing to your local `main` without pushing changes nothing, and in a repo with no remote at all, `diagnose` cannot detect staleness against the root and quietly reports the branches as `local-only`.
 - **The dirty worktree and mid-rebase blocks are separate.** They do not appear in the human output. In `--json` they come back as `globalBlocks` on the stack, plus a `blocked` field on every affected node, and a `banner` summarising the stack's headline problem.
 
+See [`gitq diagnose`](/reference/read-only/diagnose) for the full situation list and JSON reference.
+
 ## `gitq preflight`: is it safe to sync?
 
 Answers: if I ran `sync` right now, would it conflict, and is anything in my way?
@@ -86,6 +90,8 @@ One line per stack with the working tree state, then either the predicted confli
 Reach for it before a `sync` you are not sure about, especially a long stack or one you have not touched in a while. It is the difference between finding out about a conflict now and finding out halfway through a cascade.
 
 `preflight` predicts; it does not promise. It runs one `git merge-tree` three-way merge per branch to look for conflicts, so it can miss cases that only appear once earlier branches have actually been rewritten. It also skips prediction entirely when the working tree is dirty: `no predicted conflicts` next to `dirty=true` means "not checked", not "clean".
+
+See [`gitq preflight`](/reference/read-only/preflight) for the full flag and JSON reference.
 
 ## Machine readable output
 

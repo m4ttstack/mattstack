@@ -31,6 +31,8 @@ Guarded by the stack lease, and refuses up front on the same rule `rename` uses 
 
 Only after that does it update the stack tree's `lastKnownHead`, and that update throws if `<branch>` isn't a node in the picked stack. In that edge case the git-level reset has already happened for real before the command fails, since the store update runs strictly after the checkout and hard reset (`src/core/branch-reset.ts:29-34`).
 
+**This is one of two exceptions to surgery's "your checkout never moves" guarantee** (`GitShell.checkoutBranch(cwd, branch)`, `src/core/branch-reset.ts:29`). The checkout is not conditional on `<branch>` being the one you already had checked out, and nothing restores your prior branch afterward (contrast [`gitq absorb`](/reference/surgery/absorb), which does restore the branch you started on): standing on `feat-a` and running `gitq reset feat-b` leaves you checked out on `feat-b`. The other exception is [`gitq fold`](/reference/surgery/fold), which moves a checkout only when the branch it deletes forces it to.
+
 **Never written to the operation log at all.** Unlike `split`, `fold`, and `rename`, which are logged but excluded from `REVERSIBLE_OPERATIONS`, `reset` is never wrapped in `withOperationLog` in the first place (`src/cli/commands/surgery.ts:233-250`). `gitq undo` has nothing to give back after a `reset`, ever; whatever the branch pointed at before is gone unless you noted the sha yourself.
 
 ## Exit codes

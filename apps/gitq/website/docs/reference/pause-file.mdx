@@ -44,7 +44,7 @@ The file on disk is a `PauseFile` (`src/cli/pause-file.ts:8-11`):
 | `currentBranch` | string | Yes | The branch the rebase stopped on. |
 | `conflictFiles` | string[] | Yes | Conflicted file paths, plain strings. |
 | `remainingBranches` | string[] | Yes | Branches this walk has not yet attempted, in topological order. |
-| `completedBranches` | string[] | Yes | Branches *this invocation's* walk has already rebased successfully. Resets to empty on every `gitq continue`, since each continue starts a fresh walk over the remaining branches; it is not the whole cascade's history. |
+| `completedBranches` | string[] | Yes | Branches *this invocation's* walk has already rebased successfully. Usually empty right after a `gitq continue`, since a continue that resolves cleanly starts a fresh walk over the remaining branches, but a continue whose own `git rebase --continue` re-conflicts carries the prior pause's value forward unchanged instead of resetting it. Not the whole cascade's history either way; see `preRebaseHeads`. |
 | `mergedBranch` | string \| null | Yes | Non-null for a cascade driven by a merged parent's tombstone, `null` for a plain sync. |
 | `newBase` | string | Yes | The base the cascade is working toward; `origin/<root>` for `sync`. |
 | `currentTarget` | string | No | The actual `--onto` target of the branch that paused. Not always equal to `newBase`: a mid-stack branch targets its parent, and a reconciling branch targets its merged parent's tombstone. |

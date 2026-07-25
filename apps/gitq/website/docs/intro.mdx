@@ -25,7 +25,7 @@ gitq keeps the tree in a store instead of in your head. You tell it which branch
 
 - It tracks the tree, so `gitq stacks` and `gitq diagnose` can tell you the shape of the stack and which branches are out of date.
 - It rebases the whole tree in one command. `gitq sync` walks the stack from the root up, rebasing each branch onto its parent's new head.
-- It does surgery on the tree. `absorb` distributes uncommitted changes to the branches that own those files, `split` breaks one branch into two, `fold` collapses a branch into its parent, and `reparent` moves a branch (and its descendants) somewhere else in the tree. Each one restacks whatever it disturbed.
+- It does surgery on the tree. `absorb` distributes uncommitted changes to the branches that own those files, `split` breaks one branch into two, `fold` collapses a branch into its parent, and `reparent` moves a branch (and its descendants) somewhere else in the tree. Only `reparent` restacks descendants through the same cascade `sync` uses; `absorb` restacks through a separate loop of its own, and `fold` and `split --files` leave descendants for a later `sync`.
 
 It is deterministic about it: cascades run in a dedicated work worktree with a detached HEAD, and branch refs are moved with a compare-and-swap at the end, so a run that fails or conflicts does not leave your checkout in a state you did not ask for.
 

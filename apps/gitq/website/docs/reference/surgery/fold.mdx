@@ -29,9 +29,9 @@ Guarded by the stack lease, and always runs detached in a leased [work slot](/co
 
 **Fold does not cascade the reparented children.** When the replay produced no new commits (the usual case, the parent was already sitting at the folded branch's base), the children are already on the right head and there is nothing to do. When the parent had moved ahead and the replay produced new commits, the children are left behind their new parent and want a `gitq sync`.
 
-### The one exception to checkout neutrality
+### One of two exceptions to checkout neutrality
 
-Deleting a branch means it cannot stay checked out anywhere. A **clean** worktree holding the folded branch, including the one you launched `fold` from, is switched to the parent before the branch is deleted (`src/core/branch-fold.ts:136-142`). This is the single exception across all of surgery to "your checkout never moves."
+Deleting a branch means it cannot stay checked out anywhere. A **clean** worktree holding the folded branch, including the one you launched `fold` from, is switched to the parent before the branch is deleted (`src/core/branch-fold.ts:136-142`). This is one of two exceptions across all of surgery to "your checkout never moves"; the other is [`gitq reset`](/reference/surgery/reset), which always checks the target branch out in your launch worktree.
 
 ### Refusals
 

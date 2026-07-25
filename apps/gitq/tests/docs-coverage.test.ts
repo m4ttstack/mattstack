@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeAll } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { COMMANDS } from '../src/cli/main.ts';
@@ -20,26 +20,35 @@ function walkMdx(dir: string): string[] {
   return out;
 }
 
-const allMdxPaths = walkMdx(REFERENCE_DIR);
-const mdxBasenames = new Set(allMdxPaths.map((p) => p.split(sep).pop()!.replace(/\.mdx$/, '')));
-
 // A page "in a command subdirectory" is any .mdx nested at least one level below
 // reference/ (read-only/stacks.mdx, surgery/split.mdx, ...). The five contract
 // pages (global-flags.mdx, exit-codes.mdx, ...) live directly in reference/ and
 // have no path separator, so this structural check excludes them without having
-// to name them - or the command-category directories - explicitly.
-const commandPages = allMdxPaths
-  .filter((p) => p.includes(sep))
-  .map((relPath) => ({ relPath, name: relPath.split(sep).pop()!.replace(/\.mdx$/, '') }));
+// to name them - or the command-category directories - explicitly. Both tests
+// below share this exact rule (`p.includes(sep)`), so a command page mistakenly
+// placed directly under reference/ (no subdirectory) counts as neither covering
+// its command nor exempt from the stale-page check.
+let commandPages: { relPath: string; name: string }[] = [];
 
 describe('docs coverage', () => {
   const commandNames = Object.keys(COMMANDS);
 
+  // Walking the filesystem is deferred to beforeAll (rather than module load)
+  // so a missing website/docs/reference/ directory fails as a named test with
+  // a useful message instead of throwing at import time.
+  beforeAll(() => {
+    const allMdxPaths = walkMdx(REFERENCE_DIR);
+    commandPages = allMdxPaths
+      .filter((p) => p.includes(sep))
+      .map((relPath) => ({ relPath, name: relPath.split(sep).pop()!.replace(/\.mdx$/, '') }));
+  });
+
   test('every CLI command has a reference page', () => {
-    const missing = commandNames.filter((name) => !mdxBasenames.has(name));
+    const commandPageNames = new Set(commandPages.map((p) => p.name));
+    const missing = commandNames.filter((name) => !commandPageNames.has(name));
     expect(
       missing,
-      `commands with no reference page under website/docs/reference/: ${missing.join(', ')}`,
+      `commands with no reference page under website/docs/reference/<category>/: ${missing.join(', ')}`,
     ).toEqual([]);
   });
 

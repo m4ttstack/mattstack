@@ -5,7 +5,7 @@ sidebar_position: 3
 
 # Restructure a stack
 
-`sync` rebases a stack. It never changes its shape. Changing the shape is surgery: five commands that split a branch in two, merge one into another, move a subtree, rename a node, or snap a branch back to its remote.
+`sync` rebases a stack. It never changes its shape. Changing the shape is surgery: six commands in total, though this page covers five of them, the ones that split a branch in two, merge one into another, move a subtree, rename a node, or snap a branch back to its remote. The sixth, `absorb`, gets its own guide: [Absorb uncommitted changes](/guides/absorb-changes).
 
 All of them update gitq's tree and the git refs together, and none of them replays a commit inside the worktree you launched them from. Most refuse outright rather than half-finish; `reparent` is the exception, because its descendant cascade can pause partway through, with the branch itself already moved and its descendants still catching up (see [reparent](#reparent) below). Every block below came from a real run.
 
@@ -25,7 +25,7 @@ See [The pause protocol](/concepts/pause-protocol).
 
 ## What surgery does to your checkout
 
-**Surgery does not switch the branch your checkout is on.** `split --files` and `reparent` replay commits detached in a leased [work slot](/concepts/work-slots) and then move the branch ref with a compare and swap; `split --at` and `rename` are pure ref operations that replay nothing at all. Whatever branch you were on, you are still on.
+**Surgery does not switch the branch your checkout is on, with two exceptions: `fold` and `reset` (both below).** `split --files` and `reparent` replay commits detached in a leased [work slot](/concepts/work-slots) and then move the branch ref with a compare and swap; `split --at` and `rename` are pure ref operations that replay nothing at all. Whatever branch you were on, you are still on.
 
 That is not the same as "your files do not change". If the branch being rewritten is the one you have checked out, and your tree is clean and sitting exactly on its old head, gitq moves the ref and resets your worktree to the new head for you. Standing on `feat-core` and splitting it:
 
@@ -55,9 +55,11 @@ git status --short --branch
 
 Same branch, and `docs.md` is gone from the working tree, because `feat-core` no longer contains the commit that added it. If the tree had been dirty or drifted off the old head instead, the operation would have refused and nothing would have moved.
 
-:::note The one exception is `fold`
+:::note The two exceptions are `fold` and `reset`
 
 `fold` deletes a branch, so it cannot leave that branch checked out anywhere. If the branch you fold is the one you are standing on, gitq moves your checkout to the parent. Details in [`fold`](#fold) below.
+
+`reset` checks the branch out in your launch worktree before hard-resetting it, whether or not that is the branch you started on. Details in [`reset`](#reset) below.
 
 :::
 
@@ -529,6 +531,10 @@ Renaming a published branch does not rename it on the remote. The old branch is 
 **When you want it.** Local and remote have diverged, for example someone force-pushed the branch on GitLab, and you want your local ref to match exactly what is there.
 
 `gitq reset <branch>` requires a clean launch worktree: it checks out the branch there and hard-resets it to `origin/<branch>`, so uncommitted changes in the way stop it with `gitq: Working tree has uncommitted changes. Commit or stash first.` before anything moves. It does not fetch on its own, so make sure your remote-tracking ref for the branch is current first.
+
+### Reset is the other exception to checkout neutrality
+
+Checking the branch out is not conditional on it being the branch you already had checked out; `reset` does it regardless. If you were on `feat-a` and run `gitq reset feat-b`, you are left standing on `feat-b`, not back on `feat-a`. Nothing restores your original branch afterward.
 
 Like `rename`, it refuses up front if the branch is checked out somewhere other than your launch worktree, dirty or not, with the same message.
 
