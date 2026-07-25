@@ -1,0 +1,98 @@
+---
+title: Pause file
+sidebar_position: 5
+---
+
+# Pause file
+
+`gitq-pause.json` is what a cascade writes the instant it stops on a conflict. This page is its full schema, field by field, from the types that define it, plus a real capture straight off disk. For the protocol around it, the resolve loop, what refuses, what `continue` and `abort` each do, see [The pause protocol](/concepts/pause-protocol); this page only covers the file itself.
+
+## Where it lives
+
+`pausePath(gitDir)` is `join(gitDir, 'gitq-pause.json')` (`src/cli/pause-file.ts:13-15`): always a specific git dir, never a fixed path.
+
+- **During a normal cascade** (`sync`, `continue`, most `reparent` conflicts), the rebase runs detached in a leased work slot, and `pauseInfo.worktreePath` is set to that slot. The file sits at that slot's own git dir, typically `<commonDir>/worktrees/gitq-1/gitq-pause.json`, not anywhere in your own checkout.
+- **During a native pause** (the reconcile phase that brings a branch into line with a merged parent before the cascade proper, or reparent's own `--onto` rebase), `pauseInfo.treePath` is set instead, and the file sits in the git dir of the tree the command was actually launched from.
+
+`finishCascade` reads `pauseInfo.worktreePath ?? pauseInfo.treePath ?? ctx.repoRoot` to name the tree in its own message (`src/cli/commands/cascade.ts:39`), and `continueCommand`/`abortCommand` resolve the same way to find where to run `git rebase --continue` or `git rebase --abort` (`src/cli/commands/cascade.ts:93`, `:118`). Both fall back to `ctx.repoRoot` only for legacy pauses written before either field existed.
+
+The write itself happens **before** the stack store is saved (`src/cli/commands/cascade.ts:26-29`): "a pause file exists if and only if a rebase is in progress" has to survive a crash between the two writes, so the file goes down first.
+
+## What actually refuses while paused
+
+Not the file's mere presence. The **lease**.
+
+A cascade that exits `2` leaves its lease on the work slot in the `parked` state, and `requireStackFree` (`src/cli/slots.ts:19-27`) is what every mutating command actually checks, from any worktree of the repo. `readPause`/`requireNoPause` (`src/cli/pause-file.ts:17-20,40-45`) is legacy, superseded by the lease for every command with a resolvable stack, and the source says so directly:
+
+> Legacy guard, superseded by `requireStackFree` (slots.ts) for every command with a resolvable stack: those now refuse on a per-stack LEASE (running or parked), not on this local pause file, since a cascade pauses in a leased work slot rather than in `ctx.gitDir`.
+
+It is kept for exactly one caller: `undo` runs it first (`src/cli/commands/undo.ts:33-34`), before it even knows which stack it is dealing with, since it has not yet read the operation log entry to find out. That check reads `ctx.gitDir`, the tree `gitq undo` was invoked from, so it only catches a native pause anchored in that same tree; a detached cascade paused in a work slot elsewhere in the repo is invisible to it, and `undo` relies on `requireStackFree` for that case once it does know the stack. See [The pause protocol](/concepts/pause-protocol#what-refuses-while-a-cascade-is-paused) for the full guard table.
+
+## The schema
+
+The file on disk is a `PauseFile` (`src/cli/pause-file.ts:8-11`):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `stackId` | string | The stack this pause belongs to. |
+| `pauseInfo` | object | Everything below; a `CascadePauseInfo`. |
+
+`pauseInfo` (`src/core/rebase-engine.ts:17-56`):
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `currentBranch` | string | Yes | The branch the rebase stopped on. |
+| `conflictFiles` | string[] | Yes | Conflicted file paths, plain strings. |
+| `remainingBranches` | string[] | Yes | Branches this walk has not yet attempted, in topological order. |
+| `completedBranches` | string[] | Yes | Branches *this invocation's* walk has already rebased successfully. Resets to empty on every `gitq continue`, since each continue starts a fresh walk over the remaining branches; it is not the whole cascade's history. |
+| `mergedBranch` | string \| null | Yes | Non-null for a cascade driven by a merged parent's tombstone, `null` for a plain sync. |
+| `newBase` | string | Yes | The base the cascade is working toward; `origin/<root>` for `sync`. |
+| `currentTarget` | string | No | The actual `--onto` target of the branch that paused. Not always equal to `newBase`: a mid-stack branch targets its parent, and a reconciling branch targets its merged parent's tombstone. |
+| `preRebaseHeads` | `Record<string, string>` | No | Each already-processed branch's head as it was *before* this cascade rewrote it, keyed by branch. Spans the whole run across every `gitq continue`, unlike `completedBranches`. |
+| `worktreePath` | string | No | The leased work slot holding the paused rebase. Set for the normal, detached-flow case. |
+| `treePath` | string | No | The tree holding a cwd-anchored, native paused rebase (reparent's own rebase, or the reconcile phase), kept distinct from `worktreePath` so the compare-and-swap finalization that keys off `worktreePath` does not fire for it. |
+| `phase` | `'reconcile'` \| `'cascade'` | No | Which phase paused. `reconcile` means the branch is being synced with its merged parent's final state before the cascade rebase proper; `cascade` (or absent, for backward compatibility) is the normal walk. |
+| `conflictTypes` | `{ file, type }[]` | No | The same files as `conflictFiles`, paired with a two-letter porcelain status code (`UU` both modified, `AA` both added, `UD`/`DU` modified then deleted or the reverse, `AU` added by us) when git could classify them. |
+| `commitIndex` | number | No | 1-indexed position in the current rebase, read from git's own rebase state. |
+| `commitTotal` | number | No | Total commits being applied in the current rebase. |
+
+`treePath` and `mergedBranch` are both defined on the type and read by the code that resolves a pause; setting code for both exists in the reconcile/tombstone-merge path of `src/core/rebase-engine.ts`. But no command in today's CLI reaches that path when driving a real cascade: every pause produced by `sync`, `continue`, or `reparent` through the shipped command set has `worktreePath` set, `mergedBranch` null, and `phase` either `'cascade'` or absent, which both real captures on this page confirm. Take this as a description of the schema, not a claim about which command populates the fields left over from it.
+
+## A real capture
+
+Straight from the leased work slot's `gitq-pause.json`, mid-way through a two-commit rebase that conflicted twice (so `commitIndex`/`commitTotal` are present on the second pause, absent on the first):
+
+```json
+{
+  "stackId": "93507bc7-1f33-447d-84b1-07ce9f8e34ae",
+  "pauseInfo": {
+    "currentBranch": "feat-api",
+    "conflictFiles": ["api.ts"],
+    "remainingBranches": ["feat-handlers"],
+    "completedBranches": [],
+    "mergedBranch": null,
+    "newBase": "origin/main",
+    "currentTarget": "origin/main",
+    "phase": "cascade",
+    "conflictTypes": [{ "type": "AA", "file": "api.ts" }],
+    "preRebaseHeads": { "feat-api": "81985814ddd04db1277cb560fa68941a2e8f86e6" },
+    "worktreePath": "/Users/matt/.cache/gitq/work/dae4068ad8667e8d/gitq-1"
+  }
+}
+```
+
+The human message names the same tree, reading `worktreePath` (or falling back to `treePath`):
+
+```
+paused on feat-api in /Users/matt/.cache/gitq/work/dae4068ad8667e8d/gitq-1 (commit 1/2):
+  AA api.ts
+resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
+```
+
+This is exactly `pauseInfo` under `--json` too; see [JSON output](/reference/json-output) for `sync`/`continue`/`abort`'s full shared shape, and [The pause protocol](/concepts/pause-protocol) for what to actually do with it.
+
+## Next
+
+- [The pause protocol](/concepts/pause-protocol): the resolve loop and what a lease blocks.
+- [Exit codes and errors](/reference/exit-codes): why this file only ever accompanies exit `2`.
+- [Where state lives](/concepts/state): every other file gitq reads or writes.

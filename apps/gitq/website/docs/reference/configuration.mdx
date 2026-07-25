@@ -1,0 +1,60 @@
+---
+title: Configuration
+sidebar_position: 4
+---
+
+# Configuration
+
+gitq has two independent configuration surfaces, read by two different processes. The CLI reads a settings file inside its own config directory. The board reads a `config.json` sitting in the gitq checkout itself. Neither reads the other's file, and nothing in the CLI reads anything from the board's `config.json`.
+
+## The CLI: `settings.json`
+
+gitq's config directory defaults to `~/.config/gitq/` and can be moved with **`GITQ_CONFIG_DIR`**, an environment variable read once, at process start (`src/core/config-paths.ts:5`, `const DEFAULT_CONFIG_DIR = process.env.GITQ_CONFIG_DIR ?? join(homedir(), '.config', 'gitq')`). Every path the CLI derives, the stack stores, the settings file, the operation log, comes from this one directory (`src/core/config-paths.ts:23-37`). Export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks entirely.
+
+Inside it, the only setting the CLI reads today is `maxWorkSlots`, from `settings.json`:
+
+```json
+{ "maxWorkSlots": 5 }
+```
+
+Read by `getMaxWorkSlots` (`src/core/worktrees.ts:85-89`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
+
+Do not look for other keys: `repos.json` also resolves under this directory (`getReposFilePath`, `src/core/config-paths.ts:29-31`), but nothing in the CLI reads or writes it as of this page. The stack stores and the operation log live here too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/concepts/state) for the full inventory of what is written and when.
+
+## The GitLab token
+
+`publish` and `import` both need a token to reach GitLab, resolved by `resolveGitLabToken` (`src/core/secrets.ts:11-22`): **`GITLAB_TOKEN`** from the environment first, and if that is unset, the `gitlabToken` field in `~/.rt/secrets.json`. gitq never writes either location. Missing both is a hard failure before any network call is made: `gitq: no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:31-35`).
+
+The base URL is hardcoded to `https://gitlab.com` (`src/cli/provider.ts:17`, `GITLAB_BASE_URL`). There is no self-hosted GitLab support today, whatever host you point `gitlabToken` or a remote at.
+
+## The board: `config.json`
+
+The board (`src/server/server.ts`) is a separate process with its own configuration file, `config.json`, resolved relative to the gitq checkout itself, not to `GITQ_CONFIG_DIR`: `CONFIG_PATH = join(import.meta.dir, '..', '..', 'config.json')` (`src/server/config.ts:17`), which is the repository root. Start from `config.example.json`:
+
+```json
+{
+  "repos": [{ "path": "/Users/matt/Documents/GitHub/example", "name": "example" }],
+  "port": 11008,
+  "herdrWorkspace": "gitq",
+  "gitlabHost": "https://gitlab.com"
+}
+```
+
+Parsed and validated by `parseConfig` (`src/server/config.ts:25-54`):
+
+| Field | Required | Default | Validation |
+| --- | --- | --- | --- |
+| `repos` | Yes | none | Non-empty array; each entry needs a non-empty `path` string, `name` defaults to the path's basename if omitted. |
+| `port` | No | `11008` | Must be a number if given. |
+| `herdrWorkspace` | No | `"gitq"` | Must be a string if given. |
+| `gitlabHost` | No | `"https://gitlab.com"` | Must be a string if given. Accepted but not wired to anything: the provider stack is gitlab.com only today (`src/server/config.ts:13`, and see [Publish to GitLab](/guides/publish-to-gitlab)). |
+
+A missing `config.json` is a startup failure: `no config.json at <path>; copy config.example.json and edit it` (`src/server/config.ts:56-64`). The file is read once, at module load (`const config = loadConfig();`, `src/server/config.ts:12`), so an edit needs a server restart to take effect; see [The board](/getting-started/the-board).
+
+`$PORT` in the environment overrides `config.port` at runtime, letting a process manager (launchd, for example) pin the port independently of the file: `const port = Number(process.env.PORT) || config.port;` (`src/server/server.ts:52`).
+
+## Next
+
+- [Where state lives](/concepts/state): every file gitq writes, as opposed to the settings you write for it.
+- [Work slots and leases](/concepts/work-slots): what `maxWorkSlots` actually caps.
+- [The board](/getting-started/the-board): running the board day to day.

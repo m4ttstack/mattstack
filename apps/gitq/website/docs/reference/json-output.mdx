@@ -1,0 +1,294 @@
+---
+title: JSON output
+sidebar_position: 3
+---
+
+# JSON output
+
+Every command accepts `--json` (see [Global flags](/reference/global-flags)) and prints one JSON document to stdout instead of its human summary, through a single shared function, `emit()` (`src/cli/output.ts:4-7`). The shapes on this page come from the actual value each command passes to `emit()`, read at the source, not from a written schema. Most are real captures against a scratch repo, trimmed for length where the real output is long; a few, noted as such, are described from the source type they are built from rather than a live run, because reaching that exact state (a real GitLab publish, a specific per branch failure) either needs the real GitLab API, which this task did not touch, or a lengthy setup for a shape already fully specified in source.
+
+Hard failures never reach `emit()`; nothing is printed to stdout for those, under `--json` or not. See [Exit codes and errors](/reference/exit-codes).
+
+## The `worktrees` array
+
+`stacks`, `diagnose`, and `preflight` each append a `worktrees` array, built by `worktreesForJson` (`src/cli/slots.ts:83-96`): every worktree of the repo, work slots included.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `path` | string | Absolute worktree path. |
+| `name` | string | Directory basename; the human facing slot name. |
+| `branch` | string \| null | `null` for a detached HEAD, which is every work slot between cascades. |
+| `dirty` | boolean | Uncommitted state present. |
+| `isWorkSlot` | boolean | Matches the `gitq-<n>` naming pattern. |
+| `lease` | object \| null | `{ stackId, action, state }` when a cascade holds this slot, else `null`. `state` is `running` or `parked`. |
+
+Real capture, a single primary worktree, nothing running:
+
+```json
+{
+  "path": "/private/tmp/.../gitq-ref6-demo",
+  "name": "gitq-ref6-demo",
+  "branch": "main",
+  "dirty": false,
+  "isWorkSlot": false,
+  "lease": null
+}
+```
+
+## `gitq stacks`
+
+`src/cli/commands/stacks.ts`. Top level: `{ stacks, worktrees }`. `stacks` is the store's own `Stack[]` (`src/core/types.ts:71-83`) passed straight through, with **no per node enrichment at all**. Real capture, an empty stack:
+
+```json
+{
+  "stacks": [
+    { "id": "93507bc7-1f33-447d-84b1-07ce9f8e34ae", "stackName": "demo", "root": "main", "nodes": [] }
+  ],
+  "worktrees": [ "..." ]
+}
+```
+
+Once nodes exist, each is a plain `StackNode`: `branch`, `parent`, `mrIid`, `mrUrl`, `mrTitle`, `status` (`local-only | synced | drift | merged`), `lastKnownHead`, `forkPoint`, `diffStats`, `pipelineStatus`, `unresolvedThreads`. `stacks` does not add `checkedOutIn`, or any other worktree information, to a node; that enrichment belongs to `diagnose`, below. To learn where a branch from `stacks` is checked out, cross reference the top level `worktrees` array's own `branch` field yourself.
+
+## `gitq diagnose`
+
+`src/cli/commands/diagnose.ts`. Top level: `{ stacks, worktrees }`, where each entry of `stacks` is `{ stackName, diagnostics: { nodes, edges, banner, globalBlocks } }`.
+
+`nodes` is the flattened form of `diagnoseStack`'s per branch directives (`NodeDirective`, `src/core/stack-diagnostics.ts:63-72`), **plus one field `diagnose` adds itself**: `checkedOutIn`, the worktree name a branch is checked out in, or `null` (`src/cli/commands/diagnose.ts:18`). A `NodeDirective` carries `branch`, `situation`, `statusLine`, `badge` (`{ label, variant } | null`), `primaryAction` (`{ id, label, variant? } | null`), `secondaryActions`, `blocked` (`{ reason } | null`), and `removal` (`{ allowed, reason? }`).
+
+`situation` is one of twelve values (`src/core/stack-diagnostics.ts:40-52`): `synced`, `local-only`, `behind-parent`, `parent-merged`, `parent-merged-drifted`, `drift`, `drift-parent-merged`, `local-remote-diverged`, `branch-deleted-remote`, `rebase-in-progress`, `ci-failed`, `has-threads`.
+
+Real capture, an unpublished branch, checked out nowhere:
+
+```json
+{
+  "branch": "feat-api",
+  "situation": "local-only",
+  "statusLine": "Not published",
+  "badge": { "label": "Local", "variant": "neutral" },
+  "primaryAction": { "id": "publish-stack", "label": "Publish", "variant": "primary" },
+  "secondaryActions": [],
+  "blocked": null,
+  "removal": { "allowed": false, "reason": "Has 1 child branch" },
+  "checkedOutIn": null
+}
+```
+
+Real capture, a node whose parent was marked `merged` with a tombstone that is not an ancestor of the child (produced by editing the local stack store to set that status directly, the same shape gitq itself writes after detecting a real merge, then running the real `diagnose --json` against it):
+
+```json
+{
+  "branch": "feat-handlers",
+  "situation": "parent-merged-drifted",
+  "statusLine": "Parent merged (needs drift reconciliation)",
+  "badge": { "label": "Needs sync", "variant": "merge" },
+  "primaryAction": { "id": "cascade-merged", "label": "Sync Stack", "variant": "primary" },
+  "secondaryActions": [],
+  "blocked": null,
+  "removal": { "allowed": false, "reason": "Parent merged (cascade rebase needed first)" },
+  "checkedOutIn": null
+}
+```
+
+(`statusLine` and the `removal.reason` above paraphrase the literal source strings, which use an em dash; this page does not reproduce that character.)
+
+`edges` is one `EdgeDirective` per node (`source`, `target`, `color`, `dashed`, `dimmed`, `badge`); `banner` is a single stack wide directive or `null`, one of `{ kind: 'merged', branches, canDismiss }`, `{ kind: 'drift', branches }`, `{ kind: 'behind-trunk', message }`, or `{ kind: 'rebase-in-progress' }`; `globalBlocks` is a plain string array, for example `"Working tree has uncommitted changes"`.
+
+**On `checkedOutDirty`:** it does not exist on `diagnose`'s node objects, or on `stacks`'s. It exists only on the gitq board's internal `/data.json` payload, a separate JSON contract served by `src/server/data.ts`'s `BoardNode` type (`checkedOutIn: string | null`, `checkedOutDirty: boolean`, `src/server/data.ts:27-36`) and consumed by the React client, not by the CLI. If you are integrating against the CLI directly, only `checkedOutIn` is available, and only from `diagnose`.
+
+## `gitq preflight`
+
+`src/cli/commands/preflight.ts`. Top level: `{ stacks, worktrees }`, each stack `{ stackName, report, slotConflicts }`. `report` is a `PreFlightReport` (`src/core/rebase-engine.ts:88-99`): `dirty`, `hasStagedChanges` (both `boolean`), `conflictBranches` (`ConflictPrediction[]`: `{ branch, files: { file, type }[] }`), `threadWarnings` (`ThreadWarning[]`: `{ branch, count }`), `driftWarnings` (`DriftWarning[]`: `{ branch, mergedParent }`).
+
+Real capture, clean tree, one branch checked out, no predicted conflicts:
+
+```json
+{
+  "stackName": "demo",
+  "report": {
+    "dirty": false,
+    "hasStagedChanges": false,
+    "conflictBranches": [],
+    "threadWarnings": [],
+    "driftWarnings": []
+  },
+  "slotConflicts": [
+    { "branch": "feat-handlers", "slot": "gitq-ref6-demo", "dirty": false }
+  ]
+}
+```
+
+Real capture, after trunk moved a conflicting line and the same node from `diagnose` above was seeded as a merged, drifted parent: `conflictBranches` and `driftWarnings` both populate for real, from a single command run against that state.
+
+```json
+{
+  "dirty": false,
+  "hasStagedChanges": false,
+  "conflictBranches": [
+    { "branch": "feat-api", "files": [{ "file": "api.ts", "type": "AA" }] },
+    { "branch": "feat-handlers", "files": [{ "file": "api.ts", "type": "UU" }] }
+  ],
+  "threadWarnings": [],
+  "driftWarnings": [
+    { "branch": "feat-handlers", "mergedParent": "feat-api" }
+  ]
+}
+```
+
+`driftWarnings` is computed whenever a node's direct parent is `merged` and its tombstone is not an ancestor of the child (`src/core/rebase-engine.ts:154-164`); that check runs regardless of whether the tree is dirty. `conflictBranches`, by contrast, is skipped entirely when the tree is dirty (`if (!dirty) { ... }`, `src/core/rebase-engine.ts:168`), since a dirty tree would corrupt the `git merge-tree` dry run. Both fields surface **only under `--json`**: the human summary prints `dirty=...`, a `no predicted conflicts` line or the conflict list, and a `slot conflicts:` section, but never mentions `driftWarnings` (`src/cli/commands/preflight.ts:20-30`). `threadWarnings` was not exercised in these captures (it needs a node with `unresolvedThreads > 0`, which this scratch repo's branches never had); its shape is `{ branch, count }`, one entry per node with unresolved MR discussion threads.
+
+`slotConflicts` is built by `preflightCommand` itself (`src/cli/commands/preflight.ts:14-17`), not by `RebaseEngine.preflight`: for every branch in the stack, if a non-work-slot worktree has it checked out, that becomes `{ branch, slot, dirty }`.
+
+## `gitq log`
+
+`src/cli/commands/log.ts`. Top level: `{ entries, otherRepoCount }`. `entries` is the repo scoped slice of `OperationEntry[]` (`src/core/operation-log.ts:9-18,28-41`); `otherRepoCount` counts, without listing, entries that belong to other repos in the same global log file.
+
+Real capture, one `sync` entry, trimmed to its outer shape and one representative command record (the real entry recorded twenty five `CommandRecord`s in `commands`):
+
+```json
+{
+  "entries": [
+    {
+      "id": "8b5fb107-b5ce-4eb2-8a66-37ebfdf88a93",
+      "timestamp": 1785013802731,
+      "operation": "sync",
+      "commands": [
+        { "command": "git", "args": ["-c", "core.editor=true", "rebase", "--continue"],
+          "cwd": "/Users/matt/.cache/gitq/work/.../gitq-1", "exitCode": 0, "duration": 39 }
+      ],
+      "branchSnapshots": {
+        "main": "e682def339ced7b90f05cc9721cec5c56340f0d2",
+        "feat-api": "81985814ddd04db1277cb560fa68941a2e8f86e6",
+        "feat-handlers": "3e77b18de6d5e5ec6a5bfc1ad0bb48c1e9ea7a9c"
+      },
+      "stackSnapshot": { "id": "93507bc7-...", "stackName": "demo", "root": "main", "nodes": ["..."] },
+      "repoPath": "/private/tmp/.../gitq-ref6-demo",
+      "commonDir": "/private/tmp/.../gitq-ref6-demo/.git"
+    }
+  ],
+  "otherRepoCount": 0
+}
+```
+
+Note that `continue`'s own entry is logged under `operation: "sync"`, not `"continue"`: `continueCommand` calls `withOperationLog(ctx, stack, 'sync', ...)` (`src/cli/commands/cascade.ts:87`), the same operation type `sync` itself uses. There is no `"continue"` value in the `OperationType` union (`src/core/operation-log.ts:9-18`) at all.
+
+## `gitq track` / `gitq untrack` / `gitq add` / `gitq remove`
+
+All four emit `{ stack: Stack }` (`track`, `add`, `remove`) or `{ removed: stackName }` (`untrack`); source: `src/cli/commands/crud.ts:24-79`.
+
+Real captures:
+
+```json
+// gitq track demo --root main --json
+{ "stack": { "id": "594f2be5-5e30-4513-8528-382b8980dd15", "stackName": "demo", "root": "main", "nodes": [] } }
+```
+
+```json
+// gitq untrack demo --json
+{ "removed": "demo" }
+```
+
+```json
+// gitq add featx --parent main --stack demo --json
+{ "stack": { "id": "1834b5ad-...", "stackName": "demo", "root": "main", "nodes": [
+  { "branch": "featx", "parent": "main", "mrIid": null, "mrUrl": null, "mrTitle": null,
+    "status": "local-only", "lastKnownHead": null, "forkPoint": null, "diffStats": null,
+    "pipelineStatus": "unknown", "unresolvedThreads": 0 }
+] } }
+```
+
+`remove` was not run live; its source (`src/cli/commands/crud.ts:68-79`) shows the identical `{ stack: Stack }` shape, with the removed node absent from `nodes`.
+
+## `gitq sync` / `gitq continue` / `gitq abort`
+
+All three route through `finishCascade` (`src/cli/commands/cascade.ts:18-59`), so all three share one JSON contract, keyed on `state`.
+
+Paused (`state: "paused"`, exit `2`), real capture, second conflict of a two commit rebase, so `commitIndex`/`commitTotal` are filled in:
+
+```json
+{
+  "state": "paused",
+  "pauseInfo": {
+    "currentBranch": "feat-api",
+    "conflictFiles": ["api.ts"],
+    "remainingBranches": ["feat-handlers"],
+    "completedBranches": [],
+    "mergedBranch": null,
+    "newBase": "origin/main",
+    "currentTarget": "origin/main",
+    "phase": "cascade",
+    "conflictTypes": [{ "type": "UU", "file": "api.ts" }],
+    "preRebaseHeads": { "feat-api": "81985814ddd04db1277cb560fa68941a2e8f86e6" },
+    "worktreePath": "/Users/matt/.cache/gitq/work/dae4068ad8667e8d/gitq-1",
+    "commitIndex": 2,
+    "commitTotal": 2
+  }
+}
+```
+
+`pauseInfo` is the exact object also written to `gitq-pause.json`; see [Pause file](/reference/pause-file) for every field.
+
+Completed (`state: "completed"`, exit `0` if every branch succeeded, `1` otherwise), real capture:
+
+```json
+{
+  "state": "completed",
+  "results": [
+    { "branch": "feat-api", "success": true },
+    { "branch": "feat-handlers", "success": true }
+  ],
+  "rebasedBranches": ["feat-api", "feat-handlers"]
+}
+```
+
+`abort`, real capture, always `{ state: "aborted" }` and always exit `0`:
+
+```json
+{ "state": "aborted" }
+```
+
+## `gitq absorb`
+
+`src/cli/commands/surgery.ts:40-105`. `--preview` emits `{ stack, result }` where `result` is an `AbsorbPreview` (`src/core/absorb.ts:27-31`: `attributed` a `Record<branch, filePath[]>`, `unattributed` a `string[]`, `currentBranch`). Real capture, a clean tree with nothing to attribute:
+
+```json
+{
+  "stack": { "id": "93507bc7-...", "stackName": "demo", "root": "main", "nodes": ["..."] },
+  "result": { "attributed": {}, "unattributed": [], "currentBranch": "feat-api" }
+}
+```
+
+A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`, where `result` is an `AbsorbResult` (`src/core/absorb.ts:19-24`, described from source, not captured live): `absorbed` (boolean), `reason` (`'no-changes'`, optional), `attributions` (`AbsorbAttribution[]`: `{ branch, files, success, error? }`), `cascadeResult` (optional `CascadeResult`, the same shape `sync` produces, for the restack absorb runs afterward), `updatedStack` (optional).
+
+## `gitq split` / `gitq fold` / `gitq reparent` / `gitq rename` / `gitq reset`
+
+None of these five were run live for this page; each shape below is the exact type its command emits under `{ stack: ..., result }` or `{ stack: ..., result: ... }`, read from source rather than captured.
+
+| Command | Result type (source) | Fields |
+| --- | --- | --- |
+| `split --at` | `SplitResult` (`src/core/branch-splitter.ts:11-17`) | `newBranch`, `movedCommits` (SHA array), `updatedStack` |
+| `split --files` | `SplitByFileResult` (`src/core/branch-splitter.ts:21-31`) | `sourceBranch`, `newBranch`, `movedFiles`, `remainingFiles`, `newStack` |
+| `fold` | `FoldResult` (`src/core/branch-fold.ts:9-17`) | `foldedBranch`, `intoParent`, `reParentedChildren`, `newStack` |
+| `reparent` | `ReparentResult` (`src/core/reparent.ts:7-13`) | `branch`, `oldParent`, `newParent`, `cascadeResult` (`CascadeResult \| null`), `newStack` |
+| `rename` | `RenameResult` (`src/core/branch-rename.ts:5-7`) | `updatedStack` |
+| `reset` | `ResetToRemoteResult` (`src/core/branch-reset.ts:6-10`) | `updatedStack`, `newHead` (the SHA reset to) |
+
+`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:195-208`).
+
+## `gitq publish` / `gitq import`
+
+Neither was run for this page: both talk to the real GitLab API, which this project's isolation rules keep off limits. Shapes below are from source.
+
+`publish` (`src/cli/commands/forge.ts:60-93`) emits `{ results, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:37-43`): `{ branch, success, mrIid?, mrUrl?, error? }`.
+
+`import` (`src/cli/commands/forge.ts:95-127`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
+
+## `gitq undo`
+
+`src/cli/commands/undo.ts:32-93`. Top level: `{ success, restoredBranches, restoredStack, skippedBranches, ...UndoResult fields }`. See [Exit codes and errors](/reference/exit-codes) for the full field list and the exit code rule; real capture there too.
+
+## Next
+
+- [Pause file](/reference/pause-file): `pauseInfo`, field by field, with its own real capture straight from disk.
+- [Exit codes and errors](/reference/exit-codes): which of these shapes goes with which exit code.
+- [Configuration](/reference/configuration): the files these commands read, as opposed to the JSON they write to stdout.
