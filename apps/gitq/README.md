@@ -41,7 +41,7 @@ Surgery:
 - `gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]`: tail split: move everything from `<sha>` onward on `<branch>` into a new child branch.
 - `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file: move files matching the glob(s) off `<branch>` into a new branch.
 - `gitq fold <branch> [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent.
-- `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch (and cascade rebase its descendants) onto a different parent. Can pause on a conflict exactly like `sync` does; resolve the same way.
+- `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch (and cascade rebase its descendants) onto a different parent. Two conflict shapes: if the branch itself can't be replayed onto the new parent, reparent refuses upfront and exits `1` with nothing moved (sync the stack first); if a conflict shows up in a descendant during the follow up cascade, it pauses exactly like `sync` does (exit `2`) and resolves the same way.
 - `gitq rename <old> <new> [--stack <name>]`: rename a branch, in git and in the stack tree.
 - `gitq reset <branch> [--stack <name>]`: reset a local branch to match `origin/<branch>` (for when it diverged, e.g. someone force pushed).
 

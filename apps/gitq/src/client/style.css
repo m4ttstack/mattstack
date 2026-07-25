@@ -230,7 +230,7 @@ a:hover { text-decoration: underline; }
 }
 .slot-chip.slot-dirty {
   border-color: var(--caution);
-  color: var(--caution);
+  color: var(--caution-bright);
   opacity: 1;
 }
 .slot-status {
@@ -238,8 +238,8 @@ a:hover { text-decoration: underline; }
   margin-left: 8px;
   opacity: 0.6;
 }
-.slot-status.slot-parked { color: var(--caution); opacity: 1; }
-.slot-status.slot-running { color: var(--emphasis); opacity: 1; }
+.slot-status.slot-parked { color: var(--caution-bright); opacity: 1; }
+.slot-status.slot-running { color: var(--emphasis-bright); opacity: 1; }
 .menu-item.menu-disabled { opacity: 0.45; cursor: default; }
 
 .empty { color: var(--muted); font-size: 12px; }

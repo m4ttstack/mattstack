@@ -936,9 +936,10 @@ describe('gitq CLI', () => {
     expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(true);
 
     // Abort FROM A SIBLING WORKTREE, not the launch tree and not the leased
-    // slot: exercises the treePath fix. Before it, abort with no worktreePath
-    // fell back to the invoking cwd (the sibling) and would try to abort a
-    // rebase that isn't there, instead of the one actually paused in repo.dir.
+    // slot: the cascade pauses and rebases inside the leased gitq-N work
+    // slot, not in repo.dir or the sibling, so abort has to resolve the
+    // parked lease from whatever cwd it's invoked from and clean up the
+    // rebase state in that slot.
     const sibling = await addNamedWorktree(repo, 'sibling');
     dirsToClean.push(sibling);
     const siblingHeadBefore = execFileSync('git', ['-C', sibling, 'rev-parse', 'HEAD'], { stdio: 'pipe' })
@@ -948,8 +949,11 @@ describe('gitq CLI', () => {
     const abort = await runCli(['abort', '--stack', 'reparent-cascade'], sibling, configDir);
     expect(abort.exitCode).toBe(0);
 
-    // The launch tree's rebase is gone.
-    expect(rebaseInProgress(repo.dir)).toBe(false);
+    // The leased slot (where the cascade actually paused) is no longer
+    // mid-rebase, not the launch tree.
+    expect(
+      existsSync(join(slotGitDir, 'rebase-merge')) || existsSync(join(slotGitDir, 'rebase-apply')),
+    ).toBe(false);
 
     // The sibling is untouched.
     const siblingHeadAfter = execFileSync('git', ['-C', sibling, 'rev-parse', 'HEAD'], { stdio: 'pipe' })
