@@ -1,0 +1,58 @@
+---
+title: gitq split
+sidebar_label: split
+---
+
+# gitq split
+
+Splits one branch into two. Two mutually exclusive modes: `--at` cuts a branch by commit, `--files` cuts it by file.
+
+## Usage
+
+```bash
+gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]
+gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--at <sha>` | Tail-split mode: move every commit from `<sha>` onward into the new branch. Mutually exclusive with `--files`. |
+| `--files <glob[,glob...]>` | File-split mode: move files matching the comma separated glob(s) into the new branch. Mutually exclusive with `--at`. |
+| `--name <newBranch>` | Required in both modes. Name of the branch the split mode creates. |
+| `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Refuses with usage help unless `<branch>` and `--name` are given and exactly one of `--at`/`--files` is (`src/cli/commands/surgery.ts:113-115`). Both modes are guarded by the stack lease.
+
+### `--at`: pure ref surgery
+
+No working tree is read or written. The new branch is created at the source's current head first (so nothing is ever unreachable, even across a crash), then the source ref is rewound to the split point by compare-and-swap (`BranchSplitter.tailSplit`, `src/core/branch-splitter.ts:59-127`). Existing children of the source are reparented onto the new branch, since their base now lives there. Runs directly, without a leased work slot.
+
+- **Requires the full 40-character sha.** `--at`'s commit log is read with `git log --format=%H %s`, full hashes (`src/core/git-shell.ts:289`), and the split point is matched by strict string equality (`commits.findIndex((c) => c.sha === splitAfterSha)`, `src/core/branch-splitter.ts:82`). A short sha never matches, even an unambiguous one, and produces the same misleading `not found` refusal as a genuinely wrong sha.
+- It only looks at the branch's last 50 commits by default; an older, full sha is equally invisible.
+- Refusals, all exit `1`: `<branch>` not found in the stack; `<newBranch>` already a node in the stack; the split point is already the branch head (`No commits to split — the split point is already at HEAD`); the sha, short or just old, isn't found (`Commit "<sha>" not found in branch "<branch>"`).
+- A checked-out source is handled by the slot policy inside the ref finalize (clean: reset along; dirty: refuse), not a separate up-front guard.
+
+### `--files`: builds commits in a work slot
+
+Needs a tree, so it runs detached in a leased work slot; your launch worktree is never touched (`BranchSplitter.splitByFile`, `src/core/branch-splitter.ts:163-268`). The new branch is a **sibling** of the source (a second child of the source's parent), not a child of it, built from the source's merge-base with one commit holding the matched files. The source keeps its own commits, its tip amended to drop the moved files (or rewound to the merge-base if every file moved).
+
+- The patterns match against files the source changed relative to its parent; a pattern matching nothing there is an error, not a no-op.
+- **Never cascades.** Any existing child of the source is left on the old, now-stale head every time; run `gitq sync` afterward to bring it forward.
+- Refusals, all exit `1`: no file matches the patterns (`No files match the patterns: <patterns>`); the branch changed nothing relative to its parent; `<branch>` or `<newBranch>` name conflicts, same shape as `--at`; the source is checked out in a **dirty** slot elsewhere (`branch is checked out in slot "<slot>" (<path>) which is dirty; commit or stash there, or free the slot, then retry`). A clean slot holding the source is fine, it gets reset to the rewritten tip.
+
+## Exit codes
+
+- `0`: the split completed.
+- `1`: bad usage, a lease held, `<branch>`/`<newBranch>`/the sha not resolving, no files matching the patterns, or the source checked out dirty elsewhere.
+
+Never exits `2`. See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Restructure a stack](/guides/restructure-a-stack#split-at): `--at` and `--files`, both from real runs, with the before/after tree shapes.
+- [`gitq sync`](/reference/cascade/sync): required after `--files` to bring stale children forward.
+- [`gitq fold`](/reference/surgery/fold), [`gitq undo`](/reference/other/undo): `split` is logged but not reversible.

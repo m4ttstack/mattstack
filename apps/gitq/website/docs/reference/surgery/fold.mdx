@@ -1,0 +1,54 @@
+---
+title: gitq fold
+sidebar_label: fold
+---
+
+# gitq fold
+
+Folds a branch into its parent: replays its commits onto the parent, deletes the branch, and reparents its children onto the parent.
+
+## Usage
+
+```bash
+gitq fold <branch> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:161-168`). Three things happen together (`foldBranch`, `src/core/branch-fold.ts:34-167`):
+
+1. **The commits move.** The folded branch's own commits replay onto the parent, detached in the slot, and the parent is fast-forwarded to the result by compare-and-swap. A branch with no commits beyond its parent skips the replay entirely.
+2. **The branch is deleted**, from git and from the stack tree.
+3. **Its children are reparented** onto the parent.
+
+**Fold does not cascade the reparented children.** When the replay produced no new commits (the usual case, the parent was already sitting at the folded branch's base), the children are already on the right head and there is nothing to do. When the parent had moved ahead and the replay produced new commits, the children are left behind their new parent and want a `gitq sync`.
+
+### The one exception to checkout neutrality
+
+Deleting a branch means it cannot stay checked out anywhere. A **clean** worktree holding the folded branch, including the one you launched `fold` from, is switched to the parent before the branch is deleted (`src/core/branch-fold.ts:136-142`). This is the single exception across all of surgery to "your checkout never moves."
+
+### Refusals
+
+- A **dirty** worktree holding the branch stops it up front: `Branch "<branch>" is checked out in slot "<slot>" (<path>) which is dirty; commit or stash there first (folding deletes the branch)` (`src/core/branch-fold.ts:101-106`).
+- A conflict replaying the branch's commits onto the parent refuses outright; **there is no pause protocol here**: `Folding "<branch>" into "<parent>" hit a rebase conflict (<files>); nothing was changed. Sync the stack first, then retry` (`src/core/branch-fold.ts:120-124`). The branch still exists at its original head, and no lease is left behind. The usual cause is a parent that has moved ahead; `gitq sync` first, then fold.
+
+Recorded to the operation log under `fold` on a clean exit, but **not reversible**: `fold` is not one of the four types in `REVERSIBLE_OPERATIONS`, so `gitq undo` afterward refuses with `cannot undo "fold" (not reversible)` (`src/core/undo.ts:16-21`).
+
+## Exit codes
+
+- `0`: the fold completed.
+- `1`: `<branch>` not found in the stack, the branch checked out in a dirty worktree elsewhere, a replay conflict, or a lease held.
+
+Never exits `2`: fold has no pause protocol. See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Restructure a stack](/guides/restructure-a-stack#fold): a real fold, including the checkout-switch case, with before/after tree shapes.
+- [`gitq reparent`](/reference/surgery/reparent): the other surgery command that touches descendants, but by cascading them instead of leaving them stale.
+- [`gitq undo`](/reference/other/undo): why a fold cannot be reversed by it.

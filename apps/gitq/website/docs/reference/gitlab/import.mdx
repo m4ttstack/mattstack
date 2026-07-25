@@ -1,0 +1,49 @@
+---
+title: gitq import
+sidebar_label: import
+---
+
+# gitq import
+
+Rebuilds the local store from GitLab's open merge requests, replacing whatever is tracked locally.
+
+## Usage
+
+```bash
+gitq import [--replace]
+```
+
+`import` takes no `--stack`: it replaces the whole store, every tracked stack at once (see [Global flags](/reference/global-flags#the---stack-rule)).
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--replace` | Overwrite a non-empty local store instead of refusing. |
+
+## Behavior
+
+Fetches every open MR, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it finds (`ForgeSync.importFromForge`, `src/core/forge-sync.ts:221-250`). It is the reverse of `publish`: forge state becomes the source of truth instead of the local store.
+
+The guards run in this order, and the second one is checked **before** the token, on purpose, so the refusal works offline:
+
+1. **Any lease active anywhere in the repo**, running or parked, for any stack, refuses: `cascades are active; finish or abort them first` (`src/cli/commands/forge.ts:97-100`). Unlike every other mutating command's per-stack lease guard, this one fires for any lease, because `import` is about to discard the store those leases are tracked against.
+2. **A non-empty local store, without `--replace`,** refuses before the token or the network are touched: `import would discard <N> locally tracked stack(s) and re-mint stack ids; pass --replace to overwrite the local store` (`src/cli/commands/forge.ts:105-112`).
+3. Only then is the GitLab provider built, where the missing-token refusal happens: `no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:31-35`).
+
+**Re-mints every stack id, every time.** Each stack `import` creates gets a fresh `crypto.randomUUID()` (`StackManager.createStack`, `src/core/stack-manager.ts:42-44`), with no relationship to whatever id the same-looking stack had before, even importing back the exact MRs just published. The stack name shown in `gitq stacks` is a readable slug derived from the tip branch's MR title (`deriveStackId`, `src/core/forge-sync.ts:476-500`), which can look stable across two imports, but the underlying `id` never is. Anything keyed to the old id, most importantly any `gitq undo` history for operations logged before the import, stops resolving to a current stack the moment `--replace` runs.
+
+With `--replace` and no leases active, the whole store is replaced, not merged with anything written concurrently (`updateStore(ctx.repoRoot, () => store)`, `src/cli/commands/forge.ts:117-123`). Prints `imported <N> stack(s)` and exits `0`.
+
+## Exit codes
+
+- `0`: the store was replaced.
+- `1`: any lease active anywhere in the repo, a non-empty store without `--replace`, or no GitLab token.
+
+Never exits `2`.
+
+## See also
+
+- [Publish to GitLab](/guides/publish-to-gitlab#import-replace): the full refusal rules and the stack-id warning, verified against source.
+- [Recover from a mistake](/guides/recover#the-store-is-wrong-or-gone): when to reach for `import --replace` instead of `gitq sync`.
+- [`gitq publish`](/reference/gitlab/publish): the direction this command reverses.

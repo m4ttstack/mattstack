@@ -1,0 +1,47 @@
+---
+title: gitq reset
+sidebar_label: reset
+---
+
+# gitq reset
+
+Hard-resets a local branch to match its remote-tracking ref, `origin/<branch>`.
+
+## Usage
+
+```bash
+gitq reset <branch> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Guarded by the stack lease, and refuses up front on the same rule `rename` uses if `<branch>` is checked out somewhere else, dirty or not (`refuseIfCheckedOutElsewhere`, `src/cli/commands/surgery.ts:242-244`).
+
+`resetToRemote` (`src/core/branch-reset.ts:19-37`) then:
+
+1. **Requires a clean launch worktree.** `assertCleanTree` runs before anything else; a dirty tree refuses with `Working tree has uncommitted changes. Commit or stash first.` and nothing moves (`src/core/branch-reset.ts:24`, `src/core/git-guards.ts:7-11`).
+2. **Does not fetch.** It reads `origin/<branch>` exactly as your remote-tracking ref already stands (`src/core/branch-reset.ts:26-27`). If that ref is stale, run `git fetch` first or you reset to old data.
+3. Checks out `<branch>` and runs `git reset --hard origin/<branch>`.
+
+Only after that does it update the stack tree's `lastKnownHead`, and that update throws if `<branch>` isn't a node in the picked stack. In that edge case the git-level reset has already happened for real before the command fails, since the store update runs strictly after the checkout and hard reset (`src/core/branch-reset.ts:29-34`).
+
+**Never written to the operation log at all.** Unlike `split`, `fold`, and `rename`, which are logged but excluded from `REVERSIBLE_OPERATIONS`, `reset` is never wrapped in `withOperationLog` in the first place (`src/cli/commands/surgery.ts:233-250`). `gitq undo` has nothing to give back after a `reset`, ever; whatever the branch pointed at before is gone unless you noted the sha yourself.
+
+## Exit codes
+
+- `0`: reset to `origin/<branch>` succeeded.
+- `1`: a dirty launch worktree, `<branch>` checked out elsewhere, `origin/<branch>` not resolving, a lease held, or (if `<branch>` isn't a stack node) the store update failing after the git reset already ran.
+
+Never exits `2`. See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Recover from a mistake](/guides/recover#a-branch-diverged-from-origin): a real reset, and why `undo` can't help afterward.
+- [Restructure a stack](/guides/restructure-a-stack#reset): the refusal rules in context with the rest of surgery.
+- [`gitq rename`](/reference/surgery/rename): the same checked-out-elsewhere refusal.
