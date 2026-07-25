@@ -55,8 +55,11 @@ else below is unchanged.
      on stdout; a per-branch failure emits the normal JSON first, and the
      failing entry's `success: false` says what broke. Either way mark error
      with the reason and report to the human.
-4. **Resolve the conflict.** The repo is mid-rebase, exactly as if
-   `git rebase` had stopped by hand. The JSON's `pauseInfo` tells you where
+4. **Resolve the conflict.** The paused rebase lives in the worktree named
+   by `pauseInfo.worktreePath` (a gitq work slot), or `pauseInfo.treePath`
+   for older pauses; fall back to `<repoPath>` only when both are absent.
+   Call that directory `<rebaseDir>`. The launch worktree is NOT where the
+   rebase is; do not resolve there. The JSON's `pauseInfo` tells you where
    you are: the branch, `commitIndex`/`commitTotal`, `conflictFiles`
    (always present), and `conflictTypes` (when present, per-file two-letter
    porcelain codes: `UU` both modified, `AA` both added, `DU`/`UD` deleted
@@ -64,15 +67,15 @@ else below is unchanged.
    - Mark conflict:
      `bun run <status-bin> <state> conflict "<n> conflicts on <branch> (commit <i>/<total>)"`
    - Understand before editing. Read each conflicted file's markers, and get
-     both sides' intent from `git -C <repoPath> log --oneline --merge` and
+     both sides' intent from `git -C <rebaseDir> log --oneline --merge` and
      the surrounding code. Then edit each file to the content that preserves
      both intents. Never resolve by wholesale picking ours or theirs without
      reading, and never strip conflict markers mechanically.
    - `DU`/`UD` files were deleted on one side. Decide deliberately, then
-     `git -C <repoPath> add <file>` to keep it or
-     `git -C <repoPath> rm <file>` to honor the deletion.
+     `git -C <rebaseDir> add <file>` to keep it or
+     `git -C <rebaseDir> rm <file>` to honor the deletion.
    - Stage everything you resolved, then confirm no unmerged paths remain:
-     `git -C <repoPath> status --porcelain` must show no `UU`/`AA`/`DU`/`UD`
+     `git -C <rebaseDir> status --porcelain` must show no `UU`/`AA`/`DU`/`UD`
      lines.
 5. **Continue.** `gitq -C <repoPath> continue --json`. Same three outcomes
    as step 3; on exit 2 go back to step 4 for the next conflict. Never run
@@ -95,6 +98,8 @@ else below is unchanged.
   never rebases it and neither do you.
 - Never `git rebase --continue`, `--abort`, or `--skip` directly while gitq
   owns the cascade; only `gitq continue` / `gitq abort`.
+- Conflicts are resolved in `<rebaseDir>` (the pause's worktree), but gitq
+  commands always run with `-C <repoPath>`.
 - Always end with a terminal `done` or `error` status write (when the status
   flags were given) so the board badge never gets stuck.
 - Sync never pushes. Publishing the rebased stack is gitq:publish's job.

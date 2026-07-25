@@ -74,6 +74,8 @@ A branch checked out in one of your worktrees is handled by policy: if that work
 
 Conflict pauses live in the work slot: the paused JSON's `pauseInfo.worktreePath` says where to resolve, and `gitq continue` / `gitq abort` find the parked cascade from anywhere (pass `--stack` when more than one is parked). `gitq stacks`/`gitq diagnose` report the worktree map (`worktrees`, per-branch `checkedOutIn`) and `gitq preflight` predicts slot conflicts (`slotConflicts`) before you sync.
 
+Surgery is pooled too: reparent, fold, and file splits do their rebasing detached inside a leased work slot, tail splits are pure ref surgery, and absorb restacks through the slot after committing in the worktree you ran it from. Your checkouts are never switched out from under you: a branch checked out clean in some worktree is auto-fixed to its new head after the ref moves, and a dirty one refuses with a message naming the slot. The board shows each branch's checkout slot (dirty ones highlighted), the work slots' lease state, and lets absorb source from any dirty worktree.
+
 Stores created by older gitq versions (keyed by a single worktree's path) migrate automatically the first time you run gitq from that worktree.
 
 ## errors
