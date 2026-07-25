@@ -45,7 +45,10 @@ just talk to the human; everything else below is unchanged.
    `gitq -C <repoPath> stacks --json` and `gitq -C <repoPath> diagnose
    --json` (no `--stack` flag on diagnose; find your stack by `stackName`),
    plus `git -C <repoPath> log --oneline <parent>..<branch>` on the branches
-   involved. Then choose from the surgery set:
+   involved. Surgery never moves the launch worktree's checkout: split, fold,
+   and reparent do their git work in a gitq-owned work slot (or as pure ref
+   surgery) and refuse cleanly when a branch sits dirty in some worktree.
+   Then choose from the surgery set:
    - `gitq -C <repoPath> split <branch> --at <sha> --name <newBranch>`
      (tail split: everything from `<sha>` onward moves to a new child)
    - `gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch>`
@@ -67,14 +70,17 @@ just talk to the human; everything else below is unchanged.
    pane holding: nothing executed, no `done` write.
 5. **Execute.** Run the approved operations one at a time, each with
    `--json`, checking the result before the next.
-   - `reparent` can exit 2 exactly like sync: paused on a conflict. Mark
-     conflict with the `pauseInfo` detail, resolve each file in
-     `pauseInfo.conflictFiles` with judgment (read both sides, preserve both
-     intents), `git -C <repoPath> add` the results, then
-     `gitq -C <repoPath> continue --json`, repeating while it exits 2. Never
-     raw `git rebase --continue`; if a conflict needs judgment you cannot
-     supply, `gitq -C <repoPath> abort`, mark error, and report which
-     operations did and did not run.
+   - `reparent` has two conflict shapes. If the branch itself cannot be
+     replayed onto the new parent, gitq refuses upfront with exit 1 and
+     nothing is moved: report that the stack needs a sync first. If a
+     DESCENDANT hits a conflict during the follow-up cascade, gitq exits 2
+     exactly like sync: mark conflict with the `pauseInfo` detail, resolve
+     each file in `pauseInfo.worktreePath` (fall back to
+     `pauseInfo.treePath`, then `<repoPath>`), `git -C <that dir> add` the
+     results, then `gitq -C <repoPath> continue --json`, repeating while it
+     exits 2. Never raw `git rebase --continue`; if a conflict needs
+     judgment you cannot supply, `gitq -C <repoPath> abort`, mark error, and
+     report which operations did and did not run.
    - Any exit 1: stop the sequence, mark error with the reason, and report
      what was applied and what was not (applied operations stay applied;
      only a `reparent` can be walked back with `gitq undo`).

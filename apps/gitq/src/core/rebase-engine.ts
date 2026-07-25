@@ -467,7 +467,7 @@ async function isFullyRedundant(
  * dirty, mid-rebase, or drifted slot refuses (the detached rebase result is
  * simply discarded, which is harmless). Returns a RebaseResult.
  */
-async function finalizeBranchRef(
+export async function finalizeBranchRef(
   cwd: string,
   branch: string,
   oldHead: string,
@@ -541,6 +541,11 @@ async function doCascadeLoop(
       // best-effort: descendants fall back to merge-base
     }
 
+    // Set when a detached reconciliation ran this iteration: the slot HEAD
+    // holds the reconciled commits (sitting on `base`), the branch ref has
+    // not moved, and the main rebase must continue from here.
+    let reconciled: { head: string; base: string } | null = null;
+
     // ── Drift reconciliation for merged parents ──────────────────────────
     // When the parent was squash-merged, the child needs to be reconciled
     // with the parent's final state (tombstone) BEFORE cascading to trunk.
@@ -548,21 +553,10 @@ async function doCascadeLoop(
     // branched. Uses reflog fork-point to replay only the child's own commits.
     const directParent = initialStack.nodes.find((n) => n.branch === node.parent);
     if (directParent?.status === 'merged') {
-      // Reconciliation (cherry-pick / rebaseSingle against the tombstone)
-      // always runs in `cwd`, even when a workDir is set for the main
-      // cascade. If the branch is checked out in a non-work slot, refuse
-      // rather than mutate that slot's checkout out from under it.
-      if (workDir) {
-        const owner = findSlotForBranch(await getWorktreeMap(cwd), node.branch);
-        if (owner) {
-          results.push({
-            branch: node.branch,
-            success: false,
-            error: `branch is checked out in slot "${owner.name}" (${owner.path}); reconciliation with a squash-merged parent requires cwd to be free of that checkout — free the slot, then retry`,
-          });
-          break;
-        }
-      }
+      // Reconciliation replays the child's own commits onto the merged
+      // parent's tombstone. Natively (no workDir) it runs in `cwd`; with a
+      // leased work slot it runs detached in that slot without moving the
+      // branch ref, and one CAS after the main rebase finalizes both steps.
       // Resolve tombstone: prefer live branch tip over stale lastKnownHead
       let tombstone: string | null = null;
       try {
@@ -572,91 +566,157 @@ async function doCascadeLoop(
       }
 
       if (tombstone) {
-        // Find child's fork point using reflogs (reliable even after parent rebase)
-        const reflogFP = await GitShell.getMergeBaseForkPoint(
-          cwd, directParent.branch, node.branch,
-        ).catch(() => null);
-
-        if (reflogFP) {
-          // Reconcile: rebase child's own commits onto the tombstone.
-          // This picks up the parent's review improvements.
-          const reconResult = await RebaseEngine.rebaseSingle(
-            cwd, tombstone, reflogFP, node.branch,
-          );
-          if (!reconResult.success) {
-            const typedConflicts = await GitShell.listConflictedFilesWithTypes(cwd).catch(() => []);
-            const conflictFiles = typedConflicts.length > 0
-              ? typedConflicts.map((c) => c.file)
-              : await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
-            if (conflictFiles.length > 0) {
-              const completedBranches = results.filter((r) => r.success).map((r) => r.branch);
-              const remainingBranches = nodes.slice(i + 1).map((n) => n.branch);
-              return {
-                results,
-                updatedStack,
-                state: 'paused',
-                pauseInfo: {
-                  currentBranch: node.branch,
-                  conflictFiles,
-                  remainingBranches,
-                  completedBranches,
-                  mergedBranch: pauseContext.mergedBranch,
-                  newBase: pauseContext.newBase,
-                  currentTarget: tombstone,
-                  phase: 'reconcile',
-                  conflictTypes: typedConflicts,
-                  preRebaseHeads: { ...preRebaseHeads },
-                  treePath: cwd,
-                },
-              };
+        if (workDir) {
+          // Detached reconciliation: replay the child's own commits onto the
+          // tombstone in the work slot. The branch ref does not move here;
+          // one CAS after the main rebase finalizes both steps.
+          const startHead = preRebaseHeads[node.branch]
+            ?? (await GitShell.getBranchHead(cwd, node.branch));
+          const alreadyReconciled = await GitShell.isAncestor(cwd, tombstone, startHead)
+            .catch(() => false);
+          if (!alreadyReconciled) {
+            if (await isFullyRedundant(cwd, tombstone, startHead)) {
+              reconciled = { head: tombstone, base: tombstone };
+            } else {
+              let fp = await GitShell.getMergeBaseForkPoint(
+                cwd, directParent.branch, node.branch,
+              ).catch(() => null);
+              if (!fp && node.forkPoint && (await validateTombstone(cwd, node.forkPoint))) {
+                fp = node.forkPoint;
+              }
+              if (!fp) {
+                fp = await GitShell.getMergeBase(cwd, tombstone, startHead).catch(() => null);
+              }
+              if (fp) {
+                try {
+                  await GitShell.detachAt(workDir, startHead);
+                  await GitShell.rebaseOntoDetached(workDir, tombstone, fp);
+                  reconciled = {
+                    head: await GitShell.getBranchHead(workDir, 'HEAD'),
+                    base: tombstone,
+                  };
+                } catch (err) {
+                  const typedConflicts = await GitShell.listConflictedFilesWithTypes(workDir)
+                    .catch(() => [] as { file: string; type: string }[]);
+                  const conflictFiles = typedConflicts.length > 0
+                    ? typedConflicts.map((c) => c.file)
+                    : await GitShell.listConflictedFiles(workDir).catch(() => [] as string[]);
+                  if (conflictFiles.length > 0) {
+                    return {
+                      results,
+                      updatedStack,
+                      state: 'paused',
+                      pauseInfo: {
+                        currentBranch: node.branch,
+                        conflictFiles,
+                        remainingBranches: nodes.slice(i + 1).map((n) => n.branch),
+                        completedBranches: results.filter((r) => r.success).map((r) => r.branch),
+                        mergedBranch: pauseContext.mergedBranch,
+                        newBase: pauseContext.newBase,
+                        currentTarget: tombstone,
+                        phase: 'reconcile',
+                        conflictTypes: typedConflicts,
+                        preRebaseHeads: { ...preRebaseHeads },
+                        worktreePath: workDir,
+                      },
+                    };
+                  }
+                  results.push({ branch: node.branch, success: false, error: toErrorMessage(err) });
+                  break;
+                }
+              }
+              // fp unresolvable (reflog gone, no stored forkPoint, merge-base
+              // failed): fall through unreconciled; the main rebase still
+              // lands the child on the target.
             }
-            results.push(reconResult);
-            break;
           }
         } else {
-          // Fallback: use cherry-pick reconciliation when reflogs are unavailable
-          const drift = await reconcileDrift(
-            cwd, tombstone, node.branch,
-            node.forkPoint ?? null, directParent.branch,
-          );
-          if (drift.drifted) {
-            const redundant = await isFullyRedundant(cwd, tombstone, node.branch);
-            if (redundant) {
-              await GitShell.checkoutBranch(cwd, node.branch);
-              await GitShell.resetHard(cwd, tombstone);
-            } else {
-              const reconResult = await cherryPickReconcile(
-                cwd, tombstone, node.branch, directParent.branch,
-              );
-              if (!reconResult.success) {
-                const typedConflicts = await GitShell.listConflictedFilesWithTypes(cwd).catch(() => []);
-                const conflictFiles = typedConflicts.length > 0
-                  ? typedConflicts.map((c) => c.file)
-                  : await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
-                if (conflictFiles.length > 0) {
-                  const completedBranches = results.filter((r) => r.success).map((r) => r.branch);
-                  const remainingBranches = nodes.slice(i + 1).map((n) => n.branch);
-                  return {
-                    results,
-                    updatedStack,
-                    state: 'paused',
-                    pauseInfo: {
-                      currentBranch: node.branch,
-                      conflictFiles,
-                      remainingBranches,
-                      completedBranches,
-                      mergedBranch: pauseContext.mergedBranch,
-                      newBase: pauseContext.newBase,
-                      currentTarget: tombstone,
-                      phase: 'reconcile',
-                      conflictTypes: typedConflicts,
-                      preRebaseHeads: { ...preRebaseHeads },
-                      treePath: cwd,
-                    },
-                  };
+          // Find child's fork point using reflogs (reliable even after parent rebase)
+          const reflogFP = await GitShell.getMergeBaseForkPoint(
+            cwd, directParent.branch, node.branch,
+          ).catch(() => null);
+
+          if (reflogFP) {
+            // Reconcile: rebase child's own commits onto the tombstone.
+            // This picks up the parent's review improvements.
+            const reconResult = await RebaseEngine.rebaseSingle(
+              cwd, tombstone, reflogFP, node.branch,
+            );
+            if (!reconResult.success) {
+              const typedConflicts = await GitShell.listConflictedFilesWithTypes(cwd).catch(() => []);
+              const conflictFiles = typedConflicts.length > 0
+                ? typedConflicts.map((c) => c.file)
+                : await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
+              if (conflictFiles.length > 0) {
+                const completedBranches = results.filter((r) => r.success).map((r) => r.branch);
+                const remainingBranches = nodes.slice(i + 1).map((n) => n.branch);
+                return {
+                  results,
+                  updatedStack,
+                  state: 'paused',
+                  pauseInfo: {
+                    currentBranch: node.branch,
+                    conflictFiles,
+                    remainingBranches,
+                    completedBranches,
+                    mergedBranch: pauseContext.mergedBranch,
+                    newBase: pauseContext.newBase,
+                    currentTarget: tombstone,
+                    phase: 'reconcile',
+                    conflictTypes: typedConflicts,
+                    preRebaseHeads: { ...preRebaseHeads },
+                    treePath: cwd,
+                  },
+                };
+              }
+              results.push(reconResult);
+              break;
+            }
+          } else {
+            // Fallback: use cherry-pick reconciliation when reflogs are unavailable
+            const drift = await reconcileDrift(
+              cwd, tombstone, node.branch,
+              node.forkPoint ?? null, directParent.branch,
+            );
+            if (drift.drifted) {
+              const redundant = await isFullyRedundant(cwd, tombstone, node.branch);
+              if (redundant) {
+                await GitShell.checkoutBranch(cwd, node.branch);
+                await GitShell.resetHard(cwd, tombstone);
+              } else {
+                const reconResult = await cherryPickReconcile(
+                  cwd, tombstone, node.branch, directParent.branch,
+                );
+                if (!reconResult.success) {
+                  const typedConflicts = await GitShell.listConflictedFilesWithTypes(cwd).catch(() => []);
+                  const conflictFiles = typedConflicts.length > 0
+                    ? typedConflicts.map((c) => c.file)
+                    : await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
+                  if (conflictFiles.length > 0) {
+                    const completedBranches = results.filter((r) => r.success).map((r) => r.branch);
+                    const remainingBranches = nodes.slice(i + 1).map((n) => n.branch);
+                    return {
+                      results,
+                      updatedStack,
+                      state: 'paused',
+                      pauseInfo: {
+                        currentBranch: node.branch,
+                        conflictFiles,
+                        remainingBranches,
+                        completedBranches,
+                        mergedBranch: pauseContext.mergedBranch,
+                        newBase: pauseContext.newBase,
+                        currentTarget: tombstone,
+                        phase: 'reconcile',
+                        conflictTypes: typedConflicts,
+                        preRebaseHeads: { ...preRebaseHeads },
+                        treePath: cwd,
+                      },
+                    };
+                  }
+                  results.push(reconResult);
+                  break;
                 }
-                results.push(reconResult);
-                break;
               }
             }
           }
@@ -683,7 +743,7 @@ async function doCascadeLoop(
 
     // Pre-check: if ALL commits on the branch are already on the target,
     // skip the rebase — just fast-forward the branch pointer.
-    const cascadeRedundant = await isFullyRedundant(cwd, targetBase, node.branch);
+    const cascadeRedundant = await isFullyRedundant(cwd, targetBase, reconciled?.head ?? node.branch);
     if (cascadeRedundant) {
       if (workDir) {
         const oldHead = preRebaseHeads[node.branch];
@@ -703,8 +763,14 @@ async function doCascadeLoop(
       const oldHead = preRebaseHeads[node.branch] ?? (await GitShell.getBranchHead(cwd, node.branch));
       let rebased = true;
       try {
-        await GitShell.detachAt(workDir, oldHead);
-        await GitShell.rebaseOntoDetached(workDir, targetBase, baseResult.oldBase);
+        if (reconciled) {
+          // The reconciled commits sit on the tombstone; replay exactly those.
+          await GitShell.detachAt(workDir, reconciled.head);
+          await GitShell.rebaseOntoDetached(workDir, targetBase, reconciled.base);
+        } else {
+          await GitShell.detachAt(workDir, oldHead);
+          await GitShell.rebaseOntoDetached(workDir, targetBase, baseResult.oldBase);
+        }
       } catch (err) {
         rebased = false;
         const typedConflicts = await GitShell.listConflictedFilesWithTypes(workDir).catch(() => []);
@@ -903,13 +969,101 @@ export const RebaseEngine = {
     }
 
     let updatedStack = stack;
+    let firstResult: RebaseResult = { branch: pauseInfo.currentBranch, success: true };
+
+    // ── Reconcile phase follow-up ────────────────────────────────────────
+    // When continuing from a reconciliation pause, the child is now synced
+    // with the merged parent's final state. The main cascade rebase for this
+    // same branch runs now, BEFORE any ref finalization, so the detached
+    // flow's single CAS covers reconcile + main rebase together.
+    if (pauseInfo.phase === 'reconcile') {
+      const node = StackManager.findNode(stack, pauseInfo.currentBranch);
+      if (node) {
+        const parentNode = StackManager.findNode(stack, node.parent);
+        const tombstone = pauseInfo.currentTarget ?? parentNode?.lastKnownHead;
+        if (tombstone) {
+          const useTombstone = pauseInfo.mergedBranch !== null;
+          // Match the loop's target resolution: a sync-origin reconcile
+          // hoists onto the live ancestor (origin/<root> for root-parented
+          // chains), not back onto the merged parent.
+          const targetBase = useTombstone && node.parent === pauseInfo.mergedBranch
+            ? pauseInfo.newBase
+            : makeCascadeResolvers(cwd, stack, pauseInfo.newBase).resolveParentRef(node);
+
+          if (pauseInfo.worktreePath) {
+            // Detached: the slot HEAD holds the reconciled commits already.
+            try {
+              await GitShell.rebaseOntoDetached(treeDir, targetBase, tombstone);
+            } catch {
+              const typedConflicts = await GitShell.listConflictedFilesWithTypes(treeDir)
+                .catch(() => [] as { file: string; type: string }[]);
+              const conflictFiles = typedConflicts.length > 0
+                ? typedConflicts.map((c) => c.file)
+                : await GitShell.listConflictedFiles(treeDir).catch(() => [] as string[]);
+              if (conflictFiles.length > 0) {
+                const progress = GitShell.getRebaseProgress(treeDir);
+                return {
+                  results: [],
+                  updatedStack,
+                  state: 'paused',
+                  pauseInfo: {
+                    ...pauseInfo,
+                    conflictFiles,
+                    phase: 'cascade',
+                    currentTarget: targetBase,
+                    conflictTypes: typedConflicts,
+                    commitIndex: progress?.current,
+                    commitTotal: progress?.total,
+                  },
+                };
+              }
+              return {
+                results: [{
+                  branch: pauseInfo.currentBranch,
+                  success: false,
+                  error: 'main rebase failed after reconciliation',
+                }],
+                updatedStack: stack,
+                state: 'completed',
+              };
+            }
+          } else {
+            const mainResult = await RebaseEngine.rebaseSingle(
+              treeDir, targetBase, tombstone, node.branch,
+            );
+            if (!mainResult.success) {
+              const conflictFiles = await GitShell.listConflictedFiles(treeDir).catch(() => [] as string[]);
+              if (conflictFiles.length > 0) {
+                const typedConflicts = await GitShell.listConflictedFilesWithTypes(treeDir)
+                  .catch(() => [] as { file: string; type: string }[]);
+                const progress = GitShell.getRebaseProgress(treeDir);
+                return {
+                  results: [firstResult],
+                  updatedStack,
+                  state: 'paused',
+                  pauseInfo: {
+                    ...pauseInfo,
+                    conflictFiles,
+                    phase: 'cascade',
+                    currentTarget: targetBase,
+                    conflictTypes: typedConflicts,
+                    commitIndex: progress?.current,
+                    commitTotal: progress?.total,
+                  },
+                };
+              }
+              return { results: [firstResult, mainResult], updatedStack, state: 'completed' };
+            }
+          }
+        }
+      }
+    }
 
     // ── Detached-flow finalization ───────────────────────────────────────
-    // When this pause came from the detached cascade flow (worktreePath
-    // set), the branch ref has NOT moved yet — the rebase landed in the
-    // work slot only. Finalize it now via the same CAS + slot-policy path
-    // the main loop uses, then re-detach the slot.
-    let firstResult: RebaseResult = { branch: pauseInfo.currentBranch, success: true };
+    // The branch ref has not moved yet in the detached flow; finalize via
+    // the same CAS + slot-policy path the main loop uses, then re-detach.
+    // For reconcile pauses this runs AFTER the follow-up above, so the CAS
+    // moves the ref straight from its original head to the final one.
     if (pauseInfo.worktreePath) {
       const newHead = await GitShell.getBranchHead(treeDir, 'HEAD');
       const oldHead = pauseInfo.preRebaseHeads?.[pauseInfo.currentBranch];
@@ -932,52 +1086,6 @@ export const RebaseEngine = {
       firstResult = fin;
     }
     const results: RebaseResult[] = [firstResult];
-
-    // ── Reconcile phase follow-up ────────────────────────────────────────
-    // When continuing from a reconciliation pause, the child is now synced
-    // with the merged parent's final state. We still need to run the main
-    // cascade rebase (--onto trunk) for this same branch before moving on.
-    if (pauseInfo.phase === 'reconcile') {
-      const node = StackManager.findNode(stack, pauseInfo.currentBranch);
-      if (node) {
-        const parentNode = StackManager.findNode(stack, node.parent);
-        const tombstone = parentNode?.lastKnownHead;
-        if (tombstone) {
-          const useTombstone = pauseInfo.mergedBranch !== null;
-          const targetBase = useTombstone && node.parent === pauseInfo.mergedBranch
-            ? pauseInfo.newBase
-            : node.parent;
-
-          const mainResult = await RebaseEngine.rebaseSingle(
-            treeDir, targetBase, tombstone, node.branch,
-          );
-
-          if (!mainResult.success) {
-            const conflictFiles = await GitShell.listConflictedFiles(treeDir).catch(() => [] as string[]);
-            if (conflictFiles.length > 0) {
-              const typedConflicts = await GitShell.listConflictedFilesWithTypes(treeDir).catch(() => [] as { file: string; type: string }[]);
-              const progress = GitShell.getRebaseProgress(treeDir);
-              return {
-                results,
-                updatedStack,
-                state: 'paused',
-                pauseInfo: {
-                  ...pauseInfo,
-                  conflictFiles,
-                  phase: 'cascade',
-                  currentTarget: targetBase,
-                  conflictTypes: typedConflicts,
-                  commitIndex: progress?.current,
-                  commitTotal: progress?.total,
-                },
-              };
-            }
-            results.push(mainResult);
-            return { results, updatedStack, state: 'completed' };
-          }
-        }
-      }
-    }
 
     const rebasedBranches: string[] = [];
 
@@ -1056,17 +1164,23 @@ export const RebaseEngine = {
    * Useful for the "mid-stack amend" situation: user edited feat/layer-2,
    * only feat/layer-3 and feat/layer-4 need restacking.
    */
-  async restackFrom(cwd: string, stack: Stack, branch: string, workDir?: string): Promise<CascadeResult> {
+  async restackFrom(
+    cwd: string,
+    stack: Stack,
+    branch: string,
+    workDir?: string,
+    seedHeads?: Record<string, string>,
+  ): Promise<CascadeResult> {
     const descendants = StackManager.getDescendants(stack, branch);
     if (descendants.length === 0) {
       return { results: [], updatedStack: stack, state: 'completed' };
     }
 
-    // Recorded pre-rebase heads matter here too: deeper descendants of the
-    // amended `branch` see their parents rewritten as the loop walks down.
-    // New-base targets stay node.parent verbatim (descendants of `branch`
-    // are never root-parented).
-    const preRebaseHeads: Record<string, string> = {};
+    // Seeded heads let a caller that already rewrote `branch` (reparent's
+    // own rebase, absorb's amends) hand over its pre-rewrite head, so the
+    // children compute their fork point off the OLD head instead of a
+    // merge-base against rewritten history.
+    const preRebaseHeads: Record<string, string> = { ...(seedHeads ?? {}) };
     const { resolveBase } = makeCascadeResolvers(cwd, stack, branch, preRebaseHeads);
 
     return doCascadeLoop(

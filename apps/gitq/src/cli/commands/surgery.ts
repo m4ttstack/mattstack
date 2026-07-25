@@ -1,5 +1,4 @@
 import { loadStore, updateStore } from '../../core/persistence.ts';
-import { StackManager } from '../../core/stack-manager.ts';
 import { AbsorbEngine } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
 import { foldBranch } from '../../core/branch-fold.ts';
@@ -57,13 +56,23 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
+  // The amend phase checks each attributed branch out in the launch tree;
+  // a branch held by another slot would fail halfway through. Refuse it
+  // upfront with the preview's attribution.
+  const preview = await AbsorbEngine.previewAbsorb(ctx.repoRoot, stack);
+  const map = await getWorktreeMap(ctx.repoRoot);
+  for (const attributedBranch of Object.keys(preview.attributed)) {
+    const preGuard = refuseIfCheckedOutElsewhere(ctx, map, attributedBranch);
+    if (preGuard !== null) return preGuard;
+  }
+
   // Absorb has no pause protocol (see below), but the restack it runs after
   // committing can still conflict and needs a work slot leased against the
   // stack for the duration — same as sync/reparent's cascade phase. The
   // commit phase (attribution + amend) stays in ctx.repoRoot either way.
-  return withLeasedSlot(ctx, stack, 'absorb', () =>
+  return withLeasedSlot(ctx, stack, 'absorb', (workDir) =>
     withOperationLog(ctx, stack, 'absorb', async () => {
-      const result = await AbsorbEngine.absorb(ctx.repoRoot, stack);
+      const result = await AbsorbEngine.absorb(ctx.repoRoot, stack, undefined, workDir);
       const updatedStack = result.updatedStack ?? stack;
       if (result.updatedStack) {
         await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, updatedStack));
@@ -110,12 +119,12 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
-  const map = await getWorktreeMap(ctx.repoRoot);
-  const preGuard = refuseIfCheckedOutElsewhere(ctx, map, branch);
-  if (preGuard !== null) return preGuard;
-
-  return withOperationLog(ctx, stack, 'split', async () => {
-    if (at) {
+  // No checked-out-elsewhere pre-guard here: both modes are ref surgery now.
+  // --at never touches a working tree; --files builds detached in a leased
+  // slot. A source branch checked out elsewhere is handled by the slot
+  // policy inside finalizeBranchRef (clean: auto-reset, dirty: refuse).
+  if (at) {
+    return withOperationLog(ctx, stack, 'split', async () => {
       const result = await BranchSplitter.tailSplit(ctx.repoRoot, stack, branch, name, at);
       await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
       emit(ctx, `split ${branch}: moved ${result.movedCommits.length} commit(s) to ${result.newBranch}`, {
@@ -123,17 +132,21 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
         result,
       });
       return 0;
-    }
-
-    const patterns = files!.split(',').map((p) => p.trim()).filter(Boolean);
-    const result = await BranchSplitter.splitByFile(ctx.repoRoot, stack, branch, patterns, name);
-    await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
-    emit(ctx, `split ${branch}: moved ${result.movedFiles.length} file(s) to ${result.newBranch}`, {
-      stack: result.newStack,
-      result,
     });
-    return 0;
-  });
+  }
+
+  return withLeasedSlot(ctx, stack, 'split', (workDir) =>
+    withOperationLog(ctx, stack, 'split', async () => {
+      const patterns = files!.split(',').map((p) => p.trim()).filter(Boolean);
+      const result = await BranchSplitter.splitByFile(ctx.repoRoot, stack, branch, patterns, name, workDir);
+      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
+      emit(ctx, `split ${branch}: moved ${result.movedFiles.length} file(s) to ${result.newBranch}`, {
+        stack: result.newStack,
+        result,
+      });
+      return 0;
+    }),
+  );
 }
 
 export async function foldCommand(ctx: CliContext): Promise<number> {
@@ -145,21 +158,14 @@ export async function foldCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
-  const map = await getWorktreeMap(ctx.repoRoot);
-  const preGuardBranch = refuseIfCheckedOutElsewhere(ctx, map, branch);
-  if (preGuardBranch !== null) return preGuardBranch;
-  const parentBranch = StackManager.findNode(stack, branch)?.parent;
-  if (parentBranch) {
-    const preGuardParent = refuseIfCheckedOutElsewhere(ctx, map, parentBranch);
-    if (preGuardParent !== null) return preGuardParent;
-  }
-
-  return withOperationLog(ctx, stack, 'fold', async () => {
-    const result = await foldBranch(ctx.repoRoot, stack, branch);
-    await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
-    emit(ctx, `folded ${result.foldedBranch} into ${result.intoParent}`, { stack: result.newStack, result });
-    return 0;
-  });
+  return withLeasedSlot(ctx, stack, 'fold', (workDir) =>
+    withOperationLog(ctx, stack, 'fold', async () => {
+      const result = await foldBranch(ctx.repoRoot, stack, branch, workDir);
+      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
+      emit(ctx, `folded ${result.foldedBranch} into ${result.intoParent}`, { stack: result.newStack, result });
+      return 0;
+    }),
+  );
 }
 
 export async function reparentCommand(ctx: CliContext): Promise<number> {
@@ -172,16 +178,17 @@ export async function reparentCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
-  // reparentBranch cascades the moved branch's descendants; that cascade can
-  // pause on a conflict exactly like `gitq sync` does. Lease a work slot for
-  // the duration so a paused reparent, like a paused sync, is guarded by a
-  // per-stack lease that `gitq continue`/`gitq abort` can resolve from
-  // anywhere. Its own (non-cascade) rebase stays in ctx.repoRoot as before.
+  // reparentBranch runs both its own --onto rebase and the moved branch's
+  // descendant cascade detached in the leased work slot; either can pause
+  // or refuse on a conflict exactly like `gitq sync` does. Lease a work slot
+  // for the duration so a paused reparent, like a paused sync, is guarded by
+  // a per-stack lease that `gitq continue`/`gitq abort` can resolve from
+  // anywhere.
   return withLeasedSlot(ctx, stack, 'reparent', (workDir) =>
     // Log unless we paused (exit 2): a paused cascade is resolved via
     // continue/abort, not undo, so recording it would be misleading.
     withOperationLog(ctx, stack, 'reparent', async () => {
-      const result = await reparentBranch(ctx.repoRoot, stack, branch, onto);
+      const result = await reparentBranch(ctx.repoRoot, stack, branch, onto, workDir);
 
       // Reuse the same pause-file protocol sync uses so `gitq continue`/
       // `gitq abort` can resume it.

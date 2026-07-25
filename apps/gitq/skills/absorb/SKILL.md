@@ -22,6 +22,11 @@ whether the attribution is right.
 | `--state <path>` | lifecycle status file the board polls (optional) |
 | `--status-bin <path>` | absolute path to the board's status-writer CLI (optional) |
 
+The `<repoPath>` positional may be ANY worktree of the repo, not just the
+primary checkout: the board passes the dirty worktree you picked in its
+absorb menu, and absorb sources the uncommitted changes from that
+directory. Run every command below against the given `<repoPath>` as is.
+
 **Status writes.** When `--state` and `--status-bin` were given, write status
 only by running the injected bin:
 
@@ -57,15 +62,18 @@ just talk to the human; everything else below is unchanged.
    `gitq -C <repoPath> sync --stack <stackName> --json`
    - **exit 2**: paused on a conflict. Mark conflict with the `pauseInfo`
      detail ("<n> conflicts on <branch> (commit <i>/<total>)"), then resolve
-     exactly as a rebase conflict should be: read each file in
-     `pauseInfo.conflictFiles`, understand both sides (`git -C <repoPath>
-     log --oneline --merge` plus the surrounding code), edit to the content
-     that preserves both intents, `git -C <repoPath> add` the results, and
-     run `gitq -C <repoPath> continue --json`. Repeat while it exits 2.
-     Never run `git rebase --continue` yourself; `gitq continue` also keeps
-     the stack bookkeeping right. If a conflict needs judgment you cannot
-     supply, `gitq -C <repoPath> abort`, mark error saying which file and
-     why, and stop.
+     exactly as a rebase conflict should be. The paused rebase lives in the
+     worktree named by `pauseInfo.worktreePath` (a gitq work slot), or
+     `pauseInfo.treePath` for older pauses; fall back to `<repoPath>` only
+     when both are absent. Call that directory `<rebaseDir>`. Read each file
+     in `pauseInfo.conflictFiles`, understand both sides (`git -C
+     <rebaseDir> log --oneline --merge` plus the surrounding code), edit to
+     the content that preserves both intents, `git -C <rebaseDir> add` the
+     results, and run `gitq -C <repoPath> continue --json`. Repeat while it
+     exits 2. Never run `git rebase --continue` yourself; `gitq continue`
+     also keeps the stack bookkeeping right. If a conflict needs judgment
+     you cannot supply, `gitq -C <repoPath> abort`, mark error saying which
+     file and why, and stop.
    - **exit 0**: restack finished; go to step 5.
    - **exit 1**: mark error with the reason and report.
 5. **Mark done.**

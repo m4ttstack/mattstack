@@ -41,7 +41,7 @@ Surgery:
 - `gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]`: tail split: move everything from `<sha>` onward on `<branch>` into a new child branch.
 - `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file: move files matching the glob(s) off `<branch>` into a new branch.
 - `gitq fold <branch> [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent.
-- `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch (and cascade rebase its descendants) onto a different parent. Can pause on a conflict exactly like `sync` does; resolve the same way.
+- `gitq reparent <branch> --onto <newParent> [--stack <name>]`: move a branch (and cascade rebase its descendants) onto a different parent. Two conflict shapes: if the branch itself can't be replayed onto the new parent, reparent refuses upfront and exits `1` with nothing moved (sync the stack first); if a conflict shows up in a descendant during the follow up cascade, it pauses exactly like `sync` does (exit `2`) and resolves the same way.
 - `gitq rename <old> <new> [--stack <name>]`: rename a branch, in git and in the stack tree.
 - `gitq reset <branch> [--stack <name>]`: reset a local branch to match `origin/<branch>` (for when it diverged, e.g. someone force pushed).
 
@@ -73,6 +73,8 @@ Cascades (`sync`, `continue`, `reparent`'s restack, `absorb`'s restack) never ru
 A branch checked out in one of your worktrees is handled by policy: if that worktree is clean and sitting exactly on the branch's old head, gitq moves the ref and resets the worktree to the new head (lossless); if it is dirty, mid-rebase, or drifted, that branch fails with a message naming the worktree, and nothing is touched.
 
 Conflict pauses live in the work slot: the paused JSON's `pauseInfo.worktreePath` says where to resolve, and `gitq continue` / `gitq abort` find the parked cascade from anywhere (pass `--stack` when more than one is parked). `gitq stacks`/`gitq diagnose` report the worktree map (`worktrees`, per-branch `checkedOutIn`) and `gitq preflight` predicts slot conflicts (`slotConflicts`) before you sync.
+
+Surgery is pooled too: reparent, fold, and file splits do their rebasing detached inside a leased work slot, tail splits are pure ref surgery, and absorb restacks through the slot after committing in the worktree you ran it from. Your checkouts are never switched out from under you: a branch checked out clean in some worktree is auto-fixed to its new head after the ref moves, and a dirty one refuses with a message naming the slot. The board shows each branch's checkout slot (dirty ones highlighted), the work slots' lease state, and lets absorb source from any dirty worktree.
 
 Stores created by older gitq versions (keyed by a single worktree's path) migrate automatically the first time you run gitq from that worktree.
 

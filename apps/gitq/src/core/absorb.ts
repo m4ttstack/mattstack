@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
-import { RebaseEngine } from './rebase-engine.ts';
+import { RebaseEngine, finalizeBranchRef } from './rebase-engine.ts';
 import type { CascadeResult, RebaseResult } from './rebase-engine.ts';
 import { toErrorMessage } from './error-utils.ts';
 
@@ -140,7 +140,12 @@ async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> 
  * rebased using `--onto <new-parent-head> <old-parent-head> <child>` so
  * only the child's own commits are replayed.
  */
-async function absorb(cwd: string, stack: Stack, excludedFiles?: string[]): Promise<AbsorbResult> {
+async function absorb(
+  cwd: string,
+  stack: Stack,
+  excludedFiles?: string[],
+  workDir?: string,
+): Promise<AbsorbResult> {
   const currentBranch = await GitShell.getCurrentBranch(cwd);
 
   const changedResult = await GitShell.getChangedFiles(cwd);
@@ -244,7 +249,7 @@ async function absorb(cwd: string, stack: Stack, excludedFiles?: string[]): Prom
   let cascadeResult: CascadeResult | undefined;
 
   if (affectedBranches.size > 0) {
-    cascadeResult = await cascadeAfterAbsorb(cwd, updatedStack, preAmendHeads, affectedBranches);
+    cascadeResult = await cascadeAfterAbsorb(cwd, updatedStack, preAmendHeads, affectedBranches, workDir);
     if (cascadeResult) {
       updatedStack = cascadeResult.updatedStack;
     }
@@ -265,6 +270,7 @@ async function cascadeAfterAbsorb(
   stack: Stack,
   preAmendHeads: Map<string, string>,
   amendedBranches: Set<string>,
+  workDir?: string,
 ): Promise<CascadeResult> {
   const allNodes = StackManager.toposort(stack);
   let updatedStack = stack;
@@ -290,7 +296,27 @@ async function cascadeAfterAbsorb(
 
     if (oldParentHead === newParentHead) continue;
 
-    const result = await RebaseEngine.rebaseSingle(cwd, newParentHead, oldParentHead, node.branch);
+    let result: RebaseResult;
+    if (workDir) {
+      // Detached: replay the child's commits in the work slot and CAS the
+      // ref. On conflict, back the slot out; the command layer's existing
+      // "aborted the rebase, run gitq sync" protocol reports it.
+      const nodeOldHead = await GitShell.getBranchHead(cwd, node.branch);
+      try {
+        await GitShell.detachAt(workDir, nodeOldHead);
+        await GitShell.rebaseOntoDetached(workDir, newParentHead, oldParentHead);
+        const newHead = await GitShell.getBranchHead(workDir, 'HEAD');
+        result = await finalizeBranchRef(cwd, node.branch, nodeOldHead, newHead);
+        await GitShell.detachAt(workDir, newHead).catch(() => {});
+      } catch (err) {
+        const message = toErrorMessage(err);
+        await GitShell.rebaseAbort(workDir).catch(() => {});
+        await GitShell.detachAt(workDir, 'HEAD').catch(() => {});
+        result = { branch: node.branch, success: false, error: message };
+      }
+    } else {
+      result = await RebaseEngine.rebaseSingle(cwd, newParentHead, oldParentHead, node.branch);
+    }
     results.push(result);
 
     if (!result.success) break;

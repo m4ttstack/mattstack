@@ -137,7 +137,11 @@ describe('BranchSplitter.tailSplit integration', () => {
     }
   });
 
-  test('rejects split when working tree is dirty', async () => {
+  test('rejects split when the source branch is checked out right where it is dirty', async () => {
+    // tailSplit is ref-only surgery now: launch-tree dirtiness alone is not
+    // checked. This still refuses because `r.dir` is itself the checkout
+    // that has feat/dirty (and is dirty): the slot policy inside
+    // finalizeBranchRef applies to the primary worktree same as any other.
     const { BranchSplitter } = await import('../../src/core/branch-splitter.ts');
 
     const r = await createSandboxRepo();
@@ -155,7 +159,7 @@ describe('BranchSplitter.tailSplit integration', () => {
 
       await expect(
         BranchSplitter.tailSplit(r.dir, stack, 'feat/dirty', 'feat/new', sha1),
-      ).rejects.toThrow(/uncommitted changes/);
+      ).rejects.toThrow(/dirty|checked out/i);
     } finally {
       await cleanupRepo(r.dir);
     }

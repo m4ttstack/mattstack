@@ -17,6 +17,16 @@ interface BoardNode {
   statusLine: string;
   badge: { label: string; variant: string } | null;
   mr: BoardMr | null;
+  checkedOutIn: string | null;
+  checkedOutDirty: boolean;
+}
+interface BoardWorktree {
+  name: string;
+  path: string;
+  branch: string | null;
+  dirty: boolean;
+  isWorkSlot: boolean;
+  lease: { stackName: string; action: string; state: 'running' | 'parked' } | null;
 }
 interface ConflictPrediction {
   branch: string;
@@ -42,6 +52,7 @@ interface BoardRepo {
   name: string;
   stacks: BoardStack[];
   activity: ActivityEntry[];
+  worktrees: BoardWorktree[];
   error: string | null;
 }
 interface JobInfo {
@@ -176,6 +187,14 @@ function StackPanel(props: {
                 conflict predicted
               </span>
             ) : null}
+            {n.checkedOutIn && (
+              <span
+                className={`slot-chip${n.checkedOutDirty ? ' slot-dirty' : ''}`}
+                title={n.checkedOutDirty ? `checked out in ${n.checkedOutIn} (dirty)` : `checked out in ${n.checkedOutIn}`}
+              >
+                {n.checkedOutIn}
+              </span>
+            )}
             {n.mr?.url && (
               <a className="mr-link" href={n.mr.url} target="_blank" rel="noreferrer" title={n.mr.title}>
                 !{n.mr.iid}
@@ -308,7 +327,7 @@ function App() {
   }, []);
 
   const launch = useCallback(
-    async (repo: BoardRepo, stack: BoardStack, action: Action) => {
+    async (repo: BoardRepo, stack: BoardStack, action: Action, sourceSlot?: string) => {
       setMenu(null);
       const key = jobKey(repo.path, stack.stackName, action);
       const now = Date.now();
@@ -321,7 +340,7 @@ function App() {
         const res = await fetch('/action', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ repoPath: repo.path, stack: stack.stackName, action }),
+          body: JSON.stringify({ repoPath: repo.path, stack: stack.stackName, action, ...(sourceSlot ? { sourceSlot } : {}) }),
         });
         if (!res.ok) throw new Error(await res.text());
         const out = (await res.json()) as { ok: boolean; focused?: boolean };
@@ -368,7 +387,14 @@ function App() {
       <div className="main">
         {data.repos.map((repo) => (
           <section key={repo.path}>
-            <div className="repo-head">{repo.name}</div>
+            <div className="repo-head">
+              {repo.name}
+              {repo.worktrees.filter((w) => w.isWorkSlot).map((w) => (
+                <span key={w.path} className={`slot-status${w.lease ? ` slot-${w.lease.state}` : ''}`}>
+                  {w.name}: {w.lease ? `${w.lease.state === 'parked' ? 'parked' : w.lease.action} on ${w.lease.stackName}` : 'free'}
+                </span>
+              ))}
+            </div>
             {repo.error && <div className="repo-error">{repo.error}</div>}
             <div className="repo-body">
               <div className="stacks">
@@ -390,12 +416,24 @@ function App() {
       {menu && (
         <div className="menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
           {data.local &&
-            ACTIONS.map((action) => (
+            ACTIONS.filter((a) => a !== 'absorb').map((action) => (
               <button key={action} className="menu-item" onClick={() => void launch(menu.repo, menu.stack, action)}>
                 {action} {menu.stack.stackName}
                 <span className="hint">herdr</span>
               </button>
             ))}
+          {data.local && (() => {
+            const dirty = menu.repo.worktrees.filter((w) => !w.isWorkSlot && w.dirty);
+            if (dirty.length === 0) {
+              return <div className="menu-item menu-disabled">absorb (no dirty worktree)</div>;
+            }
+            return dirty.map((w) => (
+              <button key={w.path} className="menu-item" onClick={() => void launch(menu.repo, menu.stack, 'absorb', w.path)}>
+                absorb from {w.name}
+                <span className="hint">herdr</span>
+              </button>
+            ));
+          })()}
           {data.local && menu.node?.mr?.url && <div className="menu-sep" />}
           {menu.node?.mr?.url && (
             <button

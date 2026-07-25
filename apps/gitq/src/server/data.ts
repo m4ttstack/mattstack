@@ -1,4 +1,4 @@
-import { loadStore } from '../core/persistence.ts';
+import { loadStore, resolveRepoIdentity } from '../core/persistence.ts';
 import { collectSnapshot, diagnoseStack } from '../core/stack-diagnostics.ts';
 import type { BannerDirective, NodeDirective } from '../core/stack-diagnostics.ts';
 import { RebaseEngine } from '../core/rebase-engine.ts';
@@ -9,6 +9,8 @@ import { GitShell } from '../core/git-shell.ts';
 import { resolveGitLabToken } from '../core/secrets.ts';
 import { createGitLabProvider } from '../cli/provider.ts';
 import type { GitLabProviderContext } from '../cli/provider.ts';
+import { getWorktreeMap } from '../core/worktrees.ts';
+import { listLeases } from '../core/leases.ts';
 import type { Stack } from '../core/types.ts';
 import type { PullRequest } from '@workforge/glance-sdk';
 import type { JobAction } from './job-state.ts';
@@ -29,6 +31,17 @@ export interface BoardNode {
   statusLine: string;
   badge: { label: string; variant: string } | null;
   mr: BoardMr | null;
+  checkedOutIn: string | null;
+  checkedOutDirty: boolean;
+}
+
+export interface BoardWorktree {
+  name: string;
+  path: string;
+  branch: string | null;
+  dirty: boolean;
+  isWorkSlot: boolean;
+  lease: { stackName: string; action: string; state: 'running' | 'parked' } | null;
 }
 
 export interface BoardStack {
@@ -53,6 +66,7 @@ export interface BoardRepo {
   name: string;
   stacks: BoardStack[];
   activity: ActivityEntry[];
+  worktrees: BoardWorktree[];
   error: string | null;
 }
 
@@ -66,12 +80,14 @@ export function shapeStack(
   globalBlocks: string[],
   predictedConflicts: ConflictPrediction[],
   mrByBranch: Map<string, BoardMr>,
+  slotByBranch: Map<string, { name: string; dirty: boolean }> = new Map(),
 ): BoardStack {
   const nodes: BoardNode[] = stack.nodes.map((n) => {
     const d = directives.get(n.branch);
     const fallback: BoardMr | null = n.mrUrl
       ? { iid: n.mrIid ?? 0, url: n.mrUrl, title: n.mrTitle ?? '', state: 'unknown', pipelineStatus: n.pipelineStatus }
       : null;
+    const slot = slotByBranch.get(n.branch) ?? null;
     return {
       branch: n.branch,
       parent: n.parent,
@@ -79,6 +95,8 @@ export function shapeStack(
       statusLine: d?.statusLine ?? '',
       badge: d?.badge ?? null,
       mr: mrByBranch.get(n.branch) ?? fallback,
+      checkedOutIn: slot?.name ?? null,
+      checkedOutDirty: slot?.dirty ?? false,
     };
   });
   return { stackName: stack.stackName, root: stack.root, nodes, banner, globalBlocks, predictedConflicts };
@@ -107,12 +125,22 @@ const ACTIONS: ReadonlySet<string> = new Set(['sync', 'publish', 'absorb', 'rest
 export function parseActionBody(
   body: unknown,
   repos: RepoEntry[],
-): { repoPath: string; stack: string; action: JobAction } | null {
+): { repoPath: string; stack: string; action: JobAction; sourceSlot?: string } | null {
   if (!body || typeof body !== 'object') return null;
-  const { repoPath, stack, action } = body as { repoPath?: unknown; stack?: unknown; action?: unknown };
+  const { repoPath, stack, action, sourceSlot } = body as {
+    repoPath?: unknown;
+    stack?: unknown;
+    action?: unknown;
+    sourceSlot?: unknown;
+  };
   if (typeof repoPath !== 'string' || typeof stack !== 'string' || typeof action !== 'string') return null;
   if (stack === '' || !ACTIONS.has(action)) return null;
   if (!repos.some((r) => r.path === repoPath)) return null;
+  if (sourceSlot !== undefined) {
+    // absorb sources from a picked worktree; no other action takes one
+    if (typeof sourceSlot !== 'string' || sourceSlot === '' || action !== 'absorb') return null;
+    return { repoPath, stack, action: action as JobAction, sourceSlot };
+  }
   return { repoPath, stack, action: action as JobAction };
 }
 
@@ -156,6 +184,33 @@ export async function collectRepo(repo: RepoEntry): Promise<BoardRepo> {
         providerCtx = null;
       }
     }
+    let worktrees: BoardWorktree[] = [];
+    const slotByBranch = new Map<string, { name: string; dirty: boolean }>();
+    try {
+      const [map, leases] = await Promise.all([
+        getWorktreeMap(repo.path),
+        resolveRepoIdentity(repo.path).then((id) => listLeases(id)),
+      ]);
+      const stackNameById = new Map(store.stacks.map((s) => [s.id, s.stackName]));
+      worktrees = map.map((s) => {
+        const lease = leases.find((l) => l.slotPath === s.path) ?? null;
+        return {
+          name: s.name,
+          path: s.path,
+          branch: s.branch,
+          dirty: s.dirty,
+          isWorkSlot: s.isWorkSlot,
+          lease: lease
+            ? { stackName: stackNameById.get(lease.stackId) ?? lease.stackId, action: lease.action, state: lease.state }
+            : null,
+        };
+      });
+      for (const s of map) {
+        if (!s.isWorkSlot && s.branch) slotByBranch.set(s.branch, { name: s.name, dirty: s.dirty });
+      }
+    } catch {
+      // worktree enumeration failure: board still renders the stacks
+    }
     const stacks: BoardStack[] = [];
     for (const stack of store.stacks) {
       const snapshot = await collectSnapshot(repo.path, stack);
@@ -178,17 +233,19 @@ export async function collectRepo(repo: RepoEntry): Promise<BoardRepo> {
           diagnostics.globalBlocks,
           preflight.conflictBranches,
           mrByBranch,
+          slotByBranch,
         ),
       );
     }
     const activity = shapeActivity(await OperationLog.load(), repo.path);
-    return { path: repo.path, name: repo.name, stacks, activity, error: null };
+    return { path: repo.path, name: repo.name, stacks, activity, worktrees, error: null };
   } catch (err) {
     return {
       path: repo.path,
       name: repo.name,
       stacks: [],
       activity: [],
+      worktrees: [],
       error: err instanceof Error ? err.message : String(err),
     };
   }

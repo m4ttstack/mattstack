@@ -112,6 +112,11 @@ export const GitShell = {
     await git(['checkout', '-b', name, from], cwd);
   },
 
+  /** Create a branch ref without touching any working tree. */
+  async branchAt(cwd: string, name: string, from: string): Promise<void> {
+    await git(['branch', name, from], cwd);
+  },
+
   /** Switch to an existing branch. */
   async checkoutBranch(cwd: string, branch: string): Promise<void> {
     await git(['checkout', branch], cwd);

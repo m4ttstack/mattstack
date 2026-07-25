@@ -2,6 +2,7 @@ import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
 import { assertCleanTree } from './git-guards.ts';
+import { finalizeBranchRef } from './rebase-engine.ts';
 import picomatch from 'picomatch';
 
 // ── Result types ─────────────────────────────────────────────────────────────
@@ -35,12 +36,12 @@ export interface SplitByFileResult {
 /**
  * Tail-split primitive for breaking large branches into smaller stacked branches.
  *
- * The operation is:
- * 1. Check dirty tree (refuse if uncommitted changes)
- * 2. Create a new branch at Source HEAD (preserves all commits)
- * 3. Reset source branch to splitAfterSha
- * 4. Add new branch as child of source in the stack tree
- * 5. Update lastKnownHead on both branches
+ * Pure ref surgery: no working tree is read or written. The operation is:
+ * 1. Create a new branch at source HEAD (preserves all commits)
+ * 2. CAS-rewind the source branch to splitAfterSha via finalizeBranchRef
+ *    (a checked-out source gets the slot policy: clean auto-resets, dirty refuses)
+ * 3. Add new branch as child of source in the stack tree
+ * 4. Update lastKnownHead on both branches
  */
 export const BranchSplitter = {
   /**
@@ -73,9 +74,10 @@ export const BranchSplitter = {
       throw new Error(`Branch "${newBranchName}" already exists in stack "${stack.id}"`);
     }
 
-    await assertCleanTree(cwd);
-
-    // Get the commits that will be moved (everything after splitAfterSha)
+    // Ref-only surgery: the new branch keeps the full history; the source
+    // ref rewinds to the split point. No working tree is read or written,
+    // so launch-tree dirtiness is irrelevant; a checked-out source gets the
+    // slot policy (clean: auto-reset, dirty: refuse) via finalizeBranchRef.
     const commits = await BranchSplitter.getCommitLog(cwd, sourceBranch);
     const splitIdx = commits.findIndex((c) => c.sha === splitAfterSha);
     if (splitIdx === -1) {
@@ -85,21 +87,17 @@ export const BranchSplitter = {
     // Commits before and at the split point stay on source.
     // Commits after the split point (newer = earlier in log) move to new branch.
     const movedCommits = commits.slice(0, splitIdx).map((c) => c.sha);
-
     if (movedCommits.length === 0) {
       throw new Error('No commits to split — the split point is already at HEAD');
     }
 
-    // Record source HEAD before any mutations
     const sourceHead = await GitShell.getBranchHead(cwd, sourceBranch);
-
-    // Step 1: Create new branch at source's current HEAD (preserves all commits)
-    await GitShell.checkoutBranch(cwd, sourceBranch);
-    await GitShell.createBranch(cwd, newBranchName, sourceHead);
-
-    // Step 2: Reset source branch to the split point
-    await GitShell.checkoutBranch(cwd, sourceBranch);
-    await GitShell.resetHard(cwd, splitAfterSha);
+    await GitShell.branchAt(cwd, newBranchName, sourceHead);
+    const fin = await finalizeBranchRef(cwd, sourceBranch, sourceHead, splitAfterSha);
+    if (!fin.success) {
+      await GitShell.deleteBranch(cwd, newBranchName).catch(() => {});
+      throw new Error(fin.error ?? 'could not rewind the source branch');
+    }
 
     // Step 3: Update the stack tree
     // Add new branch as child of source FIRST (so re-parenting can find it)
@@ -156,6 +154,11 @@ export const BranchSplitter = {
    * @param branch        - Branch to split (must be in the stack).
    * @param filePatterns  - Glob patterns for files to move (e.g. ["*.ts", "src/api/**"]).
    * @param newBranchName - Name for the new branch that will contain matched files.
+   * @param workDir       - Leased, detached work slot. Without it, runs natively in
+   *                        `cwd` (checks out both branches there, requires a clean
+   *                        tree). With it, both commits are built detached in the
+   *                        slot and the source tip is rewritten by CAS via
+   *                        `finalizeBranchRef`; the launch tree is never touched.
    */
   async splitByFile(
     cwd: string,
@@ -163,6 +166,7 @@ export const BranchSplitter = {
     branch: string,
     filePatterns: string[],
     newBranchName: string,
+    workDir?: string,
   ): Promise<SplitByFileResult> {
     const node = StackManager.findNode(stack, branch);
     if (!node) {
@@ -172,8 +176,6 @@ export const BranchSplitter = {
     if (StackManager.findNode(stack, newBranchName) || newBranchName === stack.root) {
       throw new Error(`Branch "${newBranchName}" already exists in stack "${stack.id}"`);
     }
-
-    await assertCleanTree(cwd);
 
     const parentBranch = node.parent;
     const mergeBase = await GitShell.getMergeBase(cwd, branch, parentBranch);
@@ -191,37 +193,79 @@ export const BranchSplitter = {
       throw new Error(`No files match the patterns: ${filePatterns.join(', ')}`);
     }
 
-    // Create the new branch from the merge base
-    await GitShell.createBranch(cwd, newBranchName, mergeBase);
+    let newBranchHead: string;
+    let newSourceHead: string;
 
-    // On the new branch: checkout matched files from the original branch, commit
-    await GitShell.checkoutFiles(cwd, branch, movedFiles);
-    await GitShell.add(cwd, movedFiles);
-    const newBranchHead = await GitShell.commit(cwd, `Split from ${branch}: ${movedFiles.length} file(s)`);
+    if (!workDir) {
+      await assertCleanTree(cwd);
 
-    // Back on the source branch: remove the matched files
-    await GitShell.checkoutBranch(cwd, branch);
+      // Create the new branch from the merge base
+      await GitShell.createBranch(cwd, newBranchName, mergeBase);
 
-    if (remainingFiles.length === 0) {
-      // All files moved — reset source to merge base
-      await GitShell.resetHard(cwd, mergeBase);
+      // On the new branch: checkout matched files from the original branch, commit
+      await GitShell.checkoutFiles(cwd, branch, movedFiles);
+      await GitShell.add(cwd, movedFiles);
+      newBranchHead = await GitShell.commit(cwd, `Split from ${branch}: ${movedFiles.length} file(s)`);
+
+      // Back on the source branch: remove the matched files
+      await GitShell.checkoutBranch(cwd, branch);
+
+      if (remainingFiles.length === 0) {
+        // All files moved — reset source to merge base
+        await GitShell.resetHard(cwd, mergeBase);
+      } else {
+        // Files that existed at merge-base should be restored; new files should be deleted
+        const mergeBaseTree = new Set(await GitShell.lsTree(cwd, mergeBase));
+        const filesToRestore = movedFiles.filter((f) => mergeBaseTree.has(f));
+        const filesToDelete = movedFiles.filter((f) => !mergeBaseTree.has(f));
+
+        if (filesToRestore.length > 0) {
+          await GitShell.checkoutFiles(cwd, mergeBase, filesToRestore);
+          await GitShell.add(cwd, filesToRestore);
+        }
+        if (filesToDelete.length > 0) {
+          await GitShell.rm(cwd, filesToDelete);
+        }
+        await GitShell.amendNoEdit(cwd);
+      }
+
+      newSourceHead = await GitShell.getBranchHead(cwd, branch);
     } else {
-      // Files that existed at merge-base should be restored; new files should be deleted
-      const mergeBaseTree = new Set(await GitShell.lsTree(cwd, mergeBase));
-      const filesToRestore = movedFiles.filter((f) => mergeBaseTree.has(f));
-      const filesToDelete = movedFiles.filter((f) => !mergeBaseTree.has(f));
+      const branchHead = await GitShell.getBranchHead(cwd, branch);
 
-      if (filesToRestore.length > 0) {
-        await GitShell.checkoutFiles(cwd, mergeBase, filesToRestore);
-        await GitShell.add(cwd, filesToRestore);
+      // Build the new branch's single commit in the work slot.
+      await GitShell.detachAt(workDir, mergeBase);
+      await GitShell.checkoutFiles(workDir, branch, movedFiles);
+      await GitShell.add(workDir, movedFiles);
+      newBranchHead = await GitShell.commit(workDir, `Split from ${branch}: ${movedFiles.length} file(s)`);
+      await GitShell.branchAt(cwd, newBranchName, newBranchHead);
+
+      // Rewrite the source tip without the moved files, still in the slot.
+      if (remainingFiles.length === 0) {
+        newSourceHead = mergeBase;
+      } else {
+        await GitShell.detachAt(workDir, branchHead);
+        const mergeBaseTree = new Set(await GitShell.lsTree(cwd, mergeBase));
+        const filesToRestore = movedFiles.filter((f) => mergeBaseTree.has(f));
+        const filesToDelete = movedFiles.filter((f) => !mergeBaseTree.has(f));
+        if (filesToRestore.length > 0) {
+          await GitShell.checkoutFiles(workDir, mergeBase, filesToRestore);
+          await GitShell.add(workDir, filesToRestore);
+        }
+        if (filesToDelete.length > 0) {
+          await GitShell.rm(workDir, filesToDelete);
+        }
+        await GitShell.amendNoEdit(workDir);
+        newSourceHead = await GitShell.getBranchHead(workDir, 'HEAD');
       }
-      if (filesToDelete.length > 0) {
-        await GitShell.rm(cwd, filesToDelete);
+
+      const fin = await finalizeBranchRef(cwd, branch, branchHead, newSourceHead);
+      await GitShell.detachAt(workDir, newSourceHead).catch(() => {});
+      if (!fin.success) {
+        await GitShell.deleteBranch(cwd, newBranchName).catch(() => {});
+        throw new Error(fin.error ?? 'could not rewrite the source branch');
       }
-      await GitShell.amendNoEdit(cwd);
     }
-
-    const newSourceHead = await GitShell.getBranchHead(cwd, branch);
 
     // Update the stack tree: new branch is a sibling (child of the same parent)
     let updatedStack = StackManager.addNode(stack, newBranchName, parentBranch);
