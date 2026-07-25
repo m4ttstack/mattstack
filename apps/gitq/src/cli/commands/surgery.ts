@@ -56,13 +56,23 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
+  // The amend phase checks each attributed branch out in the launch tree;
+  // a branch held by another slot would fail halfway through. Refuse it
+  // upfront with the preview's attribution.
+  const preview = await AbsorbEngine.previewAbsorb(ctx.repoRoot, stack);
+  const map = await getWorktreeMap(ctx.repoRoot);
+  for (const attributedBranch of Object.keys(preview.attributed)) {
+    const preGuard = refuseIfCheckedOutElsewhere(ctx, map, attributedBranch);
+    if (preGuard !== null) return preGuard;
+  }
+
   // Absorb has no pause protocol (see below), but the restack it runs after
   // committing can still conflict and needs a work slot leased against the
   // stack for the duration — same as sync/reparent's cascade phase. The
   // commit phase (attribution + amend) stays in ctx.repoRoot either way.
-  return withLeasedSlot(ctx, stack, 'absorb', () =>
+  return withLeasedSlot(ctx, stack, 'absorb', (workDir) =>
     withOperationLog(ctx, stack, 'absorb', async () => {
-      const result = await AbsorbEngine.absorb(ctx.repoRoot, stack);
+      const result = await AbsorbEngine.absorb(ctx.repoRoot, stack, undefined, workDir);
       const updatedStack = result.updatedStack ?? stack;
       if (result.updatedStack) {
         await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, updatedStack));
