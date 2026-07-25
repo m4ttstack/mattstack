@@ -67,13 +67,17 @@ export function workSlotRoot(commonDir: string, map: SlotInfo[]): string {
  */
 export async function ensureWorkSlot(anyCwd: string, commonDir: string, map: SlotInfo[]): Promise<string> {
   const free = map.find((s) => s.isWorkSlot && s.branch === null && !s.rebaseInProgress);
-  if (free) return free.path;
+  if (free) {
+    await GitShell.disableWorktreeHooks(free.path);
+    return free.path;
+  }
   const root = workSlotRoot(commonDir, map);
   const used = new Set(map.filter((s) => s.isWorkSlot).map((s) => s.name));
   let n = 1;
   while (used.has(`gitq-${n}`)) n++;
   const path = join(root, `gitq-${n}`);
   await GitShell.worktreeAddDetached(anyCwd, path, 'HEAD');
+  await GitShell.disableWorktreeHooks(path);
   return path;
 }
 
