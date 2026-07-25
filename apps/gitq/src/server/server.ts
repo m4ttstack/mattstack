@@ -5,6 +5,7 @@ import { isLocalRequest } from './local.ts';
 import { SnapshotCache } from './cache.ts';
 import { collectAllRepos, parseActionBody } from './data.ts';
 import type { BoardRepo } from './data.ts';
+import { getWorktreeMap } from '../core/worktrees.ts';
 import { actionPrompt, buildPaneCommand, focusTab, launchInWorkspace, tabLabel } from './herdr.ts';
 import { jobFilePath, pruneJobStates, readJobStates, writeJobState } from './job-state.ts';
 
@@ -111,16 +112,24 @@ Bun.serve({
             // tab is gone; launch fresh below
           }
         }
+        if (parsed.sourceSlot) {
+          // validate against the live worktree map, not the client's claim
+          const map = await getWorktreeMap(parsed.repoPath).catch(() => []);
+          if (!map.some((s) => s.path === parsed.sourceSlot)) {
+            return new Response('sourceSlot is not a worktree of that repo', { status: 400 });
+          }
+        }
+        const runDir = parsed.sourceSlot ?? parsed.repoPath;
         const repoName = config.repos.find((r) => r.path === parsed.repoPath)?.name ?? parsed.repoPath;
         // Seed the state file before spawning so the skill's writes merge
         // into a fully-identified job (Plan 2 merge semantics).
         writeJobState(statePath, { status: 'starting', repoPath: parsed.repoPath, stack: parsed.stack, action: parsed.action });
         try {
-          const prompt = actionPrompt(parsed.action, parsed.repoPath, parsed.stack, statePath);
+          const prompt = actionPrompt(parsed.action, runDir, parsed.stack, statePath);
           const launched = await launchInWorkspace({
             workspaceLabel: config.herdrWorkspace,
             tabLabel: tabLabel(repoName, parsed.stack, parsed.action),
-            paneCommand: buildPaneCommand(parsed.repoPath, prompt),
+            paneCommand: buildPaneCommand(runDir, prompt),
           });
           writeJobState(statePath, { status: 'starting', tabId: launched.tabId, workspaceId: launched.workspaceId });
           return Response.json({ ok: true, focused: launched.focusedExisting });

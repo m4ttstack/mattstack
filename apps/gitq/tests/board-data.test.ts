@@ -4,6 +4,7 @@ import type { BoardMr } from '../src/server/data.ts';
 import type { Stack, StackNode } from '../src/core/types.ts';
 import type { NodeDirective } from '../src/core/stack-diagnostics.ts';
 import type { OperationEntry } from '../src/core/operation-log.ts';
+import type { RepoEntry } from '../src/server/config.ts';
 
 function makeNode(branch: string, parent: string, extra: Partial<StackNode> = {}): StackNode {
   return {
@@ -99,5 +100,55 @@ describe('parseActionBody', () => {
     expect(parseActionBody({ repoPath: '/repo', stack: '', action: 'sync' }, REPOS)).toBeNull();
     expect(parseActionBody('junk', REPOS)).toBeNull();
     expect(parseActionBody(null, REPOS)).toBeNull();
+  });
+});
+
+describe('parseActionBody sourceSlot', () => {
+  const repos = [{ path: '/repo/a', name: 'a' }] as RepoEntry[];
+
+  test('accepts sourceSlot for absorb', () => {
+    const parsed = parseActionBody(
+      { repoPath: '/repo/a', stack: 's', action: 'absorb', sourceSlot: '/repo/a-pool/tonks' },
+      repos,
+    );
+    expect(parsed?.sourceSlot).toBe('/repo/a-pool/tonks');
+  });
+
+  test('rejects sourceSlot on non-absorb actions', () => {
+    expect(
+      parseActionBody({ repoPath: '/repo/a', stack: 's', action: 'sync', sourceSlot: '/x' }, repos),
+    ).toBeNull();
+  });
+
+  test('rejects a non-string sourceSlot', () => {
+    expect(
+      parseActionBody({ repoPath: '/repo/a', stack: 's', action: 'absorb', sourceSlot: 5 }, repos),
+    ).toBeNull();
+  });
+
+  test('absent sourceSlot still parses', () => {
+    expect(parseActionBody({ repoPath: '/repo/a', stack: 's', action: 'absorb' }, repos)).not.toBeNull();
+  });
+});
+
+describe('shapeStack worktree columns', () => {
+  const ONE_NODE_STACK: Stack = {
+    id: 'id2',
+    stackName: 'onestack',
+    root: 'main',
+    nodes: [makeNode('feature-a', 'main')],
+  };
+
+  test('marks nodes with their checkout slot and its dirtiness', () => {
+    const slotByBranch = new Map([['feature-a', { name: 'tonks', dirty: true }]]);
+    const shaped = shapeStack(ONE_NODE_STACK, new Map(), null, [], [], new Map(), slotByBranch);
+    expect(shaped.nodes[0]!.checkedOutIn).toBe('tonks');
+    expect(shaped.nodes[0]!.checkedOutDirty).toBe(true);
+  });
+
+  test('nodes not checked out anywhere get null/false', () => {
+    const shaped = shapeStack(ONE_NODE_STACK, new Map(), null, [], [], new Map(), new Map());
+    expect(shaped.nodes[0]!.checkedOutIn).toBeNull();
+    expect(shaped.nodes[0]!.checkedOutDirty).toBe(false);
   });
 });
