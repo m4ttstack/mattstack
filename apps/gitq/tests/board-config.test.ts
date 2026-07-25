@@ -5,7 +5,7 @@ describe('parseConfig', () => {
   test('fills defaults and infers repo name from path', () => {
     const cfg = parseConfig('{ "repos": [{ "path": "/Users/x/my-repo" }] }');
     expect(cfg.repos).toEqual([{ path: '/Users/x/my-repo', name: 'my-repo' }]);
-    expect(cfg.port).toBe(7940);
+    expect(cfg.port).toBe(11008);
     expect(cfg.herdrWorkspace).toBe('gitq');
     expect(cfg.gitlabHost).toBe('https://gitlab.com');
   });

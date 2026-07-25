@@ -43,7 +43,7 @@ export function parseConfig(raw: string): BoardConfig {
     return { path, name: name ?? basenameOf(path) };
   });
 
-  const port = cfg.port === undefined ? 7940 : cfg.port;
+  const port = cfg.port === undefined ? 11008 : cfg.port;
   if (typeof port !== 'number') throw new Error('"port" must be a number');
   const herdrWorkspace = cfg.herdrWorkspace === undefined ? 'gitq' : cfg.herdrWorkspace;
   if (typeof herdrWorkspace !== 'string') throw new Error('"herdrWorkspace" must be a string');

@@ -96,8 +96,8 @@ Each skill takes `<repoPath> <stackName>` positionals plus optional `--state <pa
 a local web board showing every configured repo's stacks: per branch status badges (from `gitq diagnose`'s engine, plus a "conflict predicted" hint from preflight), MR and pipeline state when a GitLab token is available, live job chips while a pane works, and an activity feed from the operation log. right-clicking a stack offers the four actions; each one spawns a herdr tab running `claude` with the matching `gitq:*` skill and the `--state`/`--status-bin` contract, so the badge updates live while the agent works. relaunching a live action refocuses its tab instead of double-spawning.
 
 ```bash
-cp config.example.json config.json   # edit: repos to show, port (default 7940), herdrWorkspace
-bun run serve                        # http://localhost:7940
+cp config.example.json config.json   # edit: repos to show, port (default 11008), herdrWorkspace
+bun run serve                        # http://localhost:11008
 ```
 
 endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. the action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. repo data is cached in memory for 60s with stale-while-revalidate; job state files under `state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish` (`GITLAB_TOKEN` or `~/.rt/secrets.json`); without one the board still renders from the store's last known MR fields. the client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). config changes need a restart.
