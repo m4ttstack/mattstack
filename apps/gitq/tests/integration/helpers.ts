@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { StackManager } from '../../src/core/stack-manager.ts';
 import type { Stack } from '../../src/core/types.ts';
@@ -70,6 +70,18 @@ export async function createSandboxRepoWithRemote(): Promise<SandboxRepoWithRemo
 /** Remove a sandboxed repo (and its remote if present). */
 export async function cleanupRepo(dir: string): Promise<void> {
   await rm(dir, { recursive: true, force: true });
+}
+
+/** Add a named worktree slot as a sibling of the repo dir (pool convention).
+    Returns the slot's realpath. Detached at HEAD unless a branch is given. */
+export async function addNamedWorktree(repo: SandboxRepo, name: string, branch?: string): Promise<string> {
+  const parent = join(repo.dir, '..');
+  const path = join(parent, `${basename(repo.dir)}-pool-${name}`);
+  const args = branch
+    ? ['worktree', 'add', path, branch]
+    : ['worktree', 'add', '--detach', path, 'HEAD'];
+  execFileSync('git', args, { cwd: repo.dir, stdio: 'pipe' });
+  return realpathSync(path);
 }
 
 /** Write a file, stage, and commit. Returns the new commit SHA. */
