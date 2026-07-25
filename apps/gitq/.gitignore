@@ -4,3 +4,5 @@ config.json
 .env
 .local-dev/
 logs/
+website/build/
+website/.docusaurus/
