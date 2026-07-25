@@ -7,7 +7,9 @@ const config: Config = {
   tagline: "A deterministic stacked branch engine and CLI for git",
   favicon: "img/favicon.svg",
   url: "https://m4ttheweric.github.io",
-  baseUrl: "/gitq/",
+  // "/gitq/" is the GitHub Pages project-site path. The local service builds
+  // with DOCS_BASE_URL=/ because it serves the site at its own domain root.
+  baseUrl: process.env.DOCS_BASE_URL ?? "/gitq/",
   organizationName: "m4ttheweric",
   projectName: "gitq",
   trailingSlash: false,

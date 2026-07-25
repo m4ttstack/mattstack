@@ -6,7 +6,9 @@
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
     "build": "docusaurus build",
+    "build:local": "DOCS_BASE_URL=/ docusaurus build",
     "serve": "docusaurus serve",
+    "serve:local": "bun serve.ts",
     "clear": "docusaurus clear",
     "typecheck": "tsc"
   },
