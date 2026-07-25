@@ -109,12 +109,12 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
-  const map = await getWorktreeMap(ctx.repoRoot);
-  const preGuard = refuseIfCheckedOutElsewhere(ctx, map, branch);
-  if (preGuard !== null) return preGuard;
-
-  return withOperationLog(ctx, stack, 'split', async () => {
-    if (at) {
+  // No checked-out-elsewhere pre-guard here: both modes are ref surgery now.
+  // --at never touches a working tree; --files builds detached in a leased
+  // slot. A source branch checked out elsewhere is handled by the slot
+  // policy inside finalizeBranchRef (clean: auto-reset, dirty: refuse).
+  if (at) {
+    return withOperationLog(ctx, stack, 'split', async () => {
       const result = await BranchSplitter.tailSplit(ctx.repoRoot, stack, branch, name, at);
       await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
       emit(ctx, `split ${branch}: moved ${result.movedCommits.length} commit(s) to ${result.newBranch}`, {
@@ -122,17 +122,21 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
         result,
       });
       return 0;
-    }
-
-    const patterns = files!.split(',').map((p) => p.trim()).filter(Boolean);
-    const result = await BranchSplitter.splitByFile(ctx.repoRoot, stack, branch, patterns, name);
-    await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
-    emit(ctx, `split ${branch}: moved ${result.movedFiles.length} file(s) to ${result.newBranch}`, {
-      stack: result.newStack,
-      result,
     });
-    return 0;
-  });
+  }
+
+  return withLeasedSlot(ctx, stack, 'split', (workDir) =>
+    withOperationLog(ctx, stack, 'split', async () => {
+      const patterns = files!.split(',').map((p) => p.trim()).filter(Boolean);
+      const result = await BranchSplitter.splitByFile(ctx.repoRoot, stack, branch, patterns, name, workDir);
+      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
+      emit(ctx, `split ${branch}: moved ${result.movedFiles.length} file(s) to ${result.newBranch}`, {
+        stack: result.newStack,
+        result,
+      });
+      return 0;
+    }),
+  );
 }
 
 export async function foldCommand(ctx: CliContext): Promise<number> {

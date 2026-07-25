@@ -30,10 +30,9 @@ describe('BranchSplitter.tailSplit', () => {
     mock.restore();
   });
 
-  test('creates new branch at source HEAD and resets source to split point', async () => {
-    const createBranchCalls: { name: string; from: string }[] = [];
-    const resetCalls: string[] = [];
-    const checkoutCalls: string[] = [];
+  test('creates new branch at source HEAD and CAS-rewinds source to the split point', async () => {
+    const branchAtCalls: { name: string; from: string }[] = [];
+    const updateRefCasCalls: { branch: string; newSha: string; oldSha: string }[] = [];
 
     mock.module('../src/core/git-shell.ts', () => ({
       GitShell: {
@@ -41,6 +40,7 @@ describe('BranchSplitter.tailSplit', () => {
         isDirty: mock(() => Promise.resolve(false)),
         hasUnstagedChanges: mock(() => Promise.resolve(false)),
         hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
         getBranchHead: mock((_, branch: string) => {
           if (branch === 'feat/big-branch') return Promise.resolve('commit-5');
           return Promise.resolve('commit-3');
@@ -54,16 +54,12 @@ describe('BranchSplitter.tailSplit', () => {
             { sha: 'commit-1', subject: 'First commit' },
           ]),
         ),
-        checkoutBranch: mock((_: string, branch: string) => {
-          checkoutCalls.push(branch);
+        branchAt: mock((_: string, name: string, from: string) => {
+          branchAtCalls.push({ name, from });
           return Promise.resolve();
         }),
-        createBranch: mock((_: string, name: string, from: string) => {
-          createBranchCalls.push({ name, from });
-          return Promise.resolve();
-        }),
-        resetHard: mock((_: string, ref: string) => {
-          resetCalls.push(ref);
+        updateRefCas: mock((_: string, branch: string, newSha: string, oldSha: string) => {
+          updateRefCasCalls.push({ branch, newSha, oldSha });
           return Promise.resolve();
         }),
       },
@@ -73,13 +69,16 @@ describe('BranchSplitter.tailSplit', () => {
     const stack = buildTestStack();
     const result = await BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/split-tail', 'commit-3');
 
-    // New branch was created at source HEAD
-    expect(createBranchCalls).toHaveLength(1);
-    expect(createBranchCalls[0]!.name).toBe('feat/split-tail');
-    expect(createBranchCalls[0]!.from).toBe('commit-5');
+    // New branch was created at source HEAD, ref-only (no checkout)
+    expect(branchAtCalls).toHaveLength(1);
+    expect(branchAtCalls[0]!.name).toBe('feat/split-tail');
+    expect(branchAtCalls[0]!.from).toBe('commit-5');
 
-    // Source was reset to split point
-    expect(resetCalls).toContain('commit-3');
+    // Source was CAS-rewound to the split point
+    expect(updateRefCasCalls).toHaveLength(1);
+    expect(updateRefCasCalls[0]!.branch).toBe('feat/big-branch');
+    expect(updateRefCasCalls[0]!.oldSha).toBe('commit-5');
+    expect(updateRefCasCalls[0]!.newSha).toBe('commit-3');
 
     // Result has correct structure
     expect(result.newBranch).toBe('feat/split-tail');
@@ -93,6 +92,7 @@ describe('BranchSplitter.tailSplit', () => {
         isDirty: mock(() => Promise.resolve(false)),
         hasUnstagedChanges: mock(() => Promise.resolve(false)),
         hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
         getBranchHead: mock(() => Promise.resolve('head-sha')),
         logDetailed: mock(() =>
           Promise.resolve([
@@ -100,9 +100,8 @@ describe('BranchSplitter.tailSplit', () => {
             { sha: 'commit-3', subject: 'Third' },
           ]),
         ),
-        checkoutBranch: mock(() => Promise.resolve()),
-        createBranch: mock(() => Promise.resolve()),
-        resetHard: mock(() => Promise.resolve()),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
       },
     }));
 
@@ -123,6 +122,7 @@ describe('BranchSplitter.tailSplit', () => {
         isDirty: mock(() => Promise.resolve(false)),
         hasUnstagedChanges: mock(() => Promise.resolve(false)),
         hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
         getBranchHead: mock((_: string, branch: string) => {
           if (branch === 'feat/big-branch') return Promise.resolve('original-head');
           return Promise.resolve('reset-head');
@@ -133,9 +133,8 @@ describe('BranchSplitter.tailSplit', () => {
             { sha: 'split-point', subject: 'Split here' },
           ]),
         ),
-        checkoutBranch: mock(() => Promise.resolve()),
-        createBranch: mock(() => Promise.resolve()),
-        resetHard: mock(() => Promise.resolve()),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
       },
     }));
 
@@ -155,6 +154,7 @@ describe('BranchSplitter.tailSplit', () => {
         isDirty: mock(() => Promise.resolve(false)),
         hasUnstagedChanges: mock(() => Promise.resolve(false)),
         hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
         getBranchHead: mock(() => Promise.resolve('head-sha')),
         logDetailed: mock(() =>
           Promise.resolve([
@@ -162,9 +162,8 @@ describe('BranchSplitter.tailSplit', () => {
             { sha: 'commit-3', subject: 'Third' },
           ]),
         ),
-        checkoutBranch: mock(() => Promise.resolve()),
-        createBranch: mock(() => Promise.resolve()),
-        resetHard: mock(() => Promise.resolve()),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
       },
     }));
 
@@ -193,22 +192,34 @@ describe('BranchSplitter.tailSplit', () => {
     ).rejects.toThrow(/already exists/);
   });
 
-  test('throws if working tree is dirty (preflight check)', async () => {
+  test('does not refuse on tree dirtiness alone (ref-only surgery, no preflight check)', async () => {
+    // Old contract: any dirty cwd refused the split outright. New contract:
+    // tailSplit never reads the working tree, so a dirty `cwd` that isn't
+    // the branch's own checkout (no worktree owns it) does not block.
     mock.module('../src/core/git-shell.ts', () => ({
       GitShell: {
         ...GitShell,
         isDirty: mock(() => Promise.resolve(true)),
         hasUnstagedChanges: mock(() => Promise.resolve(true)),
         hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
+        getBranchHead: mock(() => Promise.resolve('commit-5')),
+        logDetailed: mock(() =>
+          Promise.resolve([
+            { sha: 'commit-5', subject: 'Fifth' },
+            { sha: 'commit-3', subject: 'Third' },
+          ]),
+        ),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
       },
     }));
 
     const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
     const stack = buildTestStack();
 
-    await expect(BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/new', 'abc')).rejects.toThrow(
-      /uncommitted changes/,
-    );
+    const result = await BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/new', 'commit-3');
+    expect(result.newBranch).toBe('feat/new');
   });
 
   test('throws if split point is at HEAD (no commits to move)', async () => {

@@ -186,25 +186,72 @@ describe('Dirty tree rejection guards', () => {
     await expect(reparentBranch(dir, stack, 'feat/b', 'main')).rejects.toThrow(/uncommitted/);
   });
 
-  test('split rejects dirty working tree', async () => {
+  test('split survives a dirty tree on another branch: no data loss, ref-only surgery', async () => {
+    // tailSplit is ref-only surgery now: it never reads or writes the
+    // working tree. Here `dir` is dirty but sits on `main`, not on the
+    // split source (`feat/big`), so no worktree owns the source branch and
+    // the split proceeds. The data-loss guarantee this file exists to prove
+    // still holds: the dirty file must survive byte-identical and the
+    // checkout must not move.
     sandbox = await createSandboxRepo();
     dirs.push(sandbox.dir);
     const { dir, git } = sandbox;
 
     git('checkout', '-b', 'feat/big');
     const sha1 = await commit(dir, git, 'f1.txt', '1\n', 'c1');
-    await commit(dir, git, 'f2.txt', '2\n', 'c2');
+    const sha2 = await commit(dir, git, 'f2.txt', '2\n', 'c2');
     git('checkout', 'main');
+    const launchHead = git('rev-parse', 'HEAD');
 
     let stack = StackManager.createStack('test', 'main');
     stack = StackManager.addNode(stack, 'feat/big', 'main');
-    stack = StackManager.updateNode(stack, 'feat/big', { lastKnownHead: 'x' });
+    stack = StackManager.updateNode(stack, 'feat/big', { lastKnownHead: sha2 });
+
+    await writeFile(join(dir, 'f1.txt'), 'dirty\n');
+
+    const result = await BranchSplitter.tailSplit(dir, stack, 'feat/big', 'feat/tail', sha1);
+
+    // Ref surgery landed correctly.
+    expect(git('rev-parse', 'feat/big')).toBe(sha1);
+    expect(git('rev-parse', 'feat/tail')).toBe(sha2);
+    expect(result.movedCommits).toEqual([sha2]);
+
+    // No data loss: the dirty file and the launch checkout are untouched.
+    expect(await readFile(join(dir, 'f1.txt'), 'utf-8')).toBe('dirty\n');
+    expect(git('rev-parse', 'HEAD')).toBe(launchHead);
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
+  });
+
+  test('split refuses when the dirty tree IS the checked-out source branch: nothing moved, nothing lost', async () => {
+    // Same file, the other half of the contract: when the source branch's
+    // OWN checkout is dirty, finalizeBranchRef's slot policy still refuses
+    // (ref-only surgery does not bypass the dirty-checkout guard, it just
+    // relocates it from a blanket cwd check to the slot that actually owns
+    // the branch). Assert refusal, unmoved refs, no rollback leak (new
+    // branch never created), and the dirty file untouched.
+    sandbox = await createSandboxRepo();
+    dirs.push(sandbox.dir);
+    const { dir, git } = sandbox;
+
+    git('checkout', '-b', 'feat/big');
+    const sha1 = await commit(dir, git, 'f1.txt', '1\n', 'c1');
+    const sha2 = await commit(dir, git, 'f2.txt', '2\n', 'c2');
+    // stay checked out on feat/big: the split source itself is dirty here
+
+    let stack = StackManager.createStack('test', 'main');
+    stack = StackManager.addNode(stack, 'feat/big', 'main');
+    stack = StackManager.updateNode(stack, 'feat/big', { lastKnownHead: sha2 });
 
     await writeFile(join(dir, 'f1.txt'), 'dirty\n');
 
     await expect(
       BranchSplitter.tailSplit(dir, stack, 'feat/big', 'feat/tail', sha1),
-    ).rejects.toThrow(/uncommitted/);
+    ).rejects.toThrow(/dirty|checked out/i);
+
+    // Nothing moved, nothing lost.
+    expect(git('rev-parse', 'feat/big')).toBe(sha2);
+    expect(() => git('rev-parse', '--verify', 'refs/heads/feat/tail')).toThrow();
+    expect(await readFile(join(dir, 'f1.txt'), 'utf-8')).toBe('dirty\n');
   });
 
   test('fold rejects dirty working tree', async () => {
