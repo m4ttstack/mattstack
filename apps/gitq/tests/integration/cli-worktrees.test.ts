@@ -71,7 +71,7 @@ describe('CLI in a worktree pool', () => {
     const workDir: string = payload.pauseInfo.worktreePath;
     expect(workDir).not.toBe(dir);
     // The leased work slot lives outside dir/otherSlot/remoteDir (it's a
-    // freshly provisioned worktree, e.g. sibling gitq-1) — clean it up too,
+    // freshly provisioned worktree, e.g. sibling gitq-1); clean it up too,
     // otherwise it's an orphaned worktree once repo.dir is removed below,
     // and a stale gitq-1 left in a shared pool root would break the next run.
     cleanups.push(workDir);
@@ -131,7 +131,7 @@ describe('CLI in a worktree pool', () => {
     expect(third.stderr).toContain('work slots');
 
     // The two leased work slots live outside dir/remoteDir (freshly
-    // provisioned worktrees under the pool's cache root) — clean them up so
+    // provisioned worktrees under the pool's cache root); clean them up so
     // a stale slot doesn't collide with the next run of this test.
     cleanups.push(JSON.parse(syncOne.stdout).pauseInfo.worktreePath);
     cleanups.push(JSON.parse(syncTwo.stdout).pauseInfo.worktreePath);
