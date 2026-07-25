@@ -1,0 +1,113 @@
+---
+title: Work slots and leases
+sidebar_position: 3
+---
+
+# Work slots and leases
+
+Cascades do not run in your checkout. gitq borrows a dedicated worktree, rebases there with a detached HEAD, and moves your branch refs only at the very end. A work slot is that borrowed worktree; a lease is the record of who is currently using one.
+
+## Why not just rebase in place
+
+Rebasing a stack in the worktree you are sitting in means checking out five branches you did not ask to check out, and leaving you on whichever one the run died on. It means the run cannot start at all if you have uncommitted work, and it means the whole thing fights with `main` being checked out in a sibling worktree.
+
+Running detached in a slot removes all of that:
+
+- Your working tree, your HEAD, and your uncommitted changes are never touched.
+- A cascade that crashes, is killed, or conflicts leaves nothing behind but a detached HEAD in a directory you do not work in.
+- Branch refs move exactly once each, at the end, with a compare and swap, so a run that fails part way through does not leave a half-moved ref.
+- Two stacks in the same repo can cascade at the same time, in different slots.
+
+## What a slot is
+
+An ordinary git worktree whose directory is named `gitq-1`, `gitq-2`, and so on. gitq recognises its own slots purely by that name pattern (`gitq-` followed by digits), which is also why the `[in <worktree>]` suffix in `gitq diagnose` only ever names one of *your* worktrees: work slots are filtered out of that report, and they run detached anyway, so they never hold a branch.
+
+Slots live in one of two places:
+
+| Situation | Where slots are created |
+| --- | --- |
+| The repo is a **pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, in that same parent directory. A pool at `~/repos/myrepo/{main,feature-a}` gets `~/repos/myrepo/gitq-1`. |
+| Anything else, including a plain single-worktree clone | `~/.cache/gitq/work/<hash>/gitq-1`, where `<hash>` is the first 16 hex characters of the SHA-256 of the repo's git common dir. |
+
+Slots are created on demand and reused forever after. gitq looks for an existing slot that is free (detached, not mid-rebase, not leased) and takes it; if there is none, it creates the lowest unused `gitq-<n>` with `git worktree add --detach`.
+
+They are disposable. If you ever want them gone, finish or abort everything first, then `git worktree remove` them. The next cascade will make a new one.
+
+:::note Slots outlive the repo directory
+
+A slot under `~/.cache/gitq/work/` is not inside your repo, so deleting the repo directory does not delete the slot. Recreate a repo at the same path later and the stale slot is still there, and the next cascade fails with a raw `fatal: '.../gitq-1' already exists` from git. Remove the cache directory too.
+
+:::
+
+## Hooks are off inside slots
+
+The first time gitq provisions a slot it turns on git's per-worktree config extension for the repo, then sets `core.hooksPath` to `/dev/null` **for that worktree only**. Every slot acquisition re-applies it, so slots created by older versions get healed.
+
+Your own checkouts keep their hooks exactly as they were. Inside a slot, nothing runs: no `pre-commit`, no `post-checkout`, no `post-rewrite`. A cascade replays dozens of commits mechanically, and a hook firing on each one would be slow at best and a spurious failure at worst.
+
+## `maxWorkSlots`
+
+The cap on slots per repo. It is read from `maxWorkSlots` in `settings.json` in gitq's config directory (`~/.config/gitq/settings.json`, unless `GITQ_CONFIG_DIR` says otherwise). The file is not created for you; make it if you want to change the value. It must be a number of at least 1, and it is floored. Anything else, or no file at all, gives the default of **3**.
+
+The cap is checked when a cascade needs a slot and none is free. gitq refuses only when both conditions hold: the repo has already reached the cap, *and* every existing slot is leased. You get:
+
+```
+gitq: all 3 work slots are busy (max 3); finish or abort a cascade, or raise maxWorkSlots in settings.json
+```
+
+The usual cause is not three simultaneous cascades. It is one parked cascade you forgot about, sitting on its slot until you `gitq continue` or `gitq abort` it.
+
+## Leases
+
+A lease is a claim on a slot by a stack, recorded in `<commonDir>/gitq/leases.json`, one entry per active cascade:
+
+| Field | What it is |
+| --- | --- |
+| `slotPath` | The work slot this cascade is using. |
+| `stackId` | The stack it is running against. |
+| `action` | `sync`, `reparent`, `fold`, `split`, `absorb`. |
+| `pid` | The gitq process that took it. |
+| `acquiredAt` | Epoch milliseconds. |
+| `state` | `running` or `parked`. |
+
+Two rules govern the registry, and both are enforced atomically under a file lock: **one lease per stack**, and **one lease per slot**.
+
+`running` means a cascade is actively working. `parked` means it stopped on a conflict and is waiting for you. The distinction matters for reaping: when a new lease is acquired, `running` leases whose process is dead are cleared out automatically, because a killed cascade should not block the next one. `parked` leases are never reaped on their own. A conflict waiting on human judgment is legitimately long-lived, and throwing it away would strand a real mid-rebase state.
+
+### What a lease blocks
+
+While a stack holds a lease, in either state, every command that mutates that stack refuses:
+
+```
+gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ab12.../gitq-1;
+finish it first: gitq continue (or gitq abort)
+```
+
+That covers `untrack`, `add`, `remove`, a fresh `sync`, all of the surgery commands, `publish`, and `undo`. `gitq import` is stricter still: it replaces the whole store, so it refuses when *any* lease exists anywhere in the repo. Read-only commands are always allowed, and so are `gitq continue` and `gitq abort`, which are how you clear the lease. See [The pause protocol](/concepts/pause-protocol).
+
+The lease is released when the cascade finishes, whether it succeeded or failed, and parked instead when it exits `2`.
+
+## The checked-out branch policy
+
+A cascade rebases detached, but the branch ref it finally moves might be checked out in one of your worktrees. gitq applies one policy at that moment, per branch:
+
+- **Clean, and sitting exactly on the branch's old head:** the ref is moved with a compare and swap and that worktree is reset to the new head for you. Nothing is lost; the branch you were on is still the branch you are on, now rebased.
+- **Dirty, mid-rebase, or drifted off the old head:** the branch fails and the message names the worktree, for example `branch is checked out in slot "feature-a" (/Users/you/repos/myrepo/feature-a) which is dirty; commit or stash there, or free the slot, then retry`. Nothing is touched, and the detached rebase result is simply discarded.
+
+The dirty check is re-run at the moment of the move, not read from a cached scan, so a worktree that got dirty during the cascade is caught rather than clobbered.
+
+A few commands refuse up front instead of at the end, because they rewrite the branch directly in the worktree you ran them from rather than in a slot: `absorb` (for every branch its preview attributes changes to), `rename`, and `reset` all refuse immediately if the branch is checked out in a worktree other than the current one.
+
+`gitq preflight` reports this ahead of time as a `slot conflicts:` section, which is the cheapest way to find out before a sync. See [Reading the tree](/getting-started/reading-the-tree).
+
+## Seeing all of it
+
+`gitq stacks --json`, `gitq diagnose --json`, and `gitq preflight --json` all carry a `worktrees` array: every worktree of the repo with its `path`, `name`, `branch`, `dirty`, `isWorkSlot`, and its `lease` (`stackId`, `action`, `state`) or `null`. That is one call to see which slots exist, which are busy, and what is parked. See [JSON output](/reference/json-output).
+
+The board renders the same data as a chip per slot, reading `<slot>: free`, `<slot>: <action> on <stack>`, or `<slot>: parked on <stack>`. See [The board](/getting-started/the-board).
+
+## Next
+
+- [The pause protocol](/concepts/pause-protocol): what a parked lease means and how to clear it.
+- [Worktree pools](/guides/worktree-pools): running gitq in a repo with several checkouts.
+- [Where state lives](/concepts/state): the lease file and everything else gitq writes.

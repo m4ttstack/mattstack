@@ -1,0 +1,116 @@
+---
+title: Where state lives
+sidebar_position: 5
+---
+
+# Where state lives
+
+Everything gitq knows lives in plain JSON files you can read, diff, and delete. Nothing is written into your working tree, nothing is hidden in a database, and no file is required for gitq to start. This page lists every location, what it holds, when it is written, and what happens if you throw it away.
+
+Every write is atomic: gitq writes a temp file and renames it over the target. The stack store, the operation log, and the lease registry additionally take a file lock across the read-modify-write, so two cascades finishing at the same moment cannot lose each other's changes.
+
+## The short version
+
+| Path | Holds | Safe to delete |
+| --- | --- | --- |
+| `~/.config/gitq/stacks/<hash>.json` | One repo's tracked stacks | Yes. You lose the tree, not the branches. |
+| `~/.config/gitq/settings.json` | `maxWorkSlots` | Yes. Falls back to the default. |
+| `~/.config/gitq/operation-log.json` | The last 50 operations, all repos | Yes. `log` goes empty, `undo` has nothing to do. |
+| `~/.config/gitq/repos.json` | Nothing today | Yes. |
+| `<commonDir>/gitq/leases.json` | Which stack holds which work slot | Only when nothing is running or parked. |
+| `<gitdir>/gitq-pause.json` | A paused cascade's position | Only after aborting the rebase it describes. |
+| `<gitq checkout>/state/jobs/*.json` | Board job status | Yes. |
+| `<gitq checkout>/config.json` | Board configuration | It is yours to manage. |
+
+## The config directory
+
+`~/.config/gitq/` by default. Set **`GITQ_CONFIG_DIR`** to move the whole thing somewhere else; every path below is derived from it. The variable is read once when gitq starts, so export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks.
+
+### `stacks/<hash>.json`
+
+One file per repo, holding that repo's entire [stack tree](/concepts/stack-tree): `repoPath`, `remoteUrl`, `commonDir`, and the `stacks` array.
+
+**The `<hash>` is derived from the repo's identity, not from the directory you ran in.** Identity means the real path of the repo's git common dir, the shared `.git` that every worktree of a repo points at, and the hash is the first 16 hex characters of its SHA-256. That is the mechanism behind gitq being worktree-native: run `gitq` from the primary checkout, from a sibling worktree, or from a work slot, and all three resolve the same file and see the same stacks.
+
+Written by every command that changes the tree: `track`, `untrack`, `add`, `remove`, all of the surgery commands, `sync` (to record each branch's new head), `publish` (to record MR ids and URLs), and `import`.
+
+Deleting it forgets the tree. It does not delete, move, or otherwise disturb a single branch. Rebuild by re-running `gitq track` and `gitq add`, or by importing the stack back from its merge request chain with [`gitq import`](/reference/gitlab/import).
+
+:::note Older stores migrate themselves
+
+gitq used to key this file by a single worktree's path. The first time you run gitq from that worktree, the legacy file is migrated to the identity-keyed name and the original is renamed to `.bak`. If an identity-keyed store already exists, the legacy stacks are merged into it, skipping any whose name is already taken, and gitq prints a line to stderr saying so. Nothing is deleted either way.
+
+:::
+
+### `settings.json`
+
+The only key gitq reads from it is `maxWorkSlots`:
+
+```json
+{ "maxWorkSlots": 5 }
+```
+
+It must be a number of at least 1. Anything else, or no file at all, gives the default of 3. gitq never creates or writes this file; make it yourself if you want to change the value. See [Work slots and leases](/concepts/work-slots) and [Configuration](/reference/configuration).
+
+### `operation-log.json`
+
+An array of operation entries, capped at the most recent 50, first in first out. Each entry records the operation type, a timestamp, every git command it ran (with arguments, working directory, exit code, and duration), a snapshot of the stack tree, and `branchSnapshots`: the head SHA of the root and of every branch in the stack, captured **before** the operation ran. That snapshot is what [`gitq undo`](/reference/other/undo) restores from, and it is why `gitq log` can tell you what a command actually did.
+
+The file is global across every repo. Each entry is stamped with the repo it ran in, and `log` and `undo` filter to the current repo by common dir, so operations in one repo never show up or become undoable in another.
+
+Two details worth knowing:
+
+- An entry is written only when the command succeeds. A failed command logs nothing, and a cascade that pauses (exit `2`) logs nothing either, because a pause is resolved with `continue` or `abort`, not with `undo`.
+- `gitq continue` writes its own entry when the cascade finally completes, and its snapshots were taken when `continue` started, not when the original `sync` did. Undoing a sync that paused part way therefore rewinds to the middle of that cascade, not to before it.
+
+Deleting the file is safe and loses only history.
+
+### `repos.json`
+
+gitq derives a path for this file, and nothing in the CLI reads or writes it today. The board's repo list lives in its own `config.json` (below), not here.
+
+## Inside the repo
+
+### `<commonDir>/gitq/leases.json`
+
+The work-slot lease registry: which stack is using which work slot, under which action, in which state (`running` or `parked`). `<commonDir>` is the repo's shared git dir, so one registry covers every worktree of the repo.
+
+Written whenever a cascade acquires, parks, or releases a lease, always under a file lock. Dead `running` leases are reaped automatically on the next acquisition; `parked` ones never are, because a parked lease is a conflict waiting on you.
+
+Deleting it while a cascade is running or parked is how you lose track of a real mid-rebase state: the pause file is still on disk, the rebase is still half-done in the slot, and `gitq continue` can no longer find it. Clear it the normal way with `gitq continue` or `gitq abort`. When nothing is running, the file is inert and safe to remove. See [Work slots and leases](/concepts/work-slots).
+
+### `<gitdir>/gitq-pause.json`
+
+Present only while a cascade is paused. It records the branch that conflicted, the conflicted files, the branches done and still to do, and enough position information to resume exactly where the walk stopped.
+
+Because a cascade rebases in a leased work slot, `<gitdir>` is that slot's git dir, not your checkout's, so the file usually sits at `<commonDir>/worktrees/gitq-1/gitq-pause.json`. It is written before the store is saved, so "a pause file exists if and only if a rebase is in progress" survives a crash between the two writes.
+
+Deleting it by hand leaves the actual mid-rebase state in the slot untouched, which is worse than the pause. Use `gitq abort`. See [The pause protocol](/concepts/pause-protocol) and [Pause file](/reference/pause-file).
+
+### Per-worktree git config in work slots
+
+Not a gitq file, but gitq writes it: the first time a work slot is provisioned, gitq turns on git's per-worktree config extension for the repo and sets `core.hooksPath` to `/dev/null` for that slot only. Your own checkouts keep their hooks. The setting is re-applied on every slot acquisition, so it heals itself if it is removed.
+
+## The board
+
+Both of these live in the gitq checkout itself, not in your config directory.
+
+### `config.json`
+
+The board's own configuration: which repos to display, which port to bind, the herdr workspace, the GitLab host. Read once at server startup, so an edit needs a restart. Start from `config.example.json`. See [The board](/getting-started/the-board) and [Configuration](/reference/configuration).
+
+### `state/jobs/*.json`
+
+One file per board job, named deterministically from the repo path, stack name, and action, so relaunching the same action reuses the same file. Each holds the job's `status` (`starting`, `working`, `conflict`, `done`, `error`), a free-text `detail` the board renders verbatim, the herdr tab and workspace ids, the Claude session id for resuming the conversation, and timestamps.
+
+The agent skill writes these through `bin/gitq-status.ts` as it works; the board reads the directory to draw its job chips and activity feed. Entries that reached `done` or `error` are pruned after 24 hours. A job parked at a conflict keeps its file however long it takes. Deleting them loses nothing but the board's memory of recent runs.
+
+## What gitq reads but never writes
+
+The GitLab token for `publish` and `import`: `GITLAB_TOKEN` from the environment first, then the `gitlabToken` field in `~/.rt/secrets.json`. gitq never writes either. See [Configuration](/reference/configuration).
+
+## Next
+
+- [The stack tree](/concepts/stack-tree): what is actually in the store file.
+- [Configuration](/reference/configuration): every setting, in one place.
+- [Recover](/guides/recover): what to do when these files and git disagree.
