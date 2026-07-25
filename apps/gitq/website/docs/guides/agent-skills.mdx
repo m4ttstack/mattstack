@@ -1,0 +1,105 @@
+---
+title: Drive gitq with agents
+sidebar_position: 6
+---
+
+# Drive gitq with agents
+
+`gitq` is a CLI you can drive by hand, and it is a CLI built to be driven by an agent. Four Claude skills wrap it: `gitq:sync`, `gitq:publish`, `gitq:absorb`, and `gitq:restructure`. Each owns exactly one action the [board](/getting-started/the-board) can launch, and each one splits the work the same way: gitq does the git mechanics, deterministically, and the agent supplies the judgment gitq deliberately does not have an opinion about.
+
+## What each skill owns
+
+| Skill | CLI mechanics | Judgment the skill adds |
+| --- | --- | --- |
+| `gitq:sync` | `gitq sync`, `gitq continue`, `gitq abort` | Reading a conflict's both sides and merging them for real, not picking one side mechanically. |
+| `gitq:publish` | `gitq publish --mr-meta <path>` | Writing MR titles and descriptions from the actual diff, and holding the gate before anything reaches GitLab. |
+| `gitq:absorb` | `gitq absorb --preview`, `gitq absorb` | Sanity-checking the file→branch attribution before committing to it; gitq's attribution is mechanical (`git diff --name-only <parent> <branch>`) and can be wrong on a surprising file. |
+| `gitq:restructure` | `gitq split`, `fold`, `reparent`, `rename`, `reset` | Turning a plain-language instruction ("split the UI work out of feat-core") into the right sequence of surgery commands, and gating the whole plan before executing any of it. |
+
+None of them mutate git directly. All four run the real `gitq` CLI for every git operation and only exercise judgment in the parts gitq's own conflict/attribution/mapping logic hands back for a human (or an agent standing in for one) to decide.
+
+## Installing them
+
+```bash
+bun run scripts/install-skills.ts
+```
+
+This symlinks every `skills/<dir>` whose `SKILL.md` has a `name:` frontmatter field into `~/.claude/skills/<name>`, so `/gitq:sync` and the other three are available as slash commands in any Claude Code session, not just ones launched by the board. It is idempotent: re-running it after a `git pull` that changed the skills just re-links, and it refuses (with a message, not a crash) if something other than a symlink already occupies the destination path. Pass a different destination directory as the first argument if you don't want `~/.claude/skills`.
+
+## The flag contract
+
+Every skill accepts the same shape:
+
+```
+/gitq:<action> <repoPath> <stackName> [--state <path>] [--status-bin <path>]
+```
+
+`<repoPath>` and `<stackName>` are positional and required. `--state` and `--status-bin` are both optional, and they travel together: given either, both are expected. `gitq:restructure` has one extra positional that the other three don't — an optional `[instruction]` between `<stackName>` and the flags, the plain-language description of what to restructure.
+
+**`gitq:absorb`'s `<repoPath>` is not necessarily the primary checkout.** It can be any worktree of the repo, because absorb sources its uncommitted changes from wherever you point it. The board's absorb menu passes whichever dirty worktree you picked; run it by hand against a sibling worktree the same way.
+
+## What `--state` and `--status-bin` do
+
+`--status-bin <path>` is the absolute path to `bin/gitq-status.ts`, the small CLI that writes job status. `--state <path>` is a per-job JSON file the board reads to render its job chips. When both are given, a skill writes its progress by running:
+
+```bash
+bun run <status-bin> <state> <status> [detail]
+```
+
+with `<status>` one of five lifecycle values: **`starting`**, **`working`**, **`conflict`**, **`done`**, **`error`**. `starting` is special: the board itself writes it, twice — once to seed the job file before the pane even spawns (so a crash-on-launch still shows up as a job, not silence), and again once the herdr tab exists to record `tabId`/`workspaceId`. Every status after that is the skill's own: `working` right after it starts, `conflict` if it hits one, and always a terminal `done` or `error` before it finishes — every skill's Rules section calls out ending on a terminal status so a board badge can never get stuck mid-run, except while genuinely parked at a human gate with no answer yet.
+
+**When `--state`/`--status-bin` are absent, a skill skips every status write and just talks to you.** That's what happens invoking any of the four by hand from an interactive Claude Code session: `/gitq:sync /Users/you/repos/myrepo demo`, no flags, and it runs the exact same steps, it just narrates them in the conversation instead of updating a file. Nothing else about the skill's behavior changes.
+
+## How the board wires it up
+
+Right-clicking a stack action on the board does three things, in order (`src/server/server.ts`'s `/action` handler, `src/server/herdr.ts`'s `actionPrompt`):
+
+1. **Seeds the job file** at a deterministic path derived from `(repoPath, stack, action)`, status `starting`, before anything is spawned.
+2. **Builds the slash command**: `/gitq:<action> <repoPath> <stack> --state <statePath> --status-bin <path/to/bin/gitq-status.ts>`, and launches a herdr tab running `claude` with that as the initial prompt.
+3. **Updates the job file** with the new tab's id once the pane exists.
+
+From there the skill takes over and the board just polls: `/data.json` reads every job file under `state/jobs/`, so as the skill runs `working` → maybe `conflict` → `done`, the badge on the board updates without anything else in the loop. Relaunching an action that's already live re-focuses that tab instead of spawning a duplicate — the dedup key is the same `(repoPath, stack, action)` triple.
+
+Job files older than 24 hours are pruned, but only once they've reached a terminal status; one parked at `conflict` (or sitting at a gate) keeps its file indefinitely, exactly because that's the state a human still needs to see. See [The board](/getting-started/the-board#reading-the-board) and [Where state lives](/concepts/state#the-board).
+
+## A worked example: `gitq:restructure` by hand
+
+Say a branch has grown one commit of pure cleanup that really belongs one level down. Invoked directly, with the instruction as the third positional and no board flags:
+
+```
+/gitq:restructure /Users/you/repos/myrepo demo "fold feat-core-docs into feat-core, it's just cleanup"
+```
+
+What the skill does, matching its own steps:
+
+1. **Reads the intent** straight from the instruction positional — no ambiguity here, so no clarifying question.
+2. **Learns the current shape**: `gitq -C /Users/you/repos/myrepo stacks --json` and `gitq -C /Users/you/repos/myrepo diagnose --json`, plus `git log --oneline <parent>..<branch>` on the branch in question, to see there really is nothing but cleanup on it.
+3. **Maps the instruction to one operation**: `gitq fold feat-core-docs --stack demo`.
+4. **Gates.** Before running anything it shows you the plan — `fold feat-core-docs into feat-core; feat-core-docs's children get reparented onto feat-core` — and the caveat that matters: `fold` is not reversible by `gitq undo` (only `reparent` is), so this is a one-way door. It waits for your yes. No `--state`/`--status-bin` here, so there's no board badge sitting at this gate — the pane itself is the gate, and if you never answer, nothing executes and the conversation just sits there.
+5. **Executes** only after approval: runs `gitq fold feat-core-docs --stack demo --json`, checks the result.
+6. **Verifies**: a final `gitq diagnose --json` to confirm the tree is healthy, then reports the new shape back to you in the conversation (since there's no status file to write to).
+
+The same gate exists identically when the board launches this skill — the only difference is where the plan and the yes/no happen: in a herdr pane either way, just one the board spawned versus one you opened yourself.
+
+## Where the docs are occasionally wrong
+
+The skill files are the actual prompts driving these agents, and two details in them are stale relative to what the code underneath now does. Both matter enough to call out explicitly rather than let a skill's own description mislead you:
+
+:::warning `skills/absorb/SKILL.md` on unattributed files
+
+Its step 2 says files the attribution engine can't match to a branch's commits "stay in the worktree." They don't. `src/core/absorb.ts`'s `attributeFiles` falls an unmatched file back to `currentBranch` — the branch checked out where you ran absorb from — and absorb commits it there along with everything it did attribute. Nothing is left in the working tree by a successful absorb. See [Absorb uncommitted changes](/guides/absorb-changes#files-it-cannot-attribute) for the real behavior.
+
+:::
+
+:::warning `skills/restructure/SKILL.md` on checkout neutrality
+
+Its step 3 says "surgery never moves the launch worktree's checkout." True for `split` and `reparent`, not for `fold`: folding a branch deletes it, so if your launch worktree has that branch checked out (clean), gitq switches it to the parent before deleting — the one exception `src/core/branch-fold.ts` carves out. See [Restructure a stack](/guides/restructure-a-stack#fold-is-the-exception-to-checkout-neutrality).
+
+:::
+
+## Next
+
+- [The board](/getting-started/the-board): where these skills get launched from, and what the badges mean.
+- [Resolve a conflict](/guides/resolve-a-conflict): the conflict loop `gitq:sync` and `gitq:restructure`'s reparent path both follow.
+- [Publish to GitLab](/guides/publish-to-gitlab): what `gitq:publish` gates before it runs.
+- [Absorb uncommitted changes](/guides/absorb-changes) and [Restructure a stack](/guides/restructure-a-stack): the CLI mechanics behind the other two skills.
