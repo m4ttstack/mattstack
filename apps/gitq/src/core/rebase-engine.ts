@@ -26,6 +26,14 @@ export interface CascadePauseInfo {
   mergedBranch: string | null;
   /** The base to rebase direct children of mergedBranch onto. For sync, the root branch. */
   newBase: string;
+  /** The actual `--onto` target of the branch this pause happened on. */
+  currentTarget?: string;
+  /**
+   * Pre-rebase heads of branches this cascade already rebased, keyed by
+   * branch. Lets a resumed cascade compute a child's true fork point off its
+   * parent's OLD head instead of a merge-base against the rewritten one.
+   */
+  preRebaseHeads?: Record<string, string>;
   /**
    * Which phase paused. `'reconcile'` means the branch is being synced with
    * its merged parent's final state before the cascade rebase.
@@ -199,6 +207,15 @@ async function resolveParentHead(cwd: string, stack: Stack, node: StackNode): Pr
       const effectiveRef = liveAncestor === stack.root ? `origin/${stack.root}` : liveAncestor;
       return await GitShell.getBranchHead(cwd, effectiveRef);
     }
+    if (node.parent === stack.root) {
+      // Sync rebases root-parented branches onto the fetched origin/<root>
+      // (the local trunk is never moved), so predict against the same ref.
+      try {
+        return await GitShell.getBranchHead(cwd, `origin/${stack.root}`);
+      } catch {
+        // no remote-tracking ref: the local root is all there is
+      }
+    }
     return await GitShell.getBranchHead(cwd, node.parent);
   } catch {
     return null;
@@ -354,20 +371,58 @@ function makeTombstoneResolver(
   };
 }
 
-function makeMergeBaseResolver(
+/**
+ * Old-base + parent-ref resolvers for merge-base style cascades (sync,
+ * restack, and their resumes).
+ *
+ * When a stack-internal parent was already rebased by this cascade,
+ * `preRebaseHeads` carries its pre-rebase head: the child's true fork
+ * point. A plain merge-base against the parent's NEW head falls back to
+ * the original base and sweeps the parent's pre-rebase commits into the
+ * child's range; those normally auto-drop by patch id, but conflict
+ * spuriously when conflict resolution changed the parent's content.
+ */
+function makeCascadeResolvers(
   cwd: string,
-): (stack: Stack, node: StackNode) => Promise<OldBaseResult> {
-  return async (_stack: Stack, node: StackNode): Promise<OldBaseResult> => {
+  stack: Stack,
+  rootTarget: string,
+  preRebaseHeads: Record<string, string> = {},
+) {
+  const resolveParentRef = (node: StackNode): string => {
+    const liveAncestor = resolveLiveAncestor(stack, node.parent);
+    return liveAncestor === stack.root ? rootTarget : liveAncestor;
+  };
+
+  const resolveBase = async (_stack: Stack, node: StackNode): Promise<OldBaseResult> => {
     try {
-      const parentRef = node.parent;
+      // Check if this node's direct parent was merged with a tombstone.
+      // If so, use the tombstone as the fork point — this skips the
+      // merged parent's commits (squash-merge recovery).
+      const parentNode = stack.nodes.find((n) => n.branch === node.parent);
+      if (parentNode?.status === 'merged') {
+        // Prefer live branch tip over stored lastKnownHead (may be stale)
+        let tombstone: string | null = null;
+        try { tombstone = await GitShell.getBranchHead(cwd, parentNode.branch); } catch {}
+        if (!tombstone) tombstone = parentNode.lastKnownHead;
+        if (tombstone) {
+          return { kind: 'rebase', oldBase: tombstone };
+        }
+      }
+
+      const parentRef = resolveParentRef(node);
       const parentHead = await GitShell.getBranchHead(cwd, parentRef);
-      const mb = await GitShell.getMergeBase(cwd, node.branch, parentRef);
-      if (mb === parentHead) return { kind: 'skip' };
-      return { kind: 'rebase', oldBase: mb };
+      const oldParentHead = parentNode ? preRebaseHeads[node.parent] : undefined;
+      const oldBase = oldParentHead
+        ? await GitShell.getMergeBase(cwd, node.branch, oldParentHead)
+        : await GitShell.getMergeBase(cwd, node.branch, parentRef);
+      if (oldBase === parentHead) return { kind: 'skip' };
+      return { kind: 'rebase', oldBase };
     } catch {
       return { kind: 'skip' };
     }
   };
+
+  return { resolveParentRef, resolveBase };
 }
 
 // ── Pre-rebase redundancy detection ──────────────────────────────────────────
@@ -407,6 +462,7 @@ async function doCascadeLoop(
   resolveBase: (stack: Stack, node: StackNode) => Promise<OldBaseResult>,
   resolveNewBase: (node: StackNode) => string,
   pauseContext: { mergedBranch: string | null; newBase: string },
+  preRebaseHeads: Record<string, string> = {},
 ): Promise<CascadeResult> {
   let updatedStack = initialStack;
   const results: RebaseResult[] = [];
@@ -429,6 +485,15 @@ async function doCascadeLoop(
     if (baseResult.kind === 'error') {
       results.push({ branch: node.branch, success: false, error: baseResult.message });
       break;
+    }
+
+    // Record this branch's head before anything rewrites it: descendants
+    // processed later (in this loop or after a pause) use it as their true
+    // fork point instead of a merge-base against the rewritten history.
+    try {
+      preRebaseHeads[node.branch] = await GitShell.getBranchHead(cwd, node.branch);
+    } catch {
+      // best-effort: descendants fall back to merge-base
     }
 
     // ── Drift reconciliation for merged parents ──────────────────────────
@@ -477,8 +542,10 @@ async function doCascadeLoop(
                   completedBranches,
                   mergedBranch: pauseContext.mergedBranch,
                   newBase: pauseContext.newBase,
+                  currentTarget: tombstone,
                   phase: 'reconcile',
                   conflictTypes: typedConflicts,
+                  preRebaseHeads: { ...preRebaseHeads },
                 },
               };
             }
@@ -519,8 +586,10 @@ async function doCascadeLoop(
                       completedBranches,
                       mergedBranch: pauseContext.mergedBranch,
                       newBase: pauseContext.newBase,
+                      currentTarget: tombstone,
                       phase: 'reconcile',
                       conflictTypes: typedConflicts,
+                      preRebaseHeads: { ...preRebaseHeads },
                     },
                   };
                 }
@@ -582,8 +651,10 @@ async function doCascadeLoop(
               completedBranches,
               mergedBranch: pauseContext.mergedBranch,
               newBase: pauseContext.newBase,
+              currentTarget: targetBase,
               phase: 'cascade',
               conflictTypes: typedConflicts,
+              preRebaseHeads: { ...preRebaseHeads },
             },
           };
         }
@@ -744,6 +815,7 @@ export const RebaseEngine = {
                   ...pauseInfo,
                   conflictFiles,
                   phase: 'cascade',
+                  currentTarget: targetBase,
                   conflictTypes: typedConflicts,
                   commitIndex: progress?.current,
                   commitTotal: progress?.total,
@@ -780,13 +852,19 @@ export const RebaseEngine = {
       .filter((n): n is StackNode => n !== undefined);
 
     const useTombstone = pauseInfo.mergedBranch !== null;
+    // Non-tombstone pauses come from sync/restack; mirror their resolvers so
+    // remaining root-parented branches still target pauseInfo.newBase (for
+    // sync, origin/<root>) instead of the never-moved local trunk. The
+    // pre-rebase heads recorded before the pause carry the true fork points.
+    const resumeHeads: Record<string, string> = { ...(pauseInfo.preRebaseHeads ?? {}) };
+    const cascadeResolvers = makeCascadeResolvers(cwd, stack, pauseInfo.newBase, resumeHeads);
     const resolver = useTombstone
       ? makeTombstoneResolver(cwd, pauseInfo.mergedBranch ?? '')
-      : makeMergeBaseResolver(cwd);
+      : cascadeResolvers.resolveBase;
     const newBaseResolver = useTombstone
       ? (node: StackNode) =>
           node.parent === pauseInfo.mergedBranch ? pauseInfo.newBase : node.parent
-      : (node: StackNode) => node.parent;
+      : (node: StackNode) => cascadeResolvers.resolveParentRef(node);
 
     // Pass the ORIGINAL stack (before lastKnownHead updates) so tombstone
     // resolution uses pre-rebase values for deeper descendants.
@@ -797,6 +875,7 @@ export const RebaseEngine = {
       resolver,
       newBaseResolver,
       { mergedBranch: pauseInfo.mergedBranch, newBase: pauseInfo.newBase },
+      resumeHeads,
     );
 
     const combined: CascadeResult = {
@@ -832,30 +911,21 @@ export const RebaseEngine = {
       return { results: [], updatedStack: stack, state: 'completed' };
     }
 
-    const mergeBaseResolver = (
-      _stack: Stack,
-      node: StackNode,
-    ): Promise<OldBaseResult> => {
-      return (async () => {
-        try {
-          const parentRef = node.parent;
-          const parentHead = await GitShell.getBranchHead(cwd, parentRef);
-          const mb = await GitShell.getMergeBase(cwd, node.branch, parentRef);
-          if (mb === parentHead) return { kind: 'skip' as const };
-          return { kind: 'rebase' as const, oldBase: mb };
-        } catch {
-          return { kind: 'skip' as const };
-        }
-      })();
-    };
+    // Recorded pre-rebase heads matter here too: deeper descendants of the
+    // amended `branch` see their parents rewritten as the loop walks down.
+    // New-base targets stay node.parent verbatim (descendants of `branch`
+    // are never root-parented).
+    const preRebaseHeads: Record<string, string> = {};
+    const { resolveBase } = makeCascadeResolvers(cwd, stack, branch, preRebaseHeads);
 
     return doCascadeLoop(
       cwd,
       stack,
       descendants,
-      mergeBaseResolver,
+      resolveBase,
       (node) => node.parent,
       { mergedBranch: null, newBase: branch },
+      preRebaseHeads,
     );
   },
 
@@ -892,51 +962,18 @@ export const RebaseEngine = {
       return { results: [], updatedStack: stack, state: 'completed' };
     }
 
-    const resolveParentRef = (node: StackNode): string => {
-      const liveAncestor = resolveLiveAncestor(stack, node.parent);
-      return liveAncestor === trunk ? remoteTrunk : liveAncestor;
-    };
-
-    const remoteTrunkResolver = (
-      _stack: Stack,
-      node: StackNode,
-    ): Promise<OldBaseResult> => {
-      return (async () => {
-        try {
-          // Check if this node's direct parent was merged with a tombstone.
-          // If so, use the tombstone as the fork point — this skips the
-          // merged parent's commits (squash-merge recovery).
-          const parentNode = stack.nodes.find((n) => n.branch === node.parent);
-          if (parentNode?.status === 'merged') {
-            // Prefer live branch tip over stored lastKnownHead (may be stale)
-            let tombstone: string | null = null;
-            try { tombstone = await GitShell.getBranchHead(cwd, parentNode.branch); } catch {}
-            if (!tombstone) tombstone = parentNode.lastKnownHead;
-            if (tombstone) {
-              return { kind: 'rebase' as const, oldBase: tombstone };
-            }
-          }
-
-          // Normal merge-base approach for non-merged parents
-          const parentRef = resolveParentRef(node);
-          const parentHead = await GitShell.getBranchHead(cwd, parentRef);
-          const mb = await GitShell.getMergeBase(cwd, node.branch, parentRef);
-          if (mb === parentHead) return { kind: 'skip' as const };
-          return { kind: 'rebase' as const, oldBase: mb };
-        } catch {
-          return { kind: 'skip' as const };
-        }
-      })();
-    };
+    const preRebaseHeads: Record<string, string> = {};
+    const { resolveParentRef, resolveBase } = makeCascadeResolvers(cwd, stack, remoteTrunk, preRebaseHeads);
 
     const allNodes = StackManager.toposort(stack);
     return doCascadeLoop(
       cwd,
       stack,
       allNodes,
-      remoteTrunkResolver,
+      resolveBase,
       (node) => resolveParentRef(node),
       { mergedBranch: null, newBase: remoteTrunk },
+      preRebaseHeads,
     );
   },
 };
