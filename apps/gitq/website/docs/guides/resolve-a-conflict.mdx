@@ -49,12 +49,24 @@ gitq track demo --root main
 
 ```bash
 git switch -c feat-api main
-# handlers.ts gains 'api'
+cat > handlers.ts <<'EOF'
+export const handlers = [
+  'ping',
+  'api',
+];
+EOF
 git commit -am 'add api handler'
 gitq add feat-api --parent main --stack demo
 
 git switch -c feat-handlers feat-api
-# config.ts timeout becomes 2500, webhooks.ts is new
+cat > config.ts <<'EOF'
+export const config = {
+  timeout: 2500,
+};
+EOF
+cat > webhooks.ts <<'EOF'
+export const webhooks: string[] = [];
+EOF
 git add -A && git commit -m 'add webhooks, raise timeout'
 gitq add feat-handlers --parent feat-api --stack demo
 ```
@@ -63,7 +75,17 @@ Then trunk moves, touching both files:
 
 ```bash
 git switch main
-# handlers.ts gains 'health', config.ts timeout becomes 5000
+cat > handlers.ts <<'EOF'
+export const handlers = [
+  'ping',
+  'health',
+];
+EOF
+cat > config.ts <<'EOF'
+export const config = {
+  timeout: 5000,
+};
+EOF
 git commit -am 'add health handler, raise timeout upstream'
 git push origin main
 git switch feat-handlers
@@ -205,7 +227,7 @@ git status --short --branch
 ## feat-handlers
 ```
 
-Still on `feat-handlers`, still clean, no rebase in progress, and `feat-api` still at its pre-sync head. gitq rebases in a leased [work slot](/concepts/work-slots) with a detached HEAD and only moves your branch refs at the very end, so a paused cascade leaves your working tree exactly as it found it.
+Still on `feat-handlers`, still clean, no rebase in progress, and `feat-api` still at its pre-sync head. gitq rebases in a leased [work slot](/concepts/work-slots) with a detached HEAD and only moves your branch refs at the very end, so a paused cascade leaves the still-conflicted and not-yet-attempted branches alone. It is a different story for a branch the walk already finished: if your clean checkout had been sitting on `feat-api` instead, gitq would have reset it to `feat-api`'s new head the moment that branch's rebase landed, the same way [surgery resets a clean checkout](/guides/restructure-a-stack#what-surgery-does-to-your-checkout) sitting on a branch it rewrites.
 
 The mid-rebase state is in the slot, and it is an ordinary one:
 

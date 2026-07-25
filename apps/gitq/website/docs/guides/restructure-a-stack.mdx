@@ -5,9 +5,9 @@ sidebar_position: 3
 
 # Restructure a stack
 
-`sync` rebases a stack. It never changes its shape. Changing the shape is surgery: five commands that split a branch in two, merge one into another, move a subtree, or rename a node.
+`sync` rebases a stack. It never changes its shape. Changing the shape is surgery: five commands that split a branch in two, merge one into another, move a subtree, rename a node, or snap a branch back to its remote.
 
-All of them update gitq's tree and the git refs together, none of them replays a commit inside the worktree you launched them from, and all of them refuse rather than half-finish. Every block below came from a real run.
+All of them update gitq's tree and the git refs together, and none of them replays a commit inside the worktree you launched them from. Most refuse outright rather than half-finish; `reparent` is the exception, because its descendant cascade can pause partway through, with the branch itself already moved and its descendants still catching up (see [reparent](#reparent) below). Every block below came from a real run.
 
 :::warning Surgery is mostly one way
 
@@ -127,7 +127,7 @@ b901484 add core
 fdd80d7 initial commit
 ```
 
-Because it is pure ref surgery, **a dirty working tree is not in the way**. The run above was made with an untracked file sitting in the launch worktree, and it was still there afterwards.
+Because it is pure ref surgery, a dirty working tree is not in the way, unless that tree is the one holding the source branch. The run above was made with an untracked file sitting in the launch worktree, but the worktree itself was checked out on `main`, not `feat-core`, and the file was still there afterwards. Standing on the source branch itself with a dirty tree refuses instead, the way [the example above](#what-surgery-does-to-your-checkout) describes.
 
 ### Refusals
 
@@ -150,7 +150,7 @@ Exit `1`. Use `git rev-parse <ref>`, not `git rev-parse --short`.
 | Situation | What you get, always exit `1` |
 | --- | --- |
 | Split point is already the branch head | `gitq: No commits to split — the split point is already at HEAD` |
-| Sha is not among the branch's 50 most recent commits | `gitq: Commit "d66c1c7" not found in branch "feat-core"` |
+| Sha is a full 40 character commit id, but older than the branch's 50 most recent commits | `gitq: Commit "<sha>" not found in branch "<branch>"`, the same shape of message the short sha error above produces, but for a different reason: `--at` only looks at the branch's last 50 commits, so anything older is invisible to it no matter how correctly you typed the sha |
 | Source branch is not in the stack | `gitq: Branch "no-such" not found in stack "253747f8-1fc8-4db7-ac34-aded330f2990"` |
 | New name is already a branch in the stack | `gitq: Branch "feat-empty" already exists in stack "253747f8-1fc8-4db7-ac34-aded330f2990"` |
 | Source checked out dirty in another worktree | the slot policy refuses; see [`split --files`](#split-files) below for the message |
@@ -219,6 +219,8 @@ ui.css
 The patterns are globs, comma separated for more than one (`--files 'src/api/**,*.json'`). They are matched against the list of files the branch changed relative to its parent, so a pattern matching nothing in that list is an error rather than a no-op.
 
 Unlike `--at`, this one builds commits, so it needs a tree. It uses a leased work slot with a detached HEAD; **your launch worktree is still not touched**, and can still be dirty.
+
+Like `fold`, this rewrites the source branch's own ref, either an amended tip commit or a rewind to the merge base if every file moved. Unlike `fold`, there is no case where that resolves itself: `split --files` never cascades the descendants of the branch it splits, so any existing child of the source is left on the old, now-stale head every time. Run `gitq sync` afterwards to bring them forward.
 
 ### Refusals
 
@@ -521,6 +523,16 @@ gitq: branch "feat-ui" is checked out in slot "wt-ui" (/Users/you/repos/demo/wt-
 Exit `1`. Run it from that worktree, or free the branch there. `gitq reset` refuses on the same rule.
 
 Renaming a published branch does not rename it on the remote. The old branch is still on GitLab, and the MR is still attached to it. See [Publish to GitLab](/guides/publish-to-gitlab).
+
+## `reset`: snap a branch back to its remote {#reset}
+
+**When you want it.** Local and remote have diverged, for example someone force-pushed the branch on GitLab, and you want your local ref to match exactly what is there.
+
+`gitq reset <branch>` requires a clean launch worktree: it checks out the branch there and hard-resets it to `origin/<branch>`, so uncommitted changes in the way stop it with `gitq: Working tree has uncommitted changes. Commit or stash first.` before anything moves. It does not fetch on its own, so make sure your remote-tracking ref for the branch is current first.
+
+Like `rename`, it refuses up front if the branch is checked out somewhere other than your launch worktree, dirty or not, with the same message.
+
+`reset` is the one surgery command the warning at the top of this page already calls out as unrecorded: it is never written to the operation log, so `gitq undo` has nothing to give back after it. Whatever the branch pointed at before is gone unless you remember the sha yourself.
 
 ## Next
 

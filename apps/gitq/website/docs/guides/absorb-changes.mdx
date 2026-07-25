@@ -17,7 +17,7 @@ In order:
 2. **Commit.** Stash the tree, then for each owning branch in turn: check it out, write the file back, `git add`, and `git commit --amend --no-edit`. This is an amend of the branch's tip commit, not a new commit on top.
 3. **Restack.** Cascade the descendants of every amended branch onto their parents' new heads, detached in a leased [work slot](/concepts/work-slots).
 
-Step 2 runs **in the worktree you invoked absorb from**, because it needs a real tree to write files into. Step 3 does not. So `absorb` is the one gitq command that will move your checkout around while it works; it returns you to the branch you started on when it is done.
+Step 2 runs **in the worktree you invoked absorb from**, because it needs a real tree to write files into. Step 3 does not. So absorb moves your checkout to each owning branch in turn while it commits, then returns you to the branch you started on when it is done. (`fold` can also move your checkout, but permanently, onto the folded branch's parent; see [`fold`](/guides/restructure-a-stack#fold).)
 
 ## Always `--preview` first
 
@@ -135,7 +135,7 @@ git show feat-api:api.ts
 export const api = 2;
 ```
 
-`feat-handlers` was restacked onto the amended `feat-api` automatically. That restack is the cascade described in [The cascade](/concepts/cascade), with a narrower scope: only the descendants of amended branches, onto their parents' current local heads, with no fetch.
+`feat-handlers` was restacked onto the amended `feat-api` automatically. That restack is not [the cascade](/concepts/cascade) that `sync` and `reparent` share: absorb runs its own loop over just the descendants of amended branches, onto their parents' current local heads, with no fetch and, as the next section covers, no pause protocol.
 
 With nothing to do, absorb says so and exits `0`:
 
@@ -149,7 +149,9 @@ nothing absorbed (no-changes)
 
 ## When the restack conflicts
 
-Absorb has **no pause protocol**. The commit phase always succeeds or fails outright, but the restack after it can conflict like any rebase, and when it does absorb backs out rather than leaving you mid-rebase with a success exit code:
+Absorb has **no pause protocol**, and the commit phase is not the clean all-or-nothing step it might look like either. It amends one owning branch at a time, and if a later amend fails it stops there without rolling back the branches it already amended. A `pre-commit` hook that fails on the second branch is a realistic way to hit this: the amend runs in the worktree you launched absorb from, which keeps its hooks live, unlike a leased work slot. When that happens, `gitq absorb` reports `nothing absorbed` and exits `1`, which undersells what happened. Check `git log --oneline --all` or `git show --stat <branch>` for the branches you expected to change before you decide what to do next.
+
+Past a clean commit phase, the restack can still conflict like any rebase, and when it does absorb backs out rather than leaving you mid-rebase with a success exit code:
 
 ```bash
 gitq absorb --stack two
@@ -243,7 +245,9 @@ That is the same thing as running `gitq -C <that worktree> absorb` yourself. See
 
 ## Undo
 
-`absorb` is recorded in the operation log and is reversible: `gitq undo` resets the affected branches to their pre-absorb heads. What it will not do is give you the dirty working tree back. The changes are commits now.
+`absorb` is recorded in the operation log, and reversible, only when it exits `0`. When it is, `gitq undo` resets the affected branches to their pre-absorb heads. What it will not do is give you the dirty working tree back; the changes are commits now.
+
+An absorb that hits a restack conflict (see [above](#when-the-restack-conflicts)) exits `1` and writes no log entry at all, even though the commit phase already landed. There is nothing for `gitq undo` to give back, and it will not tell you that: it just takes the most recent entry for the repo, which after a failed absorb belongs to whatever you ran before it. Reach for `gitq undo` here and you silently rewind that earlier operation instead. The actual recovery is the one named above: `gitq sync --stack <name>` to finish the restack.
 
 ## Next
 

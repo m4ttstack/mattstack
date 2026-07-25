@@ -32,7 +32,7 @@ The file holds the stack id and one `pauseInfo` object:
 | `currentBranch` | The branch the rebase stopped on. |
 | `conflictFiles` | The conflicted paths, as plain strings. Always present. |
 | `conflictTypes` | The same files paired with a two-letter porcelain status code (`UU` both modified, `AA` both added, `UD` modified then deleted, `DU` deleted then modified, `AU` added by us). Present when git could classify them. Read `conflictFiles` for the list, `conflictTypes` when you want the codes. |
-| `completedBranches` | Branches this cascade already rebased successfully. |
+| `completedBranches` | Branches *this invocation's* walk has already rebased successfully. It is not the whole cascade's history: every `gitq continue` starts a fresh walk over the remaining branches, so this list resets to empty on resume even if earlier branches finished in a prior invocation. Read `preRebaseHeads` for the whole run's history. |
 | `remainingBranches` | Branches not yet attempted, in walk order. |
 | `newBase` | The base the cascade is working toward. For `sync`, `origin/<root>`. |
 | `currentTarget` | The actual `--onto` target of the branch that paused, which is not always `newBase`: mid-stack branches target their parent, and a reconciling branch targets its merged parent's tombstone. |
@@ -99,7 +99,7 @@ If you run it with conflicts still unstaged, git refuses the `--continue` and gi
 Understand what it does and does not undo:
 
 - It aborts **the rebase that was in progress**. The branch that conflicted goes back to where it was.
-- It does **not** rewind the branches the cascade already finished. Those refs were moved and stay moved. `pauseInfo.completedBranches` is the list.
+- It does **not** rewind the branches the cascade already finished. Those refs were moved and stay moved, whether or not `pauseInfo.completedBranches` still shows them: that field only covers the current invocation's walk and resets to empty on every `gitq continue`, so `preRebaseHeads` is the field with the whole run's history.
 - A paused cascade is never written to the operation log, so `gitq undo` has nothing to restore for a run you aborted part way through. To get back to the original bases you would re-run the cascade, or move the finished branches by hand.
 
 If you get `lease found but no pause file in <slot>`, the two halves of the protocol have come apart; `gitq abort` is the documented way to clear it. [Recover](/guides/recover) covers the rest of the ways a repo can end up inconsistent.
