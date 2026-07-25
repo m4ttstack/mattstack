@@ -76,6 +76,21 @@ export async function withLeasedSlot(
   return code;
 }
 
+export async function worktreesForJson(ctx: CliContext) {
+  const [map, leases] = await Promise.all([getWorktreeMap(ctx.repoRoot), listLeases(ctx.commonDir)]);
+  return map.map((s) => {
+    const lease = leases.find((l) => l.slotPath === s.path) ?? null;
+    return {
+      path: s.path,
+      name: s.name,
+      branch: s.branch,
+      dirty: s.dirty,
+      isWorkSlot: s.isWorkSlot,
+      lease: lease ? { stackId: lease.stackId, action: lease.action, state: lease.state } : null,
+    };
+  });
+}
+
 /** Resolve the parked lease to operate on (for continue/abort from anywhere). */
 export async function findParkedLease(ctx: CliContext, stackId?: string): Promise<
   { lease: Lease } | { error: string }

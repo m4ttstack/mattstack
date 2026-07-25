@@ -258,7 +258,7 @@ describe('gitq CLI', () => {
     const { repo, configDir } = await makeRepo();
     const { stdout, exitCode } = await runCli(['stacks', '--json'], repo.dir, configDir);
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({ stacks: [] });
+    expect(JSON.parse(stdout).stacks).toEqual([]);
   });
 
   test('unknown command exits 1', async () => {
@@ -274,7 +274,7 @@ describe('gitq CLI', () => {
     // otherwise `-C` context resolution could pick up that outer repo instead.
     const { stdout, exitCode } = await runCli(['-C', repo.dir, 'stacks', '--json'], join(repo.dir, '..'), configDir);
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({ stacks: [] });
+    expect(JSON.parse(stdout).stacks).toEqual([]);
   });
 
   test('diagnose --json reports situations for a healthy stack', async () => {
