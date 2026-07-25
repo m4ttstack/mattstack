@@ -1,6 +1,6 @@
 # gitq
 
-gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to GitLab to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. a board (server + web client) and a set of higher level skills built on top of this CLI are later plans, not here yet.
+gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to GitLab to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. a board (server + web client) is a later plan; the skills that drive this CLI from agent panes live in `skills/`.
 
 ## install
 
@@ -37,7 +37,7 @@ Cascade rebase:
 
 Surgery:
 
-- `gitq absorb [--stack <name>] [--preview]`: distribute uncommitted changes to the branches whose commits touched those files, then restack. `--preview` shows the attribution without committing anything.
+- `gitq absorb [--stack <name>] [--preview]`: distribute uncommitted changes to the branches whose commits touched those files, then restack. `--preview` shows the attribution without committing anything. If the restack after absorbing hits a conflict, absorb aborts that rebase (the absorbed commits stay on their branches) and exits `1` with a message telling you to run `gitq sync`, which restacks with full conflict handling.
 - `gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]`: tail split: move everything from `<sha>` onward on `<branch>` into a new child branch.
 - `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file: move files matching the glob(s) off `<branch>` into a new branch.
 - `gitq fold <branch> [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent.
@@ -80,3 +80,13 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 ## GitLab token
 
 `publish` and `import` need a token. gitq looks at `GITLAB_TOKEN` in the environment first, then falls back to the `gitlabToken` field in `~/.rt/secrets.json`. gitlab.com only for now, no self hosted instances.
+
+## skills
+
+`skills/` holds four agent skills that drive this CLI from a Claude pane, one per board action: `gitq:sync` (cascade rebase with judgment-based conflict resolution), `gitq:publish` (push + MR chain, with a human gate before anything leaves the machine), `gitq:absorb` (distribute uncommitted changes, preview first), and `gitq:restructure` (split/fold/reparent/rename surgery from a plain language instruction, gated on a plan). Install them as symlinks into `~/.claude/skills`:
+
+```bash
+bun run scripts/install-skills.ts
+```
+
+Each skill takes `<repoPath> <stackName>` positionals plus optional `--state <path> --status-bin <path>` flags. The board (a later plan) injects those two so the pane can emit lifecycle status (`starting | working | conflict | done | error`) to a JSON state file under `state/jobs/`; invoked by hand without them, the skills skip status writes and just talk to you. The status writer is `bin/gitq-status.ts` (`bun run bin/gitq-status.ts <statePath> <status> [detail]`); the state file helpers live in `src/server/job-state.ts`.
