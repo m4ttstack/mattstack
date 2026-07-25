@@ -1,0 +1,569 @@
+---
+title: Resolve a conflict
+sidebar_position: 1
+---
+
+# Resolve a conflict
+
+A `gitq sync` that hits a conflict does not fail. It stops, writes down where it stopped, and waits. This page is one real run of that loop, start to finish: a two branch stack, two separate conflicts, and the exact output at every step.
+
+[The pause protocol](/concepts/pause-protocol) is the contract behind all of this. This page is the walkthrough.
+
+Every block below came from a real run. Your commit hashes and your work slot hash will differ, and paths are shown with `/Users/you` standing in for your home directory.
+
+## The setup
+
+A stack of two branches cut from `main`, with a stand-in remote so `sync` has an `origin` to fetch (see [Your first stack](/getting-started/first-stack) for why that is required):
+
+```bash
+mkdir -p /tmp/gitq-conflict && cd /tmp/gitq-conflict
+git init -b main
+git config user.email you@example.com
+git config user.name "you"
+```
+
+`main` starts with two files that everything below fights over:
+
+```bash
+cat > handlers.ts <<'EOF'
+export const handlers = [
+  'ping',
+];
+EOF
+cat > config.ts <<'EOF'
+export const config = {
+  timeout: 1000,
+};
+EOF
+echo '# demo' > README.md
+git add -A && git commit -m 'initial commit'
+
+git init --bare -b main /tmp/gitq-conflict-origin.git
+git remote add origin /tmp/gitq-conflict-origin.git
+git push -u origin main
+
+gitq track demo --root main
+```
+
+`feat-api` edits `handlers.ts`. `feat-handlers`, cut from it, edits `config.ts` and adds a file:
+
+```bash
+git switch -c feat-api main
+# handlers.ts gains 'api'
+git commit -am 'add api handler'
+gitq add feat-api --parent main --stack demo
+
+git switch -c feat-handlers feat-api
+# config.ts timeout becomes 2500, webhooks.ts is new
+git add -A && git commit -m 'add webhooks, raise timeout'
+gitq add feat-handlers --parent feat-api --stack demo
+```
+
+Then trunk moves, touching both files:
+
+```bash
+git switch main
+# handlers.ts gains 'health', config.ts timeout becomes 5000
+git commit -am 'add health handler, raise timeout upstream'
+git push origin main
+git switch feat-handlers
+```
+
+`preflight` sees one of the two conflicts coming:
+
+```bash
+gitq preflight
+```
+
+```
+demo: dirty=false
+  feat-api: UU handlers.ts
+slot conflicts:
+  feat-handlers: repo
+```
+
+It predicts per branch against the tree as it is now, so it cannot see the `config.ts` conflict that only appears once `feat-api` has been rewritten. That is normal, and it is why `preflight` predicts rather than promises.
+
+## Sync stops
+
+```bash
+gitq sync --stack demo
+```
+
+```
+paused on feat-api in /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1 (commit ?/?):
+  UU handlers.ts
+resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
+```
+
+```bash
+echo $?
+```
+
+```
+2
+```
+
+## Reading the stop
+
+**Exit `2` is the signal.** Not `1`. `2` means gitq stopped on purpose and is waiting for a human; `1` means something failed. Nothing else in gitq exits `2`. If you are scripting around this, branch on the exit code and never on the text. [Exit codes](/reference/exit-codes) has the full contract.
+
+The message has four parts:
+
+| Part | What it is |
+| --- | --- |
+| `paused on feat-api` | The branch whose rebase stopped. The branches after it in the walk have not been attempted. |
+| `in /Users/you/.cache/.../gitq-1` | **Where the rebase actually is.** Go here. |
+| `(commit ?/?)` | Position within this branch's rebase. `?/?` on a first stop, because gitq only reads git's rebase counters when a `gitq continue` runs into another conflict. See [below](#when-the-same-branch-conflicts-twice). |
+| `UU handlers.ts` | One line per conflicted file, with git's two-letter porcelain code. `UU` is both modified. |
+
+## The pause file
+
+The same facts, on disk, in the work slot's git dir:
+
+```bash
+cat .git/worktrees/gitq-1/gitq-pause.json
+```
+
+```json
+{
+  "stackId": "5427e768-53b9-4aae-a7b9-2a006667ae4c",
+  "pauseInfo": {
+    "currentBranch": "feat-api",
+    "conflictFiles": [
+      "handlers.ts"
+    ],
+    "remainingBranches": [
+      "feat-handlers"
+    ],
+    "completedBranches": [],
+    "mergedBranch": null,
+    "newBase": "origin/main",
+    "currentTarget": "origin/main",
+    "phase": "cascade",
+    "conflictTypes": [
+      {
+        "type": "UU",
+        "file": "handlers.ts"
+      }
+    ],
+    "preRebaseHeads": {
+      "feat-api": "c406749d93502beb6f9e7458e2d8bfc014702e1b"
+    },
+    "worktreePath": "/Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1"
+  }
+}
+```
+
+`newBase` is `origin/main`, not `main`: a branch whose parent is the stack root rebases onto the remote-tracking ref, and your local trunk is never touched. `remainingBranches` is the rest of the walk. `worktreePath` is the field to read. Field by field, see [Pause file](/reference/pause-file).
+
+The same object comes back on stdout under `--json`, and it is the whole document:
+
+```bash
+gitq sync --stack demo --json
+```
+
+```json
+{
+  "state": "paused",
+  "pauseInfo": {
+    "currentBranch": "feat-api",
+    "conflictFiles": [
+      "handlers.ts"
+    ],
+    "remainingBranches": [
+      "feat-handlers"
+    ],
+    "completedBranches": [],
+    "mergedBranch": null,
+    "newBase": "origin/main",
+    "currentTarget": "origin/main",
+    "phase": "cascade",
+    "conflictTypes": [
+      {
+        "type": "UU",
+        "file": "handlers.ts"
+      }
+    ],
+    "preRebaseHeads": {
+      "feat-api": "c406749d93502beb6f9e7458e2d8bfc014702e1b"
+    },
+    "worktreePath": "/Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1"
+  }
+}
+```
+
+## Your checkout is not where the rebase is
+
+This is the part that surprises people. In the repo you ran `sync` from, nothing happened:
+
+```bash
+git status --short --branch
+```
+
+```
+## feat-handlers
+```
+
+Still on `feat-handlers`, still clean, no rebase in progress, and `feat-api` still at its pre-sync head. gitq rebases in a leased [work slot](/concepts/work-slots) with a detached HEAD and only moves your branch refs at the very end, so a paused cascade leaves your working tree exactly as it found it.
+
+The mid-rebase state is in the slot, and it is an ordinary one:
+
+```bash
+git -C /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1 status
+```
+
+```
+interactive rebase in progress; onto 99095ff
+Last command done (1 command done):
+   pick c406749 # add api handler
+No commands remaining.
+You are currently rebasing.
+  (fix conflicts and then run "git rebase --continue")
+  (use "git rebase --skip" to skip this patch)
+  (use "git rebase --abort" to check out the original branch)
+
+Unmerged paths:
+  (use "git restore --staged <file>..." to unstage)
+  (use "git add <file>..." to mark resolution)
+	both modified:   handlers.ts
+
+no changes added to commit (use "git add" and/or "git commit -a")
+```
+
+Git's own advice in that output is for a hand-run rebase. Ignore the `git rebase --continue` line; see [What not to do](#what-not-to-do).
+
+## Resolve with plain git
+
+Work in the directory the pause named. The conflict is a normal one:
+
+```bash
+cd /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1
+cat handlers.ts
+```
+
+```
+export const handlers = [
+  'ping',
+<<<<<<< HEAD
+  'health',
+=======
+  'api',
+>>>>>>> c406749 (add api handler)
+];
+```
+
+`HEAD` is the new base (trunk, with `health`). The other side is the commit being replayed (`feat-api`, with `api`). Both belong, so keep both:
+
+```bash
+cat > handlers.ts <<'EOF'
+export const handlers = [
+  'ping',
+  'health',
+  'api',
+];
+EOF
+git add handlers.ts
+git status --porcelain
+```
+
+```
+M  handlers.ts
+```
+
+gitq stages nothing for you and has no opinion about the resolution. All it requires is that no unmerged paths are left.
+
+## `gitq continue`
+
+Run it from anywhere in the repo. It finds the parked lease itself; you do not pass it the slot path.
+
+```bash
+cd /tmp/gitq-conflict
+gitq continue
+```
+
+```
+paused on feat-handlers in /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1 (commit ?/?):
+  UU config.ts
+resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
+```
+
+```bash
+echo $?
+```
+
+```
+2
+```
+
+Which is the next thing to know.
+
+## When the next branch also conflicts
+
+`feat-api` finished. Its ref moved:
+
+```bash
+git log --oneline -1 feat-api
+```
+
+```
+1aa2044 add api handler
+```
+
+Then the walk carried on to `feat-handlers`, which conflicted too, on `config.ts` this time, because trunk and `feat-handlers` both changed the same line. The new pause file:
+
+```json
+{
+  "stackId": "5427e768-53b9-4aae-a7b9-2a006667ae4c",
+  "pauseInfo": {
+    "currentBranch": "feat-handlers",
+    "conflictFiles": [
+      "config.ts"
+    ],
+    "remainingBranches": [],
+    "completedBranches": [],
+    "mergedBranch": null,
+    "newBase": "origin/main",
+    "currentTarget": "feat-api",
+    "phase": "cascade",
+    "conflictTypes": [
+      {
+        "type": "UU",
+        "file": "config.ts"
+      }
+    ],
+    "preRebaseHeads": {
+      "feat-api": "c406749d93502beb6f9e7458e2d8bfc014702e1b",
+      "feat-handlers": "c5af4806b2724618d4efcf8e08cf49899650a867"
+    },
+    "worktreePath": "/Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1"
+  }
+}
+```
+
+Two things to read carefully:
+
+- **`currentTarget` is now `feat-api`, not `newBase`.** A mid-stack branch rebases onto its parent's freshly rewritten head. `newBase` still says `origin/main` because that is the base of the cascade as a whole.
+- **`completedBranches` is empty, even though `feat-api` just completed.** It lists what the *current invocation's* walk finished, and this walk started at `feat-handlers`. `preRebaseHeads` is the field that carries the whole run's history forward; it now holds both branches. Read `preRebaseHeads` when you want to know what a resumed cascade has touched.
+
+There is no limit on how many times one sync can pause. Same loop each time:
+
+```bash
+cd /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1
+cat config.ts
+```
+
+```
+export const config = {
+<<<<<<< HEAD
+  timeout: 5000,
+=======
+  timeout: 2500,
+>>>>>>> c5af480 (add webhooks, raise timeout)
+};
+```
+
+Upstream raised the timeout further than the branch did, so upstream wins:
+
+```bash
+cat > config.ts <<'EOF'
+export const config = {
+  timeout: 5000,
+};
+EOF
+git add config.ts
+git status --porcelain
+```
+
+```
+A  webhooks.ts
+```
+
+`webhooks.ts` staged as added is the rest of the commit being replayed, not something you need to act on. No `UU`, `AA`, `DU`, or `UD` lines is the bar.
+
+## When the same branch conflicts twice {#when-the-same-branch-conflicts-twice}
+
+A branch with several commits can conflict more than once on its own. That is the case where `commit N/M` is filled in, from a different run:
+
+```
+paused on feat-a in /Users/you/.cache/gitq/work/4888e2afaf6d8131/gitq-1 (commit 2/2):
+  UU f.txt
+```
+
+and the pause file gains the two counters:
+
+```json
+    "worktreePath": "/Users/you/.cache/gitq/work/4888e2afaf6d8131/gitq-1",
+    "commitIndex": 2,
+    "commitTotal": 2
+```
+
+They are read out of git's own rebase state, and only on the path where `gitq continue`'s `git rebase --continue` runs into another conflict inside the same branch. A fresh pause on the next branch, like the one above, reads `?/?`.
+
+## The finish
+
+```bash
+cd /tmp/gitq-conflict
+gitq continue
+```
+
+```
+completed: feat-handlers ok
+```
+
+```bash
+echo $?
+```
+
+```
+0
+```
+
+The summary lists what *this* invocation walked, for the same reason `completedBranches` did. `feat-api` was finished by the previous `gitq continue`, which exited `2` and so printed a pause instead of a summary. To see the whole result, look at the repo:
+
+```bash
+git log --oneline --graph --all
+```
+
+```
+* 1129844 add webhooks, raise timeout
+* 1aa2044 add api handler
+* 99095ff add health handler, raise timeout upstream
+* 951afcd initial commit
+```
+
+One straight chain, both branches replayed on the new trunk commit. And your checkout never moved:
+
+```bash
+git status --short --branch
+```
+
+```
+## feat-handlers
+```
+
+The lease is released and the pause file is gone. Running `gitq continue` again says so:
+
+```
+gitq: nothing to continue (no parked cascade)
+```
+
+with exit `1`. If more than one stack in the repo is parked you get `multiple parked cascades; pass --stack to pick one` instead, and `gitq continue --stack <name>` picks.
+
+Under `--json`, a successful finish is this shape (taken from the single branch run in the section above):
+
+```json
+{
+  "state": "completed",
+  "results": [
+    {
+      "branch": "feat-a",
+      "success": true
+    }
+  ],
+  "rebasedBranches": [
+    "feat-a"
+  ]
+}
+```
+
+`rebasedBranches` is the list that needs force pushing. See [Publish to GitLab](/guides/publish-to-gitlab).
+
+## What refuses while you are parked
+
+The thing that blocks you is the **lease** on the work slot, not the pause file. Every command that would mutate the parked stack refuses, from any worktree of the repo:
+
+```bash
+gitq sync --stack demo
+```
+
+```
+gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
+```
+
+```bash
+gitq remove feat-handlers --stack demo
+```
+
+```
+gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
+```
+
+Both exit `1`. Read-only commands are unaffected:
+
+```bash
+gitq stacks
+```
+
+```
+demo (root main): feat-api -> feat-handlers
+```
+
+The guard is per stack, so a second stack in the same repo syncs normally in a different slot. [Work slots and leases](/concepts/work-slots) has the full list of what is blocked and what is exempt.
+
+## Bailing out with `gitq abort`
+
+```bash
+gitq abort
+```
+
+```
+aborted
+```
+
+Exit `0`. It aborts the rebase where it lives, clears the pause file, re-detaches the slot, and releases the lease. Run from anywhere in the repo, like `continue`.
+
+What it does **not** do is rewind the branches this cascade already finished. Aborting the `feat-handlers` pause above would leave `feat-api` rebased, because that ref was already moved. A paused cascade is never written to the operation log either, so `gitq undo` has nothing to give back. To get all the way back you re-run the cascade or move the finished refs by hand.
+
+Abort when the resolution needs a decision you are not ready to make. Nothing is lost by aborting and syncing again later; the same conflict will be waiting.
+
+## What not to do {#what-not-to-do}
+
+:::danger Do not run `git rebase --continue` yourself
+
+gitq expects to drive the rest of the walk. Finishing the rebase by hand takes the slot out from under it, and the run below is what that looks like.
+
+:::
+
+The rebase in the slot is **detached**, so a hand-run `git rebase --continue` commits the resolution to a detached HEAD and stops there:
+
+```bash
+git -C /Users/you/.cache/gitq/work/fda34a04a60d2d52/gitq-1 rebase --continue
+```
+
+```
+[detached HEAD 6b4dd96] api sets alpha
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+Successfully rebased and updated detached HEAD.
+```
+
+"Successfully rebased" is true and beside the point. The branch ref never moved:
+
+```bash
+git log --oneline -1 feat-api
+```
+
+```
+04f74e1 api sets alpha
+```
+
+The pause file and the parked lease are both still there, so the stack is still locked. And `gitq continue` can no longer do its job, because the rebase it wanted to continue is over:
+
+```bash
+gitq continue
+```
+
+```
+completed: feat-api FAILED (rebase --continue failed)
+```
+
+Exit `1`. That call does release the lease and clear the pause, so the stack is usable again, but nothing was rebased: `feat-api` is still at `04f74e1`, the branches in `remainingBranches` were never attempted, and your resolution is stranded as an unreferenced commit in the slot. `gitq abort` afterwards just says `nothing to continue (no parked cascade)`.
+
+The recovery is to run `gitq sync` again and resolve the same conflict, this time ending with `gitq continue`. The same rule covers `git rebase --abort` and `git rebase --skip`: while gitq owns the cascade, the only two commands that end it are `gitq continue` and `gitq abort`.
+
+## Next
+
+- [The pause protocol](/concepts/pause-protocol): the contract, field by field.
+- [The cascade](/concepts/cascade): what the walk does between pauses.
+- [Recover](/guides/recover): when the lease and the pause file disagree, and other ways a repo gets stuck.
+- [`gitq continue`](/reference/cascade/continue), [`gitq abort`](/reference/cascade/abort), [`gitq sync`](/reference/cascade/sync).
