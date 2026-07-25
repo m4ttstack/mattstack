@@ -56,13 +56,25 @@ Other:
 
 ## the conflict protocol
 
-`gitq sync` (and `gitq reparent`, when its cascade hits a conflict) rebases branches one at a time. When a rebase step conflicts, gitq leaves git in a normal mid rebase state (same as running `git rebase` by hand would) and writes `<gitdir>/gitq-pause.json` recording which branch and commit it stopped on. The command exits `2`, not `1`, so a caller can tell "we paused on purpose" apart from a real failure.
+`gitq sync` (and `gitq reparent`, when its cascade hits a conflict) rebases branches one at a time. When a rebase step conflicts, gitq leaves git in a normal mid rebase state (same as running `git rebase` by hand would), in the leased work worktree rather than your checkout, and writes `<gitdir>/gitq-pause.json` recording which branch and commit it stopped on. The command exits `2`, not `1`, so a caller can tell "we paused on purpose" apart from a real failure.
 
 To get unstuck: resolve the conflict with raw git (edit files, `git add`), then run `gitq continue`. It picks up the rebase from where it paused and keeps walking the rest of the stack; it can exit `2` again immediately if the next branch also conflicts, same protocol. If you'd rather bail out, `gitq abort` aborts the rebase in progress and clears the pause file.
 
 In the paused JSON (`--json`), `pauseInfo.conflictFiles` is always present (the list of conflicted file paths), while `pauseInfo.conflictTypes` is added when git can classify them, pairing each file with its two-letter porcelain status code (e.g. `UU` both modified, `AA` both added, `UD` modified/deleted). Read `conflictFiles` for the plain list; read `conflictTypes` when you want the codes.
 
 Every state-mutating command (`add`, `remove`, `untrack`, the surgery commands, `publish`, `import`, `undo`, and starting a fresh `sync`) refuses while a pause file is present for the repo; finish or abort the paused cascade first. The read-only commands and `continue`/`abort` are exempt.
+
+## worktrees
+
+gitq is worktree-native. The stack store is keyed by the repo's git common dir, so every worktree of a repo sees the same stacks and any `gitq` command works from any of them.
+
+Cascades (`sync`, `continue`, `reparent`'s restack, `absorb`'s restack) never run in your checkout: gitq leases a dedicated work worktree (`gitq-1`, `gitq-2`, ... as siblings of the primary worktree when the repo is a pool, else under `~/.cache/gitq/work/`), rebases there with a detached HEAD, and moves branch refs with compare-and-swap at the end. Up to `maxWorkSlots` (settings.json, default 3) cascades can run per repo at once, one stack each; a stack with a running or parked cascade refuses other mutations until it finishes.
+
+A branch checked out in one of your worktrees is handled by policy: if that worktree is clean and sitting exactly on the branch's old head, gitq moves the ref and resets the worktree to the new head (lossless); if it is dirty, mid-rebase, or drifted, that branch fails with a message naming the worktree, and nothing is touched.
+
+Conflict pauses live in the work slot: the paused JSON's `pauseInfo.worktreePath` says where to resolve, and `gitq continue` / `gitq abort` find the parked cascade from anywhere (pass `--stack` when more than one is parked). `gitq stacks`/`gitq diagnose` report the worktree map (`worktrees`, per-branch `checkedOutIn`) and `gitq preflight` predicts slot conflicts (`slotConflicts`) before you sync.
+
+Stores created by older gitq versions (keyed by a single worktree's path) migrate automatically the first time you run gitq from that worktree.
 
 ## errors
 
@@ -75,7 +87,8 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 ## where state lives
 
 - `~/.config/gitq/`: stack stores (one JSON file per repo, keyed by a hash of the repo path, under `stacks/`), plus `settings.json`, `repos.json`, and the global `operation-log.json`. Override the base directory with `GITQ_CONFIG_DIR`.
-- `<gitdir>/gitq-pause.json`: present only while a cascade is paused on a conflict, per repo (worktree safe, since it's keyed off the git dir, not the worktree root).
+- `<commonDir>/gitq/leases.json`: per-repo work-slot lease registry, tracking which stack holds which work slot.
+- `<gitdir>/gitq-pause.json`: present only while a cascade is paused on a conflict, per repo (worktree safe, since it's keyed off the git dir, not the worktree root). During a cascade this lives in the work slot's git dir, not your checkout's.
 
 ## GitLab token
 
