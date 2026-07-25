@@ -1,0 +1,263 @@
+---
+title: Work in a worktree pool
+sidebar_position: 4
+---
+
+# Work in a worktree pool
+
+Some setups do not have one checkout of a repo. They have a parent directory full of them: a primary worktree plus a dozen or more siblings, one per branch someone is actively looking at, all sharing the same `.git`. This page is for that setup: what gitq does differently when it detects a pool, and what changes when a stack's branches are spread across several worktrees instead of living only in the one you happen to be sitting in.
+
+Everything here builds on [Work slots and leases](/concepts/work-slots) and [Where state lives](/concepts/state). This page is the worked version; those are the reference.
+
+Every block below came from a real run, with `/Users/you/repos/myrepo` standing in for the pool's parent directory.
+
+## One store, every worktree
+
+gitq keys its stack store by the repo's *identity*, not by the directory you happened to run it from: the real path of the shared `.git` (the common dir), hashed. Every worktree of a repo (the primary checkout, every sibling, every work slot) resolves to that same common dir, so they all read and write the same `stacks/<hash>.json`. Run `gitq stacks` from any worktree in the pool and you see the same tracked stacks; run `gitq add` from one and it's visible from all the others immediately, no syncing step involved. See [Where state lives](/concepts/state#the-config-directory) for the mechanism.
+
+The same identity keying is why leases and the operation log are pool-wide too: `<commonDir>/gitq/leases.json` is one file for the whole pool, and `gitq log` / `gitq undo` see every operation run from any worktree of the repo.
+
+## Where slots get created
+
+[Work slots](/concepts/work-slots#what-a-slot-is) are gitq's own scratch worktrees, named `gitq-1`, `gitq-2`, and so on, where cascades rebase detached. Where a new one is created depends on whether gitq recognizes the repo as a pool:
+
+| Repo shape | Slot location |
+| --- | --- |
+| **Pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, as another sibling: `~/repos/myrepo/gitq-1`. |
+| **Anything else**, including a plain single-worktree clone | Out of tree, at `~/.cache/gitq/work/<hash>/gitq-1`. |
+
+Set up a pool by adding a sibling the ordinary way, with `git worktree add`, from any existing worktree:
+
+```bash
+cd /Users/you/repos/myrepo/main
+git worktree add /Users/you/repos/myrepo/feat-api-review feat-api
+```
+
+```
+Preparing worktree (checking out 'feat-api')
+HEAD is now at eb635d1 add api module
+```
+
+The first cascade that needs a slot after that notices the sibling and creates its slot next to it instead of in the cache directory:
+
+```bash
+gitq sync --stack demo
+```
+
+```
+completed: feat-api ok, feat-ui ok
+```
+
+```bash
+gitq stacks --json
+```
+
+```json
+{
+  "worktrees": [
+    { "path": "/Users/you/repos/myrepo/main", "name": "main", "branch": "main", "dirty": false, "isWorkSlot": false, "lease": null },
+    { "path": "/Users/you/repos/myrepo/feat-api-review", "name": "feat-api-review", "branch": "feat-api", "dirty": false, "isWorkSlot": false, "lease": null },
+    { "path": "/Users/you/repos/myrepo/gitq-1", "name": "gitq-1", "branch": null, "dirty": false, "isWorkSlot": true, "lease": null }
+  ]
+}
+```
+
+`gitq-1` is a sibling of `main` and `feat-api-review`, not a subdirectory of either. It is created once and reused by every cascade after that, in this worktree or any other; see [Work slots and leases](/concepts/work-slots#seeing-all-of-it) for the full field list gitq reports per worktree.
+
+:::note The `-C` flag works from anywhere
+
+`gitq -C <path> <command>` runs a command against a specific worktree without `cd`-ing into it first, useful when you are driving several worktrees of a pool from one shell.
+
+:::
+
+## A cascade from one worktree while another holds a branch
+
+This is the situation a pool creates that a single checkout never can: `gitq sync` runs detached in a work slot, but the branch it finishes rebasing might be checked out in a sibling worktree at that moment. [The checked-out branch policy](/concepts/work-slots#the-checked-out-branch-policy) covers the rule; here is what each side looks like in practice.
+
+`feat-api` is checked out, clean, in `feat-api-review`. Trunk moves, and `demo` (`feat-api` → `feat-ui`) is synced from the primary worktree, `main`:
+
+```bash
+cd /Users/you/repos/myrepo/main
+gitq diagnose
+```
+
+```
+demo:
+  feat-api: behind-parent [in feat-api-review]
+  feat-ui: local-only
+```
+
+`diagnose` names the sibling directly on the branch's line. Then the sync:
+
+```bash
+gitq sync --stack demo
+```
+
+```
+completed: feat-api ok, feat-ui ok
+```
+
+### Clean: auto-fixed
+
+`feat-api-review` was clean and sitting exactly on `feat-api`'s pre-sync head, so gitq resets it for you as part of finishing:
+
+```bash
+git -C /Users/you/repos/myrepo/feat-api-review status --short --branch
+```
+
+```
+## feat-api
+```
+
+```bash
+git -C /Users/you/repos/myrepo/feat-api-review log --oneline -1
+```
+
+```
+7e25765 add api module
+```
+
+Still on `feat-api`, still clean, now sitting on the rebased commit. Nobody had to go visit that worktree.
+
+### Dirty: refused by name
+
+Move trunk again and dirty `feat-api-review` first:
+
+```bash
+echo 'dirty edit' >> /Users/you/repos/myrepo/feat-api-review/api.ts
+gitq sync --stack demo --json
+```
+
+```json
+{
+  "state": "completed",
+  "results": [
+    {
+      "branch": "feat-api",
+      "success": false,
+      "error": "branch is checked out in slot \"feat-api-review\" (/Users/you/repos/myrepo/feat-api-review) which is dirty; commit or stash there, or free the slot, then retry"
+    }
+  ],
+  "rebasedBranches": []
+}
+```
+
+```
+completed: feat-api FAILED (branch is checked out in slot "feat-api-review" (/Users/you/repos/myrepo/feat-api-review) which is dirty; commit or stash there, or free the slot, then retry)
+```
+
+Exit `1`, not `2`: this is not a rebase conflict, it is the finalize step refusing to move a ref out from under a dirty worktree, so there is nothing to `continue`. The rebase itself succeeded in the slot; only the final move was refused, and the discarded detached result is harmless.
+
+`feat-ui` is not attempted either. The cascade walks branches in order and stops at the first one whose ref it cannot move, exactly the way it stops on a conflict, so a descendant of a refused branch is left exactly where it was:
+
+```bash
+gitq diagnose
+```
+
+```
+demo:
+  feat-api: behind-parent [in feat-api-review]
+  feat-ui: local-only
+```
+
+The fix is the one the message names: go to `feat-api-review`, commit or stash, then retry from wherever is convenient:
+
+```bash
+git -C /Users/you/repos/myrepo/feat-api-review checkout -- api.ts
+gitq sync --stack demo
+```
+
+```
+completed: feat-api ok, feat-ui ok
+```
+
+## `continue` and `abort` from anywhere
+
+A paused cascade lives in a work slot, which is addressed by the lease, not by whatever worktree you happened to `cd` into. `gitq continue` and `gitq abort` both resolve the parked lease from scratch on every invocation, so they work from any worktree of the pool, including a sibling that has nothing to do with the stack that paused:
+
+```bash
+cd /Users/you/repos/myrepo/main
+gitq sync --stack demo
+```
+
+```
+paused on feat-api in /Users/you/repos/myrepo/gitq-1 (commit ?/?):
+  UU README.md
+resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
+```
+
+Resolve in the named slot, then finish from `feat-api-review` instead of `main`:
+
+```bash
+cd /Users/you/repos/myrepo/feat-api-review
+gitq continue
+```
+
+```
+completed: feat-api ok, feat-ui ok
+```
+
+That worked because `feat-api-review` is still a worktree of the same repo: same common dir, same lease registry. It is not tied to being the worktree that launched the sync.
+
+### More than one stack parked
+
+A pool with several tracked stacks can have several cascades parked at once, each in its own slot. Plain `gitq continue` only works when exactly one lease is parked for the repo:
+
+```bash
+gitq sync --stack demo    # pauses in gitq-1
+gitq sync --stack docs    # pauses separately in gitq-2
+gitq continue
+```
+
+```
+gitq: multiple parked cascades; pass --stack to pick one
+```
+
+Exit `1`. Name the one you mean:
+
+```bash
+gitq continue --stack docs
+```
+
+```
+completed: feat-docs ok
+```
+
+With only one parked cascade left, plain `gitq continue` resolves it without needing `--stack`:
+
+```bash
+gitq continue
+```
+
+```
+completed: feat-api ok, feat-ui ok
+```
+
+`gitq abort --stack <name>` takes the same flag, for the same reason.
+
+## What the read commands say about worktrees
+
+Three commands carry worktree state in their `--json`, all through the same `worktrees` array (`path`, `name`, `branch`, `dirty`, `isWorkSlot`, `lease`):
+
+- **`gitq stacks --json`** and **`gitq diagnose --json`** both include it verbatim, for whatever you want to cross-reference against the stack data in the same document.
+- **`gitq diagnose`**, human-readable, appends `[in <worktree>]` to a branch's line when a non-work-slot worktree has it checked out. That worktree does not have to be a sibling: if you run `diagnose` from the very worktree holding the branch, it still names your own checkout, not just someone else's.
+- **`gitq preflight --json`** adds a `slotConflicts` array per stack: `{ branch, slot, dirty }` for every branch of that stack checked out in a non-work-slot worktree, whether or not that worktree is dirty. The human form prints it as a `slot conflicts:` section:
+
+  ```bash
+  gitq preflight
+  ```
+
+  ```
+  demo: dirty=false
+    no predicted conflicts
+  slot conflicts:
+    feat-api: feat-api-review
+  ```
+
+  A slot conflict by itself is not a problem: this example is a clean sibling that would auto-reset fine. It is information, the same way `preflight`'s conflict prediction is: read it before a sync so a dirty sibling refusal is not a surprise, not because every entry needs action. See [Reading the tree](/getting-started/reading-the-tree).
+
+## Next
+
+- [Work slots and leases](/concepts/work-slots): the mechanism this page walks through.
+- [The pause protocol](/concepts/pause-protocol) and [Resolve a conflict](/guides/resolve-a-conflict): the conflict loop itself, worktree pool or not.
+- [Recover](/guides/recover): what to do when a lease or a slot gets stuck.

@@ -1,0 +1,46 @@
+---
+title: gitq rename
+sidebar_label: rename
+---
+
+# gitq rename
+
+Renames a branch, in git and in the stack tree, in one step.
+
+## Usage
+
+```bash
+gitq rename <old> <new> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack `<old>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Guarded by the stack lease. Rewrites the branch directly in the worktree you ran it from, so it refuses up front if `<old>` is checked out anywhere else, dirty or not: `branch "<old>" is checked out in slot "<slot>" (<path>); run this from that worktree or free the branch first` (`refuseIfCheckedOutElsewhere`, `src/cli/commands/surgery.ts:30-38,221-223`).
+
+Runs `git branch -m <old> <new>` (`src/core/git-shell.ts:489-491`), then renames the node in the stack tree, keeping its parent and its children (`renameBranch`, `src/core/branch-rename.ts:17-26`; `StackManager.renameBranch`, `src/core/stack-manager.ts:181-198`). No commits move and nothing is rebased.
+
+- Refuses if `<old>` isn't a node in the stack (`Branch "<old>" not found in stack "<id>"`), or `<new>` already is (`Branch "<new>" already exists in stack "<id>"`).
+- The git rename happens first: if it fails (`<new>` already exists as a git branch), the stack tree is left untouched.
+- Renaming a published branch does not rename it on GitLab. The old name stays on the remote, and the MR is still attached to it.
+
+Recorded to the operation log under `rename`, but **not reversible**: `rename` is not one of the four types in `REVERSIBLE_OPERATIONS`, so `gitq undo` afterward refuses with `cannot undo "rename" (not reversible)` (`src/core/undo.ts:16-21`).
+
+## Exit codes
+
+- `0`: renamed.
+- `1`: `<old>` checked out elsewhere, `<old>` not found, `<new>` already exists (in git or in the stack), or a lease held.
+
+Never exits `2`. See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Restructure a stack](/guides/restructure-a-stack#rename): a real rename, and the refusal.
+- [`gitq reset`](/reference/surgery/reset): refuses on the same checked-out-elsewhere rule.
+- [Publish to GitLab](/guides/publish-to-gitlab): why a rename doesn't follow to the remote.
+- [`gitq undo`](/reference/other/undo): why a rename cannot be reversed by it.

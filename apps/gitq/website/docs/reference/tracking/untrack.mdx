@@ -1,0 +1,36 @@
+---
+title: gitq untrack
+sidebar_label: untrack
+---
+
+# gitq untrack
+
+Stops tracking a stack, without touching any branch.
+
+## Usage
+
+```bash
+gitq untrack <stackName>
+```
+
+## Behavior
+
+Removes the named stack from the store entirely (`src/cli/commands/crud.ts:36-52`). The branches it referenced, and their commits, are untouched; gitq simply forgets the shape.
+
+- Refuses with usage help if `<stackName>` is missing.
+- Refuses if no stack by that name is tracked: `gitq: no stack named <name> (have: ...)`.
+- Guarded by the stack lease (`requireStackFree`, `src/cli/slots.ts:19-27`): refuses if the stack has a running or parked cascade, naming the lease and pointing at `gitq continue` or `gitq abort`. This is the **lease**, not the pause file; see [The pause protocol](/concepts/pause-protocol#what-refuses-while-a-cascade-is-paused).
+- Prints `untracked <stackName>` on success. Under `--json`, emits `{ removed: stackName }`. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: the stack was untracked.
+- `1`: missing `<stackName>`, no stack by that name, or the stack has a running or parked lease.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Your first stack](/getting-started/first-stack): `untrack` used to clean up a scratch stack.
+- [The stack tree](/concepts/stack-tree), [Work slots and leases](/concepts/work-slots): what the lease guard actually checks.
+- [`gitq track`](/reference/tracking/track).

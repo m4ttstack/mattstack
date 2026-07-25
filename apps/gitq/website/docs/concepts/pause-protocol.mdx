@@ -1,0 +1,111 @@
+---
+title: The pause protocol
+sidebar_position: 4
+---
+
+# The pause protocol
+
+A rebase conflict is not a failure. It is a question gitq cannot answer, so it stops, writes down exactly where it stopped, and hands the repo back to you in a state plain git understands. The pause protocol is the contract around that stop: an exit code, a file, and two commands that end it.
+
+## Exit `2` means "stopped on purpose"
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Done. The command ran to completion and everything it attempted succeeded. |
+| `1` | Failed. Either a hard refusal (bad usage, no such stack, a lease held, a dirty checkout in the way) or a command that ran to completion with at least one failed per-branch result. |
+| `2` | Paused. A cascade hit a conflict, left a mid-rebase state, and is waiting for you. |
+
+The distinction is the whole point. A script, a CI job, or an agent driving gitq needs to tell "this needs a human" apart from "this is broken", and the exit code is the only signal that is reliable without parsing anything.
+
+Hard refusals write `gitq: <message>` to stderr as plain text and print nothing on stdout, even under `--json`. Do not try to parse stderr as JSON. [Exit codes](/reference/exit-codes) has the full contract, including the cases where a command exits `1` after emitting perfectly good JSON.
+
+## The pause file
+
+When a cascade pauses it writes `gitq-pause.json` into a git dir, and it writes it *before* saving the store, so a crash between the two writes can never leave a rebase in progress with no record of it.
+
+**The git dir is the leased work slot's**, not your checkout's: `<commonDir>/worktrees/gitq-1/gitq-pause.json` for a cascade running in `gitq-1`. Since the rebase itself runs in the slot, the pause file lives with it, and your own worktrees stay clean of gitq bookkeeping.
+
+The file holds the stack id and one `pauseInfo` object:
+
+| Field | What it holds |
+| --- | --- |
+| `currentBranch` | The branch the rebase stopped on. |
+| `conflictFiles` | The conflicted paths, as plain strings. Always present. |
+| `conflictTypes` | The same files paired with a two-letter porcelain status code (`UU` both modified, `AA` both added, `UD` modified then deleted, `DU` deleted then modified, `AU` added by us). Present when git could classify them. Read `conflictFiles` for the list, `conflictTypes` when you want the codes. |
+| `completedBranches` | Branches *this invocation's* walk has already rebased successfully. It is not the whole cascade's history: a `gitq continue` that resolves cleanly starts a fresh walk over the remaining branches, so this list is usually empty right after a resume even if earlier branches finished in a prior invocation. But if `git rebase --continue` itself re-conflicts, no new walk starts, and gitq returns the prior pause's `completedBranches` unchanged instead of resetting it. Read `preRebaseHeads` for the whole run's history. |
+| `remainingBranches` | Branches not yet attempted, in walk order. |
+| `newBase` | The base the cascade is working toward. For `sync`, `origin/<root>`. |
+| `currentTarget` | The actual `--onto` target of the branch that paused, which is not always `newBase`: mid-stack branches target their parent, and a reconciling branch targets its merged parent's tombstone. |
+| `mergedBranch` | Set for a cascade driven by a merged parent's tombstone; `null` for a plain `sync`. |
+| `phase` | `cascade` for the normal replay, `reconcile` when the branch is being brought into line with a merged parent before the cascade proper. See [The cascade](/concepts/cascade). |
+| `preRebaseHeads` | Each already-processed branch's head as it was *before* this cascade rewrote it. This is what lets a resumed cascade compute a child's true fork point instead of re-deriving it from rewritten history. |
+| `worktreePath` | Set when the paused rebase is detached in a leased work slot. This is the normal case, and it is the field that tells `gitq continue` to finish by moving the branch ref with a compare and swap. |
+| `treePath` | Set instead when the paused rebase is anchored in the tree the command was launched from, where the branch ref has already moved and no compare and swap is owed. Kept distinct from `worktreePath` precisely so the finalisation does not fire for it. |
+| `commitIndex`, `commitTotal` | Position in the rebase, read from git's own rebase state. Filled in when you `gitq continue` into another conflict, which is what makes the message read `commit 3/5`. |
+
+gitq reads `worktreePath` first and falls back to `treePath` when deciding where to continue or abort, so both `gitq continue` and `gitq abort` work from any worktree of the repo regardless of where you invoked them.
+
+The human message names the same place:
+
+```
+paused on feat-handlers in /Users/you/.cache/gitq/work/ab12.../gitq-1 (commit ?/?):
+  UU handlers.ts
+resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
+```
+
+See [Pause file](/reference/pause-file) for the serialized shape and [JSON output](/reference/json-output) for how the same object appears under `--json`.
+
+## What refuses while a cascade is paused
+
+Not the pause file. The **lease**.
+
+A cascade that exits `2` leaves its lease on the work slot in the `parked` state, and every command that would mutate that stack refuses against the lease, from any worktree of the repo:
+
+```
+gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ab12.../gitq-1;
+finish it first: gitq continue (or gitq abort)
+```
+
+| Refuses | Exempt |
+| --- | --- |
+| `untrack`, `add`, `remove` | `stacks`, `diagnose`, `preflight`, `log` |
+| `sync` (a fresh one) | `continue`, `abort` |
+| `absorb`, `split`, `fold`, `reparent`, `rename`, `reset` | `track` (there is no stack to hold a lease yet) |
+| `publish`, `undo` | `absorb --preview`, which mutates nothing |
+| `import`, which refuses if *any* lease exists in the repo, since it replaces the whole store | |
+
+The guard is per stack. A second stack in the same repo with no lease of its own is untouched by a pause elsewhere and can be synced normally, in a different slot. See [Work slots and leases](/concepts/work-slots).
+
+## The resolve loop
+
+1. **Go to the worktree the pause names.** Not your checkout. The message and `pauseInfo.worktreePath` both give you the path. What you find there is an ordinary mid-rebase state; `git status` reads exactly as it would after any hand-run `git rebase`.
+2. **Resolve with plain git.** Edit the conflicted files, keep what belongs, and `git add` each one. gitq does not stage for you and has no opinion about the resolution.
+3. **Run `gitq continue`.** From anywhere in the repo. It finds the parked lease, reads the pause file out of that slot, runs `git rebase --continue` there, moves the branch ref with a compare and swap, and keeps walking the branches in `remainingBranches`.
+4. **It may pause again.** The next branch can conflict just as easily, in which case you get exit `2` and a fresh pause file, with `commitIndex`/`commitTotal` now filled in. Same loop. There is no limit on how many times a single sync can pause.
+
+When the walk finishes, the lease is released, the pause file is cleared, and you get the ordinary `completed: ...` line and exit `0`.
+
+Two things `gitq continue` will tell you instead of continuing:
+
+- `nothing to continue (no parked cascade)`, when there is no lease to resume.
+- `multiple parked cascades; pass --stack to pick one`, when more than one stack in the repo is parked. `gitq continue --stack <name>` picks.
+
+If you run it with conflicts still unstaged, git refuses the `--continue` and gitq simply re-pauses with a refreshed conflict list rather than declaring failure.
+
+## Bailing out
+
+`gitq abort` aborts the in-progress rebase where it lives, clears the pause file, re-detaches the work slot, releases the lease, prints `aborted`, and exits `0`.
+
+Understand what it does and does not undo:
+
+- It aborts **the rebase that was in progress**. The branch that conflicted goes back to where it was.
+- It does **not** rewind the branches the cascade already finished. Those refs were moved and stay moved, whether or not `pauseInfo.completedBranches` still shows them: that field only covers the current invocation's walk. It is usually empty again after a `gitq continue` that resumes into a fresh walk, but a `continue` that itself re-conflicts carries the prior pause's list forward unchanged, so `preRebaseHeads` is the field with the whole run's history.
+- A paused cascade is never written to the operation log, so `gitq undo` has nothing to restore for a run you aborted part way through. To get back to the original bases you would re-run the cascade, or move the finished branches by hand.
+
+If you get `lease found but no pause file in <slot>`, the two halves of the protocol have come apart; `gitq abort` is the documented way to clear it. [Recover](/guides/recover) covers the rest of the ways a repo can end up inconsistent.
+
+## Next
+
+- [Resolve a conflict](/guides/resolve-a-conflict): the full walkthrough, with real output.
+- [Exit codes](/reference/exit-codes): every code every command can return.
+- [`gitq continue`](/reference/cascade/continue) and [`gitq abort`](/reference/cascade/abort): the command reference.

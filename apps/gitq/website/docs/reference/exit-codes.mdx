@@ -1,0 +1,94 @@
+---
+title: Exit codes and errors
+sidebar_position: 2
+---
+
+# Exit codes and errors
+
+gitq uses exactly three exit codes, and the code is the only signal a script or an agent driving gitq should rely on. Branch on the exit code, not on human text, and read the JSON's own fields for anything more granular than "did this work".
+
+## The three codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Done. The command ran to completion and everything it attempted succeeded. |
+| `1` | Failed. Either a hard refusal before anything ran, or a command that ran to completion with at least one failed per item result. Both shapes are below; the exit code alone does not tell them apart. |
+| `2` | Paused. A cascade hit a conflict, left git mid rebase, and is waiting for you to resolve it. |
+
+Exit `2` has exactly one source in the whole codebase: `finishCascade` (`src/cli/commands/cascade.ts:45`) returns it, and only when a `CascadeResult`'s `state` is `'paused'`. `sync`, `continue`, and `reparent`'s follow up cascade all route through `finishCascade`, so those three are the only commands that can ever exit `2`. No other command pauses. See [The pause protocol](/concepts/pause-protocol) for the full mechanics and [Pause file](/reference/pause-file) for what gets written when it happens.
+
+## Hard failures: `gitq: <message>` on stderr, nothing on stdout
+
+A hard failure prints `gitq: <message>` to stderr and returns `1`. That single line is `fail()` (`src/cli/output.ts:9-12`), the one function every hard refusal in gitq goes through. `main.ts` also wraps the whole command dispatch in a `try`/`catch` and routes any thrown error through the same `fail()` (`src/cli/main.ts:74-79`), so an unexpected exception looks exactly like a deliberate refusal from the outside.
+
+Real capture, a duplicate `track`:
+
+```
+$ gitq track demo --root main
+gitq: stack demo already exists
+```
+
+Under `--json` the shape is identical, verified directly: the message still goes to stderr as plain text, and stdout is empty rather than an empty JSON object or an error object.
+
+```
+$ gitq track demo --root main --json
+# stdout: (nothing)
+# stderr: gitq: stack demo already exists
+```
+
+Do not try to parse stderr as JSON, and do not expect anything on stdout to fall back on.
+
+Hard failures cover, among others:
+
+- Bad usage: no command given (`gitq: usage: gitq <command> [args] [--json] [-C <path>]. commands: ...`), an unknown command (`gitq: unknown command: bogus-command`), or a command's own required argument check.
+- No such stack, or `--stack` required with more than one tracked stack: `gitq: --stack required (have: demo, second)`, a real capture from a two stack repo.
+- Duplicate names: `gitq: stack demo already exists` (`track`), `gitq: Branch "featx" already exists in stack "<id>"` (`add`).
+- A lease held on the stack, from `requireStackFree` (`src/cli/slots.ts:19-27`): `stack has a running/parked <action> lease on <path>; finish it first: gitq continue (or gitq abort)`.
+- A local pause file already present, checked only by `undo` (`requireNoPause`, `src/cli/pause-file.ts:40-45`).
+- A missing GitLab token, for `publish`/`import` (`src/cli/provider.ts`).
+- Refusing to overwrite a non-empty local store on `import` without `--replace`.
+- Nothing to resume: `continue` and `abort` both resolve through `findParkedLease` (`src/cli/slots.ts:99-110`) and print the identical `gitq: nothing to continue (no parked cascade)` when nothing is parked, even when the command you ran was `abort`. Verified by running `abort` with nothing parked.
+
+## The second shape of exit `1`: completed, but a per item result failed
+
+Some commands can run all the way to completion and still exit `1`, because the command as a whole neither refused nor paused, while one of the individual things it attempted did fail. From the exit code alone you cannot tell this apart from a hard refusal; you have to read the JSON.
+
+| Command | Where the exit code is decided | Per item field to read |
+| --- | --- | --- |
+| `sync`, `continue` | `finishCascade`, `src/cli/commands/cascade.ts:58`: `result.results.every((r) => r.success) ? 0 : 1` | `results[].success`, each a `{ branch, success, error? }` |
+| `reparent` | `src/cli/commands/surgery.ts:207`: `cascadeResults.every((r) => r.success) ? 0 : 1`, over the descendant cascade's own results | `result.cascadeResult.results[].success`, the same shape |
+| `absorb` | `src/cli/commands/surgery.ts:94-102`: exits `1` when `result.attributions.some((a) => !a.success)` | `result.attributions[].success`, each a `{ branch, files, success, error? }` |
+| `publish` | `src/cli/commands/forge.ts:87-92`: `result.results.every((r) => r.success)` | `results[].success`, each a `{ branch, success, mrIid?, mrUrl?, error? }` |
+
+`reparent` follows this same pattern in source even though it is easy to miss: its own `--onto` rebase is a hard refusal if it fails (nothing moves), but the descendant cascade that follows a successful reparent reports per branch results exactly like `sync`, and a completed cascade with one failed branch there exits `1` too.
+
+`absorb` has a second, different way to reach exit `1`. If the restack it runs after committing conflicts, absorb has no pause protocol of its own, unlike `sync` and `reparent`, so it aborts the in progress rebase and returns a **hard failure** instead of pausing, pointing you at `gitq sync`:
+
+```
+gitq: absorb restack conflicted on <branch>; aborted the rebase (branch edits kept). run gitq sync to restack with full conflict handling
+```
+
+That path is the first shape above (stderr, nothing on stdout), not the per item shape; only a failed *attribution*, not a conflicting restack, produces `absorb`'s per item exit `1`.
+
+## `undo`'s shape is different again
+
+`undo` reports one top level `success`, not a per item list: `{ success, restoredBranches, restoredStack, skippedBranches, error? }`. Real capture:
+
+```json
+{
+  "success": true,
+  "restoredBranches": ["main", "feat-api", "feat-handlers"],
+  "restoredStack": { "id": "93507bc7-...", "stackName": "demo", "root": "main", "nodes": [ "..." ] },
+  "skippedBranches": []
+}
+```
+
+`skippedBranches` lists snapshotted branches whose git ref no longer exists (deleted since the operation being undone ran); those are dropped from `restoredStack` instead of being reset, but this alone does not fail the command, `success` stays `true`.
+
+`undo` exits `1` only when `success` is `false`, and inside the core `undo()` function that happens in exactly one place: `entry.branchSnapshots` is empty, so there is nothing to restore at all (`src/core/undo.ts:47-55`, `error: 'No branch snapshots to restore'`). Every other way `gitq undo` can fail, nothing to undo for this repo, the operation is not reversible, a lease is held, a local pause file is present, is a hard refusal, the first shape above, not this one.
+
+## Next
+
+- [The pause protocol](/concepts/pause-protocol): what exit `2` means in practice and how to clear it.
+- [JSON output](/reference/json-output): every field, for every command, in one place.
+- [Pause file](/reference/pause-file): the file a paused cascade writes.

@@ -1,0 +1,47 @@
+---
+title: gitq undo
+sidebar_label: undo
+---
+
+# gitq undo
+
+Reverses the most recent reversible operation logged for this repo.
+
+## Usage
+
+```bash
+gitq undo
+```
+
+`undo` takes no `--stack`: it resolves the most recent operation for the repo regardless of which stack it touched (see [Global flags](/reference/global-flags#the---stack-rule)).
+
+## Behavior
+
+- **Checks for a local pause file first**, directly in the git dir you ran `undo` from (`requireNoPause`, `src/cli/pause-file.ts:40-45`). This legacy guard is kept for exactly one caller, `undo`, since it doesn't yet know which stack it's dealing with until it reads the log entry; a detached cascade paused in a work slot elsewhere in the repo is invisible to this check. `undo` relies on the stack lease guard below for that case, once it knows the stack.
+- **Takes the most recent operation-log entry belonging to this repo** (matched by `commonDir`), not one you name and not filtered by branch or stack, "the last thing that happened here" (`src/cli/commands/undo.ts:38-40`). Refuses `nothing to undo (no operations for this repo)` if there is none.
+- **Only four operation types are reversible**: `sync`, `cascade-rebase`, `reparent`, and `absorb` (`REVERSIBLE_OPERATIONS`, `src/core/undo.ts:16-21`). `split`, `fold`, `rename`, `toggle-unmanaged`, and `retarget` are all valid `OperationType` values that do get logged, but none is in that set, so `undo` refuses each with `cannot undo "<operation>" (not reversible)`, even though `gitq log` shows the entry.
+- **Then, and only then**, guarded by the stack lease for the entry's own stack (`requireStackFree`, `src/cli/commands/undo.ts:44-45`). This is what catches a cascade paused in a work slot elsewhere in the repo, since the local pause check above can't see it.
+- **Restores** every branch in the entry's `branchSnapshots`, the whole stack's heads as they were captured before the operation ran, resetting each one in turn and returning to whichever branch you started `undo` from afterward (`src/core/undo.ts:57-81`).
+
+### `skippedBranches`
+
+A snapshotted branch can stop existing between the operation running and the undo (deleted by hand, or by a script). `undo` does not fail for that: it restores everything it still can, and reports the rest separately, in the emitted JSON's `skippedBranches` and folded into the human line as `dropped from stack (branch no longer exists): <branches>` (`src/cli/commands/undo.ts:55-70`, re-derived by checking `GitShell.branchExists` for every snapshotted branch `undo()` itself didn't confirm restored). Those branches' nodes are dropped from the restored stack tree, their children reparented to the dropped node's parent, rather than left pointing at a branch that no longer exists (`dropMissingNodes`, `src/cli/commands/undo.ts:18-30`).
+
+**Exit `0` on a partial restore.** `success` describes whether the restore mechanism itself worked, not whether every branch came back; a run with a non-empty `skippedBranches` still exits `0`. The one place the core `undo()` function itself reports `success: false` is when the entry's `branchSnapshots` is empty, nothing to restore at all (`src/core/undo.ts:47-55`, `error: 'No branch snapshots to restore'`). Every other failure, nothing to undo, not reversible, a lease or local pause held, is a hard refusal before `undo()` ever runs, not this path.
+
+### A failed `absorb` leaves `undo` pointing at the wrong operation
+
+`absorbCommand` uses the default `shouldLog` with no override (`src/cli/commands/surgery.ts:73-74`), so a run whose restack conflicts, and exits `1`, writes no log entry at all, even though its commit phase already landed real commits. `gitq undo` cannot detect this: it just takes the most recent entry for the repo, which after a failed absorb is whatever ran before it. `undo` does not warn; it silently restores that earlier operation as if the absorb had never run. Check [`gitq log`](/reference/read-only/log) first if you aren't sure what the most recent entry actually is.
+
+## Exit codes
+
+- `0`: restored, fully or partially (with `skippedBranches`).
+- `1`: nothing to undo for this repo, the entry's operation isn't reversible, a stack lease or local pause is held, or the entry has no branch snapshots to restore at all.
+
+Never exits `2`. See [Exit codes](/reference/exit-codes) for `undo`'s distinct top-level result shape, `{ success, restoredBranches, restoredStack, skippedBranches, error? }`, instead of a per-item list.
+
+## See also
+
+- [Recover from a mistake](/guides/recover#undo-the-last-operation): a real `skippedBranches` run, and the four reversible operation types.
+- [Absorb uncommitted changes](/guides/absorb-changes#undo): the failed-absorb trap in full.
+- [`gitq log`](/reference/read-only/log): check what the last entry actually is before trusting `undo` with it.

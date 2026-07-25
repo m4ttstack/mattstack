@@ -1,0 +1,90 @@
+---
+title: The board
+sidebar_position: 4
+---
+
+# The board
+
+The board is a local web page that shows every repo you have configured, every tracked stack in those repos, and the current status of every branch in those stacks, all in one view. Right-clicking a stack offers four actions, and each one spawns an agent pane running the matching `gitq:*` skill against that stack, with the board watching its progress live.
+
+It is a companion to the CLI, not a replacement for it. Everything it displays comes from `gitq diagnose` and `gitq preflight`; everything it does is delegated to an agent that runs the same CLI you would.
+
+## Configure it
+
+The server reads `config.json` from the repo root. Start from the example:
+
+```bash
+cp config.example.json config.json
+```
+
+```json
+{
+  "repos": [{ "path": "/Users/matt/Documents/GitHub/example", "name": "example" }],
+  "port": 11008,
+  "herdrWorkspace": "gitq",
+  "gitlabHost": "https://gitlab.com"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `repos` | Required, and must be non-empty. One entry per repo to display. `path` is required. `name` is optional and defaults to the last path segment; it is the label shown on the board. |
+| `port` | Port to listen on. Defaults to `11008`. The `PORT` environment variable wins over this, so a launch agent can pin the port without editing the file. |
+| `herdrWorkspace` | The herdr workspace label that action tabs are launched into. Defaults to `gitq`. |
+| `gitlabHost` | Defaults to `https://gitlab.com`. Accepted for forward compatibility only: the provider stack is gitlab.com-only today, so changing it does not point gitq at a self-hosted instance. |
+
+Config is read once at startup. Editing `config.json` needs a restart. See [Configuration](/reference/configuration).
+
+## Run it
+
+```bash
+bun run serve
+```
+
+It prints one line and keeps running: `gitq board on http://localhost:<port>`, where `<port>` is whatever `config.json` (or `PORT`) resolved to, `11008` by default.
+
+The first page load is the slow one: it runs the git queries for every configured repo, plus a GitLab fetch if a token is available. After that the snapshot is cached for 60 seconds and served stale while it refreshes in the background, so a reload during that window is instant. The `refresh` button in the top bar forces a fresh collection.
+
+The page polls every 60 seconds, immediately when the tab becomes visible again, and every 4 seconds while any job is live, so a running action updates without you touching anything.
+
+| Endpoint | What it is |
+| --- | --- |
+| `/` | The board itself. |
+| `/data.json` | The snapshot the page renders. `?fresh=1` forces a refetch. |
+| `POST /action` | Launches an action. Body: `repoPath`, `stack`, `action`, and optionally `sourceSlot`. |
+| `/healthz` | Returns `ok`. |
+
+## Reading the board
+
+Each repo gets a section headed by its name, followed by one work-slot chip per work worktree reading either `<slot>: free` or `<slot>: <action> on <stack>`, or `<slot>: parked on <stack>` when a cascade is paused there. Below that, the repo's stacks on the left and an activity feed on the right.
+
+A stack panel shows the stack name, then the root branch, then each branch in tree order. Per branch you may see:
+
+- **A status badge**, a short label of its own (not the `situation` string lowercased, `behind` is not `behind-parent`): `behind`, `local`, `needs sync`, `drift`, `diverged`, `merged`, `deleted`, `conflicts`, `ci failed`, or `<n> threads`. Hovering shows the full status line. See [Reading the tree](/getting-started/reading-the-tree) for what each one means.
+- **`conflict predicted`**, shown only when the branch has no status badge of its own and `gitq preflight` predicts a rebase conflict for it. It is a hint, not a verdict.
+- **A worktree chip** naming the worktree the branch is checked out in, highlighted when that worktree is dirty. A dirty checkout is what makes a cascade refuse to move that branch.
+- **An MR link** like `!42`, opening the merge request in GitLab. MR and pipeline data need the same token as `publish`; without one the board still renders from the last known MR fields in the store.
+
+Above the branches, a stack shows a chip per live or recent job, reading `<action> <status>`, coloured for conflict, live, error, and done, and a line of global blocks (an uncommitted working tree, or a rebase in progress) when they apply.
+
+The activity feed lists live and errored jobs first, then entries from the operation log, each with a relative timestamp. If a snapshot refresh fails, a banner appears at the top and the board keeps showing the last good data rather than going blank.
+
+## The actions
+
+Right-click a stack (or one of its branches) for the menu:
+
+- **`sync`**, **`publish`**, and **`restructure`** each launch against the whole stack.
+- **`absorb`** is listed once per dirty worktree, as `absorb from <worktree>`, so you choose which set of uncommitted changes to distribute. With no dirty worktree, the item is present but disabled.
+- **`open !<iid>` in gitlab**, when you right-clicked a branch that has an MR.
+
+Each action spawns a herdr tab running `claude` with the matching skill and the `--state` / `--status-bin` contract, which is how the job chips update live while the agent works. Relaunching an action that is already live refocuses its tab instead of spawning a second pane. [Agent skills](/guides/agent-skills) covers what each skill actually does once it starts.
+
+## Local only, by Host header
+
+`POST /action` is accepted only when the request's `Host` header is local: `localhost`, `127.0.0.1`, or any `*.localhost` domain. Anything else gets a `403`.
+
+The same check is reported to the page, and the client hides every action menu item when it is false. So a board reached through a tunnel is genuinely read-only: the menu offers nothing but the GitLab link, or the line `read-only over the tunnel`, and the server would reject the request anyway.
+
+## Restarting
+
+The React client is bundled in memory when the server starts, so **any change to the client code needs a restart** to show up. Two exceptions: `style.css` is re-read on every request, so CSS edits are live; and `config.json`, like the client bundle, is read at startup and needs a restart.

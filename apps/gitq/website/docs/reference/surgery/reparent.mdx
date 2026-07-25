@@ -1,0 +1,58 @@
+---
+title: gitq reparent
+sidebar_label: reparent
+---
+
+# gitq reparent
+
+Moves a branch, and cascades its descendants, onto a different parent.
+
+## Usage
+
+```bash
+gitq reparent <branch> --onto <newParent> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--onto <branch>` | Required. The new parent: the stack's root, or an existing node. |
+| `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:187-209`). If `--onto` names the branch's current parent, it is a no-op: returns immediately, nothing rebased (`src/core/reparent.ts:47-55`).
+
+Refuses up front, before anything runs: `--onto` naming neither the stack root nor an existing node (`New parent "<newParent>" not found in stack "<id>"`), or a move that would make the branch its own ancestor (`Cannot reparent "<branch>" under "<newParent>" — would create a cycle`, `src/core/reparent.ts:57-66`).
+
+`reparentBranch` (`src/core/reparent.ts:33-114`) then runs in two phases:
+
+1. **The branch's own rebase.** `git rebase --onto <newParentHead> <oldBase> <branch>`, detached in the slot, finalized by compare-and-swap.
+2. **The descendant cascade**, if the branch has any children. This is the same cascade engine `sync` uses (`RebaseEngine.restackFrom`, whose sole caller in the whole codebase is `reparent.ts:107`), seeded with the branch's pre-move head so children compute their fork point off the old head rather than a merge-base against the rewritten one.
+
+`reparent` is the only surgery command that runs that shared cascade loop, and the only one whose descendants can leave you mid-rebase.
+
+### Conflict shape one: the branch itself won't replay
+
+If the branch's own rebase in step 1 conflicts, the whole operation refuses and **nothing has moved yet**: `Reparenting "<branch>" onto "<newParent>" hit a rebase conflict (<files>); nothing was moved. Sync the stack or resolve the divergence first, then retry` (`src/core/reparent.ts:82-88`). Exit `1`, the stack tree is unchanged, and no lease is left behind.
+
+### Conflict shape two: a descendant won't replay
+
+If the branch moves cleanly but a descendant conflicts during the follow-up cascade in step 2, `reparent` pauses **exactly like `sync`**: it reuses the same pause-file protocol (`finishCascade`, `src/cli/commands/surgery.ts:195-197`), writes the pause file, parks the lease, and exits `2`. At this point the branch itself **is already moved**, the tree already records it under the new parent; only the descendant is left mid-rebase. Resolve with `gitq continue`; `gitq abort` here backs out the descendant's rebase but does not undo the branch's own move, that half already committed.
+
+A completed cascade where every attempted descendant succeeds exits `0`; one with a failed (non-conflict) descendant result exits `1`, the same rule `sync` follows (`src/cli/commands/surgery.ts:204-207`).
+
+Recorded to the operation log under `reparent`, with the predicate overridden to `(code) => code !== 2` (`src/cli/commands/surgery.ts:208`), the same override `sync` uses: it logs on exit `0` and `1`, never on a pause. `reparent` is one of the four types in `REVERSIBLE_OPERATIONS`, so a logged run is reversible with `gitq undo`.
+
+## Exit codes
+
+- `0`: the branch moved and every attempted descendant succeeded (or it had none).
+- `1`: `<branch>`/`--onto` not resolving, a cycle, the branch's own rebase conflicting (nothing moved), a lease held, or a completed cascade with a failed descendant result.
+- `2`: paused, a descendant conflicted during the follow-up cascade.
+
+## See also
+
+- [Restructure a stack](/guides/restructure-a-stack#reparent): both conflict shapes from real runs, including the pause file.
+- [The cascade](/concepts/cascade), [The pause protocol](/concepts/pause-protocol#the-resolve-loop): the mechanics `reparent`'s second phase shares with `sync`.
+- [`gitq sync`](/reference/cascade/sync), [`gitq continue`](/reference/cascade/continue), [`gitq abort`](/reference/cascade/abort), [`gitq undo`](/reference/other/undo).

@@ -1,0 +1,46 @@
+---
+title: gitq absorb
+sidebar_label: absorb
+---
+
+# gitq absorb
+
+Distributes uncommitted worktree changes across the stack branches whose commits own each file, then restacks below the branches it touched.
+
+## Usage
+
+```bash
+gitq absorb [--stack <name>] [--preview]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack to absorb into. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+| `--preview` | Show the file attribution without committing or restacking anything. |
+
+## Behavior
+
+- **Attribution.** For every changed file (modified, staged, or untracked), walks the stack from leaves to root and attributes it to the deepest branch whose own commits touched that path (`src/core/absorb.ts:64-91`). A file no branch's commits touched falls back to `currentBranch`, the branch checked out in the worktree you ran `absorb` from, and **is still committed there** (`src/core/absorb.ts:83`). `skills/absorb/SKILL.md` describes unattributed files as staying in the worktree; the source does not, they are absorbed along with everything else.
+- `--preview` only runs the attribution (`AbsorbEngine.previewAbsorb`) and prints it; it mutates nothing, takes no lease, and writes no operation-log entry (`src/cli/commands/surgery.ts:44-53`). It is the one mutation-family flag allowed to run while the stack is parked.
+- Without `--preview`, guarded by the stack lease. Before doing anything, it runs the same preview and refuses if any branch it would attribute a file to is checked out in a different, non-work-slot worktree, whether or not that worktree is dirty: `branch "<name>" is checked out in slot "<slot>" (<path>); run this from that worktree or free the branch first` (`src/cli/commands/surgery.ts:56-67`).
+- **Commit phase runs in the worktree you invoked it from**, not the leased slot, because it needs a real tree to write files into: stash everything, then for each owning branch in turn, check it out, write its files back, `git add`, `git commit --amend --no-edit` (`src/core/absorb.ts:185-230`). This is an amend of the branch's tip commit, not a new commit.
+- **The commit phase is not atomic.** If a later branch's amend fails (a `pre-commit` hook is the realistic case, since this worktree's hooks stay live, unlike a work slot's), absorb stops right there without rolling back branches it already amended (`src/core/absorb.ts:225-240`). It reports `nothing absorbed` and exits `1`, which understates what happened; check `git log` for the branches you expected to change.
+- **Restack phase.** Cascades the descendants of every amended branch onto their parents' new heads, detached in a leased [work slot](/concepts/work-slots). This is absorb's own loop, not the shared cascade `sync`/`reparent` use, and it never fetches.
+- **No pause protocol.** If the restack conflicts, absorb aborts the in-progress rebase (in the slot, and defensively in your worktree too) and returns a hard failure instead of pausing, keeping the commits it already made: `absorb restack conflicted on <branch>; aborted the rebase (branch edits kept). run gitq sync to restack with full conflict handling` (`src/cli/commands/surgery.ts:86-92`).
+- **Does not override the operation-log predicate** (`src/cli/commands/surgery.ts:73-74`): the default `shouldLog` only logs a clean exit `0`. A restack-conflict exit `1` writes no entry at all, even though the commit phase already landed real commits. `gitq undo` afterward has no entry for this absorb; it silently rewinds whichever operation ran before it.
+- With nothing dirty to absorb, prints `nothing absorbed (no-changes)` and exits `0`.
+- Recorded to the operation log under `absorb`, and reversible: it is one of the four types in `REVERSIBLE_OPERATIONS` (`src/core/undo.ts:16-21`), but only for a run that actually reached exit `0`.
+
+## Exit codes
+
+- `0`: absorbed (or nothing to absorb), or `--preview` completed.
+- `1`: two different shapes. A hard refusal (lease held, `--stack` unresolved, an attributed branch checked out elsewhere) or a restack conflict (aborted, pointing at `gitq sync`) both print `gitq: <message>` with nothing on stdout. A completed run with a failed attribution is the other shape, the per-item one `sync` and `reparent` also use: check `result.attributions[].success` under `--json`. See [Exit codes](/reference/exit-codes) for both shapes side by side.
+- Never exits `2`: absorb has no pause protocol of its own.
+
+## See also
+
+- [Absorb uncommitted changes](/guides/absorb-changes): a full walkthrough, including the restack-conflict recovery path, with real captures.
+- [`gitq sync`](/reference/cascade/sync): what to run after a restack conflict.
+- [`gitq undo`](/reference/other/undo): what it can and cannot give back after absorb.

@@ -1,0 +1,36 @@
+---
+title: gitq preflight
+sidebar_label: preflight
+---
+
+# gitq preflight
+
+Predicts whether a `sync` would conflict, without changing anything.
+
+## Usage
+
+```bash
+gitq preflight
+```
+
+## Behavior
+
+For each tracked stack, checks whether the working tree is dirty (untracked, staged, or unstaged, any of which blocks a rebase), then, unless it is dirty, runs one `git merge-tree` three-way merge per branch against its parent to predict conflicts (`src/core/rebase-engine.ts:168,177`). The human output is one line per stack, `<stackName>: dirty=<bool>`, followed by either the predicted conflicts (each conflicted file with its two-letter git status code) or `no predicted conflicts`.
+
+- **`preflight` skips prediction entirely when the working tree is dirty.** `no predicted conflicts` next to `dirty=true` means "not checked," not "clean."
+- It predicts against the tree as it is right now, one branch at a time. It cannot see a conflict that would only appear once an earlier branch in the same cascade has actually been rewritten, so a clean `preflight` does not guarantee a clean `sync`.
+- When a stack branch is checked out in one of your worktrees, a `slot conflicts:` section is appended naming the branch, the worktree, and whether that worktree is dirty, since a dirty checkout there is what will make a cascade refuse to move that branch.
+- Takes no flags beyond the global ones. Under `--json`, each stack carries a `report` (the full `PreFlightReport`: `dirty`, `hasStagedChanges`, `conflictBranches`, `threadWarnings`, and `driftWarnings`) and `slotConflicts`, plus the shared `worktrees` array. **`driftWarnings`, branches whose merged parent's tombstone is not in their ancestry, only surface under `--json`**; the human output does not print them. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: always, once the checks complete. `preflight` has no refusal of its own.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Reading the tree](/getting-started/reading-the-tree): `preflight` in context, with a real run.
+- [The cascade](/concepts/cascade): what the reconciliation `driftWarnings` points at actually does.
+- [Work slots and leases](/concepts/work-slots): what a slot conflict means.
+- [`gitq sync`](/reference/cascade/sync): the command `preflight` is checking before you run it.

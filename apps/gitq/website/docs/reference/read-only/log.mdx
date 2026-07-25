@@ -1,0 +1,36 @@
+---
+title: gitq log
+sidebar_label: log
+---
+
+# gitq log
+
+Lists the operation log entries recorded for this repo.
+
+## Usage
+
+```bash
+gitq log
+```
+
+## Behavior
+
+The operation log itself is one file, global across every repo (`~/.config/gitq/operation-log.json`, capped at the 50 most recent entries). `gitq log` reads all of it, then filters to the entries whose `commonDir` (or legacy `repoPath`) matches this repo, and only shows those (`src/cli/commands/log.ts:9`, `entryBelongsToRepo`). Entries from other repos are counted, not listed: `(N operation(s) from other repos hidden)` is appended when there are any.
+
+- Each visible line is `<ISO timestamp> <operation> (<branches>)`, or `no branches` when the entry recorded none.
+- A repo with no logged operations prints `no operations`.
+- It never modifies anything, and it is the fastest way to check what actually happened, and what `gitq undo` would act on, before running it.
+- Not every command that ran actually appears here: an entry is written on a clean exit by default, `sync` and `continue` also log on an exit `1` (but never on `2`, since a pause is resolved with `continue`/`abort`, not `undo`), and a handful of operations are logged but not reversible. See [Where state lives](/concepts/state#operation-logjson) for exactly when each command logs.
+- Takes no flags beyond the global ones. Under `--json`, the document is `{ entries, otherRepoCount }`: the full `OperationEntry[]` already scoped to this repo, and the count of entries hidden because they belong elsewhere. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: always, once the log loads. `log` has no refusal of its own.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Where state lives](/concepts/state): the operation log file, what it records, and when each command writes to it.
+- [Recover from a mistake](/guides/recover#see-what-happened-first): using `log` before deciding whether to `undo`.
+- [`gitq undo`](/reference/other/undo): reads the same log, and restores from the entry it points at.

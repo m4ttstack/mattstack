@@ -1,0 +1,48 @@
+---
+title: gitq sync
+sidebar_label: sync
+---
+
+# gitq sync
+
+Fetches the stack's remote trunk and rebases every branch in the stack onto its parent's new head.
+
+## Usage
+
+```bash
+gitq sync [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack to sync. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+- Guarded by the stack lease (`requireStackFree`, `src/cli/slots.ts:19-27`): refuses if the stack already has a running or parked cascade. This is the **lease**, not the pause file; see [The pause protocol](/concepts/pause-protocol#what-refuses-while-a-cascade-is-paused).
+- Leases a work slot for the rebase, creating one if none is free, up to `maxWorkSlots`; refuses with `all N work slots are busy (max N); finish or abort a cascade, or raise maxWorkSlots in settings.json` when the cap is reached and every slot is leased (`src/cli/slots.ts:33-56`).
+- **Fetches `origin` unconditionally, every time, before anything else.** If the fetch fails, `sync` throws and the command exits `1` with `Failed to fetch from remote: ...` (`src/core/rebase-engine.ts:1210,1213-1219`). A repo with no `origin` remote cannot sync.
+- If `origin/<root>` does not resolve after that fetch, it returns with no results and exits `0`, having changed nothing. There is no warning printed for this case (`src/core/rebase-engine.ts:1221-1229`).
+- **The local root branch is never modified.** Branches whose parent is the stack root rebase directly onto `origin/<root>`, the remote-tracking ref, never onto your local branch (`src/core/rebase-engine.ts:1202-1204`).
+- Walks the stack in topological order, parents before children, skipping any node marked `unmanaged`, rebasing each branch detached in the leased work slot, and moving its ref only with a compare-and-swap once the replay succeeds.
+- On a conflict, the walk stops: the branch is left mid-rebase in the work slot, a pause file is written, the lease is parked, and the command exits `2`.
+- On completion, prints `completed: <branch> ok, ...` (or `FAILED (<error>)` for any branch that failed) and exits `0` if every attempted branch succeeded, `1` if at least one failed.
+- Recorded to the operation log on exit `0` or `1`, never on exit `2` (the default `shouldLog` only logs exit `0`, `src/cli/op-log.ts:44`; `sync` overrides it to `(code) => code !== 2`, `src/cli/commands/cascade.ts:70`).
+- Under `--json`, emits the shared cascade shape all of `sync`, `continue`, and `abort` produce, keyed on `state`: `paused` (with `pauseInfo`) on exit `2`, or `completed` (with `results` and `rebasedBranches`) on exit `0`/`1`. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: completed, every attempted branch succeeded (including the no-op case where `origin/<root>` doesn't resolve).
+- `1`: a hard refusal (lease held, all work slots busy, fetch failed, `--stack` unresolved), or completed with at least one failed branch.
+- `2`: paused on a conflict. See [The pause protocol](/concepts/pause-protocol) and [Pause file](/reference/pause-file).
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [The cascade](/concepts/cascade): the full walk, step by step, including the merged-parent reconciliation case.
+- [Work slots and leases](/concepts/work-slots): where the rebase actually runs, and `maxWorkSlots`.
+- [Resolve a conflict](/guides/resolve-a-conflict): one real run of a `sync` that pauses twice.
+- [`gitq continue`](/reference/cascade/continue), [`gitq abort`](/reference/cascade/abort), [`gitq preflight`](/reference/read-only/preflight).

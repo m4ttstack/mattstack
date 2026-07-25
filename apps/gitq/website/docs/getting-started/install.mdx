@@ -1,0 +1,74 @@
+---
+title: Install
+sidebar_position: 1
+---
+
+# Install
+
+gitq runs on [Bun](https://bun.sh). There is no compiled binary and no npm package: you clone the repo, install its dependencies, and link the checkout onto your `PATH`.
+
+## Clone and link
+
+```bash
+git clone https://github.com/m4ttheweric/gitq.git
+cd gitq
+bun install
+bun link
+```
+
+`bun link` registers this checkout as the package `gitq` and puts a `gitq` executable on your `PATH`. That executable is `bin/gitq` from the checkout (the `bin` field in `package.json` maps `gitq` to `bin/gitq`), and `bin/gitq` starts with `#!/usr/bin/env bun`, so Bun has to stay installed and on your `PATH` too.
+
+Because the link points at the checkout rather than at a copy, updating gitq is just `git pull` in the clone. Nothing to relink, but re-run `bun install` if the pulled commit changed dependencies.
+
+## Confirm it works
+
+`gitq stacks` is the cheapest read-only command, and it works from any git repo. Run it somewhere you have not tracked anything yet:
+
+```bash
+cd ~/some/other/repo
+gitq stacks
+```
+
+```
+no stacks
+```
+
+If you get `command not found`, `bun link` did not land: check that Bun's global bin directory (`~/.bun/bin` by default) is on your `PATH`.
+
+Every command also takes `-C <path>` to run as if invoked from somewhere else, so you can check a repo without leaving the one you are in:
+
+```bash
+gitq stacks -C ~/some/other/repo
+```
+
+## Where state lives
+
+gitq keeps almost nothing in your repository. At a glance:
+
+| Location | What it holds |
+| --- | --- |
+| `~/.config/gitq/` | The stack stores (one JSON file per repo under `stacks/`), plus `settings.json`, `repos.json`, and the global `operation-log.json`. Override the base directory with the `GITQ_CONFIG_DIR` environment variable. |
+| `<commonDir>/gitq/leases.json` | The per-repo work-slot lease registry: which stack currently holds which work worktree. |
+| `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. During a normal cascade that `<gitdir>` is the leased work slot's, not your checkout's. See [Pause protocol](/concepts/pause-protocol). |
+
+`GITQ_CONFIG_DIR` is read once per process, so exporting it for a single command is enough to point gitq at a throwaway store. That is worth knowing before you try anything experimental. See [State](/concepts/state) for the full picture.
+
+## Optional: the agent skills
+
+The four agent skills that drive gitq from a Claude pane install as symlinks into `~/.claude/skills`:
+
+```bash
+bun run scripts/install-skills.ts
+```
+
+You only need this if you want the board's right-click actions, or want to invoke the skills by hand. See [Agent skills](/guides/agent-skills).
+
+## Optional: a GitLab token
+
+Everything local works with no credentials at all. Two commands do not: `gitq publish` and `gitq import` talk to the GitLab API and need a token.
+
+gitq looks for `GITLAB_TOKEN` in the environment first, then falls back to the `gitlabToken` field in `~/.rt/secrets.json`. It is gitlab.com only; self-hosted instances are not supported. See [Publish to GitLab](/guides/publish-to-gitlab).
+
+## Next
+
+[Build your first stack](/getting-started/first-stack) in a throwaway repo.

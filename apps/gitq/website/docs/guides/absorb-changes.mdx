@@ -1,0 +1,256 @@
+---
+title: Absorb uncommitted changes
+sidebar_position: 2
+---
+
+# Absorb uncommitted changes
+
+You have been editing across a stack and now the working tree holds changes belonging to three different branches. `gitq absorb` works out which branch owns each dirty file, folds the change into that branch, and restacks everything below it. One command instead of a stash, four checkouts, four amends, and a manual rebase.
+
+Every block below came from a real run.
+
+## What absorb actually does
+
+In order:
+
+1. **Attribute.** For each dirty file, walk the stack from the leaves up and find the deepest branch whose own commits touched that file. That branch owns the file. A file no branch has touched falls back to **the branch you are currently on**.
+2. **Commit.** Stash the tree, then for each owning branch in turn: check it out, write the file back, `git add`, and `git commit --amend --no-edit`. This is an amend of the branch's tip commit, not a new commit on top.
+3. **Restack.** Cascade the descendants of every amended branch onto their parents' new heads, detached in a leased [work slot](/concepts/work-slots).
+
+Step 2 runs **in the worktree you invoked absorb from**, because it needs a real tree to write files into. Step 3 does not. So absorb moves your checkout to each owning branch in turn while it commits, then returns you to the branch you started on when it is done. (`fold` can also move your checkout, but permanently, onto the folded branch's parent; see [`fold`](/guides/restructure-a-stack#fold).)
+
+## Always `--preview` first
+
+`--preview` computes the attribution and prints it without touching anything. It takes no lease, writes no operation-log entry, and is the only mutation-family command that is allowed to run while the stack is parked.
+
+The stack here is `feat-api` (which added `api.ts`) with `feat-handlers` on top of it (which added `handlers.ts`). The tree is dirty with an edit to each, plus a brand new file:
+
+```bash
+git status --short
+```
+
+```
+ M api.ts
+ M handlers.ts
+?? notes.md
+```
+
+```bash
+gitq absorb --stack demo --preview
+```
+
+```
+absorb preview: 2 branch(es) attributed, 1 file(s) fall back to feat-handlers
+```
+
+The human line is a headcount. The mapping itself is in `--json`, under `result`:
+
+```bash
+gitq absorb --stack demo --preview --json
+```
+
+```json
+  "result": {
+    "attributed": {
+      "feat-api": [
+        "api.ts"
+      ],
+      "feat-handlers": [
+        "handlers.ts"
+      ]
+    },
+    "unattributed": [
+      "notes.md"
+    ],
+    "currentBranch": "feat-handlers"
+  }
+```
+
+(The full document also carries the whole `stack` object; only `result` is shown here.)
+
+Read it before you apply it. gitq's attribution is mechanical: it is `git diff --name-only <parent> <branch>` per branch, so it knows which branch's commits touched a path and nothing else. On boring mappings it is right. On a surprising one, a file heading for a branch that has nothing to do with it, stop and commit that file by hand instead.
+
+## Files it cannot attribute
+
+:::warning `unattributed` does not mean "left alone"
+
+A file no branch's commits have touched is **still absorbed**. It goes to `currentBranch`, the branch checked out in the worktree you ran absorb from. `--preview` lists those files separately so you can veto them, not because they are skipped.
+
+:::
+
+`notes.md` above was untracked and touched by no branch, so it landed on `feat-handlers` along with `handlers.ts`. If you did not want that, exclude it before you run absorb: commit it somewhere yourself, or move it out of the tree.
+
+## Applying it
+
+```bash
+gitq absorb --stack demo
+```
+
+```
+absorbed: feat-api (1), feat-handlers (2)
+```
+
+Exit `0`. The counts are files per branch: one for `feat-api`, two for `feat-handlers` (`handlers.ts` plus the unattributed `notes.md`).
+
+The working tree is clean and you are back where you started:
+
+```bash
+git status --short --branch
+```
+
+```
+## feat-handlers
+```
+
+No new commits were created. Each branch's tip commit was amended in place, which is why both hashes changed:
+
+```bash
+git log --oneline --all --graph
+```
+
+```
+* 509d1e0 add handlers
+* b886478 add api module
+* 417035b initial commit
+```
+
+```bash
+git show --stat --oneline feat-handlers
+```
+
+```
+509d1e0 add handlers
+ handlers.ts | 1 +
+ notes.md    | 1 +
+ 2 files changed, 2 insertions(+)
+```
+
+and `feat-api`'s tip now carries the edited file:
+
+```bash
+git show feat-api:api.ts
+```
+
+```
+export const api = 2;
+```
+
+`feat-handlers` was restacked onto the amended `feat-api` automatically. That restack is not [the cascade](/concepts/cascade) that `sync` and `reparent` share: absorb runs its own loop over just the descendants of amended branches, onto their parents' current local heads, with no fetch and, as the next section covers, no pause protocol.
+
+With nothing to do, absorb says so and exits `0`:
+
+```bash
+gitq absorb --stack demo
+```
+
+```
+nothing absorbed (no-changes)
+```
+
+## When the restack conflicts
+
+Absorb has **no pause protocol**, and the commit phase is not the clean all-or-nothing step it might look like either. It amends one owning branch at a time, and if a later amend fails it stops there without rolling back the branches it already amended. A `pre-commit` hook that fails on the second branch is a realistic way to hit this: the amend runs in the worktree you launched absorb from, which keeps its hooks live, unlike a leased work slot. When that happens, `gitq absorb` reports `nothing absorbed` and exits `1`, which undersells what happened. Check `git log --oneline --all` or `git show --stat <branch>` for the branches you expected to change before you decide what to do next.
+
+Past a clean commit phase, the restack can still conflict like any rebase, and when it does absorb backs out rather than leaving you mid-rebase with a success exit code:
+
+```bash
+gitq absorb --stack two
+```
+
+```
+gitq: absorb restack conflicted on feat-top; aborted the rebase (branch edits kept). run gitq sync to restack with full conflict handling
+```
+
+Exit `1`. Unpack that message, because the state it leaves is specific:
+
+- **The rebase is aborted.** Both in the work slot and, defensively, in your launch worktree. Nothing is left mid-rebase and your tree is clean:
+
+  ```bash
+  git status --short --branch
+  ```
+
+  ```
+  ## feat-top
+  ```
+
+- **The absorbed commits stay put.** The amends already landed and are not rolled back. In the run above, `feat-base` kept the change it absorbed:
+
+  ```bash
+  git show feat-base:shared.ts
+  ```
+
+  ```
+  const v = 2;
+  ```
+
+- **The descendants were not restacked.** They are still sitting on their parents' old heads, which is exactly the `behind-parent` situation `sync` exists for.
+
+- **The lease is released.** Absorb is finished; the stack is not parked and nothing is blocked.
+
+So the follow-up is the one the message names:
+
+```bash
+gitq sync --stack two
+```
+
+```
+paused on feat-top in /Users/you/.cache/gitq/work/59c75405b3ab3d4f/gitq-1 (commit ?/?):
+  UU shared.ts
+resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
+```
+
+Exit `2`, and from here it is the ordinary pause loop: resolve in the named worktree, `git add`, `gitq continue`. See [Resolve a conflict](/guides/resolve-a-conflict).
+
+## What refuses up front
+
+Absorb rewrites branches by checking them out **in your launch worktree**, so a branch it needs cannot be held by a different worktree. It runs its own preview first and refuses before touching anything if any attributed branch is checked out elsewhere:
+
+```bash
+gitq absorb --stack demo
+```
+
+```
+gitq: branch "feat-api" is checked out in slot "wt-api" (/Users/you/repos/demo/wt-api); run this from that worktree or free the branch first
+```
+
+Exit `1`, and it fires whether or not that worktree is dirty; holding the branch is enough. Either run absorb from that worktree (`gitq -C <that worktree> absorb`) or free the branch there.
+
+It also refuses, like every mutation, while the stack holds a lease:
+
+```bash
+gitq absorb --stack demo
+```
+
+```
+gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/0b41fcd9372f1dff/gitq-1; finish it first: gitq continue (or gitq abort)
+```
+
+`absorb --preview` is exempt from that one, because it mutates nothing:
+
+```bash
+gitq absorb --stack demo --preview
+```
+
+```
+absorb preview: 1 branch(es) attributed, 0 file(s) fall back to feat-handlers
+```
+
+Exit `0`, mid-pause. See [The pause protocol](/concepts/pause-protocol).
+
+## From the board
+
+The board can absorb from **any** dirty worktree of the repo, not just the primary checkout. Its stack menu lists one `absorb from <worktree>` entry per non-work-slot worktree that is currently dirty, and reads `absorb (no dirty worktree)` when there are none. Picking one launches the absorb runner against that path, so the changes it sources, and the `currentBranch` its unattributed files fall back to, are that worktree's.
+
+That is the same thing as running `gitq -C <that worktree> absorb` yourself. See [The board](/getting-started/the-board) and [Worktree pools](/guides/worktree-pools).
+
+## Undo
+
+`absorb` is recorded in the operation log, and reversible, only when it exits `0`. When it is, `gitq undo` resets the affected branches to their pre-absorb heads. What it will not do is give you the dirty working tree back; the changes are commits now.
+
+An absorb that hits a restack conflict (see [above](#when-the-restack-conflicts)) exits `1` and writes no log entry at all, even though the commit phase already landed. There is nothing for `gitq undo` to give back, and it will not tell you that: it just takes the most recent entry for the repo, which after a failed absorb belongs to whatever you ran before it. Reach for `gitq undo` here and you silently rewind that earlier operation instead. The actual recovery is the one named above: `gitq sync --stack <name>` to finish the restack.
+
+## Next
+
+- [Resolve a conflict](/guides/resolve-a-conflict): the loop for when the follow-up sync pauses.
+- [`gitq absorb`](/reference/surgery/absorb): flags and JSON shape.
+- [Restructure a stack](/guides/restructure-a-stack): when the answer is not "absorb it" but "the tree is wrong".

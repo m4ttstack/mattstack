@@ -1,0 +1,67 @@
+---
+title: Global flags
+sidebar_position: 1
+---
+
+# Global flags
+
+gitq parses its own command line in one place, `src/cli/main.ts`, with node's `parseArgs`, in non-strict mode. This page is the complete list of what it recognizes, which commands read what, and what non-strict mode actually does with a flag you typo.
+
+## Flags every command accepts
+
+| Flag | Type | Meaning |
+| --- | --- | --- |
+| `-C <path>` | string | Run as if invoked from `<path>` instead of the current directory. Resolved once, before the command dispatches (`src/cli/main.ts:73`). |
+| `--json` | boolean | Emit machine readable JSON on stdout instead of the human summary. See [JSON output](/reference/json-output). |
+| `--stack <name>` | string | Pick which tracked stack a command applies to. Not every command reads it; see the rule below. |
+
+These three, plus every command-specific flag below, are declared in one `options` object passed to `parseArgs` (`src/cli/main.ts:51-64`); `allowPositionals: true` is what lets the command name and its own positional arguments (a branch name, for example) through alongside them.
+
+## The `--stack` rule
+
+Optional when the repo has exactly one tracked stack, required once it has more than one.
+
+The resolution is `pickStack` (`src/cli/commands/crud.ts:9-18`): given `--stack <name>`, it looks up that name and fails with `no stack named <name> (have: ...)` if nothing matches; given no `--stack` and exactly one tracked stack, it uses that one; given no `--stack` and more than one, it refuses. Real capture, a repo with two tracked stacks, running a command that needs one:
+
+```
+$ gitq add featx --parent main
+gitq: --stack required (have: demo, second)
+```
+
+`pickStack` backs `add`, `remove`, `sync`, `absorb`, `split`, `fold`, `reparent`, `rename`, `reset`, and `publish`. `continue` and `abort` read `ctx.flags.stack` directly instead of calling `pickStack`, to disambiguate which *parked* cascade to resume when more than one stack is parked at once (`findParkedLease`, `src/cli/slots.ts:99-110`); with only one parked cascade, no flag is needed there either, and with none at all both commands say `nothing to continue (no parked cascade)` regardless of whether you asked for `continue` or `abort`. `track` and `untrack` take the stack name as a plain positional argument instead of `--stack`: `track` is creating a new stack, so there is nothing yet to disambiguate, and `untrack` names the one it removes. `stacks`, `diagnose`, `preflight`, `log`, `undo`, and `import` never take `--stack` at all: the first four report on every tracked stack in one call, `undo` resolves the most recent operation for the repo regardless of which stack it touched, and `import` replaces the whole store.
+
+## Command-specific flags
+
+| Flag | Used by | Meaning |
+| --- | --- | --- |
+| `--root <branch>` | `track` | The new stack's root branch. |
+| `--parent <branch>` | `add` | The parent branch the new node attaches under. |
+| `--onto <branch>` | `reparent` | The new parent branch. |
+| `--at <sha>` | `split` | Tail-split mode: move every commit from `<sha>` onward into the new branch. Mutually exclusive with `--files`. |
+| `--files <glob[,glob...]>` | `split` | File-split mode: move files matching the comma separated glob(s) into the new branch. Mutually exclusive with `--at`. |
+| `--name <newBranch>` | `split` | Name of the branch either split mode creates. |
+| `--preview` | `absorb` | Show the file attribution without committing or restacking anything. |
+| `--mr-meta <path>` | `publish` | Path to a JSON file of `{"<branch>": {"title": "...", "description": "..."}}`. Branches not listed get default titles and descriptions. |
+| `--replace` | `import` | Overwrite a non-empty local store instead of refusing. |
+
+(Source: each command reads its own flags straight off `ctx.flags` in `src/cli/commands/crud.ts`, `src/cli/commands/surgery.ts`, and `src/cli/commands/forge.ts`.)
+
+## `parseArgs` runs non-strict, and a typo is silent
+
+`main.ts` calls `parseArgs` with `strict: false` (`src/cli/main.ts:47-65`). Verified directly rather than assumed: an unrecognized flag is never an error. It does not throw, it does not print a warning, and gitq behaves exactly as if you had not passed it at all. There is no "did you mean" and no strict-mode rejection, for any command.
+
+`--json` typo'd as `--jsonn`, run against a real scratch repo:
+
+```
+$ gitq stacks --jsonn
+demo (root main): feat-api -> feat-handlers
+```
+
+Exit `0`, plain human text, no complaint about `--jsonn` anywhere on stdout or stderr. If you are scripting against `--json` and parsing stdout as JSON, a typo like this fails silently: you get plain text where you expected JSON, with nothing in the exit code to tell you why. The same held for every other unrecognized flag tried against a scratch repo: `--bogus`, `--bogus=value`, `--bogus somevalue`, and `-x` were all accepted without complaint, whatever followed them.
+
+Check a flag name before you rely on it. gitq will not tell you that you got it wrong.
+
+## Next
+
+- [Exit codes and errors](/reference/exit-codes): what a genuine failure looks like, as opposed to a silently ignored flag.
+- [JSON output](/reference/json-output): the shape `--json` produces for each command.
