@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Stack } from '../core/types.ts';
 import { getMaxWorkSlots, getWorktreeMap, ensureWorkSlot } from '../core/worktrees.ts';
+import { GitShell } from '../core/git-shell.ts';
 import { acquireLease, findLease, listLeases, parkLease, releaseLease } from '../core/leases.ts';
 import type { Lease } from '../core/leases.ts';
 import type { CliContext } from './context.ts';
@@ -53,6 +54,10 @@ export async function withLeasedSlot(
     }
     slotPath = await ensureWorkSlot(ctx.repoRoot, ctx.commonDir, map);
   }
+
+  // Heal hooks on every acquisition: the free-slot fast path above skips
+  // ensureWorkSlot, and pre-existing slots may predate hook disabling.
+  await GitShell.disableWorktreeHooks(slotPath);
 
   const acquired = await acquireLease(ctx.commonDir, { slotPath, stackId: stack.id, action });
   if (!acquired.ok) {

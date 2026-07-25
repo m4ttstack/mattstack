@@ -84,5 +84,10 @@ describe('work slots in repos with checkout hooks', () => {
     const head = await GitShell.getBranchHead(repo.dir, 'main');
     await GitShell.detachAt(slot, head);
     expect(await GitShell.getBranchHead(slot, 'HEAD')).toBe(head);
+    // The slot's per-worktree config pins hooks off, and re-applying is idempotent.
+    await GitShell.disableWorktreeHooks(slot);
+    const { execFileSync } = await import('node:child_process');
+    const hooksPath = execFileSync('git', ['config', '--worktree', 'core.hooksPath'], { cwd: slot }).toString().trim();
+    expect(hooksPath).toBe('/dev/null');
   });
 });
