@@ -20,7 +20,7 @@ import { undoCommand } from './commands/undo.ts';
 
 type Command = (ctx: CliContext) => Promise<number>;
 
-const COMMANDS: Record<string, Command> = {
+export const COMMANDS: Record<string, Command> = {
   stacks: stacksCommand,
   diagnose: diagnoseCommand,
   preflight: preflightCommand,
