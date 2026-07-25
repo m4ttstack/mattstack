@@ -28,11 +28,14 @@ export async function clearPause(gitDir: string): Promise<void> {
 }
 
 /**
- * Shared guard for state-mutating commands: refuse to run while a cascade is
- * paused (git is mid-rebase). Returns the `fail()` exit code (1) when a pause
- * file is present, or `null` when it's safe to proceed. Read-only commands and
- * the pause-resolving commands (`continue`/`abort`) are exempt and must not
- * call this.
+ * Legacy guard, superseded by `requireStackFree` (slots.ts) for every
+ * command with a resolvable stack: those now refuse on a per-stack LEASE
+ * (running or parked), not on this local pause file, since a cascade pauses
+ * in a leased work slot rather than in `ctx.gitDir`. This delegates to the
+ * old check (a pause file directly in `ctx.gitDir`) and is kept only for
+ * `undo`, which has no single stack to guard until it reads the operation
+ * log entry. Returns the `fail()` exit code (1) when a local pause file is
+ * present, or `null` when it's safe to proceed.
  */
 export async function requireNoPause(ctx: CliContext): Promise<number | null> {
   if (await readPause(ctx.gitDir)) {

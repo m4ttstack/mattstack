@@ -424,7 +424,16 @@ export const GitShell = {
   /** Get the SHA of the commit currently being replayed during a rebase conflict. */
   getStoppedSha(cwd: string): string | null {
     try {
-      const gitDir = join(cwd, '.git');
+      // Handle worktrees: .git might be a file pointing to the real git dir
+      let gitDir = join(cwd, '.git');
+      try {
+        const content = readFileSync(gitDir, 'utf-8').trim();
+        if (content.startsWith('gitdir: ')) {
+          const relative = content.slice('gitdir: '.length);
+          gitDir = relative.startsWith('/') ? relative : join(cwd, relative);
+        }
+      } catch { /* .git is a directory, not a file — use as-is */ }
+
       const stoppedPath = join(gitDir, 'rebase-merge', 'stopped-sha');
       if (existsSync(stoppedPath)) {
         return readFileSync(stoppedPath, 'utf-8').trim();

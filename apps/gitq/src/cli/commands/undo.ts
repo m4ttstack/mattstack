@@ -36,7 +36,7 @@ export async function undoCommand(ctx: CliContext): Promise<number> {
   // operation is only undoable in the repo it ran in (its branch snapshots
   // reference that repo's refs). Pick the most recent entry belonging here.
   const entries = await OperationLog.load();
-  const entry = [...entries].reverse().find((e) => entryBelongsToRepo(e, ctx.repoRoot));
+  const entry = [...entries].reverse().find((e) => entryBelongsToRepo(e, ctx.commonDir));
   if (!entry) return fail('nothing to undo (no operations for this repo)');
   if (!canUndo(entry)) return fail(`cannot undo "${entry.operation}" (not reversible)`);
 

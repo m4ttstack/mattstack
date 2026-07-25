@@ -14,12 +14,25 @@ import {
   type SandboxRepoWithRemote,
 } from './helpers.ts';
 import { setConfigDir } from '../../src/core/config-paths.ts';
-import { saveStore } from '../../src/core/persistence.ts';
+import { saveStore, resolveRepoIdentity } from '../../src/core/persistence.ts';
 import { OperationLog } from '../../src/core/operation-log.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';
+import { listLeases } from '../../src/core/leases.ts';
 import type { Stack } from '../../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '../../bin/gitq');
+
+/**
+ * Resolve a worktree's real git dir (worktree-safe: `.git` there is a file
+ * pointing back at the main repo's `.git/worktrees/<name>`), the same way
+ * `src/cli/slots.ts#slotGitDir` does — so pause-file assertions look in the
+ * same place the CLI writes to.
+ */
+function gitDirOf(worktreePath: string): string {
+  return execFileSync('git', ['-C', worktreePath, 'rev-parse', '--absolute-git-dir'], { stdio: 'pipe' })
+    .toString()
+    .trim();
+}
 
 export async function runCli(
   args: string[],
@@ -380,17 +393,22 @@ describe('gitq CLI', () => {
     expect(paused.state).toBe('paused');
     expect(paused.pauseInfo.conflictTypes[0].type).toBe('UU');
 
-    // pause file exists in the git dir (sandbox repos are plain, so .git is a directory)
-    const gitDir = `${repo.dir}/.git`;
-    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(true);
+    // The cascade leases a work slot and pauses THERE, not in repo.dir; a
+    // repo with no worktree pool gets its slot under the cache root.
+    const workDir: string = paused.pauseInfo.worktreePath;
+    expect(workDir).toBeTruthy();
+    expect(workDir).not.toBe(repo.dir);
+    dirsToClean.push(workDir);
+    const slotGitDir = gitDirOf(workDir);
+    expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(true);
 
-    // resolve the standard git way, then continue
-    await Bun.spawn(['git', 'checkout', '--theirs', '--', 'shared.txt'], { cwd: repo.dir }).exited;
-    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: repo.dir }).exited;
+    // resolve the standard git way IN THE WORK SLOT, then continue
+    await Bun.spawn(['git', 'checkout', '--theirs', '--', 'shared.txt'], { cwd: workDir }).exited;
+    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: workDir }).exited;
     const cont = await runCli(['continue', '--json'], repo.dir, configDir);
     expect(cont.exitCode).toBe(0);
     expect(JSON.parse(cont.stdout).state).toBe('completed');
-    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(false);
+    expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(false);
   });
 
   test('sync -> conflict -> abort clears pause and leaves no rebase in progress', async () => {
@@ -398,35 +416,44 @@ describe('gitq CLI', () => {
 
     const sync = await runCli(['sync', '--json'], repo.dir, configDir);
     expect(sync.exitCode).toBe(2);
-
-    const gitDir = `${repo.dir}/.git`;
-    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(true);
+    const workDir: string = JSON.parse(sync.stdout).pauseInfo.worktreePath;
+    dirsToClean.push(workDir);
+    const slotGitDir = gitDirOf(workDir);
+    expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(true);
 
     const abort = await runCli(['abort', '--json'], repo.dir, configDir);
     expect(abort.exitCode).toBe(0);
     expect(JSON.parse(abort.stdout)).toEqual({ state: 'aborted' });
-    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(false);
+    expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(false);
 
-    // no rebase in progress and no conflict markers left in the working tree
+    // launch tree was never touched, and the work slot (where the rebase
+    // actually ran) is no longer mid-rebase with no conflict markers left.
     const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
     expect(status.trim()).toBe('');
+    const slotStatus = execFileSync('git', ['status', '--porcelain'], { cwd: workDir }).toString();
+    expect(slotStatus.trim()).toBe('');
   });
 
-  test('sync refuses when a pause file already exists', async () => {
+  test('sync refuses when the stack already holds a lease', async () => {
     const { repo, configDir } = await makeConflictedStack();
 
     const sync = await runCli(['sync', '--json'], repo.dir, configDir);
     expect(sync.exitCode).toBe(2);
+    const workDir: string = JSON.parse(sync.stdout).pauseInfo.worktreePath;
+    dirsToClean.push(workDir);
+    const slotGitDir = gitDirOf(workDir);
+    const pauseBefore = await Bun.file(`${slotGitDir}/gitq-pause.json`).text();
 
-    const gitDir = `${repo.dir}/.git`;
-    const pauseBefore = await Bun.file(`${gitDir}/gitq-pause.json`).text();
-
+    // The per-stack guard now answers before withLeasedSlot is ever reached:
+    // the stack holds a PARKED lease from the pause above, not a local pause
+    // file, so the refusal names the lease rather than "paused".
     const secondSync = await runCli(['sync'], repo.dir, configDir);
     expect(secondSync.exitCode).toBe(1);
-    expect(secondSync.stderr).toContain('paused');
+    expect(secondSync.stderr).toContain('lease');
+    expect(secondSync.stderr).toMatch(/continue|abort/);
 
     // pause file untouched by the refused sync
-    const pauseAfter = await Bun.file(`${gitDir}/gitq-pause.json`).text();
+    const pauseAfter = await Bun.file(`${slotGitDir}/gitq-pause.json`).text();
     expect(pauseAfter).toBe(pauseBefore);
 
     // clean up git state before the sandbox repo is torn down
@@ -465,19 +492,22 @@ describe('gitq CLI', () => {
 
   test('a second conflict on continue rewrites the pause file, then resolves to completion', async () => {
     const { repo, configDir } = await makeDoubleConflictedStack();
-    const gitDir = `${repo.dir}/.git`;
 
     const sync = await runCli(['sync', '--json'], repo.dir, configDir);
     expect(sync.exitCode).toBe(2);
     const firstPause = JSON.parse(sync.stdout);
     expect(firstPause.state).toBe('paused');
     expect(firstPause.pauseInfo.conflictTypes[0].type).toBe('UU');
+    const workDir: string = firstPause.pauseInfo.worktreePath;
+    dirsToClean.push(workDir);
+    const slotGitDir = gitDirOf(workDir);
 
     // Resolve by keeping the rebase target's content. During a rebase,
     // `--ours` is the branch being rebased *onto* (not the replayed commit),
-    // so this leaves the second commit's patch conflicting again.
-    await Bun.spawn(['git', 'checkout', '--ours', '--', 'shared.txt'], { cwd: repo.dir }).exited;
-    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: repo.dir }).exited;
+    // so this leaves the second commit's patch conflicting again. Resolved
+    // in the WORK SLOT, since that's where this cascade's rebase runs.
+    await Bun.spawn(['git', 'checkout', '--ours', '--', 'shared.txt'], { cwd: workDir }).exited;
+    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: workDir }).exited;
 
     const cont1 = await runCli(['continue', '--json'], repo.dir, configDir);
     expect(cont1.exitCode).toBe(2);
@@ -489,17 +519,17 @@ describe('gitq CLI', () => {
     expect(secondPause.pauseInfo.commitIndex).toBe(2);
     expect(secondPause.pauseInfo.commitTotal).toBe(2);
 
-    const pauseFileContents = JSON.parse(await Bun.file(`${gitDir}/gitq-pause.json`).text());
+    const pauseFileContents = JSON.parse(await Bun.file(`${slotGitDir}/gitq-pause.json`).text());
     expect(pauseFileContents.pauseInfo.commitIndex).toBe(2);
 
     // resolve the second conflict the same way and finish
-    await Bun.spawn(['git', 'checkout', '--ours', '--', 'shared.txt'], { cwd: repo.dir }).exited;
-    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: repo.dir }).exited;
+    await Bun.spawn(['git', 'checkout', '--ours', '--', 'shared.txt'], { cwd: workDir }).exited;
+    await Bun.spawn(['git', 'add', 'shared.txt'], { cwd: workDir }).exited;
 
     const cont2 = await runCli(['continue', '--json'], repo.dir, configDir);
     expect(cont2.exitCode).toBe(0);
     expect(JSON.parse(cont2.stdout).state).toBe('completed');
-    expect(await Bun.file(`${gitDir}/gitq-pause.json`).exists()).toBe(false);
+    expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(false);
   });
 
   // ── Surgery commands (Task 14) ──────────────────────────────────────────
@@ -829,16 +859,19 @@ describe('gitq CLI', () => {
 
     const sync = await runCli(['sync', '--json'], repo.dir, configDir);
     expect(sync.exitCode).toBe(2);
+    const workDir: string = JSON.parse(sync.stdout).pauseInfo.worktreePath;
+    dirsToClean.push(workDir);
+    const slotGitDir = gitDirOf(workDir);
+    const pauseBefore = await Bun.file(`${slotGitDir}/gitq-pause.json`).text();
 
-    const gitDir = `${repo.dir}/.git`;
-    const pauseBefore = await Bun.file(`${gitDir}/gitq-pause.json`).text();
-
+    // rename now refuses via the per-stack lease guard (the parked lease
+    // sync left behind), not the legacy local pause-file check.
     const rename = await runCli(['rename', 'feat/conflict', 'feat/renamed'], repo.dir, configDir);
     expect(rename.exitCode).toBe(1);
-    expect(rename.stderr).toContain('paused');
+    expect(rename.stderr).toContain('lease');
     expect(rename.stderr).toMatch(/continue|abort/);
 
-    const pauseAfter = await Bun.file(`${gitDir}/gitq-pause.json`).text();
+    const pauseAfter = await Bun.file(`${slotGitDir}/gitq-pause.json`).text();
     expect(pauseAfter).toBe(pauseBefore);
 
     // clean up git state before teardown
@@ -851,12 +884,16 @@ describe('gitq CLI', () => {
 
     const sync = await runCli(['sync', '--json'], repo.dir, configDir);
     expect(sync.exitCode).toBe(2);
+    const workDir: string = JSON.parse(sync.stdout).pauseInfo.worktreePath;
+    dirsToClean.push(workDir);
 
     const before = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
 
+    // add now refuses via the per-stack lease guard, not the legacy local
+    // pause-file check.
     const add = await runCli(['add', 'x', '--parent', 'main'], repo.dir, configDir);
     expect(add.exitCode).toBe(1);
-    expect(add.stderr).toContain('paused');
+    expect(add.stderr).toContain('lease');
     expect(add.stderr).toMatch(/continue|abort/);
 
     const after = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
@@ -880,7 +917,17 @@ describe('gitq CLI', () => {
     expect(paused.pauseInfo.conflictTypes.length).toBeGreaterThan(0);
     expect(paused.pauseInfo.conflictTypes[0].type).toBe('UU');
 
-    expect(await Bun.file(`${repo.dir}/.git/gitq-pause.json`).exists()).toBe(true);
+    // reparent's own descendant cascade rebases directly in ctx.repoRoot (no
+    // detached worktree flow, unlike sync), so pauseInfo carries no
+    // worktreePath — but the pause FILE still lives in the leased work
+    // slot's git dir (finishCascade's four-arg form), found via the lease.
+    setConfigDir(configDir);
+    const commonDir = await resolveRepoIdentity(repo.dir);
+    const [lease] = await listLeases(commonDir);
+    expect(lease).toBeTruthy();
+    dirsToClean.push(lease!.slotPath);
+    const slotGitDir = gitDirOf(lease!.slotPath);
+    expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(true);
 
     const abort = await runCli(['abort'], repo.dir, configDir);
     expect(abort.exitCode).toBe(0);
