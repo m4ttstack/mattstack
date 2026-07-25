@@ -1,5 +1,4 @@
 import { loadStore, updateStore } from '../../core/persistence.ts';
-import { StackManager } from '../../core/stack-manager.ts';
 import { AbsorbEngine } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
 import { foldBranch } from '../../core/branch-fold.ts';
@@ -145,21 +144,14 @@ export async function foldCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
-  const map = await getWorktreeMap(ctx.repoRoot);
-  const preGuardBranch = refuseIfCheckedOutElsewhere(ctx, map, branch);
-  if (preGuardBranch !== null) return preGuardBranch;
-  const parentBranch = StackManager.findNode(stack, branch)?.parent;
-  if (parentBranch) {
-    const preGuardParent = refuseIfCheckedOutElsewhere(ctx, map, parentBranch);
-    if (preGuardParent !== null) return preGuardParent;
-  }
-
-  return withOperationLog(ctx, stack, 'fold', async () => {
-    const result = await foldBranch(ctx.repoRoot, stack, branch);
-    await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
-    emit(ctx, `folded ${result.foldedBranch} into ${result.intoParent}`, { stack: result.newStack, result });
-    return 0;
-  });
+  return withLeasedSlot(ctx, stack, 'fold', (workDir) =>
+    withOperationLog(ctx, stack, 'fold', async () => {
+      const result = await foldBranch(ctx.repoRoot, stack, branch, workDir);
+      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
+      emit(ctx, `folded ${result.foldedBranch} into ${result.intoParent}`, { stack: result.newStack, result });
+      return 0;
+    }),
+  );
 }
 
 export async function reparentCommand(ctx: CliContext): Promise<number> {
