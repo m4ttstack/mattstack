@@ -136,6 +136,7 @@ async function cascadeDescendants(
             phase: 'cascade',
             conflictTypes: typedConflicts,
             ...(progress ? { commitIndex: progress.current, commitTotal: progress.total } : {}),
+            treePath: cwd,
           },
         };
       }

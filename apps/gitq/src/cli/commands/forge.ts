@@ -1,6 +1,6 @@
 import { ForgeSync } from '../../core/forge-sync.ts';
 import { GitShell } from '../../core/git-shell.ts';
-import { loadStore, saveStore } from '../../core/persistence.ts';
+import { loadStore, updateStore } from '../../core/persistence.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { requireStackFree } from '../slots.ts';
@@ -78,11 +78,11 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
 
   const result = await ForgeSync.publishStack(provider, stack, projectPath, ctx.repoRoot, descriptions);
 
-  await saveStore(ctx.repoRoot, {
-    ...store,
+  await updateStore(ctx.repoRoot, (fresh) => ({
+    ...fresh,
     remoteUrl,
-    stacks: store.stacks.map((s) => (s.id === result.updatedStack.id ? result.updatedStack : s)),
-  });
+    stacks: fresh.stacks.map((s) => (s.id === result.updatedStack.id ? result.updatedStack : s)),
+  }));
 
   const ok = result.results.every((r) => r.success);
   const human = result.results.length
@@ -115,7 +115,12 @@ export async function importCommand(ctx: CliContext): Promise<number> {
   const { provider } = createGitLabProvider(remoteUrl);
 
   const store = await ForgeSync.importFromForge(provider, ctx.repoRoot, remoteUrl);
-  await saveStore(ctx.repoRoot, store);
+  // Import intentionally replaces the whole store (guarded above by the
+  // non-empty + --replace check), not a merge with concurrent writes; the
+  // callback ignores the fresh value on purpose. Still routed through
+  // updateStore so the write is serialized under the same lock as every
+  // other mutator instead of a bare saveStore.
+  await updateStore(ctx.repoRoot, () => store);
 
   emit(ctx, `imported ${store.stacks.length} stack(s)`, { store });
   return 0;

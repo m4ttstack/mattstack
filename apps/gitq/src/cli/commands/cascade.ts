@@ -33,9 +33,13 @@ export async function finishCascade(
     }));
     const types = (result.pauseInfo.conflictTypes ?? [])
       .map((c) => `${c.type} ${c.file}`).join('\n  ');
+    // Name the tree that actually holds the paused rebase, not the leased
+    // slot: native pauses (reconcile phase, reparent's cascade) rebase in
+    // the launch tree (treePath), not the work slot (workDir).
+    const rebaseTree = result.pauseInfo.worktreePath ?? result.pauseInfo.treePath ?? ctx.repoRoot;
     emit(
       ctx,
-      `paused on ${result.pauseInfo.currentBranch} in ${workDir} (commit ${result.pauseInfo.commitIndex ?? '?'}/${result.pauseInfo.commitTotal ?? '?'}):\n  ${types}\nresolve with git in that worktree, stage, then: gitq continue (or gitq abort)`,
+      `paused on ${result.pauseInfo.currentBranch} in ${rebaseTree} (commit ${result.pauseInfo.commitIndex ?? '?'}/${result.pauseInfo.commitTotal ?? '?'}):\n  ${types}\nresolve with git in that worktree, stage, then: gitq continue (or gitq abort)`,
       { state: 'paused', pauseInfo: result.pauseInfo },
     );
     return 2;
@@ -81,9 +85,13 @@ export async function continueCommand(ctx: CliContext): Promise<number> {
   const stack = store.stacks.find((s) => s.id === pause.stackId);
   if (!stack) return fail(`paused stack ${pause.stackId} no longer exists`);
   return withOperationLog(ctx, stack, 'sync', async () => {
-    // Pass the PAUSE's worktree, not the lease slot: a reconcile-phase pause
-    // is cwd-anchored (no worktreePath) and must continue in the launch tree.
-    const result = await RebaseEngine.continueCascade(ctx.repoRoot, stack, pause.pauseInfo, pause.pauseInfo.worktreePath);
+    // Pass the PAUSE's tree, not the lease slot: a native pause (reconcile
+    // phase, or reparent's cascade) is cwd-anchored to the launch tree
+    // (treePath) rather than a leased worktree (worktreePath), and must
+    // continue there regardless of where `gitq continue` itself was invoked.
+    const result = await RebaseEngine.continueCascade(
+      ctx.repoRoot, stack, pause.pauseInfo, pause.pauseInfo.worktreePath ?? pause.pauseInfo.treePath,
+    );
     const code = await finishCascade(ctx, stack.id, result, lease.slotPath);
     if (code !== 2) {
       await GitShell.detachAt(lease.slotPath, 'HEAD').catch(() => {});
@@ -104,8 +112,10 @@ export async function abortCommand(ctx: CliContext): Promise<number> {
   const pauseDir = await slotGitDir(lease.slotPath);
   const pause = await readPause(pauseDir);
   // Abort where the rebase actually lives: the pause's worktree when set
-  // (detached flow), else the launch tree (reconcile-phase pauses).
-  await RebaseEngine.abortCascade(ctx.repoRoot, pause?.pauseInfo.worktreePath);
+  // (detached flow), else the pause's recorded launch tree (native pauses:
+  // reconcile phase, reparent's cascade). Falls back to cwd only for legacy
+  // pauses that predate both fields.
+  await RebaseEngine.abortCascade(ctx.repoRoot, pause?.pauseInfo.worktreePath ?? pause?.pauseInfo.treePath);
   await clearPause(pauseDir);
   await GitShell.detachAt(lease.slotPath, 'HEAD').catch(() => {});
   await releaseLease(ctx.commonDir, lease.stackId);

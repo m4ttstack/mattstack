@@ -3,7 +3,6 @@ import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
 import { toErrorMessage } from './error-utils.ts';
 import { findSlotForBranch, getWorktreeMap } from './worktrees.ts';
-import type { SlotInfo } from './worktrees.ts';
 
 // ── Result types ─────────────────────────────────────────────────────────────
 
@@ -38,6 +37,10 @@ export interface CascadePauseInfo {
   preRebaseHeads?: Record<string, string>;
   /** Worktree holding the paused rebase (the leased work slot). Absent for legacy cwd-anchored cascades. */
   worktreePath?: string;
+  /** Tree holding a cwd-anchored (native) paused rebase: reparent's cascade and
+      reconcile-phase pauses. Distinct from worktreePath on purpose: detached-flow
+      CAS finalization keys off worktreePath and must not fire for native pauses. */
+  treePath?: string;
   /**
    * Which phase paused. `'reconcile'` means the branch is being synced with
    * its merged parent's final state before the cascade rebase.
@@ -603,6 +606,7 @@ async function doCascadeLoop(
                   phase: 'reconcile',
                   conflictTypes: typedConflicts,
                   preRebaseHeads: { ...preRebaseHeads },
+                  treePath: cwd,
                 },
               };
             }
@@ -647,6 +651,7 @@ async function doCascadeLoop(
                       phase: 'reconcile',
                       conflictTypes: typedConflicts,
                       preRebaseHeads: { ...preRebaseHeads },
+                      treePath: cwd,
                     },
                   };
                 }

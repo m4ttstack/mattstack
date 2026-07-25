@@ -1,5 +1,5 @@
 import { StackManager } from '../../core/stack-manager.ts';
-import { loadStore, saveStore } from '../../core/persistence.ts';
+import { loadStore, updateStore } from '../../core/persistence.ts';
 import type { Stack, StackStore } from '../../core/types.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
@@ -28,7 +28,7 @@ export async function trackCommand(ctx: CliContext): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
   if (store.stacks.some((s) => s.stackName === stackName)) return fail(`stack ${stackName} already exists`);
   const stack = StackManager.createStack(stackName, root);
-  await saveStore(ctx.repoRoot, { ...store, stacks: [...store.stacks, stack] });
+  await updateStore(ctx.repoRoot, (fresh) => ({ ...fresh, stacks: [...fresh.stacks, stack] }));
   emit(ctx, `tracked ${stackName} (root ${root})`, { stack });
   return 0;
 }
@@ -43,7 +43,10 @@ export async function untrackCommand(ctx: CliContext): Promise<number> {
   }
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
-  await saveStore(ctx.repoRoot, { ...store, stacks: store.stacks.filter((s) => s.stackName !== stackName) });
+  await updateStore(ctx.repoRoot, (fresh) => ({
+    ...fresh,
+    stacks: fresh.stacks.filter((s) => s.stackName !== stackName),
+  }));
   emit(ctx, `untracked ${stackName}`, { removed: stackName });
   return 0;
 }
@@ -57,7 +60,7 @@ export async function addCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
   const updated = StackManager.addNode(stack, branch, parent);
-  await saveStore(ctx.repoRoot, replaceStack(store, updated));
+  await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, updated));
   emit(ctx, `added ${branch} under ${parent}`, { stack: updated });
   return 0;
 }
@@ -70,7 +73,7 @@ export async function removeCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
   const updated = StackManager.removeNode(stack, branch);
-  await saveStore(ctx.repoRoot, replaceStack(store, updated));
+  await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, updated));
   emit(ctx, `removed ${branch}`, { stack: updated });
   return 0;
 }

@@ -1,4 +1,4 @@
-import { loadStore, saveStore } from '../../core/persistence.ts';
+import { loadStore, updateStore } from '../../core/persistence.ts';
 import { StackManager } from '../../core/stack-manager.ts';
 import { AbsorbEngine } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
@@ -66,7 +66,7 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
       const result = await AbsorbEngine.absorb(ctx.repoRoot, stack);
       const updatedStack = result.updatedStack ?? stack;
       if (result.updatedStack) {
-        await saveStore(ctx.repoRoot, replaceStack(store, result.updatedStack));
+        await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, updatedStack));
       }
 
       // A descendant restack that conflicts leaves git mid-rebase, but absorb has
@@ -117,7 +117,7 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
   return withOperationLog(ctx, stack, 'split', async () => {
     if (at) {
       const result = await BranchSplitter.tailSplit(ctx.repoRoot, stack, branch, name, at);
-      await saveStore(ctx.repoRoot, replaceStack(store, result.updatedStack));
+      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
       emit(ctx, `split ${branch}: moved ${result.movedCommits.length} commit(s) to ${result.newBranch}`, {
         stack: result.updatedStack,
         result,
@@ -127,7 +127,7 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
 
     const patterns = files!.split(',').map((p) => p.trim()).filter(Boolean);
     const result = await BranchSplitter.splitByFile(ctx.repoRoot, stack, branch, patterns, name);
-    await saveStore(ctx.repoRoot, replaceStack(store, result.newStack));
+    await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
     emit(ctx, `split ${branch}: moved ${result.movedFiles.length} file(s) to ${result.newBranch}`, {
       stack: result.newStack,
       result,
@@ -156,7 +156,7 @@ export async function foldCommand(ctx: CliContext): Promise<number> {
 
   return withOperationLog(ctx, stack, 'fold', async () => {
     const result = await foldBranch(ctx.repoRoot, stack, branch);
-    await saveStore(ctx.repoRoot, replaceStack(store, result.newStack));
+    await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
     emit(ctx, `folded ${result.foldedBranch} into ${result.intoParent}`, { stack: result.newStack, result });
     return 0;
   });
@@ -189,7 +189,7 @@ export async function reparentCommand(ctx: CliContext): Promise<number> {
         return finishCascade(ctx, stack.id, result.cascadeResult, workDir);
       }
 
-      await saveStore(ctx.repoRoot, replaceStack(store, result.newStack));
+      await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.newStack));
       emit(ctx, `reparented ${result.branch} from ${result.oldParent} onto ${result.newParent}`, {
         stack: result.newStack,
         result,
@@ -217,7 +217,7 @@ export async function renameCommand(ctx: CliContext): Promise<number> {
 
   return withOperationLog(ctx, stack, 'rename', async () => {
     const result = await renameBranch(ctx.repoRoot, stack, oldBranch, newBranch);
-    await saveStore(ctx.repoRoot, replaceStack(store, result.updatedStack));
+    await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
     emit(ctx, `renamed ${oldBranch} to ${newBranch}`, { stack: result.updatedStack, result });
     return 0;
   });
@@ -237,7 +237,7 @@ export async function resetCommand(ctx: CliContext): Promise<number> {
   if (preGuard !== null) return preGuard;
 
   const result = await resetToRemote(ctx.repoRoot, stack, branch);
-  await saveStore(ctx.repoRoot, replaceStack(store, result.updatedStack));
+  await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
   emit(ctx, `reset ${branch} to origin/${branch} (${result.newHead})`, { stack: result.updatedStack, result });
   return 0;
 }

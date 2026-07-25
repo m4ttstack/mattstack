@@ -10,6 +10,7 @@ import {
   cleanupRepo,
   buildLinearStack,
   commit,
+  addNamedWorktree,
   type SandboxRepo,
   type SandboxRepoWithRemote,
 } from './helpers.ts';
@@ -25,8 +26,8 @@ const BIN = join(import.meta.dir, '../../bin/gitq');
 /**
  * Resolve a worktree's real git dir (worktree-safe: `.git` there is a file
  * pointing back at the main repo's `.git/worktrees/<name>`), the same way
- * `src/cli/slots.ts#slotGitDir` does — so pause-file assertions look in the
- * same place the CLI writes to.
+ * `src/cli/slots.ts#slotGitDir` does. This keeps pause-file assertions
+ * looking in the same place the CLI writes to.
  */
 function gitDirOf(worktreePath: string): string {
   return execFileSync('git', ['-C', worktreePath, 'rev-parse', '--absolute-git-dir'], { stdio: 'pipe' })
@@ -919,8 +920,14 @@ describe('gitq CLI', () => {
 
     // reparent's own descendant cascade rebases directly in ctx.repoRoot (no
     // detached worktree flow, unlike sync), so pauseInfo carries no
-    // worktreePath — but the pause FILE still lives in the leased work
-    // slot's git dir (finishCascade's four-arg form), found via the lease.
+    // worktreePath. It carries treePath instead, naming the launch tree
+    // where the native rebase actually lives (distinct from the leased slot
+    // below, which only holds the pause file and the lease).
+    expect(paused.pauseInfo.worktreePath).toBeUndefined();
+    expect(paused.pauseInfo.treePath).toBe(repo.dir);
+
+    // The pause FILE still lives in the leased work slot's git dir
+    // (finishCascade's four-arg form), found via the lease.
     setConfigDir(configDir);
     const commonDir = await resolveRepoIdentity(repo.dir);
     const [lease] = await listLeases(commonDir);
@@ -929,8 +936,33 @@ describe('gitq CLI', () => {
     const slotGitDir = gitDirOf(lease!.slotPath);
     expect(await Bun.file(`${slotGitDir}/gitq-pause.json`).exists()).toBe(true);
 
-    const abort = await runCli(['abort'], repo.dir, configDir);
+    // Abort FROM A SIBLING WORKTREE, not the launch tree and not the leased
+    // slot: exercises the treePath fix. Before it, abort with no worktreePath
+    // fell back to the invoking cwd (the sibling) and would try to abort a
+    // rebase that isn't there, instead of the one actually paused in repo.dir.
+    const sibling = await addNamedWorktree(repo, 'sibling');
+    dirsToClean.push(sibling);
+    const siblingHeadBefore = execFileSync('git', ['-C', sibling, 'rev-parse', 'HEAD'], { stdio: 'pipe' })
+      .toString()
+      .trim();
+
+    const abort = await runCli(['abort', '--stack', 'reparent-cascade'], sibling, configDir);
     expect(abort.exitCode).toBe(0);
+
+    // The launch tree's rebase is gone.
+    expect(rebaseInProgress(repo.dir)).toBe(false);
+
+    // The sibling is untouched.
+    const siblingHeadAfter = execFileSync('git', ['-C', sibling, 'rev-parse', 'HEAD'], { stdio: 'pipe' })
+      .toString()
+      .trim();
+    expect(siblingHeadAfter).toBe(siblingHeadBefore);
+
+    // The lease is released: a follow-up mutation on the stack succeeds and
+    // does not mention a lease.
+    const after = await runCli(['untrack', 'reparent-cascade'], repo.dir, configDir);
+    expect(after.exitCode).toBe(0);
+    expect(after.stderr).not.toContain('lease');
   });
 
   // Finding 5: import refuses to clobber a non-empty store without --replace,

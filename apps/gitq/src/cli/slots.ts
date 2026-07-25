@@ -4,7 +4,6 @@ import type { Stack } from '../core/types.ts';
 import { getMaxWorkSlots, getWorktreeMap, ensureWorkSlot } from '../core/worktrees.ts';
 import { acquireLease, findLease, listLeases, parkLease, releaseLease } from '../core/leases.ts';
 import type { Lease } from '../core/leases.ts';
-import { GitShell } from '../core/git-shell.ts';
 import type { CliContext } from './context.ts';
 import { fail } from './output.ts';
 

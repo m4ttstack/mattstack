@@ -1,12 +1,13 @@
 import type { Stack } from '../../core/types.ts';
 import { OperationLog, entryBelongsToRepo } from '../../core/operation-log.ts';
 import { canUndo, undo } from '../../core/undo.ts';
-import { loadStore, saveStore } from '../../core/persistence.ts';
+import { loadStore, updateStore } from '../../core/persistence.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { StackManager } from '../../core/stack-manager.ts';
 import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { requireNoPause } from '../pause-file.ts';
+import { requireStackFree } from '../slots.ts';
 
 /**
  * Remove nodes for branches git no longer has, reparenting their children to
@@ -40,6 +41,9 @@ export async function undoCommand(ctx: CliContext): Promise<number> {
   if (!entry) return fail('nothing to undo (no operations for this repo)');
   if (!canUndo(entry)) return fail(`cannot undo "${entry.operation}" (not reversible)`);
 
+  const guarded = await requireStackFree(ctx, entry.stackSnapshot.id);
+  if (guarded !== null) return guarded;
+
   const result = await undo(ctx.repoRoot, entry);
 
   // undo() may skip snapshotted branches whose git ref no longer exists (e.g.
@@ -70,10 +74,10 @@ export async function undoCommand(ctx: CliContext): Promise<number> {
     // global file, not scoped per repo).
     const store = await loadStore(ctx.repoRoot);
     if (store.stacks.some((s) => s.id === restoredStack.id)) {
-      await saveStore(ctx.repoRoot, {
-        ...store,
-        stacks: store.stacks.map((s) => (s.id === restoredStack.id ? restoredStack : s)),
-      });
+      await updateStore(ctx.repoRoot, (fresh) => ({
+        ...fresh,
+        stacks: fresh.stacks.map((s) => (s.id === restoredStack.id ? restoredStack : s)),
+      }));
     }
   }
 
