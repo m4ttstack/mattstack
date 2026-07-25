@@ -5,7 +5,7 @@ sidebar_position: 2
 
 # The cascade
 
-A cascade is gitq rebasing a whole tree of branches in one pass, parents before children, each branch onto its parent's new head. `gitq sync` is the cascade you will run most; `reparent`, `fold`, `split --files`, and `absorb` each finish by cascading whatever they disturbed. This page is what all of them do.
+A cascade is gitq rebasing a whole tree of branches in one pass, parents before children, each branch onto its parent's new head. `gitq sync` is the cascade you will run most, and it is what this page mostly describes. Of the surgery commands, only `reparent` runs this same cascade: after its own move succeeds, it cascades the moved branch's descendants through it. `fold` and `split --files` never cascade descendants at all, and `absorb` restacks its descendants through a separate loop with its own, much simpler, conflict behavior. [The other cascades](#the-other-cascades) below says exactly what each command does.
 
 ## The one thing to know first
 
@@ -91,7 +91,7 @@ Two special cases sit alongside this:
 - **The merged branch itself is skipped, and its ref is not moved.** It reports `ok` and stays exactly where it is, because that ref *is* the tombstone its children are measured against. Moving it to trunk would destroy the only record of where their work began. A merged branch keeps its old head until you `gitq remove` it.
 - **A fully redundant branch is fast-forwarded, not rebased.** Before rebasing, gitq compares the branch's commits against the target by patch id (`git cherry`). If every one of them is already present upstream, there is nothing to replay: the branch ref is moved straight to the target and the branch reports `ok`. This is the normal ending for a branch whose entire content went in with its parent's squash merge.
 
-`gitq preflight` warns about the branches that will need reconciling before you run any of this. See [Reading the tree](/getting-started/reading-the-tree).
+`gitq preflight --json` warns about the branches that will need reconciling, as `stacks[].report.driftWarnings`, one entry per branch. The plain-text output does not print it: today it only shows dirty state, predicted conflicts, and slot conflicts. Ask for `--json` if reconciling is what you are checking for. See [Reading the tree](/getting-started/reading-the-tree).
 
 ## Where the rebase actually happens
 
@@ -101,7 +101,7 @@ Only when the replay succeeds does gitq move the ref, and it moves it with a com
 
 Consequences:
 
-- A cascade that dies halfway, crashes, or is killed leaves your working tree untouched. The abandoned work in the slot is just a detached HEAD, and it is discarded on the next acquisition.
+- A cascade that dies halfway, crashes, or is killed leaves your working tree untouched, but what happens to the abandoned slot depends on how far it got. A slot left detached and clean, before any rebase started, is picked back up and reused the next time a cascade needs one. A slot left **mid-rebase** is excluded from that reuse instead: both the free-slot lookup and slot provisioning skip a worktree with a rebase in progress. gitq just creates another slot rather than touching it, and the abandoned mid-rebase state stays on disk in the old one. This is the usual reason the slot count creeps toward `maxWorkSlots`: not several cascades running at once, but one dead one nobody cleaned up. See [Work slots and leases](/concepts/work-slots).
 - If the branch being moved is checked out in one of your own worktrees, a policy applies: clean and sitting exactly on the old head, and gitq moves the ref and resets that worktree for you; dirty, mid-rebase, or drifted, and the branch fails with a message naming the worktree.
 - The first failure stops the walk. Branches after it are left alone.
 
@@ -126,7 +126,13 @@ You resolve it with plain git in the worktree the pause names, `git add` the res
 
 ## The other cascades
 
-`gitq sync` fetches and rebases the entire stack onto the remote trunk. The surgery commands run the same loop with a narrower scope and no fetch: they cascade only the descendants of the branch they changed, onto that branch's current local head. Same pause protocol, same work slot, same compare and swap, same output shape.
+`gitq sync` fetches and rebases the entire stack onto the remote trunk. Of the surgery commands, only `reparent` runs this same cascade. Once the moved branch's own rebase onto its new parent has succeeded, `reparent` cascades that branch's descendants onto its new head: narrower scope, no fetch, but the same pause protocol, the same work slot, the same compare and swap, the same output shape. It can pause at exit `2`, exactly like `sync`.
+
+**`fold` and `split --files` do not cascade.** `fold` re-parents the folded branch's children in the stack tree only; it never rebases them. In the common case that is fine, because the parent lands exactly where the folded branch's base was and the children are already sitting on it, but if the parent had moved ahead, the children are simply left behind their new parent until you `sync`. `split --files` never touches the descendants of the branch it splits at all.
+
+**`absorb` does restack descendants, but through a separate loop, not this cascade.** It amends the tip commit of every branch it attributes a file to, then replays each affected descendant onto its amended parent. That loop has **no pause protocol**: if a replay conflicts, absorb aborts the in-progress rebase outright and exits `1`, telling you to run `gitq sync` instead. `gitq continue` has nothing to resume there, since absorb never parks a lease; running it gets you `nothing to continue (no parked cascade)`.
+
+**Even `reparent`'s own move can refuse instead of pausing.** If the branch's own rebase onto its new parent conflicts, before any descendant is touched, `reparent` refuses the whole operation ("nothing was moved") and exits `1` rather than leaving a pause behind. Only the descendant cascade, once that first move has already succeeded, can pause at exit `2`.
 
 ## Next
 

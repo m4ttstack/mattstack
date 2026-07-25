@@ -60,7 +60,7 @@ The file is global across every repo. Each entry is stamped with the repo it ran
 
 Two details worth knowing:
 
-- An entry is written only when the command succeeds. A failed command logs nothing, and a cascade that pauses (exit `2`) logs nothing either, because a pause is resolved with `continue` or `abort`, not with `undo`.
+- An entry is written when the command succeeds, and a cascade that pauses (exit `2`) logs nothing, because a pause is resolved with `continue` or `abort`, not with `undo`. But "succeeds" is not the same as "exits `0`" for every command: `sync`, `continue`, and `reparent` log on any exit code except `2`, so a `sync` that exits `1` because one branch failed is still logged. That is deliberate. Exit `1` there means some branches rebased fine and one did not, and `undo` needs that entry to rewind the ones that did move; without it, a partially failed sync would leave you with no recorded way back.
 - `gitq continue` writes its own entry when the cascade finally completes, and its snapshots were taken when `continue` started, not when the original `sync` did. Undoing a sync that paused part way therefore rewinds to the middle of that cascade, not to before it.
 
 Deleting the file is safe and loses only history.

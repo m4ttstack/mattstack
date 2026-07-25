@@ -19,7 +19,7 @@ graph TD
   types --> docs["feat-docs"]
 ```
 
-That is a legal stack. `feat-api` has two children, and the branches below each of them are independent chains. Nothing in the model says a stack is a straight line; `gitq stacks` prints the branches in tree order on one line, which reads like a chain, but the shape is a tree. Use `gitq diagnose --json` when you need the real edges.
+That is a legal stack. `feat-api` has two children, and the branches below each of them are independent chains. Nothing in the model says a stack is a straight line; `gitq stacks` prints the branches on one line in the order they are stored, joined with `->`, which reads like a chain, but the shape is a tree. That stored order is not kept topologically sorted, either: a `reparent` moves a node without reordering the list, so after enough surgery the printed order can put a branch before its own parent. Use `gitq diagnose --json` when you need the real edges.
 
 ## The root is the target, not a node
 
