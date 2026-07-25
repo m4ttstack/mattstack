@@ -59,10 +59,12 @@ just talk to the human; everything else below is unchanged.
    state it expects. Add `--stack <stackName>` to any of these when the repo
    tracks more than one stack.
 4. **Gate.** Present the plan to the human: each operation in order, what it
-   does to the tree, and the caveats that matter here: `fold` and `rename`
-   cannot be undone by `gitq undo` (the other surgery ops can, one at a
-   time, most recent first). Wait for approval. If the human never answers,
-   leave the pane holding: nothing executed, no `done` write.
+   does to the tree, and the caveats that matter here: of these
+   operations, only `reparent` can be undone by `gitq undo`; `split`,
+   `fold`, and `rename` are one-way, and `reset` is not recorded in the
+   operation log at all, so treat every approved operation as effectively
+   irreversible. Wait for approval. If the human never answers, leave the
+   pane holding: nothing executed, no `done` write.
 5. **Execute.** Run the approved operations one at a time, each with
    `--json`, checking the result before the next.
    - `reparent` can exit 2 exactly like sync: paused on a conflict. Mark
@@ -75,8 +77,7 @@ just talk to the human; everything else below is unchanged.
      operations did and did not run.
    - Any exit 1: stop the sequence, mark error with the reason, and report
      what was applied and what was not (applied operations stay applied;
-     the reversible ones can be walked back with `gitq undo`, most recent
-     first).
+     only a `reparent` can be walked back with `gitq undo`).
 6. **Verify and mark done.** `gitq -C <repoPath> diagnose --json` once more
    to confirm the stack is healthy, then
    `bun run <status-bin> <state> done "<summary>"` with a summary like

@@ -85,8 +85,8 @@ export function readJobStates(dir: string = JOBS_DIR): JobState[] {
 }
 
 /** Delete job states not touched in maxAgeMs (default 24h). Pruning is by
-    age on purpose (the spec prunes state/ on age, not board membership): a
-    finished job stays visible for a day, then goes. */
+    age AND terminal status; a job parked at a human gate or mid-conflict
+    keeps its file until it finishes. */
 export function pruneJobStates(
   maxAgeMs: number = 24 * 60 * 60 * 1000,
   dir: string = JOBS_DIR,
@@ -96,13 +96,18 @@ export function pruneJobStates(
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.json')) continue;
     const path = join(dir, name);
-    let updatedAt: number | undefined;
+    let state: Partial<JobState> | undefined;
     try {
-      updatedAt = (JSON.parse(readFileSync(path, 'utf8')) as JobState).updatedAt;
+      state = JSON.parse(readFileSync(path, 'utf8')) as JobState;
     } catch {
       continue;
     }
-    if (typeof updatedAt === 'number' && now - updatedAt > maxAgeMs) {
+    const isTerminal = state.status === 'done' || state.status === 'error';
+    if (
+      isTerminal &&
+      typeof state.updatedAt === 'number' &&
+      now - state.updatedAt > maxAgeMs
+    ) {
       rmSync(path, { force: true });
     }
   }

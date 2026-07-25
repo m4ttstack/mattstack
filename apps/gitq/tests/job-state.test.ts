@@ -93,4 +93,10 @@ describe('pruneJobStates', () => {
     expect(existsSync(join(dir, 'old.json'))).toBe(false);
     expect(existsSync(join(dir, 'fresh.json'))).toBe(true);
   });
+
+  test('keeps an old non-terminal job (parked at a gate)', () => {
+    writeJobState(join(dir, 'gated.json'), { status: 'working' }, 1_000);
+    pruneJobStates(50_000, dir, 100_000);
+    expect(existsSync(join(dir, 'gated.json'))).toBe(true);
+  });
 });
