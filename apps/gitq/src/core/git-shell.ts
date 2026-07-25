@@ -153,9 +153,18 @@ export const GitShell = {
     return out;
   },
 
-  /** Create a detached worktree at `path` pointing at `ref`. */
+  /** Create a detached worktree at `path` pointing at `ref`. Hooks are
+      disabled for the creation checkout: repo hooks (e.g. husky) expect an
+      installed dev environment the fresh worktree does not have. */
   async worktreeAddDetached(cwd: string, path: string, ref: string): Promise<void> {
-    await git(['worktree', 'add', '--detach', path, ref], cwd);
+    await git(['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--detach', path, ref], cwd);
+  },
+
+  /** Persistently disable hooks for one worktree (gitq's mechanical slots):
+      per-worktree config so human checkouts keep their hooks. */
+  async disableWorktreeHooks(worktreePath: string): Promise<void> {
+    await git(['config', 'extensions.worktreeConfig', 'true'], worktreePath);
+    await git(['config', '--worktree', 'core.hooksPath', '/dev/null'], worktreePath);
   },
 
   /** Detach HEAD in `cwd` at `ref` without touching any branch ref. */
