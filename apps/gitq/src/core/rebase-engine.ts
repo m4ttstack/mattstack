@@ -949,14 +949,14 @@ export const RebaseEngine = {
             : node.parent;
 
           const mainResult = await RebaseEngine.rebaseSingle(
-            cwd, targetBase, tombstone, node.branch,
+            treeDir, targetBase, tombstone, node.branch,
           );
 
           if (!mainResult.success) {
-            const conflictFiles = await GitShell.listConflictedFiles(cwd).catch(() => [] as string[]);
+            const conflictFiles = await GitShell.listConflictedFiles(treeDir).catch(() => [] as string[]);
             if (conflictFiles.length > 0) {
-              const typedConflicts = await GitShell.listConflictedFilesWithTypes(cwd).catch(() => [] as { file: string; type: string }[]);
-              const progress = GitShell.getRebaseProgress(cwd);
+              const typedConflicts = await GitShell.listConflictedFilesWithTypes(treeDir).catch(() => [] as { file: string; type: string }[]);
+              const progress = GitShell.getRebaseProgress(treeDir);
               return {
                 results,
                 updatedStack,
