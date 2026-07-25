@@ -28,12 +28,15 @@ gitq continue [--stack <name>]
 - If the same branch conflicts again, it re-pauses with a refreshed conflict list and `commitIndex`/`commitTotal` filled in from git's own rebase state, rather than reporting a failure.
 - Once the walk finishes, or fails outright, it detaches the work slot's HEAD and releases the lease; if it pauses again (exit `2`), the lease stays parked instead.
 - **Its own operation-log entry is recorded under `operation: "sync"`**, the same type `sync` itself uses; there is no separate `"continue"` value in the `OperationType` union (`src/core/operation-log.ts:9-18`; `withOperationLog(ctx, stack, 'sync', ...)`, `src/cli/commands/cascade.ts:87`). Logged on exit `0` or `1`, never on `2`, the same override `sync` uses (`src/cli/commands/cascade.ts:101`).
+- Under `--json`, emits the same shared cascade shape as `sync`: `paused` (with a refreshed `pauseInfo`) if it conflicts again, or `completed` (with `results` and `rebasedBranches`) once the walk finishes. See [JSON output](/reference/json-output).
 
 ## Exit codes
 
 - `0`: completed, every attempted branch succeeded.
 - `1`: nothing parked, multiple parked without `--stack`, missing pause file, stack no longer tracked, `git rebase --continue` itself failed with no conflicted files left, or completed with at least one failed branch.
 - `2`: paused again, on the same branch or the next one.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
 
 ## See also
 

@@ -27,6 +27,7 @@ gitq abort [--stack <name>]
 - Prints `aborted` and exits `0` on success.
 - **Never exits `2`.** Exit `2` has exactly one source in the codebase, `finishCascade` (`src/cli/commands/cascade.ts:45`), and only `sync`, `continue`, and reparent's follow-up cascade route through it. `abort` never calls `finishCascade`.
 - **Never writes an operation-log entry.** A paused cascade was never logged either, so there is nothing for `gitq undo` to give back for the branch that was mid-rebase; the branches the cascade already finished before it paused stay exactly where they were rebased to.
+- Under `--json`, emits `{ state: "aborted" }`, always, whether or not a pause file existed. See [JSON output](/reference/json-output).
 
 ## Exit codes
 

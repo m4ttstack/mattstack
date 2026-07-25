@@ -27,7 +27,7 @@ Pure bookkeeping: removes one node from the resolved stack (`src/core/stack-mana
 - Refuses if the stack can't be resolved: see the `--stack` rule at [Global flags](/reference/global-flags#the---stack-rule).
 - Guarded by the stack lease (`requireStackFree`, `src/cli/slots.ts:19-27`): refuses if the stack has a running or parked cascade.
 - Refuses if `<branch>` is not a node in the stack: `gitq: Branch "<branch>" not found in stack "<id>"` (`src/core/stack-manager.ts:112-115`).
-- **Refuses if the branch still has children**: `` gitq: Cannot remove "<branch>" — it has N child branch(es). Remove or re-parent them first. `` (`src/core/stack-manager.ts:117-122`). Re-parent the children onto a different branch, or remove them first, then retry.
+- **Refuses if the branch still has children**: the error names the branch and how many child branches it has, then tells you to remove or re-parent them first (`src/core/stack-manager.ts:117-122`; paraphrased here, the literal source string uses an em dash this page does not reproduce). Re-parent the children onto a different branch, or remove them first, then retry.
 - Prints `removed <branch>` on success. Under `--json`, emits `{ stack: updatedStack }`; this shape was not captured from a live run, but it is the exact type the source returns. See [JSON output](/reference/json-output).
 
 ## Exit codes

@@ -30,12 +30,15 @@ gitq sync [--stack <name>]
 - On a conflict, the walk stops: the branch is left mid-rebase in the work slot, a pause file is written, the lease is parked, and the command exits `2`.
 - On completion, prints `completed: <branch> ok, ...` (or `FAILED (<error>)` for any branch that failed) and exits `0` if every attempted branch succeeded, `1` if at least one failed.
 - Recorded to the operation log on exit `0` or `1`, never on exit `2` (the default `shouldLog` only logs exit `0`, `src/cli/op-log.ts:44`; `sync` overrides it to `(code) => code !== 2`, `src/cli/commands/cascade.ts:70`).
+- Under `--json`, emits the shared cascade shape all of `sync`, `continue`, and `abort` produce, keyed on `state`: `paused` (with `pauseInfo`) on exit `2`, or `completed` (with `results` and `rebasedBranches`) on exit `0`/`1`. See [JSON output](/reference/json-output).
 
 ## Exit codes
 
 - `0`: completed, every attempted branch succeeded (including the no-op case where `origin/<root>` doesn't resolve).
 - `1`: a hard refusal (lease held, all work slots busy, fetch failed, `--stack` unresolved), or completed with at least one failed branch.
 - `2`: paused on a conflict. See [The pause protocol](/concepts/pause-protocol) and [Pause file](/reference/pause-file).
+
+See [Exit codes](/reference/exit-codes) for the general contract.
 
 ## See also
 

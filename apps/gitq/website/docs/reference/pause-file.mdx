@@ -12,7 +12,7 @@ sidebar_position: 5
 `pausePath(gitDir)` is `join(gitDir, 'gitq-pause.json')` (`src/cli/pause-file.ts:13-15`): always a specific git dir, never a fixed path.
 
 - **During a normal cascade** (`sync`, `continue`, most `reparent` conflicts), the rebase runs detached in a leased work slot, and `pauseInfo.worktreePath` is set to that slot. The file sits at that slot's own git dir, typically `<commonDir>/worktrees/gitq-1/gitq-pause.json`, not anywhere in your own checkout.
-- **During a native pause** (the reconcile phase that brings a branch into line with a merged parent before the cascade proper, or reparent's own `--onto` rebase), `pauseInfo.treePath` is set instead, and the file sits in the git dir of the tree the command was actually launched from.
+- **During a native pause** (the reconcile phase that brings a branch into line with a merged parent before the cascade proper, or reparent's cascade: the descendant restack that follows a successful move), `pauseInfo.treePath` is set instead, and the file sits in the git dir of the tree the command was actually launched from. Reparent's own `--onto` rebase never pauses this way: a conflict there is a hard refusal before anything moves, since there is no pause protocol for the pre-move phase (`src/core/reparent.ts:74-95`).
 
 `finishCascade` reads `pauseInfo.worktreePath ?? pauseInfo.treePath ?? ctx.repoRoot` to name the tree in its own message (`src/cli/commands/cascade.ts:39`), and `continueCommand`/`abortCommand` resolve the same way to find where to run `git rebase --continue` or `git rebase --abort` (`src/cli/commands/cascade.ts:93`, `:118`). Both fall back to `ctx.repoRoot` only for legacy pauses written before either field existed.
 

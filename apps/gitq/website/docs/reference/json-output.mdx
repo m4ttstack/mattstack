@@ -48,7 +48,7 @@ Real capture, a single primary worktree, nothing running:
 }
 ```
 
-Once nodes exist, each is a plain `StackNode`: `branch`, `parent`, `mrIid`, `mrUrl`, `mrTitle`, `status` (`local-only | synced | drift | merged`), `lastKnownHead`, `forkPoint`, `diffStats`, `pipelineStatus`, `unresolvedThreads`. `stacks` does not add `checkedOutIn`, or any other worktree information, to a node; that enrichment belongs to `diagnose`, below. To learn where a branch from `stacks` is checked out, cross reference the top level `worktrees` array's own `branch` field yourself.
+Once nodes exist, each is a plain `StackNode`: `branch`, `parent`, `mrIid`, `mrUrl`, `mrTitle`, `status` (`local-only | synced | drift | merged`), `lastKnownHead`, `forkPoint`, `diffStats`, `pipelineStatus`, `unresolvedThreads`, and `unmanaged?` (boolean, `src/core/types.ts:66`; true when the node is context-only and skipped during cascade rebase, absent or false otherwise). `stacks` does no per-node enrichment of its own, so `unmanaged` passes straight through from the store. `stacks` does not add `checkedOutIn`, or any other worktree information, to a node; that enrichment belongs to `diagnose`, below. To learn where a branch from `stacks` is checked out, cross reference the top level `worktrees` array's own `branch` field yourself.
 
 ## `gitq diagnose`
 
