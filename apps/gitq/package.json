@@ -10,7 +10,8 @@
     "test": "bun run test:unit && bun run test:integration",
     "test:unit": "bun test tests/*.test.ts",
     "test:integration": "bun test --timeout 30000 tests/integration/",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "serve": "bun run src/server/server.ts"
   },
   "dependencies": {
     "@workforge/glance-sdk": "^0.9.0",
