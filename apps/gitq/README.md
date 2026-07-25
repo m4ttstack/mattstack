@@ -1,6 +1,6 @@
 # gitq
 
-gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to GitLab to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. a board (server + web client) is a later plan; the skills that drive this CLI from agent panes live in `skills/`.
+gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to GitLab to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. the skills that drive this CLI from agent panes live in `skills/`, and the board (server + web client) that launches them lives in `src/server/` + `src/client/`.
 
 ## install
 
@@ -89,4 +89,15 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 bun run scripts/install-skills.ts
 ```
 
-Each skill takes `<repoPath> <stackName>` positionals plus optional `--state <path> --status-bin <path>` flags. The board (a later plan) injects those two so the pane can emit lifecycle status (`starting | working | conflict | done | error`) to a JSON state file under `state/jobs/`; invoked by hand without them, the skills skip status writes and just talk to you. The status writer is `bin/gitq-status.ts` (`bun run bin/gitq-status.ts <statePath> <status> [detail]`); the state file helpers live in `src/server/job-state.ts`.
+Each skill takes `<repoPath> <stackName>` positionals plus optional `--state <path> --status-bin <path>` flags. The board injects those two so the pane can emit lifecycle status (`starting | working | conflict | done | error`) to a JSON state file under `state/jobs/`; invoked by hand without them, the skills skip status writes and just talk to you. The status writer is `bin/gitq-status.ts` (`bun run bin/gitq-status.ts <statePath> <status> [detail]`); the state file helpers live in `src/server/job-state.ts`.
+
+## board
+
+a local web board showing every configured repo's stacks: per branch status badges (from `gitq diagnose`'s engine, plus a "conflict predicted" hint from preflight), MR and pipeline state when a GitLab token is available, live job chips while a pane works, and an activity feed from the operation log. right-clicking a stack offers the four actions; each one spawns a herdr tab running `claude` with the matching `gitq:*` skill and the `--state`/`--status-bin` contract, so the badge updates live while the agent works. relaunching a live action refocuses its tab instead of double-spawning.
+
+```bash
+cp config.example.json config.json   # edit: repos to show, port (default 7940), herdrWorkspace
+bun run serve                        # http://localhost:7940
+```
+
+endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. the action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. repo data is cached in memory for 60s with stale-while-revalidate; job state files under `state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish` (`GITLAB_TOKEN` or `~/.rt/secrets.json`); without one the board still renders from the store's last known MR fields. the client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). config changes need a restart.

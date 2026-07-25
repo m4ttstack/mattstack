@@ -3,20 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "gitq": "bin/gitq" },
+  "bin": {
+    "gitq": "bin/gitq"
+  },
   "scripts": {
     "test": "bun run test:unit && bun run test:integration",
     "test:unit": "bun test tests/*.test.ts",
     "test:integration": "bun test --timeout 30000 tests/integration/",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "serve": "bun run src/server/server.ts"
   },
   "dependencies": {
     "@workforge/glance-sdk": "^0.9.0",
-    "picomatch": "^4.0.2"
+    "picomatch": "^4.0.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
+    "@types/picomatch": "^3.0.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "bun-types": "^1.3.11",
-    "@types/picomatch": "^3.0.1"
+    "typescript": "^5.9.3"
   }
 }
