@@ -1,0 +1,42 @@
+---
+title: gitq continue
+sidebar_label: continue
+---
+
+# gitq continue
+
+Resumes a cascade that paused on a conflict, after you've resolved it and staged the result.
+
+## Usage
+
+```bash
+gitq continue [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which parked cascade to resume, when more than one stack is parked. Read directly from `ctx.flags.stack`, not resolved through the usual `--stack` rule. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+- Finds the parked lease to resume (`findParkedLease`, `src/cli/slots.ts:99-110`). Refuses with `nothing to continue (no parked cascade)` if nothing is parked, `multiple parked cascades; pass --stack to pick one` if more than one is and `--stack` wasn't given, or `no parked cascade for that stack` if `--stack` names a stack that isn't parked.
+- Reads the pause file out of that lease's work slot; refuses with `lease found but no pause file in <slotPath>; run: gitq abort` if it is missing.
+- Refuses with `paused stack <id> no longer exists` if the stack the pause belongs to was untracked in the meantime.
+- Runs `git rebase --continue` in the tree the pause names (`pauseInfo.worktreePath ?? pauseInfo.treePath`), which is not necessarily wherever you invoked `gitq continue` from, then keeps walking `pauseInfo.remainingBranches`.
+- If the same branch conflicts again, it re-pauses with a refreshed conflict list and `commitIndex`/`commitTotal` filled in from git's own rebase state, rather than reporting a failure.
+- Once the walk finishes, or fails outright, it detaches the work slot's HEAD and releases the lease; if it pauses again (exit `2`), the lease stays parked instead.
+- **Its own operation-log entry is recorded under `operation: "sync"`**, the same type `sync` itself uses; there is no separate `"continue"` value in the `OperationType` union (`src/core/operation-log.ts:9-18`; `withOperationLog(ctx, stack, 'sync', ...)`, `src/cli/commands/cascade.ts:87`). Logged on exit `0` or `1`, never on `2`, the same override `sync` uses (`src/cli/commands/cascade.ts:101`).
+
+## Exit codes
+
+- `0`: completed, every attempted branch succeeded.
+- `1`: nothing parked, multiple parked without `--stack`, missing pause file, stack no longer tracked, `git rebase --continue` itself failed with no conflicted files left, or completed with at least one failed branch.
+- `2`: paused again, on the same branch or the next one.
+
+## See also
+
+- [The pause protocol](/concepts/pause-protocol#the-resolve-loop): the resolve loop this command drives.
+- [Resolve a conflict](/guides/resolve-a-conflict): a real run, including a branch that conflicts twice.
+- [`gitq sync`](/reference/cascade/sync), [`gitq abort`](/reference/cascade/abort), [Pause file](/reference/pause-file).

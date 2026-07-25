@@ -1,0 +1,43 @@
+---
+title: gitq remove
+sidebar_label: remove
+---
+
+# gitq remove
+
+Removes a leaf branch from a tracked stack.
+
+## Usage
+
+```bash
+gitq remove <branch> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack to remove from. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Pure bookkeeping: removes one node from the resolved stack (`src/core/stack-manager.ts:111-128`). The git branch and its commits are untouched.
+
+- Refuses with usage help if `<branch>` is missing.
+- Refuses if the stack can't be resolved: see the `--stack` rule at [Global flags](/reference/global-flags#the---stack-rule).
+- Guarded by the stack lease (`requireStackFree`, `src/cli/slots.ts:19-27`): refuses if the stack has a running or parked cascade.
+- Refuses if `<branch>` is not a node in the stack: `gitq: Branch "<branch>" not found in stack "<id>"` (`src/core/stack-manager.ts:112-115`).
+- **Refuses if the branch still has children**: `` gitq: Cannot remove "<branch>" — it has N child branch(es). Remove or re-parent them first. `` (`src/core/stack-manager.ts:117-122`). Re-parent the children onto a different branch, or remove them first, then retry.
+- Prints `removed <branch>` on success. Under `--json`, emits `{ stack: updatedStack }`; this shape was not captured from a live run, but it is the exact type the source returns. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: the branch was removed.
+- `1`: any refusal above.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [The stack tree](/concepts/stack-tree#what-the-tree-refuses): why `remove` refuses a branch with children.
+- [`gitq add`](/reference/tracking/add): the command that put the node there.

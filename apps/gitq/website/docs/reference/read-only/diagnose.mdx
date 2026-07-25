@@ -1,0 +1,35 @@
+---
+title: gitq diagnose
+sidebar_label: diagnose
+---
+
+# gitq diagnose
+
+Reports the current situation of every branch in every tracked stack.
+
+## Usage
+
+```bash
+gitq diagnose
+```
+
+## Behavior
+
+For each tracked stack, collects a snapshot of git state (current branch, dirty/staged, rebase in progress, and per-branch divergence and tombstone drift) and classifies every node into exactly one situation, decided by the first matching rule in a fixed priority order (`src/core/stack-diagnostics.ts`). The human output is one block per stack, one line per branch: `  <branch>: <situation>`.
+
+- A branch currently checked out in a sibling worktree (never a work slot, since those run detached) gets a suffix naming it: `  feat-api: behind-parent [in feature-tree]` (`src/cli/commands/diagnose.ts:18`).
+- The full set of situations, in priority order, and what each means, is documented once, in [Reading the tree](/getting-started/reading-the-tree#the-situations). This page does not repeat that table.
+- A repo with no tracked stacks prints `no stacks`.
+- Takes no flags beyond the global ones. Under `--json`, each stack carries `diagnostics: { nodes, edges, banner, globalBlocks }` in addition to `stackName`, plus the shared `worktrees` array. `nodes` adds `statusLine`, `badge`, `primaryAction`, `secondaryActions`, `blocked`, and `removal`, the fields the board renders from; `edges` and `banner` describe the tree and its headline problem. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: always, once the store loads and the snapshot completes. `diagnose` has no refusal of its own.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Reading the tree](/getting-started/reading-the-tree): the full situation table, in priority order, with a real run.
+- [The stack tree](/concepts/stack-tree), [Work slots and leases](/concepts/work-slots) (for what `checkedOutIn` means).
+- [`gitq preflight`](/reference/read-only/preflight): the next question to ask once you know what needs doing.

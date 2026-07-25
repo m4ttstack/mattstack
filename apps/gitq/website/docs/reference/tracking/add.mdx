@@ -1,0 +1,45 @@
+---
+title: gitq add
+sidebar_label: add
+---
+
+# gitq add
+
+Adds a branch to a tracked stack under a parent.
+
+## Usage
+
+```bash
+gitq add <branch> --parent <parentBranch> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--parent <branch>` | Required. The node this branch attaches under: another node's branch, or the stack's root. |
+| `--stack <name>` | Which tracked stack to add to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Pure bookkeeping: adds one node, `{ branch, parent }` plus defaulted fields (`status: 'local-only'`, everything forge-related null or `'unknown'`, `unresolvedThreads: 0`), to the resolved stack (`src/core/stack-manager.ts:14-28,90-105`). It does not create the branch in git, and it never checks that `<branch>` exists as a git ref.
+
+- Refuses with usage help if `<branch>` or `--parent` is missing.
+- Refuses if the stack can't be resolved: see the `--stack` rule at [Global flags](/reference/global-flags#the---stack-rule).
+- Guarded by the stack lease (`requireStackFree`, `src/cli/slots.ts:19-27`): refuses if the stack has a running or parked cascade.
+- Refuses if `<branch>` is already a node in the stack: `gitq: Branch "<branch>" already exists in stack "<id>"` (`src/core/stack-manager.ts:92-94`).
+- Refuses if `--parent` is neither the stack's root nor an existing node: `gitq: Parent branch "<parent>" not found in stack "<id>"` (`src/core/stack-manager.ts:97-99`).
+- Prints `added <branch> under <parent>` on success. Under `--json`, emits `{ stack: updatedStack }`. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: the branch was added.
+- `1`: any refusal above.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Your first stack](/getting-started/first-stack): `add` used to build a three branch stack.
+- [The stack tree](/concepts/stack-tree): what the tree validates before it accepts a node.
+- [`gitq remove`](/reference/tracking/remove), [`gitq track`](/reference/tracking/track).
