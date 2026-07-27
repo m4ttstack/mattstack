@@ -249,7 +249,7 @@ Completed (`state: "completed"`, exit `0` if every branch succeeded, `1` otherwi
 
 ## `gitq absorb`
 
-`src/cli/commands/surgery.ts:40-105`. `--preview` emits `{ stack, result }` where `result` is an `AbsorbPreview` (`src/core/absorb.ts:27-31`: `attributed` a `Record<branch, filePath[]>`, `unattributed` a `string[]`, `currentBranch`). Real capture, a clean tree with nothing to attribute:
+`src/cli/commands/surgery.ts:40-105`. `--preview` emits `{ stack, result }` where `result` is an `AbsorbPreview` (`src/core/absorb.ts:29-36`: `attributed` a `Record<branch, filePath[]>`, `unattributed` a `string[]`, `currentBranch`). `unattributed` is what absorb will leave dirty in the worktree, not a branch assignment; see [`gitq absorb`](/reference/surgery/absorb). Real capture, a clean tree with nothing to attribute:
 
 ```json
 {
@@ -258,7 +258,20 @@ Completed (`state: "completed"`, exit `0` if every branch succeeded, `1` otherwi
 }
 ```
 
-A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`, where `result` is an `AbsorbResult` (`src/core/absorb.ts:19-24`, described from source, not captured live): `absorbed` (boolean), `reason` (`'no-changes'`, optional), `attributions` (`AbsorbAttribution[]`: `{ branch, files, success, error? }`), `cascadeResult` (optional `CascadeResult`, the same shape `sync` produces, for the restack absorb runs afterward), `updatedStack` (optional).
+A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`, where `result` is an `AbsorbResult` (`src/core/absorb.ts:19-27`): `absorbed` (boolean), `reason` (`'no-changes' | 'nothing-attributable'`, optional), `attributions` (`AbsorbAttribution[]`: `{ branch, files, success, error? }`), `unattributed` (`string[]`, always present, the files absorb left in the worktree), `cascadeResult` (optional `CascadeResult`, the same shape `sync` produces, for the restack absorb runs afterward), `updatedStack` (optional). Real capture, a dirty tree holding one file no branch owns:
+
+```json
+  "result": {
+    "absorbed": false,
+    "reason": "nothing-attributable",
+    "attributions": [],
+    "unattributed": [
+      "notes.md"
+    ]
+  }
+```
+
+`cascadeResult` and `updatedStack` are absent there because nothing was committed, so there was nothing to restack; a run that absorbs something carries both.
 
 ## `gitq split` / `gitq fold` / `gitq reparent` / `gitq rename` / `gitq reset`
 
