@@ -17,12 +17,20 @@ pushing and MR plumbing; you write the MR prose and hold the gate.
 What `gitq publish` does per branch, so your gate can say it accurately:
 
 - **No MR yet**: the branch is pushed and a draft MR is opened against its
-  parent, titled and described from your `--mr-meta`.
+  target, titled and described from your `--mr-meta`.
 - **Already has an open MR**: the branch is **not** pushed. Its MR is
-  retargeted if the stack moved it under a different parent, and its title
+  retargeted if it no longer points at the branch's target, and its title
   and description are overwritten **only if your `--mr-meta` names that
   branch**. An MR that needs neither is left untouched and does not appear in
   the results.
+- **Published, but its MR is merged, closed, unreadable, or belongs to another
+  branch**: nothing is written. The branch comes back under `skipped` with a
+  reason.
+
+A branch's **target** is the branch below it in the stack, skipping any that
+have already merged: gitq keeps merged branches in the tree, GitLab deletes
+them on merge, so publish targets the nearest one still alive. Locally merged
+branches are left alone and appear in neither list.
 
 | flag | meaning |
 |------|---------|
@@ -68,6 +76,11 @@ just talk to the human; everything else below is unchanged.
    { "<branch>": { "title": "...", "description": "..." } }
    ```
 
+   Both fields are required, and an empty string means "leave that one
+   alone", so a real title and description belong in every entry you write.
+   `--mr-meta` cannot blank an MR body: if the human wants one emptied, say
+   that it has to happen in the GitLab UI.
+
 4. **Gate.** Show the human: the branch chain in order, which branches get a
    new MR versus an update (and for an update, whether it is a retarget, a
    title/description rewrite, or both), and each title + description. Ask for
@@ -78,18 +91,25 @@ just talk to the human; everything else below is unchanged.
    `gitq -C <repoPath> publish --stack <stackName> --mr-meta <tempPath> --json`
    - **exit 0**: every MR gitq acted on was created or updated; go to step 6.
      Each entry in `results` carries `action` (`created` or `updated`) and,
-     for an update, `changes` (`target`, `metadata`, or both). A branch that
-     needed nothing is absent from `results` entirely.
+     for an update, `changes` (`target`, `metadata`, or both). A branch in
+     neither `results` nor `skipped` needed nothing.
    - **exit 1** with a `gitq:` line on stderr: hard failure. The commonest is
      a missing GitLab token (gitq reads `GITLAB_TOKEN`, then the
      `gitlabToken` field of `~/.rt/secrets.json`; gitlab.com only). Mark
      error with the stderr text.
    - **exit 1** after normal JSON: some per-MR results have
      `success: false`. Mark error naming the failed branches, and report
-     which MRs did go through.
+     which MRs did go through. A failed create stops the walk there; a failed
+     update does not, so branches after it may still have been published.
+   - **`skipped` is not empty**, at either exit code: gitq wrote nothing for
+     those branches. Read each entry's `reason` and `detail` and tell the
+     human, by name, which branch was skipped and why. Never report a
+     skipped branch as published, and never let a run of nothing but skips
+     pass as "nothing needed doing".
 6. **Mark done.**
    `bun run <status-bin> <state> done "<n> MRs created, <m> updated"`
-   Then give the human the MR URLs from the publish JSON, in stack order.
+   Then give the human the MR URLs from the publish JSON, in stack order, plus
+   any skipped branches and their reasons.
 
 ## Rules
 

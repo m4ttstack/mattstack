@@ -50,7 +50,7 @@ export interface PublishNodeResult {
   action: 'created' | 'updated';
   /** Which parts of an existing MR changed. Only set when `action` is 'updated'. */
   changes?: PublishChange[];
-  /** The branch the MR targets after this run — the nearest live ancestor of the node's parent. */
+  /** The branch the MR targets after this run: the nearest live ancestor of the node's parent. */
   targetBranch?: string;
 }
 
@@ -60,7 +60,7 @@ export type PublishSkipReason = 'mr-not-open' | 'mr-unreadable' | 'source-branch
 /** A node publish deliberately left alone, and what it saw on the forge. */
 export interface PublishSkip {
   branch: string;
-  /** The iid the node carries locally — the MR publish would have written to. */
+  /** The iid the node carries locally: the MR publish would have written to it. */
   mrIid: number;
   reason: PublishSkipReason;
   /** One line of what publish saw, for the human output. */

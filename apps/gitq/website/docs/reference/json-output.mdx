@@ -292,11 +292,13 @@ None of these five were run live for this page; each shape below is the exact ty
 
 Neither was run for this page: both talk to the real GitLab API, which this project's isolation rules keep off limits. Shapes below are from source.
 
-`publish` (`src/cli/commands/forge.ts:82-115`) emits `{ results, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:43-55`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
+`publish` (`src/cli/commands/forge.ts:104-140`) emits `{ results, skipped, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:43-55`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
 
-`action` is always present and says which of the two things happened: `created` for an MR this run opened, `updated` for one that was already there. `changes` is set only on an update and lists what actually moved, `target` when the MR was retargeted and `metadata` when `--mr-meta` rewrote its title and description, either or both (`PublishChange`, `src/core/forge-sync.ts:40`). `targetBranch` is the branch the MR points at after the run, which is the node's parent in the local tree.
+`action` is always present and says which of the two things happened: `created` for an MR this run opened, `updated` for one that was already there. `changes` is set only on an update and lists what actually moved, `target` when the MR was retargeted and `metadata` when `--mr-meta` rewrote its title and description, either or both (`PublishChange`, `src/core/forge-sync.ts:40`). `targetBranch` is the branch the MR points at after the run: the node's parent in the local tree, or its nearest ancestor that has not merged.
 
-`import` (`src/cli/commands/forge.ts:117-149`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
+`skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:61-68`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:58`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/gitlab/publish#skipped) for what each reason means.
+
+`import` (`src/cli/commands/forge.ts:142-174`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
 
 ## `gitq undo`
 

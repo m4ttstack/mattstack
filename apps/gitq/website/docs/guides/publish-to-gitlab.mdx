@@ -26,24 +26,24 @@ The base URL is hardcoded to `https://gitlab.com`. There is no self-hosted GitLa
 
 ## What `publish` does, per branch
 
-`publish` walks the stack in topological order (parents before children) and treats a branch one of two ways, depending on whether it already has an MR.
+`publish` walks the stack in topological order (parents before children) and treats a branch one of two ways, depending on whether it already has an MR. (A third outcome, [skipped](#skipped), is for the branches whose MR is not publish's to write to.)
 
 **A branch with no MR yet** (`status` is `local-only` and no `mrIid`) is created:
 
 1. **Push.** `git push --force-with-lease origin <branch>`.
-2. **Create the MR.** `sourceBranch` is the node's branch, `targetBranch` is the node's **parent in the local tree** (not whatever the branch happened to target before, if it had no MR there was nothing to have targeted). The MR is created as a **draft** unconditionally.
+2. **Create the MR.** `sourceBranch` is the node's branch, `targetBranch` is the branch below it in the local tree (not whatever the branch happened to target before, if it had no MR there was nothing to have targeted). The MR is created as a **draft** unconditionally.
 3. **Record it.** The node's `mrIid` and `mrUrl` are set and its `status` becomes `synced`, along with `lastKnownHead` if the local branch head could be read.
 
 **A branch that already has an open MR** is updated, never pushed:
 
-1. **Retarget**, when the MR's target on GitLab is no longer the node's parent in the local tree: `updatePullRequest(projectPath, mrIid, { targetBranch })`, and the node's `status` goes back to `synced`. This is what fixes an MR after a [`reparent`](/guides/restructure-a-stack#reparent) moved its branch under something else.
+1. **Retarget**, when the MR's target on GitLab is no longer the branch below it in the local tree: `updatePullRequest(projectPath, mrIid, { targetBranch })`, and the node's `status` goes back to `synced`. This is what fixes an MR after a [`reparent`](/guides/restructure-a-stack#reparent) moved its branch under something else.
 2. **Rewrite the title and description**, only when `--mr-meta` has an entry for that branch (see [below](#mr-meta)).
 
-Needing neither, the branch is left completely alone and does not appear in the output at all. Same for a branch whose MR is no longer open, or that gitq could not read back: `publish` only touches open MRs it can see.
+Needing neither, the branch is left completely alone and does not appear in the output at all.
 
 To tell a retarget from a no-op, `publish` reads the current target of every already-published MR before the walk, batch-fetched by iid in one call. A stack with nothing published yet skips that read; a stack where it fails stops the command before anything is pushed.
 
-If any step fails, `publish` **stops the walk right there**. It does not attempt the remaining branches, because a child's MR needs its parent's MR to exist first for the target branch to make sense; skipping ahead would create MRs against the wrong base.
+If a **create** fails, `publish` stops the walk right there: the branch was never pushed, so a child MR targeting it would have no base. A failed **update** leaves that branch's MR exactly as it was, so the walk carries on and the branches after it are still published.
 
 ```bash
 gitq publish --stack demo
@@ -56,9 +56,27 @@ feat-ui: updated (retargeted to feat-api) https://gitlab.com/group/project/-/mer
 
 Under `--json`, the same distinction is per-result: `action` is `created` or `updated`, and an update carries `changes` (`target`, `metadata`, or both).
 
-Exit `0` when every attempted branch succeeded, `1` if any failed. Check the per-branch `success` field under `--json` rather than assuming a failure means nothing happened; branches before the failing one are already pushed and already have MRs, or already had their MR retargeted.
+Exit `0` when every attempted branch succeeded, `1` if any failed. Check the per-branch `success` field under `--json` rather than assuming a failure means nothing happened; branches before a failed create are already pushed and already have MRs, and a failed update does not stop what comes after it.
 
-With nothing to create and nothing to update:
+### The branch below is the nearest *live* one
+
+A merged branch stays in your stack until you remove it, and its children keep pointing at it. GitLab, meanwhile, deletes the source branch when it merges an MR and moves the child MR to the trunk itself. So `publish` never targets a merged node: it walks down past every branch whose `status` is `merged` and targets the first one that is still live, the same nearest-live-ancestor rule [the cascade](/concepts/cascade#when-the-parent-was-merged) rebases by.
+
+That is what keeps the ordinary end of a stack's life boring. The bottom branch merges, you add another branch on top, you republish: the surviving MRs are compared against the trunk (which is where GitLab already put them, so nothing is written), and the new branch's MR is opened against the branch below it. Without it, the child MR would be pointed back at a branch that no longer exists.
+
+### Branches `publish` skips {#skipped}
+
+`publish` only ever writes to an **open MR belonging to that branch**. When the MR it has an iid for is merged, closed, missing from the read, or turns out to be some other branch's MR, it writes nothing and tells you:
+
+```
+feat-ui: skipped (MR !102 is closed)
+```
+
+Under `--json` those come back in their own `skipped` array, each with a `branch`, `mrIid`, a machine-readable `reason`, and that same `detail` line. A skip is not a failure and does not change the exit code... it exists so that a branch you expected to be republished cannot quietly do nothing. See [`gitq publish`](/reference/gitlab/publish#skipped) for the full list of reasons.
+
+A merged branch of your own stack is not a skip. It is where a branch is supposed to end up, and `publish` leaves it alone silently.
+
+With nothing to create, nothing to update, and nothing skipped:
 
 ```
 nothing to publish (no branches to create or update)
@@ -90,6 +108,8 @@ gitq: invalid --mr-meta: entry "feat-ui" must be {"title": string, "description"
 ```
 
 A branch you omit from the file falls back to the branch-name-as-title, empty-description default on a **new** MR, and keeps what it already has on an **existing** one. Every entry is read either way, so an entry for a branch that already has an MR is an instruction to overwrite that MR's title and description on GitLab, including any edit made in the UI. Name a published branch in `--mr-meta` only when you mean that.
+
+An **empty string counts as omitted**, on both paths and for either field: `"description": ""` leaves an existing MR's body alone rather than wiping it, and `"title": ""` falls back to the branch name on a new MR. There is deliberately no way to empty an MR body from here... do that in the GitLab UI, where you can see what you are deleting.
 
 ## Re-running `publish` {#re-running-publish}
 

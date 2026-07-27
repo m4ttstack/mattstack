@@ -937,7 +937,7 @@ describe('ForgeSync.publishStack — republish', () => {
 
 // ── publishStack: a merged parent still in the tree ──────────────────────────
 
-describe('ForgeSync.publishStack — merged parent', () => {
+describe('ForgeSync.publishStack: merged parent', () => {
   /** main ← feat/a (merged, MR !1) ← feat/b (open MR !2) ← feat/c (local-only). */
   function stackUnderMergedParent(): Stack {
     let stack = StackManager.createStack('auth', 'main');
