@@ -9,18 +9,17 @@ mock.restore();
 // ── Ambiguity fixture ────────────────────────────────────────────────────────
 
 /**
- * Grow the repo until some four-hex prefix is shared, which is the only way to
- * exercise `--disambiguate` (it refuses anything shorter). 1600 commits, each
- * writing a distinct file, gives 1600 commits and 1600 blobs over 65536
- * possible prefixes: a commit-commit collision is a near certainty and blob
- * collisions come in bulk. fast-import builds them in one process, in about a
- * second; 1600 `git commit` spawns would not fit the timeout.
+ * Add `count` commits, each writing a distinct file, so the repo gains that
+ * many commits and blobs. `round` keeps the content unique across calls.
+ *
+ * fast-import builds them in one process, about a second for a thousand; that
+ * many `git commit` spawns would not fit the timeout.
  */
-function importCollisionObjects(repo: SandboxRepo, count: number): void {
+function importCollisionObjects(repo: SandboxRepo, count: number, round: number): void {
   const stream: string[] = [];
   for (let i = 1; i <= count; i++) {
-    const message = `collision commit ${i}`;
-    const content = `collision content ${i}`;
+    const message = `collision commit ${round}.${i}`;
+    const content = `collision content ${round}.${i}`;
     stream.push(
       'commit refs/heads/collide',
       `committer GitQ Test <test@gitq.dev> ${1700000000 + i} +0000`,
@@ -58,6 +57,20 @@ let commitCollision: { prefix: string; shas: string[] };
 /** A four-hex prefix only blobs answer to. */
 let blobCollision: { prefix: string; shas: string[] };
 
+/** Look for the two prefixes the ambiguity tests need among what exists now. */
+function findCollisions(): void {
+  for (const [prefix, objects] of objectsByPrefix(repo)) {
+    const commits = objects.filter((o) => o.type === 'commit');
+    const blobs = objects.filter((o) => o.type === 'blob');
+    if (!commitCollision && commits.length >= 2) {
+      commitCollision = { prefix, shas: commits.map((c) => c.sha).sort() };
+    }
+    if (!blobCollision && blobs.length >= 2 && commits.length === 0) {
+      blobCollision = { prefix, shas: blobs.map((b) => b.sha).sort() };
+    }
+  }
+}
+
 beforeAll(async () => {
   repo = await createSandboxRepo();
   repo.git('checkout', '-b', 'feat/resolve');
@@ -67,18 +80,17 @@ beforeAll(async () => {
   blobSha = repo.git('rev-parse', 'HEAD:b.txt');
   repo.git('checkout', 'main');
 
-  importCollisionObjects(repo, 1600);
-
-  const buckets = objectsByPrefix(repo);
-  for (const [prefix, objects] of buckets) {
-    const commits = objects.filter((o) => o.type === 'commit');
-    const blobs = objects.filter((o) => o.type === 'blob');
-    if (!commitCollision && commits.length >= 2) {
-      commitCollision = { prefix, shas: commits.map((c) => c.sha).sort() };
-    }
-    if (!blobCollision && blobs.length >= 2 && commits.length === 0) {
-      blobCollision = { prefix, shas: blobs.map((b) => b.sha).sort() };
-    }
+  // A real collision is the only way to exercise `--disambiguate`, which
+  // refuses prefixes under four digits. 700 objects of each kind over 65536
+  // prefixes usually collides on the first round; three rounds is a bound, not
+  // an expectation (2100 of each leaves a one-in-thirty-million chance of no
+  // commit pair).
+  for (let round = 1; round <= 3 && !(commitCollision && blobCollision); round++) {
+    importCollisionObjects(repo, 700, round);
+    findCollisions();
+  }
+  if (!commitCollision || !blobCollision) {
+    throw new Error('no four-hex collision after 2100 commits and blobs');
   }
 });
 
