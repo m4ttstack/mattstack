@@ -23,7 +23,7 @@ gitq import [--replace]
 
 ## Behavior
 
-Fetches every open MR, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it finds (`ForgeSync.importFromForge`, `src/core/forge-sync.ts:221-250`). It is the reverse of `publish`: forge state becomes the source of truth instead of the local store.
+Fetches the open MRs of **this project only**, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it finds (`ForgeSync.importFromForge`, `src/core/forge-sync.ts:243-272`). The project is the one your `origin` remote points at, and an MR is kept only when its own web URL resolves to that same project (`filterPRsToProject`, `src/core/forge-helpers.ts:94-100`), so a branch of the same name in another project on the same GitLab instance can no longer be spliced into a discovered stack. It is the reverse of `publish`: forge state becomes the source of truth instead of the local store.
 
 The guards run in this order, and the second one is checked **before** the token, on purpose, so the refusal works offline:
 
@@ -31,7 +31,7 @@ The guards run in this order, and the second one is checked **before** the token
 2. **A non-empty local store, without `--replace`,** refuses before the token or the network are touched: `import would discard <N> locally tracked stack(s) and re-mint stack ids; pass --replace to overwrite the local store` (`src/cli/commands/forge.ts:105-112`).
 3. Only then is the GitLab provider built, where the missing-token refusal happens: `no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:31-35`).
 
-**Re-mints every stack id, every time.** Each stack `import` creates gets a fresh `crypto.randomUUID()` (`StackManager.createStack`, `src/core/stack-manager.ts:42-44`), with no relationship to whatever id the same-looking stack had before, even importing back the exact MRs just published. The stack name shown in `gitq stacks` is a readable slug derived from the tip branch's MR title (`deriveStackId`, `src/core/forge-sync.ts:476-500`), which can look stable across two imports, but the underlying `id` never is. Anything keyed to the old id, most importantly any `gitq undo` history for operations logged before the import, stops resolving to a current stack the moment `--replace` runs.
+**Re-mints every stack id, every time.** Each stack `import` creates gets a fresh `crypto.randomUUID()` (`StackManager.createStack`, `src/core/stack-manager.ts:42-44`), with no relationship to whatever id the same-looking stack had before, even importing back the exact MRs just published. The stack name shown in `gitq stacks` is a readable slug derived from the tip branch's MR title (`deriveStackId`, `src/core/forge-sync.ts:563-589`), which can look stable across two imports, but the underlying `id` never is. Anything keyed to the old id, most importantly any `gitq undo` history for operations logged before the import, stops resolving to a current stack the moment `--replace` runs.
 
 With `--replace` and no leases active, the whole store is replaced, not merged with anything written concurrently (`updateStore(ctx.repoRoot, () => store)`, `src/cli/commands/forge.ts:117-123`). Prints `imported <N> stack(s)` and exits `0`.
 

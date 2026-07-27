@@ -109,7 +109,7 @@ Retargeting changes what the MR merges into. It does not update what the MR cont
 
 ## `import --replace`: recovery, not routine {#import-replace}
 
-`gitq import` rebuilds the local store from GitLab directly: it fetches every open MR, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it found. It is the reverse of `publish` (forge state becomes the source of truth instead of the local store), and it exists for one situation: **your local store is gone or wrong, and GitLab still has the truth.**
+`gitq import` rebuilds the local store from GitLab directly: it fetches the open MRs of this project, the one your `origin` remote points at, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it found. MRs in other projects on the same GitLab instance are filtered out before the walk, so an identically named branch elsewhere cannot end up in a discovered stack. It is the reverse of `publish` (forge state becomes the source of truth instead of the local store), and it exists for one situation: **your local store is gone or wrong, and GitLab still has the truth.**
 
 It refuses to run over a non-empty store without `--replace`:
 

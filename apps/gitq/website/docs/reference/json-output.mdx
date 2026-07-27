@@ -292,7 +292,7 @@ None of these five were run live for this page; each shape below is the exact ty
 
 Neither was run for this page: both talk to the real GitLab API, which this project's isolation rules keep off limits. Shapes below are from source.
 
-`publish` (`src/cli/commands/forge.ts:60-93`) emits `{ results, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:37-43`): `{ branch, success, mrIid?, mrUrl?, error? }`.
+`publish` (`src/cli/commands/forge.ts:60-93`) emits `{ results, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:43-55`): `{ branch, success, mrIid?, mrUrl?, error? }`.
 
 `import` (`src/cli/commands/forge.ts:95-127`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
 
