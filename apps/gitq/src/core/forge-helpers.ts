@@ -18,13 +18,17 @@ export function indexBySource(prs: PullRequest[]): Map<string, PullRequest> {
 
 // ── Repo scoping ─────────────────────────────────────────────────────────────
 
-/** Case and suffix folding so "ACME/Web.git" and "acme/web" are one project. */
-function normalizeProjectPath(projectPath: string): string {
+/** Strip the decorations a project path picks up in a URL: slashes, `.git`. */
+function cleanProjectPath(projectPath: string): string {
   return projectPath
     .trim()
     .replace(/^\/+|\/+$/g, '')
-    .replace(/\.git$/, '')
-    .toLowerCase();
+    .replace(/\.git$/, '');
+}
+
+/** Both forges resolve project paths case-insensitively, so comparisons do too. */
+function sameProject(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /**
@@ -40,7 +44,7 @@ export function projectPathFromRemoteUrl(remoteUrl: string): string | null {
   const sshMatch = remoteUrl.match(/:([^/].*?)(?:\.git)?$/);
   const raw = sshMatch?.[1] && remoteUrl.includes('@') ? sshMatch[1] : readUrlPath(remoteUrl);
   if (raw === null) return null;
-  const path = normalizeProjectPath(raw);
+  const path = cleanProjectPath(raw);
   return path === '' ? null : path;
 }
 
@@ -64,12 +68,12 @@ export function projectPathFromWebUrl(webUrl: string | null): string | null {
     const parts = new URL(webUrl).pathname.split('/').filter(Boolean);
 
     const dashIdx = parts.indexOf('-');
-    if (dashIdx >= 2) return normalizeProjectPath(parts.slice(0, dashIdx).join('/'));
+    if (dashIdx >= 2) return cleanProjectPath(parts.slice(0, dashIdx).join('/'));
 
     const pullIdx = parts.indexOf('pull');
-    if (pullIdx >= 2) return normalizeProjectPath(parts.slice(0, pullIdx).join('/'));
+    if (pullIdx >= 2) return cleanProjectPath(parts.slice(0, pullIdx).join('/'));
 
-    if (parts.length >= 2) return normalizeProjectPath(`${parts[0]}/${parts[1]}`);
+    if (parts.length >= 2) return cleanProjectPath(`${parts[0]}/${parts[1]}`);
   } catch {
     // Invalid URL
   }
@@ -86,8 +90,11 @@ export function projectPathFromWebUrl(webUrl: string | null): string | null {
  * belongs to this repo.
  */
 export function filterPRsToProject(prs: PullRequest[], projectPath: string): PullRequest[] {
-  const wanted = normalizeProjectPath(projectPath);
-  return prs.filter((pr) => projectPathFromWebUrl(pr.webUrl) === wanted);
+  const wanted = cleanProjectPath(projectPath);
+  return prs.filter((pr) => {
+    const prProject = projectPathFromWebUrl(pr.webUrl);
+    return prProject !== null && sameProject(prProject, wanted);
+  });
 }
 
 /**
