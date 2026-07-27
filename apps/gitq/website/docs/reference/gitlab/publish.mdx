@@ -22,20 +22,20 @@ gitq publish [--stack <name>] [--mr-meta <path>]
 
 ## Behavior
 
-**`publish` creates MRs and updates existing ones.** It walks the stack in topological order and does one of two things per node (`ForgeSync.publishStack`, `src/core/forge-sync.ts:288-409`):
+**`publish` creates MRs and updates existing ones.** It walks the stack in topological order and does one of two things per node (`ForgeSync.publishStack`, `src/core/forge-sync.ts:323-444`):
 
-- A node whose `status` is `local-only` **and** whose `mrIid` is still `null` is **created**: pushed, then opened as a draft MR against its parent (`src/core/forge-sync.ts:313-361`).
-- A node that already has an open MR is **updated**: the MR is retargeted when the node's parent in the local tree no longer matches what the MR targets on GitLab, and its title and description are rewritten when `--mr-meta` names that branch. The branch itself is **not** pushed (`src/core/forge-sync.ts:363-405`).
+- A node whose `status` is `local-only` **and** whose `mrIid` is still `null` is **created**: pushed, then opened as a draft MR against its parent (`src/core/forge-sync.ts:348-396`).
+- A node that already has an open MR is **updated**: the MR is retargeted when the node's parent in the local tree no longer matches what the MR targets on GitLab, and its title and description are rewritten when `--mr-meta` names that branch. The branch itself is **not** pushed (`src/core/forge-sync.ts:398-440`).
 
-A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:417-427`), the same function you can call on a single branch.
+A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:452-462`), the same function you can call on a single branch.
 
 Order of checks, before any network call:
 
 1. **`--mr-meta` is parsed and validated first**, before the store or stack are even touched, so a malformed file fails the same way regardless of stack state or token presence (`src/cli/commands/forge.ts:83-91`).
 2. The store loads, the stack resolves, and the stack lease is checked.
-3. Only then is the GitLab provider built, which is where the missing-token refusal happens (`createGitLabProvider`, `src/cli/provider.ts:31-35`): `no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)`.
+3. Only then is the GitLab provider built, which is where the missing-token refusal happens (`createGitLabProvider`, `src/cli/provider.ts:33-37`): `no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)`.
 
-Then, before the walk, one read: the MRs of every already-published node, batch-fetched by iid (`fetchPullRequests({ iids, projectPath })`, `src/core/forge-sync.ts:298-305`). An MR's current target is the only way to tell a retarget from a no-op, so publish asks the forge rather than trusting the local `status`. A stack with nothing published yet skips this read entirely, and a failure here fails the whole command before anything is pushed. An MR that comes back merged or closed, or that does not come back at all, is skipped: publish only touches open MRs it could actually read.
+Then, before the walk, one read: the MRs of every already-published node, batch-fetched by iid (`fetchPullRequests({ iids, projectPath })`, `src/core/forge-sync.ts:333-340`). An MR's current target is the only way to tell a retarget from a no-op, so publish asks the forge rather than trusting the local `status`. A stack with nothing published yet skips this read entirely, and a failure here fails the whole command before anything is pushed. An MR that comes back merged or closed, or that does not come back at all, is skipped: publish only touches open MRs it could actually read.
 
 For each branch it **creates**, in topological (parent-before-child) order:
 
