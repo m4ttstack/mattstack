@@ -223,10 +223,14 @@ describe.skipIf(!GITLAB_TOKEN || !GITLAB_PROJECT_PATH)('GitLab forge write cycle
     expect(imported).toContain(b1);
     expect(imported).toContain(b2);
 
-    // Every MR that survived the scope belongs to this project.
+    // Every MR that survived the scope belongs to this project. Compared
+    // case-insensitively, as the scope itself is: GitLab resolves project
+    // paths that way, so the canonical web url may differ in case from the
+    // path the environment named.
+    const wanted = `/${GITLAB_PROJECT_PATH!.toLowerCase()}/`;
     for (const stack of store.stacks) {
       for (const node of stack.nodes) {
-        if (node.mrUrl) expect(node.mrUrl).toContain(`/${GITLAB_PROJECT_PATH}/`);
+        if (node.mrUrl) expect(node.mrUrl.toLowerCase()).toContain(wanted);
       }
     }
   });

@@ -70,8 +70,9 @@ function sameProject(a: ProjectScope, b: ProjectScope): boolean {
  * SSH: "git@gitlab.com:group/project.git" -> "group/project"
  * HTTPS: "https://gitlab.com/group/project.git" -> "group/project"
  *
- * Returns null when no path can be read, which callers treat as "unknown
- * scope" rather than "matches nothing".
+ * Returns null when no path can be read. What that means is the caller's to
+ * decide: discovery reads it as "no scope" and lists everything, `import`
+ * refuses rather than rebuild a store from another project's MRs.
  */
 export function projectPathFromRemoteUrl(remoteUrl: string): string | null {
   return projectScopeFromRemoteUrl(remoteUrl)?.path ?? null;
@@ -149,10 +150,7 @@ export function projectScopeFromWebUrl(webUrl: string | null): ProjectScope | nu
  * belongs to this repo.
  */
 export function filterPRsToProject(prs: PullRequest[], wanted: string | ProjectScope): PullRequest[] {
-  const target =
-    typeof wanted === 'string'
-      ? scope(null, wanted)
-      : scope(wanted.host, wanted.path);
+  const target = typeof wanted === 'string' ? scope(null, wanted) : scope(wanted.host, wanted.path);
   if (target === null) return [];
 
   return prs.filter((pr) => {
