@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
+import type { ChangedFiles } from './git-shell.ts';
 import { RebaseEngine, finalizeBranchRef } from './rebase-engine.ts';
 import type { CascadeResult, RebaseResult } from './rebase-engine.ts';
 import { toErrorMessage } from './error-utils.ts';
@@ -126,6 +127,81 @@ async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> 
   return { attributed: Object.fromEntries(byBranch), unattributed, currentBranch };
 }
 
+// ── Worktree Snapshots ───────────────────────────────────────────────────────
+
+/**
+ * What the working tree held for one path, captured before the stash.
+ * `deleted` is a state git reported, not one absorb inferred from a file it
+ * failed to read.
+ */
+type EntrySnapshot =
+  | { kind: 'file'; content: Buffer }
+  | { kind: 'deleted' };
+
+/** Capture one working-tree entry. */
+async function snapshotEntry(cwd: string, file: string, isDeleted: boolean): Promise<EntrySnapshot> {
+  const filePath = join(cwd, file);
+
+  try {
+    return { kind: 'file', content: await readFile(filePath) };
+  } catch (err) {
+    // Nothing there. That is the whole story only when git also says the
+    // change was a deletion; otherwise the path did not survive the trip from
+    // git's listing to the filesystem and absorb must not guess which.
+    if (isDeleted) return { kind: 'deleted' };
+    throw new Error(toErrorMessage(err));
+  }
+}
+
+/**
+ * Capture the working-tree entry of every changed file.
+ *
+ * Throws instead of skipping a file it cannot read, and does it BEFORE the
+ * stash exists. Past that point `git stash push -u` takes the file out of the
+ * tree and the drop at the end destroys the stash's copy, so a snapshot that
+ * quietly came back empty is a file with no copy left anywhere.
+ */
+async function snapshotChanges(
+  cwd: string,
+  files: string[],
+  changed: ChangedFiles,
+): Promise<Map<string, EntrySnapshot>> {
+  const deleted = new Set(changed.deleted ?? []);
+  const entries = new Map<string, EntrySnapshot>();
+  const unreadable: string[] = [];
+
+  for (const file of files) {
+    try {
+      entries.set(file, await snapshotEntry(cwd, file, deleted.has(file)));
+    } catch (err) {
+      unreadable.push(`${file} (${toErrorMessage(err)})`);
+    }
+  }
+
+  if (unreadable.length > 0) {
+    throw new Error(
+      `absorb refused to start: ${unreadable.length} changed file(s) could not be read, ` +
+        `and stashing would leave them nowhere to come back from: ${unreadable.join('; ')}. ` +
+        'Nothing was stashed, committed, or removed.',
+    );
+  }
+
+  return entries;
+}
+
+/** Write one snapshotted entry back into the working tree. */
+async function writeEntry(cwd: string, file: string, entry: EntrySnapshot): Promise<void> {
+  const filePath = join(cwd, file);
+
+  if (entry.kind === 'deleted') {
+    await rm(filePath, { force: true });
+    return;
+  }
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, entry.content);
+}
+
 /**
  * Put the files absorb refused to attribute back in the worktree. The stash
  * took the whole tree, so without this they would disappear along with the
@@ -137,23 +213,16 @@ async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> 
 async function restoreUnattributed(
   cwd: string,
   files: string[],
-  contents: Map<string, Buffer>,
+  snapshots: Map<string, EntrySnapshot>,
   wasStaged: Set<string>,
 ): Promise<void> {
   const restage: string[] = [];
 
   for (const file of files) {
-    const filePath = join(cwd, file);
+    const entry = snapshots.get(file);
+    if (!entry) continue;
     try {
-      const content = contents.get(file);
-      if (content) {
-        await mkdir(dirname(filePath), { recursive: true });
-        await writeFile(filePath, content);
-      } else {
-        // Unreadable before the stash means the change was a deletion, and
-        // the stash put the file back. Delete it again.
-        await rm(filePath, { force: true });
-      }
+      await writeEntry(cwd, file, entry);
       if (wasStaged.has(file)) restage.push(file);
     } catch { /* best-effort restore */ }
   }
@@ -202,17 +271,12 @@ async function absorb(
     return { absorbed: false, reason: 'nothing-attributable', attributions: [], unattributed };
   }
 
-  // Save file contents to memory before stashing — avoids stash^3 issues
+  // Snapshot the worktree entries before stashing — avoids stash^3 issues
   // with untracked files and is more robust than git checkout stash. The
-  // unattributed ones are snapshotted too: the stash takes the whole tree,
-  // so this is what puts them back afterwards.
-  const fileContents = new Map<string, Buffer>();
-  for (const file of allChanged) {
-    try {
-      const content = await readFile(join(cwd, file));
-      fileContents.set(file, content);
-    } catch { /* best-effort read */ }
-  }
+  // unattributed ones are snapshotted too, index state and all: the stash
+  // takes the whole tree, so this is what puts them back afterwards.
+  // Throws (before anything is stashed) if a changed file cannot be read.
+  const snapshots = await snapshotChanges(cwd, allChanged, changedResult);
   const stagedBeforeAbsorb = new Set(changedResult.staged);
 
   // Snapshot all branch HEADs BEFORE amending — needed for tombstone cascade.
@@ -244,12 +308,9 @@ async function absorb(
       await GitShell.checkoutBranch(cwd, branch);
 
       for (const file of files) {
-        const content = fileContents.get(file);
-        if (content) {
-          const filePath = join(cwd, file);
-          await mkdir(dirname(filePath), { recursive: true });
-          await writeFile(filePath, content);
-        }
+        const snapshot = snapshots.get(file);
+        // Same writer the restore uses, so an absorbed deletion stays one.
+        if (snapshot) await writeEntry(cwd, file, snapshot);
       }
 
       await GitShell.add(cwd, files);
@@ -301,7 +362,7 @@ async function absorb(
   } finally {
     // Unconditional: a restack that blows up must not take the human's
     // unattributed work with it, since the stash holding it is already gone.
-    await restoreUnattributed(cwd, unattributed, fileContents, stagedBeforeAbsorb);
+    await restoreUnattributed(cwd, unattributed, snapshots, stagedBeforeAbsorb);
   }
 
   const result: AbsorbResult = { absorbed: true, attributions, unattributed, updatedStack };

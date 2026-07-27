@@ -36,6 +36,20 @@ function git(args: string[], cwd: string): Promise<ExecResult> {
   });
 }
 
+/**
+ * Split the output of a `-z` git listing into paths.
+ *
+ * Every path-listing command git has quotes "unusual" paths by default:
+ * `core.quotePath` (on by default) C-quotes non-ASCII bytes, and quotes,
+ * backslashes and control characters are quoted whatever that setting says.
+ * A quoted path is not a path — `join(cwd, '"caf\\303\\251.txt"')` addresses
+ * a file that does not exist. `-z` output is NUL-separated and never quoted,
+ * so this is the only listing form callers can hand to the filesystem.
+ */
+function splitNulPaths(stdout: string): string[] {
+  return stdout ? stdout.split('\0').filter(Boolean) : [];
+}
+
 /** Parse CONFLICT lines from merge-tree stdout into structured entries. */
 function parseMergeTreeConflicts(output: string): { file: string; kind: string }[] {
   const conflicts: { file: string; kind: string }[] = [];
@@ -70,6 +84,18 @@ export interface WorktreeEntry {
   branch: string | null;
   bare: boolean;
   locked: boolean;
+}
+
+/** The working tree's changed paths, as raw (never quoted) paths. */
+export interface ChangedFiles {
+  /** Differs between the working tree and the index. */
+  modified: string[];
+  /** Differs between the index and HEAD. */
+  staged: string[];
+  /** Not tracked and not ignored. */
+  untracked: string[];
+  /** The paths above git reports as deletions, staged or not. */
+  deleted: string[];
 }
 
 /** Outcome of resolving a caller-supplied revision to a commit sha. */
@@ -535,10 +561,14 @@ export const GitShell = {
     await git(['branch', '-m', oldName, newName], cwd);
   },
 
-  /** List files changed between two refs. */
+  /**
+   * List files changed between two refs. `-z` so the paths come back raw:
+   * absorb compares these against {@link getChangedFiles}, and one side
+   * quoting `café.txt` while the other does not is a silent mis-attribution.
+   */
   async getFilesChangedInRange(cwd: string, fromRef: string, toRef: string): Promise<string[]> {
-    const { stdout } = await git(['diff', '--name-only', fromRef, toRef], cwd);
-    return stdout ? stdout.split('\n').filter(Boolean) : [];
+    const { stdout } = await git(['diff', '--name-only', '-z', fromRef, toRef], cwd);
+    return splitNulPaths(stdout);
   },
 
   /** Stash all changes (including untracked files). */
@@ -566,17 +596,35 @@ export const GitShell = {
     await git(['commit', '--amend', '--no-edit', '--allow-empty'], cwd);
   },
 
-  /** Get all changed files: modified (unstaged) + staged + untracked. */
-  async getChangedFiles(cwd: string): Promise<{ modified: string[]; staged: string[]; untracked: string[] }> {
-    const [modResult, stagedResult, untrackedResult] = await Promise.all([
-      git(['diff', '--name-only'], cwd),
-      git(['diff', '--name-only', '--cached'], cwd),
-      git(['ls-files', '--others', '--exclude-standard'], cwd),
+  /**
+   * Get all changed files: modified (unstaged) + staged + untracked, plus the
+   * subset git reports as deleted (`deleted` is a view over the other two
+   * lists, not a fourth disjoint set).
+   *
+   * Every listing runs with `-z`. Without it git hands back C-quoted paths for
+   * anything non-ASCII or containing quotes, backslashes or control
+   * characters, and a caller that hands that string to the filesystem misses
+   * the file entirely — see {@link splitNulPaths}.
+   *
+   * `deleted` exists so a caller can tell "this file is gone because the user
+   * deleted it" from "this file could not be read", which are the same
+   * observation from the filesystem and opposite instructions for a restore.
+   */
+  async getChangedFiles(cwd: string): Promise<ChangedFiles> {
+    const [modResult, stagedResult, untrackedResult, delResult, delStagedResult] = await Promise.all([
+      git(['diff', '--name-only', '-z'], cwd),
+      git(['diff', '--name-only', '-z', '--cached'], cwd),
+      git(['ls-files', '--others', '--exclude-standard', '-z'], cwd),
+      git(['diff', '--name-only', '-z', '--diff-filter=D'], cwd),
+      git(['diff', '--name-only', '-z', '--cached', '--diff-filter=D'], cwd),
     ]);
     return {
-      modified: modResult.stdout ? modResult.stdout.split('\n').filter(Boolean) : [],
-      staged: stagedResult.stdout ? stagedResult.stdout.split('\n').filter(Boolean) : [],
-      untracked: untrackedResult.stdout ? untrackedResult.stdout.split('\n').filter(Boolean) : [],
+      modified: splitNulPaths(modResult.stdout),
+      staged: splitNulPaths(stagedResult.stdout),
+      untracked: splitNulPaths(untrackedResult.stdout),
+      deleted: [
+        ...new Set([...splitNulPaths(delResult.stdout), ...splitNulPaths(delStagedResult.stdout)]),
+      ],
     };
   },
 

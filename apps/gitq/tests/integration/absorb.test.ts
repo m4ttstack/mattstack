@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile, readFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createSandboxRepo, cleanupRepo, commit } from './helpers.ts';
 import type { SandboxRepo } from './helpers.ts';
@@ -175,6 +176,103 @@ describe('Absorb integration', () => {
     expect(result.unattributed).toEqual(['newfile.md']);
     expect(git('rev-parse', 'main')).toBe(mainBefore);
     expect(git('status', '--short')).toBe('?? newfile.md');
+  });
+
+  // ── Paths git quotes ───────────────────────────────────────────────────────
+  //
+  // `git status`/`diff`/`ls-files` C-quote any path they consider unusual, so
+  // `café.txt` comes back as `"caf\303\251.txt"`. Hand that string to the
+  // filesystem and you address a file that does not exist — which, for a file
+  // absorb is about to stash and then restore from a snapshot, is the
+  // difference between a round trip and a deletion with no copy left.
+
+  test('an unattributed file whose path git quotes survives the round trip', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+    await writeFile(join(dir, 'café.txt'), 'unicode notes\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.absorbed).toBe(true);
+    expect(result.unattributed).toEqual(['café.txt']);
+    expect(result.attributions.map((a) => a.branch)).toEqual(['branch-1']);
+
+    // Still there, byte-identical, still untracked — and not in any commit.
+    expect(await readFile(join(dir, 'café.txt'), 'utf-8')).toBe('unicode notes\n');
+    expect(git('status', '--short')).toBe('?? "caf\\303\\251.txt"');
+    expect(git('log', '--all', '--oneline', '--name-only')).not.toContain('caf');
+  });
+
+  test('an unattributed file with quotes and spaces in its name survives', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    const awkward = 'a "quoted" name.txt';
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+    await writeFile(join(dir, awkward), 'awkward\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed).toEqual([awkward]);
+    expect(await readFile(join(dir, awkward), 'utf-8')).toBe('awkward\n');
+  });
+
+  test('a non-ASCII path a branch owns is attributed to that branch, not left over', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+
+    // Attribution compares the changed-file listing against each branch's own
+    // diff. Both sides have to spell the path the same way or a file a branch
+    // plainly owns silently comes back unattributed.
+    let stack = StackManager.createStack('unicode-test', 'main');
+    git('checkout', '-b', 'uni-1');
+    const sha1 = await commit(dir, git, 'café.ts', 'export const cafe = 1;\n', 'uni-1: add café.ts');
+    stack = StackManager.addNode(stack, 'uni-1', 'main');
+    stack = StackManager.updateNode(stack, 'uni-1', { lastKnownHead: sha1 });
+
+    git('checkout', '-b', 'uni-2');
+    const sha2 = await commit(dir, git, 'other.ts', 'export const other = 1;\n', 'uni-2: add other.ts');
+    stack = StackManager.addNode(stack, 'uni-2', 'uni-1');
+    stack = StackManager.updateNode(stack, 'uni-2', { lastKnownHead: sha2 });
+
+    await writeFile(join(dir, 'café.ts'), 'export const cafe = 2;\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed).toEqual([]);
+    expect(result.attributions[0]!.branch).toBe('uni-1');
+    expect(result.attributions[0]!.files).toEqual(['café.ts']);
+    expect(git('show', 'uni-1:café.ts')).toContain('cafe = 2');
+  });
+
+  test('a genuinely deleted unattributed file stays deleted', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    // README.md came from main, so no stack branch's commits own it.
+    await rm(join(dir, 'README.md'));
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.absorbed).toBe(true);
+    expect(result.unattributed).toEqual(['README.md']);
+    expect(existsSync(join(dir, 'README.md'))).toBe(false);
+    // The helper trims, so this is the ` D README.md` of a worktree deletion.
+    expect(git('status', '--short')).toBe('D README.md');
+    // The deletion is still just a worktree state, not a commit.
+    expect(git('show', 'branch-3:README.md')).toBe('# Test Repo');
   });
 
   test('fan-out attribution: sibling branches get correct files', async () => {
