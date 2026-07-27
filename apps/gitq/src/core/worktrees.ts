@@ -1,7 +1,6 @@
 import { basename, dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import { GitShell } from './git-shell.ts';
-import { getSettingsFilePath, repoHash } from './config-paths.ts';
+import { getSettingsFilePath, getWorkSlotRoot, repoHash } from './config-paths.ts';
 import { readJson } from './json-store.ts';
 
 export interface SlotInfo {
@@ -48,7 +47,7 @@ export function findSlotForBranch(map: SlotInfo[], branch: string): SlotInfo | u
 /**
  * Where work slots live for this repo: a sibling of the primary worktree when
  * the repo is a pool (some other worktree shares the primary's parent dir),
- * else an out-of-tree cache dir.
+ * else an out-of-tree dir under the configured work-slot root.
  */
 export function workSlotRoot(commonDir: string, map: SlotInfo[]): string {
   const primary = map.find((s) => s.isPrimary);
@@ -57,7 +56,7 @@ export function workSlotRoot(commonDir: string, map: SlotInfo[]): string {
     const pooled = map.some((s) => !s.isPrimary && !s.isWorkSlot && dirname(s.path) === parent);
     if (pooled) return parent;
   }
-  return join(homedir(), '.cache', 'gitq', 'work', repoHash(commonDir));
+  return join(getWorkSlotRoot(), repoHash(commonDir));
 }
 
 /**

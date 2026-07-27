@@ -27,7 +27,9 @@ Slots live in one of two places:
 | Situation | Where slots are created |
 | --- | --- |
 | The repo is a **pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, in that same parent directory. A pool at `~/repos/myrepo/{main,feature-a}` gets `~/repos/myrepo/gitq-1`. |
-| Anything else, including a plain single-worktree clone | `~/.cache/gitq/work/<hash>/gitq-1`, where `<hash>` is the first 16 hex characters of the SHA-256 of the repo's git common dir. |
+| Anything else, including a plain single-worktree clone | `<work-slot root>/<hash>/gitq-1`, where `<hash>` is the first 16 hex characters of the SHA-256 of the repo's git common dir. The root is `~/.cache/gitq/work` by default. |
+
+The work-slot root follows gitq's config directory: set `GITQ_CONFIG_DIR` and slots are created under `$GITQ_CONFIG_DIR/work/<hash>/` instead (`getWorkSlotRoot`, `src/core/config-paths.ts:52-54`). One variable moves the whole footprint, so a throwaway `GITQ_CONFIG_DIR` really is throwaway: it sandboxes the git worktrees gitq creates, not just the stack store. Leave the variable unset and the root stays at `~/.cache/gitq/work`, out of the config directory, exactly where it has always been, so slots you already have leased are still found. See [Configuration](/reference/configuration).
 
 Slots are created on demand and reused forever after. gitq looks for an existing slot that is free (detached, not mid-rebase, not leased) and takes it; if there is none, it creates the lowest unused `gitq-<n>` with `git worktree add --detach`.
 
@@ -35,7 +37,7 @@ They are disposable. If you ever want them gone, finish or abort everything firs
 
 :::note Slots outlive the repo directory
 
-A slot under `~/.cache/gitq/work/` is not inside your repo, so deleting the repo directory does not delete the slot. Recreate a repo at the same path later and the stale slot is still there, and the next cascade fails with a raw `fatal: '.../gitq-1' already exists` from git. Remove the cache directory too.
+A slot under the work-slot root (`~/.cache/gitq/work/` by default) is not inside your repo, so deleting the repo directory does not delete the slot. Recreate a repo at the same path later and the stale slot is still there, and the next cascade fails with a raw `fatal: '.../gitq-1' already exists` from git. Remove that directory too.
 
 :::
 
