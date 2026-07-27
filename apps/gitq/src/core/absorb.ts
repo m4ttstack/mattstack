@@ -300,7 +300,7 @@ async function absorb(
     }
   } finally {
     // Unconditional: a restack that blows up must not take the human's
-    // unattributed work with it — the stash holding it is already dropped.
+    // unattributed work with it, since the stash holding it is already gone.
     await restoreUnattributed(cwd, unattributed, fileContents, stagedBeforeAbsorb);
   }
 
