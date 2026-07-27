@@ -7,12 +7,14 @@ import {
   getReposFilePath,
   getOperationLogFilePath,
   getWorkSlotRoot,
-  GITQ_CONFIG_DIR,
 } from '../src/core/config-paths.ts';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
+import { realpathSync } from 'node:fs';
 
 const CONFIG_PATHS_MODULE = join(import.meta.dir, '..', 'src', 'core', 'config-paths.ts');
+const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'gitq');
+const DEFAULT_WORK_SLOT_ROOT = join(homedir(), '.cache', 'gitq', 'work');
 
 const originalConfigDir = getConfigDir();
 
@@ -20,11 +22,28 @@ afterEach(() => {
   setConfigDir(originalConfigDir);
 });
 
-describe('config-paths', () => {
-  test('GITQ_CONFIG_DIR is the default ~/.config/gitq path', () => {
-    expect(GITQ_CONFIG_DIR).toBe(join(homedir(), '.config', 'gitq'));
-  });
+/**
+ * Read the env-derived paths in a fresh process. `GITQ_CONFIG_DIR` is read once
+ * at module load, and running the suite itself with the variable exported to a
+ * scratch dir is the documented safe way to run it, so nothing here may assert
+ * on this process's own view of the environment.
+ */
+function readPathsWith(
+  configDirEnv: string | undefined,
+  cwd?: string,
+): { configDir: string; workSlotRoot: string; exported: string } {
+  const env: Record<string, string | undefined> = { ...process.env };
+  if (configDirEnv === undefined) delete env.GITQ_CONFIG_DIR;
+  else env.GITQ_CONFIG_DIR = configDirEnv;
+  const script =
+    `import * as cfg from ${JSON.stringify(CONFIG_PATHS_MODULE)};\n` +
+    'console.log(JSON.stringify({ configDir: cfg.getConfigDir(), workSlotRoot: cfg.getWorkSlotRoot(), exported: cfg.GITQ_CONFIG_DIR }));';
+  const proc = Bun.spawnSync(['bun', '-e', script], cwd === undefined ? { env } : { env, cwd });
+  expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+  return JSON.parse(proc.stdout.toString());
+}
 
+describe('config-paths', () => {
   test('setConfigDir / getConfigDir round-trips', () => {
     setConfigDir('/tmp/test-config');
     expect(getConfigDir()).toBe('/tmp/test-config');
@@ -51,7 +70,10 @@ describe('config-paths', () => {
   });
 
   test('getWorkSlotRoot is the ~/.cache/gitq/work path when the config dir is the default', () => {
-    expect(getWorkSlotRoot()).toBe(join(homedir(), '.cache', 'gitq', 'work'));
+    // Set explicitly rather than relying on the ambient default: the suite is
+    // meant to be runnable with GITQ_CONFIG_DIR exported to a scratch dir.
+    setConfigDir(DEFAULT_CONFIG_DIR);
+    expect(getWorkSlotRoot()).toBe(DEFAULT_WORK_SLOT_ROOT);
   });
 
   test('getWorkSlotRoot derives from an overridden config dir', () => {
@@ -59,24 +81,53 @@ describe('config-paths', () => {
     expect(getWorkSlotRoot()).toBe(join('/tmp/test-config', 'work'));
   });
 
-  // The env var is read once at module load, so the only honest test of it is a
-  // fresh process. Work slots are real git worktrees: if this regresses, setting
-  // GITQ_CONFIG_DIR no longer sandboxes what gitq writes to disk.
-  test('GITQ_CONFIG_DIR moves the work-slot root out of the real cache dir', () => {
-    const read = (env: Record<string, string | undefined>) => {
-      const proc = Bun.spawnSync(
-        ['bun', '-e', `import { getWorkSlotRoot } from ${JSON.stringify(CONFIG_PATHS_MODULE)}; console.log(getWorkSlotRoot());`],
-        { env },
-      );
-      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
-      return proc.stdout.toString().trim();
-    };
+  // The default is matched by value, so an unnormalized spelling of the same
+  // directory must not silently move the root somewhere else.
+  test('getWorkSlotRoot normalizes both sides before matching the default', () => {
+    setConfigDir(`${DEFAULT_CONFIG_DIR}/`);
+    expect(getWorkSlotRoot()).toBe(DEFAULT_WORK_SLOT_ROOT);
+    setConfigDir(`${DEFAULT_CONFIG_DIR}/./`);
+    expect(getWorkSlotRoot()).toBe(DEFAULT_WORK_SLOT_ROOT);
+  });
 
-    expect(read({ ...process.env, GITQ_CONFIG_DIR: '/tmp/gitq-sandbox-config' })).toBe(
-      join('/tmp/gitq-sandbox-config', 'work'),
-    );
-    expect(read({ ...process.env, GITQ_CONFIG_DIR: undefined })).toBe(
-      join(homedir(), '.cache', 'gitq', 'work'),
-    );
+  test('getWorkSlotRoot is absolute even for a relative config dir', () => {
+    setConfigDir('rel-cfg');
+    expect(getWorkSlotRoot()).toBe(join(process.cwd(), 'rel-cfg', 'work'));
+  });
+
+  // Work slots are real git worktrees: if any of this regresses, GITQ_CONFIG_DIR
+  // no longer sandboxes what gitq writes to disk.
+  describe('GITQ_CONFIG_DIR', () => {
+    test('unset gives ~/.config/gitq and the historical cache root', () => {
+      const paths = readPathsWith(undefined);
+      expect(paths.exported).toBe(DEFAULT_CONFIG_DIR);
+      expect(paths.workSlotRoot).toBe(DEFAULT_WORK_SLOT_ROOT);
+    });
+
+    test('moves the work-slot root out of the real cache dir', () => {
+      expect(readPathsWith('/tmp/gitq-sandbox-config').workSlotRoot).toBe(
+        join('/tmp/gitq-sandbox-config', 'work'),
+      );
+    });
+
+    test('set to the default path keeps the historical cache root', () => {
+      // The special case is value equality, not set-ness. Documented as such.
+      expect(readPathsWith(DEFAULT_CONFIG_DIR).workSlotRoot).toBe(DEFAULT_WORK_SLOT_ROOT);
+    });
+
+    test('empty counts as unset', () => {
+      const paths = readPathsWith('');
+      expect(paths.configDir).toBe(DEFAULT_CONFIG_DIR);
+      expect(paths.workSlotRoot).toBe(DEFAULT_WORK_SLOT_ROOT);
+    });
+
+    test('a relative value becomes an absolute path under the cwd', () => {
+      // Left relative, `work` would be a bare relative dir and a work slot could
+      // land inside whatever tree gitq happens to be running in.
+      const cwd = realpathSync(tmpdir());
+      const paths = readPathsWith('rel-cfg', cwd);
+      expect(paths.configDir).toBe(join(cwd, 'rel-cfg'));
+      expect(paths.workSlotRoot).toBe(join(cwd, 'rel-cfg', 'work'));
+    });
   });
 });
