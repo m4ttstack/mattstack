@@ -860,6 +860,31 @@ async function doCascadeLoop(
   return { results, updatedStack, state: 'completed', rebasedBranches };
 }
 
+// ── Sync failure messages ────────────────────────────────────────────────────
+
+/**
+ * Explain a remote trunk ref that didn't resolve even though the fetch
+ * succeeded. One local `git remote get-url origin` settles the cause that
+ * needs a different fix: no remote by that name at all. Otherwise the branch
+ * is either unpushed or outside this remote's fetch refspec (a
+ * `--single-branch` clone fetches one branch and leaves every other
+ * `origin/*` unresolvable), so the message names both instead of asserting
+ * the push state. Telling them apart costs a network call and both end at
+ * the same dead ref.
+ */
+async function unresolvedTrunkMessage(cwd: string, trunk: string, remoteTrunk: string): Promise<string> {
+  let hasRemote = true;
+  try {
+    await GitShell.getRemoteUrl(cwd);
+  } catch {
+    hasRemote = false;
+  }
+  const cause = hasRemote
+    ? `"${trunk}" was never pushed to origin, or this remote's fetch refspec does not cover it; if it was never pushed: git push -u origin ${trunk}`
+    : 'this repo has no remote named "origin"; gitq always syncs onto origin/<root>';
+  return `cannot sync: ${remoteTrunk} does not resolve after fetching origin (${cause}). nothing was rebased`;
+}
+
 // ── RebaseEngine ─────────────────────────────────────────────────────────────
 
 /**
@@ -1218,14 +1243,14 @@ export const RebaseEngine = {
       throw new Error(`Failed to fetch from remote: ${detail}`);
     }
 
-    // Resolve the remote trunk HEAD — this is the rebase target for
-    // top-level nodes. If the remote tracking branch doesn't exist,
-    // fall back to the local trunk (nothing to sync).
-    let remoteTrunkHead: string;
+    // The remote trunk is the rebase target for every top-level node, so a ref
+    // that still doesn't resolve after a successful fetch is a hard failure,
+    // never a no-op: silently rebasing onto the local trunk (which sync never
+    // fetches into) is how a stack ends up looking synced while it isn't.
     try {
-      remoteTrunkHead = await GitShell.getBranchHead(cwd, remoteTrunk);
+      await GitShell.getBranchHead(cwd, remoteTrunk);
     } catch {
-      return { results: [], updatedStack: stack, state: 'completed' };
+      throw new Error(await unresolvedTrunkMessage(cwd, trunk, remoteTrunk));
     }
 
     const preRebaseHeads: Record<string, string> = {};

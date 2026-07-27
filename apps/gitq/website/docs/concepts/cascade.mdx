@@ -21,8 +21,8 @@ This is the single most misreadable thing about gitq, and it is deliberate: it m
 
 The knock-on effects are worth spelling out:
 
-- `gitq sync` runs `git fetch origin` first, every time, before anything else. If the fetch fails, sync throws and exits `1` with `gitq: Failed to fetch from remote: ...`. **A repo with no `origin` remote cannot sync.**
-- If `origin/<root>` does not resolve after that fetch (the remote has no such branch), sync returns an empty result: it prints `completed:` with nothing after it and exits `0`, having done nothing at all. There is no warning. If a sync looks suspiciously fast and its output is bare, check that `origin/<root>` exists.
+- `gitq sync` runs `git fetch origin` first, every time, before anything else. If the fetch fails, sync throws and exits `1` with `gitq: Failed to fetch from remote: ...`. **A repo with no `origin` remote cannot sync**, and that is the failure it hits: the fetch dies before any ref is looked at.
+- If `origin/<root>` does not resolve after that fetch, sync has no target to rebase onto and refuses: exit `1`, nothing rebased, `gitq: cannot sync: origin/<root> does not resolve after fetching origin (...)`, where the parenthetical names what to go check and how to fix it. One of its two arms blames a missing `origin`, which sounds like the bullet above but is a different, exotic case: it only fires when the fetch *succeeded* with no remote of that name, as when git resolves `origin` as a path or `origin` names a fetch group. The everyday remote-less repo dies at the fetch and never gets this far. Sync does not fall back to your local root either: it never fetches into that branch, so rebasing onto it would report success while leaving the stack based on stale history. See [`gitq sync`](/reference/cascade/sync#behavior).
 - After a sync, your local trunk is still stale. Pull it whenever you like; it changes nothing about the stack.
 
 ## The walk
@@ -30,7 +30,7 @@ The knock-on effects are worth spelling out:
 ```
 gitq sync
   ├─ git fetch origin                      throws on failure
-  ├─ resolve origin/<root>                 unresolvable: return, exit 0
+  ├─ resolve origin/<root>                 throws when unresolvable
   ├─ topological sort, parents before children
   └─ for each node:
         skip if unmanaged

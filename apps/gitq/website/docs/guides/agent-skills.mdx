@@ -12,7 +12,7 @@ sidebar_position: 6
 | Skill | CLI mechanics | Judgment the skill adds |
 | --- | --- | --- |
 | `gitq:sync` | `gitq sync`, `gitq continue`, `gitq abort` | Reading a conflict's both sides and merging them for real, not picking one side mechanically. |
-| `gitq:publish` | `gitq publish --mr-meta <path>` | Writing MR titles and descriptions from the actual diff, and holding the gate before anything reaches GitLab. |
+| `gitq:publish` | `gitq publish --mr-meta <path>` | Writing MR titles and descriptions from the actual diff, deciding which already-published MRs should have their prose overwritten (an `--mr-meta` entry for one replaces what is on GitLab), and holding the gate before anything reaches GitLab. |
 | `gitq:absorb` | `gitq absorb --preview`, `gitq absorb` | Sanity-checking the file→branch attribution before committing to it; gitq's attribution is mechanical (`git diff --name-only <parent> <branch>`) and can be wrong on a surprising file. |
 | `gitq:restructure` | `gitq split`, `fold`, `reparent`, `rename`, `reset` | Turning a plain-language instruction ("split the UI work out of feat-core") into the right sequence of surgery commands, and gating the whole plan before executing any of it. |
 
@@ -83,25 +83,13 @@ The same gate exists identically when the board launches this skill; the only di
 
 ## Where the docs are occasionally wrong
 
-The skill files are the actual prompts driving these agents, and three details in them are stale relative to what the code underneath now does. Each matters enough to call out explicitly rather than let a skill's own description mislead you:
-
-:::warning `skills/absorb/SKILL.md` on unattributed files
-
-Its step 2 says files the attribution engine can't match to a branch's commits "stay in the worktree." They don't. `src/core/absorb.ts`'s `attributeFiles` falls an unmatched file back to `currentBranch` (the branch checked out where you ran absorb from) and absorb commits it there along with everything it did attribute. Nothing is left in the working tree by a successful absorb. See [Absorb uncommitted changes](/guides/absorb-changes#files-it-cannot-attribute) for the real behavior.
-
-:::
+These skill files are the prompts actually driving the agents, so a detail in one can fall behind the code underneath it. Where that has happened, the mismatch is called out here rather than left to mislead you from inside the skill:
 
 :::warning `skills/restructure/SKILL.md` on checkout neutrality
 
-Its step 3 says "surgery never moves the launch worktree's checkout." True for `split` and `reparent`, but there are two exceptions, and this skill drives both.
+Its step 3 says "surgery never moves the launch worktree's checkout." True for `split`, `reparent`, `rename`, and `reset`, but there is one exception, and this skill drives it.
 
-`fold` deletes the branch it folds, so if your launch worktree has that branch checked out (clean), gitq switches it to the parent before deleting (`src/core/branch-fold.ts`). `reset` checks the branch out in your launch worktree before hard-resetting it (`src/core/branch-reset.ts:29`) and never puts you back, so `gitq reset feat-b` while you are on `feat-a` leaves you standing on `feat-b`. See [Restructure a stack](/guides/restructure-a-stack#fold-is-the-exception-to-checkout-neutrality).
-
-:::
-
-:::warning `skills/publish/SKILL.md` on updating MRs
-
-Its frontmatter describes the flow as creating "or update[ing]" the MR chain, its body says it will "open or retarget" MRs, and step 5 checks for "every MR created or updated." None of that update path exists. `ForgeSync.publishStack` (`src/core/forge-sync.ts`) only walks nodes where `status === 'local-only' && mrIid === null`, and the single forge call it makes for each is `provider.createPullRequest`. `retargetMR`, the function that would actually retarget an existing MR, is defined in the same file and does what the skill describes, but nothing in gitq calls it; it is exercised only by tests. This one matters more than the other two: the `gitq:publish` agent reads this file as its own instructions, so a re-published stack can come back reported as "updated" when nothing on GitLab changed. See [Publish to GitLab](/guides/publish-to-gitlab#re-running-publish) for what re-running `publish` actually does to an already-published branch.
+`fold` deletes the branch it folds, so if your launch worktree has that branch checked out (clean), gitq switches it to the parent before deleting (`src/core/branch-fold.ts`). Nothing else in the surgery set moves a checkout: `reset`, which used to check the branch out and leave you there, is a compare-and-swap on the ref now (`src/core/branch-reset.ts`), so `gitq reset feat-b` while you are on `feat-a` leaves you on `feat-a`. See [Restructure a stack](/guides/restructure-a-stack#fold-is-the-exception-to-checkout-neutrality).
 
 :::
 

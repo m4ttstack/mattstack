@@ -1,7 +1,14 @@
 import { describe, expect, test, mock } from 'bun:test';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+// Sync fs on purpose: another unit test mock.module's `node:fs/promises` for
+// the whole run, and these tests only need a file on disk.
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { ForgeSync } from '../src/core/forge-sync.ts';
+import { parseMrMeta } from '../src/cli/commands/forge.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
+import type { Stack } from '../src/core/types.ts';
 import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from '@workforge/glance-sdk';
 
 // ── Mock Provider ────────────────────────────────────────────────────────────
@@ -331,12 +338,14 @@ describe('ForgeSync.populateNodeData', () => {
 
 describe('ForgeSync.importFromForge', () => {
   test('reconstructs a stack store from forge MRs', async () => {
+    // The MRs have to live in the project the remote points at... import
+    // scopes to that repo, so mockPR's default web url would be filtered out.
     const prs = [
-      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
-      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/repo/pull/2' }),
     ];
 
-    const store = await ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', 'git@github.com:user/repo.git');
+    const { store } = await ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', 'git@github.com:user/repo.git');
 
     expect(store.repoPath).toBe('/tmp/repo');
     expect(store.remoteUrl).toBe('git@github.com:user/repo.git');
@@ -347,6 +356,53 @@ describe('ForgeSync.importFromForge', () => {
     expect(stack.nodes).toHaveLength(2);
     expect(StackManager.findNode(stack, 'feat/a')!.mrIid).toBe(1);
     expect(StackManager.findNode(stack, 'feat/b')!.parent).toBe('feat/a');
+  });
+
+  test('refuses a remote it cannot read a project from, rather than importing the instance', async () => {
+    const prs = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/repo/pull/2' }),
+    ];
+
+    for (const degenerate of ['', 'origin', 'https://gitlab.com/']) {
+      await expect(ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', degenerate)).rejects.toThrow(
+        `cannot read a project path from remote "${degenerate}"`,
+      );
+    }
+  });
+
+  test('reports what the project scope did to the fetch', async () => {
+    const prs = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/repo/pull/2' }),
+      mockPR({ iid: 3, sourceBranch: 'other', targetBranch: 'main', webUrl: 'https://github.com/user/elsewhere/pull/3' }),
+      mockPR({ iid: 4, sourceBranch: 'closed', targetBranch: 'main', state: 'closed', webUrl: 'https://github.com/user/repo/pull/4' }),
+    ];
+
+    const result = await ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', 'git@github.com:user/repo.git');
+
+    expect(result.openMRs).toBe(3);
+    expect(result.scopedMRs).toBe(2);
+    expect(result.projectPath).toBe('user/repo');
+  });
+
+  test('a scope that matches nothing is distinguishable from a forge with nothing', async () => {
+    // Both import to an empty store; only the counts say which happened. This
+    // is what the CLI's stale-remote diagnostic keys off.
+    const otherProject = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/elsewhere/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/elsewhere/pull/2' }),
+    ];
+
+    const stale = await ForgeSync.importFromForge(mockProvider(otherProject), '/tmp/repo', 'git@github.com:user/repo.git');
+    expect(stale.store.stacks).toEqual([]);
+    expect(stale.openMRs).toBe(2);
+    expect(stale.scopedMRs).toBe(0);
+
+    const empty = await ForgeSync.importFromForge(mockProvider([]), '/tmp/repo', 'git@github.com:user/repo.git');
+    expect(empty.store.stacks).toEqual([]);
+    expect(empty.openMRs).toBe(0);
+    expect(empty.scopedMRs).toBe(0);
   });
 });
 
@@ -545,6 +601,537 @@ describe('ForgeSync.publishStack', () => {
     expect(result.results[0]!.branch).toBe('feat/a');
     expect(result.results[0]!.success).toBe(false);
     expect(result.results[0]!.error).toContain('lease expired');
+  });
+});
+
+// ── publishStack: republishing an already-published stack ────────────────────
+
+describe('ForgeSync.publishStack — republish', () => {
+  interface Calls {
+    fetches: number;
+    creates: CreatePullRequestInput[];
+    updates: { iid: number; input: Record<string, unknown> }[];
+  }
+
+  /**
+   * Provider that answers the iid batch-fetch with `prs` and records every
+   * create/update it is asked for.
+   */
+  function republishProvider(prs: PullRequest[]): { provider: GitProvider; calls: Calls } {
+    const calls: Calls = { fetches: 0, creates: [], updates: [] };
+    let nextIid = 100;
+
+    const provider: GitProvider = {
+      ...mockProvider(prs),
+      fetchPullRequests: () => {
+        calls.fetches++;
+        return Promise.resolve(prs);
+      },
+      createPullRequest: async (input) => {
+        calls.creates.push(input);
+        const iid = nextIid++;
+        return mockPR({
+          iid,
+          sourceBranch: input.sourceBranch,
+          targetBranch: input.targetBranch,
+          title: input.title,
+          webUrl: `https://gitlab.com/-/mr/${iid}`,
+        });
+      },
+      updatePullRequest: async (_projectPath, iid, input) => {
+        calls.updates.push({ iid, input: input as Record<string, unknown> });
+        return mockPR({ iid, sourceBranch: 'x', targetBranch: 'y' });
+      },
+    };
+
+    return { provider, calls };
+  }
+
+  /** feat/a → main, feat/b → feat/a locally, both already published. */
+  function publishedStack(): Stack {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.updateNode(stack, 'feat/a', {
+      mrIid: 1,
+      mrUrl: 'https://gitlab.com/-/mr/1',
+      status: 'synced',
+    });
+    stack = StackManager.updateNode(stack, 'feat/b', {
+      mrIid: 2,
+      mrUrl: 'https://gitlab.com/-/mr/2',
+      status: 'synced',
+    });
+    return stack;
+  }
+
+  test('retargets an MR whose forge target no longer matches the local parent', async () => {
+    const stack = publishedStack();
+
+    // feat/b was reparented under feat/a locally; its MR still targets main.
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toHaveLength(1);
+    expect(calls.updates[0]!.iid).toBe(2);
+    expect(calls.updates[0]!.input.targetBranch).toBe('feat/a');
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.branch).toBe('feat/b');
+    expect(result.results[0]!.success).toBe(true);
+    expect(result.results[0]!.action).toBe('updated');
+    expect(result.results[0]!.changes).toEqual(['target']);
+    expect(result.results[0]!.targetBranch).toBe('feat/a');
+    expect(result.results[0]!.mrIid).toBe(2);
+    expect(result.results[0]!.mrUrl).toBe('https://gitlab.com/-/mr/2');
+
+    expect(StackManager.findNode(result.updatedStack, 'feat/b')!.status).toBe('synced');
+  });
+
+  test('leaves an MR alone when its target already matches the local parent', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toEqual([]);
+    expect(calls.creates).toEqual([]);
+    expect(result.results).toEqual([]);
+  });
+
+  test('rewrites title and description when --mr-meta names an already-published branch', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/a': { title: 'Rewritten title', body: 'Rewritten body' },
+    });
+
+    expect(calls.updates).toHaveLength(1);
+    expect(calls.updates[0]!.iid).toBe(1);
+    expect(calls.updates[0]!.input.title).toBe('Rewritten title');
+    expect(calls.updates[0]!.input.description).toBe('Rewritten body');
+    expect(calls.updates[0]!.input.targetBranch).toBeUndefined();
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.branch).toBe('feat/a');
+    expect(result.results[0]!.action).toBe('updated');
+    expect(result.results[0]!.changes).toEqual(['metadata']);
+  });
+
+  test('retargets and rewrites in one pass when both apply', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/b': { title: 'New title', body: 'New body' },
+    });
+
+    expect(calls.updates.map((u) => u.input.targetBranch)).toEqual(['feat/a', undefined]);
+    expect(calls.updates[1]!.input.title).toBe('New title');
+    expect(result.results[0]!.changes).toEqual(['target', 'metadata']);
+  });
+
+  test('never rewrites an MR the caller supplied no metadata for', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toHaveLength(1);
+    expect(calls.updates[0]!.input.title).toBeUndefined();
+    expect(calls.updates[0]!.input.description).toBeUndefined();
+  });
+
+  test('skips a node whose MR is no longer open on the forge, and says so', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main', state: 'merged' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/b': { title: 'New title', body: 'New body' },
+    });
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([
+      { branch: 'feat/b', mrIid: 2, reason: 'mr-not-open', detail: 'MR !2 is merged' },
+    ]);
+  });
+
+  test('skips a node whose MR the forge did not return, and says so', async () => {
+    const stack = publishedStack();
+
+    // Only feat/a's MR comes back; feat/b's iid is unreadable, so its target
+    // can't be compared and it is left untouched.
+    const { provider, calls } = republishProvider([mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' })]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([
+      { branch: 'feat/b', mrIid: 2, reason: 'mr-unreadable', detail: 'MR !2 was not returned by GitLab' },
+    ]);
+  });
+
+  test('skips a node whose iid belongs to a different branch', async () => {
+    let stack = publishedStack();
+    stack = StackManager.updateNode(stack, 'feat/b', { mrIid: 7 });
+
+    // MR !7 is someone else's: retargeting it would move an unrelated MR.
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 7, sourceBranch: 'other/branch', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/b': { title: 'New title', body: 'New body' },
+    });
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([
+      {
+        branch: 'feat/b',
+        mrIid: 7,
+        reason: 'source-branch-mismatch',
+        detail: 'MR !7 is for other/branch, not feat/b',
+      },
+    ]);
+  });
+
+  test('a merged node is left alone without being reported as a skip', async () => {
+    let stack = publishedStack();
+    stack = StackManager.updateNode(stack, 'feat/a', { status: 'merged' });
+
+    // feat/a's iid is deliberately left out of the pre-walk read, so it must
+    // not come back as an MR that could not be read.
+    const { provider, calls } = republishProvider([mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' })]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([]);
+  });
+
+  test('creates and updates in one run, parents before children', async () => {
+    let stack = publishedStack();
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    // feat/b drifted (targets main), feat/c has never been published.
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(result.results.map((r) => [r.branch, r.action])).toEqual([
+      ['feat/b', 'updated'],
+      ['feat/c', 'created'],
+    ]);
+    expect(calls.creates).toHaveLength(1);
+    expect(calls.creates[0]!.sourceBranch).toBe('feat/c');
+    expect(calls.creates[0]!.targetBranch).toBe('feat/b');
+    expect(StackManager.findNode(result.updatedStack, 'feat/c')!.status).toBe('synced');
+  });
+
+  test('keeps walking when a retarget fails, and persists what did land', async () => {
+    let stack = publishedStack();
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+    const failing: GitProvider = {
+      ...provider,
+      updatePullRequest: () => Promise.reject(new Error('API error: 409 conflict')),
+    };
+
+    const result = await ForgeSync.publishStack(failing, stack, 'user/repo');
+
+    // A failed update leaves feat/b's branch and MR exactly as they were, so
+    // feat/c still has a base to target.
+    expect(result.results.map((r) => [r.branch, r.success])).toEqual([
+      ['feat/b', false],
+      ['feat/c', true],
+    ]);
+    expect(result.results[0]!.action).toBe('updated');
+    expect(result.results[0]!.error).toContain('409');
+    expect(calls.creates.map((c) => c.sourceBranch)).toEqual(['feat/c']);
+
+    const cNode = StackManager.findNode(result.updatedStack, 'feat/c')!;
+    expect(cNode.status).toBe('synced');
+    expect(cNode.mrIid).toBeGreaterThan(0);
+    expect(StackManager.findNode(result.updatedStack, 'feat/b')!.status).toBe('synced');
+  });
+
+  test('propagates a failure of the pre-walk MR read', async () => {
+    const { provider } = republishProvider([]);
+    const failing: GitProvider = {
+      ...provider,
+      fetchPullRequests: () => Promise.reject(new Error('API error: 500 internal')),
+    };
+
+    await expect(ForgeSync.publishStack(failing, publishedStack(), 'user/repo')).rejects.toThrow(/500/);
+  });
+
+  test('reads the forge only when the stack has published nodes', async () => {
+    let localOnly = StackManager.createStack('auth', 'main');
+    localOnly = StackManager.addNode(localOnly, 'feat/a', 'main');
+
+    const fresh = republishProvider([]);
+    await ForgeSync.publishStack(fresh.provider, localOnly, 'user/repo');
+    expect(fresh.calls.fetches).toBe(0);
+
+    const republished = republishProvider([mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' })]);
+    await ForgeSync.publishStack(republished.provider, publishedStack(), 'user/repo');
+    expect(republished.calls.fetches).toBe(1);
+  });
+
+  test('does not push a branch that already has an MR', async () => {
+    const pushCalls: string[] = [];
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        pushForceWithLease: mock((_cwd: string, branch: string) => {
+          pushCalls.push(branch);
+          return Promise.resolve();
+        }),
+        getBranchHead: mock(() => Promise.resolve('deadbee')),
+      },
+      setCommandHook: () => {},
+    }));
+
+    const { ForgeSync: FS } = await import('../src/core/forge-sync.ts');
+
+    let stack = publishedStack();
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    // feat/b drifted; only feat/c is new.
+    const { provider } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await FS.publishStack(provider, stack, 'user/repo', '/tmp/repo');
+
+    expect(pushCalls).toEqual(['feat/c']);
+    expect(result.results.every((r) => r.success)).toBe(true);
+  });
+
+  test('sends only the --mr-meta fields that were provided', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/a': { title: 'Title only' },
+      'feat/b': { body: 'Body only' },
+    });
+
+    expect(calls.updates).toEqual([
+      { iid: 1, input: { title: 'Title only' } },
+      { iid: 2, input: { description: 'Body only' } },
+    ]);
+    expect(result.results.map((r) => r.changes)).toEqual([['metadata'], ['metadata']]);
+  });
+
+  test('treats an entry with neither field as no metadata at all', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, { 'feat/a': {} });
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+  });
+});
+
+// ── publishStack: a merged parent still in the tree ──────────────────────────
+
+describe('ForgeSync.publishStack: merged parent', () => {
+  /** main ← feat/a (merged, MR !1) ← feat/b (open MR !2) ← feat/c (local-only). */
+  function stackUnderMergedParent(): Stack {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+    stack = StackManager.updateNode(stack, 'feat/a', {
+      mrIid: 1,
+      mrUrl: 'https://gitlab.com/-/mr/1',
+      status: 'merged',
+    });
+    stack = StackManager.updateNode(stack, 'feat/b', {
+      mrIid: 2,
+      mrUrl: 'https://gitlab.com/-/mr/2',
+      status: 'synced',
+    });
+    return stack;
+  }
+
+  function recordingProvider(prs: PullRequest[]): {
+    provider: GitProvider;
+    creates: CreatePullRequestInput[];
+    updates: { iid: number; input: Record<string, unknown> }[];
+  } {
+    const creates: CreatePullRequestInput[] = [];
+    const updates: { iid: number; input: Record<string, unknown> }[] = [];
+    let nextIid = 100;
+
+    return {
+      creates,
+      updates,
+      provider: {
+        ...mockProvider(prs),
+        createPullRequest: async (input) => {
+          creates.push(input);
+          const iid = nextIid++;
+          return mockPR({ iid, sourceBranch: input.sourceBranch, targetBranch: input.targetBranch });
+        },
+        updatePullRequest: async (_projectPath, iid, input) => {
+          updates.push({ iid, input: input as Record<string, unknown> });
+          return mockPR({ iid, sourceBranch: 'x', targetBranch: 'y' });
+        },
+      },
+    };
+  }
+
+  test('leaves a child GitLab already retargeted alone, and still creates the new branch', async () => {
+    // feat/a merged and its branch was deleted on merge; GitLab moved feat/b's
+    // MR to main. Targeting feat/a again would 400 and take feat/c with it.
+    const { provider, creates, updates } = recordingProvider([
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stackUnderMergedParent(), 'user/repo');
+
+    expect(updates).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(result.results.map((r) => [r.branch, r.action, r.success])).toEqual([['feat/c', 'created', true]]);
+    expect(creates).toHaveLength(1);
+    expect(creates[0]!.targetBranch).toBe('feat/b');
+  });
+
+  test('moves a child off its merged parent onto the live ancestor, never back onto it', async () => {
+    // The merged branch still exists and feat/b's MR still targets it.
+    const { provider, updates } = recordingProvider([
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stackUnderMergedParent(), 'user/repo');
+
+    expect(updates).toEqual([{ iid: 2, input: { targetBranch: 'main' } }]);
+    expect(result.results[0]!.branch).toBe('feat/b');
+    expect(result.results[0]!.changes).toEqual(['target']);
+    expect(result.results[0]!.targetBranch).toBe('main');
+  });
+
+  test('creates a new MR against the live ancestor when the parent is merged', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.updateNode(stack, 'feat/a', { mrIid: 1, status: 'merged' });
+
+    const { provider, creates } = recordingProvider([]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(creates).toHaveLength(1);
+    expect(creates[0]!.sourceBranch).toBe('feat/b');
+    expect(creates[0]!.targetBranch).toBe('main');
+    expect(result.results[0]!.targetBranch).toBe('main');
+  });
+
+  test('walks past a whole run of merged ancestors', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+    stack = StackManager.updateNode(stack, 'feat/a', { mrIid: 1, status: 'merged' });
+    stack = StackManager.updateNode(stack, 'feat/b', { mrIid: 2, status: 'merged' });
+    stack = StackManager.updateNode(stack, 'feat/c', { mrIid: 3, status: 'synced' });
+
+    const { provider, updates } = recordingProvider([
+      mockPR({ iid: 3, sourceBranch: 'feat/c', targetBranch: 'feat/b' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(updates).toEqual([{ iid: 3, input: { targetBranch: 'main' } }]);
+    expect(result.results[0]!.targetBranch).toBe('main');
+  });
+});
+
+// ── --mr-meta parsing ────────────────────────────────────────────────────────
+
+describe('parseMrMeta', () => {
+  async function withMetaFile<T>(contents: string, fn: (path: string) => Promise<T>): Promise<T> {
+    const dir = mkdtempSync(join(tmpdir(), 'gitq-mr-meta-'));
+    try {
+      const path = join(dir, 'meta.json');
+      writeFileSync(path, contents);
+      return await fn(path);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test('maps description to body', async () => {
+    const parsed = await withMetaFile('{"feat/a": {"title": "T", "description": "D"}}', parseMrMeta);
+    expect(parsed).toEqual({ 'feat/a': { title: 'T', body: 'D' } });
+  });
+
+  test('reads an empty string as "not provided", not as a value to write', async () => {
+    const parsed = await withMetaFile(
+      '{"feat/a": {"title": "T", "description": ""}, "feat/b": {"title": "", "description": "D"}}',
+      parseMrMeta,
+    );
+    expect(parsed).toEqual({ 'feat/a': { title: 'T' }, 'feat/b': { body: 'D' } });
+  });
+
+  test('drops an entry that is empty on both fields', async () => {
+    const parsed = await withMetaFile('{"feat/a": {"title": "", "description": ""}}', parseMrMeta);
+    expect(parsed).toEqual({});
+  });
+
+  test('still rejects a non-string field', async () => {
+    const parsed = await withMetaFile('{"feat/a": {"title": "T", "description": null}}', parseMrMeta);
+    expect(parsed).toBe('invalid --mr-meta: entry "feat/a" must be {"title": string, "description": string}');
   });
 });
 
@@ -886,5 +1473,157 @@ describe('ForgeSync.discoverTeamStacks', () => {
 
     expect(teamStacks).toHaveLength(1);
     expect(teamStacks[0]!.stacks).toHaveLength(2);
+  });
+});
+
+// ── repo scoping (MAT-18) ────────────────────────────────────────────────────
+
+/**
+ * Build a PR that belongs to a specific forge project.
+ *
+ * Sets both identity carriers a real MR has: `repositoryId` (the forge's own
+ * repo id) and `webUrl` (the only place a project path can be read from).
+ */
+function mockRepoPR(
+  projectPath: string,
+  repositoryId: string,
+  pr: { iid: number; sourceBranch: string; targetBranch: string; author?: PullRequest['author'] },
+): PullRequest {
+  return {
+    ...mockPR({
+      iid: pr.iid,
+      sourceBranch: pr.sourceBranch,
+      targetBranch: pr.targetBranch,
+      webUrl: `https://gitlab.com/${projectPath}/-/merge_requests/${pr.iid}`,
+    }),
+    repositoryId,
+    ...(pr.author ? { author: pr.author } : {}),
+  };
+}
+
+/**
+ * Two unrelated projects whose branch names collide: `fix-tests` exists in
+ * both, and each has one branch stacked on top of it.
+ */
+function twoReposSharingABranchName(author?: PullRequest['author']): PullRequest[] {
+  return [
+    mockRepoPR('acme/web', 'gitlab:1', { iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main', ...(author && { author }) }),
+    mockRepoPR('acme/web', 'gitlab:1', { iid: 2, sourceBranch: 'web-only', targetBranch: 'fix-tests', ...(author && { author }) }),
+    mockRepoPR('acme/api', 'gitlab:2', { iid: 3, sourceBranch: 'fix-tests', targetBranch: 'main', ...(author && { author }) }),
+    mockRepoPR('acme/api', 'gitlab:2', { iid: 4, sourceBranch: 'api-only', targetBranch: 'fix-tests', ...(author && { author }) }),
+  ];
+}
+
+describe('ForgeSync.discoverStacks: repo scoping', () => {
+  test('scoped to one project, MRs from other projects are not in the stack', async () => {
+    const stacks = await ForgeSync.discoverStacks(mockProvider(twoReposSharingABranchName()), 'acme/web');
+
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0]!.branches.sort()).toEqual(['fix-tests', 'web-only']);
+    // The MR attached to the shared branch name must be this project's MR.
+    expect(stacks[0]!.mrMap.get('fix-tests')!.iid).toBe(1);
+  });
+
+  test('a chain in another project does not extend this project\'s stack', async () => {
+    const prs = [
+      mockRepoPR('acme/web', 'gitlab:1', { iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main' }),
+      mockRepoPR('acme/api', 'gitlab:2', { iid: 2, sourceBranch: 'update-deps', targetBranch: 'fix-tests' }),
+    ];
+
+    const stacks = await ForgeSync.discoverStacks(mockProvider(prs), 'acme/web');
+
+    // 'fix-tests' alone is not a stack; 'update-deps' belongs to another repo.
+    expect(stacks).toEqual([]);
+  });
+
+  test('project paths compare case-insensitively', async () => {
+    const stacks = await ForgeSync.discoverStacks(mockProvider(twoReposSharingABranchName()), 'ACME/Web');
+
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0]!.branches.sort()).toEqual(['fix-tests', 'web-only']);
+  });
+
+  test('without a project path, branches from different repos are still never spliced', async () => {
+    const stacks = await ForgeSync.discoverStacks(mockProvider(twoReposSharingABranchName()));
+
+    expect(stacks).toHaveLength(2);
+    for (const stack of stacks) {
+      expect(stack.branches.includes('web-only') && stack.branches.includes('api-only')).toBe(false);
+    }
+  });
+
+  test('an unscoped call still includes MRs whose project cannot be read', async () => {
+    // The other half of the drop-what-we-cannot-place rule: scoping drops an
+    // MR with no readable project, but a caller who asked for no scope is
+    // asking for everything, so nothing is dropped on identity grounds.
+    const prs = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: null }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: null }),
+    ];
+
+    expect(await ForgeSync.discoverStacks(mockProvider(prs))).toHaveLength(1);
+    expect(await ForgeSync.discoverStacks(mockProvider(prs), 'acme/web')).toEqual([]);
+  });
+});
+
+describe('ForgeSync.importFromForge: repo scoping', () => {
+  test('imports only the stacks of the repo the remote points at', async () => {
+    const { store } = await ForgeSync.importFromForge(
+      mockProvider(twoReposSharingABranchName()),
+      '/tmp/web',
+      'git@gitlab.com:acme/web.git',
+    );
+
+    expect(store.stacks).toHaveLength(1);
+    const branches = store.stacks[0]!.nodes.map((n) => n.branch).sort();
+    expect(branches).toEqual(['fix-tests', 'web-only']);
+    expect(StackManager.findNode(store.stacks[0]!, 'fix-tests')!.mrIid).toBe(1);
+  });
+
+  test('https remotes scope the same way as ssh remotes', async () => {
+    const { store } = await ForgeSync.importFromForge(
+      mockProvider(twoReposSharingABranchName()),
+      '/tmp/api',
+      'https://gitlab.com/acme/api.git',
+    );
+
+    expect(store.stacks).toHaveLength(1);
+    expect(store.stacks[0]!.nodes.map((n) => n.branch).sort()).toEqual(['api-only', 'fix-tests']);
+  });
+
+  test('the same path on another forge host is not this project', async () => {
+    // acme/web exists on gitlab.com and on github.com; the remote names which.
+    const { store, openMRs, scopedMRs } = await ForgeSync.importFromForge(
+      mockProvider(twoReposSharingABranchName()),
+      '/tmp/web',
+      'git@github.com:acme/web.git',
+    );
+
+    expect(store.stacks).toEqual([]);
+    expect(openMRs).toBe(4);
+    expect(scopedMRs).toBe(0);
+  });
+});
+
+describe('ForgeSync.discoverTeamStacks: repo scoping', () => {
+  const alice = { id: 'gitlab:user:2', username: 'alice', name: 'Alice', avatarUrl: null };
+
+  test('an author working in two repos gets one stack per repo, not a merged one', async () => {
+    const teamStacks = await ForgeSync.discoverTeamStacks(mockProvider(twoReposSharingABranchName(alice)), 'acme/web');
+
+    expect(teamStacks).toHaveLength(1);
+    expect(teamStacks[0]!.author.username).toBe('alice');
+    expect(teamStacks[0]!.stacks).toHaveLength(1);
+    expect(teamStacks[0]!.stacks[0]!.branches.sort()).toEqual(['fix-tests', 'web-only']);
+  });
+
+  test('without a project path, an author\'s repos stay separate stacks', async () => {
+    const teamStacks = await ForgeSync.discoverTeamStacks(mockProvider(twoReposSharingABranchName(alice)));
+
+    expect(teamStacks).toHaveLength(1);
+    expect(teamStacks[0]!.stacks).toHaveLength(2);
+    for (const stack of teamStacks[0]!.stacks) {
+      expect(stack.branches.includes('web-only') && stack.branches.includes('api-only')).toBe(false);
+    }
   });
 });

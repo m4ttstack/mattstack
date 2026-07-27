@@ -6,9 +6,13 @@ import { toErrorMessage } from './error-utils.ts';
 import {
   indexBySource,
   discoverStacksFromPRs,
+  filterPRsToProject,
   normalizePipelineStatus,
   mapDiffStats,
+  projectScopeFromRemoteUrl,
+  projectPathFromWebUrl,
   type DiscoveredStack,
+  type ProjectScope,
 } from './forge-helpers.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -33,18 +37,42 @@ export interface ReconcileResult {
 
 export type { DiscoveredStack };
 
-/** Per-node result when publishing (creating MRs for) a stack. */
+/** What publish did to an already-published MR. */
+export type PublishChange = 'target' | 'metadata';
+
+/** Per-node result when publishing (creating or updating MRs for) a stack. */
 export interface PublishNodeResult {
   branch: string;
   success: boolean;
   mrIid?: number;
   mrUrl?: string | undefined;
   error?: string;
+  /** Whether the MR was opened by this run or was already there and got updated. */
+  action: 'created' | 'updated';
+  /** Which parts of an existing MR changed. Only set when `action` is 'updated'. */
+  changes?: PublishChange[];
+  /** The branch the MR targets after this run: the nearest live ancestor of the node's parent. */
+  targetBranch?: string;
+}
+
+/** Why publish refused to touch a node's MR. */
+export type PublishSkipReason = 'mr-not-open' | 'mr-unreadable' | 'source-branch-mismatch';
+
+/** A node publish deliberately left alone, and what it saw on the forge. */
+export interface PublishSkip {
+  branch: string;
+  /** The iid the node carries locally: the MR publish would have written to it. */
+  mrIid: number;
+  reason: PublishSkipReason;
+  /** One line of what publish saw, for the human output. */
+  detail: string;
 }
 
 /** Result of a bulk publish operation. */
 export interface PublishResult {
   results: PublishNodeResult[];
+  /** Published nodes publish would not write to. Never a failure on its own. */
+  skipped: PublishSkip[];
   updatedStack: Stack;
 }
 
@@ -90,6 +118,17 @@ export interface SyncResult {
   deletedBranches: DeletedBranch[];
 }
 
+/** Result of rebuilding a store from forge state, with what the scope did to the fetch. */
+export interface ImportResult {
+  store: StackStore;
+  /** Open MRs the forge returned, before scoping. */
+  openMRs: number;
+  /** How many of those belong to the project the remote points at. */
+  scopedMRs: number;
+  /** The project path read from the remote, for diagnostics. */
+  projectPath: string;
+}
+
 // ── ForgeSync ────────────────────────────────────────────────────────────────
 
 /**
@@ -102,13 +141,24 @@ export const ForgeSync = {
   /**
    * Discover stack-like MR chains from the forge.
    *
-   * Fetches all open MRs, then walks `targetBranch` chains to find
-   * trees of related MRs.
+   * Fetches the open MRs of one project, then walks `targetBranch` chains to
+   * find trees of related MRs.
+   *
+   * @param scope - Scope discovery to one forge project: "group/project", or a
+   *   {@link ProjectScope} when the host is known too.
+   *
+   *   Omit it, or pass the null a degenerate remote parses to, only when the
+   *   caller has no repo in hand: the fetch then returns every MR the token
+   *   user is involved in, across every project on the instance, and the
+   *   result can only be trusted as far as `discoverStacksFromPRs` keeps repos
+   *   apart. That is deliberate for this function and
+   *   {@link ForgeSync.discoverTeamStacks}: both only list what the forge has,
+   *   so an unscoped listing is wide but not wrong. `importFromForge`, which
+   *   rebuilds the store from what it finds, refuses a null scope instead.
    */
-  async discoverStacks(provider: GitProvider): Promise<DiscoveredStack[]> {
-    const allPRs = await provider.fetchPullRequests();
-    const openPRs = allPRs.filter((pr) => pr.state === 'opened');
-    return discoverStacksFromPRs(openPRs);
+  async discoverStacks(provider: GitProvider, scope?: string | ProjectScope | null): Promise<DiscoveredStack[]> {
+    const { kept } = await fetchOpenPRsForProject(provider, scope);
+    return discoverStacksFromPRs(kept);
   },
 
   /**
@@ -215,11 +265,28 @@ export const ForgeSync = {
   /**
    * Import stacks from forge — reverse sync escape hatch.
    *
-   * Fetches all open MRs, discovers stack chains, and builds a StackStore
-   * from scratch. Use for recovery, not normal workflow.
+   * Fetches the open MRs of the project `remoteUrl` points at, discovers stack
+   * chains, and builds a StackStore from scratch. Use for recovery, not normal
+   * workflow.
+   *
+   * MRs from other projects are left out: the store is this repo's, so an MR
+   * from elsewhere has no branch here to attach to.
+   *
+   * Throws when `remoteUrl` names no project. Falling back to an unscoped
+   * fetch would quietly rebuild the store from every MR on the instance, which
+   * is the one thing import promises not to do... and the caller has already
+   * discarded the old store by the time it could notice.
    */
-  async importFromForge(provider: GitProvider, repoPath: string, remoteUrl: string): Promise<StackStore> {
-    const discovered = await ForgeSync.discoverStacks(provider);
+  async importFromForge(provider: GitProvider, repoPath: string, remoteUrl: string): Promise<ImportResult> {
+    const scope = projectScopeFromRemoteUrl(remoteUrl);
+    if (!scope) {
+      throw new Error(
+        `cannot read a project path from remote "${remoteUrl}"; import keeps only the MRs of the project the remote points at`,
+      );
+    }
+
+    const { fetched, kept } = await fetchOpenPRsForProject(provider, scope);
+    const discovered = discoverStacksFromPRs(kept);
     const usedIds = new Set<string>();
 
     const stacks: Stack[] = discovered.map((ds) => {
@@ -246,74 +313,198 @@ export const ForgeSync = {
       return stack;
     });
 
-    return { repoPath, remoteUrl, stacks };
+    return {
+      store: { repoPath, remoteUrl, stacks },
+      openMRs: fetched.length,
+      scopedMRs: kept.length,
+      projectPath: scope.path,
+    };
   },
 
   /**
-   * Bulk-create MRs for all local-only nodes in a stack.
+   * Publish a stack: create MRs for its local-only nodes, update the MRs of
+   * the nodes that already have one.
    *
-   * Pushes each branch (force-with-lease) and creates MRs in topological
-   * order (parents first) so each MR can target its parent branch. Stops on
-   * first failure since child MRs depend on parent MRs existing.
+   * Walks in topological order (parents first) so each new MR can target its
+   * parent branch. A local-only node is pushed (force-with-lease) and gets a
+   * draft MR. A node that already has an open MR is never pushed; its MR is
+   * retargeted when the local tree moved it under a different parent, and its
+   * title/description are rewritten only when `descriptions` names that branch
+   * (so a republish never clobbers MR prose the caller did not supply). Nodes
+   * whose MR needs neither are left alone and stay out of the results.
+   *
+   * Targets resolve through {@link resolveLiveTarget}, so a node under a merged
+   * parent points at the nearest live ancestor rather than a branch the forge
+   * may have deleted out from under it.
+   *
+   * A failed create stops the walk: the branch was never pushed, so the
+   * children that would target it have no base to sit on. A failed update does
+   * not, since it leaves the branch and its MR exactly as they were.
    */
   async publishStack(
     provider: GitProvider,
     stack: Stack,
     projectPath: string,
     cwd?: string,
-    descriptions?: Record<string, { title: string; body: string }>,
+    descriptions?: Record<string, { title?: string; body?: string }>,
   ): Promise<PublishResult> {
     const sorted = StackManager.toposort(stack);
-    const localOnly = sorted.filter((n) => n.status === 'local-only' && n.mrIid === null);
+
+    // Telling a retarget from a no-op needs the MR's current target, which only
+    // the forge knows. Batch-fetch by iid, and only when something is published
+    // — a first publish of an all-local stack still makes no read call.
+    const publishedIids = sorted.filter((n) => n.status !== 'merged' && n.mrIid !== null).map((n) => n.mrIid as number);
+    const prByIid = new Map<number, PullRequest>();
+    if (publishedIids.length > 0) {
+      const prs = await provider.fetchPullRequests({ iids: publishedIids, projectPath });
+      for (const pr of prs) prByIid.set(pr.iid, pr);
+    }
 
     const results: PublishNodeResult[] = [];
+    const skipped: PublishSkip[] = [];
     let updatedStack = stack;
 
-    for (const node of localOnly) {
-      try {
-        if (cwd) {
-          await GitShell.pushForceWithLease(cwd, node.branch);
+    for (const node of sorted) {
+      const desc = descriptions?.[node.branch];
+      const meta = metaUpdate(desc);
+      const targetBranch = resolveLiveTarget(updatedStack, node.parent);
+
+      if (node.mrIid === null) {
+        if (node.status !== 'local-only') continue;
+
+        try {
+          if (cwd) {
+            await GitShell.pushForceWithLease(cwd, node.branch);
+          }
+
+          const input: CreatePullRequestInput = {
+            projectPath,
+            title: desc?.title ?? node.branch,
+            sourceBranch: node.branch,
+            targetBranch,
+            draft: true,
+          };
+          if (desc?.body) {
+            input.description = desc.body;
+          }
+
+          const pr = await provider.createPullRequest(input);
+
+          const head = cwd ? await GitShell.getBranchHead(cwd, node.branch).catch(() => null) : null;
+          updatedStack = StackManager.updateNode(updatedStack, node.branch, {
+            mrIid: pr.iid,
+            mrUrl: pr.webUrl,
+            status: 'synced',
+            ...(head ? { lastKnownHead: head } : {}),
+          });
+
+          results.push({
+            branch: node.branch,
+            success: true,
+            action: 'created',
+            mrIid: pr.iid,
+            mrUrl: pr.webUrl ?? undefined,
+            targetBranch,
+          });
+        } catch (err) {
+          results.push({
+            branch: node.branch,
+            success: false,
+            action: 'created',
+            error: toErrorMessage(err),
+            targetBranch,
+          });
+          break;
         }
+        continue;
+      }
 
-        const desc = descriptions?.[node.branch];
-        const input: CreatePullRequestInput = {
-          projectPath,
-          title: desc?.title ?? node.branch,
-          sourceBranch: node.branch,
-          targetBranch: node.parent,
-          draft: true,
-        };
-        if (desc?.body) {
-          input.description = desc.body;
-        }
+      // A merged node is the steady state gitq keeps in the tree, not a
+      // surprise: its iid is deliberately left out of the pre-walk read above,
+      // so reporting it as unreadable below would be a lie.
+      if (node.status === 'merged') continue;
 
-        const pr = await provider.createPullRequest(input);
-
-        const head = cwd ? await GitShell.getBranchHead(cwd, node.branch).catch(() => null) : null;
-        updatedStack = StackManager.updateNode(updatedStack, node.branch, {
-          mrIid: pr.iid,
-          mrUrl: pr.webUrl,
-          status: 'synced',
-          ...(head ? { lastKnownHead: head } : {}),
+      // Already published. Anything the forge doesn't show as an open MR of
+      // this branch is skipped rather than written to, and says so: a merged or
+      // closed MR is not ours to retarget, an MR we couldn't read is one whose
+      // target we can't compare against, and an iid belonging to some other
+      // branch is a stale pointer that would retarget an unrelated MR.
+      const pr = prByIid.get(node.mrIid);
+      if (!pr) {
+        skipped.push({
+          branch: node.branch,
+          mrIid: node.mrIid,
+          reason: 'mr-unreadable',
+          detail: `MR !${node.mrIid} was not returned by GitLab`,
         });
+        continue;
+      }
+      if (pr.state !== 'opened') {
+        skipped.push({
+          branch: node.branch,
+          mrIid: node.mrIid,
+          reason: 'mr-not-open',
+          detail: `MR !${node.mrIid} is ${pr.state}`,
+        });
+        continue;
+      }
+      if (pr.sourceBranch !== node.branch) {
+        skipped.push({
+          branch: node.branch,
+          mrIid: node.mrIid,
+          reason: 'source-branch-mismatch',
+          detail: `MR !${node.mrIid} is for ${pr.sourceBranch}, not ${node.branch}`,
+        });
+        continue;
+      }
+
+      const needsRetarget = pr.targetBranch !== targetBranch;
+      if (!needsRetarget && !meta) continue;
+
+      try {
+        if (needsRetarget) {
+          updatedStack = await ForgeSync.retargetMR(provider, updatedStack, node.branch, projectPath);
+        }
+        if (meta) {
+          await provider.updatePullRequest(projectPath, node.mrIid, meta);
+        }
+
+        const changes: PublishChange[] = [];
+        if (needsRetarget) changes.push('target');
+        if (meta) changes.push('metadata');
 
         results.push({
           branch: node.branch,
           success: true,
-          mrIid: pr.iid,
-          mrUrl: pr.webUrl ?? undefined,
+          action: 'updated',
+          changes,
+          mrIid: node.mrIid,
+          mrUrl: node.mrUrl ?? pr.webUrl ?? undefined,
+          targetBranch,
         });
       } catch (err) {
-        results.push({ branch: node.branch, success: false, error: toErrorMessage(err) });
-        break;
+        results.push({
+          branch: node.branch,
+          success: false,
+          action: 'updated',
+          error: toErrorMessage(err),
+          targetBranch,
+        });
       }
     }
 
-    return { results, updatedStack };
+    return { results, skipped, updatedStack };
   },
 
   /**
    * Retarget an MR on the forge so its target branch matches the local tree parent.
+   *
+   * `publishStack` calls this for every already-published node whose MR drifted
+   * off its parent; it is also usable on its own for a single branch.
+   *
+   * Targets the nearest live ancestor ({@link resolveLiveTarget}), not the raw
+   * parent: pointing an open MR at a merged branch either 400s (the forge
+   * deleted it on merge) or undoes the forge's own retarget.
    */
   async retargetMR(provider: GitProvider, stack: Stack, branch: string, projectPath: string): Promise<Stack> {
     const node = StackManager.findNode(stack, branch);
@@ -321,7 +512,7 @@ export const ForgeSync = {
     if (!node.mrIid) throw new Error(`Branch "${branch}" has no MR to retarget`);
 
     await provider.updatePullRequest(projectPath, node.mrIid, {
-      targetBranch: node.parent,
+      targetBranch: resolveLiveTarget(stack, node.parent),
     });
 
     return StackManager.updateNode(stack, branch, { status: 'synced' });
@@ -329,10 +520,14 @@ export const ForgeSync = {
 
   /**
    * Discover stack chains from forge MRs grouped by author.
+   *
+   * @param scope - Scope discovery to one forge project, as in
+   *   {@link ForgeSync.discoverStacks}, including what an omitted or null scope
+   *   means there. Without it a teammate's MRs in another project are listed
+   *   under their name as if they were this repo's.
    */
-  async discoverTeamStacks(provider: GitProvider): Promise<TeamStack[]> {
-    const allPRs = await provider.fetchPullRequests();
-    const openPRs = allPRs.filter((pr) => pr.state === 'opened');
+  async discoverTeamStacks(provider: GitProvider, scope?: string | ProjectScope | null): Promise<TeamStack[]> {
+    const { kept: openPRs } = await fetchOpenPRsForProject(provider, scope);
 
     const byAuthor = new Map<string, { author: TeamStackAuthor; prs: PullRequest[] }>();
 
@@ -387,6 +582,62 @@ export const ForgeSync = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Walk up from `parent` past any merged node to the branch an MR can actually
+ * target. Returns the root once every ancestor is merged.
+ *
+ * gitq leaves merged nodes in the tree with their children still pointing at
+ * them (see the `drift-parent-merged` situation in `stack-diagnostics.ts`), and
+ * a forge typically deletes the source branch on merge and retargets the child
+ * MR itself. Mirrors `resolveLiveAncestor` in `rebase-engine.ts`, which is what
+ * keeps the rebase side of the same tree honest.
+ */
+function resolveLiveTarget(stack: Stack, parent: string): string {
+  let current = parent;
+  while (current !== stack.root) {
+    const node = stack.nodes.find((n) => n.branch === current);
+    if (!node || node.status !== 'merged') break;
+    current = node.parent;
+  }
+  return current;
+}
+
+/**
+ * The title/description patch a `--mr-meta` entry asks for, or null when it
+ * asks for nothing. An absent field leaves what is on the forge alone.
+ */
+function metaUpdate(desc?: { title?: string; body?: string }): { title?: string; description?: string } | null {
+  if (!desc) return null;
+  const update: { title?: string; description?: string } = {};
+  if (desc.title !== undefined) update.title = desc.title;
+  if (desc.body !== undefined) update.description = desc.body;
+  return Object.keys(update).length > 0 ? update : null;
+}
+
+/**
+ * Fetch the open MRs of one forge project, or every open MR the token user is
+ * involved in when no scope is given.
+ *
+ * Returns both sides of the filter so a caller can tell "the forge had nothing
+ * to give" from "the scope dropped everything it gave", which look identical
+ * from the discovered stacks alone.
+ *
+ * The scoping is done on the result rather than in the query because
+ * `@workforge/glance-sdk@0.9.0` cannot express "this project's MRs":
+ * `fetchPullRequests` honours `projectPath` only alongside `iids` or
+ * `authorUsernames`, neither of which discovery knows before it has fetched,
+ * and `GitHubProvider.fetchPullRequests` takes no options at all at this
+ * version. A later SDK can push this into the query (see MAT-16).
+ */
+async function fetchOpenPRsForProject(
+  provider: GitProvider,
+  scope?: string | ProjectScope | null,
+): Promise<{ fetched: PullRequest[]; kept: PullRequest[] }> {
+  const prs = await provider.fetchPullRequests();
+  const fetched = prs.filter((pr) => pr.state === 'opened');
+  return { fetched, kept: scope ? filterPRsToProject(fetched, scope) : fetched };
+}
+
 async function detectSyncChanges(
   provider: GitProvider,
   updatedStack: Stack,
@@ -417,7 +668,7 @@ async function detectSyncChanges(
   const deletedBranches: DeletedBranch[] = await Promise.all(
     vanished.map(async ({ branch, mrIid, mrUrl }): Promise<DeletedBranch> => {
       if (mrIid != null && mrUrl) {
-        const projectPath = extractProjectPathFromMrUrl(mrUrl);
+        const projectPath = projectPathFromWebUrl(mrUrl);
         if (projectPath) {
           try {
             const mr = await provider.fetchSingleMR(projectPath, mrIid, null);
@@ -433,39 +684,6 @@ async function detectSyncChanges(
   );
 
   return { newlyMerged, pipelineChanges, deletedBranches };
-}
-
-/**
- * Extract a project path from a stored MR URL.
- *
- * GitLab: "https://gitlab.com/group/project/-/merge_requests/42" → "group/project"
- * GitHub: "https://github.com/owner/repo/pull/42" → "owner/repo"
- */
-function extractProjectPathFromMrUrl(mrUrl: string): string | null {
-  try {
-    const url = new URL(mrUrl);
-    const parts = url.pathname.split('/').filter(Boolean);
-
-    // GitLab: /group/project/-/merge_requests/42  → take segments before "/-/"
-    const dashIdx = parts.indexOf('-');
-    if (dashIdx >= 2) {
-      return parts.slice(0, dashIdx).join('/');
-    }
-
-    // GitHub: /owner/repo/pull/42  → take first 2 segments
-    const pullIdx = parts.indexOf('pull');
-    if (pullIdx >= 2) {
-      return parts.slice(0, pullIdx).join('/');
-    }
-
-    // Fallback: take first 2 segments
-    if (parts.length >= 2) {
-      return `${parts[0]}/${parts[1]}`;
-    }
-  } catch {
-    // Invalid URL
-  }
-  return null;
 }
 
 /**

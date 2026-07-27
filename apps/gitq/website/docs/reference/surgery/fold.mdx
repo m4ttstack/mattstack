@@ -21,7 +21,7 @@ gitq fold <branch> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:161-168`). Three things happen together (`foldBranch`, `src/core/branch-fold.ts:34-167`):
+Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:180-187`). Three things happen together (`foldBranch`, `src/core/branch-fold.ts:34-167`):
 
 1. **The commits move.** The folded branch's own commits replay onto the parent, detached in the slot, and the parent is fast-forwarded to the result by compare-and-swap. A branch with no commits beyond its parent skips the replay entirely.
 2. **The branch is deleted**, from git and from the stack tree.
@@ -29,9 +29,9 @@ Guarded by the stack lease, and always runs detached in a leased [work slot](/co
 
 **Fold does not cascade the reparented children.** When the replay produced no new commits (the usual case, the parent was already sitting at the folded branch's base), the children are already on the right head and there is nothing to do. When the parent had moved ahead and the replay produced new commits, the children are left behind their new parent and want a `gitq sync`.
 
-### One of two exceptions to checkout neutrality
+### The one exception to checkout neutrality
 
-Deleting a branch means it cannot stay checked out anywhere. A **clean** worktree holding the folded branch, including the one you launched `fold` from, is switched to the parent before the branch is deleted (`src/core/branch-fold.ts:136-142`). This is one of two exceptions across all of surgery to "your checkout never moves"; the other is [`gitq reset`](/reference/surgery/reset), which always checks the target branch out in your launch worktree.
+Deleting a branch means it cannot stay checked out anywhere. A **clean** worktree holding the folded branch, including the one you launched `fold` from, is switched to the parent before the branch is deleted (`src/core/branch-fold.ts:136-142`). This is the only exception across all of surgery to "your checkout never moves", and it is forced: the branch you were standing on stops existing. Every other surgery command, [`gitq reset`](/reference/surgery/reset) included, leaves you on the branch you started on.
 
 ### Refusals
 

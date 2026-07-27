@@ -9,7 +9,11 @@ gitq has two independent configuration surfaces, read by two different processes
 
 ## The CLI: `settings.json`
 
-gitq's config directory defaults to `~/.config/gitq/` and can be moved with **`GITQ_CONFIG_DIR`**, an environment variable read once, at process start (`src/core/config-paths.ts:5`, `const DEFAULT_CONFIG_DIR = process.env.GITQ_CONFIG_DIR ?? join(homedir(), '.config', 'gitq')`). Every path the CLI derives, the stack stores, the settings file, the operation log, comes from this one directory (`src/core/config-paths.ts:23-37`). Export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks entirely.
+gitq's config directory defaults to `~/.config/gitq/` and can be moved with **`GITQ_CONFIG_DIR`**, an environment variable read once, at process start (`src/core/config-paths.ts:13-14`, `const DEFAULT_CONFIG_DIR = envConfigDir ? resolve(envConfigDir) : HOME_CONFIG_DIR`). An empty value counts as unset, and a relative one is resolved against the directory gitq was started in, so the config directory is always an absolute path. Every path the CLI derives, the stack stores, the settings file, the operation log, comes from this one directory (`src/core/config-paths.ts:32-46`). Export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks entirely.
+
+The work slots gitq leases for cascades follow the same directory, with one deliberate carve-out for the default. A non-pool repo gets its slots under the work-slot root (`getWorkSlotRoot`, `src/core/config-paths.ts:62-65`), and what decides that root is the config directory's *value*, not whether the variable is set: `~/.cache/gitq/work/<hash>/` when the effective config directory is exactly `~/.config/gitq`, which includes `GITQ_CONFIG_DIR` pointing at that same path, and `<config dir>/work/<hash>/` for anything else. The default stays outside the config directory, unchanged, so slots you already have leased are still found. Pool repos are unaffected either way: their slots are siblings of your own worktrees. See [Work slots and leases](/concepts/work-slots).
+
+What the variable does not move is anything gitq writes into the repo you point it at. The lease registry (`<commonDir>/gitq/leases.json`), a paused cascade's `<gitdir>/gitq-pause.json`, and the `core.hooksPath` gitq pins per work slot all land in the operated-on repo's git directory regardless. A throwaway `GITQ_CONFIG_DIR` gets you a throwaway gitq state directory, not a run that leaves no trace; see [Where state lives](/concepts/state) for the full inventory.
 
 Inside it, the only setting the CLI reads today is `maxWorkSlots`, from `settings.json`:
 
@@ -17,15 +21,15 @@ Inside it, the only setting the CLI reads today is `maxWorkSlots`, from `setting
 { "maxWorkSlots": 5 }
 ```
 
-Read by `getMaxWorkSlots` (`src/core/worktrees.ts:85-89`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
+Read by `getMaxWorkSlots` (`src/core/worktrees.ts:84-88`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
 
-Do not look for other keys: `repos.json` also resolves under this directory (`getReposFilePath`, `src/core/config-paths.ts:29-31`), but nothing in the CLI reads or writes it as of this page. The stack stores and the operation log live here too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/concepts/state) for the full inventory of what is written and when.
+Do not look for other keys: `repos.json` also resolves under this directory (`getReposFilePath`, `src/core/config-paths.ts:38-40`), but nothing in the CLI reads or writes it as of this page. The stack stores and the operation log live here too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/concepts/state) for the full inventory of what is written and when.
 
 ## The GitLab token
 
-`publish` and `import` both need a token to reach GitLab, resolved by `resolveGitLabToken` (`src/core/secrets.ts:11-22`): **`GITLAB_TOKEN`** from the environment first, and if that is unset, the `gitlabToken` field in `~/.rt/secrets.json`. gitq never writes either location. Missing both is a hard failure before any network call is made: `gitq: no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:31-35`).
+`publish` and `import` both need a token to reach GitLab, resolved by `resolveGitLabToken` (`src/core/secrets.ts:11-22`): **`GITLAB_TOKEN`** from the environment first, and if that is unset, the `gitlabToken` field in `~/.rt/secrets.json`. gitq never writes either location. Missing both is a hard failure before any network call is made: `gitq: no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:33-37`).
 
-The base URL is hardcoded to `https://gitlab.com` (`src/cli/provider.ts:17`, `GITLAB_BASE_URL`). There is no self-hosted GitLab support today, whatever host you point `gitlabToken` or a remote at.
+The base URL is hardcoded to `https://gitlab.com` (`src/cli/provider.ts:19`, `GITLAB_BASE_URL`). There is no self-hosted GitLab support today, whatever host you point `gitlabToken` or a remote at.
 
 ## The board: `config.json`
 

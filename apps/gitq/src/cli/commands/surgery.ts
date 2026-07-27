@@ -1,5 +1,6 @@
 import { loadStore, updateStore } from '../../core/persistence.ts';
 import { AbsorbEngine } from '../../core/absorb.ts';
+import type { AbsorbResult } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
 import { foldBranch } from '../../core/branch-fold.ts';
 import { reparentBranch } from '../../core/reparent.ts';
@@ -47,7 +48,7 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
     const attributedCount = Object.keys(preview.attributed).length;
     emit(
       ctx,
-      `absorb preview: ${attributedCount} branch(es) attributed, ${preview.unattributed.length} file(s) fall back to ${preview.currentBranch}`,
+      `absorb preview: ${attributedCount} branch(es) attributed, ${preview.unattributed.length} file(s) left in the worktree`,
       { stack, result: preview },
     );
     return 0;
@@ -64,6 +65,21 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
   for (const attributedBranch of Object.keys(preview.attributed)) {
     const preGuard = refuseIfCheckedOutElsewhere(ctx, map, attributedBranch);
     if (preGuard !== null) return preGuard;
+  }
+
+  // No branch owns any of it, so the engine would return without stashing,
+  // checking out, or committing anything. Say so from here: leasing a slot
+  // materializes a work worktree, and there is nothing for it to restack.
+  if (Object.keys(preview.attributed).length === 0) {
+    const reason = preview.unattributed.length === 0 ? 'no-changes' : 'nothing-attributable';
+    const result: AbsorbResult = {
+      absorbed: false,
+      reason,
+      attributions: [],
+      unattributed: preview.unattributed,
+    };
+    emit(ctx, `nothing absorbed (${reason})`, { stack, result });
+    return 0;
   }
 
   // Absorb has no pause protocol (see below), but the restack it runs after
@@ -92,14 +108,17 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
       }
 
       const failed = result.attributions.some((a) => !a.success);
-      emit(
-        ctx,
-        result.absorbed
-          ? `absorbed: ${result.attributions.map((a) => `${a.branch} (${a.files.length})`).join(', ')}`
-          : `nothing absorbed${result.reason ? ` (${result.reason})` : ''}`,
-        { stack: updatedStack, result },
-      );
-      return failed ? 1 : 0;
+      const headline = result.absorbed
+        ? `absorbed: ${result.attributions.map((a) => `${a.branch} (${a.files.length})`).join(', ')}`
+        : `nothing absorbed${result.reason ? ` (${result.reason})` : ''}`;
+      // `recovery` means work of the human's is sitting somewhere they have to
+      // go get: the stash absorb kept, or a branch it could not leave. Print it
+      // with the headline and exit non-zero even when the commits landed.
+      emit(ctx, result.recovery ? `${headline}\n${result.recovery}` : headline, {
+        stack: updatedStack,
+        result,
+      });
+      return failed || result.recovery ? 1 : 0;
     }),
   );
 }
@@ -111,7 +130,7 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
   const files = typeof ctx.flags.files === 'string' ? ctx.flags.files : null;
 
   if (!branch || !name || (!at && !files) || (at && files)) {
-    return fail('usage: gitq split <branch> --at <sha> --name <newBranch> | gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]');
+    return fail('usage: gitq split <branch> --at <rev> --name <newBranch> | gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]');
   }
 
   const store = await loadStore(ctx.repoRoot);
@@ -239,10 +258,27 @@ export async function resetCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
+  // Keep the pre-guard even though resetToRemote is ref-only surgery now: a
+  // branch held by another non-work slot refuses here with a pointer to that
+  // slot, rather than deeper down in finalizeBranchRef's slot policy.
   const map = await getWorktreeMap(ctx.repoRoot);
   const preGuard = refuseIfCheckedOutElsewhere(ctx, map, branch);
   if (preGuard !== null) return preGuard;
 
+  // `findSlotForBranch` skips `gitq-N` work slots, so neither the pre-guard
+  // above nor finalizeBranchRef's slot policy sees one a human checked out onto
+  // the branch, so the ref would move and that slot's tree/index would silently
+  // go stale. Refuse here instead. Narrow on purpose: making the shared
+  // worktree lookup work-slot aware for every surgery command is Linear MAT-23.
+  const workSlot = map.find((s) => s.isWorkSlot && s.branch === branch);
+  if (workSlot) {
+    return fail(
+      `branch "${branch}" is checked out in work slot "${workSlot.name}" (${workSlot.path}); free that slot before resetting`,
+    );
+  }
+
+  // No HEAD capture/restore needed: resetToRemote CAS-moves the ref and never
+  // checks anything out, so the launch worktree stays on its own branch.
   const result = await resetToRemote(ctx.repoRoot, stack, branch);
   await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
   emit(ctx, `reset ${branch} to origin/${branch} (${result.newHead})`, { stack: result.updatedStack, result });

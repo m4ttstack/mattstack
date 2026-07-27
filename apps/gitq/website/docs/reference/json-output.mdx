@@ -249,7 +249,7 @@ Completed (`state: "completed"`, exit `0` if every branch succeeded, `1` otherwi
 
 ## `gitq absorb`
 
-`src/cli/commands/surgery.ts:40-105`. `--preview` emits `{ stack, result }` where `result` is an `AbsorbPreview` (`src/core/absorb.ts:27-31`: `attributed` a `Record<branch, filePath[]>`, `unattributed` a `string[]`, `currentBranch`). Real capture, a clean tree with nothing to attribute:
+`src/cli/commands/surgery.ts:41-124`. `--preview` emits `{ stack, result }` where `result` is an `AbsorbPreview` (`src/core/absorb.ts:36-43`: `attributed` a `Record<branch, filePath[]>`, `unattributed` a `string[]`, `currentBranch`). `unattributed` is what absorb will leave dirty in the worktree, not a branch assignment; see [`gitq absorb`](/reference/surgery/absorb). Real capture, a clean tree with nothing to attribute:
 
 ```json
 {
@@ -258,7 +258,23 @@ Completed (`state: "completed"`, exit `0` if every branch succeeded, `1` otherwi
 }
 ```
 
-A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`, where `result` is an `AbsorbResult` (`src/core/absorb.ts:19-24`, described from source, not captured live): `absorbed` (boolean), `reason` (`'no-changes'`, optional), `attributions` (`AbsorbAttribution[]`: `{ branch, files, success, error? }`), `cascadeResult` (optional `CascadeResult`, the same shape `sync` produces, for the restack absorb runs afterward), `updatedStack` (optional).
+A committing (non `--preview`) `absorb` emits `{ stack: updatedStack, result }`, where `result` is an `AbsorbResult` (`src/core/absorb.ts:20-34`): `absorbed` (boolean), `reason` (`'no-changes' | 'nothing-attributable'`, optional), `attributions` (`AbsorbAttribution[]`: `{ branch, files, success, error? }`), `unattributed` (`string[]`, always present, the files absorb left in the worktree), `cascadeResult` (optional `CascadeResult`, the same shape `sync` produces, for the restack absorb runs afterward), `updatedStack` (optional), `recovery` (optional string, present only when the run left work for you to fetch by hand — a retained stash entry, a branch it could not leave — and the run exits `1` when it is). Real capture, a dirty tree holding one file no branch owns:
+
+```json
+{
+  "stack": { "id": "93507bc7-...", "stackName": "demo", "root": "main", "nodes": ["..."] },
+  "result": {
+    "absorbed": false,
+    "reason": "nothing-attributable",
+    "attributions": [],
+    "unattributed": [
+      "notes.md"
+    ]
+  }
+}
+```
+
+`cascadeResult` and `updatedStack` are absent there because nothing was committed, so there was nothing to restack; a run that absorbs something carries both. `recovery` is absent on every run that cleaned up after itself, which is nearly all of them.
 
 ## `gitq split` / `gitq fold` / `gitq reparent` / `gitq rename` / `gitq reset`
 
@@ -271,17 +287,21 @@ None of these five were run live for this page; each shape below is the exact ty
 | `fold` | `FoldResult` (`src/core/branch-fold.ts:9-17`) | `foldedBranch`, `intoParent`, `reParentedChildren`, `newStack` |
 | `reparent` | `ReparentResult` (`src/core/reparent.ts:7-13`) | `branch`, `oldParent`, `newParent`, `cascadeResult` (`CascadeResult \| null`), `newStack` |
 | `rename` | `RenameResult` (`src/core/branch-rename.ts:5-7`) | `updatedStack` |
-| `reset` | `ResetToRemoteResult` (`src/core/branch-reset.ts:6-10`) | `updatedStack`, `newHead` (the SHA reset to) |
+| `reset` | `ResetToRemoteResult` (`src/core/branch-reset.ts:7-11`) | `updatedStack`, `newHead` (the SHA reset to) |
 
-`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:195-208`).
+`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:214-227`).
 
 ## `gitq publish` / `gitq import`
 
 Neither was run for this page: both talk to the real GitLab API, which this project's isolation rules keep off limits. Shapes below are from source.
 
-`publish` (`src/cli/commands/forge.ts:60-93`) emits `{ results, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:37-43`): `{ branch, success, mrIid?, mrUrl?, error? }`.
+`publish` (`src/cli/commands/forge.ts:104-140`) emits `{ results, skipped, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:44-56`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
 
-`import` (`src/cli/commands/forge.ts:95-127`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
+`action` is always present and says which of the two things happened: `created` for an MR this run opened, `updated` for one that was already there. `changes` is set only on an update and lists what actually moved, `target` when the MR was retargeted and `metadata` when `--mr-meta` rewrote its title and description, either or both (`PublishChange`, `src/core/forge-sync.ts:41`). `targetBranch` is the branch the MR points at after the run: the node's parent in the local tree, or its nearest ancestor that has not merged.
+
+`skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:62-69`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:59`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/gitlab/publish#skipped) for what each reason means.
+
+`import` (`src/cli/commands/forge.ts:142-189`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
 
 ## `gitq undo`
 

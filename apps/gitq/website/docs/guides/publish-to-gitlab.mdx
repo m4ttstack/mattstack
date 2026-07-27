@@ -5,7 +5,7 @@ sidebar_position: 5
 
 # Publish to GitLab
 
-`gitq publish` turns the local-only branches in a stack into a chain of GitLab merge requests, each one targeting the branch below it. It is the only gitq command that talks to a network API, the only one that needs a token, and (inside the agent skill flow) the only one with a human gate in front of it.
+`gitq publish` turns the local-only branches in a stack into a chain of GitLab merge requests, each one targeting the branch below it, and keeps the MRs that already exist pointing at the right branch. It is the only gitq command that talks to a network API, the only one that needs a token, and (inside the agent skill flow) the only one with a human gate in front of it.
 
 This page is verified line by line against `src/cli/commands/forge.ts`, `src/core/forge-sync.ts`, `src/cli/provider.ts`, and `src/core/secrets.ts`, not against a live run: publishing hits the real GitLab API, so there is no throwaway repo to demonstrate it against the way the other guides do. The command shapes and JSON below are the actual interfaces, not a captured transcript.
 
@@ -26,38 +26,67 @@ The base URL is hardcoded to `https://gitlab.com`. There is no self-hosted GitLa
 
 ## What `publish` does, per branch
 
-`publish` walks the stack in topological order (parents before children) and acts only on nodes whose `status` is `local-only` **and** which have no `mrIid` yet: that is, branches that have never had an MR created for them by gitq. A branch that already has one, however stale its content, is skipped entirely: nothing is pushed for it and nothing about its MR is touched.
+`publish` walks the stack in topological order (parents before children) and treats a branch one of two ways, depending on whether it already has an MR. (A third outcome, [skipped](#skipped), is for the branches whose MR is not publish's to write to.)
 
-For each branch it does act on, in order:
+**A branch with no MR yet** (`status` is `local-only` and no `mrIid`) is created:
 
 1. **Push.** `git push --force-with-lease origin <branch>`.
-2. **Create the MR.** `sourceBranch` is the node's branch, `targetBranch` is the node's **parent in the local tree** (not whatever the branch happened to target before, if it had no MR there was nothing to have targeted). The MR is created as a **draft** unconditionally.
+2. **Create the MR.** `sourceBranch` is the node's branch, `targetBranch` is the branch below it in the local tree (not whatever the branch happened to target before, if it had no MR there was nothing to have targeted). The MR is created as a **draft** unconditionally.
 3. **Record it.** The node's `mrIid` and `mrUrl` are set and its `status` becomes `synced`, along with `lastKnownHead` if the local branch head could be read.
 
-If any step fails, `publish` **stops the walk right there**. It does not attempt the remaining branches, because a child's MR needs its parent's MR to exist first for the target branch to make sense; skipping ahead would create MRs against the wrong base.
+**A branch that already has an open MR** is updated, never pushed:
+
+1. **Retarget**, when the MR's target on GitLab is no longer the branch below it in the local tree: `updatePullRequest(projectPath, mrIid, { targetBranch })`, and the node's `status` goes back to `synced`. This is what fixes an MR after a [`reparent`](/guides/restructure-a-stack#reparent) moved its branch under something else.
+2. **Rewrite the title and description**, only when `--mr-meta` has an entry for that branch (see [below](#mr-meta)).
+
+Needing neither, the branch is left completely alone and does not appear in the output at all.
+
+To tell a retarget from a no-op, `publish` reads the current target of every already-published MR before the walk, batch-fetched by iid in one call. A stack with nothing published yet skips that read; a stack where it fails stops the command before anything is pushed.
+
+If a **create** fails, `publish` stops the walk right there: the branch was never pushed, so a child MR targeting it would have no base. A failed **update** leaves that branch's MR exactly as it was, so the walk carries on and the branches after it are still published.
 
 ```bash
 gitq publish --stack demo
 ```
 
 ```
-feat-api: https://gitlab.com/group/project/-/merge_requests/101
-feat-ui: https://gitlab.com/group/project/-/merge_requests/102
+feat-api: created https://gitlab.com/group/project/-/merge_requests/101
+feat-ui: updated (retargeted to feat-api) https://gitlab.com/group/project/-/merge_requests/102
 ```
 
-Exit `0` when every attempted branch succeeded, `1` if any failed. Check the per-branch `success` field under `--json` rather than assuming a failure means nothing happened; branches before the failing one are already pushed and already have MRs.
+Under `--json`, the same distinction is per-result: `action` is `created` or `updated`, and an update carries `changes` (`target`, `metadata`, or both).
 
-With nothing local-only to publish:
+Exit `0` when every attempted branch succeeded, `1` if any failed. Check the per-branch `success` field under `--json` rather than assuming a failure means nothing happened; branches before a failed create are already pushed and already have MRs, and a failed update does not stop what comes after it.
+
+### The branch below is the nearest *live* one
+
+A merged branch stays in your stack until you remove it, and its children keep pointing at it. GitLab, meanwhile, deletes the source branch when it merges an MR and moves the child MR to the trunk itself. So `publish` never targets a merged node: it walks down past every branch whose `status` is `merged` and targets the first one that is still live, the same nearest-live-ancestor rule [the cascade](/concepts/cascade#when-the-parent-was-merged) rebases by.
+
+That is what keeps the ordinary end of a stack's life boring. The bottom branch merges, you add another branch on top, you republish: the surviving MRs are compared against the trunk (which is where GitLab already put them, so nothing is written), and the new branch's MR is opened against the branch below it. Without it, the child MR would be pointed back at a branch that no longer exists.
+
+### Branches `publish` skips {#skipped}
+
+`publish` only ever writes to an **open MR belonging to that branch**. When the MR it has an iid for is merged, closed, missing from the read, or turns out to be some other branch's MR, it writes nothing and tells you:
 
 ```
-nothing to publish (no local-only branches)
+feat-ui: skipped (MR !102 is closed)
+```
+
+Under `--json` those come back in their own `skipped` array, each with a `branch`, `mrIid`, a machine-readable `reason`, and that same `detail` line. A skip is not a failure and does not change the exit code... it exists so that a branch you expected to be republished cannot quietly do nothing. See [`gitq publish`](/reference/gitlab/publish#skipped) for the full list of reasons.
+
+A merged branch of your own stack is not a skip. It is where a branch is supposed to end up, and `publish` leaves it alone silently.
+
+With nothing to create, nothing to update, and nothing skipped:
+
+```
+nothing to publish (no branches to create or update)
 ```
 
 Exit `0`.
 
-## `--mr-meta`: writing the MR content yourself
+## `--mr-meta`: writing the MR content yourself {#mr-meta}
 
-Without it, a new MR's title is the branch name and its description is empty. `--mr-meta <path>` points at a JSON file that supplies both, keyed by branch:
+Without it, a new MR's title is the branch name and its description is empty, and an existing MR's title and description are left exactly as they are. `--mr-meta <path>` points at a JSON file that supplies both, keyed by branch:
 
 ```json
 {
@@ -78,19 +107,19 @@ Both `title` and `description` are required strings for every entry you include:
 gitq: invalid --mr-meta: entry "feat-ui" must be {"title": string, "description": string}
 ```
 
-A branch you omit from the file falls back to the branch-name-as-title, empty-description default. A branch already published (skipped by the `local-only` filter above) ignores any entry for it in the file: there is no code path that reads `--mr-meta` for a branch that already has an MR.
+A branch you omit from the file falls back to the branch-name-as-title, empty-description default on a **new** MR, and keeps what it already has on an **existing** one. Every entry is read either way, so an entry for a branch that already has an MR is an instruction to overwrite that MR's title and description on GitLab, including any edit made in the UI. Name a published branch in `--mr-meta` only when you mean that.
 
-## Re-running `publish`
+An **empty string counts as omitted**, on both paths and for either field: `"description": ""` leaves an existing MR's body alone rather than wiping it, and `"title": ""` falls back to the branch name on a new MR. There is deliberately no way to empty an MR body from here... do that in the GitLab UI, where you can see what you are deleting.
 
-Because the filter is "no MR yet," running `publish` again after adding a new branch on top of an already-published stack publishes only the new branch: it extends the chain, targeting the new branch's MR at whatever the previous tip's MR already is. It does **not**:
+## Re-running `publish` {#re-running-publish}
 
-- Push new commits for a branch that already has an MR (a rebased, already-published branch needs its own `git push --force-with-lease`, run by hand or via whatever your normal publish flow is outside gitq).
-- Update an existing MR's title or description, even if you pass `--mr-meta` covering that branch.
-- Retarget an MR whose local parent has changed since it was published.
+Run `publish` again on a stack it already published and it does three things: opens MRs for any branch added since, retargets the MRs whose branch has moved under a different parent in the meantime, and rewrites the title and description of exactly the published branches you named in `--mr-meta`. A branch needing none of that is not touched and does not show up in the output.
 
-:::note The README overstates this
+The one thing it still does **not** do is push a branch that already has an MR. A rebased, already-published branch needs its own `git push --force-with-lease`, run by hand or via whatever your normal flow is outside gitq: `publish` pushes a branch exactly once, when it opens that branch's MR.
 
-The top-level `README.md` describes `publish` as opening "or update[ing]" an MR per local-only branch. Only the create half is implemented: `ForgeSync.publishStack` filters to nodes with `status === 'local-only' && mrIid === null`, so a branch with an `mrIid` is never revisited by this command, for a push, a retarget, or a description edit. Treat re-running `publish` as "extend the chain," not "sync everything up to date."
+:::note Retarget, not resync
+
+Retargeting changes what the MR merges into. It does not update what the MR contains. After a [`gitq sync`](/reference/cascade/sync) rebase, `publish` will point the MR at the right parent, but the MR still shows whatever commits are on the remote branch until you push it.
 
 :::
 
@@ -100,7 +129,7 @@ The top-level `README.md` describes `publish` as opening "or update[ing]" an MR 
 
 ## `import --replace`: recovery, not routine {#import-replace}
 
-`gitq import` rebuilds the local store from GitLab directly: it fetches every open MR, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it found. It is the reverse of `publish` (forge state becomes the source of truth instead of the local store), and it exists for one situation: **your local store is gone or wrong, and GitLab still has the truth.**
+`gitq import` rebuilds the local store from GitLab directly: it fetches the open MRs of this project, the one your `origin` remote points at, walks `targetBranch` chains to discover stack-shaped trees, and replaces the tracked stacks with what it found. MRs in other projects on the same GitLab instance are filtered out before the walk, so an identically named branch elsewhere cannot end up in a discovered stack. It is the reverse of `publish` (forge state becomes the source of truth instead of the local store), and it exists for one situation: **your local store is gone or wrong, and GitLab still has the truth.**
 
 It refuses to run over a non-empty store without `--replace`:
 

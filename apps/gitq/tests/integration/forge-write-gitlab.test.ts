@@ -195,8 +195,43 @@ describe.skipIf(!GITLAB_TOKEN || !GITLAB_PROJECT_PATH)('GitLab forge write cycle
   });
 
   test('importFromForge builds a full StackStore from forge state', async () => {
-    const store = await ForgeSync.importFromForge(provider, '/tmp/test', 'https://gitlab.com/test');
-    expect(store.stacks.length).toBeGreaterThanOrEqual(0);
+    // The retarget test above moved b2's MR onto main, which leaves two
+    // standalone MRs and no chain for discovery to find. Put b2 back on top of
+    // b1 so the import sees the stack this file actually pushed.
+    if (createdMRs.length >= 2) {
+      await glApi('PUT', `/projects/${projectId}/merge_requests/${createdMRs[1]}`, { target_branch: b1 });
+    }
+
+    // The remote has to name the project the branches above live in: import
+    // keeps only that project's MRs, so any other remote imports an empty
+    // store and asserts nothing.
+    const remoteUrl = `${GITLAB_BASE_URL}/${GITLAB_PROJECT_PATH}.git`;
+
+    const { store, openMRs, scopedMRs, projectPath } = await ForgeSync.importFromForge(
+      provider,
+      '/tmp/test',
+      remoteUrl,
+    );
+
     expect(store.repoPath).toBe('/tmp/test');
+    expect(store.remoteUrl).toBe(remoteUrl);
+    expect(projectPath).toBe(GITLAB_PROJECT_PATH!);
+    expect(scopedMRs).toBeGreaterThan(0);
+    expect(scopedMRs).toBeLessThanOrEqual(openMRs);
+
+    const imported = store.stacks.flatMap((s) => s.nodes.map((n) => n.branch));
+    expect(imported).toContain(b1);
+    expect(imported).toContain(b2);
+
+    // Every MR that survived the scope belongs to this project. Compared
+    // case-insensitively, as the scope itself is: GitLab resolves project
+    // paths that way, so the canonical web url may differ in case from the
+    // path the environment named.
+    const wanted = `/${GITLAB_PROJECT_PATH!.toLowerCase()}/`;
+    for (const stack of store.stacks) {
+      for (const node of stack.nodes) {
+        if (node.mrUrl) expect(node.mrUrl.toLowerCase()).toContain(wanted);
+      }
+    }
   });
 });
