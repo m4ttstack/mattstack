@@ -33,13 +33,22 @@ export interface ReconcileResult {
 
 export type { DiscoveredStack };
 
-/** Per-node result when publishing (creating MRs for) a stack. */
+/** What publish did to an already-published MR. */
+export type PublishChange = 'target' | 'metadata';
+
+/** Per-node result when publishing (creating or updating MRs for) a stack. */
 export interface PublishNodeResult {
   branch: string;
   success: boolean;
   mrIid?: number;
   mrUrl?: string | undefined;
   error?: string;
+  /** Whether the MR was opened by this run or was already there and got updated. */
+  action: 'created' | 'updated';
+  /** Which parts of an existing MR changed. Only set when `action` is 'updated'. */
+  changes?: PublishChange[];
+  /** The branch the MR targets after this run — the node's parent in the local tree. */
+  targetBranch?: string;
 }
 
 /** Result of a bulk publish operation. */
@@ -250,11 +259,18 @@ export const ForgeSync = {
   },
 
   /**
-   * Bulk-create MRs for all local-only nodes in a stack.
+   * Publish a stack: create MRs for its local-only nodes, update the MRs of
+   * the nodes that already have one.
    *
-   * Pushes each branch (force-with-lease) and creates MRs in topological
-   * order (parents first) so each MR can target its parent branch. Stops on
-   * first failure since child MRs depend on parent MRs existing.
+   * Walks in topological order (parents first) so each new MR can target its
+   * parent branch. A local-only node is pushed (force-with-lease) and gets a
+   * draft MR. A node that already has an open MR is never pushed; its MR is
+   * retargeted when the local tree moved it under a different parent, and its
+   * title/description are rewritten only when `descriptions` names that branch
+   * (so a republish never clobbers MR prose the caller did not supply). Nodes
+   * whose MR needs neither are left alone and stay out of the results.
+   *
+   * Stops on the first failure since child MRs depend on parent MRs existing.
    */
   async publishStack(
     provider: GitProvider,
@@ -264,47 +280,114 @@ export const ForgeSync = {
     descriptions?: Record<string, { title: string; body: string }>,
   ): Promise<PublishResult> {
     const sorted = StackManager.toposort(stack);
-    const localOnly = sorted.filter((n) => n.status === 'local-only' && n.mrIid === null);
+
+    // Telling a retarget from a no-op needs the MR's current target, which only
+    // the forge knows. Batch-fetch by iid, and only when something is published
+    // — a first publish of an all-local stack still makes no read call.
+    const publishedIids = sorted.filter((n) => n.status !== 'merged' && n.mrIid !== null).map((n) => n.mrIid as number);
+    const prByIid = new Map<number, PullRequest>();
+    if (publishedIids.length > 0) {
+      const prs = await provider.fetchPullRequests({ iids: publishedIids, projectPath });
+      for (const pr of prs) prByIid.set(pr.iid, pr);
+    }
 
     const results: PublishNodeResult[] = [];
     let updatedStack = stack;
 
-    for (const node of localOnly) {
+    for (const node of sorted) {
+      const desc = descriptions?.[node.branch];
+
+      if (node.mrIid === null) {
+        if (node.status !== 'local-only') continue;
+
+        try {
+          if (cwd) {
+            await GitShell.pushForceWithLease(cwd, node.branch);
+          }
+
+          const input: CreatePullRequestInput = {
+            projectPath,
+            title: desc?.title ?? node.branch,
+            sourceBranch: node.branch,
+            targetBranch: node.parent,
+            draft: true,
+          };
+          if (desc?.body) {
+            input.description = desc.body;
+          }
+
+          const pr = await provider.createPullRequest(input);
+
+          const head = cwd ? await GitShell.getBranchHead(cwd, node.branch).catch(() => null) : null;
+          updatedStack = StackManager.updateNode(updatedStack, node.branch, {
+            mrIid: pr.iid,
+            mrUrl: pr.webUrl,
+            status: 'synced',
+            ...(head ? { lastKnownHead: head } : {}),
+          });
+
+          results.push({
+            branch: node.branch,
+            success: true,
+            action: 'created',
+            mrIid: pr.iid,
+            mrUrl: pr.webUrl ?? undefined,
+            targetBranch: node.parent,
+          });
+        } catch (err) {
+          results.push({
+            branch: node.branch,
+            success: false,
+            action: 'created',
+            error: toErrorMessage(err),
+            targetBranch: node.parent,
+          });
+          break;
+        }
+        continue;
+      }
+
+      // Already published. Skip anything the forge doesn't show as an open MR:
+      // a merged or closed MR is not ours to retarget, and an MR we couldn't
+      // read is one whose target we can't compare against.
+      const pr = prByIid.get(node.mrIid);
+      if (!pr || pr.state !== 'opened') continue;
+
+      const needsRetarget = pr.targetBranch !== node.parent;
+      if (!needsRetarget && !desc) continue;
+
       try {
-        if (cwd) {
-          await GitShell.pushForceWithLease(cwd, node.branch);
+        if (needsRetarget) {
+          updatedStack = await ForgeSync.retargetMR(provider, updatedStack, node.branch, projectPath);
+        }
+        if (desc) {
+          await provider.updatePullRequest(projectPath, node.mrIid, {
+            title: desc.title,
+            description: desc.body,
+          });
         }
 
-        const desc = descriptions?.[node.branch];
-        const input: CreatePullRequestInput = {
-          projectPath,
-          title: desc?.title ?? node.branch,
-          sourceBranch: node.branch,
-          targetBranch: node.parent,
-          draft: true,
-        };
-        if (desc?.body) {
-          input.description = desc.body;
-        }
-
-        const pr = await provider.createPullRequest(input);
-
-        const head = cwd ? await GitShell.getBranchHead(cwd, node.branch).catch(() => null) : null;
-        updatedStack = StackManager.updateNode(updatedStack, node.branch, {
-          mrIid: pr.iid,
-          mrUrl: pr.webUrl,
-          status: 'synced',
-          ...(head ? { lastKnownHead: head } : {}),
-        });
+        const changes: PublishChange[] = [];
+        if (needsRetarget) changes.push('target');
+        if (desc) changes.push('metadata');
 
         results.push({
           branch: node.branch,
           success: true,
-          mrIid: pr.iid,
-          mrUrl: pr.webUrl ?? undefined,
+          action: 'updated',
+          changes,
+          mrIid: node.mrIid,
+          mrUrl: node.mrUrl ?? pr.webUrl ?? undefined,
+          targetBranch: node.parent,
         });
       } catch (err) {
-        results.push({ branch: node.branch, success: false, error: toErrorMessage(err) });
+        results.push({
+          branch: node.branch,
+          success: false,
+          action: 'updated',
+          error: toErrorMessage(err),
+          targetBranch: node.parent,
+        });
         break;
       }
     }
@@ -314,6 +397,9 @@ export const ForgeSync = {
 
   /**
    * Retarget an MR on the forge so its target branch matches the local tree parent.
+   *
+   * `publishStack` calls this for every already-published node whose MR drifted
+   * off its parent; it is also usable on its own for a single branch.
    */
   async retargetMR(provider: GitProvider, stack: Stack, branch: string, projectPath: string): Promise<Stack> {
     const node = StackManager.findNode(stack, branch);

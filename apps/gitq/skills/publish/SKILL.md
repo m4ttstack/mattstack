@@ -1,8 +1,8 @@
 ---
 name: gitq:publish
 description: >-
-  Push a tracked gitq stack's branches and create or update its GitLab MR
-  chain, writing the MR titles and descriptions itself. Launched by the
+  Push a tracked gitq stack's unpublished branches and create or update its
+  GitLab MR chain, writing the MR titles and descriptions itself. Launched by the
   gitq board as "/gitq:publish <repoPath> <stackName> --state <path>
   --status-bin <path>", or invoked by hand without those flags. Holds a
   human gate before anything leaves the machine.
@@ -10,9 +10,19 @@ description: >-
 
 # gitq publish runner
 
-Push the stack's branches (gitq pushes with force-with-lease) and open or
-retarget its MR chain on GitLab. gitq does the pushing and MR plumbing; you
-write the MR prose and hold the gate.
+Push the stack's not-yet-published branches (gitq pushes with
+force-with-lease) and open or retarget its MR chain on GitLab. gitq does the
+pushing and MR plumbing; you write the MR prose and hold the gate.
+
+What `gitq publish` does per branch, so your gate can say it accurately:
+
+- **No MR yet**: the branch is pushed and a draft MR is opened against its
+  parent, titled and described from your `--mr-meta`.
+- **Already has an open MR**: the branch is **not** pushed. Its MR is
+  retargeted if the stack moved it under a different parent, and its title
+  and description are overwritten **only if your `--mr-meta` names that
+  branch**. An MR that needs neither is left untouched and does not appear in
+  the results.
 
 | flag | meaning |
 |------|---------|
@@ -48,20 +58,28 @@ just talk to the human; everything else below is unchanged.
    its diff, then write a title and description. Follow any MR-writing
    conventions the user's rules define; absent those, use the branch's main
    change as the title and a description of 1-2 sentences of framing plus
-   action-first bullets. Save the result as JSON to a temp file (`mktemp`
-   suffixed `.json`) in gitq's mr-meta shape:
+   action-first bullets. Only include a branch that already has an MR when
+   you mean to overwrite that MR's title and description on GitLab: an entry
+   replaces whatever is there, including edits made in the GitLab UI. Save
+   the result as JSON to a temp file (`mktemp` suffixed `.json`) in gitq's
+   mr-meta shape:
 
    ```json
    { "<branch>": { "title": "...", "description": "..." } }
    ```
 
 4. **Gate.** Show the human: the branch chain in order, which branches get a
-   new MR versus an update, and each title + description. Ask for approval
-   before anything is pushed. The go/no-go is not yours to make. If the
-   human never answers, leave the pane holding: no publish, no `done` write.
+   new MR versus an update (and for an update, whether it is a retarget, a
+   title/description rewrite, or both), and each title + description. Ask for
+   approval before anything is pushed. The go/no-go is not yours to make. If
+   the human never answers, leave the pane holding: no publish, no `done`
+   write.
 5. **Publish.** After approval:
    `gitq -C <repoPath> publish --stack <stackName> --mr-meta <tempPath> --json`
-   - **exit 0**: every MR created or updated; go to step 6.
+   - **exit 0**: every MR gitq acted on was created or updated; go to step 6.
+     Each entry in `results` carries `action` (`created` or `updated`) and,
+     for an update, `changes` (`target`, `metadata`, or both). A branch that
+     needed nothing is absent from `results` entirely.
    - **exit 1** with a `gitq:` line on stderr: hard failure. The commonest is
      a missing GitLab token (gitq reads `GITLAB_TOKEN`, then the
      `gitlabToken` field of `~/.rt/secrets.json`; gitlab.com only). Mark
