@@ -6,9 +6,9 @@ import type { ConflictPrediction } from '../core/rebase-engine.ts';
 import { OperationLog, entryBelongsToRepo } from '../core/operation-log.ts';
 import type { OperationEntry } from '../core/operation-log.ts';
 import { GitShell } from '../core/git-shell.ts';
-import { resolveGitLabToken } from '../core/secrets.ts';
-import { createGitLabProvider } from '../cli/provider.ts';
-import type { GitLabProviderContext } from '../cli/provider.ts';
+import { resolveForgeToken } from '../core/secrets.ts';
+import { createForgeProvider } from '../cli/provider.ts';
+import type { ForgeProviderContext } from '../cli/provider.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
 import { listLeases } from '../core/leases.ts';
 import type { Stack } from '../core/types.ts';
@@ -154,7 +154,7 @@ function toBoardMr(pr: PullRequest): BoardMr {
   };
 }
 
-async function fetchMrsByBranch(ctx: GitLabProviderContext, branches: string[]): Promise<Map<string, BoardMr>> {
+async function fetchMrsByBranch(ctx: ForgeProviderContext, branches: string[]): Promise<Map<string, BoardMr>> {
   const out = new Map<string, BoardMr>();
   if (branches.length === 0) return out;
   if (ctx.provider.fetchPullRequestsByBranches) {
@@ -175,11 +175,16 @@ async function fetchMrsByBranch(ctx: GitLabProviderContext, branches: string[]):
 export async function collectRepo(repo: RepoEntry): Promise<BoardRepo> {
   try {
     const store = await loadStore(repo.path);
-    let providerCtx: GitLabProviderContext | null = null;
-    if (resolveGitLabToken() && store.stacks.length > 0) {
+    let providerCtx: ForgeProviderContext | null = null;
+    // Still gated on a GitLab token specifically, which is what it has always
+    // been: the board resolves one provider for every repo it shows, so a
+    // GitHub-remote repo gets no MR enrichment here until MAT-19 makes that
+    // per-repo. Repos whose remote is GitLab are unaffected, and a user who
+    // holds both tokens now gets a correctly-resolved GitHub provider anyway.
+    if (resolveForgeToken('gitlab') && store.stacks.length > 0) {
       try {
         const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(repo.path));
-        providerCtx = createGitLabProvider(remoteUrl);
+        providerCtx = await createForgeProvider(remoteUrl);
       } catch {
         providerCtx = null;
       }

@@ -38,17 +38,23 @@ function cleanProjectPath(projectPath: string): string {
     .replace(/\.git$/, '');
 }
 
+/** Hosts are case-insensitive, and `www.` never distinguishes two forges. */
+function normalizeHost(host: string): string | null {
+  const cleaned = host.trim().toLowerCase().replace(/^www\./, '');
+  return cleaned === '' ? null : cleaned;
+}
+
 /**
- * Hosts are case-insensitive, and `www.` never distinguishes two forges.
+ * {@link normalizeHost}, restricted to hosts a scope can be compared on.
  *
  * A single-label host is not one we can compare: `git@work:acme/web.git` names
  * an `~/.ssh/config` alias, not a forge, and no MR web URL will ever carry it.
  * Reading it as an instance would filter out every MR of a repo cloned that
  * way, so it counts as naming no host at all.
  */
-function cleanHost(host: string): string | null {
-  const cleaned = host.trim().toLowerCase().replace(/^www\./, '');
-  return cleaned.includes('.') ? cleaned : null;
+function comparableHost(host: string): string | null {
+  const cleaned = normalizeHost(host);
+  return cleaned !== null && cleaned.includes('.') ? cleaned : null;
 }
 
 /**
@@ -80,18 +86,37 @@ export function projectPathFromRemoteUrl(remoteUrl: string): string | null {
 
 /** {@link projectPathFromRemoteUrl}, keeping the host the remote named. */
 export function projectScopeFromRemoteUrl(remoteUrl: string): ProjectScope | null {
+  const parsed = parseRemoteUrl(remoteUrl);
+  if (parsed === null) return null;
+  return scope(parsed.host === null ? null : comparableHost(parsed.host), parsed.path);
+}
+
+/**
+ * The host a git remote names, or null when it names none.
+ *
+ * Unlike the host on a {@link ProjectScope}, a single-label one survives here:
+ * an `~/.ssh/config` alias is precisely the remote whose name cannot identify a
+ * forge, so it is the one that most needs a `forges` override, and an override
+ * cannot be keyed on a host that was thrown away.
+ */
+export function hostFromRemoteUrl(remoteUrl: string): string | null {
+  return parseRemoteUrl(remoteUrl)?.host ?? null;
+}
+
+/** Split a remote into the host and project path it names, before either is judged. */
+function parseRemoteUrl(remoteUrl: string): { host: string | null; path: string } | null {
   // Only the scp-like form (no scheme) puts the path after a colon. Matching
   // a colon in "ssh://git@host:2222/group/project" would read the port.
   const scpMatch = remoteUrl.includes('://') ? null : remoteUrl.match(/^[^/]*@([^/:]+):(.+)$/);
-  if (scpMatch) return scope(cleanHost(scpMatch[1] ?? ''), scpMatch[2] ?? '');
+  if (scpMatch) return { host: normalizeHost(scpMatch[1] ?? ''), path: scpMatch[2] ?? '' };
 
   try {
     const url = new URL(remoteUrl);
-    return scope(cleanHost(url.hostname), url.pathname);
+    return { host: normalizeHost(url.hostname), path: url.pathname };
   } catch {
     // Not a URL at all: a bare path ("/srv/git/group/project.git") names a
     // project but no instance.
-    return remoteUrl.includes('/') ? scope(null, remoteUrl) : null;
+    return remoteUrl.includes('/') ? { host: null, path: remoteUrl } : null;
   }
 }
 
@@ -122,7 +147,7 @@ export function projectScopeFromWebUrl(webUrl: string | null): ProjectScope | nu
   }
 
   const parts = url.pathname.split('/').filter(Boolean);
-  const host = cleanHost(url.hostname);
+  const host = comparableHost(url.hostname);
 
   const dashIdx = parts.indexOf('-');
   if (dashIdx >= 2 && parts[dashIdx + 1] === 'merge_requests') {

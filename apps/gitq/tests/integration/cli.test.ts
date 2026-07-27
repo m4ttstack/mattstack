@@ -682,21 +682,68 @@ describe('gitq CLI', () => {
 
   // ── Forge commands + undo (Task 15) ─────────────────────────────────────
 
-  test('publish without a token fails cleanly', async () => {
+  /**
+   * A tracked stack whose origin points at `remoteUrl`, ready to fail publish.
+   *
+   * The remote never gets contacted: every case below fails during provider or
+   * token resolution, all of which happens before the first request. The bare
+   * clone still has to exist, since `track` runs against a real repo.
+   */
+  async function repoWithRemoteUrl(remoteUrl: string): Promise<{ dir: string; configDir: string; home: string }> {
     const repo = await createSandboxRepoWithRemote();
     const configDir = `${repo.dir}-config`;
-    const fakeHome = await mkdtemp(join(tmpdir(), 'gitq-home-'));
-    dirsToClean.push(repo.dir, configDir, repo.remoteDir, fakeHome);
+    // An empty HOME keeps the ~/.rt/secrets.json fallback from leaking a real
+    // token from the machine running these tests, and keeps ~/.config/gitq's
+    // `forges` overrides out of it too.
+    const home = await mkdtemp(join(tmpdir(), 'gitq-home-'));
+    dirsToClean.push(repo.dir, configDir, repo.remoteDir, home);
 
+    repo.git('remote', 'set-url', 'origin', remoteUrl);
     await runCli(['track', 'mystack', '--root', 'main'], repo.dir, configDir);
     await runCli(['add', 'feat/a', '--parent', 'main'], repo.dir, configDir);
 
-    // Blank GITLAB_TOKEN and point HOME at an empty temp dir so the
-    // ~/.rt/secrets.json fallback in resolveGitLabToken can't leak a real
-    // token from the machine running these tests.
-    const res = await runCli(['publish', '--json'], repo.dir, configDir, { GITLAB_TOKEN: '', HOME: fakeHome });
+    return { dir: repo.dir, configDir, home };
+  }
+
+  test('publish without a GitLab token fails cleanly', async () => {
+    const { dir, configDir, home } = await repoWithRemoteUrl('git@gitlab.com:acme/web.git');
+
+    const res = await runCli(['publish', '--json'], dir, configDir, { GITLAB_TOKEN: '', HOME: home });
     expect(res.exitCode).toBe(1);
-    expect(res.stderr).toContain('no gitlab token');
+    expect(res.stderr).toContain('no gitlab token for gitlab.com');
+    expect(res.stderr).toContain('GITLAB_TOKEN');
+  });
+
+  test('publish against a GitHub remote asks for a GitHub token', async () => {
+    const { dir, configDir, home } = await repoWithRemoteUrl('git@github.com:acme/web.git');
+
+    // The forge comes from the remote, so a GitLab token in the environment is
+    // not the credential this repo needs and is not offered as one.
+    const res = await runCli(['publish', '--json'], dir, configDir, {
+      GITLAB_TOKEN: 'glpat-should-be-ignored',
+      GITHUB_TOKEN: '',
+      HOME: home,
+    });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('no github token for github.com');
+    expect(res.stderr).toContain('GITHUB_TOKEN');
+  });
+
+  test('publish against an unrecognised host says so instead of guessing', async () => {
+    const { dir, configDir, home } = await repoWithRemoteUrl('git@git.acme.com:acme/web.git');
+
+    const res = await runCli(['publish', '--json'], dir, configDir, { GITLAB_TOKEN: 'glpat-x', HOME: home });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('cannot tell which forge "git.acme.com" is');
+    expect(res.stderr).toContain('forges');
+  });
+
+  test('publish against a hostless remote says the remote names no forge', async () => {
+    const { dir, configDir, home } = await repoWithRemoteUrl('/srv/git/acme/web.git');
+
+    const res = await runCli(['publish', '--json'], dir, configDir, { GITLAB_TOKEN: 'glpat-x', HOME: home });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('no forge host in remote');
   });
 
   test('publish rejects malformed --mr-meta', async () => {

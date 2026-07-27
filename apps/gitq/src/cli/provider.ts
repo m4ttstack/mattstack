@@ -1,45 +1,74 @@
 import { createProvider } from '@workforge/glance-sdk';
 import type { GitProvider } from '@workforge/glance-sdk';
-import { resolveGitLabToken } from '../core/secrets.ts';
-import { projectPathFromRemoteUrl } from '../core/forge-helpers.ts';
+import { resolveForgeToken, tokenSourceHint } from '../core/secrets.ts';
+import { readForgeOverrides, resolveForge, type ForgeOverrides } from '../core/forges.ts';
+import { hostFromRemoteUrl, projectPathFromRemoteUrl } from '../core/forge-helpers.ts';
+import { getSettingsFilePath } from '../core/config-paths.ts';
 
 /**
- * GitLab provider + project path construction for the CLI.
+ * Forge provider + project path construction for the CLI.
  *
  * Ported from the old MCP helper's `resolveForgeContext`
- * (apps/gitq-mcp/src/helpers/forge-provider.ts), hardcoded to GitLab and
- * dropping the GitHub branches — this CLI only talks to GitLab. The old
- * helper resolved `baseURL` from the settings/token source (always
- * `https://gitlab.com` for GitLab, since it never derived a self-hosted host
- * from the remote URL either). Its `extractProjectPath` used to be copied here
- * verbatim, bug and all: it read the port of `ssh://host:2222/group/project`
- * as the namespace. The core parser is the one implementation now (MAT-16).
+ * (apps/gitq-mcp/src/helpers/forge-provider.ts). That helper resolved `baseURL`
+ * from the settings/token source, and this CLI replaced it with a
+ * `https://gitlab.com` constant — which made gitq not merely GitLab-only but
+ * gitlab.com-only, since the base URL the SDK accepts was discarded. Both now
+ * come off the remote's host (MAT-16), so self-hosted instances of either forge
+ * work without a code change.
+ *
+ * Its `extractProjectPath` used to be copied here verbatim, bug and all: it read
+ * the port of `ssh://host:2222/group/project` as the namespace. The core parser
+ * is the one implementation now.
  */
 
-const GITLAB_BASE_URL = 'https://gitlab.com';
-
-export interface GitLabProviderContext {
+export interface ForgeProviderContext {
   provider: GitProvider;
   projectPath: string;
 }
 
+export interface ForgeProviderOptions {
+  /** Host → forge map. Read from settings.json when not injected. */
+  overrides?: ForgeOverrides;
+  env?: Record<string, string | undefined>;
+  secretsFile?: string;
+}
+
 /**
- * Build a GitLab `GitProvider` + project path from a repo's remote URL.
+ * Build a `GitProvider` + project path from a repo's remote URL.
  *
- * Throws a `gitq: no gitlab token` error (caught by main.ts and turned into
- * a clean `fail()`) when no token is available — before any network call is
- * made, since `createProvider` itself doesn't touch the network.
+ * Throws (caught by main.ts and turned into a clean `fail()`) when the remote
+ * names no host, when no forge can be identified for that host, or when no
+ * token is available — all before any network call, since neither resolution
+ * step nor `createProvider` itself touches the network.
  */
-export function createGitLabProvider(remoteUrl: string): GitLabProviderContext {
-  const token = resolveGitLabToken();
-  if (!token) {
-    throw new Error('no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)');
+export async function createForgeProvider(
+  remoteUrl: string,
+  opts: ForgeProviderOptions = {},
+): Promise<ForgeProviderContext> {
+  const host = hostFromRemoteUrl(remoteUrl);
+  if (!host) {
+    throw new Error(
+      `no forge host in remote "${remoteUrl}"; gitq reads the forge from the remote's host, so this repo needs one that names an instance`,
+    );
   }
 
-  const provider = createProvider('gitlab', GITLAB_BASE_URL, token);
-  const projectPath = extractProjectPath(remoteUrl);
+  const forge = resolveForge(host, opts.overrides ?? (await readForgeOverrides()));
+  if (!forge) {
+    throw new Error(
+      `cannot tell which forge "${host}" is (from remote ${remoteUrl}); name it in ${getSettingsFilePath()} as {"forges": {"${host}": {"provider": "gitlab"}}}`,
+    );
+  }
 
-  return { provider, projectPath };
+  const token = resolveForgeToken(forge.slug, {
+    ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.secretsFile ? { secretsFile: opts.secretsFile } : {}),
+    tokenEnv: forge.tokenEnv,
+  });
+  if (!token) {
+    throw new Error(`no ${forge.slug} token for ${forge.host} (${tokenSourceHint(forge.slug, forge.tokenEnv)})`);
+  }
+
+  return { provider: createProvider(forge.slug, forge.baseUrl, token), projectPath: extractProjectPath(remoteUrl) };
 }
 
 /**
@@ -48,7 +77,7 @@ export function createGitLabProvider(remoteUrl: string): GitLabProviderContext {
  * SSH: "git@gitlab.com:group/project.git" -> "group/project"
  * HTTPS: "https://gitlab.com/group/project.git" -> "group/project"
  *
- * Callers here need a string to hand to the GitLab API, so a remote the core
+ * Callers here need a string to hand to the forge API, so a remote the core
  * parser reads no path from falls back to the remote itself, exactly as the
  * old local copy did: the request then fails naming something recognizable
  * rather than an empty path.
