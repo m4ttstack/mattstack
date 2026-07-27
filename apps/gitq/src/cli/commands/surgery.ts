@@ -246,6 +246,18 @@ export async function resetCommand(ctx: CliContext): Promise<number> {
   const preGuard = refuseIfCheckedOutElsewhere(ctx, map, branch);
   if (preGuard !== null) return preGuard;
 
+  // `findSlotForBranch` skips `gitq-N` work slots, so neither the pre-guard
+  // above nor finalizeBranchRef's slot policy sees one a human checked out onto
+  // the branch, so the ref would move and that slot's tree/index would silently
+  // go stale. Refuse here instead. Narrow on purpose: making the shared
+  // worktree lookup work-slot aware for every surgery command is Linear MAT-23.
+  const workSlot = map.find((s) => s.isWorkSlot && s.branch === branch);
+  if (workSlot) {
+    return fail(
+      `branch "${branch}" is checked out in work slot "${workSlot.name}" (${workSlot.path}); free that slot before resetting`,
+    );
+  }
+
   // No HEAD capture/restore needed: resetToRemote CAS-moves the ref and never
   // checks anything out, so the launch worktree stays on its own branch.
   const result = await resetToRemote(ctx.repoRoot, stack, branch);

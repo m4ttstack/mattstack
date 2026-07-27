@@ -16,15 +16,22 @@ export interface ResetToRemoteResult {
  * Used when local and remote have diverged (e.g. force-pushed externally).
  * Pure ref surgery, the same shape as `split --at`: the branch ref is
  * CAS-moved to `origin/<branch>` via `finalizeBranchRef`, so no checkout ever
- * happens. A worktree already sitting cleanly on the branch gets the slot
- * policy (reset in place to the new head; dirty or drifted refuses), which
- * leaves every worktree on the branch it was already on.
+ * happens. A non-work-slot worktree already sitting cleanly on the branch gets
+ * the slot policy (reset in place to the new head; dirty or drifted refuses),
+ * which leaves every worktree on the branch it was already on.
  */
 export async function resetToRemote(
   cwd: string,
   stack: Stack,
   branch: string,
 ): Promise<ResetToRemoteResult> {
+  // Membership first, before any ref moves: the `lastKnownHead` write at the
+  // bottom throws for a branch the picked stack doesn't track, and until this
+  // check existed that throw landed AFTER the CAS had already moved the ref.
+  if (!StackManager.findNode(stack, branch)) {
+    throw new StackError(`branch "${branch}" is not tracked in stack "${stack.id}"; nothing was reset`);
+  }
+
   await assertCleanTree(cwd);
 
   const remoteRef = `origin/${branch}`;

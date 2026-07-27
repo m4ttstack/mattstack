@@ -1,7 +1,8 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createSandboxRepoWithRemote, addNamedWorktree, cleanupRepo, commit } from './helpers.ts';
 import type { SandboxRepoWithRemote } from './helpers.ts';
 import { resetToRemote } from '../../src/core/branch-reset.ts';
@@ -60,6 +61,21 @@ async function resetScenario(): Promise<{
   return { repo, stack, remoteHead, configDir };
 }
 
+/**
+ * Add a real `gitq-N` work slot holding `branch`: the pool-managed kind
+ * `findSlotForBranch` deliberately skips, so nothing downstream of the CLI
+ * pre-guard notices it. Returns `{ path, root }`; `root` is what to clean up.
+ */
+function addWorkSlot(repo: SandboxRepoWithRemote, name: string, branch: string) {
+  const root = `${repo.dir}-slots`;
+  repo.git('worktree', 'add', join(root, name), branch);
+  return { path: realpathSync(join(root, name)), root };
+}
+
+/** Trimmed `git` bound to an arbitrary worktree (slots have no helper). */
+const gitIn = (dir: string) => (...args: string[]) =>
+  execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim();
+
 describe('ref-only reset', () => {
   test('resets the branch without moving the launch checkout', async () => {
     const { repo, stack, remoteHead } = await resetScenario();
@@ -85,6 +101,9 @@ describe('ref-only reset', () => {
     expect(repo.git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('feat/y');
     expect(repo.git('rev-parse', 'HEAD')).toBe(remoteHead);
     expect(existsSync(join(repo.dir, 'local.txt'))).toBe(false);
+    // The in-place reset leaves a genuinely clean tree, not just a deleted
+    // file: no leftover staged deletion of local.txt in the index either.
+    expect(repo.git('status', '--porcelain')).toBe('');
   });
 
   test('recreates a missing local branch at the remote head, still without a checkout', async () => {
@@ -134,6 +153,22 @@ describe('reset failure paths leave the checkout alone', () => {
     expect(repo.git('rev-parse', 'HEAD')).toBe(launchHead);
   });
 
+  test('a branch outside the picked stack refuses with the ref unmoved', async () => {
+    const { repo, stack } = await resetScenario();
+    const { dir, git } = repo;
+    git('checkout', '-b', 'feat/stray', 'main');
+    git('push', 'origin', 'feat/stray');
+    const strayHead = await commit(dir, git, 'stray.txt', 'stray\n', 'feat/stray: local-only commit');
+    git('checkout', 'main');
+
+    await expect(resetToRemote(dir, stack, 'feat/stray')).rejects.toThrow(/not tracked in stack/i);
+
+    // The membership check runs before the CAS: origin/feat/stray resolves
+    // fine, so without it the ref moved for real and only the store update
+    // threw, leaving the branch reset by a command that exited 1.
+    expect(git('rev-parse', 'feat/stray')).toBe(strayHead);
+  });
+
   test('a dirty launch worktree refuses before anything moves', async () => {
     const { repo, stack } = await resetScenario();
     await writeFile(join(repo.dir, 'uncommitted.txt'), 'wip\n', 'utf-8');
@@ -165,6 +200,42 @@ describe('gitq reset (CLI) checkout neutrality', () => {
     expect(repo.git('rev-parse', 'feat/y')).toBe(remoteHead);
     expect(repo.git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
     expect(repo.git('rev-parse', 'HEAD')).toBe(launchHead);
+  });
+
+  test('a gitq work slot holding the branch refuses instead of going stale', async () => {
+    const { repo, stack, configDir } = await resetScenario();
+    setConfigDir(configDir);
+    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: '', stacks: [stack] });
+    const slot = addWorkSlot(repo, 'gitq-1', 'feat/y');
+    cleanups.push(slot.root);
+    const divergedHead = repo.git('rev-parse', 'feat/y');
+
+    const { stderr, exitCode } = await runCli(['reset', 'feat/y'], repo.dir, configDir);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('checked out in work slot "gitq-1"');
+    expect(stderr).toContain(slot.path);
+    // Nothing moved, and the slot is left exactly as the human had it.
+    // Without this guard the command exited 0 with the slot's tree stale.
+    expect(repo.git('rev-parse', 'feat/y')).toBe(divergedHead);
+    expect(gitIn(slot.path)('rev-parse', 'HEAD')).toBe(divergedHead);
+    expect(gitIn(slot.path)('status', '--porcelain')).toBe('');
+  });
+
+  test('a non-work worktree holding the branch refuses with the slot pre-guard message', async () => {
+    const { repo, stack, configDir } = await resetScenario();
+    setConfigDir(configDir);
+    await saveStore(repo.dir, { repoPath: repo.dir, remoteUrl: '', stacks: [stack] });
+    const slotPath = await addNamedWorktree(repo, 'y-slot', 'feat/y');
+    cleanups.push(slotPath);
+    const divergedHead = repo.git('rev-parse', 'feat/y');
+
+    const { stderr, exitCode } = await runCli(['reset', 'feat/y'], repo.dir, configDir);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain(`is checked out in slot "${basename(slotPath)}"`);
+    expect(stderr).toContain(slotPath);
+    expect(repo.git('rev-parse', 'feat/y')).toBe(divergedHead);
   });
 
   test('a failed reset leaves you on the branch you launched from', async () => {
