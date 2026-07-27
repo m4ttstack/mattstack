@@ -12,8 +12,9 @@ description: >-
 
 Take the dirty worktree and fold each change into the stack branch whose
 commits already touch that file, then rebase the stack so every branch sees
-the update. gitq computes the attribution and does the commits; you judge
-whether the attribution is right.
+the update. A file no branch's commits own is left alone, still uncommitted
+in the worktree. gitq computes the attribution and does the commits; you
+judge whether the attribution is right.
 
 | flag | meaning |
 |------|---------|
@@ -42,12 +43,23 @@ just talk to the human; everything else below is unchanged.
 
 1. **Mark working.** `bun run <status-bin> <state> working "absorbing into <stackName>"`
 2. **Preview.** `gitq -C <repoPath> absorb --stack <stackName> --preview --json`
-   - Nothing to absorb: mark done with "nothing to absorb" and stop.
-   - Read the attribution: which file goes to which branch, and which files
-     the engine could not attribute (those stay in the worktree; note them
-     for the report).
-   - Sanity-check it. Does each file land on the branch whose work it
-     belongs to? If an attribution looks wrong (a file headed to a branch
+   - Read `result`: `attributed` maps each branch to the files its commits
+     own, and `unattributed` lists the files no branch's commits touched.
+     Absorb commits the attributed files and nothing else; the unattributed
+     ones are left in the worktree, uncommitted, exactly as you found them.
+   - Both empty: mark done with "nothing to absorb" and stop.
+   - **Tell the human the unattributed files before you apply**, by name.
+     Applying will not touch them, but this is the moment they can act on
+     the fact. A file they expected to be absorbed showing up here usually
+     means no branch's commits touch it yet (new file, or the wrong branch
+     is doing that work). If any unattributed file looks like it should
+     have been attributed, stop and ask rather than applying. Do not save
+     this for the step 5 report.
+   - `attributed` empty but `unattributed` not: applying would commit
+     nothing (`nothing absorbed (nothing-attributable)`, exit 0). Say that
+     instead of running it, mark done, and stop.
+   - Sanity-check the mapping. Does each file land on the branch whose work
+     it belongs to? If an attribution looks wrong (a file headed to a branch
      that has nothing to do with it), stop and ask the human instead of
      committing to the wrong branch. Trust the engine on clean, boring
      mappings; escalate on surprising ones.
@@ -78,8 +90,9 @@ just talk to the human; everything else below is unchanged.
    - **exit 1**: mark error with the reason and report.
 5. **Mark done.**
    `bun run <status-bin> <state> done "absorbed <n> files into <m> branches"`
-   Then report to the human: what landed where (file to branch), what stayed
-   in the worktree unattributed, and any conflicts you resolved on the
+   Then report to the human: what landed where (file to branch), which files
+   are still dirty in the worktree (`result.unattributed` from the apply run,
+   the same set you named in step 2), and any conflicts you resolved on the
    restack.
 
 ## Rules

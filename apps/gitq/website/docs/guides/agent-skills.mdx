@@ -83,13 +83,7 @@ The same gate exists identically when the board launches this skill; the only di
 
 ## Where the docs are occasionally wrong
 
-The skill files are the actual prompts driving these agents, and three details in them are stale relative to what the code underneath now does. Each matters enough to call out explicitly rather than let a skill's own description mislead you:
-
-:::warning `skills/absorb/SKILL.md` on unattributed files
-
-Its step 2 says files the attribution engine can't match to a branch's commits "stay in the worktree." They don't. `src/core/absorb.ts`'s `attributeFiles` falls an unmatched file back to `currentBranch` (the branch checked out where you ran absorb from) and absorb commits it there along with everything it did attribute. Nothing is left in the working tree by a successful absorb. See [Absorb uncommitted changes](/guides/absorb-changes#files-it-cannot-attribute) for the real behavior.
-
-:::
+The skill files are the actual prompts driving these agents, and some details in them are stale relative to what the code underneath now does. Each matters enough to call out explicitly rather than let a skill's own description mislead you:
 
 :::warning `skills/restructure/SKILL.md` on checkout neutrality
 

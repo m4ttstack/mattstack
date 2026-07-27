@@ -47,7 +47,7 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
     const attributedCount = Object.keys(preview.attributed).length;
     emit(
       ctx,
-      `absorb preview: ${attributedCount} branch(es) attributed, ${preview.unattributed.length} file(s) fall back to ${preview.currentBranch}`,
+      `absorb preview: ${attributedCount} branch(es) attributed, ${preview.unattributed.length} file(s) left in the worktree`,
       { stack, result: preview },
     );
     return 0;

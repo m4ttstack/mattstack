@@ -87,42 +87,94 @@ describe('Absorb integration', () => {
     expect(dirty).toBe(false);
   });
 
-  test('unattributed file goes to current branch', async () => {
+  test('unattributed file stays uncommitted in the worktree', async () => {
     sandbox = await createSandboxRepo();
     const { dir, git } = sandbox;
     const { stack } = await buildAbsorbStack(sandbox);
 
     git('checkout', 'branch-3');
+    const headBefore = git('rev-parse', 'HEAD');
 
     await writeFile(join(dir, 'notes.txt'), 'some notes\n');
 
     const result = await AbsorbEngine.absorb(dir, stack);
 
-    expect(result.absorbed).toBe(true);
-    const noteAttr = result.attributions.find((a) => a.files.includes('notes.txt'));
-    expect(noteAttr).toBeDefined();
-    expect(noteAttr!.branch).toBe('branch-3');
+    expect(result.absorbed).toBe(false);
+    expect(result.reason).toBe('nothing-attributable');
+    expect(result.unattributed).toEqual(['notes.txt']);
+    expect(result.attributions).toEqual([]);
 
-    git('checkout', 'branch-3');
-    const notesContent = await readFile(join(dir, 'notes.txt'), 'utf-8');
-    expect(notesContent).toBe('some notes\n');
+    // No branch was rewritten to hold it, and it is still sitting there.
+    expect(git('rev-parse', 'HEAD')).toBe(headBefore);
+    expect(git('status', '--short')).toBe('?? notes.txt');
+    expect(await readFile(join(dir, 'notes.txt'), 'utf-8')).toBe('some notes\n');
+    expect(git('log', '--all', '--oneline', '--name-only')).not.toContain('notes.txt');
   });
 
-  test('untracked files are handled (go to current branch)', async () => {
+  test('unattributed file survives alongside files that are absorbed', async () => {
     sandbox = await createSandboxRepo();
     const { dir, git } = sandbox;
     const { stack } = await buildAbsorbStack(sandbox);
 
     git('checkout', 'branch-3');
 
-    await writeFile(join(dir, 'newfile.md'), '# New File\n');
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+    await writeFile(join(dir, 'notes.txt'), 'some notes\n');
 
     const result = await AbsorbEngine.absorb(dir, stack);
 
     expect(result.absorbed).toBe(true);
-    const newFileAttr = result.attributions.find((a) => a.files.includes('newfile.md'));
-    expect(newFileAttr).toBeDefined();
-    expect(newFileAttr!.branch).toBe('branch-3');
+    expect(result.unattributed).toEqual(['notes.txt']);
+    expect(result.attributions.map((a) => a.branch)).toEqual(['branch-1']);
+    expect(result.attributions[0]!.files).toEqual(['api.ts']);
+
+    // api.ts landed on branch-1 and the descendants were restacked...
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('branch-3');
+    git('checkout', 'branch-1');
+    expect(await readFile(join(dir, 'api.ts'), 'utf-8')).toContain('updated');
+    git('checkout', 'branch-3');
+
+    // ...while notes.txt is still untracked in the worktree.
+    expect(git('status', '--short')).toBe('?? notes.txt');
+    expect(await readFile(join(dir, 'notes.txt'), 'utf-8')).toBe('some notes\n');
+  });
+
+  test('unattributed edit to a tracked file comes back as a worktree change', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    // README.md came from main; no stack branch's commits touched it.
+    await writeFile(join(dir, 'README.md'), '# Test Repo edited\n');
+    await writeFile(join(dir, 'ui.tsx'), 'export function UI() { return "updated"; }\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.absorbed).toBe(true);
+    expect(result.unattributed).toEqual(['README.md']);
+    expect(git('status', '--short')).toBe('M README.md');
+    expect(await readFile(join(dir, 'README.md'), 'utf-8')).toBe('# Test Repo edited\n');
+    expect(git('show', 'branch-3:README.md')).toBe('# Test Repo');
+  });
+
+  test('an unattributed file does not rewrite the stack root', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'main');
+    const mainBefore = git('rev-parse', 'main');
+
+    await writeFile(join(dir, 'newfile.md'), '# New File\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.absorbed).toBe(false);
+    expect(result.unattributed).toEqual(['newfile.md']);
+    expect(git('rev-parse', 'main')).toBe(mainBefore);
+    expect(git('status', '--short')).toBe('?? newfile.md');
   });
 
   test('fan-out attribution: sibling branches get correct files', async () => {

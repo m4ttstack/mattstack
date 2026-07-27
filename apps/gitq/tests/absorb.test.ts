@@ -53,15 +53,15 @@ describe('AbsorbEngine.attributeFiles', () => {
       '/tmp/repo',
       stack,
       ['api.ts', 'config.json', 'ui.tsx'],
-      'branch-3',
     );
 
-    expect(result.get('branch-1')).toEqual(['api.ts']);
-    expect(result.get('branch-2')).toEqual(['config.json']);
-    expect(result.get('branch-3')).toEqual(['ui.tsx']);
+    expect(result.byBranch.get('branch-1')).toEqual(['api.ts']);
+    expect(result.byBranch.get('branch-2')).toEqual(['config.json']);
+    expect(result.byBranch.get('branch-3')).toEqual(['ui.tsx']);
+    expect(result.unattributed).toEqual([]);
   });
 
-  test('falls back to current branch for unknown files', async () => {
+  test('files no branch touched are unattributed, not pinned on a branch', async () => {
     mock.module('../src/core/git-shell.ts', () => ({
       GitShell: {
         ...GitShell,
@@ -75,12 +75,10 @@ describe('AbsorbEngine.attributeFiles', () => {
       '/tmp/repo',
       stack,
       ['unknown.txt', 'notes.md'],
-      'branch-3',
     );
 
-    expect(result.get('branch-3')).toEqual(['unknown.txt', 'notes.md']);
-    expect(result.get('branch-1')).toBeUndefined();
-    expect(result.get('branch-2')).toBeUndefined();
+    expect(result.unattributed).toEqual(['unknown.txt', 'notes.md']);
+    expect(result.byBranch.size).toBe(0);
   });
 });
 
@@ -394,6 +392,84 @@ describe('AbsorbEngine.absorb', () => {
     expect(result.attributions[0]!.branch).toBe('branch-1');
     expect(result.attributions[0]!.files).toEqual(['api.ts']);
     expect(addedFiles.flat()).not.toContain('config.json');
+  });
+
+  test('leaves unattributed files out of the amend and reports them', async () => {
+    const addedFiles: string[][] = [];
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getCurrentBranch: mock(() => Promise.resolve('branch-3')),
+        getChangedFiles: mock(() =>
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: ['notes.md'] }),
+        ),
+        getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
+          if (to === 'branch-1') return Promise.resolve(['api.ts']);
+          return Promise.resolve([]);
+        }),
+        stash: mock(() => Promise.resolve()),
+        checkoutBranch: mock(() => Promise.resolve()),
+        add: mock((_cwd: string, files: string[]) => {
+          addedFiles.push(files);
+          return Promise.resolve();
+        }),
+        amendNoEdit: mock(() => Promise.resolve()),
+        getBranchHead: mock(() => Promise.resolve('new-head')),
+        getMergeBase: mock(() => Promise.resolve('new-head')),
+        stashDrop: mock(() => Promise.resolve()),
+        rebaseOnto: mock(() => Promise.resolve()),
+        pushForceWithLease: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    const stack = buildLinearStack();
+    const result = await AbsorbEngine.absorb('/tmp/repo', stack);
+
+    expect(result.absorbed).toBe(true);
+    expect(result.unattributed).toEqual(['notes.md']);
+    expect(result.attributions).toHaveLength(1);
+    expect(result.attributions[0]!.branch).toBe('branch-1');
+    expect(result.attributions[0]!.files).toEqual(['api.ts']);
+    expect(addedFiles.flat()).not.toContain('notes.md');
+    // Nothing was committed to the branch the worktree happened to be on.
+    expect(result.attributions.some((a) => a.branch === 'branch-3')).toBe(false);
+  });
+
+  test('nothing attributable: no stash, no commit, files reported back', async () => {
+    let stashed = false;
+    let amended = false;
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getCurrentBranch: mock(() => Promise.resolve('branch-3')),
+        getChangedFiles: mock(() =>
+          Promise.resolve({ modified: [], staged: [], untracked: ['notes.md', 'scratch.txt'] }),
+        ),
+        getFilesChangedInRange: mock(() => Promise.resolve([])),
+        stash: mock(() => {
+          stashed = true;
+          return Promise.resolve();
+        }),
+        amendNoEdit: mock(() => {
+          amended = true;
+          return Promise.resolve();
+        }),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    const stack = buildLinearStack();
+    const result = await AbsorbEngine.absorb('/tmp/repo', stack);
+
+    expect(result.absorbed).toBe(false);
+    expect(result.reason).toBe('nothing-attributable');
+    expect(result.attributions).toEqual([]);
+    expect(result.unattributed).toEqual(['notes.md', 'scratch.txt']);
+    expect(stashed).toBe(false);
+    expect(amended).toBe(false);
   });
 
   test('excludedFiles returns no-changes when all files excluded', async () => {
