@@ -62,7 +62,7 @@ Each branch gets exactly one situation, decided by the first rule that matches, 
 | `drift` | The branch's MR targets a branch other than its stack parent. The tree and the MR chain disagree about who the parent is. |
 | `local-only` | The branch has never been published. Not a problem, just a statement: there is no MR and no remote branch to compare against. |
 | `ci-failed` | Published, up to date, and its pipeline is red. |
-| `has-threads` | Published, up to date, and its MR has unresolved discussion threads. The count is in the status line. |
+| `has-threads` | Published, up to date, and its MR has unresolved discussion threads. The count is in the status line, or `unresolved threads: unknown` when the forge would not report one. |
 | `synced` | Nothing to do. |
 
 Two things worth knowing about how these are computed:

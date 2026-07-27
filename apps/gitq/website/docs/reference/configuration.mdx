@@ -15,7 +15,7 @@ The work slots gitq leases for cascades follow the same directory, with one deli
 
 What the variable does not move is anything gitq writes into the repo you point it at. The lease registry (`<commonDir>/gitq/leases.json`), a paused cascade's `<gitdir>/gitq-pause.json`, and the `core.hooksPath` gitq pins per work slot all land in the operated-on repo's git directory regardless. A throwaway `GITQ_CONFIG_DIR` gets you a throwaway gitq state directory, not a run that leaves no trace; see [Where state lives](/concepts/state) for the full inventory.
 
-Inside it, the only setting the CLI reads today is `maxWorkSlots`, from `settings.json`:
+Inside it, `settings.json` holds the two keys the CLI reads today, `maxWorkSlots` and `forges`:
 
 ```json
 { "maxWorkSlots": 5 }
@@ -23,13 +23,40 @@ Inside it, the only setting the CLI reads today is `maxWorkSlots`, from `setting
 
 Read by `getMaxWorkSlots` (`src/core/worktrees.ts:84-88`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
 
+The second key, `forges`, tells gitq which forge a self-hosted host is running. It is keyed by the host of the repo's git remote:
+
+```json
+{
+  "forges": {
+    "gitlab.acme.com": { "provider": "gitlab" },
+    "ghe.acme.com": { "provider": "github", "tokenEnv": "GHE_ACME_TOKEN" },
+    "work": { "provider": "gitlab", "baseUrl": "https://gitlab.acme.com" }
+  }
+}
+```
+
+`provider` is required and must be `gitlab` or `github`; anything else is an error naming the entry, not a silently skipped line. `baseUrl` defaults to `https://<host>`, so a host that is already the instance's address needs only the provider. `tokenEnv` is covered under [the forge token](#the-forge-token) below. Read by `resolveForge` (`src/core/forges.ts:54-80`), out of the same file as `maxWorkSlots` (`readForgeOverrides`, `src/core/forges.ts:87-90`).
+
+You need an entry only for a host gitq cannot identify on its own. `github.com` and `gitlab.com` are known outright (`src/core/forges.ts:38-41`), and an entry for either still wins, which is how you route one through a proxy. The third example above is an `~/.ssh/config` alias: a remote like `git@work:acme/web.git` names no domain at all, so an alias entry has to give a `baseUrl` and is refused without one.
+
 Do not look for other keys: `repos.json` also resolves under this directory (`getReposFilePath`, `src/core/config-paths.ts:38-40`), but nothing in the CLI reads or writes it as of this page. The stack stores and the operation log live here too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/concepts/state) for the full inventory of what is written and when.
 
-## The GitLab token
+## The forge token
 
-`publish` and `import` both need a token to reach GitLab, resolved by `resolveGitLabToken` (`src/core/secrets.ts:11-22`): **`GITLAB_TOKEN`** from the environment first, and if that is unset, the `gitlabToken` field in `~/.rt/secrets.json`. gitq never writes either location. Missing both is a hard failure before any network call is made: `gitq: no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:33-37`).
+`publish` and `import` both need a token, and which one they need follows from the repo's remote rather than from configuration. gitq reads the remote's host, resolves the forge from it, and then resolves that forge's credential (`createForgeProvider`, `src/cli/provider.ts:44-72`). A GitHub remote is never offered a GitLab token.
 
-The base URL is hardcoded to `https://gitlab.com` (`src/cli/provider.ts:19`, `GITLAB_BASE_URL`). There is no self-hosted GitLab support today, whatever host you point `gitlabToken` or a remote at.
+`resolveForgeToken` (`src/core/secrets.ts:38-52`) takes the forge's environment variable first, and if that is unset, the matching field in `~/.rt/secrets.json`:
+
+| Forge | Environment | `~/.rt/secrets.json` |
+| --- | --- | --- |
+| `gitlab` | **`GITLAB_TOKEN`** | `gitlabToken` |
+| `github` | **`GITHUB_TOKEN`** | `githubToken` |
+
+gitq never writes either location. Missing both is a hard failure before any network call is made, naming the forge, the host, and the variable it actually looked in: `gitq: no github token for github.com (set GITHUB_TOKEN or add githubToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:67-69`).
+
+A self-hosted instance can carry its own credential with `tokenEnv` on its `forges` entry, since a github.com token is not a GitHub Enterprise token. When an entry names a variable, that variable is the only place gitq looks: it does **not** fall back to `GITHUB_TOKEN` or `~/.rt/secrets.json`, because falling back would hand the instance a credential it never issued. The error then names just that variable: `no github token for ghe.acme.com (set GHE_ACME_TOKEN)`.
+
+Two failures happen before the token is ever considered, both from the remote alone. A host with no `forges` entry that gitq does not know is refused rather than guessed at, since defaulting an enterprise GitHub host to GitLab fails somewhere a long way from the cause: `cannot tell which forge "git.acme.com" is (from remote ...)`, with the settings path and the entry to add (`src/cli/provider.ts:56-60`). A remote that names no host at all, a local path or a bare clone directory, gets `no forge host in remote "..."` (`src/cli/provider.ts:49-53`).
 
 ## The board: `config.json`
 
@@ -51,7 +78,7 @@ Parsed and validated by `parseConfig` (`src/server/config.ts:25-54`):
 | `repos` | Yes | none | Non-empty array; each entry needs a non-empty `path` string, `name` defaults to the path's basename if omitted. |
 | `port` | No | `11008` | Must be a number if given. |
 | `herdrWorkspace` | No | `"gitq"` | Must be a string if given. |
-| `gitlabHost` | No | `"https://gitlab.com"` | Must be a string if given. Accepted but not wired to anything: the provider stack is gitlab.com only today (`src/server/config.ts:13`, and see [Publish to GitLab](/guides/publish-to-gitlab)). |
+| `gitlabHost` | No | `"https://gitlab.com"` | Must be a string if given. Validated and then never read (`src/server/config.ts:50-53`): the board resolves each repo's provider from that repo's remote, so the instance never comes from this field. |
 
 A missing `config.json` is a startup failure: `no config.json at <path>; copy config.example.json and edit it` (`src/server/config.ts:56-64`). The file is read once, at module load (`const config = loadConfig();`, `src/server/config.ts:12`), so an edit needs a server restart to take effect; see [The board](/getting-started/the-board).
 

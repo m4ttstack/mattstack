@@ -37,7 +37,7 @@ Real capture, a single primary worktree, nothing running:
 
 ## `gitq stacks`
 
-`src/cli/commands/stacks.ts`. Top level: `{ stacks, worktrees }`. `stacks` is the store's own `Stack[]` (`src/core/types.ts:71-83`) passed straight through, with **no per node enrichment at all**. Real capture, an empty stack:
+`src/cli/commands/stacks.ts`. Top level: `{ stacks, worktrees }`. `stacks` is the store's own `Stack[]` (`src/core/types.ts:78-90`) passed straight through, with **no per node enrichment at all**. Real capture, an empty stack:
 
 ```json
 {
@@ -48,7 +48,7 @@ Real capture, a single primary worktree, nothing running:
 }
 ```
 
-Once nodes exist, each is a plain `StackNode`: `branch`, `parent`, `mrIid`, `mrUrl`, `mrTitle`, `status` (`local-only | synced | drift | merged`), `lastKnownHead`, `forkPoint`, `diffStats`, `pipelineStatus`, `unresolvedThreads`, and `unmanaged?` (boolean, `src/core/types.ts:66`; true when the node is context-only and skipped during cascade rebase, absent or false otherwise). `stacks` does no per-node enrichment of its own, so `unmanaged` passes straight through from the store. `stacks` does not add `checkedOutIn`, or any other worktree information, to a node; that enrichment belongs to `diagnose`, below. To learn where a branch from `stacks` is checked out, cross reference the top level `worktrees` array's own `branch` field yourself.
+Once nodes exist, each is a plain `StackNode`: `branch`, `parent`, `mrIid`, `mrUrl`, `mrTitle`, `status` (`local-only | synced | drift | merged`), `lastKnownHead`, `forkPoint`, `diffStats`, `pipelineStatus`, `unresolvedThreads` (a number, or `null` when the forge would not report a count, which is not the same as zero), and `unmanaged?` (boolean, `src/core/types.ts:73`; true when the node is context-only and skipped during cascade rebase, absent or false otherwise). `stacks` does no per-node enrichment of its own, so `unmanaged` passes straight through from the store. `stacks` does not add `checkedOutIn`, or any other worktree information, to a node; that enrichment belongs to `diagnose`, below. To learn where a branch from `stacks` is checked out, cross reference the top level `worktrees` array's own `branch` field yourself.
 
 ## `gitq diagnose`
 
@@ -98,7 +98,7 @@ Real capture, a node whose parent was marked `merged` with a tombstone that is n
 
 ## `gitq preflight`
 
-`src/cli/commands/preflight.ts`. Top level: `{ stacks, worktrees }`, each stack `{ stackName, report, slotConflicts }`. `report` is a `PreFlightReport` (`src/core/rebase-engine.ts:88-99`): `dirty`, `hasStagedChanges` (both `boolean`), `conflictBranches` (`ConflictPrediction[]`: `{ branch, files: { file, type }[] }`), `threadWarnings` (`ThreadWarning[]`: `{ branch, count }`), `driftWarnings` (`DriftWarning[]`: `{ branch, mergedParent }`).
+`src/cli/commands/preflight.ts`. Top level: `{ stacks, worktrees }`, each stack `{ stackName, report, slotConflicts }`. `report` is a `PreFlightReport` (`src/core/rebase-engine.ts:89-100`): `dirty`, `hasStagedChanges` (both `boolean`), `conflictBranches` (`ConflictPrediction[]`: `{ branch, files: { file, type }[] }`), `threadWarnings` (`ThreadWarning[]`: `{ branch, count }`), `driftWarnings` (`DriftWarning[]`: `{ branch, mergedParent }`).
 
 Real capture, clean tree, one branch checked out, no predicted conflicts:
 
@@ -135,7 +135,7 @@ Real capture, after trunk moved a conflicting line and the same node from `diagn
 }
 ```
 
-`driftWarnings` is computed whenever a node's direct parent is `merged` and its tombstone is not an ancestor of the child (`src/core/rebase-engine.ts:154-164`); that check runs regardless of whether the tree is dirty. `conflictBranches`, by contrast, is skipped entirely when the tree is dirty (`if (!dirty) { ... }`, `src/core/rebase-engine.ts:168`), since a dirty tree would corrupt the `git merge-tree` dry run. Both fields surface **only under `--json`**: the human summary prints `dirty=...`, a `no predicted conflicts` line or the conflict list, and a `slot conflicts:` section, but never mentions `driftWarnings` (`src/cli/commands/preflight.ts:20-30`). `threadWarnings` was not exercised in these captures (it needs a node with `unresolvedThreads > 0`, which this scratch repo's branches never had); its shape is `{ branch, count }`, one entry per node with unresolved MR discussion threads.
+`driftWarnings` is computed whenever a node's direct parent is `merged` and its tombstone is not an ancestor of the child (`src/core/rebase-engine.ts:157-167`); that check runs regardless of whether the tree is dirty. `conflictBranches`, by contrast, is skipped entirely when the tree is dirty (`if (!dirty) { ... }`, `src/core/rebase-engine.ts:171`), since a dirty tree would corrupt the `git merge-tree` dry run. Both fields surface **only under `--json`**: the human summary prints `dirty=...`, a `no predicted conflicts` line or the conflict list, and a `slot conflicts:` section, but never mentions `driftWarnings` (`src/cli/commands/preflight.ts:20-30`). `threadWarnings` was not exercised in these captures (it needs a node with `unresolvedThreads > 0`, which this scratch repo's branches never had); its shape is `{ branch, count }`, one entry per node with unresolved MR discussion threads. A node whose count the forge would not report also gets an entry, carrying `count: null`: staying silent about it would read as "nothing outstanding", which nothing established.
 
 `slotConflicts` is built by `preflightCommand` itself (`src/cli/commands/preflight.ts:14-17`), not by `RebaseEngine.preflight`: for every branch in the stack, if a non-work-slot worktree has it checked out, that becomes `{ branch, slot, dirty }`.
 
@@ -301,7 +301,7 @@ Neither was run for this page: both talk to the real GitLab API, which this proj
 
 `skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:63-70`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:60`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/gitlab/publish#skipped) for what each reason means.
 
-`import` (`src/cli/commands/forge.ts:142-189`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
+`import` (`src/cli/commands/forge.ts:142-189`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:94-106`).
 
 ## `gitq undo`
 

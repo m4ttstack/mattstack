@@ -11,7 +11,7 @@ This page is verified line by line against `src/cli/commands/forge.ts`, `src/cor
 
 ## The token
 
-gitq looks in two places, in order, and stops at the first hit:
+For a GitLab remote, gitq looks in two places, in order, and stops at the first hit:
 
 1. **`GITLAB_TOKEN`** in the environment.
 2. **`gitlabToken`** in `~/.rt/secrets.json`.
@@ -19,10 +19,10 @@ gitq looks in two places, in order, and stops at the first hit:
 Neither is written by gitq; both are read-only inputs. Find neither and `publish` (and `import`) fail before any network call:
 
 ```
-gitq: no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)
+gitq: no gitlab token for gitlab.com (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)
 ```
 
-The base URL is hardcoded to `https://gitlab.com`. There is no self-hosted GitLab support today: `createGitLabProvider` always constructs the provider against `https://gitlab.com`, and the board's `gitlabHost` config field is accepted but not wired to anything else. See [Configuration](/reference/configuration).
+Which token gitq wants follows from the repo's remote, not from configuration: a GitHub remote asks for `GITHUB_TOKEN` (or `githubToken`) and is never offered a GitLab one. The instance comes from the remote too, so self-hosted GitLab works, given a `forges` entry naming it. The board is the exception: it builds one provider for every repo it shows and still gates that on a GitLab token, so its `gitlabHost` config field remains accepted and unwired. See [the forge token](/reference/configuration#the-forge-token).
 
 ## What `publish` does, per branch
 

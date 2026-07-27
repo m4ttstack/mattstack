@@ -22,26 +22,26 @@ gitq publish [--stack <name>] [--mr-meta <path>]
 
 ## Behavior
 
-**`publish` creates MRs and updates existing ones.** It walks the stack in topological order and does one of two things per node (`ForgeSync.publishStack`, `src/core/forge-sync.ts:361-514`):
+**`publish` creates MRs and updates existing ones.** It walks the stack in topological order and does one of two things per node (`ForgeSync.publishStack`, `src/core/forge-sync.ts:363-516`):
 
-- A node whose `status` is `local-only` **and** whose `mrIid` is still `null` is **created**: pushed, then opened as a draft MR against its target (`src/core/forge-sync.ts:389-437`).
-- A node that already has an open MR is **updated**: the MR is retargeted when its target on GitLab no longer matches the node's target here, and its title and description are rewritten when `--mr-meta` names that branch. The branch itself is **not** pushed (`src/core/forge-sync.ts:439-510`).
+- A node whose `status` is `local-only` **and** whose `mrIid` is still `null` is **created**: pushed, then opened as a draft MR against its target (`src/core/forge-sync.ts:391-439`).
+- A node that already has an open MR is **updated**: the MR is retargeted when its target on GitLab no longer matches the node's target here, and its title and description are rewritten when `--mr-meta` names that branch. The branch itself is **not** pushed (`src/core/forge-sync.ts:441-512`).
 
-A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:526-536`), the same function you can call on a single branch.
+A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:528-538`), the same function you can call on a single branch.
 
-**The target is the nearest live ancestor, not the raw parent.** gitq keeps a merged branch in the tree with its children still pointing at it, so `publish` walks up past any node whose `status` is `merged` and targets the first one that is not (`resolveLiveTarget`, `src/core/forge-sync.ts:618-626`, the same rule [the cascade](/concepts/cascade#when-the-parent-was-merged) rebases by). Both the comparison and the write use it: without that, a child would be retargeted onto a branch GitLab deleted when it merged the parent, and an MR GitLab had already auto-retargeted to the trunk would be dragged back onto the merged branch.
+**The target is the nearest live ancestor, not the raw parent.** gitq keeps a merged branch in the tree with its children still pointing at it, so `publish` walks up past any node whose `status` is `merged` and targets the first one that is not (`resolveLiveTarget`, `src/core/forge-sync.ts:620-628`, the same rule [the cascade](/concepts/cascade#when-the-parent-was-merged) rebases by). Both the comparison and the write use it: without that, a child would be retargeted onto a branch GitLab deleted when it merged the parent, and an MR GitLab had already auto-retargeted to the trunk would be dragged back onto the merged branch.
 
 Order of checks, before any network call:
 
 1. **`--mr-meta` is parsed and validated first**, before the store or stack are even touched, so a malformed file fails the same way regardless of stack state or token presence (`src/cli/commands/forge.ts:105-113`).
 2. The store loads, the stack resolves, and the stack lease is checked.
-3. Only then is the GitLab provider built, which is where the missing-token refusal happens (`createGitLabProvider`, `src/cli/provider.ts:33-37`): `no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)`.
+3. Only then is the forge provider built (`createForgeProvider`, `src/cli/provider.ts:44-72`), which is where the remote's host decides both the forge and the credential, and where the missing-token refusal happens: `no gitlab token for gitlab.com (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)`. A remote whose host names no forge gitq knows is refused here too, rather than guessed at. See [Configuration](/reference/configuration#the-forge-token).
 
-Then, before the walk, one read: the MRs of every already-published node, batch-fetched by iid (`fetchPullRequests({ iids, projectPath })`, `src/core/forge-sync.ts:370-378`). An MR's current target is the only way to tell a retarget from a no-op, so publish asks the forge rather than trusting the local `status`. A stack with nothing published yet skips this read entirely, and a failure here fails the whole command before anything is pushed. Merged nodes are left out of the read on purpose: their MRs are done, and publish never writes to them.
+Then, before the walk, one read: the MRs of every already-published node, batch-fetched by iid (`fetchPullRequests({ iids, projectPath })`, `src/core/forge-sync.ts:372-380`). An MR's current target is the only way to tell a retarget from a no-op, so publish asks the forge rather than trusting the local `status`. A stack with nothing published yet skips this read entirely, and a failure here fails the whole command before anything is pushed. Merged nodes are left out of the read on purpose: their MRs are done, and publish never writes to them.
 
 ### Skipped branches {#skipped}
 
-Publish writes only to an **open MR of the branch it belongs to**. A published node that fails that check is **skipped**: it is not touched, not counted as a failure, and reported on its own line and in a `skipped` array rather than disappearing (`src/core/forge-sync.ts:439-476`). Three reasons, all carrying the node's `branch`, the `mrIid` publish would have written to, and a one-line `detail`:
+Publish writes only to an **open MR of the branch it belongs to**. A published node that fails that check is **skipped**: it is not touched, not counted as a failure, and reported on its own line and in a `skipped` array rather than disappearing (`src/core/forge-sync.ts:441-478`). Three reasons, all carrying the node's `branch`, the `mrIid` publish would have written to, and a one-line `detail`:
 
 | `reason` | what publish saw | example `detail` |
 |----------|------------------|------------------|
@@ -76,7 +76,7 @@ With nothing to create, nothing to update, and nothing skipped, prints `nothing 
 ## Exit codes
 
 - `0`: every attempted branch succeeded (including the no-op "nothing to publish" case, and a run that only [skipped](#skipped) branches).
-- `1`: a hard refusal (`--mr-meta` malformed, a lease held, no GitLab token, `--stack` unresolved, or the pre-walk read of the existing MRs failing), or completed with at least one failed branch. Check the per-branch `success` field under `--json` rather than assuming nothing happened: branches before a failed create are already pushed and already have MRs, and a failed update does not stop the branches after it. See [Exit codes](/reference/exit-codes) for the shape this shares with `sync` and `reparent`.
+- `1`: a hard refusal (`--mr-meta` malformed, a lease held, no forge token, `--stack` unresolved, or the pre-walk read of the existing MRs failing), or completed with at least one failed branch. Check the per-branch `success` field under `--json` rather than assuming nothing happened: branches before a failed create are already pushed and already have MRs, and a failed update does not stop the branches after it. See [Exit codes](/reference/exit-codes) for the shape this shares with `sync` and `reparent`.
 
 Never exits `2`.
 

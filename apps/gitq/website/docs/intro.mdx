@@ -39,7 +39,7 @@ It is deterministic about it: cascades run in a dedicated work worktree with a d
 
 - **It is not a git replacement.** gitq moves branch refs and records a tree. You still commit, diff, and resolve with plain git, and every branch it touches is an ordinary git branch that any other tool can read.
 - **It does not resolve conflicts for you.** When a rebase step conflicts, gitq stops and hands you a normal mid-rebase state in the work worktree, writes a pause file recording where it stopped, and exits `2` so a caller can tell a deliberate pause from a real failure. You fix it with git and run `gitq continue`. See [Resolve a conflict](/guides/resolve-a-conflict).
-- **It talks to gitlab.com only.** `publish` and `import` speak the GitLab API against gitlab.com. There is no GitHub support and no self-hosted GitLab support today.
+- **It talks to one forge per repo, resolved from the remote.** `publish` and `import` read the git remote's host to decide whether they are speaking to GitLab or GitHub, and against which instance. gitlab.com and github.com need no configuration; self-hosted GitLab and GitHub Enterprise need a line naming the forge, since a hostname does not say which one it runs. The board is still the exception: it resolves a single provider for every repo it shows, so its MR enrichment is GitLab-only for now.
 
 ## Where to go next
 

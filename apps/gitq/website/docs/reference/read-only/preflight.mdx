@@ -15,7 +15,7 @@ gitq preflight
 
 ## Behavior
 
-For each tracked stack, checks whether the working tree is dirty (untracked, staged, or unstaged, any of which blocks a rebase), then, unless it is dirty, runs one `git merge-tree` three-way merge per branch against its parent to predict conflicts (`src/core/rebase-engine.ts:168,177`). The human output is one line per stack, `<stackName>: dirty=<bool>`, followed by either the predicted conflicts (each conflicted file with its two-letter git status code) or `no predicted conflicts`.
+For each tracked stack, checks whether the working tree is dirty (untracked, staged, or unstaged, any of which blocks a rebase), then, unless it is dirty, runs one `git merge-tree` three-way merge per branch against its parent to predict conflicts (`src/core/rebase-engine.ts:171,180`). The human output is one line per stack, `<stackName>: dirty=<bool>`, followed by either the predicted conflicts (each conflicted file with its two-letter git status code) or `no predicted conflicts`.
 
 - **`preflight` skips prediction entirely when the working tree is dirty.** `no predicted conflicts` next to `dirty=true` means "not checked," not "clean."
 - It predicts against the tree as it is right now, one branch at a time. It cannot see a conflict that would only appear once an earlier branch in the same cascade has actually been rewritten, so a clean `preflight` does not guarantee a clean `sync`.

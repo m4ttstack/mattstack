@@ -31,7 +31,7 @@ cp config.example.json config.json
 | `repos` | Required, and must be non-empty. One entry per repo to display. `path` is required. `name` is optional and defaults to the last path segment; it is the label shown on the board. |
 | `port` | Port to listen on. Defaults to `11008`. The `PORT` environment variable wins over this, so a launch agent can pin the port without editing the file. |
 | `herdrWorkspace` | The herdr workspace label that action tabs are launched into. Defaults to `gitq`. |
-| `gitlabHost` | Defaults to `https://gitlab.com`. Accepted for forward compatibility only: the provider stack is gitlab.com-only today, so changing it does not point gitq at a self-hosted instance. |
+| `gitlabHost` | Defaults to `https://gitlab.com`. Accepted for forward compatibility only: nothing reads it. The board resolves each repo's provider from that repo's own remote, so the instance never comes from here. |
 
 Config is read once at startup. Editing `config.json` needs a restart. See [Configuration](/reference/configuration).
 

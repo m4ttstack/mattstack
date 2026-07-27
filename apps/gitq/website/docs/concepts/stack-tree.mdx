@@ -40,7 +40,7 @@ A node is metadata about a branch, never a copy of it. The fields worth knowing:
 | `parent` | The branch this one sits on. Either another node's `branch`, or the stack's `root`. |
 | `status` | `local-only`, `synced`, `drift`, or `merged`. How the branch relates to its merge request, not to git. |
 | `mrIid`, `mrUrl`, `mrTitle` | The merge request, once `gitq publish` or `gitq import` has filled them in. Null before that. |
-| `pipelineStatus`, `unresolvedThreads`, `diffStats` | Forge data, refreshed when gitq talks to GitLab. What the board and `diagnose` render badges from. |
+| `pipelineStatus`, `unresolvedThreads`, `diffStats` | Forge data, refreshed when gitq talks to the forge. What the board and `diagnose` render badges from. `unresolvedThreads` is `null` when the forge would not report a count, which is not zero. |
 | `lastKnownHead` | A SHA: this branch's head at a known good point. When the branch is later marked `merged`, this is the tombstone that its children are replayed off. |
 | `forkPoint` | A SHA: the parent's head when this branch was created. A fallback fork point when the reflog can no longer supply one. |
 | `unmanaged` | Optional. When true, the node shows up in the tree but the cascade skips it entirely. |

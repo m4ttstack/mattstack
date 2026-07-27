@@ -92,9 +92,15 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 - `<commonDir>/gitq/leases.json`: per-repo work-slot lease registry, tracking which stack holds which work slot.
 - `<gitdir>/gitq-pause.json`: present only while a cascade is paused on a conflict, per repo (worktree safe, since it's keyed off the git dir, not the worktree root). During a cascade this lives in the work slot's git dir, not your checkout's.
 
-## GitLab token
+## Forge token
 
-`publish` and `import` need a token. gitq looks at `GITLAB_TOKEN` in the environment first, then falls back to the `gitlabToken` field in `~/.rt/secrets.json`. gitlab.com only for now, no self hosted instances.
+`publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment, falling back to the `gitlabToken` field in `~/.rt/secrets.json`; a github.com remote wants `GITHUB_TOKEN`, falling back to `githubToken`.
+
+Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `~/.config/gitq/settings.json`:
+
+```json
+{ "forges": { "gitlab.acme.com": { "provider": "gitlab" } } }
+```
 
 ## skills
 

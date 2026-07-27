@@ -22,7 +22,7 @@ gitq add <branch> --parent <parentBranch> [--stack <name>]
 
 ## Behavior
 
-Pure bookkeeping: adds one node, `{ branch, parent }` plus defaulted fields (`status: 'local-only'`, everything forge-related null or `'unknown'`, `unresolvedThreads: 0`), to the resolved stack (`src/core/stack-manager.ts:14-28,90-105`). It does not create the branch in git, and it never checks that `<branch>` exists as a git ref.
+Pure bookkeeping: adds one node, `{ branch, parent }` plus defaulted fields (`status: 'local-only'`, everything forge-related null or `'unknown'`, `unresolvedThreads: 0`, a real count since a branch with no MR has no threads), to the resolved stack (`src/core/stack-manager.ts:14-28,90-105`). It does not create the branch in git, and it never checks that `<branch>` exists as a git ref.
 
 - Refuses with usage help if `<branch>` or `--parent` is missing.
 - Refuses if the stack can't be resolved: see the `--stack` rule at [Global flags](/reference/global-flags#the---stack-rule).
