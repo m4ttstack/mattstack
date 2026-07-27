@@ -295,6 +295,20 @@ describe('diagnoseStack', () => {
     expect(auth.badge!.label).toBe('3 threads');
   });
 
+  test('unknown thread count — flagged as unknown, not as resolved', () => {
+    const stack = makeStack('main', [
+      makeNode('feat/auth', 'main', { unresolvedThreads: null }),
+    ]);
+    const snapshot = makeSnapshot([makeBranchSnapshot('feat/auth')]);
+
+    const result = diagnoseStack(snapshot, stack);
+
+    const auth = result.nodes.get('feat/auth')!;
+    expect(auth.situation).toBe('has-threads');
+    expect(auth.statusLine).toBe('unresolved threads: unknown');
+    expect(auth.badge!.label).toBe('threads?');
+  });
+
   test('dirty working tree — adds global block', () => {
     const stack = makeStack('main', [
       makeNode('feat/auth', 'main'),

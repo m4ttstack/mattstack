@@ -71,7 +71,8 @@ export interface CascadeResult {
 /** A branch with unresolved MR discussion threads. */
 export interface ThreadWarning {
   branch: string;
-  count: number;
+  /** Null when the forge could not report a count. See `StackNode.unresolvedThreads`. */
+  count: number | null;
 }
 
 export interface ConflictPrediction {
@@ -147,7 +148,9 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
     const node = StackManager.findNode(stack, branch);
     if (!node) continue;
 
-    if (node.unresolvedThreads > 0) {
+    // A count nobody could read warns too, carrying its null through: silence
+    // here is indistinguishable from "this branch has nothing outstanding".
+    if (node.unresolvedThreads === null || node.unresolvedThreads > 0) {
       threadWarnings.push({ branch: node.branch, count: node.unresolvedThreads });
     }
 

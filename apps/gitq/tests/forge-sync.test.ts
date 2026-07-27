@@ -44,7 +44,9 @@ function mockPR(overrides: Partial<PullRequest> & { sourceBranch: string; target
     reviewers: [],
     roles: ['author'],
     pipeline: overrides.pipeline ?? null,
-    unresolvedThreadCount: overrides.unresolvedThreadCount ?? 0,
+    // Not `?? 0`: null is a value a PR can carry ("count unreadable"), so an
+    // override of null has to survive into the fixture.
+    unresolvedThreadCount: overrides.unresolvedThreadCount !== undefined ? overrides.unresolvedThreadCount : 0,
     approvalsLeft: 0,
     approved: false,
     approvedBy: [],
@@ -93,6 +95,7 @@ function mockProvider(prs: PullRequest[]): GitProvider {
       canResolveDiscussions: true,
       canRetryPipeline: true,
       canRequestReReview: true,
+      canWatchEvents: true,
     },
     mergePullRequest: () => Promise.reject(new Error('not implemented')),
     approvePullRequest: () => Promise.reject(new Error('not implemented')),
@@ -292,6 +295,19 @@ describe('ForgeSync.populateNodeData', () => {
     expect(node.unresolvedThreads).toBe(3);
     expect(node.diffStats).toEqual({ additions: 50, deletions: 20, filesChanged: 5 });
     expect(node.status).toBe('synced');
+  });
+
+  test('keeps an unknown thread count unknown rather than reading it as zero', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+
+    // GitHub reports null when its review-thread query fails or overflows a
+    // page. Storing 0 would render "all resolved" for a count nobody read.
+    const prs = [mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', unresolvedThreadCount: null })];
+
+    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack, MOCK_PROJECT);
+
+    expect(StackManager.findNode(updated, 'feat/a')!.unresolvedThreads).toBeNull();
   });
 
   test('marks status as drift when forge target mismatches', async () => {

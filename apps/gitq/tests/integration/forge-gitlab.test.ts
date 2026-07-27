@@ -114,5 +114,9 @@ function assertPullRequestShape(pr: PullRequest): void {
   expect(typeof pr.draft).toBe('boolean');
   expect(pr.author).toBeDefined();
   expect(typeof pr.author.username).toBe('string');
-  expect(typeof pr.unresolvedThreadCount).toBe('number');
+  // Null is a value the contract allows ("the provider could not read a
+  // count"). GitLab always reports a number, so this file should never see one,
+  // but asserting `number` outright would make the shared shape check wrong for
+  // the GitHub counterpart that follows this pattern.
+  expect(pr.unresolvedThreadCount === null || typeof pr.unresolvedThreadCount === 'number').toBe(true);
 }

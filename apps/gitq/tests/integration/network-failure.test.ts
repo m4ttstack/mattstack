@@ -84,6 +84,7 @@ function baseProvider(): GitProvider {
       canResolveDiscussions: true,
       canRetryPipeline: true,
       canRequestReReview: true,
+      canWatchEvents: true,
     },
     mergePullRequest: () => Promise.reject(new Error('not implemented')),
     approvePullRequest: () => Promise.reject(new Error('not implemented')),

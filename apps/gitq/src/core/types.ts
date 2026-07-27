@@ -59,8 +59,15 @@ export interface StackNode {
   /** Latest CI pipeline status. */
   pipelineStatus: PipelineStatus;
 
-  /** Number of unresolved discussion threads on the MR. */
-  unresolvedThreads: number;
+  /**
+   * Number of unresolved discussion threads on the MR.
+   *
+   * Null means the forge could not tell us, which is not zero: GitHub reports
+   * it when its review-thread query fails or the PR carries more threads than
+   * one page. Rendering that as "all resolved" is what null exists to prevent,
+   * so consumers surface it as unknown rather than defaulting it away.
+   */
+  unresolvedThreads: number | null;
 
   /** When true, this node is context-only: visible in the graph but skipped during cascade rebase. */
   unmanaged?: boolean;

@@ -397,12 +397,18 @@ function classifyNode(
     };
   }
 
-  if (node.unresolvedThreads > 0) {
+  // An unknown count reaches this branch too, and says so. Falling through to
+  // `synced` would render "no threads" for a number nobody managed to read.
+  const threads = node.unresolvedThreads;
+  if (threads === null || threads > 0) {
     return {
       branch: node.branch,
       situation: 'has-threads',
-      statusLine: `${node.unresolvedThreads} unresolved thread${node.unresolvedThreads > 1 ? 's' : ''}`,
-      badge: { label: `${node.unresolvedThreads} thread${node.unresolvedThreads > 1 ? 's' : ''}`, variant: 'caution' },
+      statusLine: threads === null ? 'unresolved threads: unknown' : `${threads} unresolved thread${threads > 1 ? 's' : ''}`,
+      badge: {
+        label: threads === null ? 'threads?' : `${threads} thread${threads > 1 ? 's' : ''}`,
+        variant: 'caution',
+      },
       primaryAction: null,
       secondaryActions: [],
       blocked,

@@ -323,7 +323,9 @@ export const ForgeSync = {
           status: pr ? 'synced' : 'local-only',
           diffStats: mapDiffStats(pr?.diffStats ?? null),
           pipelineStatus: normalizePipelineStatus(pr?.pipeline?.status),
-          unresolvedThreads: pr?.unresolvedThreadCount ?? 0,
+          // Not `?? 0`: a branch with no MR has no threads, but an MR whose
+          // count the forge would not report has an unknown one.
+          unresolvedThreads: pr ? pr.unresolvedThreadCount : 0,
         });
       }
 

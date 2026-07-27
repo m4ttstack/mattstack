@@ -247,6 +247,30 @@ describe('RebaseEngine.preflight', () => {
     expect(report.threadWarnings).toHaveLength(1);
     expect(report.threadWarnings[0]).toEqual({ branch: 'feat/auth-oauth', count: 5 });
   });
+
+  test('warns about a branch whose thread count could not be read', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getBranchHead: mock(() => Promise.resolve('head')),
+        mergeTree: mock(() => Promise.resolve('')),
+      },
+    }));
+
+    const { RebaseEngine: RE } = await import('../src/core/rebase-engine.ts');
+    let stack = buildTestStack();
+    // An unknown count is not a count of zero: staying silent here tells the
+    // user this branch has nothing outstanding, which nobody established.
+    stack = StackManager.updateNode(stack, 'feat/auth-oauth', { unresolvedThreads: null });
+
+    const report = await RE.preflight('/tmp/repo', stack, ['feat/auth-oauth']);
+
+    expect(report.threadWarnings).toHaveLength(1);
+    expect(report.threadWarnings[0]).toEqual({ branch: 'feat/auth-oauth', count: null });
+  });
 });
 
 // ── cascadeRebase ────────────────────────────────────────────────────────────
