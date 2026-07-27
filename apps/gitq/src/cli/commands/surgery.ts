@@ -1,5 +1,6 @@
 import { loadStore, updateStore } from '../../core/persistence.ts';
 import { AbsorbEngine } from '../../core/absorb.ts';
+import type { AbsorbResult } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
 import { foldBranch } from '../../core/branch-fold.ts';
 import { reparentBranch } from '../../core/reparent.ts';
@@ -64,6 +65,21 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
   for (const attributedBranch of Object.keys(preview.attributed)) {
     const preGuard = refuseIfCheckedOutElsewhere(ctx, map, attributedBranch);
     if (preGuard !== null) return preGuard;
+  }
+
+  // No branch owns any of it, so the engine would return without stashing,
+  // checking out, or committing anything. Say so from here: leasing a slot
+  // materializes a work worktree, and there is nothing for it to restack.
+  if (Object.keys(preview.attributed).length === 0) {
+    const reason = preview.unattributed.length === 0 ? 'no-changes' : 'nothing-attributable';
+    const result: AbsorbResult = {
+      absorbed: false,
+      reason,
+      attributions: [],
+      unattributed: preview.unattributed,
+    };
+    emit(ctx, `nothing absorbed (${reason})`, { stack, result });
+    return 0;
   }
 
   // Absorb has no pause protocol (see below), but the restack it runs after

@@ -91,9 +91,11 @@ just talk to the human; everything else below is unchanged.
 5. **Mark done.**
    `bun run <status-bin> <state> done "absorbed <n> files into <m> branches"`
    Then report to the human: what landed where (file to branch), which files
-   are still dirty in the worktree (`result.unattributed` from the apply run,
-   the same set you named in step 2), and any conflicts you resolved on the
-   restack.
+   are still dirty in the worktree, and any conflicts you resolved on the
+   restack. The dirty set is the `unattributed` list you already read in step
+   2 — the restack-conflict route in step 3 exits 1 before printing a result
+   document, so there is no `result.unattributed` from the apply run to read
+   on that path.
 
 ## Rules
 

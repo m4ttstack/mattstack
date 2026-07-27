@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { writeFile, readFile } from 'node:fs/promises';
+import { writeFile, readFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GitShell } from '../../src/core/git-shell.ts';
 import { AbsorbEngine } from '../../src/core/absorb.ts';
@@ -63,37 +63,54 @@ describe('Absorb stash safety', () => {
     }
   });
 
-  test('absorb failure restores uncommitted work via stash pop', async () => {
+  test('an amend that fails mid-run pops the stash: every dirty file comes back', async () => {
+    // The realistic way into absorb's abort path: a `pre-commit` hook that
+    // refuses the SECOND branch's amend. The launch worktree's hooks stay
+    // live (a leased work slot's would not), so the first amend lands and the
+    // second throws, and everything the stash is holding has to come back.
     sandbox = await createSandboxRepo();
     dirs.push(sandbox.dir);
     const { dir, git } = sandbox;
 
     git('checkout', '-b', 'branch-1');
     const sha1 = await commit(dir, git, 'api.ts', 'export function api() {}\n', 'add api.ts');
-    git('checkout', 'main');
+    git('checkout', '-b', 'branch-2');
+    const sha2 = await commit(dir, git, 'config.json', '{"key":"value"}\n', 'add config.json');
 
     let stack = StackManager.createStack('test', 'main');
     stack = StackManager.addNode(stack, 'branch-1', 'main');
     stack = StackManager.updateNode(stack, 'branch-1', { lastKnownHead: sha1 });
+    stack = StackManager.addNode(stack, 'branch-2', 'branch-1');
+    stack = StackManager.updateNode(stack, 'branch-2', { lastKnownHead: sha2 });
 
-    // Detach branch-1 so checkout fails during absorb
-    git('checkout', 'branch-1');
+    await writeFile(
+      join(dir, '.git', 'hooks', 'pre-commit'),
+      '#!/bin/sh\ngit diff --cached --name-only | grep -q config.json && exit 1\nexit 0\n',
+    );
+    await chmod(join(dir, '.git', 'hooks', 'pre-commit'), 0o755);
 
     await writeFile(join(dir, 'api.ts'), 'export function api() { return "user work"; }\n');
-
-    // Create a fake node pointing to a non-existent branch to trigger failure
-    stack = StackManager.addNode(stack, 'nonexistent-branch', 'branch-1');
-    stack = StackManager.updateNode(stack, 'nonexistent-branch', { lastKnownHead: 'deadbeef' });
-
-    // Modify a file that would be attributed to the nonexistent branch
-    await writeFile(join(dir, 'nonexistent.txt'), 'data\n');
+    await writeFile(join(dir, 'config.json'), '{"key":"user work"}\n');
+    await writeFile(join(dir, 'notes.txt'), 'unowned notes\n');
 
     const result = await AbsorbEngine.absorb(dir, stack);
 
-    // Whether it succeeds partially or fails, the user's api.ts changes
-    // must survive somewhere (either absorbed into branch-1 or still in working tree)
-    const currentBranch = await GitShell.getCurrentBranch(dir);
-    expect(currentBranch).toBe('branch-1');
+    expect(result.absorbed).toBe(false);
+    const failure = result.attributions.find((a) => !a.success);
+    expect(failure?.branch).toBe('branch-2');
+    // The unwind came back clean, so there is nothing to hand the human.
+    expect(result.recovery).toBeUndefined();
+
+    // Back where we started, with the whole dirty tree restored — including
+    // the file the first (successful) amend had already committed elsewhere.
+    expect(await GitShell.getCurrentBranch(dir)).toBe('branch-2');
+    expect(await readFile(join(dir, 'api.ts'), 'utf-8')).toContain('user work');
+    expect(await readFile(join(dir, 'config.json'), 'utf-8')).toBe('{"key":"user work"}\n');
+    expect(await readFile(join(dir, 'notes.txt'), 'utf-8')).toBe('unowned notes\n');
+    expect(git('stash', 'list')).toBe('');
+
+    // Documented non-atomicity: branch-1's amend is not rolled back.
+    expect(git('show', 'branch-1:api.ts')).toContain('user work');
   });
 
   test('multiple uncommitted files across branches — all content preserved', async () => {
