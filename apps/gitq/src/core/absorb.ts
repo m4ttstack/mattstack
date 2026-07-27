@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
@@ -18,8 +18,10 @@ export interface AbsorbAttribution {
 
 export interface AbsorbResult {
   absorbed: boolean;
-  reason?: 'no-changes';
+  reason?: 'no-changes' | 'nothing-attributable';
   attributions: AbsorbAttribution[];
+  /** Files no branch's commits own. Left uncommitted in the worktree. */
+  unattributed: string[];
   cascadeResult?: CascadeResult;
   updatedStack?: Stack;
 }
@@ -27,10 +29,18 @@ export interface AbsorbResult {
 export interface AbsorbPreview {
   /** Files confidently attributed — the branch's commits touched this file. */
   attributed: Record<string, string[]>;
-  /** Files with no branch history match — defaults to currentBranch. */
+  /** Files no branch's commits touched. absorb leaves these in the worktree. */
   unattributed: string[];
-  /** The branch unattributed files will go to by default. */
+  /** The branch the worktree is on; where unattributed files stay dirty. */
   currentBranch: string;
+}
+
+/** The split of changed files into "a branch owns this" and "nobody does". */
+export interface FileAttribution {
+  /** branch → the changed files that branch's commits own. */
+  byBranch: Map<string, string[]>;
+  /** Changed files no branch's commits touched. */
+  unattributed: string[];
 }
 
 // ── File Attribution ─────────────────────────────────────────────────────────
@@ -59,17 +69,20 @@ async function buildBranchFileCache(
  * For each changed file, walk the stack from leaves to root (reverse topo)
  * and find the deepest branch whose commits touched that file.
  *
- * Files not touched by any stack branch are attributed to `currentBranch`.
+ * A file no branch's commits touched gets no branch: absorb has no evidence
+ * about where it belongs, and the checked-out branch is a guess, not an
+ * answer. Those files come back in `unattributed` and stay in the worktree.
  */
 async function attributeFiles(
   cwd: string,
   stack: Stack,
   changedFiles: string[],
-  currentBranch: string,
-): Promise<Map<string, string[]>> {
+): Promise<FileAttribution> {
   const { nodesReversed, cache } = await buildBranchFileCache(cwd, stack);
 
-  const result = new Map<string, string[]>();
+  const byBranch = new Map<string, string[]>();
+  const unattributed: string[] = [];
+
   for (const file of changedFiles) {
     let target: string | null = null;
     for (const node of nodesReversed) {
@@ -80,19 +93,22 @@ async function attributeFiles(
       }
     }
 
-    if (!target) target = currentBranch;
+    if (!target) {
+      unattributed.push(file);
+      continue;
+    }
 
-    const existing = result.get(target) ?? [];
+    const existing = byBranch.get(target) ?? [];
     existing.push(file);
-    result.set(target, existing);
+    byBranch.set(target, existing);
   }
 
-  return result;
+  return { byBranch, unattributed };
 }
 
 /**
- * Preview absorb: classify files into attributed (branch history match)
- * and unattributed (no branch touched them — fallback to current branch).
+ * Preview absorb: the same attribution `absorb` runs, with nothing committed.
+ * `unattributed` is the set absorb will leave dirty in the worktree.
  */
 async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> {
   const currentBranch = await GitShell.getCurrentBranch(cwd);
@@ -105,29 +121,46 @@ async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> 
     return { attributed: {}, unattributed: [], currentBranch };
   }
 
-  const { nodesReversed, cache } = await buildBranchFileCache(cwd, stack);
+  const { byBranch, unattributed } = await attributeFiles(cwd, stack, allChanged);
 
-  const attributed: Record<string, string[]> = {};
-  const unattributed: string[] = [];
+  return { attributed: Object.fromEntries(byBranch), unattributed, currentBranch };
+}
 
-  for (const file of allChanged) {
-    let target: string | null = null;
-    for (const node of nodesReversed) {
-      const branchFiles = cache.get(node.branch);
-      if (branchFiles?.has(file)) {
-        target = node.branch;
-        break;
+/**
+ * Put the files absorb refused to attribute back in the worktree. The stash
+ * took the whole tree, so without this they would disappear along with the
+ * changes that did get committed.
+ *
+ * Runs after the restack, not before: a dirty launch worktree makes the
+ * cascade's ref finalization refuse (and an in-tree rebase impossible).
+ */
+async function restoreUnattributed(
+  cwd: string,
+  files: string[],
+  contents: Map<string, Buffer>,
+  wasStaged: Set<string>,
+): Promise<void> {
+  const restage: string[] = [];
+
+  for (const file of files) {
+    const filePath = join(cwd, file);
+    try {
+      const content = contents.get(file);
+      if (content) {
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, content);
+      } else {
+        // Unreadable before the stash means the change was a deletion, and
+        // the stash put the file back. Delete it again.
+        await rm(filePath, { force: true });
       }
-    }
-
-    if (target) {
-      (attributed[target] ??= []).push(file);
-    } else {
-      unattributed.push(file);
-    }
+      if (wasStaged.has(file)) restage.push(file);
+    } catch { /* best-effort restore */ }
   }
 
-  return { attributed, unattributed, currentBranch };
+  if (restage.length > 0) {
+    await GitShell.add(cwd, restage).catch(() => {});
+  }
 }
 
 // ── Absorb Orchestration ─────────────────────────────────────────────────────
@@ -135,6 +168,9 @@ async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> 
 /**
  * Smart Absorb: distribute uncommitted changes to the correct branches
  * in the stack based on file attribution, then restack via cascade rebase.
+ *
+ * Only files a branch's commits already own get committed. Anything absorb
+ * cannot attribute is restored to the worktree, still uncommitted.
  *
  * After amending branches, uses a tombstone-style cascade: each child is
  * rebased using `--onto <new-parent-head> <old-parent-head> <child>` so
@@ -155,13 +191,21 @@ async function absorb(
   ].filter((f) => !excludeSet.has(f));
 
   if (allChanged.length === 0) {
-    return { absorbed: false, reason: 'no-changes', attributions: [] };
+    return { absorbed: false, reason: 'no-changes', attributions: [], unattributed: [] };
   }
 
-  const fileMap = await attributeFiles(cwd, stack, allChanged, currentBranch);
+  const { byBranch: fileMap, unattributed } = await attributeFiles(cwd, stack, allChanged);
+
+  // Nothing the stack owns. Stashing would put the whole tree through a
+  // round trip for no gain, so leave the worktree exactly as it is.
+  if (fileMap.size === 0) {
+    return { absorbed: false, reason: 'nothing-attributable', attributions: [], unattributed };
+  }
 
   // Save file contents to memory before stashing — avoids stash^3 issues
-  // with untracked files and is more robust than git checkout stash.
+  // with untracked files and is more robust than git checkout stash. The
+  // unattributed ones are snapshotted too: the stash takes the whole tree,
+  // so this is what puts them back afterwards.
   const fileContents = new Map<string, Buffer>();
   for (const file of allChanged) {
     try {
@@ -169,6 +213,7 @@ async function absorb(
       fileContents.set(file, content);
     } catch { /* best-effort read */ }
   }
+  const stagedBeforeAbsorb = new Set(changedResult.staged);
 
   // Snapshot all branch HEADs BEFORE amending — needed for tombstone cascade.
   const preAmendHeads = new Map<string, string>();
@@ -185,11 +230,8 @@ async function absorb(
   await GitShell.stash(cwd);
 
   const attributions: AbsorbAttribution[] = [];
-  const nodesInTopoOrder = StackManager.toposort(stack);
-  const orderedBranches = nodesInTopoOrder.map((n) => n.branch);
-  if (!orderedBranches.includes(currentBranch)) {
-    orderedBranches.push(currentBranch);
-  }
+  // Every key in fileMap is a stack node, so topo order covers all of them.
+  const orderedBranches = StackManager.toposort(stack).map((n) => n.branch);
 
   let updatedStack = stack;
   let abortNeeded = false;
@@ -234,9 +276,10 @@ async function absorb(
       await GitShell.checkoutBranch(cwd, currentBranch);
     } catch { /* cleanup */ }
     try {
+      // Brings back everything, unattributed files included.
       await GitShell.stashPop(cwd);
     } catch { /* cleanup */ }
-    return { absorbed: false, attributions };
+    return { absorbed: false, attributions, unattributed };
   }
 
   await GitShell.checkoutBranch(cwd, currentBranch);
@@ -248,14 +291,20 @@ async function absorb(
   const affectedBranches = new Set(attributions.filter((a) => a.success).map((a) => a.branch));
   let cascadeResult: CascadeResult | undefined;
 
-  if (affectedBranches.size > 0) {
-    cascadeResult = await cascadeAfterAbsorb(cwd, updatedStack, preAmendHeads, affectedBranches, workDir);
-    if (cascadeResult) {
-      updatedStack = cascadeResult.updatedStack;
+  try {
+    if (affectedBranches.size > 0) {
+      cascadeResult = await cascadeAfterAbsorb(cwd, updatedStack, preAmendHeads, affectedBranches, workDir);
+      if (cascadeResult) {
+        updatedStack = cascadeResult.updatedStack;
+      }
     }
+  } finally {
+    // Unconditional: a restack that blows up must not take the human's
+    // unattributed work with it — the stash holding it is already dropped.
+    await restoreUnattributed(cwd, unattributed, fileContents, stagedBeforeAbsorb);
   }
 
-  const result: AbsorbResult = { absorbed: true, attributions, updatedStack };
+  const result: AbsorbResult = { absorbed: true, attributions, unattributed, updatedStack };
   if (cascadeResult) result.cascadeResult = cascadeResult;
   return result;
 }
