@@ -131,26 +131,28 @@ Because it is pure ref surgery, a dirty working tree is not in the way, unless t
 
 ### Refusals
 
-:::danger `--at` needs the full 40 character sha
+:::tip `--at` takes any revision git resolves
 
-A short sha is compared against full hashes and never matches:
+A short sha copied straight out of `git log --oneline` is fine, as are a full sha, an annotated tag, `HEAD~2`, and a branch name:
 
 ```bash
 gitq split feat-core --at d66c1c7 --name feat-core-docs
 ```
 
 ```
-gitq: Commit "d66c1c7" not found in branch "feat-core"
+split feat-core: moved 1 commit(s) to feat-core-docs
 ```
 
-Exit `1`. Use `git rev-parse <ref>`, not `git rev-parse --short`.
+Age does not matter either: gitq asks git whether the commit is reachable from the branch, so a commit thousands back is as splittable as the one before HEAD.
 
 :::
 
 | Situation | What you get, always exit `1` |
 | --- | --- |
 | Split point is already the branch head | `gitq: No commits to split — the split point is already at HEAD` |
-| Sha is a full 40 character commit id, but older than the branch's 50 most recent commits | `gitq: Commit "<sha>" not found in branch "<branch>"`, the same shape of message the short sha error above produces, but for a different reason: `--at` only looks at the branch's last 50 commits, so anything older is invisible to it no matter how correctly you typed the sha |
+| Abbreviation matches more than one object | `gitq: Commit "63b2" is an ambiguous abbreviation (matches 63b2796818, 63b2bc6d43); use more characters` |
+| Revision resolves to nothing | `gitq: Commit "deadbee" does not resolve to a commit in this repository` |
+| Revision resolves, but the commit is not reachable from the source branch | `gitq: Commit "<sha>" not found in branch "<branch>"` |
 | Source branch is not in the stack | `gitq: Branch "no-such" not found in stack "253747f8-1fc8-4db7-ac34-aded330f2990"` |
 | New name is already a branch in the stack | `gitq: Branch "feat-empty" already exists in stack "253747f8-1fc8-4db7-ac34-aded330f2990"` |
 | Source checked out dirty in another worktree | the slot policy refuses; see [`split --files`](#split-files) below for the message |
