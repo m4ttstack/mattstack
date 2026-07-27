@@ -2,6 +2,7 @@ import { describe, expect, test, mock } from 'bun:test';
 import { ForgeSync } from '../src/core/forge-sync.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
+import type { Stack } from '../src/core/types.ts';
 import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from '@workforge/glance-sdk';
 
 // ── Mock Provider ────────────────────────────────────────────────────────────
@@ -545,6 +546,285 @@ describe('ForgeSync.publishStack', () => {
     expect(result.results[0]!.branch).toBe('feat/a');
     expect(result.results[0]!.success).toBe(false);
     expect(result.results[0]!.error).toContain('lease expired');
+  });
+});
+
+// ── publishStack: republishing an already-published stack ────────────────────
+
+describe('ForgeSync.publishStack — republish', () => {
+  interface Calls {
+    fetches: number;
+    creates: CreatePullRequestInput[];
+    updates: { iid: number; input: Record<string, unknown> }[];
+  }
+
+  /**
+   * Provider that answers the iid batch-fetch with `prs` and records every
+   * create/update it is asked for.
+   */
+  function republishProvider(prs: PullRequest[]): { provider: GitProvider; calls: Calls } {
+    const calls: Calls = { fetches: 0, creates: [], updates: [] };
+    let nextIid = 100;
+
+    const provider: GitProvider = {
+      ...mockProvider(prs),
+      fetchPullRequests: () => {
+        calls.fetches++;
+        return Promise.resolve(prs);
+      },
+      createPullRequest: async (input) => {
+        calls.creates.push(input);
+        const iid = nextIid++;
+        return mockPR({
+          iid,
+          sourceBranch: input.sourceBranch,
+          targetBranch: input.targetBranch,
+          title: input.title,
+          webUrl: `https://gitlab.com/-/mr/${iid}`,
+        });
+      },
+      updatePullRequest: async (_projectPath, iid, input) => {
+        calls.updates.push({ iid, input: input as Record<string, unknown> });
+        return mockPR({ iid, sourceBranch: 'x', targetBranch: 'y' });
+      },
+    };
+
+    return { provider, calls };
+  }
+
+  /** feat/a → main, feat/b → feat/a locally, both already published. */
+  function publishedStack(): Stack {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.updateNode(stack, 'feat/a', {
+      mrIid: 1,
+      mrUrl: 'https://gitlab.com/-/mr/1',
+      status: 'synced',
+    });
+    stack = StackManager.updateNode(stack, 'feat/b', {
+      mrIid: 2,
+      mrUrl: 'https://gitlab.com/-/mr/2',
+      status: 'synced',
+    });
+    return stack;
+  }
+
+  test('retargets an MR whose forge target no longer matches the local parent', async () => {
+    const stack = publishedStack();
+
+    // feat/b was reparented under feat/a locally; its MR still targets main.
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toHaveLength(1);
+    expect(calls.updates[0]!.iid).toBe(2);
+    expect(calls.updates[0]!.input.targetBranch).toBe('feat/a');
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.branch).toBe('feat/b');
+    expect(result.results[0]!.success).toBe(true);
+    expect(result.results[0]!.action).toBe('updated');
+    expect(result.results[0]!.changes).toEqual(['target']);
+    expect(result.results[0]!.targetBranch).toBe('feat/a');
+    expect(result.results[0]!.mrIid).toBe(2);
+    expect(result.results[0]!.mrUrl).toBe('https://gitlab.com/-/mr/2');
+
+    expect(StackManager.findNode(result.updatedStack, 'feat/b')!.status).toBe('synced');
+  });
+
+  test('leaves an MR alone when its target already matches the local parent', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toEqual([]);
+    expect(calls.creates).toEqual([]);
+    expect(result.results).toEqual([]);
+  });
+
+  test('rewrites title and description when --mr-meta names an already-published branch', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/a': { title: 'Rewritten title', body: 'Rewritten body' },
+    });
+
+    expect(calls.updates).toHaveLength(1);
+    expect(calls.updates[0]!.iid).toBe(1);
+    expect(calls.updates[0]!.input.title).toBe('Rewritten title');
+    expect(calls.updates[0]!.input.description).toBe('Rewritten body');
+    expect(calls.updates[0]!.input.targetBranch).toBeUndefined();
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.branch).toBe('feat/a');
+    expect(result.results[0]!.action).toBe('updated');
+    expect(result.results[0]!.changes).toEqual(['metadata']);
+  });
+
+  test('retargets and rewrites in one pass when both apply', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/b': { title: 'New title', body: 'New body' },
+    });
+
+    expect(calls.updates.map((u) => u.input.targetBranch)).toEqual(['feat/a', undefined]);
+    expect(calls.updates[1]!.input.title).toBe('New title');
+    expect(result.results[0]!.changes).toEqual(['target', 'metadata']);
+  });
+
+  test('never rewrites an MR the caller supplied no metadata for', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toHaveLength(1);
+    expect(calls.updates[0]!.input.title).toBeUndefined();
+    expect(calls.updates[0]!.input.description).toBeUndefined();
+  });
+
+  test('skips a node whose MR is no longer open on the forge', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main', state: 'merged' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/b': { title: 'New title', body: 'New body' },
+    });
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+  });
+
+  test('skips a node whose MR the forge did not return', async () => {
+    const stack = publishedStack();
+
+    // Only feat/a's MR comes back; feat/b's iid is unreadable, so its target
+    // can't be compared and it is left untouched.
+    const { provider, calls } = republishProvider([mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' })]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+  });
+
+  test('creates and updates in one run, parents before children', async () => {
+    let stack = publishedStack();
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    // feat/b drifted (targets main), feat/c has never been published.
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(result.results.map((r) => [r.branch, r.action])).toEqual([
+      ['feat/b', 'updated'],
+      ['feat/c', 'created'],
+    ]);
+    expect(calls.creates).toHaveLength(1);
+    expect(calls.creates[0]!.sourceBranch).toBe('feat/c');
+    expect(calls.creates[0]!.targetBranch).toBe('feat/b');
+    expect(StackManager.findNode(result.updatedStack, 'feat/c')!.status).toBe('synced');
+  });
+
+  test('stops the walk when a retarget fails', async () => {
+    let stack = publishedStack();
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+    const failing: GitProvider = {
+      ...provider,
+      updatePullRequest: () => Promise.reject(new Error('API error: 409 conflict')),
+    };
+
+    const result = await ForgeSync.publishStack(failing, stack, 'user/repo');
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.branch).toBe('feat/b');
+    expect(result.results[0]!.success).toBe(false);
+    expect(result.results[0]!.action).toBe('updated');
+    expect(result.results[0]!.error).toContain('409');
+    expect(calls.creates).toEqual([]);
+  });
+
+  test('reads the forge only when the stack has published nodes', async () => {
+    let localOnly = StackManager.createStack('auth', 'main');
+    localOnly = StackManager.addNode(localOnly, 'feat/a', 'main');
+
+    const fresh = republishProvider([]);
+    await ForgeSync.publishStack(fresh.provider, localOnly, 'user/repo');
+    expect(fresh.calls.fetches).toBe(0);
+
+    const republished = republishProvider([mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' })]);
+    await ForgeSync.publishStack(republished.provider, publishedStack(), 'user/repo');
+    expect(republished.calls.fetches).toBe(1);
+  });
+
+  test('does not push a branch that already has an MR', async () => {
+    const pushCalls: string[] = [];
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        pushForceWithLease: mock((_cwd: string, branch: string) => {
+          pushCalls.push(branch);
+          return Promise.resolve();
+        }),
+        getBranchHead: mock(() => Promise.resolve('deadbee')),
+      },
+      setCommandHook: () => {},
+    }));
+
+    const { ForgeSync: FS } = await import('../src/core/forge-sync.ts');
+
+    let stack = publishedStack();
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+
+    // feat/b drifted; only feat/c is new.
+    const { provider } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await FS.publishStack(provider, stack, 'user/repo', '/tmp/repo');
+
+    expect(pushCalls).toEqual(['feat/c']);
+    expect(result.results.every((r) => r.success)).toBe(true);
   });
 });
 
