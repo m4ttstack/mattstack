@@ -26,6 +26,8 @@ Every write is atomic: gitq writes a temp file and renames it over the target. T
 
 `~/.config/gitq/` by default. Set **`GITQ_CONFIG_DIR`** to move the whole thing somewhere else; every path below is derived from it. The variable is read once when gitq starts, so export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks.
 
+The [work slots](/concepts/work-slots) gitq leases for cascades follow the same variable, with one deliberate exception for the default. Set `GITQ_CONFIG_DIR` and a non-pool repo's slots are created under `$GITQ_CONFIG_DIR/work/<hash>/` (`getWorkSlotRoot`, `src/core/config-paths.ts:52-54`); leave it unset and the root stays at `~/.cache/gitq/work/<hash>/`, outside the config directory, so slots you already have leased are still found. That is what makes a throwaway `GITQ_CONFIG_DIR` genuinely throwaway: it sandboxes the git worktrees gitq creates, not just the files listed here.
+
 ### `stacks/<hash>.json`
 
 One file per repo, holding that repo's entire [stack tree](/concepts/stack-tree): `repoPath`, `remoteUrl`, `commonDir`, and the `stacks` array.
