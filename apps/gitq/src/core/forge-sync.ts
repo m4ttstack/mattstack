@@ -679,12 +679,15 @@ function prsForProject(prs: PullRequest[], scope: string | ProjectScope | null, 
  * to give" from "the scope dropped everything it gave", which look identical
  * from the discovered stacks alone.
  *
- * The scoping is done on the result rather than in the query because
- * `@workforge/glance-sdk@0.9.0` cannot express "this project's MRs":
- * `fetchPullRequests` honours `projectPath` only alongside `iids` or
- * `authorUsernames`, neither of which discovery knows before it has fetched,
- * and `GitHubProvider.fetchPullRequests` takes no options at all at this
- * version. A later SDK can push this into the query (see MAT-16).
+ * The scoping is done on the result rather than in the query, and stays that
+ * way now that the SDK can express "this project's MRs". `fetchPullRequests`
+ * honours `projectPath` alone as of 0.11.0, but that mode is member-blind: it
+ * returns every MR in the project, not the ones the token user is involved in.
+ * Handing it this scope would quietly widen discovery from "the chains I am
+ * part of" to "every chain anyone has opened", and `importFromForge` would
+ * rebuild the local store out of strangers' branches.
+ * {@link ForgeSync.discoverTeamStacks} is the entry point member-blind is
+ * right for, and it asks for it explicitly.
  */
 async function fetchOpenPRsForProject(
   provider: GitProvider,

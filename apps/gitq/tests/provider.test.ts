@@ -101,6 +101,13 @@ describe('createForgeProvider', () => {
     });
   });
 
+  test('tells an ssh alias to configure the baseUrl its entry will need', async () => {
+    // The plain suggestion is one `resolveForge` would turn around and reject:
+    // "https://work" is not an instance. Suggesting it would send the user
+    // through two failures to configure one host.
+    await expect(build('git@work:acme/web.git', GITLAB_ENV)).rejects.toThrow(/baseUrl/);
+  });
+
   test('rejects a remote that names no host at all', async () => {
     await expect(build('/srv/git/acme/web.git', GITLAB_ENV)).rejects.toThrow(/no forge host/);
   });

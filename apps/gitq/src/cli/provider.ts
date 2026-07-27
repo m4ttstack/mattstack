@@ -54,8 +54,14 @@ export async function createForgeProvider(
 
   const forge = resolveForge(host, opts.overrides ?? (await readForgeOverrides()));
   if (!forge) {
+    // A host with no dot is an ssh alias, whose entry cannot default its own
+    // base URL. Suggesting the short form there would be a suggestion
+    // `resolveForge` turns around and rejects.
+    const entry = host.includes('.')
+      ? '{"provider": "gitlab"}'
+      : '{"provider": "gitlab", "baseUrl": "https://gitlab.example.com"}';
     throw new Error(
-      `cannot tell which forge "${host}" is (from remote ${remoteUrl}); name it in ${getSettingsFilePath()} as {"forges": {"${host}": {"provider": "gitlab"}}}`,
+      `cannot tell which forge "${host}" is (from remote ${remoteUrl}); name it in ${getSettingsFilePath()} as {"forges": {"${host}": ${entry}}}`,
     );
   }
 
