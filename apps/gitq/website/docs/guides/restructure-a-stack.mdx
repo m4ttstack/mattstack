@@ -131,9 +131,9 @@ Because it is pure ref surgery, a dirty working tree is not in the way, unless t
 
 ### Refusals
 
-:::tip `--at` takes any revision git resolves
+:::tip `--at` takes any revision git resolves, above the fork
 
-A short sha copied straight out of `git log --oneline` is fine, as are a full sha, an annotated tag, `HEAD~2`, and a branch name:
+A short sha copied straight out of `git log --oneline` is fine, as are a full sha, an annotated tag, and a branch name:
 
 ```bash
 gitq split feat-core --at d66c1c7 --name feat-core-docs
@@ -145,15 +145,39 @@ split feat-core: moved 1 commit(s) to feat-core-docs
 
 Age does not matter either: gitq asks git whether the commit is reachable from the branch, so a commit thousands back is as splittable as the one before HEAD.
 
+`HEAD~n` resolves too, but **git resolves `HEAD` against your checkout, not against the branch you named.** Standing on `main`, `--at HEAD~2` picks one of `main`'s commits. Those sit at or below where `feat-core` forks from `main`, so splitting there would rewind `feat-core` under its own base and hand `main`'s commits to the new branch. gitq refuses instead. The run below was made standing on `main`, where `HEAD~2` is two commits below the fork:
+
+```bash
+gitq split feat-core --at HEAD~2 --name feat-core-docs
+```
+
+```
+gitq: Commit "HEAD~2" (4534099abb) is at or below where "feat-core" forks from "main", so splitting there would rewind "feat-core" past its own base and move "main"'s commits onto "feat-core-docs". Note that "HEAD~n" counts back from the checked-out branch, not from "feat-core": use "feat-core~n" instead.
+```
+
+Spell it `feat-core~2` and it counts back from the branch being split, which is what you wanted:
+
+```bash
+gitq split feat-core --at feat-core~2 --name feat-core-docs
+```
+
+```
+split feat-core: moved 2 commit(s) to feat-core-docs
+```
+
+Naming the parent branch itself (`--at main`) lands on the fork point and is refused the same way: it would leave `feat-core` as nothing but a duplicate of `main`.
+
 :::
 
 | Situation | What you get, always exit `1` |
 | --- | --- |
 | Split point is already the branch head | `gitq: No commits to split — the split point is already at HEAD` |
-| Abbreviation matches more than one object | `gitq: Commit "63b2" is an ambiguous abbreviation (matches 63b2796818, 63b2bc6d43); use more characters` |
-| Revision resolves to nothing | `gitq: Commit "deadbee" does not resolve to a commit in this repository` |
+| Split point at or below the fork with the parent | `gitq: Commit "main" (3a77704159) is at or below where "feat-core" forks from "main", so splitting there would rewind "feat-core" past its own base and move "main"'s commits onto "feat-core-docs". Note that "HEAD~n" counts back from the checked-out branch, not from "feat-core": use "feat-core~n" instead.` |
+| Abbreviation matches more than one commit | `gitq: Commit "63b2" is an ambiguous abbreviation (matches 63b2796818, 63b2bc6d43); use more characters` |
+| Revision resolves to nothing, or to a blob or tree rather than a commit | `gitq: Commit "deadbee" does not resolve to a commit in this repository` |
 | Revision resolves, but the commit is not reachable from the source branch | `gitq: Commit "<sha>" not found in branch "<branch>"` |
 | Source branch is not in the stack | `gitq: Branch "no-such" not found in stack "253747f8-1fc8-4db7-ac34-aded330f2990"` |
+| Source branch is in the stack but gone from git | `gitq: Branch "feat-core" is in stack "253747f8-1fc8-4db7-ac34-aded330f2990" but does not exist in this repository` |
 | New name is already a branch in the stack | `gitq: Branch "feat-empty" already exists in stack "253747f8-1fc8-4db7-ac34-aded330f2990"` |
 | Source checked out dirty in another worktree | the slot policy refuses; see [`split --files`](#split-files) below for the message |
 
