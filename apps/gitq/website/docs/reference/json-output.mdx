@@ -292,9 +292,11 @@ None of these five were run live for this page; each shape below is the exact ty
 
 Neither was run for this page: both talk to the real GitLab API, which this project's isolation rules keep off limits. Shapes below are from source.
 
-`publish` (`src/cli/commands/forge.ts:60-93`) emits `{ results, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:43-55`): `{ branch, success, mrIid?, mrUrl?, error? }`.
+`publish` (`src/cli/commands/forge.ts:82-115`) emits `{ results, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:43-55`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
 
-`import` (`src/cli/commands/forge.ts:95-127`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
+`action` is always present and says which of the two things happened: `created` for an MR this run opened, `updated` for one that was already there. `changes` is set only on an update and lists what actually moved, `target` when the MR was retargeted and `metadata` when `--mr-meta` rewrote its title and description, either or both (`PublishChange`, `src/core/forge-sync.ts:40`). `targetBranch` is the branch the MR points at after the run, which is the node's parent in the local tree.
+
+`import` (`src/cli/commands/forge.ts:117-149`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
 
 ## `gitq undo`
 
