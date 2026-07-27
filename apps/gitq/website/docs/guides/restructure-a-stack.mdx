@@ -560,7 +560,7 @@ Renaming a published branch does not rename it on the remote. The old branch is 
 
 Like `split --at`, `reset` is pure ref surgery: it compare-and-swaps `<branch>` to wherever `origin/<branch>` points and never checks anything out. Standing on `feat-a` and running `gitq reset feat-b` leaves you on `feat-a`. If you were standing on `feat-b` itself, you stay on `feat-b` and your clean tree follows it to the remote's head, exactly as [the split example above](#what-surgery-does-to-your-checkout) describes.
 
-Like `rename`, it refuses up front if the branch is checked out somewhere other than your launch worktree, dirty or not, with the same message.
+It still refuses up front if the branch is checked out somewhere other than your launch worktree, dirty or not, but which message you get depends on where. Another ordinary worktree gets `rename`'s message verbatim, the same `refuseIfCheckedOutElsewhere` guard. A `gitq-N` [work slot](/concepts/work-slots) gets a `reset`-local one instead, `branch "<branch>" is checked out in work slot "<name>" (<path>); free that slot before resetting`, because the shared worktree lookup skips work slots and would otherwise let the ref move out from under a slot's tree. See [`gitq reset`](/reference/surgery/reset) for both.
 
 `reset` is the one surgery command the warning at the top of this page already calls out as unrecorded: it is never written to the operation log, so `gitq undo` has nothing to give back after it. Whatever the branch pointed at before is gone unless you remember the sha yourself.
 
