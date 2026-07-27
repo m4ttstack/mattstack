@@ -21,24 +21,24 @@ gitq reset <branch> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease, and refuses up front on the same rule `rename` uses if `<branch>` is checked out somewhere else, dirty or not (`refuseIfCheckedOutElsewhere`, `src/cli/commands/surgery.ts:242-244`).
+Guarded by the stack lease, and refuses up front on the same rule `rename` uses if `<branch>` is checked out somewhere else, dirty or not (`refuseIfCheckedOutElsewhere`, `src/cli/commands/surgery.ts:245-247`).
 
-`resetToRemote` (`src/core/branch-reset.ts:19-37`) then:
+`resetToRemote` (`src/core/branch-reset.ts:23-49`) then:
 
-1. **Requires a clean launch worktree.** `assertCleanTree` runs before anything else; a dirty tree refuses with `Working tree has uncommitted changes. Commit or stash first.` and nothing moves (`src/core/branch-reset.ts:24`, `src/core/git-guards.ts:7-11`).
-2. **Does not fetch.** It reads `origin/<branch>` exactly as your remote-tracking ref already stands (`src/core/branch-reset.ts:26-27`). If that ref is stale, run `git fetch` first or you reset to old data.
-3. Checks out `<branch>` and runs `git reset --hard origin/<branch>`.
+1. **Requires a clean launch worktree.** `assertCleanTree` runs before anything else; a dirty tree refuses with `Working tree has uncommitted changes. Commit or stash first.` and nothing moves (`src/core/branch-reset.ts:28`, `src/core/git-guards.ts:7-11`).
+2. **Does not fetch.** It reads `origin/<branch>` exactly as your remote-tracking ref already stands (`src/core/branch-reset.ts:30-31`). If that ref is stale, run `git fetch` first or you reset to old data.
+3. Compare-and-swaps `refs/heads/<branch>` to that sha through `finalizeBranchRef`, the same ref move [`gitq split --at`](/reference/surgery/split) uses. No checkout happens. If `<branch>` has no local ref at all, it is created directly at the remote head instead.
 
-Only after that does it update the stack tree's `lastKnownHead`, and that update throws if `<branch>` isn't a node in the picked stack. In that edge case the git-level reset has already happened for real before the command fails, since the store update runs strictly after the checkout and hard reset (`src/core/branch-reset.ts:29-34`).
+Only after that does it update the stack tree's `lastKnownHead`, and that update throws if `<branch>` isn't a node in the picked stack. In that edge case the git-level ref move has already happened for real before the command fails, since the store update runs strictly after it (`src/core/branch-reset.ts:33-46`).
 
-**This is one of two exceptions to surgery's "your checkout never moves" guarantee** (`GitShell.checkoutBranch(cwd, branch)`, `src/core/branch-reset.ts:29`). The checkout is not conditional on `<branch>` being the one you already had checked out, and nothing restores your prior branch afterward (contrast [`gitq absorb`](/reference/surgery/absorb), which does restore the branch you started on): standing on `feat-a` and running `gitq reset feat-b` leaves you checked out on `feat-b`. The other exception is [`gitq fold`](/reference/surgery/fold), which moves a checkout only when the branch it deletes forces it to.
+**Your checkout never moves**, in line with the rest of surgery. The ref is rewritten in place, so standing on `feat-a` and running `gitq reset feat-b` leaves you on `feat-a`. A worktree already sitting on `<branch>` gets `finalizeBranchRef`'s slot policy: clean and exactly on the old head, it stays on the branch and is reset to the new head; dirty, mid-rebase, or drifted, the whole command refuses and the ref does not move. The only command in surgery that leaves you on a different branch than it found you on is [`gitq fold`](/reference/surgery/fold), which has to, because it deletes the branch you may be standing on.
 
-**Never written to the operation log at all.** Unlike `split`, `fold`, and `rename`, which are logged but excluded from `REVERSIBLE_OPERATIONS`, `reset` is never wrapped in `withOperationLog` in the first place (`src/cli/commands/surgery.ts:233-250`). `gitq undo` has nothing to give back after a `reset`, ever; whatever the branch pointed at before is gone unless you noted the sha yourself.
+**Never written to the operation log at all.** Unlike `split`, `fold`, and `rename`, which are logged but excluded from `REVERSIBLE_OPERATIONS`, `reset` is never wrapped in `withOperationLog` in the first place (`src/cli/commands/surgery.ts:233-255`). `gitq undo` has nothing to give back after a `reset`, ever; whatever the branch pointed at before is gone unless you noted the sha yourself.
 
 ## Exit codes
 
 - `0`: reset to `origin/<branch>` succeeded.
-- `1`: a dirty launch worktree, `<branch>` checked out elsewhere, `origin/<branch>` not resolving, a lease held, or (if `<branch>` isn't a stack node) the store update failing after the git reset already ran.
+- `1`: a dirty launch worktree, `<branch>` checked out elsewhere, `origin/<branch>` not resolving, a lease held, or (if `<branch>` isn't a stack node) the store update failing after the ref move already ran.
 
 Never exits `2`. See [Exit codes](/reference/exit-codes) for the general contract.
 

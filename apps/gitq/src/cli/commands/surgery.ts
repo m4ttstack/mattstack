@@ -239,10 +239,15 @@ export async function resetCommand(ctx: CliContext): Promise<number> {
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
+  // Keep the pre-guard even though resetToRemote is ref-only surgery now: a
+  // branch held by another non-work slot refuses here with a pointer to that
+  // slot, rather than deeper down in finalizeBranchRef's slot policy.
   const map = await getWorktreeMap(ctx.repoRoot);
   const preGuard = refuseIfCheckedOutElsewhere(ctx, map, branch);
   if (preGuard !== null) return preGuard;
 
+  // No HEAD capture/restore needed: resetToRemote CAS-moves the ref and never
+  // checks anything out, so the launch worktree stays on its own branch.
   const result = await resetToRemote(ctx.repoRoot, stack, branch);
   await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, result.updatedStack));
   emit(ctx, `reset ${branch} to origin/${branch} (${result.newHead})`, { stack: result.updatedStack, result });

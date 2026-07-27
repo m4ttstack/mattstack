@@ -114,7 +114,7 @@ reset feat-a to origin/feat-a (757f53788a6be23a4f8fabb94a3e4de304339409)
 Exit `0`. Three things to know before you reach for it:
 
 - **It does not fetch.** `reset` reads `origin/<branch>` as it already is; if your remote-tracking ref is stale, `git fetch` first or you'll reset to old data.
-- **It requires a clean launch worktree**, and checks out the branch there before hard-resetting it:
+- **It requires a clean launch worktree**, even though it never checks anything out there:
 
   ```bash
   gitq reset feat-a
@@ -124,7 +124,7 @@ Exit `0`. Three things to know before you reach for it:
   gitq: Working tree has uncommitted changes. Commit or stash first.
   ```
 
-  Exit `1`, and nothing moves. Like `rename`, it also refuses up front, with the same message shape as [`rename`'s refusal](/guides/restructure-a-stack#rename), if the branch is checked out somewhere other than your launch worktree, dirty or not.
+  Exit `1`, and nothing moves. Like `rename`, it also refuses up front, with the same message shape as [`rename`'s refusal](/guides/restructure-a-stack#rename), if the branch is checked out somewhere other than your launch worktree, dirty or not. When it does run, it compare-and-swaps the branch ref and leaves your checkout exactly where it was: `gitq reset feat-a` from `main` leaves you on `main`.
 
 - **It is never recorded in the operation log**, so `gitq undo` has nothing to give back afterward. Whatever the branch pointed at before `reset` ran is gone unless you noted the sha yourself:
 
