@@ -98,7 +98,7 @@ A cascade rebases detached, but the branch ref it finally moves might be checked
 
 The dirty check is re-run at the moment of the move, not read from a cached scan, so a worktree that got dirty during the cascade is caught rather than clobbered.
 
-A few commands refuse up front instead of at the end, because they rewrite the branch directly in the worktree you ran them from rather than in a slot: `absorb` (for every branch its preview attributes changes to), `rename`, and `reset` all refuse immediately if the branch is checked out in a worktree other than the current one.
+A few commands refuse up front instead of at the end: `absorb` (for every branch its preview attributes changes to), `rename`, and `reset` all refuse immediately if the branch is checked out in a worktree other than the current one. `absorb` needs it because it really does rewrite the branch in the worktree you ran it from; `rename` and `reset` are ref-only, and refuse early so the message names the worktree holding the branch rather than surfacing later from the ref move.
 
 `gitq preflight` reports this ahead of time as a `slot conflicts:` section, which is the cheapest way to find out before a sync. See [Reading the tree](/getting-started/reading-the-tree).
 

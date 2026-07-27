@@ -93,9 +93,9 @@ Its step 2 says files the attribution engine can't match to a branch's commits "
 
 :::warning `skills/restructure/SKILL.md` on checkout neutrality
 
-Its step 3 says "surgery never moves the launch worktree's checkout." True for `split` and `reparent`, but there are two exceptions, and this skill drives both.
+Its step 3 says "surgery never moves the launch worktree's checkout." True for `split`, `reparent`, `rename`, and `reset`, but there is one exception, and this skill drives it.
 
-`fold` deletes the branch it folds, so if your launch worktree has that branch checked out (clean), gitq switches it to the parent before deleting (`src/core/branch-fold.ts`). `reset` checks the branch out in your launch worktree before hard-resetting it (`src/core/branch-reset.ts:29`) and never puts you back, so `gitq reset feat-b` while you are on `feat-a` leaves you standing on `feat-b`. See [Restructure a stack](/guides/restructure-a-stack#fold-is-the-exception-to-checkout-neutrality).
+`fold` deletes the branch it folds, so if your launch worktree has that branch checked out (clean), gitq switches it to the parent before deleting (`src/core/branch-fold.ts`). Nothing else in the surgery set moves a checkout: `reset`, which used to check the branch out and leave you there, is a compare-and-swap on the ref now (`src/core/branch-reset.ts`), so `gitq reset feat-b` while you are on `feat-a` leaves you on `feat-a`. See [Restructure a stack](/guides/restructure-a-stack#fold-is-the-exception-to-checkout-neutrality).
 
 :::
 
