@@ -49,12 +49,15 @@ export function getGeneratedPatternsDir(): string {
  * Root the per-repo work-slot directories hang off (`<root>/<repoHash>/gitq-1`).
  *
  * Work slots follow the config dir, so a single `GITQ_CONFIG_DIR` (or a
- * `setConfigDir` in tests) sandboxes everything gitq writes, including the git
- * worktrees it creates. The rule is value equality, not set-ness: a config dir
- * that resolves to `~/.config/gitq` keeps the historical `~/.cache/gitq/work`
- * location, out of the config dir, so slots already leased there stay exactly
- * where they are — whether the variable is unset or set to that same path.
- * Both sides are resolved so a trailing slash cannot move the root.
+ * `setConfigDir` in tests) moves everything gitq writes for itself, including
+ * the git worktrees it creates. It does not move what gitq writes into the
+ * repo it operates on (leases, pause files, per-worktree hooks config).
+ *
+ * The rule is value equality, not set-ness: a config dir that resolves to
+ * `~/.config/gitq` keeps the historical `~/.cache/gitq/work` location, out of
+ * the config dir, so slots already leased there stay exactly where they are,
+ * whether the variable is unset or set to that same path. Both sides are
+ * resolved, so a trailing slash cannot move the root.
  */
 export function getWorkSlotRoot(): string {
   const configDir = resolve(_configDir);
