@@ -27,9 +27,9 @@ Do not look for other keys: `repos.json` also resolves under this directory (`ge
 
 ## The GitLab token
 
-`publish` and `import` both need a token to reach GitLab, resolved by `resolveGitLabToken` (`src/core/secrets.ts:11-22`): **`GITLAB_TOKEN`** from the environment first, and if that is unset, the `gitlabToken` field in `~/.rt/secrets.json`. gitq never writes either location. Missing both is a hard failure before any network call is made: `gitq: no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:31-35`).
+`publish` and `import` both need a token to reach GitLab, resolved by `resolveGitLabToken` (`src/core/secrets.ts:11-22`): **`GITLAB_TOKEN`** from the environment first, and if that is unset, the `gitlabToken` field in `~/.rt/secrets.json`. gitq never writes either location. Missing both is a hard failure before any network call is made: `gitq: no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:33-37`).
 
-The base URL is hardcoded to `https://gitlab.com` (`src/cli/provider.ts:17`, `GITLAB_BASE_URL`). There is no self-hosted GitLab support today, whatever host you point `gitlabToken` or a remote at.
+The base URL is hardcoded to `https://gitlab.com` (`src/cli/provider.ts:19`, `GITLAB_BASE_URL`). There is no self-hosted GitLab support today, whatever host you point `gitlabToken` or a remote at.
 
 ## The board: `config.json`
 

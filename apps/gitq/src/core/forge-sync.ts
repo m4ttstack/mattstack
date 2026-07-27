@@ -9,9 +9,10 @@ import {
   filterPRsToProject,
   normalizePipelineStatus,
   mapDiffStats,
-  projectPathFromRemoteUrl,
+  projectScopeFromRemoteUrl,
   projectPathFromWebUrl,
   type DiscoveredStack,
+  type ProjectScope,
 } from './forge-helpers.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -117,6 +118,17 @@ export interface SyncResult {
   deletedBranches: DeletedBranch[];
 }
 
+/** Result of rebuilding a store from forge state, with what the scope did to the fetch. */
+export interface ImportResult {
+  store: StackStore;
+  /** Open MRs the forge returned, before scoping. */
+  openMRs: number;
+  /** How many of those belong to the project the remote points at. */
+  scopedMRs: number;
+  /** The project path read from the remote, for diagnostics. */
+  projectPath: string;
+}
+
 // ── ForgeSync ────────────────────────────────────────────────────────────────
 
 /**
@@ -132,16 +144,21 @@ export const ForgeSync = {
    * Fetches the open MRs of one project, then walks `targetBranch` chains to
    * find trees of related MRs.
    *
-   * @param projectPath - Scope discovery to one forge project ("group/project").
-   *   Omit it only when the caller has no repo in hand: the fetch returns every
-   *   MR the token user is involved in, across every project on the instance,
-   *   and an unscoped result can only be trusted as far as
-   *   `discoverStacksFromPRs` keeps repos apart.
+   * @param scope - Scope discovery to one forge project: "group/project", or a
+   *   {@link ProjectScope} when the host is known too.
+   *
+   *   Omit it, or pass the null a degenerate remote parses to, only when the
+   *   caller has no repo in hand: the fetch then returns every MR the token
+   *   user is involved in, across every project on the instance, and the
+   *   result can only be trusted as far as `discoverStacksFromPRs` keeps repos
+   *   apart. That is deliberate for this function and
+   *   {@link ForgeSync.discoverTeamStacks}: both only list what the forge has,
+   *   so an unscoped listing is wide but not wrong. `importFromForge`, which
+   *   rebuilds the store from what it finds, refuses a null scope instead.
    */
-  async discoverStacks(provider: GitProvider, projectPath?: string | null): Promise<DiscoveredStack[]> {
-    const allPRs = await fetchPRsForProject(provider, projectPath);
-    const openPRs = allPRs.filter((pr) => pr.state === 'opened');
-    return discoverStacksFromPRs(openPRs);
+  async discoverStacks(provider: GitProvider, scope?: string | ProjectScope | null): Promise<DiscoveredStack[]> {
+    const { kept } = await fetchOpenPRsForProject(provider, scope);
+    return discoverStacksFromPRs(kept);
   },
 
   /**
@@ -254,9 +271,22 @@ export const ForgeSync = {
    *
    * MRs from other projects are left out: the store is this repo's, so an MR
    * from elsewhere has no branch here to attach to.
+   *
+   * Throws when `remoteUrl` names no project. Falling back to an unscoped
+   * fetch would quietly rebuild the store from every MR on the instance, which
+   * is the one thing import promises not to do... and the caller has already
+   * discarded the old store by the time it could notice.
    */
-  async importFromForge(provider: GitProvider, repoPath: string, remoteUrl: string): Promise<StackStore> {
-    const discovered = await ForgeSync.discoverStacks(provider, projectPathFromRemoteUrl(remoteUrl));
+  async importFromForge(provider: GitProvider, repoPath: string, remoteUrl: string): Promise<ImportResult> {
+    const scope = projectScopeFromRemoteUrl(remoteUrl);
+    if (!scope) {
+      throw new Error(
+        `cannot read a project path from remote "${remoteUrl}"; import keeps only the MRs of the project the remote points at`,
+      );
+    }
+
+    const { fetched, kept } = await fetchOpenPRsForProject(provider, scope);
+    const discovered = discoverStacksFromPRs(kept);
     const usedIds = new Set<string>();
 
     const stacks: Stack[] = discovered.map((ds) => {
@@ -283,7 +313,12 @@ export const ForgeSync = {
       return stack;
     });
 
-    return { repoPath, remoteUrl, stacks };
+    return {
+      store: { repoPath, remoteUrl, stacks },
+      openMRs: fetched.length,
+      scopedMRs: kept.length,
+      projectPath: scope.path,
+    };
   },
 
   /**
@@ -486,13 +521,13 @@ export const ForgeSync = {
   /**
    * Discover stack chains from forge MRs grouped by author.
    *
-   * @param projectPath - Scope discovery to one forge project ("group/project"),
-   *   as in {@link ForgeSync.discoverStacks}. Without it a teammate's MRs in
-   *   another project are listed under their name as if they were this repo's.
+   * @param scope - Scope discovery to one forge project, as in
+   *   {@link ForgeSync.discoverStacks}, including what an omitted or null scope
+   *   means there. Without it a teammate's MRs in another project are listed
+   *   under their name as if they were this repo's.
    */
-  async discoverTeamStacks(provider: GitProvider, projectPath?: string | null): Promise<TeamStack[]> {
-    const allPRs = await fetchPRsForProject(provider, projectPath);
-    const openPRs = allPRs.filter((pr) => pr.state === 'opened');
+  async discoverTeamStacks(provider: GitProvider, scope?: string | ProjectScope | null): Promise<TeamStack[]> {
+    const { kept: openPRs } = await fetchOpenPRsForProject(provider, scope);
 
     const byAuthor = new Map<string, { author: TeamStackAuthor; prs: PullRequest[] }>();
 
@@ -580,8 +615,12 @@ function metaUpdate(desc?: { title?: string; body?: string }): { title?: string;
 }
 
 /**
- * Fetch the MRs of one forge project, or every MR the token user is involved
- * in when no project is given.
+ * Fetch the open MRs of one forge project, or every open MR the token user is
+ * involved in when no scope is given.
+ *
+ * Returns both sides of the filter so a caller can tell "the forge had nothing
+ * to give" from "the scope dropped everything it gave", which look identical
+ * from the discovered stacks alone.
  *
  * The scoping is done on the result rather than in the query because
  * `@workforge/glance-sdk@0.9.0` cannot express "this project's MRs":
@@ -590,9 +629,13 @@ function metaUpdate(desc?: { title?: string; body?: string }): { title?: string;
  * and `GitHubProvider.fetchPullRequests` takes no options at all at this
  * version. A later SDK can push this into the query (see MAT-16).
  */
-async function fetchPRsForProject(provider: GitProvider, projectPath?: string | null): Promise<PullRequest[]> {
+async function fetchOpenPRsForProject(
+  provider: GitProvider,
+  scope?: string | ProjectScope | null,
+): Promise<{ fetched: PullRequest[]; kept: PullRequest[] }> {
   const prs = await provider.fetchPullRequests();
-  return projectPath ? filterPRsToProject(prs, projectPath) : prs;
+  const fetched = prs.filter((pr) => pr.state === 'opened');
+  return { fetched, kept: scope ? filterPRsToProject(fetched, scope) : fetched };
 }
 
 async function detectSyncChanges(

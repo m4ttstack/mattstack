@@ -1,6 +1,7 @@
 import { createProvider } from '@workforge/glance-sdk';
 import type { GitProvider } from '@workforge/glance-sdk';
 import { resolveGitLabToken } from '../core/secrets.ts';
+import { projectPathFromRemoteUrl } from '../core/forge-helpers.ts';
 
 /**
  * GitLab provider + project path construction for the CLI.
@@ -10,8 +11,9 @@ import { resolveGitLabToken } from '../core/secrets.ts';
  * dropping the GitHub branches — this CLI only talks to GitLab. The old
  * helper resolved `baseURL` from the settings/token source (always
  * `https://gitlab.com` for GitLab, since it never derived a self-hosted host
- * from the remote URL either); the project-path extraction regex/URL logic
- * below is copied verbatim from `extractProjectPath`.
+ * from the remote URL either). Its `extractProjectPath` used to be copied here
+ * verbatim, bug and all: it read the port of `ssh://host:2222/group/project`
+ * as the namespace. The core parser is the one implementation now (MAT-16).
  */
 
 const GITLAB_BASE_URL = 'https://gitlab.com';
@@ -45,14 +47,12 @@ export function createGitLabProvider(remoteUrl: string): GitLabProviderContext {
  *
  * SSH: "git@gitlab.com:group/project.git" -> "group/project"
  * HTTPS: "https://gitlab.com/group/project.git" -> "group/project"
+ *
+ * Callers here need a string to hand to the GitLab API, so a remote the core
+ * parser reads no path from falls back to the remote itself, exactly as the
+ * old local copy did: the request then fails naming something recognizable
+ * rather than an empty path.
  */
 function extractProjectPath(remoteUrl: string): string {
-  const sshMatch = remoteUrl.match(/:([^/].*?)(?:\.git)?$/);
-  if (sshMatch?.[1] && remoteUrl.includes('@')) return sshMatch[1];
-  try {
-    const url = new URL(remoteUrl);
-    return url.pathname.replace(/^\//, '').replace(/\.git$/, '');
-  } catch {
-    return remoteUrl.replace(/\.git$/, '');
-  }
+  return projectPathFromRemoteUrl(remoteUrl) ?? remoteUrl.replace(/\.git$/, '');
 }

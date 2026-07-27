@@ -345,7 +345,7 @@ describe('ForgeSync.importFromForge', () => {
       mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/repo/pull/2' }),
     ];
 
-    const store = await ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', 'git@github.com:user/repo.git');
+    const { store } = await ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', 'git@github.com:user/repo.git');
 
     expect(store.repoPath).toBe('/tmp/repo');
     expect(store.remoteUrl).toBe('git@github.com:user/repo.git');
@@ -356,6 +356,53 @@ describe('ForgeSync.importFromForge', () => {
     expect(stack.nodes).toHaveLength(2);
     expect(StackManager.findNode(stack, 'feat/a')!.mrIid).toBe(1);
     expect(StackManager.findNode(stack, 'feat/b')!.parent).toBe('feat/a');
+  });
+
+  test('refuses a remote it cannot read a project from, rather than importing the instance', async () => {
+    const prs = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/repo/pull/2' }),
+    ];
+
+    for (const degenerate of ['', 'origin', 'https://gitlab.com/']) {
+      await expect(ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', degenerate)).rejects.toThrow(
+        `cannot read a project path from remote "${degenerate}"`,
+      );
+    }
+  });
+
+  test('reports what the project scope did to the fetch', async () => {
+    const prs = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/repo/pull/2' }),
+      mockPR({ iid: 3, sourceBranch: 'other', targetBranch: 'main', webUrl: 'https://github.com/user/elsewhere/pull/3' }),
+      mockPR({ iid: 4, sourceBranch: 'closed', targetBranch: 'main', state: 'closed', webUrl: 'https://github.com/user/repo/pull/4' }),
+    ];
+
+    const result = await ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', 'git@github.com:user/repo.git');
+
+    expect(result.openMRs).toBe(3);
+    expect(result.scopedMRs).toBe(2);
+    expect(result.projectPath).toBe('user/repo');
+  });
+
+  test('a scope that matches nothing is distinguishable from a forge with nothing', async () => {
+    // Both import to an empty store; only the counts say which happened. This
+    // is what the CLI's stale-remote diagnostic keys off.
+    const otherProject = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/elsewhere/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/elsewhere/pull/2' }),
+    ];
+
+    const stale = await ForgeSync.importFromForge(mockProvider(otherProject), '/tmp/repo', 'git@github.com:user/repo.git');
+    expect(stale.store.stacks).toEqual([]);
+    expect(stale.openMRs).toBe(2);
+    expect(stale.scopedMRs).toBe(0);
+
+    const empty = await ForgeSync.importFromForge(mockProvider([]), '/tmp/repo', 'git@github.com:user/repo.git');
+    expect(empty.store.stacks).toEqual([]);
+    expect(empty.openMRs).toBe(0);
+    expect(empty.scopedMRs).toBe(0);
   });
 });
 
@@ -1504,11 +1551,24 @@ describe('ForgeSync.discoverStacks: repo scoping', () => {
       expect(stack.branches.includes('web-only') && stack.branches.includes('api-only')).toBe(false);
     }
   });
+
+  test('an unscoped call still includes MRs whose project cannot be read', async () => {
+    // The other half of the drop-what-we-cannot-place rule: scoping drops an
+    // MR with no readable project, but a caller who asked for no scope is
+    // asking for everything, so nothing is dropped on identity grounds.
+    const prs = [
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: null }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: null }),
+    ];
+
+    expect(await ForgeSync.discoverStacks(mockProvider(prs))).toHaveLength(1);
+    expect(await ForgeSync.discoverStacks(mockProvider(prs), 'acme/web')).toEqual([]);
+  });
 });
 
 describe('ForgeSync.importFromForge: repo scoping', () => {
   test('imports only the stacks of the repo the remote points at', async () => {
-    const store = await ForgeSync.importFromForge(
+    const { store } = await ForgeSync.importFromForge(
       mockProvider(twoReposSharingABranchName()),
       '/tmp/web',
       'git@gitlab.com:acme/web.git',
@@ -1521,7 +1581,7 @@ describe('ForgeSync.importFromForge: repo scoping', () => {
   });
 
   test('https remotes scope the same way as ssh remotes', async () => {
-    const store = await ForgeSync.importFromForge(
+    const { store } = await ForgeSync.importFromForge(
       mockProvider(twoReposSharingABranchName()),
       '/tmp/api',
       'https://gitlab.com/acme/api.git',
@@ -1529,6 +1589,19 @@ describe('ForgeSync.importFromForge: repo scoping', () => {
 
     expect(store.stacks).toHaveLength(1);
     expect(store.stacks[0]!.nodes.map((n) => n.branch).sort()).toEqual(['api-only', 'fix-tests']);
+  });
+
+  test('the same path on another forge host is not this project', async () => {
+    // acme/web exists on gitlab.com and on github.com; the remote names which.
+    const { store, openMRs, scopedMRs } = await ForgeSync.importFromForge(
+      mockProvider(twoReposSharingABranchName()),
+      '/tmp/web',
+      'git@github.com:acme/web.git',
+    );
+
+    expect(store.stacks).toEqual([]);
+    expect(openMRs).toBe(4);
+    expect(scopedMRs).toBe(0);
   });
 });
 
