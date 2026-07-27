@@ -4,8 +4,7 @@ import { rm, writeFile } from 'node:fs/promises';
 import { createSandboxRepo, addNamedWorktree } from './helpers.ts';
 import { getWorktreeMap, findSlotForBranch, workSlotRoot, ensureWorkSlot } from '../../src/core/worktrees.ts';
 import { resolveRepoIdentity } from '../../src/core/persistence.ts';
-import { repoHash } from '../../src/core/config-paths.ts';
-import { homedir } from 'node:os';
+import { getWorkSlotRoot, repoHash } from '../../src/core/config-paths.ts';
 
 const cleanups: string[] = [];
 afterEach(async () => {
@@ -41,7 +40,7 @@ describe('worktree map', () => {
     expect(await ensureWorkSlot(repo.dir, commonDir, map)).toBe(slot);
   });
 
-  test('pool repos place work slots as siblings; single checkouts go to the cache dir', async () => {
+  test('pool repos place work slots as siblings; single checkouts go to the work-slot root', async () => {
     const pooled = await createSandboxRepo();
     cleanups.push(pooled.dir);
     const sib = await addNamedWorktree(pooled, 'harry');
@@ -54,9 +53,10 @@ describe('worktree map', () => {
     cleanups.push(single.dir);
     const singleId = await resolveRepoIdentity(single.dir);
     const singleMap = await getWorktreeMap(single.dir);
-    expect(workSlotRoot(singleId, singleMap)).toBe(
-      join(homedir(), '.cache', 'gitq', 'work', repoHash(singleId)),
-    );
+    // Keyed off the configured work-slot root, not the real cache dir, so a
+    // sandboxed run (GITQ_CONFIG_DIR) really is sandboxed; the shape of the
+    // unset default is asserted in tests/config-paths.test.ts.
+    expect(workSlotRoot(singleId, singleMap)).toBe(join(getWorkSlotRoot(), repoHash(singleId)));
   });
 });
 
