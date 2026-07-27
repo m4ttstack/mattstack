@@ -27,7 +27,9 @@ function git(args: string[], cwd: string): Promise<ExecResult> {
       if (err) {
         if (hook) hook('git', args, cwd, 1, Math.round(performance.now() - start));
         const message = `git ${args.join(' ')} failed: ${stderr.trim() || err.message}`;
-        reject(new Error(message));
+        // The raw stderr rides along: the composed message embeds the caller's
+        // own argv, so anything matching on git's wording must read this.
+        reject(Object.assign(new Error(message), { stderr: stderr.trim() }));
         return;
       }
       if (hook) hook('git', args, cwd, 0, Math.round(performance.now() - start));
@@ -75,6 +77,7 @@ export interface WorktreeEntry {
 /** Outcome of resolving a caller-supplied revision to a commit sha. */
 export type RefResolution =
   | { kind: 'resolved'; sha: string }
+  /** `candidates` are the commits the abbreviation matches: always two or more. */
   | { kind: 'ambiguous'; candidates: string[] }
   | { kind: 'unknown' };
 
@@ -82,8 +85,18 @@ export type RefResolution =
 // line is the only thing separating them. Matching on the word "ambiguous"
 // alone would be wrong: plain (non---verify) rev-parse reports an unknown ref
 // as "ambiguous argument '<ref>': unknown revision". Verified against git
-// 2.50; gits before 2.11 wrote "short SHA1" for the same condition.
+// 2.50; older gits wrote "short SHA1" for the same condition.
 const AMBIGUOUS_OBJECT_ID = /short (?:object ID|SHA1) \S+ is ambiguous/i;
+
+/** Git's object type for a full sha, or null if git cannot read it. */
+async function objectType(cwd: string, sha: string): Promise<string | null> {
+  try {
+    const { stdout } = await git(['cat-file', '-t', sha], cwd);
+    return stdout;
+  } catch {
+    return null;
+  }
+}
 
 // ── GitShell ─────────────────────────────────────────────────────────────────
 
@@ -111,29 +124,42 @@ export const GitShell = {
    *
    * `^{commit}` peels annotated tags and lets git disambiguate by object type,
    * so an abbreviation shared with a blob or tree still resolves to the commit.
+   * An abbreviation is only `ambiguous` when two or more *commits* answer to
+   * it; one shared with nothing but blobs resolves to no commit at all.
    */
   async resolveRef(cwd: string, ref: string): Promise<RefResolution> {
     try {
       const { stdout } = await git(['rev-parse', '--verify', `${ref}^{commit}`], cwd);
       return { kind: 'resolved', sha: stdout };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Only git's own stderr is evidence. The composed message embeds the
+      // caller's argv, which could carry the same words.
+      const stderr = (err as { stderr?: string } | null)?.stderr ?? '';
+      if (!AMBIGUOUS_OBJECT_ID.test(stderr)) return { kind: 'unknown' };
       const candidates = await GitShell.disambiguate(cwd, ref);
-      if (AMBIGUOUS_OBJECT_ID.test(message) || candidates.length > 1) {
-        return { kind: 'ambiguous', candidates };
-      }
-      return { kind: 'unknown' };
+      if (candidates.length < 2) return { kind: 'unknown' };
+      return { kind: 'ambiguous', candidates };
     }
   },
 
-  /** List every object whose sha starts with `prefix`. Empty for non-hex input. */
+  /**
+   * List every commit whose sha starts with `prefix`. Empty for non-hex input,
+   * or for a prefix under the four digits `--disambiguate` insists on.
+   *
+   * Blobs and trees are dropped: a prefix shared only with them is not an
+   * ambiguous commit, and "use more characters" would be advice the caller
+   * cannot act on. Tag objects stay, since they name a commit once peeled.
+   */
   async disambiguate(cwd: string, prefix: string): Promise<string[]> {
+    let matches: string[];
     try {
       const { stdout } = await git(['rev-parse', `--disambiguate=${prefix}`], cwd);
-      return stdout.split('\n').filter(Boolean);
+      matches = stdout.split('\n').filter(Boolean);
     } catch {
       return [];
     }
+    const types = await Promise.all(matches.map((sha) => objectType(cwd, sha)));
+    return matches.filter((_, i) => types[i] === 'commit' || types[i] === 'tag');
   },
 
   /** Get the merge-base between two refs. */
@@ -829,21 +855,20 @@ export const GitShell = {
    * Get structured commit log for a range (sha + subject).
    * Wraps `git log --format='%H %s' <range>`.
    * Range can be `A..B` (commits in B not in A) or a branch name.
+   *
+   * Throws if git cannot walk the range, so an empty result always means an
+   * empty range and never a failed command.
    */
   async logOneLine(cwd: string, range: string): Promise<{ sha: string; message: string }[]> {
-    try {
-      const { stdout } = await git(['log', '--format=%H %s', range], cwd);
-      if (!stdout) return [];
-      return stdout.split('\n').filter(Boolean).map((line) => {
-        const spaceIdx = line.indexOf(' ');
-        return {
-          sha: line.slice(0, spaceIdx),
-          message: line.slice(spaceIdx + 1),
-        };
-      });
-    } catch {
-      return [];
-    }
+    const { stdout } = await git(['log', '--format=%H %s', range], cwd);
+    if (!stdout) return [];
+    return stdout.split('\n').filter(Boolean).map((line) => {
+      const spaceIdx = line.indexOf(' ');
+      return {
+        sha: line.slice(0, spaceIdx),
+        message: line.slice(spaceIdx + 1),
+      };
+    });
   },
 };
 
