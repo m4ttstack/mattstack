@@ -52,7 +52,7 @@ describe('gitq sync when the remote trunk ref does not resolve', () => {
     const sync = await runCli(['sync'], repo.dir, configDir);
     expect(sync.exitCode).toBe(1);
     expect(sync.stderr).toContain('gitq: cannot sync: origin/develop does not resolve after fetching origin');
-    expect(sync.stderr).toContain('remote "origin" has no branch "develop"');
+    expect(sync.stderr).toContain('"develop" was never pushed to origin, or this remote\'s fetch refspec does not cover it');
     expect(sync.stderr).toContain('git push -u origin develop');
     expect(sync.stdout).toBe('');
     expect(repo.git('rev-parse', 'feat/a')).toBe(headBefore);
@@ -103,7 +103,12 @@ describe('gitq sync when the remote trunk ref does not resolve', () => {
     expect(sync.exitCode).toBe(0);
     const parsed = JSON.parse(sync.stdout);
     expect(parsed.state).toBe('completed');
-    expect(parsed.results.every((r: { success: boolean }) => r.success)).toBe(true);
+    // A branch already sitting on its parent's head is skipped without pushing
+    // a result, so an already-current stack reports no branches at all. That
+    // makes stdout useless for telling success from failure here: the exit code
+    // and the empty stderr are what distinguish it.
+    expect(parsed.results).toEqual([]);
+    expect(parsed.rebasedBranches).toEqual([]);
     expect(sync.stderr).not.toContain('cannot sync');
   });
 });

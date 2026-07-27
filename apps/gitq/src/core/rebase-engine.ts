@@ -864,11 +864,13 @@ async function doCascadeLoop(
 
 /**
  * Explain a remote trunk ref that didn't resolve even though the fetch
- * succeeded. The two causes need different fixes and are cheap to tell apart
- * locally: `git remote get-url origin` settles whether the remote itself is
- * missing, and when it isn't, the fetch would have created the ref had the
- * branch existed on the remote... so it was never pushed. No extra network
- * call is made to narrow it further.
+ * succeeded. One local `git remote get-url origin` settles the cause that
+ * needs a different fix: no remote by that name at all. Otherwise the branch
+ * is either unpushed or outside this remote's fetch refspec (a
+ * `--single-branch` clone fetches one branch and leaves every other
+ * `origin/*` unresolvable), so the message names both instead of asserting
+ * the push state. Telling them apart costs a network call and both end at
+ * the same dead ref.
  */
 async function unresolvedTrunkMessage(cwd: string, trunk: string, remoteTrunk: string): Promise<string> {
   let hasRemote = true;
@@ -878,7 +880,7 @@ async function unresolvedTrunkMessage(cwd: string, trunk: string, remoteTrunk: s
     hasRemote = false;
   }
   const cause = hasRemote
-    ? `remote "origin" has no branch "${trunk}"; push the stack root first: git push -u origin ${trunk}`
+    ? `"${trunk}" was never pushed to origin, or this remote's fetch refspec does not cover it; if it was never pushed: git push -u origin ${trunk}`
     : 'this repo has no remote named "origin"; gitq always syncs onto origin/<root>';
   return `cannot sync: ${remoteTrunk} does not resolve after fetching origin (${cause}). nothing was rebased`;
 }
