@@ -23,28 +23,48 @@ gitq sync [--stack <name>]
 
 - Guarded by the stack lease (`requireStackFree`, `src/cli/slots.ts:19-27`): refuses if the stack already has a running or parked cascade. This is the **lease**, not the pause file; see [The pause protocol](/concepts/pause-protocol#what-refuses-while-a-cascade-is-paused).
 - Leases a work slot for the rebase, creating one if none is free, up to `maxWorkSlots`; refuses with `all N work slots are busy (max N); finish or abort a cascade, or raise maxWorkSlots in settings.json` when the cap is reached and every slot is leased (`src/cli/slots.ts:33-56`).
-- **Fetches `origin` unconditionally, every time, before anything else.** If the fetch fails, `sync` throws and the command exits `1` with `Failed to fetch from remote: ...` (`src/core/rebase-engine.ts:1233,1237-1242`). A repo with no `origin` remote cannot sync.
-- **If `origin/<root>` does not resolve after that fetch, `sync` fails hard**: exit `1`, nothing rebased, message `cannot sync: origin/<root> does not resolve after fetching origin (<cause>). nothing was rebased` (`src/core/rebase-engine.ts:1244-1252`). The `<cause>` picks the fix that applies, told apart with one local `git remote get-url origin` (`src/core/rebase-engine.ts:865-884`):
+- **Fetches `origin` unconditionally, every time, before anything else.** If the fetch fails, `sync` throws and the command exits `1` with `Failed to fetch from remote: ...` (`src/core/rebase-engine.ts:1233,1237-1242`). A repo with no `origin` remote cannot sync, and this is where it normally dies: `git fetch origin` fails before any ref is looked at, so the ordinary remote-less repo never reaches the message below.
+- **If `origin/<root>` does not resolve after that fetch, `sync` fails hard**: exit `1`, nothing rebased, message `cannot sync: origin/<root> does not resolve after fetching origin (<cause>). nothing was rebased` (`src/core/rebase-engine.ts:1244-1252`). The `<cause>` names what to go check, the two arms split by one local `git remote get-url origin` (`src/core/rebase-engine.ts:865-886`):
 
   ```
   $ gitq sync
-  gitq: cannot sync: origin/develop does not resolve after fetching origin (remote "origin" has no branch "develop"; push the stack root first: git push -u origin develop). nothing was rebased
+  gitq: cannot sync: origin/develop does not resolve after fetching origin ("develop" was never pushed to origin, or this remote's fetch refspec does not cover it; if it was never pushed: git push -u origin develop). nothing was rebased
 
   $ gitq sync
   gitq: cannot sync: origin/main does not resolve after fetching origin (this repo has no remote named "origin"; gitq always syncs onto origin/<root>). nothing was rebased
   ```
 
+  The first cause names two possibilities because one local check cannot separate them: a `git clone --single-branch` leaves `+refs/heads/main:refs/remotes/origin/main` as the whole fetch refspec, so `origin/develop` stays unresolvable however many times you push `develop`. Try the `git push -u` only if the branch really is unpushed; otherwise widen the refspec (`git remote set-branches --add origin <root>`, then fetch).
+
+  The second cause is the exotic one, not the everyday "I have no remote" case: reaching it means `git fetch origin` *succeeded* while no remote is named `origin`, which happens when git resolves `origin` as a path to a local repo, or when `origin` is a `remotes.<group>` fetch group rather than a remote.
+
   There is deliberately no fallback to the local root branch. `sync` never fetches into your local root, so rebasing the stack onto it would report success while leaving the stack based on whatever your root happened to be, which is exactly the "looks synced, isn't" state the fetch exists to prevent. This case used to return an empty result and exit `0` with no warning; that silent no-op is gone.
 - **The local root branch is never modified.** Branches whose parent is the stack root rebase directly onto `origin/<root>`, the remote-tracking ref, never onto your local branch (`src/core/rebase-engine.ts:1226-1228`).
 - Walks the stack in topological order, parents before children, skipping any node marked `unmanaged`, rebasing each branch detached in the leased work slot, and moving its ref only with a compare-and-swap once the replay succeeds.
 - On a conflict, the walk stops: the branch is left mid-rebase in the work slot, a pause file is written, the lease is parked, and the command exits `2`.
-- On completion, prints `completed: <branch> ok, ...` (or `FAILED (<error>)` for any branch that failed) and exits `0` if every attempted branch succeeded, `1` if at least one failed.
-- Recorded to the operation log on exit `0` or `1`, never on exit `2` (the default `shouldLog` only logs exit `0`, `src/cli/op-log.ts:44`; `sync` overrides it to `(code) => code !== 2`, `src/cli/commands/cascade.ts:70`).
+- On completion, prints `completed: <branch> ok, ...` (or `FAILED (<error>)` for any branch that failed) and exits `0` if every attempted branch succeeded, `1` if at least one failed. Only branches the walk actually attempted appear: a branch already sitting on its parent's head is skipped and contributes no entry, so a stack with nothing to do prints `completed:` and nothing else.
+- Recorded to the operation log when the walk ran to a return value: `sync` overrides the default `shouldLog` (exit `0` only, `src/cli/op-log.ts:44`) with `(code) => code !== 2` (`src/cli/commands/cascade.ts:70`), so both exit `0` and the completed-with-a-failed-branch exit `1` write an entry, and a pause on exit `2` does not. A hard failure writes **no** entry at all: the fetch failure and the unresolved `origin/<root>` throw straight past `withOperationLog`, which only consults `shouldLog` on a code the wrapped function returned (`src/cli/op-log.ts:39-58`), and the refusals ahead of it (lease held, no free work slot) never enter the wrapper. Verified: `gitq log` reports nothing for the repo after a failed `sync`.
 - Under `--json`, emits the shared cascade shape all of `sync`, `continue`, and `abort` produce, keyed on `state`: `paused` (with `pauseInfo`) on exit `2`, or `completed` (with `results` and `rebasedBranches`) on exit `0`/`1`. A hard refusal, an unresolved `origin/<root>` among them, prints nothing on stdout in either mode, only `gitq: <message>` on stderr. See [JSON output](/reference/json-output).
 
 ## Exit codes
 
-- `0`: completed, every attempted branch succeeded. A stack that was already current counts: every branch still reports `ok`, the walk just had no work to do. Exit `0` from `sync` now always means the stack really was walked against `origin/<root>`.
+- `0`: completed, every attempted branch succeeded. A stack that was already current counts, but it reports **nothing**, not a row of `ok`s: up-to-date branches are skipped without pushing a result, so stdout is `completed:` with nothing after the colon, and `--json` gives an empty walk:
+
+  ```
+  $ gitq sync
+  completed:
+
+  $ gitq sync --json
+  {
+    "state": "completed",
+    "results": [],
+    "rebasedBranches": []
+  }
+  ```
+
+  That is byte-identical to what the old unresolved-`origin/<root>` bug used to print, so **stdout alone does not tell you a sync succeeded**. What separates them is the exit code and stderr: success is exit `0` with an empty stderr, a hard failure is exit `1` with `gitq: cannot sync: ...` on stderr and nothing at all on stdout.
+
+  What exit `0` does now guarantee is that the fetch ran and `origin/<root>` resolved: the silent no-op on an unresolvable remote trunk is gone. It is not a promise that every branch in the stack was examined against it. A branch whose base resolution throws is still swallowed by a catch-all that skips it exactly like an up-to-date one (`src/core/rebase-engine.ts:427-429`), leaving no result and no warning behind.
 - `1`: a hard refusal (lease held, all work slots busy, fetch failed, `origin/<root>` unresolved, `--stack` unresolved), or completed with at least one failed branch.
 - `2`: paused on a conflict. See [The pause protocol](/concepts/pause-protocol) and [Pause file](/reference/pause-file).
 
