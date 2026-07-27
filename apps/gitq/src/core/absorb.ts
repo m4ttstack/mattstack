@@ -26,9 +26,9 @@ export interface AbsorbResult {
   cascadeResult?: CascadeResult;
   updatedStack?: Stack;
   /**
-   * Set when absorb finished in a state the human has to finish by hand:
-   * unattributed work it could not put back. Human-readable, and names what
-   * to run.
+   * Set when absorb finished in a state the human has to finish by hand: a
+   * cleanup that did not come back clean, or unattributed work absorb could
+   * not put back. Human-readable, and names what to run.
    */
   recovery?: string;
 }
@@ -436,14 +436,10 @@ async function absorb(
   }
 
   if (abortNeeded) {
-    try {
-      await GitShell.checkoutBranch(cwd, currentBranch);
-    } catch { /* cleanup */ }
-    try {
-      // Brings back everything, unattributed files included.
-      await GitShell.stashPop(cwd);
-    } catch { /* cleanup */ }
-    return { absorbed: false, attributions, unattributed };
+    const recovery = await unwindFailedAmend(cwd, currentBranch);
+    const aborted: AbsorbResult = { absorbed: false, attributions, unattributed };
+    if (recovery) aborted.recovery = recovery;
+    return aborted;
   }
 
   await GitShell.checkoutBranch(cwd, currentBranch);
@@ -485,6 +481,52 @@ async function absorb(
       '`git stash pop` (inspect it first with `git stash show -p stash@{0}`).';
   }
   return result;
+}
+
+/**
+ * Unwind the amend phase after it broke halfway through: return to the branch
+ * the caller was on and pop the stash holding the whole dirty tree.
+ *
+ * Both steps can fail — the failing `pre-commit` hook that broke the amend
+ * usually fails the next commit too, and a pop can conflict — and swallowing
+ * that is the difference between "your tree came back" and "your tree is in
+ * stash@{0} and you are standing on a branch you did not pick". A failed
+ * checkout also cancels the pop: applying the dirty tree to the wrong branch
+ * makes the mess worse, not better.
+ *
+ * Returns recovery text when something did not come back, null when clean.
+ */
+async function unwindFailedAmend(cwd: string, originalBranch: string): Promise<string | null> {
+  const problems: string[] = [];
+
+  let onOriginalBranch = true;
+  try {
+    await GitShell.checkoutBranch(cwd, originalBranch);
+  } catch (err) {
+    onOriginalBranch = false;
+    const actual = await GitShell.getCurrentBranch(cwd).catch(() => 'an unknown revision');
+    problems.push(
+      `could not check ${originalBranch} back out (${toErrorMessage(err)}) — you are on ${actual}`,
+    );
+  }
+
+  if (onOriginalBranch) {
+    try {
+      // Brings back everything, unattributed files included.
+      await GitShell.stashPop(cwd);
+    } catch (err) {
+      problems.push(`could not pop the stash holding your dirty tree (${toErrorMessage(err)})`);
+    }
+  } else {
+    problems.push('left the stash alone rather than popping your dirty tree onto the wrong branch');
+  }
+
+  if (problems.length === 0) return null;
+  return (
+    `absorb could not clean up after the failed amend: ${problems.join('; ')}. ` +
+    'Your uncommitted work is retained in stash@{0}: check it with ' +
+    '`git stash show -p stash@{0}`, then `git checkout ' + originalBranch + '` and `git stash pop`.'
+  );
 }
 
 /**

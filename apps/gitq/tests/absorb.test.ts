@@ -421,6 +421,55 @@ describe('AbsorbEngine.absorb', () => {
     expect(result.attributions[0]!.error).toContain('amend failed');
     expect(checkoutCalls).toContain('branch-3');
     expect(stashPopped).toBe(true);
+    expect(result.recovery).toBeUndefined();
+  });
+
+  test('a cleanup that cannot get back to the original branch says so and keeps the stash', async () => {
+    const dir = await scratchTree({ 'api.ts': 'api\n' });
+    let stashPopped = false;
+    // Started on branch-3; the amend phase checked branch-1 out and the tree
+    // is stuck there once the way back fails.
+    let head = 'branch-3';
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getCurrentBranch: mock(() => Promise.resolve(head)),
+        getChangedFiles: mock(() =>
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [], deleted: [] }),
+        ),
+        getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
+          if (to === 'branch-1') return Promise.resolve(['api.ts']);
+          return Promise.resolve([]);
+        }),
+        stash: mock(() => Promise.resolve()),
+        // The hook that fails the amend fails the way back out too.
+        checkoutBranch: mock((_cwd: string, branch: string) => {
+          if (branch === 'branch-3') return Promise.reject(new Error('error: pre-checkout hook refused'));
+          head = branch;
+          return Promise.resolve();
+        }),
+        add: mock(() => Promise.resolve()),
+        amendNoEdit: mock(() => Promise.reject(new Error('amend failed: pre-commit hook'))),
+        getBranchHead: mock(() => Promise.resolve('head')),
+        stashPop: mock(() => {
+          stashPopped = true;
+          return Promise.resolve();
+        }),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    const result = await AbsorbEngine.absorb(dir, buildLinearStack());
+
+    expect(result.absorbed).toBe(false);
+    // Names the branch it could not get back to, the branch you are on, and
+    // where the dirty tree actually is.
+    expect(result.recovery).toContain('branch-3');
+    expect(result.recovery).toContain('branch-1');
+    expect(result.recovery).toContain('stash@{0}');
+    // Popping onto a branch the caller never chose would make it worse.
+    expect(stashPopped).toBe(false);
   });
 
   test('a changed file that is not on disk aborts before anything is stashed', async () => {

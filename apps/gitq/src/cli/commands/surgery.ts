@@ -92,14 +92,17 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
       }
 
       const failed = result.attributions.some((a) => !a.success);
-      emit(
-        ctx,
-        result.absorbed
-          ? `absorbed: ${result.attributions.map((a) => `${a.branch} (${a.files.length})`).join(', ')}`
-          : `nothing absorbed${result.reason ? ` (${result.reason})` : ''}`,
-        { stack: updatedStack, result },
-      );
-      return failed ? 1 : 0;
+      const headline = result.absorbed
+        ? `absorbed: ${result.attributions.map((a) => `${a.branch} (${a.files.length})`).join(', ')}`
+        : `nothing absorbed${result.reason ? ` (${result.reason})` : ''}`;
+      // `recovery` means work of the human's is sitting somewhere they have to
+      // go get: the stash absorb kept, or a branch it could not leave. Print it
+      // with the headline and exit non-zero even when the commits landed.
+      emit(ctx, result.recovery ? `${headline}\n${result.recovery}` : headline, {
+        stack: updatedStack,
+        result,
+      });
+      return failed || result.recovery ? 1 : 0;
     }),
   );
 }
