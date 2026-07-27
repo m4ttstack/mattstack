@@ -5,6 +5,7 @@ import {
   filterPRsToProject,
   projectPathFromRemoteUrl,
   projectPathFromWebUrl,
+  projectScopeFromRemoteUrl,
 } from '../src/core/forge-helpers.ts';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -92,6 +93,37 @@ describe('projectPathFromRemoteUrl', () => {
   });
 });
 
+// ── projectScopeFromRemoteUrl ────────────────────────────────────────────────
+
+describe('projectScopeFromRemoteUrl', () => {
+  test('reads the host of an ssh remote', () => {
+    expect(projectScopeFromRemoteUrl('git@gitlab.com:acme/web.git')).toEqual({ host: 'gitlab.com', path: 'acme/web' });
+  });
+
+  test('reads the host of an https remote, ignoring www. and case', () => {
+    expect(projectScopeFromRemoteUrl('https://WWW.GitLab.com/acme/web.git')).toEqual({
+      host: 'gitlab.com',
+      path: 'acme/web',
+    });
+  });
+
+  test('reads the host of an ssh:// remote with a port, not the port', () => {
+    expect(projectScopeFromRemoteUrl('ssh://git@gitlab.selfhosted:2222/acme/web.git')).toEqual({
+      host: 'gitlab.selfhosted',
+      path: 'acme/web',
+    });
+  });
+
+  test('a remote that names no host carries none', () => {
+    expect(projectScopeFromRemoteUrl('/srv/git/acme/web.git')).toEqual({ host: null, path: 'srv/git/acme/web' });
+  });
+
+  test('returns null when there is no project path to read', () => {
+    expect(projectScopeFromRemoteUrl('')).toBeNull();
+    expect(projectScopeFromRemoteUrl('https://gitlab.com/')).toBeNull();
+  });
+});
+
 // ── projectPathFromWebUrl ────────────────────────────────────────────────────
 
 describe('projectPathFromWebUrl', () => {
@@ -110,6 +142,14 @@ describe('projectPathFromWebUrl', () => {
   test('returns null for a missing or unparseable url', () => {
     expect(projectPathFromWebUrl(null)).toBeNull();
     expect(projectPathFromWebUrl('not a url')).toBeNull();
+  });
+
+  test('returns null rather than inventing a path for a url of no known shape', () => {
+    // A project path is two segments before /-/merge_requests or /pull; a url
+    // that has neither names no project we can place.
+    expect(projectPathFromWebUrl('https://gitlab.com/project/-/merge_requests/1')).toBeNull();
+    expect(projectPathFromWebUrl('https://github.com/pull/42')).toBeNull();
+    expect(projectPathFromWebUrl('https://gitlab.com/acme/web')).toBeNull();
   });
 });
 
@@ -132,6 +172,30 @@ describe('filterPRsToProject', () => {
   test('drops MRs whose project cannot be established', () => {
     const unattributable = [...prs, pr({ iid: 3, sourceBranch: 'x', targetBranch: 'main', webUrl: null })];
     expect(filterPRsToProject(unattributable, 'acme/web').map((p) => p.iid)).toEqual([1]);
+  });
+
+  test('a bare project path matches on any host, since it names none', () => {
+    const elsewhere = [pr({ iid: 9, sourceBranch: 'x', targetBranch: 'main', webUrl: 'https://gitlab.selfhosted/acme/web/-/merge_requests/9' })];
+    expect(filterPRsToProject(elsewhere, 'acme/web').map((p) => p.iid)).toEqual([9]);
+  });
+
+  test('a scope that names a host keeps only that host, not the same path elsewhere', () => {
+    const samePathEverywhere = [
+      pr({ iid: 1, sourceBranch: 'a', targetBranch: 'main', webUrl: 'https://github.com/acme/web/pull/1' }),
+      pr({ iid: 2, sourceBranch: 'b', targetBranch: 'main', webUrl: 'https://gitlab.com/acme/web/-/merge_requests/2' }),
+      pr({ iid: 3, sourceBranch: 'c', targetBranch: 'main', webUrl: 'https://gitlab.selfhosted/acme/web/-/merge_requests/3' }),
+    ];
+
+    expect(filterPRsToProject(samePathEverywhere, projectScopeFromRemoteUrl('git@github.com:acme/web.git')!).map((p) => p.iid)).toEqual([1]);
+    expect(filterPRsToProject(samePathEverywhere, projectScopeFromRemoteUrl('https://gitlab.com/acme/web.git')!).map((p) => p.iid)).toEqual([2]);
+    expect(filterPRsToProject(samePathEverywhere, projectScopeFromRemoteUrl('git@gitlab.selfhosted:acme/web.git')!).map((p) => p.iid)).toEqual([3]);
+  });
+
+  test('a PR whose web url names no host is kept on path alone', () => {
+    // Not reachable from a real forge; the invariant is that a missing host on
+    // either side never turns into a mismatch.
+    const hostless = [pr({ iid: 7, sourceBranch: 'x', targetBranch: 'main', webUrl: 'file:///acme/web/-/merge_requests/7' })];
+    expect(filterPRsToProject(hostless, projectScopeFromRemoteUrl('git@gitlab.com:acme/web.git')!).map((p) => p.iid)).toEqual([7]);
   });
 });
 
@@ -164,6 +228,26 @@ describe('discoverStacksFromPRs', () => {
     ]);
     // Each stack's MR map holds its own repository's MR for the shared branch.
     expect(stacks.map((s) => s.mrMap.get('fix-tests')!.iid)).toEqual([1, 3]);
+  });
+
+  test('never chains PRs the forge gave no repository id for', () => {
+    // Two repos' MRs, repositoryId stripped: an empty id is not an identity,
+    // so these must not pool into the one bucket the fix was meant to prevent.
+    const prs = [
+      pr({ iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main', repositoryId: '', webUrl: 'https://gitlab.com/acme/web/-/merge_requests/1' }),
+      pr({ iid: 2, sourceBranch: 'update-deps', targetBranch: 'fix-tests', repositoryId: '', webUrl: 'https://gitlab.com/acme/api/-/merge_requests/2' }),
+    ];
+
+    expect(discoverStacksFromPRs(prs)).toEqual([]);
+  });
+
+  test('an id-less PR does not extend a real repository\'s chain either', () => {
+    const prs = [
+      pr({ iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main', repositoryId: 'gitlab:1' }),
+      { ...pr({ iid: 2, sourceBranch: 'update-deps', targetBranch: 'fix-tests' }), repositoryId: undefined as unknown as string },
+    ];
+
+    expect(discoverStacksFromPRs(prs)).toEqual([]);
   });
 
   test('still walks a chain within a single repository', () => {

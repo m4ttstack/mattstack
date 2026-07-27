@@ -18,6 +18,18 @@ export function indexBySource(prs: PullRequest[]): Map<string, PullRequest> {
 
 // ── Repo scoping ─────────────────────────────────────────────────────────────
 
+/**
+ * A forge project, as far as a URL can identify one.
+ *
+ * `host` is null when the URL it was read from carries none (a bare
+ * "group/project" scope, a local path remote), which the comparison below
+ * reads as "says nothing about the instance" rather than "no instance".
+ */
+export interface ProjectScope {
+  host: string | null;
+  path: string;
+}
+
 /** Strip the decorations a project path picks up in a URL: slashes, `.git`. */
 function cleanProjectPath(projectPath: string): string {
   return projectPath
@@ -26,9 +38,23 @@ function cleanProjectPath(projectPath: string): string {
     .replace(/\.git$/, '');
 }
 
-/** Both forges resolve project paths case-insensitively, so comparisons do too. */
-function sameProject(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
+/** Hosts are case-insensitive, and `www.` never distinguishes two forges. */
+function cleanHost(host: string): string | null {
+  const cleaned = host.trim().toLowerCase().replace(/^www\./, '');
+  return cleaned === '' ? null : cleaned;
+}
+
+/**
+ * Both forges resolve project paths case-insensitively, so comparisons do too.
+ *
+ * The host decides alongside the path whenever both sides carry one: the same
+ * "acme/web" exists on github.com, on gitlab.com and on every self-hosted
+ * instance, and they are different projects. A side without a host cannot rule
+ * anything out, so it doesn't.
+ */
+function sameProject(a: ProjectScope, b: ProjectScope): boolean {
+  if (a.path.toLowerCase() !== b.path.toLowerCase()) return false;
+  return a.host === null || b.host === null || a.host === b.host;
 }
 
 /**
@@ -41,21 +67,29 @@ function sameProject(a: string, b: string): boolean {
  * scope" rather than "matches nothing".
  */
 export function projectPathFromRemoteUrl(remoteUrl: string): string | null {
-  // Only the scp-like form (no scheme) puts the path after a colon. Matching
-  // a colon in "ssh://git@host:2222/group/project" would read the port.
-  const scpMatch = remoteUrl.includes('://') ? null : remoteUrl.match(/^[^/]*@[^/:]+:(.+)$/);
-  const raw = scpMatch?.[1] ?? readUrlPath(remoteUrl);
-  if (raw === null) return null;
-  const path = cleanProjectPath(raw);
-  return path === '' ? null : path;
+  return projectScopeFromRemoteUrl(remoteUrl)?.path ?? null;
 }
 
-function readUrlPath(remoteUrl: string): string | null {
+/** {@link projectPathFromRemoteUrl}, keeping the host the remote named. */
+export function projectScopeFromRemoteUrl(remoteUrl: string): ProjectScope | null {
+  // Only the scp-like form (no scheme) puts the path after a colon. Matching
+  // a colon in "ssh://git@host:2222/group/project" would read the port.
+  const scpMatch = remoteUrl.includes('://') ? null : remoteUrl.match(/^[^/]*@([^/:]+):(.+)$/);
+  if (scpMatch) return scope(cleanHost(scpMatch[1] ?? ''), scpMatch[2] ?? '');
+
   try {
-    return new URL(remoteUrl).pathname;
+    const url = new URL(remoteUrl);
+    return scope(cleanHost(url.hostname), url.pathname);
   } catch {
-    return remoteUrl.includes('/') ? remoteUrl : null;
+    // Not a URL at all: a bare path ("/srv/git/group/project.git") names a
+    // project but no instance.
+    return remoteUrl.includes('/') ? scope(null, remoteUrl) : null;
   }
+}
+
+function scope(host: string | null, rawPath: string): ProjectScope | null {
+  const path = cleanProjectPath(rawPath);
+  return path === '' ? null : { host, path };
 }
 
 /**
@@ -65,25 +99,41 @@ function readUrlPath(remoteUrl: string): string | null {
  * GitHub: "https://github.com/owner/repo/pull/42" -> "owner/repo"
  */
 export function projectPathFromWebUrl(webUrl: string | null): string | null {
+  return projectScopeFromWebUrl(webUrl)?.path ?? null;
+}
+
+/** {@link projectPathFromWebUrl}, keeping the host the URL named. */
+export function projectScopeFromWebUrl(webUrl: string | null): ProjectScope | null {
   if (!webUrl) return null;
+
+  let url: URL;
   try {
-    const parts = new URL(webUrl).pathname.split('/').filter(Boolean);
-
-    const dashIdx = parts.indexOf('-');
-    if (dashIdx >= 2) return cleanProjectPath(parts.slice(0, dashIdx).join('/'));
-
-    const pullIdx = parts.indexOf('pull');
-    if (pullIdx >= 2) return cleanProjectPath(parts.slice(0, pullIdx).join('/'));
-
-    if (parts.length >= 2) return cleanProjectPath(`${parts[0]}/${parts[1]}`);
+    url = new URL(webUrl);
   } catch {
-    // Invalid URL
+    return null;
   }
+
+  const parts = url.pathname.split('/').filter(Boolean);
+  const host = cleanHost(url.hostname);
+
+  const dashIdx = parts.indexOf('-');
+  if (dashIdx >= 2 && parts[dashIdx + 1] === 'merge_requests') {
+    return scope(host, parts.slice(0, dashIdx).join('/'));
+  }
+
+  const pullIdx = parts.indexOf('pull');
+  if (pullIdx >= 2) return scope(host, parts.slice(0, pullIdx).join('/'));
+
+  // Anything else is not an MR/PR url. Reading the first two segments of an
+  // arbitrary URL as a project would invent one ("gitlab.com/project/-/..."
+  // is not the project "project/-"), and an invented project matches, or
+  // fails to match, a scope for no reason.
   return null;
 }
 
 /**
- * Keep only the PRs that belong to `projectPath`.
+ * Keep only the PRs that belong to `wanted` ("group/project", or a
+ * {@link ProjectScope} when the host is known too).
  *
  * The web URL is the only repo identity a `PullRequest` carries that can be
  * matched against a local remote... `repositoryId` is the forge's own numeric
@@ -91,11 +141,16 @@ export function projectPathFromWebUrl(webUrl: string | null): string | null {
  * be established is dropped: an MR we cannot place is an MR we cannot claim
  * belongs to this repo.
  */
-export function filterPRsToProject(prs: PullRequest[], projectPath: string): PullRequest[] {
-  const wanted = cleanProjectPath(projectPath);
+export function filterPRsToProject(prs: PullRequest[], wanted: string | ProjectScope): PullRequest[] {
+  const target =
+    typeof wanted === 'string'
+      ? scope(null, wanted)
+      : scope(wanted.host, wanted.path);
+  if (target === null) return [];
+
   return prs.filter((pr) => {
-    const prProject = projectPathFromWebUrl(pr.webUrl);
-    return prProject !== null && sameProject(prProject, wanted);
+    const prScope = projectScopeFromWebUrl(pr.webUrl);
+    return prScope !== null && sameProject(prScope, target);
   });
 }
 
@@ -114,13 +169,23 @@ export function filterPRsToProject(prs: PullRequest[], projectPath: string): Pul
  */
 export function discoverStacksFromPRs(prs: PullRequest[]): DiscoveredStack[] {
   const byRepo = new Map<string, PullRequest[]>();
+  // A PR the forge gave no repository id for gets a bucket to itself. Pooling
+  // them under one empty key would splice unrelated repos back together...
+  // exactly the collision the bucketing exists to prevent. A bucket of one
+  // never reaches the two-branch minimum, so such a PR joins no stack.
+  const unidentified: PullRequest[][] = [];
+
   for (const pr of prs) {
+    if (!pr.repositoryId) {
+      unidentified.push([pr]);
+      continue;
+    }
     const bucket = byRepo.get(pr.repositoryId);
     if (bucket) bucket.push(pr);
     else byRepo.set(pr.repositoryId, [pr]);
   }
 
-  return [...byRepo.values()].flatMap(discoverStacksInRepo);
+  return [...byRepo.values(), ...unidentified].flatMap(discoverStacksInRepo);
 }
 
 /** Stack discovery within a single repository, where branch names are unique. */
