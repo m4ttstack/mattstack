@@ -105,8 +105,8 @@ export const ForgeSync = {
   /**
    * Discover stack-like MR chains from the forge.
    *
-   * Fetches all open MRs, then walks `targetBranch` chains to find
-   * trees of related MRs.
+   * Fetches the open MRs of one project, then walks `targetBranch` chains to
+   * find trees of related MRs.
    *
    * @param projectPath - Scope discovery to one forge project ("group/project").
    *   Omit it only when the caller has no repo in hand: the fetch returns every
@@ -224,11 +224,12 @@ export const ForgeSync = {
   /**
    * Import stacks from forge — reverse sync escape hatch.
    *
-   * Fetches all open MRs, discovers stack chains, and builds a StackStore
-   * from scratch. Use for recovery, not normal workflow.
+   * Fetches the open MRs of the project `remoteUrl` points at, discovers stack
+   * chains, and builds a StackStore from scratch. Use for recovery, not normal
+   * workflow.
    *
-   * Only MRs of the project `remoteUrl` points at are imported... the store is
-   * this repo's, so an MR from elsewhere has no branch here to attach to.
+   * MRs from other projects are left out: the store is this repo's, so an MR
+   * from elsewhere has no branch here to attach to.
    */
   async importFromForge(provider: GitProvider, repoPath: string, remoteUrl: string): Promise<StackStore> {
     const discovered = await ForgeSync.discoverStacks(provider, projectPathFromRemoteUrl(remoteUrl));

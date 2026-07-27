@@ -41,8 +41,10 @@ function sameProject(a: string, b: string): boolean {
  * scope" rather than "matches nothing".
  */
 export function projectPathFromRemoteUrl(remoteUrl: string): string | null {
-  const sshMatch = remoteUrl.match(/:([^/].*?)(?:\.git)?$/);
-  const raw = sshMatch?.[1] && remoteUrl.includes('@') ? sshMatch[1] : readUrlPath(remoteUrl);
+  // Only the scp-like form (no scheme) puts the path after a colon. Matching
+  // a colon in "ssh://git@host:2222/group/project" would read the port.
+  const scpMatch = remoteUrl.includes('://') ? null : remoteUrl.match(/^[^/]*@[^/:]+:(.+)$/);
+  const raw = scpMatch?.[1] ?? readUrlPath(remoteUrl);
   if (raw === null) return null;
   const path = cleanProjectPath(raw);
   return path === '' ? null : path;

@@ -82,6 +82,10 @@ describe('projectPathFromRemoteUrl', () => {
     expect(projectPathFromRemoteUrl('git@github.com:user/repo.git')).toBe('user/repo');
   });
 
+  test('reads an ssh:// remote with a port, not the port', () => {
+    expect(projectPathFromRemoteUrl('ssh://git@gitlab.com:2222/acme/web.git')).toBe('acme/web');
+  });
+
   test('returns null when there is no project path to read', () => {
     expect(projectPathFromRemoteUrl('')).toBeNull();
     expect(projectPathFromRemoteUrl('https://gitlab.com/')).toBeNull();
