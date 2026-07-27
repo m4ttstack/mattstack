@@ -54,7 +54,9 @@ export const BranchSplitter = {
    * @param stack          - The stack containing the source branch.
    * @param sourceBranch   - Branch to split (must be in the stack).
    * @param newBranchName  - Name for the new child branch.
-   * @param splitAfterSha  - Commit SHA to split after (commits after this move to new branch).
+   * @param splitAfterSha  - Commit to split after (commits after it move to the new
+   *                         branch). Any revision git resolves: short or full sha,
+   *                         tag, `HEAD~2`, branch name.
    */
   async tailSplit(
     cwd: string,
@@ -78,22 +80,42 @@ export const BranchSplitter = {
     // ref rewinds to the split point. No working tree is read or written,
     // so launch-tree dirtiness is irrelevant; a checked-out source gets the
     // slot policy (clean: auto-reset, dirty: refuse) via finalizeBranchRef.
-    const commits = await BranchSplitter.getCommitLog(cwd, sourceBranch);
-    const splitIdx = commits.findIndex((c) => c.sha === splitAfterSha);
-    if (splitIdx === -1) {
+    const resolution = await GitShell.resolveRef(cwd, splitAfterSha);
+    if (resolution.kind === 'ambiguous') {
+      const shown = resolution.candidates.map((c) => c.slice(0, 10)).join(', ');
+      throw new Error(
+        `Commit "${splitAfterSha}" is an ambiguous abbreviation${shown ? ` (matches ${shown})` : ''}; use more characters`,
+      );
+    }
+    if (resolution.kind === 'unknown') {
+      throw new Error(`Commit "${splitAfterSha}" does not resolve to a commit in this repository`);
+    }
+    const splitSha = resolution.sha;
+
+    // Containment is asked of git rather than scanned out of a commit log, so
+    // no search window can make an old-but-present commit look missing:
+    // merge-base(x, branch) is x exactly when x is reachable from the tip.
+    // Unrelated histories have no merge base at all, which is a plain no.
+    let onSourceBranch = false;
+    try {
+      onSourceBranch = (await GitShell.getMergeBase(cwd, splitSha, sourceBranch)) === splitSha;
+    } catch {
+      onSourceBranch = false;
+    }
+    if (!onSourceBranch) {
       throw new Error(`Commit "${splitAfterSha}" not found in branch "${sourceBranch}"`);
     }
 
-    // Commits before and at the split point stay on source.
-    // Commits after the split point (newer = earlier in log) move to new branch.
-    const movedCommits = commits.slice(0, splitIdx).map((c) => c.sha);
+    // Commits at and before the split point stay on source; everything the
+    // range turns up (newest first) moves to the new branch.
+    const movedCommits = (await GitShell.logOneLine(cwd, `${splitSha}..${sourceBranch}`)).map((c) => c.sha);
     if (movedCommits.length === 0) {
       throw new Error('No commits to split — the split point is already at HEAD');
     }
 
     const sourceHead = await GitShell.getBranchHead(cwd, sourceBranch);
     await GitShell.branchAt(cwd, newBranchName, sourceHead);
-    const fin = await finalizeBranchRef(cwd, sourceBranch, sourceHead, splitAfterSha);
+    const fin = await finalizeBranchRef(cwd, sourceBranch, sourceHead, splitSha);
     if (!fin.success) {
       await GitShell.deleteBranch(cwd, newBranchName).catch(() => {});
       throw new Error(fin.error ?? 'could not rewind the source branch');
@@ -130,6 +152,10 @@ export const BranchSplitter = {
    * Get the commit log for a branch, suitable for the split-point picker UI.
    *
    * Returns commits in reverse chronological order (newest first).
+   *
+   * `n` is a display window for the picker only. `tailSplit` resolves and
+   * range-walks through git instead of reading this, so a commit older than
+   * `n` is still a valid split point.
    */
   async getCommitLog(cwd: string, branch: string, n = 50): Promise<{ sha: string; subject: string }[]> {
     return GitShell.logDetailed(cwd, branch, n);

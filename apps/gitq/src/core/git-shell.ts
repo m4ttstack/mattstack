@@ -72,6 +72,19 @@ export interface WorktreeEntry {
   locked: boolean;
 }
 
+/** Outcome of resolving a caller-supplied revision to a commit sha. */
+export type RefResolution =
+  | { kind: 'resolved'; sha: string }
+  | { kind: 'ambiguous'; candidates: string[] }
+  | { kind: 'unknown' };
+
+// An ambiguous abbreviation and an unknown revision both exit 128, and this
+// line is the only thing separating them. Matching on the word "ambiguous"
+// alone would be wrong: plain (non---verify) rev-parse reports an unknown ref
+// as "ambiguous argument '<ref>': unknown revision". Verified against git
+// 2.50; gits before 2.11 wrote "short SHA1" for the same condition.
+const AMBIGUOUS_OBJECT_ID = /short (?:object ID|SHA1) \S+ is ambiguous/i;
+
 // ── GitShell ─────────────────────────────────────────────────────────────────
 
 /**
@@ -89,6 +102,38 @@ export const GitShell = {
   async getBranchHead(cwd: string, branch: string): Promise<string> {
     const { stdout } = await git(['rev-parse', branch], cwd);
     return stdout;
+  },
+
+  /**
+   * Resolve any revision git accepts (short sha, full sha, tag, `HEAD~2`,
+   * branch name) to a full commit sha, telling an ambiguous abbreviation
+   * apart from one that resolves to nothing.
+   *
+   * `^{commit}` peels annotated tags and lets git disambiguate by object type,
+   * so an abbreviation shared with a blob or tree still resolves to the commit.
+   */
+  async resolveRef(cwd: string, ref: string): Promise<RefResolution> {
+    try {
+      const { stdout } = await git(['rev-parse', '--verify', `${ref}^{commit}`], cwd);
+      return { kind: 'resolved', sha: stdout };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const candidates = await GitShell.disambiguate(cwd, ref);
+      if (AMBIGUOUS_OBJECT_ID.test(message) || candidates.length > 1) {
+        return { kind: 'ambiguous', candidates };
+      }
+      return { kind: 'unknown' };
+    }
+  },
+
+  /** List every object whose sha starts with `prefix`. Empty for non-hex input. */
+  async disambiguate(cwd: string, prefix: string): Promise<string[]> {
+    try {
+      const { stdout } = await git(['rev-parse', `--disambiguate=${prefix}`], cwd);
+      return stdout.split('\n').filter(Boolean);
+    } catch {
+      return [];
+    }
   },
 
   /** Get the merge-base between two refs. */

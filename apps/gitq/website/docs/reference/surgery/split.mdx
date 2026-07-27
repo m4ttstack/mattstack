@@ -10,7 +10,7 @@ Splits one branch into two. Two mutually exclusive modes: `--at` cuts a branch b
 ## Usage
 
 ```bash
-gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]
+gitq split <branch> --at <rev> --name <newBranch> [--stack <name>]
 gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]
 ```
 
@@ -18,7 +18,7 @@ gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]
 
 | flag | meaning |
 |------|---------|
-| `--at <sha>` | Tail-split mode: move every commit from `<sha>` onward into the new branch. Mutually exclusive with `--files`. |
+| `--at <rev>` | Tail-split mode: move every commit after `<rev>` into the new branch. Any revision git resolves to a commit: short sha, full sha, tag, `HEAD~2`, branch name. Mutually exclusive with `--files`. |
 | `--files <glob[,glob...]>` | File-split mode: move files matching the comma separated glob(s) into the new branch. Mutually exclusive with `--at`. |
 | `--name <newBranch>` | Required in both modes. Name of the branch the split mode creates. |
 | `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
@@ -29,11 +29,11 @@ Refuses with usage help unless `<branch>` and `--name` are given and exactly one
 
 ### `--at`: pure ref surgery
 
-No working tree is read or written. The new branch is created at the source's current head first (so nothing is ever unreachable, even across a crash), then the source ref is rewound to the split point by compare-and-swap (`BranchSplitter.tailSplit`, `src/core/branch-splitter.ts:59-127`). Existing children of the source are reparented onto the new branch, since their base now lives there. Runs directly, without a leased work slot.
+No working tree is read or written. The new branch is created at the source's current head first (so nothing is ever unreachable, even across a crash), then the source ref is rewound to the split point by compare-and-swap (`BranchSplitter.tailSplit`, `src/core/branch-splitter.ts:61-149`). Existing children of the source are reparented onto the new branch, since their base now lives there. Runs directly, without a leased work slot.
 
-- **Requires the full 40-character sha.** `--at`'s commit log is read with `git log --format=%H %s`, full hashes (`src/core/git-shell.ts:289`), and the split point is matched by strict string equality (`commits.findIndex((c) => c.sha === splitAfterSha)`, `src/core/branch-splitter.ts:82`). A short sha never matches, even an unambiguous one, and produces the same misleading `not found` refusal as a genuinely wrong sha.
-- It only looks at the branch's last 50 commits by default; an older, full sha is equally invisible.
-- Refusals, all exit `1`: `<branch>` not found in the stack; `<newBranch>` already a node in the stack; the split point is already the branch head (`No commits to split — the split point is already at HEAD`); the sha, short or just old, isn't found (`Commit "<sha>" not found in branch "<branch>"`).
+- **The split point is whatever git resolves.** `--at` goes through `git rev-parse --verify <rev>^{commit}` (`GitShell.resolveRef`, `src/core/git-shell.ts:115`), so a short sha copied out of `git log --oneline` works, as do a full sha, an annotated tag, `HEAD~2`, or a branch name. The `^{commit}` peel is what lets an abbreviation shared with a blob or tree still land on the commit, exactly as git itself would read it.
+- **No commit-log window.** Whether the resolved commit is on `<branch>` is asked of git (`merge-base` is the commit itself only when it is reachable from the tip), and the moved commits come from the `<split>..<branch>` range. Age is irrelevant: a commit thousands back is as splittable as the one before HEAD. The 50-commit default on `BranchSplitter.getCommitLog` is a display window for the split-point picker only, and no longer gates the split.
+- Refusals, all exit `1`: `<branch>` not found in the stack; `<newBranch>` already a node in the stack; the split point is already the branch head (`No commits to split — the split point is already at HEAD`); the revision is an abbreviation matching more than one object (`Commit "<rev>" is an ambiguous abbreviation (matches <sha>, <sha>); use more characters`); the revision resolves to nothing (`Commit "<rev>" does not resolve to a commit in this repository`); the revision resolves to a commit that isn't reachable from `<branch>` (`Commit "<rev>" not found in branch "<branch>"`), which is now the only case that message covers.
 - A checked-out source is handled by the slot policy inside the ref finalize (clean: reset along; dirty: refuse), not a separate up-front guard.
 
 ### `--files`: builds commits in a work slot
@@ -47,7 +47,7 @@ Needs a tree, so it runs detached in a leased work slot; your launch worktree is
 ## Exit codes
 
 - `0`: the split completed.
-- `1`: bad usage, a lease held, `<branch>`/`<newBranch>`/the sha not resolving, no files matching the patterns, or the source checked out dirty elsewhere.
+- `1`: bad usage, a lease held, `<branch>`/`<newBranch>` not resolving, the `--at` revision resolving to nothing, ambiguously, or to a commit off the branch, no files matching the patterns, or the source checked out dirty elsewhere.
 
 Never exits `2`. See [Exit codes](/reference/exit-codes) for the general contract.
 

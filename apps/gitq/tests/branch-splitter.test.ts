@@ -45,13 +45,12 @@ describe('BranchSplitter.tailSplit', () => {
           if (branch === 'feat/big-branch') return Promise.resolve('commit-5');
           return Promise.resolve('commit-3');
         }),
-        logDetailed: mock(() =>
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        getMergeBase: mock((_: string, a: string) => Promise.resolve(a)),
+        logOneLine: mock(() =>
           Promise.resolve([
-            { sha: 'commit-5', subject: 'Fifth commit' },
-            { sha: 'commit-4', subject: 'Fourth commit' },
-            { sha: 'commit-3', subject: 'Third commit' },
-            { sha: 'commit-2', subject: 'Second commit' },
-            { sha: 'commit-1', subject: 'First commit' },
+            { sha: 'commit-5', message: 'Fifth commit' },
+            { sha: 'commit-4', message: 'Fourth commit' },
           ]),
         ),
         branchAt: mock((_: string, name: string, from: string) => {
@@ -94,12 +93,9 @@ describe('BranchSplitter.tailSplit', () => {
         hasStagedChanges: mock(() => Promise.resolve(false)),
         worktreeList: mock(() => Promise.resolve([])),
         getBranchHead: mock(() => Promise.resolve('head-sha')),
-        logDetailed: mock(() =>
-          Promise.resolve([
-            { sha: 'commit-5', subject: 'Fifth' },
-            { sha: 'commit-3', subject: 'Third' },
-          ]),
-        ),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        getMergeBase: mock((_: string, a: string) => Promise.resolve(a)),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'commit-5', message: 'Fifth' }])),
         branchAt: mock(() => Promise.resolve()),
         updateRefCas: mock(() => Promise.resolve()),
       },
@@ -127,12 +123,9 @@ describe('BranchSplitter.tailSplit', () => {
           if (branch === 'feat/big-branch') return Promise.resolve('original-head');
           return Promise.resolve('reset-head');
         }),
-        logDetailed: mock(() =>
-          Promise.resolve([
-            { sha: 'original-head', subject: 'Latest' },
-            { sha: 'split-point', subject: 'Split here' },
-          ]),
-        ),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        getMergeBase: mock((_: string, a: string) => Promise.resolve(a)),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'original-head', message: 'Latest' }])),
         branchAt: mock(() => Promise.resolve()),
         updateRefCas: mock(() => Promise.resolve()),
       },
@@ -156,12 +149,9 @@ describe('BranchSplitter.tailSplit', () => {
         hasStagedChanges: mock(() => Promise.resolve(false)),
         worktreeList: mock(() => Promise.resolve([])),
         getBranchHead: mock(() => Promise.resolve('head-sha')),
-        logDetailed: mock(() =>
-          Promise.resolve([
-            { sha: 'commit-5', subject: 'Fifth' },
-            { sha: 'commit-3', subject: 'Third' },
-          ]),
-        ),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        getMergeBase: mock((_: string, a: string) => Promise.resolve(a)),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'commit-5', message: 'Fifth' }])),
         branchAt: mock(() => Promise.resolve()),
         updateRefCas: mock(() => Promise.resolve()),
       },
@@ -204,12 +194,9 @@ describe('BranchSplitter.tailSplit', () => {
         hasStagedChanges: mock(() => Promise.resolve(false)),
         worktreeList: mock(() => Promise.resolve([])),
         getBranchHead: mock(() => Promise.resolve('commit-5')),
-        logDetailed: mock(() =>
-          Promise.resolve([
-            { sha: 'commit-5', subject: 'Fifth' },
-            { sha: 'commit-3', subject: 'Third' },
-          ]),
-        ),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        getMergeBase: mock((_: string, a: string) => Promise.resolve(a)),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'commit-5', message: 'Fifth' }])),
         branchAt: mock(() => Promise.resolve()),
         updateRefCas: mock(() => Promise.resolve()),
       },
@@ -230,12 +217,9 @@ describe('BranchSplitter.tailSplit', () => {
         hasUnstagedChanges: mock(() => Promise.resolve(false)),
         hasStagedChanges: mock(() => Promise.resolve(false)),
         getBranchHead: mock(() => Promise.resolve('commit-5')),
-        logDetailed: mock(() =>
-          Promise.resolve([
-            { sha: 'commit-5', subject: 'Fifth' },
-            { sha: 'commit-4', subject: 'Fourth' },
-          ]),
-        ),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        getMergeBase: mock((_: string, a: string) => Promise.resolve(a)),
+        logOneLine: mock(() => Promise.resolve([])),
       },
     }));
 
@@ -245,6 +229,131 @@ describe('BranchSplitter.tailSplit', () => {
     await expect(BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/new', 'commit-5')).rejects.toThrow(
       /No commits to split/,
     );
+  });
+});
+
+// ── tailSplit: split-point resolution ────────────────────────────────────────
+
+const FULL_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+
+/**
+ * Mock GitShell for a branch whose head is `head-sha`, where `resolve` decides
+ * what the caller's `--at` input resolves to and `onBranch` shas are reachable
+ * from the source branch.
+ */
+function mockSplitRepo(opts: {
+  resolve: unknown;
+  onBranch?: string[];
+  moved?: { sha: string; message: string }[];
+  casCalls?: { newSha: string; oldSha: string }[];
+}) {
+  const onBranch = opts.onBranch ?? [];
+  mock.module('../src/core/git-shell.ts', () => ({
+    GitShell: {
+      ...GitShell,
+      isDirty: mock(() => Promise.resolve(false)),
+      hasUnstagedChanges: mock(() => Promise.resolve(false)),
+      hasStagedChanges: mock(() => Promise.resolve(false)),
+      worktreeList: mock(() => Promise.resolve([])),
+      getBranchHead: mock(() => Promise.resolve('head-sha')),
+      resolveRef: mock(() => Promise.resolve(opts.resolve)),
+      // git merge-base answers with the ref itself only when it is reachable.
+      getMergeBase: mock((_: string, a: string) => Promise.resolve(onBranch.includes(a) ? a : 'unrelated-base')),
+      logOneLine: mock(() => Promise.resolve(opts.moved ?? [{ sha: 'moved-1', message: 'Later work' }])),
+      branchAt: mock(() => Promise.resolve()),
+      updateRefCas: mock((_: string, __: string, newSha: string, oldSha: string) => {
+        opts.casCalls?.push({ newSha, oldSha });
+        return Promise.resolve();
+      }),
+    },
+  }));
+}
+
+describe('BranchSplitter.tailSplit split-point resolution', () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test('accepts a short sha and splits at the full commit git resolved', async () => {
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({ resolve: { kind: 'resolved', sha: FULL_SHA }, onBranch: [FULL_SHA], casCalls });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', 'a1b2c3d');
+
+    expect(result.movedCommits).toEqual(['moved-1']);
+    // The source rewinds to the full sha, never to the abbreviation.
+    expect(casCalls).toEqual([{ newSha: FULL_SHA, oldSha: 'head-sha' }]);
+  });
+
+  test('accepts a full sha', async () => {
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({ resolve: { kind: 'resolved', sha: FULL_SHA }, onBranch: [FULL_SHA], casCalls });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA);
+
+    expect(result.newBranch).toBe('feat/tail');
+    expect(casCalls).toEqual([{ newSha: FULL_SHA, oldSha: 'head-sha' }]);
+  });
+
+  test('reports an ambiguous abbreviation as ambiguous, with the candidates', async () => {
+    mockSplitRepo({
+      resolve: {
+        kind: 'ambiguous',
+        candidates: ['63b2796818f58177ce943f07a045c29893d9a701', '63b2bc6d4322b8b338956b5b4cc85565d25db3d0'],
+      },
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    let message = '';
+    try {
+      await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', '63b2');
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toMatch(/ambiguous abbreviation \(matches 63b2796818, 63b2bc6d43\)/);
+    expect(message).not.toMatch(/not found in branch/);
+  });
+
+  test('keeps "not found in branch" for a sha that resolves but is not on the source branch', async () => {
+    mockSplitRepo({ resolve: { kind: 'resolved', sha: FULL_SHA }, onBranch: [] });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+
+    await expect(
+      BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA),
+    ).rejects.toThrow(/not found in branch "feat\/big-branch"/);
+  });
+
+  test('says the ref does not resolve when git knows nothing about it', async () => {
+    mockSplitRepo({ resolve: { kind: 'unknown' } });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+
+    await expect(
+      BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', 'deadbee'),
+    ).rejects.toThrow(/does not resolve to a commit/);
+  });
+
+  test('splits at a commit older than the commit-log window', async () => {
+    // The old implementation scanned getCommitLog's 50-commit default and
+    // called anything past it "not found in branch". Containment now comes
+    // from git, so an ancient commit is still a valid split point.
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({
+      resolve: { kind: 'resolved', sha: FULL_SHA },
+      onBranch: [FULL_SHA],
+      moved: Array.from({ length: 120 }, (_, i) => ({ sha: `moved-${i}`, message: `commit ${i}` })),
+      casCalls,
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA);
+
+    expect(result.movedCommits).toHaveLength(120);
+    expect(casCalls).toEqual([{ newSha: FULL_SHA, oldSha: 'head-sha' }]);
   });
 });
 

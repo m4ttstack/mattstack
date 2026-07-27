@@ -111,7 +111,7 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
   const files = typeof ctx.flags.files === 'string' ? ctx.flags.files : null;
 
   if (!branch || !name || (!at && !files) || (at && files)) {
-    return fail('usage: gitq split <branch> --at <sha> --name <newBranch> | gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]');
+    return fail('usage: gitq split <branch> --at <rev> --name <newBranch> | gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]');
   }
 
   const store = await loadStore(ctx.repoRoot);
