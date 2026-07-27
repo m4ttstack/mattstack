@@ -50,13 +50,28 @@ export interface PublishNodeResult {
   action: 'created' | 'updated';
   /** Which parts of an existing MR changed. Only set when `action` is 'updated'. */
   changes?: PublishChange[];
-  /** The branch the MR targets after this run — the node's parent in the local tree. */
+  /** The branch the MR targets after this run — the nearest live ancestor of the node's parent. */
   targetBranch?: string;
+}
+
+/** Why publish refused to touch a node's MR. */
+export type PublishSkipReason = 'mr-not-open' | 'mr-unreadable' | 'source-branch-mismatch';
+
+/** A node publish deliberately left alone, and what it saw on the forge. */
+export interface PublishSkip {
+  branch: string;
+  /** The iid the node carries locally — the MR publish would have written to. */
+  mrIid: number;
+  reason: PublishSkipReason;
+  /** One line of what publish saw, for the human output. */
+  detail: string;
 }
 
 /** Result of a bulk publish operation. */
 export interface PublishResult {
   results: PublishNodeResult[];
+  /** Published nodes publish would not write to. Never a failure on its own. */
+  skipped: PublishSkip[];
   updatedStack: Stack;
 }
 
@@ -283,14 +298,20 @@ export const ForgeSync = {
    * (so a republish never clobbers MR prose the caller did not supply). Nodes
    * whose MR needs neither are left alone and stay out of the results.
    *
-   * Stops on the first failure since child MRs depend on parent MRs existing.
+   * Targets resolve through {@link resolveLiveTarget}, so a node under a merged
+   * parent points at the nearest live ancestor rather than a branch the forge
+   * may have deleted out from under it.
+   *
+   * A failed create stops the walk: the branch was never pushed, so the
+   * children that would target it have no base to sit on. A failed update does
+   * not, since it leaves the branch and its MR exactly as they were.
    */
   async publishStack(
     provider: GitProvider,
     stack: Stack,
     projectPath: string,
     cwd?: string,
-    descriptions?: Record<string, { title: string; body: string }>,
+    descriptions?: Record<string, { title?: string; body?: string }>,
   ): Promise<PublishResult> {
     const sorted = StackManager.toposort(stack);
 
@@ -305,10 +326,13 @@ export const ForgeSync = {
     }
 
     const results: PublishNodeResult[] = [];
+    const skipped: PublishSkip[] = [];
     let updatedStack = stack;
 
     for (const node of sorted) {
       const desc = descriptions?.[node.branch];
+      const meta = metaUpdate(desc);
+      const targetBranch = resolveLiveTarget(updatedStack, node.parent);
 
       if (node.mrIid === null) {
         if (node.status !== 'local-only') continue;
@@ -322,7 +346,7 @@ export const ForgeSync = {
             projectPath,
             title: desc?.title ?? node.branch,
             sourceBranch: node.branch,
-            targetBranch: node.parent,
+            targetBranch,
             draft: true,
           };
           if (desc?.body) {
@@ -345,7 +369,7 @@ export const ForgeSync = {
             action: 'created',
             mrIid: pr.iid,
             mrUrl: pr.webUrl ?? undefined,
-            targetBranch: node.parent,
+            targetBranch,
           });
         } catch (err) {
           results.push({
@@ -353,36 +377,66 @@ export const ForgeSync = {
             success: false,
             action: 'created',
             error: toErrorMessage(err),
-            targetBranch: node.parent,
+            targetBranch,
           });
           break;
         }
         continue;
       }
 
-      // Already published. Skip anything the forge doesn't show as an open MR:
-      // a merged or closed MR is not ours to retarget, and an MR we couldn't
-      // read is one whose target we can't compare against.
-      const pr = prByIid.get(node.mrIid);
-      if (!pr || pr.state !== 'opened') continue;
+      // A merged node is the steady state gitq keeps in the tree, not a
+      // surprise: its iid is deliberately left out of the pre-walk read above,
+      // so reporting it as unreadable below would be a lie.
+      if (node.status === 'merged') continue;
 
-      const needsRetarget = pr.targetBranch !== node.parent;
-      if (!needsRetarget && !desc) continue;
+      // Already published. Anything the forge doesn't show as an open MR of
+      // this branch is skipped rather than written to, and says so: a merged or
+      // closed MR is not ours to retarget, an MR we couldn't read is one whose
+      // target we can't compare against, and an iid belonging to some other
+      // branch is a stale pointer that would retarget an unrelated MR.
+      const pr = prByIid.get(node.mrIid);
+      if (!pr) {
+        skipped.push({
+          branch: node.branch,
+          mrIid: node.mrIid,
+          reason: 'mr-unreadable',
+          detail: `MR !${node.mrIid} was not returned by GitLab`,
+        });
+        continue;
+      }
+      if (pr.state !== 'opened') {
+        skipped.push({
+          branch: node.branch,
+          mrIid: node.mrIid,
+          reason: 'mr-not-open',
+          detail: `MR !${node.mrIid} is ${pr.state}`,
+        });
+        continue;
+      }
+      if (pr.sourceBranch !== node.branch) {
+        skipped.push({
+          branch: node.branch,
+          mrIid: node.mrIid,
+          reason: 'source-branch-mismatch',
+          detail: `MR !${node.mrIid} is for ${pr.sourceBranch}, not ${node.branch}`,
+        });
+        continue;
+      }
+
+      const needsRetarget = pr.targetBranch !== targetBranch;
+      if (!needsRetarget && !meta) continue;
 
       try {
         if (needsRetarget) {
           updatedStack = await ForgeSync.retargetMR(provider, updatedStack, node.branch, projectPath);
         }
-        if (desc) {
-          await provider.updatePullRequest(projectPath, node.mrIid, {
-            title: desc.title,
-            description: desc.body,
-          });
+        if (meta) {
+          await provider.updatePullRequest(projectPath, node.mrIid, meta);
         }
 
         const changes: PublishChange[] = [];
         if (needsRetarget) changes.push('target');
-        if (desc) changes.push('metadata');
+        if (meta) changes.push('metadata');
 
         results.push({
           branch: node.branch,
@@ -391,7 +445,7 @@ export const ForgeSync = {
           changes,
           mrIid: node.mrIid,
           mrUrl: node.mrUrl ?? pr.webUrl ?? undefined,
-          targetBranch: node.parent,
+          targetBranch,
         });
       } catch (err) {
         results.push({
@@ -399,13 +453,12 @@ export const ForgeSync = {
           success: false,
           action: 'updated',
           error: toErrorMessage(err),
-          targetBranch: node.parent,
+          targetBranch,
         });
-        break;
       }
     }
 
-    return { results, updatedStack };
+    return { results, skipped, updatedStack };
   },
 
   /**
@@ -413,6 +466,10 @@ export const ForgeSync = {
    *
    * `publishStack` calls this for every already-published node whose MR drifted
    * off its parent; it is also usable on its own for a single branch.
+   *
+   * Targets the nearest live ancestor ({@link resolveLiveTarget}), not the raw
+   * parent: pointing an open MR at a merged branch either 400s (the forge
+   * deleted it on merge) or undoes the forge's own retarget.
    */
   async retargetMR(provider: GitProvider, stack: Stack, branch: string, projectPath: string): Promise<Stack> {
     const node = StackManager.findNode(stack, branch);
@@ -420,7 +477,7 @@ export const ForgeSync = {
     if (!node.mrIid) throw new Error(`Branch "${branch}" has no MR to retarget`);
 
     await provider.updatePullRequest(projectPath, node.mrIid, {
-      targetBranch: node.parent,
+      targetBranch: resolveLiveTarget(stack, node.parent),
     });
 
     return StackManager.updateNode(stack, branch, { status: 'synced' });
@@ -489,6 +546,38 @@ export const ForgeSync = {
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Walk up from `parent` past any merged node to the branch an MR can actually
+ * target. Returns the root once every ancestor is merged.
+ *
+ * gitq leaves merged nodes in the tree with their children still pointing at
+ * them (see the `drift-parent-merged` situation in `stack-diagnostics.ts`), and
+ * a forge typically deletes the source branch on merge and retargets the child
+ * MR itself. Mirrors `resolveLiveAncestor` in `rebase-engine.ts`, which is what
+ * keeps the rebase side of the same tree honest.
+ */
+function resolveLiveTarget(stack: Stack, parent: string): string {
+  let current = parent;
+  while (current !== stack.root) {
+    const node = stack.nodes.find((n) => n.branch === current);
+    if (!node || node.status !== 'merged') break;
+    current = node.parent;
+  }
+  return current;
+}
+
+/**
+ * The title/description patch a `--mr-meta` entry asks for, or null when it
+ * asks for nothing. An absent field leaves what is on the forge alone.
+ */
+function metaUpdate(desc?: { title?: string; body?: string }): { title?: string; description?: string } | null {
+  if (!desc) return null;
+  const update: { title?: string; description?: string } = {};
+  if (desc.title !== undefined) update.title = desc.title;
+  if (desc.body !== undefined) update.description = desc.body;
+  return Object.keys(update).length > 0 ? update : null;
+}
 
 /**
  * Fetch the MRs of one forge project, or every MR the token user is involved
