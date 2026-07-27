@@ -22,7 +22,7 @@ gitq reparent <branch> --onto <newParent> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:187-209`). If `--onto` names the branch's current parent, it is a no-op: returns immediately, nothing rebased (`src/core/reparent.ts:47-55`).
+Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:206-228`). If `--onto` names the branch's current parent, it is a no-op: returns immediately, nothing rebased (`src/core/reparent.ts:47-55`).
 
 Refuses up front, before anything runs: `--onto` naming neither the stack root nor an existing node (`New parent "<newParent>" not found in stack "<id>"`), or a move that would make the branch its own ancestor (`Cannot reparent "<branch>" under "<newParent>" — would create a cycle`, `src/core/reparent.ts:57-66`).
 
@@ -39,11 +39,11 @@ If the branch's own rebase in step 1 conflicts, the whole operation refuses and 
 
 ### Conflict shape two: a descendant won't replay
 
-If the branch moves cleanly but a descendant conflicts during the follow-up cascade in step 2, `reparent` pauses **exactly like `sync`**: it reuses the same pause-file protocol (`finishCascade`, `src/cli/commands/surgery.ts:195-197`), writes the pause file, parks the lease, and exits `2`. At this point the branch itself **is already moved**, the tree already records it under the new parent; only the descendant is left mid-rebase. Resolve with `gitq continue`; `gitq abort` here backs out the descendant's rebase but does not undo the branch's own move, that half already committed.
+If the branch moves cleanly but a descendant conflicts during the follow-up cascade in step 2, `reparent` pauses **exactly like `sync`**: it reuses the same pause-file protocol (`finishCascade`, `src/cli/commands/surgery.ts:214-216`), writes the pause file, parks the lease, and exits `2`. At this point the branch itself **is already moved**, the tree already records it under the new parent; only the descendant is left mid-rebase. Resolve with `gitq continue`; `gitq abort` here backs out the descendant's rebase but does not undo the branch's own move, that half already committed.
 
-A completed cascade where every attempted descendant succeeds exits `0`; one with a failed (non-conflict) descendant result exits `1`, the same rule `sync` follows (`src/cli/commands/surgery.ts:204-207`).
+A completed cascade where every attempted descendant succeeds exits `0`; one with a failed (non-conflict) descendant result exits `1`, the same rule `sync` follows (`src/cli/commands/surgery.ts:223-226`).
 
-Recorded to the operation log under `reparent`, with the predicate overridden to `(code) => code !== 2` (`src/cli/commands/surgery.ts:208`), the same override `sync` uses: it logs on exit `0` and `1`, never on a pause. `reparent` is one of the four types in `REVERSIBLE_OPERATIONS`, so a logged run is reversible with `gitq undo`.
+Recorded to the operation log under `reparent`, with the predicate overridden to `(code) => code !== 2` (`src/cli/commands/surgery.ts:227`), the same override `sync` uses: it logs on exit `0` and `1`, never on a pause. `reparent` is one of the four types in `REVERSIBLE_OPERATIONS`, so a logged run is reversible with `gitq undo`.
 
 ## Exit codes
 

@@ -31,7 +31,7 @@ A snapshotted branch can stop existing between the operation running and the und
 
 ### A failed `absorb` leaves `undo` pointing at the wrong operation
 
-`absorbCommand` uses the default `shouldLog` with no override (`src/cli/commands/surgery.ts:73-74`), so a run whose restack conflicts, and exits `1`, writes no log entry at all, even though its commit phase already landed real commits. `gitq undo` cannot detect this: it just takes the most recent entry for the repo, which after a failed absorb is whatever ran before it. `undo` does not warn; it silently restores that earlier operation as if the absorb had never run. Check [`gitq log`](/reference/read-only/log) first if you aren't sure what the most recent entry actually is.
+`absorbCommand` uses the default `shouldLog` with no override (`src/cli/commands/surgery.ts:89-90`), so a run whose restack conflicts, and exits `1`, writes no log entry at all, even though its commit phase already landed real commits. `gitq undo` cannot detect this: it just takes the most recent entry for the repo, which after a failed absorb is whatever ran before it. `undo` does not warn; it silently restores that earlier operation as if the absorb had never run. Check [`gitq log`](/reference/read-only/log) first if you aren't sure what the most recent entry actually is.
 
 ## Exit codes
 

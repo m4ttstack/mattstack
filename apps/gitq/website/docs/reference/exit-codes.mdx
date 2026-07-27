@@ -57,9 +57,9 @@ Some commands can run all the way to completion and still exit `1`, because the 
 | Command | Where the exit code is decided | Per item field to read |
 | --- | --- | --- |
 | `sync`, `continue` | `finishCascade`, `src/cli/commands/cascade.ts:58`: `result.results.every((r) => r.success) ? 0 : 1` | `results[].success`, each a `{ branch, success, error? }` |
-| `reparent` | `src/cli/commands/surgery.ts:207`: `cascadeResults.every((r) => r.success) ? 0 : 1`, over the descendant cascade's own results | `result.cascadeResult.results[].success`, the same shape |
-| `absorb` | `src/cli/commands/surgery.ts:94-102`: exits `1` when `result.attributions.some((a) => !a.success)` | `result.attributions[].success`, each a `{ branch, files, success, error? }` |
-| `publish` | `src/cli/commands/forge.ts:109-114`: `result.results.every((r) => r.success)` | `results[].success`, each a `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }` |
+| `reparent` | `src/cli/commands/surgery.ts:226`: `cascadeResults.every((r) => r.success) ? 0 : 1`, over the descendant cascade's own results | `result.cascadeResult.results[].success`, the same shape |
+| `absorb` | `src/cli/commands/surgery.ts:110-121`: exits `1` when `result.attributions.some((a) => !a.success)`, and also when `result.recovery` is set, which means work of yours is sitting somewhere you have to go get | `result.attributions[].success`, each a `{ branch, files, success, error? }` |
+| `publish` | `src/cli/commands/forge.ts:131-139`: `result.results.every((r) => r.success)` | `results[].success`, each a `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }` |
 
 `reparent` follows this same pattern in source even though it is easy to miss: its own `--onto` rebase is a hard refusal if it fails (nothing moves), but the descendant cascade that follows a successful reparent reports per branch results exactly like `sync`, and a completed cascade with one failed branch there exits `1` too.
 

@@ -22,14 +22,14 @@ gitq publish [--stack <name>] [--mr-meta <path>]
 
 ## Behavior
 
-**`publish` creates MRs and updates existing ones.** It walks the stack in topological order and does one of two things per node (`ForgeSync.publishStack`, `src/core/forge-sync.ts:309-462`):
+**`publish` creates MRs and updates existing ones.** It walks the stack in topological order and does one of two things per node (`ForgeSync.publishStack`, `src/core/forge-sync.ts:344-497`):
 
-- A node whose `status` is `local-only` **and** whose `mrIid` is still `null` is **created**: pushed, then opened as a draft MR against its target (`src/core/forge-sync.ts:337-385`).
-- A node that already has an open MR is **updated**: the MR is retargeted when its target on GitLab no longer matches the node's target here, and its title and description are rewritten when `--mr-meta` names that branch. The branch itself is **not** pushed (`src/core/forge-sync.ts:387-458`).
+- A node whose `status` is `local-only` **and** whose `mrIid` is still `null` is **created**: pushed, then opened as a draft MR against its target (`src/core/forge-sync.ts:372-420`).
+- A node that already has an open MR is **updated**: the MR is retargeted when its target on GitLab no longer matches the node's target here, and its title and description are rewritten when `--mr-meta` names that branch. The branch itself is **not** pushed (`src/core/forge-sync.ts:422-493`).
 
-A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:474-484`), the same function you can call on a single branch.
+A node needing neither is left untouched and does not appear in the results at all. The retarget goes through `ForgeSync.retargetMR` (`src/core/forge-sync.ts:509-519`), the same function you can call on a single branch.
 
-**The target is the nearest live ancestor, not the raw parent.** gitq keeps a merged branch in the tree with its children still pointing at it, so `publish` walks up past any node whose `status` is `merged` and targets the first one that is not (`resolveLiveTarget`, `src/core/forge-sync.ts:560-568`, the same rule [the cascade](/concepts/cascade#when-the-parent-was-merged) rebases by). Both the comparison and the write use it: without that, a child would be retargeted onto a branch GitLab deleted when it merged the parent, and an MR GitLab had already auto-retargeted to the trunk would be dragged back onto the merged branch.
+**The target is the nearest live ancestor, not the raw parent.** gitq keeps a merged branch in the tree with its children still pointing at it, so `publish` walks up past any node whose `status` is `merged` and targets the first one that is not (`resolveLiveTarget`, `src/core/forge-sync.ts:595-603`, the same rule [the cascade](/concepts/cascade#when-the-parent-was-merged) rebases by). Both the comparison and the write use it: without that, a child would be retargeted onto a branch GitLab deleted when it merged the parent, and an MR GitLab had already auto-retargeted to the trunk would be dragged back onto the merged branch.
 
 Order of checks, before any network call:
 
@@ -37,11 +37,11 @@ Order of checks, before any network call:
 2. The store loads, the stack resolves, and the stack lease is checked.
 3. Only then is the GitLab provider built, which is where the missing-token refusal happens (`createGitLabProvider`, `src/cli/provider.ts:33-37`): `no gitlab token (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)`.
 
-Then, before the walk, one read: the MRs of every already-published node, batch-fetched by iid (`fetchPullRequests({ iids, projectPath })`, `src/core/forge-sync.ts:318-326`). An MR's current target is the only way to tell a retarget from a no-op, so publish asks the forge rather than trusting the local `status`. A stack with nothing published yet skips this read entirely, and a failure here fails the whole command before anything is pushed. Merged nodes are left out of the read on purpose: their MRs are done, and publish never writes to them.
+Then, before the walk, one read: the MRs of every already-published node, batch-fetched by iid (`fetchPullRequests({ iids, projectPath })`, `src/core/forge-sync.ts:353-361`). An MR's current target is the only way to tell a retarget from a no-op, so publish asks the forge rather than trusting the local `status`. A stack with nothing published yet skips this read entirely, and a failure here fails the whole command before anything is pushed. Merged nodes are left out of the read on purpose: their MRs are done, and publish never writes to them.
 
 ### Skipped branches {#skipped}
 
-Publish writes only to an **open MR of the branch it belongs to**. A published node that fails that check is **skipped**: it is not touched, not counted as a failure, and reported on its own line and in a `skipped` array rather than disappearing (`src/core/forge-sync.ts:387-424`). Three reasons, all carrying the node's `branch`, the `mrIid` publish would have written to, and a one-line `detail`:
+Publish writes only to an **open MR of the branch it belongs to**. A published node that fails that check is **skipped**: it is not touched, not counted as a failure, and reported on its own line and in a `skipped` array rather than disappearing (`src/core/forge-sync.ts:422-459`). Three reasons, all carrying the node's `branch`, the `mrIid` publish would have written to, and a one-line `detail`:
 
 | `reason` | what publish saw | example `detail` |
 |----------|------------------|------------------|

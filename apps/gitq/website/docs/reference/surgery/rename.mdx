@@ -21,9 +21,9 @@ gitq rename <old> <new> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease. Rewrites the branch directly in the worktree you ran it from, so it refuses up front if `<old>` is checked out anywhere else, dirty or not: `branch "<old>" is checked out in slot "<slot>" (<path>); run this from that worktree or free the branch first` (`refuseIfCheckedOutElsewhere`, `src/cli/commands/surgery.ts:30-38,221-223`).
+Guarded by the stack lease. Rewrites the branch directly in the worktree you ran it from, so it refuses up front if `<old>` is checked out anywhere else, dirty or not: `branch "<old>" is checked out in slot "<slot>" (<path>); run this from that worktree or free the branch first` (`refuseIfCheckedOutElsewhere`, `src/cli/commands/surgery.ts:31-39,240-242`).
 
-Runs `git branch -m <old> <new>` (`src/core/git-shell.ts:489-491`), then renames the node in the stack tree, keeping its parent and its children (`renameBranch`, `src/core/branch-rename.ts:17-26`; `StackManager.renameBranch`, `src/core/stack-manager.ts:181-198`). No commits move and nothing is rebased.
+Runs `git branch -m <old> <new>` (`src/core/git-shell.ts:594-596`), then renames the node in the stack tree, keeping its parent and its children (`renameBranch`, `src/core/branch-rename.ts:17-26`; `StackManager.renameBranch`, `src/core/stack-manager.ts:181-198`). No commits move and nothing is rebased.
 
 - Refuses if `<old>` isn't a node in the stack (`Branch "<old>" not found in stack "<id>"`), or `<new>` already is (`Branch "<new>" already exists in stack "<id>"`).
 - The git rename happens first: if it fails (`<new>` already exists as a git branch), the stack tree is left untouched.

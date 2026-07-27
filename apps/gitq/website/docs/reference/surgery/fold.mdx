@@ -21,7 +21,7 @@ gitq fold <branch> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:161-168`). Three things happen together (`foldBranch`, `src/core/branch-fold.ts:34-167`):
+Guarded by the stack lease, and always runs detached in a leased [work slot](/concepts/work-slots) (`src/cli/commands/surgery.ts:180-187`). Three things happen together (`foldBranch`, `src/core/branch-fold.ts:34-167`):
 
 1. **The commits move.** The folded branch's own commits replay onto the parent, detached in the slot, and the parent is fast-forwarded to the result by compare-and-swap. A branch with no commits beyond its parent skips the replay entirely.
 2. **The branch is deleted**, from git and from the stack tree.

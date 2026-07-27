@@ -287,21 +287,21 @@ None of these five were run live for this page; each shape below is the exact ty
 | `fold` | `FoldResult` (`src/core/branch-fold.ts:9-17`) | `foldedBranch`, `intoParent`, `reParentedChildren`, `newStack` |
 | `reparent` | `ReparentResult` (`src/core/reparent.ts:7-13`) | `branch`, `oldParent`, `newParent`, `cascadeResult` (`CascadeResult \| null`), `newStack` |
 | `rename` | `RenameResult` (`src/core/branch-rename.ts:5-7`) | `updatedStack` |
-| `reset` | `ResetToRemoteResult` (`src/core/branch-reset.ts:6-10`) | `updatedStack`, `newHead` (the SHA reset to) |
+| `reset` | `ResetToRemoteResult` (`src/core/branch-reset.ts:7-11`) | `updatedStack`, `newHead` (the SHA reset to) |
 
-`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:195-208`).
+`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:214-227`).
 
 ## `gitq publish` / `gitq import`
 
 Neither was run for this page: both talk to the real GitLab API, which this project's isolation rules keep off limits. Shapes below are from source.
 
-`publish` (`src/cli/commands/forge.ts:104-140`) emits `{ results, skipped, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:43-55`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
+`publish` (`src/cli/commands/forge.ts:104-140`) emits `{ results, skipped, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:44-56`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
 
-`action` is always present and says which of the two things happened: `created` for an MR this run opened, `updated` for one that was already there. `changes` is set only on an update and lists what actually moved, `target` when the MR was retargeted and `metadata` when `--mr-meta` rewrote its title and description, either or both (`PublishChange`, `src/core/forge-sync.ts:40`). `targetBranch` is the branch the MR points at after the run: the node's parent in the local tree, or its nearest ancestor that has not merged.
+`action` is always present and says which of the two things happened: `created` for an MR this run opened, `updated` for one that was already there. `changes` is set only on an update and lists what actually moved, `target` when the MR was retargeted and `metadata` when `--mr-meta` rewrote its title and description, either or both (`PublishChange`, `src/core/forge-sync.ts:41`). `targetBranch` is the branch the MR points at after the run: the node's parent in the local tree, or its nearest ancestor that has not merged.
 
-`skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:61-68`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:58`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/gitlab/publish#skipped) for what each reason means.
+`skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:62-69`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:59`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/gitlab/publish#skipped) for what each reason means.
 
-`import` (`src/cli/commands/forge.ts:142-174`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
+`import` (`src/cli/commands/forge.ts:142-189`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:87-99`).
 
 ## `gitq undo`
 
