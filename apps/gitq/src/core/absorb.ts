@@ -524,8 +524,10 @@ async function unwindFailedAmend(cwd: string, originalBranch: string): Promise<s
   if (problems.length === 0) return null;
   return (
     `absorb could not clean up after the failed amend: ${problems.join('; ')}. ` +
-    'Your uncommitted work is retained in stash@{0}: check it with ' +
-    '`git stash show -p stash@{0}`, then `git checkout ' + originalBranch + '` and `git stash pop`.'
+    'Your uncommitted work is retained in stash@{0} — inspect it with ' +
+    '`git stash show -p stash@{0}`, then get it back with `git checkout -f ' + originalBranch + '` ' +
+    '(the failed amend can leave staged files in the way, and the stash holds them too) ' +
+    'and `git stash pop`.'
   );
 }
 

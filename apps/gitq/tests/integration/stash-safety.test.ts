@@ -113,6 +113,58 @@ describe('Absorb stash safety', () => {
     expect(git('show', 'branch-1:api.ts')).toContain('user work');
   });
 
+  test('an unwind that cannot get back names the branch and keeps the stash', async () => {
+    // The other half of the abort path, and the reason a swallowed failure
+    // here is not survivable: standing on the ANCESTOR, the amend that the
+    // hook refuses leaves config.json staged, and config.json does not exist
+    // on branch-1 at all — so the checkout back refuses too. Pre-fix, both
+    // throws were discarded and the run ended quietly on the wrong branch
+    // with the whole dirty tree in an unmentioned stash entry.
+    sandbox = await createSandboxRepo();
+    dirs.push(sandbox.dir);
+    const { dir, git } = sandbox;
+
+    git('checkout', '-b', 'branch-1');
+    const sha1 = await commit(dir, git, 'api.ts', 'export function api() {}\n', 'add api.ts');
+    git('checkout', '-b', 'branch-2');
+    const sha2 = await commit(dir, git, 'config.json', '{"key":"value"}\n', 'add config.json');
+    git('checkout', 'branch-1');
+
+    let stack = StackManager.createStack('test', 'main');
+    stack = StackManager.addNode(stack, 'branch-1', 'main');
+    stack = StackManager.updateNode(stack, 'branch-1', { lastKnownHead: sha1 });
+    stack = StackManager.addNode(stack, 'branch-2', 'branch-1');
+    stack = StackManager.updateNode(stack, 'branch-2', { lastKnownHead: sha2 });
+
+    await writeFile(
+      join(dir, '.git', 'hooks', 'pre-commit'),
+      '#!/bin/sh\ngit diff --cached --name-only | grep -q config.json && exit 1\nexit 0\n',
+    );
+    await chmod(join(dir, '.git', 'hooks', 'pre-commit'), 0o755);
+
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "user work"; }\n');
+    await writeFile(join(dir, 'config.json'), '{"key":"user work"}\n');
+    await writeFile(join(dir, 'notes.txt'), 'unowned notes\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.absorbed).toBe(false);
+    // Says where you are, where you wanted to be, and where the work is.
+    expect(result.recovery).toContain('branch-1');
+    expect(result.recovery).toContain('you are on branch-2');
+    expect(result.recovery).toContain('stash@{0}');
+    expect(await GitShell.getCurrentBranch(dir)).toBe('branch-2');
+    expect(git('stash', 'list')).toContain('stash@{0}');
+
+    // And the recovery it prints actually recovers: the stash still holds
+    // every dirty file, the unattributed one included.
+    git('checkout', '-f', 'branch-1');
+    git('stash', 'pop');
+    expect(await readFile(join(dir, 'api.ts'), 'utf-8')).toContain('user work');
+    expect(await readFile(join(dir, 'config.json'), 'utf-8')).toBe('{"key":"user work"}\n');
+    expect(await readFile(join(dir, 'notes.txt'), 'utf-8')).toBe('unowned notes\n');
+  });
+
   test('multiple uncommitted files across branches — all content preserved', async () => {
     sandbox = await createSandboxRepo();
     dirs.push(sandbox.dir);

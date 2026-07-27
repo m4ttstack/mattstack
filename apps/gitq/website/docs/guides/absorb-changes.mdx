@@ -181,14 +181,40 @@ nothing absorbed (no-changes)
 
 Absorb has **no pause protocol**, and the commit phase is not the clean all-or-nothing step it might look like either. It amends one owning branch at a time, and if a later amend fails it stops there without rolling back the branches it already amended. A `pre-commit` hook that fails on the second branch is a realistic way to hit this: the amend runs in the worktree you launched absorb from, which keeps its hooks live, unlike a leased work slot. When that happens, `gitq absorb` reports `nothing absorbed` and exits `1`, which undersells what happened. It *attempts* to check your original branch back out and pop the stash, which normally brings the whole dirty tree back, files it had already committed elsewhere included. Check `git log --oneline --all` or `git show --stat <branch>` for the branches you expected to change before you decide what to do next.
 
-The attempt can fail — the same failing hook usually refuses the checkout too — and then absorb says so instead of exiting quietly on the wrong branch:
+The attempt can fail, and then absorb says so instead of exiting quietly on the wrong branch. Here the launch branch was `feat-api` (the ancestor), the hook refused `feat-handlers`'s amend, and the staged leftovers of that amend then blocked the checkout back:
+
+```bash
+gitq absorb --stack demo
+```
 
 ```
 nothing absorbed
-absorb could not clean up after the failed amend: could not check feat-handlers back out (...) — you are on feat-api; left the stash alone rather than popping your dirty tree onto the wrong branch. Your uncommitted work is retained in stash@{0}: check it with `git stash show -p stash@{0}`, then `git checkout feat-handlers` and `git stash pop`.
+absorb could not clean up after the failed amend: could not check feat-api back out (git checkout feat-api failed: error: Your local changes to the following files would be overwritten by checkout:
+	handlers.ts
+Please commit your changes or stash them before you switch branches.
+Aborting) — you are on feat-handlers; left the stash alone rather than popping your dirty tree onto the wrong branch. Your uncommitted work is retained in stash@{0} — inspect it with `git stash show -p stash@{0}`, then get it back with `git checkout -f feat-api` (the failed amend can leave staged files in the way, and the stash holds them too) and `git stash pop`.
 ```
 
-Your work is in `stash@{0}`, and absorb deliberately did not pop it onto a branch you never picked. Do what the message says: get back to your branch first, then pop.
+Exit `1`, and you are standing somewhere you did not ask to be:
+
+```bash
+git status --short --branch
+```
+
+```
+## feat-handlers
+M  handlers.ts
+```
+
+```bash
+git stash list
+```
+
+```
+stash@{0}: WIP on feat-api: e2f7f35 feat-api: add api.ts
+```
+
+Your whole dirty tree is in that entry, and absorb deliberately did not pop it onto a branch you never picked. Do what the message says: `git checkout -f feat-api`, then `git stash pop`.
 
 Past a clean commit phase, the restack can still conflict like any rebase, and when it does absorb backs out rather than leaving you mid-rebase with a success exit code:
 
