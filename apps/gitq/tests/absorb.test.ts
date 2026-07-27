@@ -266,6 +266,46 @@ describe('AbsorbEngine.absorb', () => {
     ]);
   });
 
+  test('drops the stash only after the unattributed files are back on disk', async () => {
+    const dir = await scratchTree({ 'api.ts': 'api\n', 'notes.md': 'notes\n' });
+    const notesPresentAtDrop: boolean[] = [];
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getCurrentBranch: mock(() => Promise.resolve('branch-3')),
+        getChangedFiles: mock(() =>
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: ['notes.md'], deleted: [] }),
+        ),
+        getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
+          if (to === 'branch-1') return Promise.resolve(['api.ts']);
+          return Promise.resolve([]);
+        }),
+        // The stash is the real thing standing in for the tree here, so it is
+        // taken to mean "notes.md is not on disk" while it is alive.
+        stash: mock(async () => { await rm(join(dir, 'notes.md'), { force: true }); }),
+        checkoutBranch: mock(() => Promise.resolve()),
+        add: mock(() => Promise.resolve()),
+        amendNoEdit: mock(() => Promise.resolve()),
+        getBranchHead: mock(() => Promise.resolve('new-head')),
+        getMergeBase: mock(() => Promise.resolve('new-head')),
+        stashDrop: mock(() => {
+          notesPresentAtDrop.push(existsSync(join(dir, 'notes.md')));
+          return Promise.resolve();
+        }),
+        rebaseOnto: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    const result = await AbsorbEngine.absorb(dir, buildLinearStack());
+
+    expect(result.unattributed).toEqual(['notes.md']);
+    // A kill between the drop and the restore is what this ordering buys off:
+    // while the stash is alive it is the second copy of notes.md.
+    expect(notesPresentAtDrop).toEqual([true]);
+  });
+
   test('handles single-branch stack (all files go to one branch)', async () => {
     let stack = StackManager.createStack('test', 'main');
     stack = StackManager.addNode(stack, 'only-branch', 'main');

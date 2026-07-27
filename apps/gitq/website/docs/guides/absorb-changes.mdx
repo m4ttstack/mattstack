@@ -20,7 +20,7 @@ In order:
 
 Step 2 runs **in the worktree you invoked absorb from**, because it needs a real tree to write files into. Step 3 does not. So absorb moves your checkout to each owning branch in turn while it commits, then returns you to the branch you started on when it is done. (`fold` can also move your checkout, but permanently, onto the folded branch's parent; see [`fold`](/guides/restructure-a-stack#fold).)
 
-Step 4 waits for step 3 to finish rather than running with it: a dirty launch worktree makes the restack's ref finalization refuse. So there is a window, inside the command, where your unattributed changes exist only in absorb's memory. It restores them even when the restack blows up.
+Step 4 waits for step 3 to finish rather than running with it: a dirty launch worktree makes the restack's ref finalization refuse. The stash from step 2 is kept alive for that whole stretch and dropped only once step 4 has put the files back, so the unattributed work always has a copy on disk, not just one in absorb's memory. It restores them even when the restack blows up, and if the restore itself fails it keeps the stash and tells you so.
 
 ## Always `--preview` first
 

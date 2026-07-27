@@ -25,6 +25,12 @@ export interface AbsorbResult {
   unattributed: string[];
   cascadeResult?: CascadeResult;
   updatedStack?: Stack;
+  /**
+   * Set when absorb finished in a state the human has to finish by hand:
+   * unattributed work it could not put back. Human-readable, and names what
+   * to run.
+   */
+  recovery?: string;
 }
 
 export interface AbsorbPreview {
@@ -302,7 +308,8 @@ async function restoreIndexState(cwd: string, file: string, index: IndexState): 
  * cascade's ref finalization refuse (and an in-tree rebase impossible).
  *
  * Never throws — it is called from a `finally` and must not mask the failure
- * that got it there.
+ * that got it there. Returns the entries it could not put back; the stash is
+ * their only other copy, so the caller keeps it when this comes back non-empty.
  */
 async function restoreUnattributed(
   cwd: string,
@@ -441,12 +448,9 @@ async function absorb(
 
   await GitShell.checkoutBranch(cwd, currentBranch);
 
-  try {
-    await GitShell.stashDrop(cwd);
-  } catch { /* already popped or empty */ }
-
   const affectedBranches = new Set(attributions.filter((a) => a.success).map((a) => a.branch));
   let cascadeResult: CascadeResult | undefined;
+  let restoreFailures: { file: string; error: string }[] = [];
 
   try {
     if (affectedBranches.size > 0) {
@@ -457,12 +461,29 @@ async function absorb(
     }
   } finally {
     // Unconditional: a restack that blows up must not take the human's
-    // unattributed work with it, since the stash holding it is already gone.
-    await restoreUnattributed(cwd, unattributed, snapshots);
+    // unattributed work with it.
+    restoreFailures = await restoreUnattributed(cwd, unattributed, snapshots);
+  }
+
+  // The stash outlives the whole cascade on purpose. Until the restore lands
+  // it is the only copy of the unattributed work that is not just memory in
+  // this process, and dropping it earlier buys nothing: a stash entry does
+  // not dirty the tree, so it never blocked the restack.
+  if (restoreFailures.length === 0) {
+    try {
+      await GitShell.stashDrop(cwd);
+    } catch { /* already popped or empty */ }
   }
 
   const result: AbsorbResult = { absorbed: true, attributions, unattributed, updatedStack };
   if (cascadeResult) result.cascadeResult = cascadeResult;
+  if (restoreFailures.length > 0) {
+    const listed = restoreFailures.map((f) => `${f.file} (${f.error})`).join('; ');
+    result.recovery =
+      `absorb could not put ${restoreFailures.length} unattributed file(s) back: ${listed}. ` +
+      'It kept the stash holding them rather than dropping it: recover with ' +
+      '`git stash pop` (inspect it first with `git stash show -p stash@{0}`).';
+  }
   return result;
 }
 
