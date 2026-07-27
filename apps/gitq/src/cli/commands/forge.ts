@@ -136,13 +136,28 @@ export async function importCommand(ctx: CliContext): Promise<number> {
   const remoteUrl = await GitShell.getRemoteUrl(ctx.repoRoot);
   const { provider } = createGitLabProvider(remoteUrl);
 
-  const store = await ForgeSync.importFromForge(provider, ctx.repoRoot, remoteUrl);
+  const { store, openMRs, scopedMRs, projectPath } = await ForgeSync.importFromForge(
+    provider,
+    ctx.repoRoot,
+    remoteUrl,
+  );
   // Import intentionally replaces the whole store (guarded above by the
   // non-empty + --replace check), not a merge with concurrent writes; the
   // callback ignores the fresh value on purpose. Still routed through
   // updateStore so the write is serialized under the same lock as every
   // other mutator instead of a bare saveStore.
   await updateStore(ctx.repoRoot, () => store);
+
+  // "imported 0 stack(s)" reads the same whether the forge had nothing or the
+  // project scope dropped everything it had, and by now --replace has already
+  // taken the old store with it. A renamed or transferred project leaves a
+  // remote that resolves to a project with no MRs, so say so. Written to
+  // stderr: it is a diagnostic about the run, not part of --json's `{ store }`.
+  if (scopedMRs === 0 && openMRs > 0) {
+    console.error(
+      `gitq: none of the ${openMRs} open MR(s) GitLab returned belong to ${projectPath} (read from remote ${remoteUrl}); if the project was renamed or transferred, update the remote and import again`,
+    );
+  }
 
   emit(ctx, `imported ${store.stacks.length} stack(s)`, { store });
   return 0;
