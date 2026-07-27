@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createProvider } from '@workforge/glance-sdk';
 import type { GitProvider, PullRequest } from '@workforge/glance-sdk';
 import { ForgeSync } from '../../src/core/forge-sync.ts';
+import { projectScopeFromWebUrl } from '../../src/core/forge-helpers.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';
 
 const GITLAB_TOKEN = process.env['GITLAB_TOKEN'];
@@ -65,10 +66,15 @@ describe.skipIf(!GITLAB_TOKEN)('GitLab forge integration', () => {
     if (openPRs.length === 0) return; // nothing to sync against
 
     const pr = openPRs[0]!;
+    // syncStack scopes to one project; the synthetic stack belongs to whichever
+    // project the PR we picked lives in.
+    const scope = projectScopeFromWebUrl(pr.webUrl);
+    if (!scope) return;
+
     let stack = StackManager.createStack('integration-test', pr.targetBranch);
     stack = StackManager.addNode(stack, pr.sourceBranch, pr.targetBranch);
 
-    const result = await ForgeSync.syncStack(provider, stack);
+    const result = await ForgeSync.syncStack(provider, stack, scope);
 
     expect(result.updatedStack).toBeDefined();
     expect(result.reconcile).toBeDefined();

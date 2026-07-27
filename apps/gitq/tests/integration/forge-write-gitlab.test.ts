@@ -120,7 +120,7 @@ describe.skipIf(!GITLAB_TOKEN || !GITLAB_PROJECT_PATH)('GitLab forge write cycle
     stack = StackManager.addNode(stack, b1, 'main');
     stack = StackManager.addNode(stack, b2, b1);
 
-    const result = await ForgeSync.syncStack(provider, stack);
+    const result = await ForgeSync.syncStack(provider, stack, GITLAB_PROJECT_PATH!);
 
     const b1Node = StackManager.findNode(result.updatedStack, b1);
     expect(b1Node).toBeDefined();
@@ -137,7 +137,7 @@ describe.skipIf(!GITLAB_TOKEN || !GITLAB_PROJECT_PATH)('GitLab forge write cycle
     stack = StackManager.addNode(stack, b1, 'main');
     stack = StackManager.addNode(stack, b2, 'main'); // drift: forge says b1
 
-    const result = await ForgeSync.reconcile(provider, stack);
+    const result = await ForgeSync.reconcile(provider, stack, GITLAB_PROJECT_PATH!);
 
     const b2Drift = result.drifts.find((d) => d.branch === b2);
     expect(b2Drift).toBeDefined();
@@ -169,7 +169,7 @@ describe.skipIf(!GITLAB_TOKEN || !GITLAB_PROJECT_PATH)('GitLab forge write cycle
     stack = StackManager.addNode(stack, b1, 'main');
     stack = StackManager.addNode(stack, b2, b1);
 
-    const populated = await ForgeSync.populateNodeData(provider, stack);
+    const populated = await ForgeSync.populateNodeData(provider, stack, GITLAB_PROJECT_PATH!);
 
     const b1Node = StackManager.findNode(populated, b1)!;
     expect(b1Node.mrIid).toBeGreaterThan(0);

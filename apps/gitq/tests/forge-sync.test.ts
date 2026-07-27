@@ -13,6 +13,15 @@ import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from 
 
 // ── Mock Provider ────────────────────────────────────────────────────────────
 
+/**
+ * The project {@link mockPR}'s default web URL belongs to.
+ *
+ * The sync entry points scope to a project and drop MRs they cannot place, so
+ * the default fixture has to name one: a URL like "gitlab.com/project/-/..."
+ * carries only one path segment and reads as no project at all.
+ */
+const MOCK_PROJECT = 'acme/app';
+
 /** Build a minimal PullRequest for testing. */
 function mockPR(overrides: Partial<PullRequest> & { sourceBranch: string; targetBranch: string }): PullRequest {
   return {
@@ -24,7 +33,7 @@ function mockPR(overrides: Partial<PullRequest> & { sourceBranch: string; target
     state: overrides.state ?? 'opened',
     draft: false,
     conflicts: false,
-    webUrl: overrides.webUrl ?? `https://gitlab.com/project/-/merge_requests/${overrides.iid ?? 1}`,
+    webUrl: overrides.webUrl ?? `https://gitlab.com/${MOCK_PROJECT}/-/merge_requests/${overrides.iid ?? 1}`,
     sourceBranch: overrides.sourceBranch,
     targetBranch: overrides.targetBranch,
     createdAt: '2025-01-01T00:00:00Z',
@@ -210,7 +219,7 @@ describe('ForgeSync.reconcile', () => {
       mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }), // drift!
     ];
 
-    const result = await ForgeSync.reconcile(mockProvider(prs), stack);
+    const result = await ForgeSync.reconcile(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.drifts).toHaveLength(1);
     expect(result.drifts[0]!.branch).toBe('feat/b');
@@ -226,7 +235,7 @@ describe('ForgeSync.reconcile', () => {
 
     const prs = [mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' })];
 
-    const result = await ForgeSync.reconcile(mockProvider(prs), stack);
+    const result = await ForgeSync.reconcile(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.localOnly).toEqual(['feat/b']);
     expect(result.drifts).toEqual([]);
@@ -242,7 +251,7 @@ describe('ForgeSync.reconcile', () => {
       mockPR({ iid: 99, sourceBranch: 'feat/unknown', targetBranch: 'feat/a' }),
     ];
 
-    const result = await ForgeSync.reconcile(mockProvider(prs), stack);
+    const result = await ForgeSync.reconcile(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.unmatchedMRs).toHaveLength(1);
     expect(result.unmatchedMRs[0]!.sourceBranch).toBe('feat/unknown');
@@ -261,7 +270,7 @@ describe('ForgeSync.populateNodeData', () => {
         iid: 142,
         sourceBranch: 'feat/a',
         targetBranch: 'main',
-        webUrl: 'https://gitlab.com/-/mr/142',
+        webUrl: `https://gitlab.com/${MOCK_PROJECT}/-/merge_requests/142`,
         unresolvedThreadCount: 3,
         pipeline: {
           id: 'gitlab:pipeline:1',
@@ -274,11 +283,11 @@ describe('ForgeSync.populateNodeData', () => {
       }),
     ];
 
-    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack);
+    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack, MOCK_PROJECT);
     const node = StackManager.findNode(updated, 'feat/a')!;
 
     expect(node.mrIid).toBe(142);
-    expect(node.mrUrl).toBe('https://gitlab.com/-/mr/142');
+    expect(node.mrUrl).toBe(`https://gitlab.com/${MOCK_PROJECT}/-/merge_requests/142`);
     expect(node.pipelineStatus).toBe('success');
     expect(node.unresolvedThreads).toBe(3);
     expect(node.diffStats).toEqual({ additions: 50, deletions: 20, filesChanged: 5 });
@@ -295,7 +304,7 @@ describe('ForgeSync.populateNodeData', () => {
       mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }), // targets main, not feat/a
     ];
 
-    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack);
+    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack, MOCK_PROJECT);
     const node = StackManager.findNode(updated, 'feat/b')!;
 
     expect(node.status).toBe('drift');
@@ -307,7 +316,7 @@ describe('ForgeSync.populateNodeData', () => {
 
     const prs = [mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', state: 'merged' })];
 
-    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack);
+    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack, MOCK_PROJECT);
     const node = StackManager.findNode(updated, 'feat/a')!;
 
     expect(node.status).toBe('merged');
@@ -327,7 +336,7 @@ describe('ForgeSync.populateNodeData', () => {
       }),
     ];
 
-    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack);
+    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stack, MOCK_PROJECT);
     const node = StackManager.findNode(updated, 'feat/a')!;
 
     expect(node.pipelineStatus).toBe('failed');
@@ -1211,7 +1220,7 @@ describe('ForgeSync.syncStack', () => {
       },
     };
 
-    const result = await ForgeSync.syncStack(countingProvider, stack);
+    const result = await ForgeSync.syncStack(countingProvider, stack, MOCK_PROJECT);
 
     // Should only call fetchPullRequests once (shared across populate + reconcile)
     expect(fetchCount).toBe(1);
@@ -1236,7 +1245,7 @@ describe('ForgeSync.syncStack', () => {
       mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', state: 'merged' }),
     ];
 
-    const result = await ForgeSync.syncStack(mockProvider(prs), stack);
+    const result = await ForgeSync.syncStack(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.newlyMerged).toEqual(['feat/a']);
     expect(StackManager.findNode(result.updatedStack, 'feat/a')!.status).toBe('merged');
@@ -1251,7 +1260,7 @@ describe('ForgeSync.syncStack', () => {
       mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
     ];
 
-    const result = await ForgeSync.syncStack(mockProvider(prs), stack);
+    const result = await ForgeSync.syncStack(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.newlyMerged).toEqual([]);
   });
@@ -1259,7 +1268,7 @@ describe('ForgeSync.syncStack', () => {
   test('handles empty stack without crashing', async () => {
     const stack = StackManager.createStack('auth', 'main');
 
-    const result = await ForgeSync.syncStack(mockProvider([]), stack);
+    const result = await ForgeSync.syncStack(mockProvider([]), stack, MOCK_PROJECT);
 
     expect(result.updatedStack.nodes).toEqual([]);
     expect(result.newlyMerged).toEqual([]);
@@ -1272,7 +1281,7 @@ describe('ForgeSync.syncStack', () => {
     stack = StackManager.addNode(stack, 'feat/a', 'main');
     stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
 
-    const result = await ForgeSync.syncStack(mockProvider([]), stack);
+    const result = await ForgeSync.syncStack(mockProvider([]), stack, MOCK_PROJECT);
 
     expect(result.reconcile.localOnly).toEqual(['feat/a', 'feat/b']);
     expect(result.newlyMerged).toEqual([]);
@@ -1292,7 +1301,7 @@ describe('ForgeSync.syncStack', () => {
       }),
     ];
 
-    const result = await ForgeSync.syncStack(mockProvider(prs), stack);
+    const result = await ForgeSync.syncStack(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.pipelineChanges).toHaveLength(1);
     expect(result.pipelineChanges[0]!.branch).toBe('feat/a');
@@ -1308,7 +1317,7 @@ describe('ForgeSync.syncStack', () => {
     // No pipeline data on the PR → normalizes to 'unknown'
     const prs = [mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' })];
 
-    const result = await ForgeSync.syncStack(mockProvider(prs), stack);
+    const result = await ForgeSync.syncStack(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.pipelineChanges).toEqual([]);
   });
@@ -1325,7 +1334,7 @@ describe('ForgeSync.syncStack', () => {
       mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
     ];
 
-    const result = await ForgeSync.syncStack(mockProvider(prs), stack);
+    const result = await ForgeSync.syncStack(mockProvider(prs), stack, MOCK_PROJECT);
 
     expect(result.deletedBranches).toHaveLength(1);
     expect(result.deletedBranches[0]!.branch).toBe('feat/b');
@@ -1338,7 +1347,7 @@ describe('ForgeSync.syncStack', () => {
     stack = StackManager.addNode(stack, 'feat/a', 'main');
     stack = StackManager.updateNode(stack, 'feat/a', { status: 'local-only' });
 
-    const result = await ForgeSync.syncStack(mockProvider([]), stack);
+    const result = await ForgeSync.syncStack(mockProvider([]), stack, MOCK_PROJECT);
 
     expect(result.deletedBranches).toEqual([]);
   });
@@ -1359,7 +1368,7 @@ describe('ForgeSync.syncStack', () => {
         Promise.resolve(mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', state: 'merged' })),
     };
 
-    const result = await ForgeSync.syncStack(provider, stack);
+    const result = await ForgeSync.syncStack(provider, stack, MOCK_PROJECT);
 
     expect(result.deletedBranches).toHaveLength(1);
     expect(result.deletedBranches[0]!.branch).toBe('feat/a');
@@ -1382,7 +1391,7 @@ describe('ForgeSync.syncStack', () => {
         Promise.resolve(mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', state: 'closed' })),
     };
 
-    const result = await ForgeSync.syncStack(provider, stack);
+    const result = await ForgeSync.syncStack(provider, stack, MOCK_PROJECT);
 
     expect(result.deletedBranches).toHaveLength(1);
     expect(result.deletedBranches[0]!.branch).toBe('feat/a');
@@ -1398,10 +1407,10 @@ describe('ForgeSync.syncStack', () => {
     ];
 
     // Call directly without prefetchedPRs — should still work (backward compat)
-    const populated = await ForgeSync.populateNodeData(mockProvider(prs), stack);
+    const populated = await ForgeSync.populateNodeData(mockProvider(prs), stack, MOCK_PROJECT);
     expect(StackManager.findNode(populated, 'feat/a')!.mrIid).toBe(1);
 
-    const reconciled = await ForgeSync.reconcile(mockProvider(prs), stack);
+    const reconciled = await ForgeSync.reconcile(mockProvider(prs), stack, MOCK_PROJECT);
     expect(reconciled.drifts).toEqual([]);
   });
 });
@@ -1625,5 +1634,98 @@ describe('ForgeSync.discoverTeamStacks: repo scoping', () => {
     for (const stack of teamStacks[0]!.stacks) {
       expect(stack.branches.includes('web-only') && stack.branches.includes('api-only')).toBe(false);
     }
+  });
+});
+
+// ── Sync-side repo scoping (MAT-21) ──────────────────────────────────────────
+
+/**
+ * A stack tracking `fix-tests` off main, and two forges' MRs for that same
+ * branch name. The other project's MR is listed last on purpose: `indexBySource`
+ * is last-write-wins, so an unscoped fetch resolves the branch to the wrong MR.
+ */
+function stackTrackingSharedBranch(): Stack {
+  return StackManager.addNode(StackManager.createStack('s', 'main'), 'fix-tests', 'main');
+}
+
+function oursThenTheirs(theirs: Partial<PullRequest> = {}): PullRequest[] {
+  return [
+    mockRepoPR('acme/web', 'gitlab:1', { iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main' }),
+    {
+      ...mockRepoPR('acme/api', 'gitlab:2', { iid: 99, sourceBranch: 'fix-tests', targetBranch: 'main' }),
+      ...theirs,
+    },
+  ];
+}
+
+describe('ForgeSync.reconcile: repo scoping', () => {
+  test('another project\'s MR on the same branch name does not fabricate a drift', async () => {
+    // Their MR targets 'release'; ours targets 'main', which is the local parent.
+    const prs = oursThenTheirs({ targetBranch: 'release' });
+
+    const result = await ForgeSync.reconcile(mockProvider(prs), stackTrackingSharedBranch(), 'acme/web');
+
+    expect(result.drifts).toEqual([]);
+  });
+
+  test('another project\'s MR does not satisfy a branch that has none here', async () => {
+    const theirsOnly = [mockRepoPR('acme/api', 'gitlab:2', { iid: 99, sourceBranch: 'fix-tests', targetBranch: 'main' })];
+
+    const result = await ForgeSync.reconcile(mockProvider(theirsOnly), stackTrackingSharedBranch(), 'acme/web');
+
+    expect(result.localOnly).toEqual(['fix-tests']);
+  });
+
+  test('a scope naming no project is refused rather than read as "everything"', async () => {
+    await expect(ForgeSync.reconcile(mockProvider([]), stackTrackingSharedBranch(), null)).rejects.toThrow(/scope/i);
+    await expect(ForgeSync.reconcile(mockProvider([]), stackTrackingSharedBranch(), '')).rejects.toThrow(/scope/i);
+  });
+
+  test('prefetched PRs are scoped too, so a caller cannot hand in another project\'s MRs', async () => {
+    const result = await ForgeSync.reconcile(
+      mockProvider([]),
+      stackTrackingSharedBranch(),
+      'acme/web',
+      oursThenTheirs({ targetBranch: 'release' }),
+    );
+
+    expect(result.drifts).toEqual([]);
+  });
+});
+
+describe('ForgeSync.populateNodeData: repo scoping', () => {
+  test('the node takes this project\'s MR, not the same-named branch elsewhere', async () => {
+    const updated = await ForgeSync.populateNodeData(mockProvider(oursThenTheirs()), stackTrackingSharedBranch(), 'acme/web');
+
+    const node = StackManager.findNode(updated, 'fix-tests')!;
+    expect(node.mrIid).toBe(1);
+    expect(node.mrUrl).toContain('acme/web');
+  });
+
+  test('another project\'s merged MR does not mark this branch merged', async () => {
+    const prs = oursThenTheirs({ state: 'merged' });
+
+    const updated = await ForgeSync.populateNodeData(mockProvider(prs), stackTrackingSharedBranch(), 'acme/web');
+
+    expect(StackManager.findNode(updated, 'fix-tests')!.status).toBe('synced');
+  });
+
+  test('a scope naming no project is refused rather than read as "everything"', async () => {
+    await expect(ForgeSync.populateNodeData(mockProvider([]), stackTrackingSharedBranch(), null)).rejects.toThrow(/scope/i);
+  });
+});
+
+describe('ForgeSync.syncStack: repo scoping', () => {
+  test('another project\'s merged MR does not report this branch as newly merged', async () => {
+    const prs = oursThenTheirs({ state: 'merged' });
+
+    const result = await ForgeSync.syncStack(mockProvider(prs), stackTrackingSharedBranch(), 'acme/web');
+
+    expect(result.newlyMerged).toEqual([]);
+    expect(StackManager.findNode(result.updatedStack, 'fix-tests')!.mrIid).toBe(1);
+  });
+
+  test('a scope naming no project is refused rather than read as "everything"', async () => {
+    await expect(ForgeSync.syncStack(mockProvider([]), stackTrackingSharedBranch(), null)).rejects.toThrow(/scope/i);
   });
 });

@@ -25,6 +25,9 @@ afterAll(async () => {
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 
+/** The project these fixtures' web URLs belong to; the sync entry points scope to it. */
+const MOCK_PROJECT = 'acme/app';
+
 function mockPR(overrides: Partial<PullRequest> & { sourceBranch: string; targetBranch: string }): PullRequest {
   return {
     id: `gitlab:${overrides.iid ?? 1}`,
@@ -35,7 +38,7 @@ function mockPR(overrides: Partial<PullRequest> & { sourceBranch: string; target
     state: overrides.state ?? 'opened',
     draft: false,
     conflicts: false,
-    webUrl: overrides.webUrl ?? `https://gitlab.com/-/mr/${overrides.iid ?? 1}`,
+    webUrl: overrides.webUrl ?? `https://gitlab.com/${MOCK_PROJECT}/-/merge_requests/${overrides.iid ?? 1}`,
     sourceBranch: overrides.sourceBranch,
     targetBranch: overrides.targetBranch,
     createdAt: '2025-01-01T00:00:00Z',
@@ -145,7 +148,7 @@ describe('ForgeSync smoke: populateNodeData with real stack', () => {
       ];
 
       const provider = mockProvider(prs);
-      const updated = await ForgeSync.populateNodeData(provider, stack);
+      const updated = await ForgeSync.populateNodeData(provider, stack, MOCK_PROJECT);
 
       // Verify branch-1 has full PR data
       const b1 = StackManager.findNode(updated, 'feat/branch-1')!;
@@ -184,7 +187,7 @@ describe('ForgeSync smoke: reconcile detects drift against real stack', () => {
         mockPR({ iid: 2, sourceBranch: 'feat/branch-2', targetBranch: 'main' }), // drift!
       ];
 
-      const result = await ForgeSync.reconcile(mockProvider(prs), stack);
+      const result = await ForgeSync.reconcile(mockProvider(prs), stack, MOCK_PROJECT);
 
       expect(result.drifts).toHaveLength(1);
       expect(result.drifts[0]!.branch).toBe('feat/branch-2');
@@ -226,7 +229,7 @@ describe('ForgeSync smoke: syncStack end-to-end with real stack', () => {
         }),
       ];
 
-      const result = await ForgeSync.syncStack(mockProvider(prs), stack);
+      const result = await ForgeSync.syncStack(mockProvider(prs), stack, MOCK_PROJECT);
 
       // branch-1 should be newly merged
       expect(result.newlyMerged).toEqual(['feat/branch-1']);

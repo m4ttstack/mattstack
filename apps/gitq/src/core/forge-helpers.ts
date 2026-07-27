@@ -140,6 +140,17 @@ export function projectScopeFromWebUrl(webUrl: string | null): ProjectScope | nu
 }
 
 /**
+ * The project a caller named, or null when it names none.
+ *
+ * A caller that only filters can treat null as "keep nothing"; one that writes
+ * forge data onto local state should refuse it instead, the way
+ * {@link ForgeSync.importFromForge} and the sync entry points do.
+ */
+export function normalizeProjectScope(wanted: string | ProjectScope): ProjectScope | null {
+  return typeof wanted === 'string' ? scope(null, wanted) : scope(wanted.host, wanted.path);
+}
+
+/**
  * Keep only the PRs that belong to `wanted` ("group/project", or a
  * {@link ProjectScope} when the host is known too).
  *
@@ -150,7 +161,7 @@ export function projectScopeFromWebUrl(webUrl: string | null): ProjectScope | nu
  * belongs to this repo.
  */
 export function filterPRsToProject(prs: PullRequest[], wanted: string | ProjectScope): PullRequest[] {
-  const target = typeof wanted === 'string' ? scope(null, wanted) : scope(wanted.host, wanted.path);
+  const target = normalizeProjectScope(wanted);
   if (target === null) return [];
 
   return prs.filter((pr) => {

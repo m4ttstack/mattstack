@@ -12,6 +12,9 @@ import type { Stack } from '../../src/core/types.ts';
 
 // ── Mock helpers ─────────────────────────────────────────────────────────────
 
+/** The project these fixtures' web URLs belong to; the sync entry points scope to it. */
+const MOCK_PROJECT = 'acme/app';
+
 function mockPR(overrides: Partial<PullRequest> & { sourceBranch: string; targetBranch: string }): PullRequest {
   return {
     id: `mock:${overrides.iid ?? 1}`,
@@ -22,7 +25,7 @@ function mockPR(overrides: Partial<PullRequest> & { sourceBranch: string; target
     state: overrides.state ?? 'opened',
     draft: false,
     conflicts: false,
-    webUrl: `https://example.com/mr/${overrides.iid ?? 1}`,
+    webUrl: `https://example.com/${MOCK_PROJECT}/-/merge_requests/${overrides.iid ?? 1}`,
     sourceBranch: overrides.sourceBranch,
     targetBranch: overrides.targetBranch,
     createdAt: '2025-01-01T00:00:00Z',
@@ -116,7 +119,7 @@ describe('Network failure: fetchPullRequests', () => {
       fetchPullRequests: () => Promise.reject(new Error('Network timeout')),
     };
 
-    await expect(ForgeSync.syncStack(provider, makeStack())).rejects.toThrow(/Network timeout/);
+    await expect(ForgeSync.syncStack(provider, makeStack(), MOCK_PROJECT)).rejects.toThrow(/Network timeout/);
   });
 
   test('discoverStacks throws when fetchPullRequests fails', async () => {
@@ -134,7 +137,7 @@ describe('Network failure: fetchPullRequests', () => {
       fetchPullRequests: () => Promise.reject(new Error('ECONNREFUSED')),
     };
 
-    await expect(ForgeSync.reconcile(provider, makeStack())).rejects.toThrow(/ECONNREFUSED/);
+    await expect(ForgeSync.reconcile(provider, makeStack(), MOCK_PROJECT)).rejects.toThrow(/ECONNREFUSED/);
   });
 
   test('populateNodeData throws when fetchPullRequests fails', async () => {
@@ -143,7 +146,7 @@ describe('Network failure: fetchPullRequests', () => {
       fetchPullRequests: () => Promise.reject(new Error('DNS resolution failed')),
     };
 
-    await expect(ForgeSync.populateNodeData(provider, makeStack())).rejects.toThrow(/DNS/);
+    await expect(ForgeSync.populateNodeData(provider, makeStack(), MOCK_PROJECT)).rejects.toThrow(/DNS/);
   });
 });
 
@@ -258,7 +261,7 @@ describe('Intermittent failures', () => {
     };
 
     const stack = makeStack();
-    const result = await ForgeSync.syncStack(provider, stack);
+    const result = await ForgeSync.syncStack(provider, stack, MOCK_PROJECT);
 
     const aNode = StackManager.findNode(result.updatedStack, 'feat/a')!;
     expect(aNode.mrIid).toBe(1);
@@ -273,7 +276,7 @@ describe('Intermittent failures', () => {
     };
 
     const stack = makeStack();
-    const result = await ForgeSync.syncStack(provider, stack);
+    const result = await ForgeSync.syncStack(provider, stack, MOCK_PROJECT);
 
     expect(result.updatedStack.nodes).toHaveLength(2);
     expect(result.reconcile.localOnly).toContain('feat/a');
@@ -305,7 +308,7 @@ describe('Intermittent failures', () => {
     };
 
     const stack = makeStack();
-    await ForgeSync.populateNodeData(provider, stack, prs);
+    await ForgeSync.populateNodeData(provider, stack, MOCK_PROJECT, prs);
 
     // Should not have called fetchPullRequests since we passed prefetched
     expect(fetchCallCount).toBe(0);
@@ -326,7 +329,7 @@ describe('Token validation failure', () => {
 
     // syncStack should still work — it doesn't call validateToken
     const stack = makeStack();
-    const result = await ForgeSync.syncStack(provider, stack);
+    const result = await ForgeSync.syncStack(provider, stack, MOCK_PROJECT);
     expect(result.updatedStack).toBeDefined();
 
     const aNode = StackManager.findNode(result.updatedStack, 'feat/a')!;

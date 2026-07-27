@@ -7,6 +7,7 @@ import {
   indexBySource,
   discoverStacksFromPRs,
   filterPRsToProject,
+  normalizeProjectScope,
   normalizePipelineStatus,
   mapDiffStats,
   projectScopeFromRemoteUrl,
@@ -166,10 +167,20 @@ export const ForgeSync = {
    *
    * Detects drifts, local-only branches, and unmatched MRs.
    *
-   * @param prefetchedPRs - Optional pre-fetched PR list to avoid a redundant API call.
+   * @param scope - The forge project this stack lives in. Required: an MR from
+   *   another project can otherwise claim a branch of the same name and report
+   *   a drift that is not there. A scope naming no project throws.
+   * @param prefetchedPRs - Optional pre-fetched PR list to avoid a redundant API
+   *   call. Scoped like a fetched one, so handing in a wider list cannot widen
+   *   what this reads.
    */
-  async reconcile(provider: GitProvider, stack: Stack, prefetchedPRs?: PullRequest[]): Promise<ReconcileResult> {
-    const allPRs = prefetchedPRs ?? (await provider.fetchPullRequests());
+  async reconcile(
+    provider: GitProvider,
+    stack: Stack,
+    scope: string | ProjectScope | null,
+    prefetchedPRs?: PullRequest[],
+  ): Promise<ReconcileResult> {
+    const allPRs = prsForProject(prefetchedPRs ?? (await provider.fetchPullRequests()), scope, 'reconcile');
     const prBySource = indexBySource(allPRs);
 
     const drifts: DriftRecord[] = [];
@@ -209,17 +220,23 @@ export const ForgeSync = {
   /**
    * Populate stack nodes with data from forge MRs.
    *
-   * @param prefetchedPRs - Optional pre-fetched PR list to avoid a redundant API call.
+   * @param scope - The forge project this stack lives in. Required: this writes
+   *   `mrIid`, `mrUrl`, pipeline and merged status onto the nodes, so an MR from
+   *   another project winning a branch name is silent corruption of the tree. A
+   *   scope naming no project throws.
+   * @param prefetchedPRs - Optional pre-fetched PR list to avoid a redundant API
+   *   call. Scoped like a fetched one.
    * @param cwd - Optional repo path for resolving local branch HEADs (used to
    *   capture `lastKnownHead` tombstones when a branch is detected as merged).
    */
   async populateNodeData(
     provider: GitProvider,
     stack: Stack,
+    scope: string | ProjectScope | null,
     prefetchedPRs?: PullRequest[],
     cwd?: string,
   ): Promise<Stack> {
-    const allPRs = prefetchedPRs ?? (await provider.fetchPullRequests());
+    const allPRs = prsForProject(prefetchedPRs ?? (await provider.fetchPullRequests()), scope, 'populateNodeData');
     const prBySource = indexBySource(allPRs);
 
     let updated = stack;
@@ -560,15 +577,21 @@ export const ForgeSync = {
    *
    * Fetches PRs once and shares the list across both operations. Also detects
    * branches that transitioned to 'merged' since the last sync.
+   *
+   * @param scope - The forge project this stack lives in. Required, and checked
+   *   before the fetch so a scope naming no project costs no API call. The list
+   *   is scoped once here and handed to both callees already filtered.
    */
-  async syncStack(provider: GitProvider, stack: Stack): Promise<SyncResult> {
-    const allPRs = await provider.fetchPullRequests({ state: ['opened', 'merged'] });
+  async syncStack(provider: GitProvider, stack: Stack, scope: string | ProjectScope | null): Promise<SyncResult> {
+    // Before the fetch: a scope that names no project should cost no API call.
+    const target = requireScope(scope, 'syncStack');
+    const allPRs = filterPRsToProject(await provider.fetchPullRequests({ state: ['opened', 'merged'] }), target);
 
     const oldStatuses = new Map(stack.nodes.map((n) => [n.branch, n.status]));
     const oldPipelines = new Map(stack.nodes.map((n) => [n.branch, n.pipelineStatus]));
 
-    const updatedStack = await ForgeSync.populateNodeData(provider, stack, allPRs);
-    const reconcile = await ForgeSync.reconcile(provider, updatedStack, allPRs);
+    const updatedStack = await ForgeSync.populateNodeData(provider, stack, target, allPRs);
+    const reconcile = await ForgeSync.reconcile(provider, updatedStack, target, allPRs);
 
     const prBySource = indexBySource(allPRs);
 
@@ -612,6 +635,38 @@ function metaUpdate(desc?: { title?: string; body?: string }): { title?: string;
   if (desc.title !== undefined) update.title = desc.title;
   if (desc.body !== undefined) update.description = desc.body;
   return Object.keys(update).length > 0 ? update : null;
+}
+
+/**
+ * The project a sync entry point is syncing against, refusing a scope that
+ * names none.
+ *
+ * Those entry points write forge data onto tracked nodes: an MR supplies a
+ * node's `mrIid`, `mrUrl`, pipeline and merged status, and its target branch
+ * decides whether the node reads as drifted. `indexBySource` is last-write-wins
+ * over one flat list, so unscoped, an identically named branch in an unrelated
+ * project can win the branch and hand a node another repo's MR (MAT-21, the
+ * sync-side half of MAT-18).
+ *
+ * Unlike discovery, which only lists what the forge has and so reads a missing
+ * scope as "everything", these callers mutate local state from the result. They
+ * follow `importFromForge` and refuse instead: silently syncing against every
+ * project on the instance is the one thing a sync must not do, and the caller
+ * cannot see it happen.
+ */
+function requireScope(scope: string | ProjectScope | null, operation: string): ProjectScope {
+  const target = scope === null ? null : normalizeProjectScope(scope);
+  if (!target) {
+    throw new Error(
+      `${operation} needs the project scope of the repo it is syncing; without one, another project's MR on the same branch name can supply this stack's data`,
+    );
+  }
+  return target;
+}
+
+/** {@link requireScope}, then the filter it licenses. */
+function prsForProject(prs: PullRequest[], scope: string | ProjectScope | null, operation: string): PullRequest[] {
+  return filterPRsToProject(prs, requireScope(scope, operation));
 }
 
 /**

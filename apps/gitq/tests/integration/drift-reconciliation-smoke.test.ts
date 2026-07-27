@@ -57,6 +57,9 @@ afterEach(async () => {
 
 // ── Mock forge helpers ───────────────────────────────────────────────────────
 
+/** The project these fixtures' web URLs belong to; the sync entry points scope to it. */
+const MOCK_PROJECT = 'acme/app';
+
 function mockPR(
   overrides: Partial<PullRequest> & { sourceBranch: string; targetBranch: string },
 ): PullRequest {
@@ -69,7 +72,7 @@ function mockPR(
     state: overrides.state ?? 'opened',
     draft: false,
     conflicts: false,
-    webUrl: `https://gitlab.com/-/mr/${overrides.iid ?? 1}`,
+    webUrl: `https://gitlab.com/${MOCK_PROJECT}/-/merge_requests/${overrides.iid ?? 1}`,
     sourceBranch: overrides.sourceBranch,
     targetBranch: overrides.targetBranch,
     createdAt: '2025-01-01T00:00:00Z',
@@ -339,7 +342,7 @@ describe('Stacked MR drift reconciliation: end-to-end smoke test', () => {
       }),
     ];
 
-    const syncResult = await ForgeSync.syncStack(mockProvider(forgePRs), stack);
+    const syncResult = await ForgeSync.syncStack(mockProvider(forgePRs), stack, MOCK_PROJECT);
 
     expect(syncResult.newlyMerged).toEqual(['feat/refactor']);
     expect(
