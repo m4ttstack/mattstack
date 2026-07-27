@@ -16,6 +16,89 @@ export function indexBySource(prs: PullRequest[]): Map<string, PullRequest> {
   return map;
 }
 
+// ── Repo scoping ─────────────────────────────────────────────────────────────
+
+/** Strip the decorations a project path picks up in a URL: slashes, `.git`. */
+function cleanProjectPath(projectPath: string): string {
+  return projectPath
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.git$/, '');
+}
+
+/** Both forges resolve project paths case-insensitively, so comparisons do too. */
+function sameProject(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+/**
+ * Extract "group/project" from a git remote URL.
+ *
+ * SSH: "git@gitlab.com:group/project.git" -> "group/project"
+ * HTTPS: "https://gitlab.com/group/project.git" -> "group/project"
+ *
+ * Returns null when no path can be read, which callers treat as "unknown
+ * scope" rather than "matches nothing".
+ */
+export function projectPathFromRemoteUrl(remoteUrl: string): string | null {
+  // Only the scp-like form (no scheme) puts the path after a colon. Matching
+  // a colon in "ssh://git@host:2222/group/project" would read the port.
+  const scpMatch = remoteUrl.includes('://') ? null : remoteUrl.match(/^[^/]*@[^/:]+:(.+)$/);
+  const raw = scpMatch?.[1] ?? readUrlPath(remoteUrl);
+  if (raw === null) return null;
+  const path = cleanProjectPath(raw);
+  return path === '' ? null : path;
+}
+
+function readUrlPath(remoteUrl: string): string | null {
+  try {
+    return new URL(remoteUrl).pathname;
+  } catch {
+    return remoteUrl.includes('/') ? remoteUrl : null;
+  }
+}
+
+/**
+ * Extract a project path from an MR/PR web URL.
+ *
+ * GitLab: "https://gitlab.com/group/project/-/merge_requests/42" -> "group/project"
+ * GitHub: "https://github.com/owner/repo/pull/42" -> "owner/repo"
+ */
+export function projectPathFromWebUrl(webUrl: string | null): string | null {
+  if (!webUrl) return null;
+  try {
+    const parts = new URL(webUrl).pathname.split('/').filter(Boolean);
+
+    const dashIdx = parts.indexOf('-');
+    if (dashIdx >= 2) return cleanProjectPath(parts.slice(0, dashIdx).join('/'));
+
+    const pullIdx = parts.indexOf('pull');
+    if (pullIdx >= 2) return cleanProjectPath(parts.slice(0, pullIdx).join('/'));
+
+    if (parts.length >= 2) return cleanProjectPath(`${parts[0]}/${parts[1]}`);
+  } catch {
+    // Invalid URL
+  }
+  return null;
+}
+
+/**
+ * Keep only the PRs that belong to `projectPath`.
+ *
+ * The web URL is the only repo identity a `PullRequest` carries that can be
+ * matched against a local remote... `repositoryId` is the forge's own numeric
+ * id, which we would have to call the API to resolve. A PR whose project can't
+ * be established is dropped: an MR we cannot place is an MR we cannot claim
+ * belongs to this repo.
+ */
+export function filterPRsToProject(prs: PullRequest[], projectPath: string): PullRequest[] {
+  const wanted = cleanProjectPath(projectPath);
+  return prs.filter((pr) => {
+    const prProject = projectPathFromWebUrl(pr.webUrl);
+    return prProject !== null && sameProject(prProject, wanted);
+  });
+}
+
 /**
  * Stack discovery: given a list of PRs, walk target→source chains
  * and return independent stack trees.
@@ -23,8 +106,25 @@ export function indexBySource(prs: PullRequest[]): Map<string, PullRequest> {
  * Branches that target the same base branch (e.g. multiple MRs → main)
  * but don't form a chain with each other are split into separate stacks.
  * Only branches connected by a chain (A → B → main) share a stack.
+ *
+ * Chains are walked one repository at a time. Branch names are only unique
+ * within a repository... `main`, `develop` and `fix-tests` collide across
+ * unrelated projects as a matter of routine, and a single adjacency map over
+ * mixed repos would splice those collisions into a stack that exists nowhere.
  */
 export function discoverStacksFromPRs(prs: PullRequest[]): DiscoveredStack[] {
+  const byRepo = new Map<string, PullRequest[]>();
+  for (const pr of prs) {
+    const bucket = byRepo.get(pr.repositoryId);
+    if (bucket) bucket.push(pr);
+    else byRepo.set(pr.repositoryId, [pr]);
+  }
+
+  return [...byRepo.values()].flatMap(discoverStacksInRepo);
+}
+
+/** Stack discovery within a single repository, where branch names are unique. */
+function discoverStacksInRepo(prs: PullRequest[]): DiscoveredStack[] {
   const prBySource = indexBySource(prs);
   const childrenOf = new Map<string, string[]>();
 

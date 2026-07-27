@@ -6,8 +6,11 @@ import { toErrorMessage } from './error-utils.ts';
 import {
   indexBySource,
   discoverStacksFromPRs,
+  filterPRsToProject,
   normalizePipelineStatus,
   mapDiffStats,
+  projectPathFromRemoteUrl,
+  projectPathFromWebUrl,
   type DiscoveredStack,
 } from './forge-helpers.ts';
 
@@ -111,11 +114,17 @@ export const ForgeSync = {
   /**
    * Discover stack-like MR chains from the forge.
    *
-   * Fetches all open MRs, then walks `targetBranch` chains to find
-   * trees of related MRs.
+   * Fetches the open MRs of one project, then walks `targetBranch` chains to
+   * find trees of related MRs.
+   *
+   * @param projectPath - Scope discovery to one forge project ("group/project").
+   *   Omit it only when the caller has no repo in hand: the fetch returns every
+   *   MR the token user is involved in, across every project on the instance,
+   *   and an unscoped result can only be trusted as far as
+   *   `discoverStacksFromPRs` keeps repos apart.
    */
-  async discoverStacks(provider: GitProvider): Promise<DiscoveredStack[]> {
-    const allPRs = await provider.fetchPullRequests();
+  async discoverStacks(provider: GitProvider, projectPath?: string | null): Promise<DiscoveredStack[]> {
+    const allPRs = await fetchPRsForProject(provider, projectPath);
     const openPRs = allPRs.filter((pr) => pr.state === 'opened');
     return discoverStacksFromPRs(openPRs);
   },
@@ -224,11 +233,15 @@ export const ForgeSync = {
   /**
    * Import stacks from forge — reverse sync escape hatch.
    *
-   * Fetches all open MRs, discovers stack chains, and builds a StackStore
-   * from scratch. Use for recovery, not normal workflow.
+   * Fetches the open MRs of the project `remoteUrl` points at, discovers stack
+   * chains, and builds a StackStore from scratch. Use for recovery, not normal
+   * workflow.
+   *
+   * MRs from other projects are left out: the store is this repo's, so an MR
+   * from elsewhere has no branch here to attach to.
    */
   async importFromForge(provider: GitProvider, repoPath: string, remoteUrl: string): Promise<StackStore> {
-    const discovered = await ForgeSync.discoverStacks(provider);
+    const discovered = await ForgeSync.discoverStacks(provider, projectPathFromRemoteUrl(remoteUrl));
     const usedIds = new Set<string>();
 
     const stacks: Stack[] = discovered.map((ds) => {
@@ -415,9 +428,13 @@ export const ForgeSync = {
 
   /**
    * Discover stack chains from forge MRs grouped by author.
+   *
+   * @param projectPath - Scope discovery to one forge project ("group/project"),
+   *   as in {@link ForgeSync.discoverStacks}. Without it a teammate's MRs in
+   *   another project are listed under their name as if they were this repo's.
    */
-  async discoverTeamStacks(provider: GitProvider): Promise<TeamStack[]> {
-    const allPRs = await provider.fetchPullRequests();
+  async discoverTeamStacks(provider: GitProvider, projectPath?: string | null): Promise<TeamStack[]> {
+    const allPRs = await fetchPRsForProject(provider, projectPath);
     const openPRs = allPRs.filter((pr) => pr.state === 'opened');
 
     const byAuthor = new Map<string, { author: TeamStackAuthor; prs: PullRequest[] }>();
@@ -473,6 +490,22 @@ export const ForgeSync = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Fetch the MRs of one forge project, or every MR the token user is involved
+ * in when no project is given.
+ *
+ * The scoping is done on the result rather than in the query because
+ * `@workforge/glance-sdk@0.9.0` cannot express "this project's MRs":
+ * `fetchPullRequests` honours `projectPath` only alongside `iids` or
+ * `authorUsernames`, neither of which discovery knows before it has fetched,
+ * and `GitHubProvider.fetchPullRequests` takes no options at all at this
+ * version. A later SDK can push this into the query (see MAT-16).
+ */
+async function fetchPRsForProject(provider: GitProvider, projectPath?: string | null): Promise<PullRequest[]> {
+  const prs = await provider.fetchPullRequests();
+  return projectPath ? filterPRsToProject(prs, projectPath) : prs;
+}
+
 async function detectSyncChanges(
   provider: GitProvider,
   updatedStack: Stack,
@@ -503,7 +536,7 @@ async function detectSyncChanges(
   const deletedBranches: DeletedBranch[] = await Promise.all(
     vanished.map(async ({ branch, mrIid, mrUrl }): Promise<DeletedBranch> => {
       if (mrIid != null && mrUrl) {
-        const projectPath = extractProjectPathFromMrUrl(mrUrl);
+        const projectPath = projectPathFromWebUrl(mrUrl);
         if (projectPath) {
           try {
             const mr = await provider.fetchSingleMR(projectPath, mrIid, null);
@@ -519,39 +552,6 @@ async function detectSyncChanges(
   );
 
   return { newlyMerged, pipelineChanges, deletedBranches };
-}
-
-/**
- * Extract a project path from a stored MR URL.
- *
- * GitLab: "https://gitlab.com/group/project/-/merge_requests/42" → "group/project"
- * GitHub: "https://github.com/owner/repo/pull/42" → "owner/repo"
- */
-function extractProjectPathFromMrUrl(mrUrl: string): string | null {
-  try {
-    const url = new URL(mrUrl);
-    const parts = url.pathname.split('/').filter(Boolean);
-
-    // GitLab: /group/project/-/merge_requests/42  → take segments before "/-/"
-    const dashIdx = parts.indexOf('-');
-    if (dashIdx >= 2) {
-      return parts.slice(0, dashIdx).join('/');
-    }
-
-    // GitHub: /owner/repo/pull/42  → take first 2 segments
-    const pullIdx = parts.indexOf('pull');
-    if (pullIdx >= 2) {
-      return parts.slice(0, pullIdx).join('/');
-    }
-
-    // Fallback: take first 2 segments
-    if (parts.length >= 2) {
-      return `${parts[0]}/${parts[1]}`;
-    }
-  } catch {
-    // Invalid URL
-  }
-  return null;
 }
 
 /**

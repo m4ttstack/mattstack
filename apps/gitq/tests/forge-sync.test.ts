@@ -332,9 +332,11 @@ describe('ForgeSync.populateNodeData', () => {
 
 describe('ForgeSync.importFromForge', () => {
   test('reconstructs a stack store from forge MRs', async () => {
+    // The MRs have to live in the project the remote points at... import
+    // scopes to that repo, so mockPR's default web url would be filtered out.
     const prs = [
-      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
-      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a', webUrl: 'https://github.com/user/repo/pull/2' }),
     ];
 
     const store = await ForgeSync.importFromForge(mockProvider(prs), '/tmp/repo', 'git@github.com:user/repo.git');
@@ -1166,5 +1168,131 @@ describe('ForgeSync.discoverTeamStacks', () => {
 
     expect(teamStacks).toHaveLength(1);
     expect(teamStacks[0]!.stacks).toHaveLength(2);
+  });
+});
+
+// ── repo scoping (MAT-18) ────────────────────────────────────────────────────
+
+/**
+ * Build a PR that belongs to a specific forge project.
+ *
+ * Sets both identity carriers a real MR has: `repositoryId` (the forge's own
+ * repo id) and `webUrl` (the only place a project path can be read from).
+ */
+function mockRepoPR(
+  projectPath: string,
+  repositoryId: string,
+  pr: { iid: number; sourceBranch: string; targetBranch: string; author?: PullRequest['author'] },
+): PullRequest {
+  return {
+    ...mockPR({
+      iid: pr.iid,
+      sourceBranch: pr.sourceBranch,
+      targetBranch: pr.targetBranch,
+      webUrl: `https://gitlab.com/${projectPath}/-/merge_requests/${pr.iid}`,
+    }),
+    repositoryId,
+    ...(pr.author ? { author: pr.author } : {}),
+  };
+}
+
+/**
+ * Two unrelated projects whose branch names collide: `fix-tests` exists in
+ * both, and each has one branch stacked on top of it.
+ */
+function twoReposSharingABranchName(author?: PullRequest['author']): PullRequest[] {
+  return [
+    mockRepoPR('acme/web', 'gitlab:1', { iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main', ...(author && { author }) }),
+    mockRepoPR('acme/web', 'gitlab:1', { iid: 2, sourceBranch: 'web-only', targetBranch: 'fix-tests', ...(author && { author }) }),
+    mockRepoPR('acme/api', 'gitlab:2', { iid: 3, sourceBranch: 'fix-tests', targetBranch: 'main', ...(author && { author }) }),
+    mockRepoPR('acme/api', 'gitlab:2', { iid: 4, sourceBranch: 'api-only', targetBranch: 'fix-tests', ...(author && { author }) }),
+  ];
+}
+
+describe('ForgeSync.discoverStacks: repo scoping', () => {
+  test('scoped to one project, MRs from other projects are not in the stack', async () => {
+    const stacks = await ForgeSync.discoverStacks(mockProvider(twoReposSharingABranchName()), 'acme/web');
+
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0]!.branches.sort()).toEqual(['fix-tests', 'web-only']);
+    // The MR attached to the shared branch name must be this project's MR.
+    expect(stacks[0]!.mrMap.get('fix-tests')!.iid).toBe(1);
+  });
+
+  test('a chain in another project does not extend this project\'s stack', async () => {
+    const prs = [
+      mockRepoPR('acme/web', 'gitlab:1', { iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main' }),
+      mockRepoPR('acme/api', 'gitlab:2', { iid: 2, sourceBranch: 'update-deps', targetBranch: 'fix-tests' }),
+    ];
+
+    const stacks = await ForgeSync.discoverStacks(mockProvider(prs), 'acme/web');
+
+    // 'fix-tests' alone is not a stack; 'update-deps' belongs to another repo.
+    expect(stacks).toEqual([]);
+  });
+
+  test('project paths compare case-insensitively', async () => {
+    const stacks = await ForgeSync.discoverStacks(mockProvider(twoReposSharingABranchName()), 'ACME/Web');
+
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0]!.branches.sort()).toEqual(['fix-tests', 'web-only']);
+  });
+
+  test('without a project path, branches from different repos are still never spliced', async () => {
+    const stacks = await ForgeSync.discoverStacks(mockProvider(twoReposSharingABranchName()));
+
+    expect(stacks).toHaveLength(2);
+    for (const stack of stacks) {
+      expect(stack.branches.includes('web-only') && stack.branches.includes('api-only')).toBe(false);
+    }
+  });
+});
+
+describe('ForgeSync.importFromForge: repo scoping', () => {
+  test('imports only the stacks of the repo the remote points at', async () => {
+    const store = await ForgeSync.importFromForge(
+      mockProvider(twoReposSharingABranchName()),
+      '/tmp/web',
+      'git@gitlab.com:acme/web.git',
+    );
+
+    expect(store.stacks).toHaveLength(1);
+    const branches = store.stacks[0]!.nodes.map((n) => n.branch).sort();
+    expect(branches).toEqual(['fix-tests', 'web-only']);
+    expect(StackManager.findNode(store.stacks[0]!, 'fix-tests')!.mrIid).toBe(1);
+  });
+
+  test('https remotes scope the same way as ssh remotes', async () => {
+    const store = await ForgeSync.importFromForge(
+      mockProvider(twoReposSharingABranchName()),
+      '/tmp/api',
+      'https://gitlab.com/acme/api.git',
+    );
+
+    expect(store.stacks).toHaveLength(1);
+    expect(store.stacks[0]!.nodes.map((n) => n.branch).sort()).toEqual(['api-only', 'fix-tests']);
+  });
+});
+
+describe('ForgeSync.discoverTeamStacks: repo scoping', () => {
+  const alice = { id: 'gitlab:user:2', username: 'alice', name: 'Alice', avatarUrl: null };
+
+  test('an author working in two repos gets one stack per repo, not a merged one', async () => {
+    const teamStacks = await ForgeSync.discoverTeamStacks(mockProvider(twoReposSharingABranchName(alice)), 'acme/web');
+
+    expect(teamStacks).toHaveLength(1);
+    expect(teamStacks[0]!.author.username).toBe('alice');
+    expect(teamStacks[0]!.stacks).toHaveLength(1);
+    expect(teamStacks[0]!.stacks[0]!.branches.sort()).toEqual(['fix-tests', 'web-only']);
+  });
+
+  test('without a project path, an author\'s repos stay separate stacks', async () => {
+    const teamStacks = await ForgeSync.discoverTeamStacks(mockProvider(twoReposSharingABranchName(alice)));
+
+    expect(teamStacks).toHaveLength(1);
+    expect(teamStacks[0]!.stacks).toHaveLength(2);
+    for (const stack of teamStacks[0]!.stacks) {
+      expect(stack.branches.includes('web-only') && stack.branches.includes('api-only')).toBe(false);
+    }
   });
 });
