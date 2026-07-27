@@ -1,4 +1,4 @@
-import { ForgeSync, type PublishNodeResult } from '../../core/forge-sync.ts';
+import { ForgeSync, type PublishNodeResult, type PublishSkip } from '../../core/forge-sync.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { loadStore, updateStore } from '../../core/persistence.ts';
 import type { CliContext } from '../context.ts';
@@ -17,8 +17,14 @@ import { createGitLabProvider } from '../provider.ts';
  * Returns the parsed descriptions mapped to `publishStack`'s `{ title, body }`
  * shape, or an error message (never throws — callers turn the message into
  * `fail()`).
+ *
+ * An empty string is read as "not provided" rather than as a value to write:
+ * `""` would otherwise mean branch-name-as-title on a new MR but wipe the
+ * title or body of an existing one, and wiping an MR body is not something
+ * this flag was designed to do. An entry that is empty on both fields drops
+ * out entirely, leaving that branch's MR prose alone.
  */
-async function parseMrMeta(path: string): Promise<Record<string, { title: string; body: string }> | string> {
+export async function parseMrMeta(path: string): Promise<Record<string, { title?: string; body?: string }> | string> {
   let raw: string;
   try {
     raw = await Bun.file(path).text();
@@ -37,7 +43,7 @@ async function parseMrMeta(path: string): Promise<Record<string, { title: string
     return 'invalid --mr-meta: expected a JSON object of {branch: {title, description}}';
   }
 
-  const descriptions: Record<string, { title: string; body: string }> = {};
+  const descriptions: Record<string, { title?: string; body?: string }> = {};
   for (const [branch, value] of Object.entries(parsed as Record<string, unknown>)) {
     if (
       typeof value !== 'object' ||
@@ -49,7 +55,12 @@ async function parseMrMeta(path: string): Promise<Record<string, { title: string
       return `invalid --mr-meta: entry "${branch}" must be {"title": string, "description": string}`;
     }
     const entry = value as { title: string; description: string };
-    descriptions[branch] = { title: entry.title, body: entry.description };
+    const normalized: { title?: string; body?: string } = {};
+    if (entry.title !== '') normalized.title = entry.title;
+    if (entry.description !== '') normalized.body = entry.description;
+    if (normalized.title !== undefined || normalized.body !== undefined) {
+      descriptions[branch] = normalized;
+    }
   }
 
   return descriptions;
@@ -77,13 +88,24 @@ function formatPublishResult(r: PublishNodeResult): string {
   return `${r.branch}: created ${r.mrUrl}`;
 }
 
+/**
+ * One line per branch publish would not write to.
+ *
+ * A skip is not a failure, but it is not a no-op either: silence here reads as
+ * "that branch needed nothing", which is exactly the wrong thing to believe
+ * about an MR that came back closed or unreadable.
+ */
+function formatPublishSkip(s: PublishSkip): string {
+  return `${s.branch}: skipped (${s.detail})`;
+}
+
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 export async function publishCommand(ctx: CliContext): Promise<number> {
   // Validate --mr-meta before touching the store/network: a malformed file
   // should fail the same way regardless of stack state or token presence.
   const mrMetaPath = typeof ctx.flags['mr-meta'] === 'string' ? ctx.flags['mr-meta'] : null;
-  let descriptions: Record<string, { title: string; body: string }> | undefined;
+  let descriptions: Record<string, { title?: string; body?: string }> | undefined;
   if (mrMetaPath) {
     const result = await parseMrMeta(mrMetaPath);
     if (typeof result === 'string') return fail(result);
@@ -107,10 +129,13 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
   }));
 
   const ok = result.results.every((r) => r.success);
-  const human = result.results.length
-    ? result.results.map(formatPublishResult).join('\n')
-    : 'nothing to publish (no branches to create or update)';
-  emit(ctx, human, { results: result.results, updatedStack: result.updatedStack });
+  const lines = [...result.results.map(formatPublishResult), ...result.skipped.map(formatPublishSkip)];
+  const human = lines.length ? lines.join('\n') : 'nothing to publish (no branches to create or update)';
+  emit(ctx, human, {
+    results: result.results,
+    skipped: result.skipped,
+    updatedStack: result.updatedStack,
+  });
   return ok ? 0 : 1;
 }
 

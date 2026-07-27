@@ -1,5 +1,11 @@
 import { describe, expect, test, mock } from 'bun:test';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+// Sync fs on purpose: another unit test mock.module's `node:fs/promises` for
+// the whole run, and these tests only need a file on disk.
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { ForgeSync } from '../src/core/forge-sync.ts';
+import { parseMrMeta } from '../src/cli/commands/forge.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
@@ -710,7 +716,7 @@ describe('ForgeSync.publishStack — republish', () => {
     expect(calls.updates[0]!.input.description).toBeUndefined();
   });
 
-  test('skips a node whose MR is no longer open on the forge', async () => {
+  test('skips a node whose MR is no longer open on the forge, and says so', async () => {
     const stack = publishedStack();
 
     const { provider, calls } = republishProvider([
@@ -724,9 +730,12 @@ describe('ForgeSync.publishStack — republish', () => {
 
     expect(calls.updates).toEqual([]);
     expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([
+      { branch: 'feat/b', mrIid: 2, reason: 'mr-not-open', detail: 'MR !2 is merged' },
+    ]);
   });
 
-  test('skips a node whose MR the forge did not return', async () => {
+  test('skips a node whose MR the forge did not return, and says so', async () => {
     const stack = publishedStack();
 
     // Only feat/a's MR comes back; feat/b's iid is unreadable, so its target
@@ -737,6 +746,50 @@ describe('ForgeSync.publishStack — republish', () => {
 
     expect(calls.updates).toEqual([]);
     expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([
+      { branch: 'feat/b', mrIid: 2, reason: 'mr-unreadable', detail: 'MR !2 was not returned by GitLab' },
+    ]);
+  });
+
+  test('skips a node whose iid belongs to a different branch', async () => {
+    let stack = publishedStack();
+    stack = StackManager.updateNode(stack, 'feat/b', { mrIid: 7 });
+
+    // MR !7 is someone else's: retargeting it would move an unrelated MR.
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 7, sourceBranch: 'other/branch', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/b': { title: 'New title', body: 'New body' },
+    });
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([
+      {
+        branch: 'feat/b',
+        mrIid: 7,
+        reason: 'source-branch-mismatch',
+        detail: 'MR !7 is for other/branch, not feat/b',
+      },
+    ]);
+  });
+
+  test('a merged node is left alone without being reported as a skip', async () => {
+    let stack = publishedStack();
+    stack = StackManager.updateNode(stack, 'feat/a', { status: 'merged' });
+
+    // feat/a's iid is deliberately left out of the pre-walk read, so it must
+    // not come back as an MR that could not be read.
+    const { provider, calls } = republishProvider([mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' })]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+    expect(result.skipped).toEqual([]);
   });
 
   test('creates and updates in one run, parents before children', async () => {
@@ -761,7 +814,7 @@ describe('ForgeSync.publishStack — republish', () => {
     expect(StackManager.findNode(result.updatedStack, 'feat/c')!.status).toBe('synced');
   });
 
-  test('stops the walk when a retarget fails', async () => {
+  test('keeps walking when a retarget fails, and persists what did land', async () => {
     let stack = publishedStack();
     stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
 
@@ -776,12 +829,30 @@ describe('ForgeSync.publishStack — republish', () => {
 
     const result = await ForgeSync.publishStack(failing, stack, 'user/repo');
 
-    expect(result.results).toHaveLength(1);
-    expect(result.results[0]!.branch).toBe('feat/b');
-    expect(result.results[0]!.success).toBe(false);
+    // A failed update leaves feat/b's branch and MR exactly as they were, so
+    // feat/c still has a base to target.
+    expect(result.results.map((r) => [r.branch, r.success])).toEqual([
+      ['feat/b', false],
+      ['feat/c', true],
+    ]);
     expect(result.results[0]!.action).toBe('updated');
     expect(result.results[0]!.error).toContain('409');
-    expect(calls.creates).toEqual([]);
+    expect(calls.creates.map((c) => c.sourceBranch)).toEqual(['feat/c']);
+
+    const cNode = StackManager.findNode(result.updatedStack, 'feat/c')!;
+    expect(cNode.status).toBe('synced');
+    expect(cNode.mrIid).toBeGreaterThan(0);
+    expect(StackManager.findNode(result.updatedStack, 'feat/b')!.status).toBe('synced');
+  });
+
+  test('propagates a failure of the pre-walk MR read', async () => {
+    const { provider } = republishProvider([]);
+    const failing: GitProvider = {
+      ...provider,
+      fetchPullRequests: () => Promise.reject(new Error('API error: 500 internal')),
+    };
+
+    await expect(ForgeSync.publishStack(failing, publishedStack(), 'user/repo')).rejects.toThrow(/500/);
   });
 
   test('reads the forge only when the stack has published nodes', async () => {
@@ -827,6 +898,193 @@ describe('ForgeSync.publishStack — republish', () => {
 
     expect(pushCalls).toEqual(['feat/c']);
     expect(result.results.every((r) => r.success)).toBe(true);
+  });
+
+  test('sends only the --mr-meta fields that were provided', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, {
+      'feat/a': { title: 'Title only' },
+      'feat/b': { body: 'Body only' },
+    });
+
+    expect(calls.updates).toEqual([
+      { iid: 1, input: { title: 'Title only' } },
+      { iid: 2, input: { description: 'Body only' } },
+    ]);
+    expect(result.results.map((r) => r.changes)).toEqual([['metadata'], ['metadata']]);
+  });
+
+  test('treats an entry with neither field as no metadata at all', async () => {
+    const stack = publishedStack();
+
+    const { provider, calls } = republishProvider([
+      mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main' }),
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo', undefined, { 'feat/a': {} });
+
+    expect(calls.updates).toEqual([]);
+    expect(result.results).toEqual([]);
+  });
+});
+
+// ── publishStack: a merged parent still in the tree ──────────────────────────
+
+describe('ForgeSync.publishStack: merged parent', () => {
+  /** main ← feat/a (merged, MR !1) ← feat/b (open MR !2) ← feat/c (local-only). */
+  function stackUnderMergedParent(): Stack {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+    stack = StackManager.updateNode(stack, 'feat/a', {
+      mrIid: 1,
+      mrUrl: 'https://gitlab.com/-/mr/1',
+      status: 'merged',
+    });
+    stack = StackManager.updateNode(stack, 'feat/b', {
+      mrIid: 2,
+      mrUrl: 'https://gitlab.com/-/mr/2',
+      status: 'synced',
+    });
+    return stack;
+  }
+
+  function recordingProvider(prs: PullRequest[]): {
+    provider: GitProvider;
+    creates: CreatePullRequestInput[];
+    updates: { iid: number; input: Record<string, unknown> }[];
+  } {
+    const creates: CreatePullRequestInput[] = [];
+    const updates: { iid: number; input: Record<string, unknown> }[] = [];
+    let nextIid = 100;
+
+    return {
+      creates,
+      updates,
+      provider: {
+        ...mockProvider(prs),
+        createPullRequest: async (input) => {
+          creates.push(input);
+          const iid = nextIid++;
+          return mockPR({ iid, sourceBranch: input.sourceBranch, targetBranch: input.targetBranch });
+        },
+        updatePullRequest: async (_projectPath, iid, input) => {
+          updates.push({ iid, input: input as Record<string, unknown> });
+          return mockPR({ iid, sourceBranch: 'x', targetBranch: 'y' });
+        },
+      },
+    };
+  }
+
+  test('leaves a child GitLab already retargeted alone, and still creates the new branch', async () => {
+    // feat/a merged and its branch was deleted on merge; GitLab moved feat/b's
+    // MR to main. Targeting feat/a again would 400 and take feat/c with it.
+    const { provider, creates, updates } = recordingProvider([
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'main' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stackUnderMergedParent(), 'user/repo');
+
+    expect(updates).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(result.results.map((r) => [r.branch, r.action, r.success])).toEqual([['feat/c', 'created', true]]);
+    expect(creates).toHaveLength(1);
+    expect(creates[0]!.targetBranch).toBe('feat/b');
+  });
+
+  test('moves a child off its merged parent onto the live ancestor, never back onto it', async () => {
+    // The merged branch still exists and feat/b's MR still targets it.
+    const { provider, updates } = recordingProvider([
+      mockPR({ iid: 2, sourceBranch: 'feat/b', targetBranch: 'feat/a' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stackUnderMergedParent(), 'user/repo');
+
+    expect(updates).toEqual([{ iid: 2, input: { targetBranch: 'main' } }]);
+    expect(result.results[0]!.branch).toBe('feat/b');
+    expect(result.results[0]!.changes).toEqual(['target']);
+    expect(result.results[0]!.targetBranch).toBe('main');
+  });
+
+  test('creates a new MR against the live ancestor when the parent is merged', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.updateNode(stack, 'feat/a', { mrIid: 1, status: 'merged' });
+
+    const { provider, creates } = recordingProvider([]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(creates).toHaveLength(1);
+    expect(creates[0]!.sourceBranch).toBe('feat/b');
+    expect(creates[0]!.targetBranch).toBe('main');
+    expect(result.results[0]!.targetBranch).toBe('main');
+  });
+
+  test('walks past a whole run of merged ancestors', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.addNode(stack, 'feat/b', 'feat/a');
+    stack = StackManager.addNode(stack, 'feat/c', 'feat/b');
+    stack = StackManager.updateNode(stack, 'feat/a', { mrIid: 1, status: 'merged' });
+    stack = StackManager.updateNode(stack, 'feat/b', { mrIid: 2, status: 'merged' });
+    stack = StackManager.updateNode(stack, 'feat/c', { mrIid: 3, status: 'synced' });
+
+    const { provider, updates } = recordingProvider([
+      mockPR({ iid: 3, sourceBranch: 'feat/c', targetBranch: 'feat/b' }),
+    ]);
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(updates).toEqual([{ iid: 3, input: { targetBranch: 'main' } }]);
+    expect(result.results[0]!.targetBranch).toBe('main');
+  });
+});
+
+// ── --mr-meta parsing ────────────────────────────────────────────────────────
+
+describe('parseMrMeta', () => {
+  async function withMetaFile<T>(contents: string, fn: (path: string) => Promise<T>): Promise<T> {
+    const dir = mkdtempSync(join(tmpdir(), 'gitq-mr-meta-'));
+    try {
+      const path = join(dir, 'meta.json');
+      writeFileSync(path, contents);
+      return await fn(path);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test('maps description to body', async () => {
+    const parsed = await withMetaFile('{"feat/a": {"title": "T", "description": "D"}}', parseMrMeta);
+    expect(parsed).toEqual({ 'feat/a': { title: 'T', body: 'D' } });
+  });
+
+  test('reads an empty string as "not provided", not as a value to write', async () => {
+    const parsed = await withMetaFile(
+      '{"feat/a": {"title": "T", "description": ""}, "feat/b": {"title": "", "description": "D"}}',
+      parseMrMeta,
+    );
+    expect(parsed).toEqual({ 'feat/a': { title: 'T' }, 'feat/b': { body: 'D' } });
+  });
+
+  test('drops an entry that is empty on both fields', async () => {
+    const parsed = await withMetaFile('{"feat/a": {"title": "", "description": ""}}', parseMrMeta);
+    expect(parsed).toEqual({});
+  });
+
+  test('still rejects a non-string field', async () => {
+    const parsed = await withMetaFile('{"feat/a": {"title": "T", "description": null}}', parseMrMeta);
+    expect(parsed).toBe('invalid --mr-meta: entry "feat/a" must be {"title": string, "description": string}');
   });
 });
 
