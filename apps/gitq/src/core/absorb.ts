@@ -1,9 +1,9 @@
-import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm, lstat, readlink, symlink, chmod } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
-import type { ChangedFiles } from './git-shell.ts';
+import type { ChangedFiles, IndexEntry } from './git-shell.ts';
 import { RebaseEngine, finalizeBranchRef } from './rebase-engine.ts';
 import type { CascadeResult, RebaseResult } from './rebase-engine.ts';
 import { toErrorMessage } from './error-utils.ts';
@@ -130,20 +130,39 @@ async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> 
 // ── Worktree Snapshots ───────────────────────────────────────────────────────
 
 /**
- * What the working tree held for one path, captured before the stash.
- * `deleted` is a state git reported, not one absorb inferred from a file it
- * failed to read.
+ * What the working tree held for one path. A path is an ENTRY, not a byte
+ * string: an untracked `deploy.sh` is 755, a `node_modules` shim is a symlink,
+ * and replaying only the bytes gives the human back a different file than the
+ * one absorb took away.
  */
 type EntrySnapshot =
-  | { kind: 'file'; content: Buffer }
+  | { kind: 'file'; content: Buffer; mode: number }
+  | { kind: 'symlink'; target: string }
   | { kind: 'deleted' };
 
-/** Capture one working-tree entry. */
+/** What the index held for one path. */
+type IndexState =
+  /** Index matches HEAD; the stash leaves it that way, so nothing to put back. */
+  | { kind: 'unstaged' }
+  /** Staged: put this exact blob back, which is what keeps `git add -p` splits split. */
+  | { kind: 'blob'; entry: IndexEntry }
+  /** Staged deletion: the index holds no entry for the path, and that IS the state. */
+  | { kind: 'removal' }
+  /** Index unreadable: re-add the working copy, the pre-existing best effort. */
+  | { kind: 'restage' };
+
+interface FileSnapshot {
+  entry: EntrySnapshot;
+  index: IndexState;
+}
+
+/** Capture one working-tree entry: type, mode, and content or link target. */
 async function snapshotEntry(cwd: string, file: string, isDeleted: boolean): Promise<EntrySnapshot> {
   const filePath = join(cwd, file);
 
+  let stat;
   try {
-    return { kind: 'file', content: await readFile(filePath) };
+    stat = await lstat(filePath);
   } catch (err) {
     // Nothing there. That is the whole story only when git also says the
     // change was a deletion; otherwise the path did not survive the trip from
@@ -151,10 +170,14 @@ async function snapshotEntry(cwd: string, file: string, isDeleted: boolean): Pro
     if (isDeleted) return { kind: 'deleted' };
     throw new Error(toErrorMessage(err));
   }
+
+  if (stat.isSymbolicLink()) return { kind: 'symlink', target: await readlink(filePath) };
+  return { kind: 'file', content: await readFile(filePath), mode: stat.mode & 0o7777 };
 }
 
 /**
- * Capture the working-tree entry of every changed file.
+ * Capture the working-tree entry of every changed file, plus the index state
+ * of the ones absorb will have to put back itself.
  *
  * Throws instead of skipping a file it cannot read, and does it BEFORE the
  * stash exists. Past that point `git stash push -u` takes the file out of the
@@ -165,7 +188,8 @@ async function snapshotChanges(
   cwd: string,
   files: string[],
   changed: ChangedFiles,
-): Promise<Map<string, EntrySnapshot>> {
+  indexStateFor: string[],
+): Promise<Map<string, FileSnapshot>> {
   const deleted = new Set(changed.deleted ?? []);
   const entries = new Map<string, EntrySnapshot>();
   const unreadable: string[] = [];
@@ -186,10 +210,45 @@ async function snapshotChanges(
     );
   }
 
-  return entries;
+  const indexStates = await snapshotIndexStates(cwd, indexStateFor, new Set(changed.staged));
+
+  const snapshots = new Map<string, FileSnapshot>();
+  for (const [file, entry] of entries) {
+    snapshots.set(file, { entry, index: indexStates.get(file) ?? { kind: 'unstaged' } });
+  }
+  return snapshots;
 }
 
-/** Write one snapshotted entry back into the working tree. */
+/** Capture what the index holds for the staged files among `files`. */
+async function snapshotIndexStates(
+  cwd: string,
+  files: string[],
+  staged: Set<string>,
+): Promise<Map<string, IndexState>> {
+  const states = new Map<string, IndexState>();
+  const stagedFiles = files.filter((f) => staged.has(f));
+  if (stagedFiles.length === 0) return states;
+
+  // Not fatal, unlike an unreadable file: the content is already safe in
+  // memory, and the fallback (re-`git add` the working copy) is what absorb
+  // did for every staged file before this existed.
+  let entries: Map<string, IndexEntry> | null = null;
+  try {
+    entries = await GitShell.getIndexEntries(cwd, stagedFiles);
+  } catch { /* fall through to the re-add fallback */ }
+
+  for (const file of stagedFiles) {
+    if (!entries) {
+      states.set(file, { kind: 'restage' });
+      continue;
+    }
+    const entry = entries.get(file);
+    states.set(file, entry ? { kind: 'blob', entry } : { kind: 'removal' });
+  }
+  return states;
+}
+
+/** Write one snapshotted entry back into the working tree, type and mode included. */
 async function writeEntry(cwd: string, file: string, entry: EntrySnapshot): Promise<void> {
   const filePath = join(cwd, file);
 
@@ -199,7 +258,39 @@ async function writeEntry(cwd: string, file: string, entry: EntrySnapshot): Prom
   }
 
   await mkdir(dirname(filePath), { recursive: true });
+  // Remove first: the stash put the committed version back, and writing over
+  // it would follow a symlink or keep the wrong entry type.
+  await rm(filePath, { force: true });
+
+  if (entry.kind === 'symlink') {
+    await symlink(entry.target, filePath);
+    return;
+  }
+
   await writeFile(filePath, entry.content);
+  await chmod(filePath, entry.mode);
+}
+
+/** Put back what the index held for one path. */
+async function restoreIndexState(cwd: string, file: string, index: IndexState): Promise<void> {
+  if (index.kind === 'unstaged') return;
+  if (index.kind === 'restage') {
+    await GitShell.add(cwd, [file]);
+    return;
+  }
+  if (index.kind === 'removal') {
+    await GitShell.removeIndexEntry(cwd, file);
+    return;
+  }
+
+  try {
+    await GitShell.setIndexEntry(cwd, file, index.entry);
+  } catch {
+    // The staged blob is unreachable (only a gc between the stash and here
+    // does that). Stage the working copy instead: it collapses a partially
+    // staged split, but the alternative is leaving the file unstaged.
+    await GitShell.add(cwd, [file]);
+  }
 }
 
 /**
@@ -209,27 +300,32 @@ async function writeEntry(cwd: string, file: string, entry: EntrySnapshot): Prom
  *
  * Runs after the restack, not before: a dirty launch worktree makes the
  * cascade's ref finalization refuse (and an in-tree rebase impossible).
+ *
+ * Never throws — it is called from a `finally` and must not mask the failure
+ * that got it there.
  */
 async function restoreUnattributed(
   cwd: string,
   files: string[],
-  snapshots: Map<string, EntrySnapshot>,
-  wasStaged: Set<string>,
-): Promise<void> {
-  const restage: string[] = [];
+  snapshots: Map<string, FileSnapshot>,
+): Promise<{ file: string; error: string }[]> {
+  const failures: { file: string; error: string }[] = [];
 
   for (const file of files) {
-    const entry = snapshots.get(file);
-    if (!entry) continue;
+    const snapshot = snapshots.get(file);
+    if (!snapshot) {
+      failures.push({ file, error: 'no snapshot was taken' });
+      continue;
+    }
     try {
-      await writeEntry(cwd, file, entry);
-      if (wasStaged.has(file)) restage.push(file);
-    } catch { /* best-effort restore */ }
+      await writeEntry(cwd, file, snapshot.entry);
+      await restoreIndexState(cwd, file, snapshot.index);
+    } catch (err) {
+      failures.push({ file, error: toErrorMessage(err) });
+    }
   }
 
-  if (restage.length > 0) {
-    await GitShell.add(cwd, restage).catch(() => {});
-  }
+  return failures;
 }
 
 // ── Absorb Orchestration ─────────────────────────────────────────────────────
@@ -276,8 +372,7 @@ async function absorb(
   // unattributed ones are snapshotted too, index state and all: the stash
   // takes the whole tree, so this is what puts them back afterwards.
   // Throws (before anything is stashed) if a changed file cannot be read.
-  const snapshots = await snapshotChanges(cwd, allChanged, changedResult);
-  const stagedBeforeAbsorb = new Set(changedResult.staged);
+  const snapshots = await snapshotChanges(cwd, allChanged, changedResult, unattributed);
 
   // Snapshot all branch HEADs BEFORE amending — needed for tombstone cascade.
   const preAmendHeads = new Map<string, string>();
@@ -309,8 +404,9 @@ async function absorb(
 
       for (const file of files) {
         const snapshot = snapshots.get(file);
-        // Same writer the restore uses, so an absorbed deletion stays one.
-        if (snapshot) await writeEntry(cwd, file, snapshot);
+        // Same writer the restore uses, so an absorbed file keeps its mode and
+        // its entry type, and an absorbed deletion stays a deletion.
+        if (snapshot) await writeEntry(cwd, file, snapshot.entry);
       }
 
       await GitShell.add(cwd, files);
@@ -362,7 +458,7 @@ async function absorb(
   } finally {
     // Unconditional: a restack that blows up must not take the human's
     // unattributed work with it, since the stash holding it is already gone.
-    await restoreUnattributed(cwd, unattributed, snapshots, stagedBeforeAbsorb);
+    await restoreUnattributed(cwd, unattributed, snapshots);
   }
 
   const result: AbsorbResult = { absorbed: true, attributions, unattributed, updatedStack };

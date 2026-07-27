@@ -98,6 +98,14 @@ export interface ChangedFiles {
   deleted: string[];
 }
 
+/** One index entry: the file mode and blob the index holds for a path. */
+export interface IndexEntry {
+  /** Six-digit octal git file mode, e.g. `100644`, `100755`, `120000`. */
+  mode: string;
+  /** Blob sha the index points at. */
+  sha: string;
+}
+
 /** Outcome of resolving a caller-supplied revision to a commit sha. */
 export type RefResolution =
   | { kind: 'resolved'; sha: string }
@@ -626,6 +634,44 @@ export const GitShell = {
         ...new Set([...splitNulPaths(delResult.stdout), ...splitNulPaths(delStagedResult.stdout)]),
       ],
     };
+  },
+
+  /**
+   * The index entry (file mode + blob sha) for each given path that the index
+   * holds at stage 0. A path the index has no entry for is simply absent from
+   * the map — for a staged deletion that absence IS the state.
+   *
+   * `--literal-pathspecs` keeps a filename containing `*` or `?` from being
+   * read as a pattern; `-z` keeps unusual paths intact.
+   */
+  async getIndexEntries(cwd: string, files: string[]): Promise<Map<string, IndexEntry>> {
+    const entries = new Map<string, IndexEntry>();
+    if (files.length === 0) return entries;
+
+    const { stdout } = await git(['--literal-pathspecs', 'ls-files', '-s', '-z', '--', ...files], cwd);
+    for (const record of splitNulPaths(stdout)) {
+      // "<mode> SP <sha> SP <stage> TAB <path>"
+      const tab = record.indexOf('\t');
+      if (tab === -1) continue;
+      const [mode, sha, stage] = record.slice(0, tab).split(' ');
+      if (!mode || !sha || stage !== '0') continue;
+      entries.set(record.slice(tab + 1), { mode, sha });
+    }
+    return entries;
+  },
+
+  /**
+   * Point the index at a specific blob for a path, leaving the working tree
+   * alone. This is how a partially staged file (`git add -p`) gets its split
+   * back: the worktree keeps the full edit, the index keeps the staged blob.
+   */
+  async setIndexEntry(cwd: string, file: string, entry: IndexEntry): Promise<void> {
+    await git(['update-index', '--add', '--cacheinfo', `${entry.mode},${entry.sha},${file}`], cwd);
+  },
+
+  /** Record a path as removed in the index without touching the working tree. */
+  async removeIndexEntry(cwd: string, file: string): Promise<void> {
+    await git(['update-index', '--force-remove', '--', file], cwd);
   },
 
   /** Stage specific files. */

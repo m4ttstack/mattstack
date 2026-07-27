@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { writeFile, readFile, rm } from 'node:fs/promises';
+import { writeFile, readFile, rm, chmod, lstat, symlink, readlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createSandboxRepo, cleanupRepo, commit } from './helpers.ts';
@@ -273,6 +273,130 @@ describe('Absorb integration', () => {
     expect(git('status', '--short')).toBe('D README.md');
     // The deletion is still just a worktree state, not a commit.
     expect(git('show', 'branch-3:README.md')).toBe('# Test Repo');
+  });
+
+  // ── Entry fidelity ─────────────────────────────────────────────────────────
+  //
+  // What absorb takes away and gives back is a worktree ENTRY, not a byte
+  // string. Replaying only the bytes turns a 755 script into a 644 one, a
+  // symlink into a regular file, and a partially staged file into a fully
+  // staged one — all of them silent, and all of them "your file is still
+  // there" as far as a content check can tell.
+
+  test('an untracked executable comes back executable', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+    await writeFile(join(dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n');
+    await chmod(join(dir, 'deploy.sh'), 0o755);
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed).toEqual(['deploy.sh']);
+    expect((await lstat(join(dir, 'deploy.sh'))).mode & 0o777).toBe(0o755);
+    expect(git('status', '--short')).toBe('?? deploy.sh');
+  });
+
+  test('a chmod-only edit to a tracked file is not reverted', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    // README.md is unattributed (it came from main) and its only change is
+    // the mode, which a content-only restore cannot see at all.
+    await chmod(join(dir, 'README.md'), 0o755);
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed).toEqual(['README.md']);
+    expect((await lstat(join(dir, 'README.md'))).mode & 0o777).toBe(0o755);
+    expect(git('status', '--short')).toBe('M README.md');
+  });
+
+  test('an untracked symlink comes back a symlink, dangling target and all', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+    await symlink('api.ts', join(dir, 'link.ts'));
+    await symlink('nowhere.txt', join(dir, 'dangling.txt'));
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed.sort()).toEqual(['dangling.txt', 'link.ts']);
+    expect((await lstat(join(dir, 'link.ts'))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(dir, 'link.ts'))).toBe('api.ts');
+    // The dangling one is the case a "read the file" snapshot cannot take at
+    // all: nothing to read, and nothing missing either.
+    expect((await lstat(join(dir, 'dangling.txt'))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(dir, 'dangling.txt'))).toBe('nowhere.txt');
+  });
+
+  test('a partially staged file keeps its staged/unstaged split', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    // README.md: one version in the index, a further edit in the worktree —
+    // what `git add -p` leaves behind, reported as `MM`.
+    await writeFile(join(dir, 'README.md'), '# Test Repo staged\n');
+    git('add', 'README.md');
+    await writeFile(join(dir, 'README.md'), '# Test Repo staged then edited\n');
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed).toEqual(['README.md']);
+    expect(git('status', '--short')).toBe('MM README.md');
+    expect(git('show', ':README.md')).toBe('# Test Repo staged');
+    expect(await readFile(join(dir, 'README.md'), 'utf-8')).toBe('# Test Repo staged then edited\n');
+  });
+
+  test('a staged new file comes back staged', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    await writeFile(join(dir, 'notes.txt'), 'staged notes\n');
+    git('add', 'notes.txt');
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed).toEqual(['notes.txt']);
+    expect(git('status', '--short')).toBe('A  notes.txt');
+    expect(await readFile(join(dir, 'notes.txt'), 'utf-8')).toBe('staged notes\n');
+  });
+
+  test('a staged deletion comes back staged as a deletion', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    git('rm', '--quiet', 'README.md');
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+
+    const result = await AbsorbEngine.absorb(dir, stack);
+
+    expect(result.unattributed).toEqual(['README.md']);
+    expect(existsSync(join(dir, 'README.md'))).toBe(false);
+    expect(git('status', '--short')).toBe('D  README.md');
   });
 
   test('fan-out attribution: sibling branches get correct files', async () => {
