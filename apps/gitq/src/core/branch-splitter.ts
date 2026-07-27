@@ -56,7 +56,10 @@ export const BranchSplitter = {
    * @param newBranchName  - Name for the new child branch.
    * @param splitAfterSha  - Commit to split after (commits after it move to the new
    *                         branch). Any revision git resolves: short or full sha,
-   *                         tag, `HEAD~2`, branch name.
+   *                         tag, `HEAD~2`, branch name. It must sit strictly above
+   *                         where the source forks from its stack parent. `HEAD~n`
+   *                         resolves against the launch checkout, not the branch
+   *                         being split, so `<branch>~n` is the safer spelling.
    */
   async tailSplit(
     cwd: string,
@@ -76,6 +79,12 @@ export const BranchSplitter = {
       throw new Error(`Branch "${newBranchName}" already exists in stack "${stack.id}"`);
     }
 
+    // A branch can be in the stack and gone from git. Asked later, the
+    // reachability check would blame the split point for its absence.
+    if (!(await GitShell.branchExists(cwd, sourceBranch))) {
+      throw new Error(`Branch "${sourceBranch}" is in stack "${stack.id}" but does not exist in this repository`);
+    }
+
     // Ref-only surgery: the new branch keeps the full history; the source
     // ref rewinds to the split point. No working tree is read or written,
     // so launch-tree dirtiness is irrelevant; a checked-out source gets the
@@ -93,17 +102,27 @@ export const BranchSplitter = {
     const splitSha = resolution.sha;
 
     // Containment is asked of git rather than scanned out of a commit log, so
-    // no search window can make an old-but-present commit look missing:
-    // merge-base(x, branch) is x exactly when x is reachable from the tip.
+    // no search window can make an old-but-present commit look missing.
     // Unrelated histories have no merge base at all, which is a plain no.
-    let onSourceBranch = false;
-    try {
-      onSourceBranch = (await GitShell.getMergeBase(cwd, splitSha, sourceBranch)) === splitSha;
-    } catch {
-      onSourceBranch = false;
-    }
-    if (!onSourceBranch) {
+    if (!(await GitShell.isAncestor(cwd, splitSha, sourceBranch))) {
       throw new Error(`Commit "${splitAfterSha}" not found in branch "${sourceBranch}"`);
+    }
+
+    // Reachable is not enough. Below the fork with the stack parent lies the
+    // parent's history: rewinding there would leave the source at or under
+    // its own base and hand the parent's commits to the new branch, breaking
+    // the parent-contained-in-child invariant with nothing to signal it.
+    // `HEAD~n` is the usual way in, since HEAD is whatever the launch
+    // checkout is on rather than the branch being split. With no parent ref
+    // in git there is nothing to compare against, so the guard stands down.
+    const forkPoint = await GitShell.getMergeBase(cwd, sourceBranch, sourceNode.parent).catch(() => null);
+    if (forkPoint && (await GitShell.isAncestor(cwd, splitSha, forkPoint))) {
+      throw new Error(
+        `Commit "${splitAfterSha}" (${splitSha.slice(0, 10)}) is at or below where "${sourceBranch}" forks ` +
+          `from "${sourceNode.parent}", so splitting there would rewind "${sourceBranch}" past its own base ` +
+          `and move "${sourceNode.parent}"'s commits onto "${newBranchName}". Note that "HEAD~n" counts back ` +
+          `from the checked-out branch, not from "${sourceBranch}": use "${sourceBranch}~n" instead.`,
+      );
     }
 
     // Commits at and before the split point stay on source; everything the
@@ -149,13 +168,12 @@ export const BranchSplitter = {
   },
 
   /**
-   * Get the commit log for a branch, suitable for the split-point picker UI.
+   * Get up to `n` of a branch's commits, newest first.
    *
-   * Returns commits in reverse chronological order (newest first).
-   *
-   * `n` is a display window for the picker only. `tailSplit` resolves and
-   * range-walks through git instead of reading this, so a commit older than
-   * `n` is still a valid split point.
+   * Nothing in gitq calls this today; it is retained for callers that want a
+   * bounded log, a split-point picker being the obvious one. `tailSplit` does
+   * not read it: it resolves and range-walks through git, so a commit older
+   * than `n` is still a valid split point.
    */
   async getCommitLog(cwd: string, branch: string, n = 50): Promise<{ sha: string; subject: string }[]> {
     return GitShell.logDetailed(cwd, branch, n);
