@@ -1,4 +1,4 @@
-import { ForgeSync } from '../../core/forge-sync.ts';
+import { ForgeSync, type PublishNodeResult } from '../../core/forge-sync.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { loadStore, updateStore } from '../../core/persistence.ts';
 import type { CliContext } from '../context.ts';
@@ -55,6 +55,28 @@ async function parseMrMeta(path: string): Promise<Record<string, { title: string
   return descriptions;
 }
 
+// ── Publish output ───────────────────────────────────────────────────────────
+
+/**
+ * One human-readable line per publish result.
+ *
+ * Says which of the two things happened — a new MR, or an edit to one that was
+ * already there — since both now come back from the same command.
+ */
+function formatPublishResult(r: PublishNodeResult): string {
+  if (!r.success) return `${r.branch}: FAILED (${r.error})`;
+
+  if (r.action === 'updated') {
+    const changes = (r.changes ?? []).map((c) =>
+      c === 'target' ? `retargeted to ${r.targetBranch}` : 'title/description',
+    );
+    const detail = changes.length > 0 ? ` (${changes.join(', ')})` : '';
+    return `${r.branch}: updated${detail} ${r.mrUrl}`;
+  }
+
+  return `${r.branch}: created ${r.mrUrl}`;
+}
+
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 export async function publishCommand(ctx: CliContext): Promise<number> {
@@ -86,8 +108,8 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
 
   const ok = result.results.every((r) => r.success);
   const human = result.results.length
-    ? result.results.map((r) => (r.success ? `${r.branch}: ${r.mrUrl}` : `${r.branch}: FAILED (${r.error})`)).join('\n')
-    : 'nothing to publish (no local-only branches)';
+    ? result.results.map(formatPublishResult).join('\n')
+    : 'nothing to publish (no branches to create or update)';
   emit(ctx, human, { results: result.results, updatedStack: result.updatedStack });
   return ok ? 0 : 1;
 }
