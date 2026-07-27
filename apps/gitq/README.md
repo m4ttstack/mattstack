@@ -47,7 +47,7 @@ Surgery:
 
 GitLab:
 
-- `gitq publish [--stack <name>] [--mr-meta <path>]`: open or update an MR per local only branch in the stack. `--mr-meta` points at a JSON file of `{"<branch>": {"title": "...", "description": "..."}}` to set MR titles/descriptions; branches not listed get defaults.
+- `gitq publish [--stack <name>] [--mr-meta <path>]`: push and open an MR for every local only branch in the stack, and update the MRs of the branches that already have one: an MR whose target no longer matches the branch's parent gets retargeted, and its title/description are rewritten only when `--mr-meta` names that branch. Already published branches are not pushed. `--mr-meta` points at a JSON file of `{"<branch>": {"title": "...", "description": "..."}}` to set MR titles/descriptions; branches not listed get defaults on a new MR and keep what they have on an existing one.
 - `gitq import [--replace]`: pull stacks for the current repo's remote back from GitLab into local tracking. This rebuilds the whole local store and re-mints stack ids, so it refuses when the repo already has tracked stacks unless you pass `--replace` (the store check runs before the token check, so the refusal works offline). Meant for recovery, not routine use.
 
 Other:
