@@ -38,10 +38,17 @@ function cleanProjectPath(projectPath: string): string {
     .replace(/\.git$/, '');
 }
 
-/** Hosts are case-insensitive, and `www.` never distinguishes two forges. */
+/**
+ * Hosts are case-insensitive, and `www.` never distinguishes two forges.
+ *
+ * A single-label host is not one we can compare: `git@work:acme/web.git` names
+ * an `~/.ssh/config` alias, not a forge, and no MR web URL will ever carry it.
+ * Reading it as an instance would filter out every MR of a repo cloned that
+ * way, so it counts as naming no host at all.
+ */
 function cleanHost(host: string): string | null {
   const cleaned = host.trim().toLowerCase().replace(/^www\./, '');
-  return cleaned === '' ? null : cleaned;
+  return cleaned.includes('.') ? cleaned : null;
 }
 
 /**

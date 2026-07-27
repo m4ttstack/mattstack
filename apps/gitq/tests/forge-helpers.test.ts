@@ -118,6 +118,13 @@ describe('projectScopeFromRemoteUrl', () => {
     expect(projectScopeFromRemoteUrl('/srv/git/acme/web.git')).toEqual({ host: null, path: 'srv/git/acme/web' });
   });
 
+  test('an ssh config alias is not a forge host', () => {
+    // `git@work:acme/web.git` resolves through ~/.ssh/config; no MR web url
+    // will ever say "work", so treating it as an instance would filter out
+    // every MR of a repo cloned that way.
+    expect(projectScopeFromRemoteUrl('git@work:acme/web.git')).toEqual({ host: null, path: 'acme/web' });
+  });
+
   test('returns null when there is no project path to read', () => {
     expect(projectScopeFromRemoteUrl('')).toBeNull();
     expect(projectScopeFromRemoteUrl('https://gitlab.com/')).toBeNull();
@@ -189,6 +196,11 @@ describe('filterPRsToProject', () => {
     expect(filterPRsToProject(samePathEverywhere, projectScopeFromRemoteUrl('git@github.com:acme/web.git')!).map((p) => p.iid)).toEqual([1]);
     expect(filterPRsToProject(samePathEverywhere, projectScopeFromRemoteUrl('https://gitlab.com/acme/web.git')!).map((p) => p.iid)).toEqual([2]);
     expect(filterPRsToProject(samePathEverywhere, projectScopeFromRemoteUrl('git@gitlab.selfhosted:acme/web.git')!).map((p) => p.iid)).toEqual([3]);
+  });
+
+  test('a remote cloned through an ssh alias still matches its MRs', () => {
+    const prs = [pr({ iid: 5, sourceBranch: 'x', targetBranch: 'main', webUrl: 'https://gitlab.com/acme/web/-/merge_requests/5' })];
+    expect(filterPRsToProject(prs, projectScopeFromRemoteUrl('git@work:acme/web.git')!).map((p) => p.iid)).toEqual([5]);
   });
 
   test('a PR whose web url names no host is kept on path alone', () => {
