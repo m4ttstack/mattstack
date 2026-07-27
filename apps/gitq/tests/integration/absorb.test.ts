@@ -7,7 +7,7 @@ import type { SandboxRepo } from './helpers.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';
 import { AbsorbEngine } from '../../src/core/absorb.ts';
 import { RebaseEngine } from '../../src/core/rebase-engine.ts';
-import { GitShell } from '../../src/core/git-shell.ts';
+import { GitShell, setCommandHook } from '../../src/core/git-shell.ts';
 import type { Stack } from '../../src/core/types.ts';
 
 let sandbox: SandboxRepo;
@@ -273,6 +273,38 @@ describe('Absorb integration', () => {
     expect(git('status', '--short')).toBe('D README.md');
     // The deletion is still just a worktree state, not a commit.
     expect(git('show', 'branch-3:README.md')).toBe('# Test Repo');
+  });
+
+  test('the stash is dropped only after the unattributed file is back on disk', async () => {
+    sandbox = await createSandboxRepo();
+    const { dir, git } = sandbox;
+    const { stack } = await buildAbsorbStack(sandbox);
+
+    git('checkout', 'branch-3');
+
+    await writeFile(join(dir, 'api.ts'), 'export function api() { return "updated"; }\n');
+    await writeFile(join(dir, 'notes.txt'), 'some notes\n');
+
+    // Watch the real git commands go by. Between the stash and the restore the
+    // unattributed file exists only in absorb's memory, so the drop has to come
+    // after the restore or a kill in that window takes the file with it.
+    const stashCommands: string[] = [];
+    const notesPresentAtDrop: boolean[] = [];
+    setCommandHook((_cmd, args) => {
+      if (args[0] !== 'stash') return;
+      stashCommands.push(`${args[0]} ${args[1]}`);
+      if (args[1] === 'drop') notesPresentAtDrop.push(existsSync(join(dir, 'notes.txt')));
+    });
+    try {
+      await AbsorbEngine.absorb(dir, stack);
+    } finally {
+      setCommandHook(null);
+    }
+
+    expect(stashCommands).toEqual(['stash push', 'stash drop']);
+    expect(notesPresentAtDrop).toEqual([true]);
+    expect(git('stash', 'list')).toBe('');
+    expect(await readFile(join(dir, 'notes.txt'), 'utf-8')).toBe('some notes\n');
   });
 
   // ── Entry fidelity ─────────────────────────────────────────────────────────
