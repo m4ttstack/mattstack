@@ -1,5 +1,6 @@
 import { loadStore, updateStore } from '../../core/persistence.ts';
 import { AbsorbEngine } from '../../core/absorb.ts';
+import type { AbsorbResult } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
 import { foldBranch } from '../../core/branch-fold.ts';
 import { reparentBranch } from '../../core/reparent.ts';
@@ -66,6 +67,21 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
     if (preGuard !== null) return preGuard;
   }
 
+  // No branch owns any of it, so the engine would return without stashing,
+  // checking out, or committing anything. Say so from here: leasing a slot
+  // materializes a work worktree, and there is nothing for it to restack.
+  if (Object.keys(preview.attributed).length === 0) {
+    const reason = preview.unattributed.length === 0 ? 'no-changes' : 'nothing-attributable';
+    const result: AbsorbResult = {
+      absorbed: false,
+      reason,
+      attributions: [],
+      unattributed: preview.unattributed,
+    };
+    emit(ctx, `nothing absorbed (${reason})`, { stack, result });
+    return 0;
+  }
+
   // Absorb has no pause protocol (see below), but the restack it runs after
   // committing can still conflict and needs a work slot leased against the
   // stack for the duration — same as sync/reparent's cascade phase. The
@@ -92,14 +108,17 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
       }
 
       const failed = result.attributions.some((a) => !a.success);
-      emit(
-        ctx,
-        result.absorbed
-          ? `absorbed: ${result.attributions.map((a) => `${a.branch} (${a.files.length})`).join(', ')}`
-          : `nothing absorbed${result.reason ? ` (${result.reason})` : ''}`,
-        { stack: updatedStack, result },
-      );
-      return failed ? 1 : 0;
+      const headline = result.absorbed
+        ? `absorbed: ${result.attributions.map((a) => `${a.branch} (${a.files.length})`).join(', ')}`
+        : `nothing absorbed${result.reason ? ` (${result.reason})` : ''}`;
+      // `recovery` means work of the human's is sitting somewhere they have to
+      // go get: the stash absorb kept, or a branch it could not leave. Print it
+      // with the headline and exit non-zero even when the commits landed.
+      emit(ctx, result.recovery ? `${headline}\n${result.recovery}` : headline, {
+        stack: updatedStack,
+        result,
+      });
+      return failed || result.recovery ? 1 : 0;
     }),
   );
 }

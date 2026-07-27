@@ -5,6 +5,21 @@ import type { Stack } from '../src/core/types.ts';
 
 afterAll(() => mock.restore());
 
+/**
+ * Absorb snapshots working-tree entries through the filesystem before it
+ * stashes, and these tests have no working tree: git is mocked and the cwd is
+ * a path that does not exist. They also cannot make one — `operation-log.test`
+ * mocks `node:fs/promises` process-wide for the whole unit suite, so a file
+ * written here is not a file absorb can read.
+ *
+ * So every changed file below is a DELETION, the one changed-file shape whose
+ * snapshot needs nothing from disk. What is under test here is absorb's
+ * orchestration (attribution, call order, cleanup); content and entry
+ * fidelity are covered against real git in tests/integration/absorb.test.ts.
+ */
+const CWD = '/tmp/gitq-absorb-unit-no-such-tree';
+
+
 function buildLinearStack(): Stack {
   let stack = StackManager.createStack('test', 'main');
   stack = StackManager.addNode(stack, 'branch-1', 'main');
@@ -95,7 +110,7 @@ describe('AbsorbEngine.previewAbsorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['api.ts', 'unknown.txt'], staged: [], untracked: ['new.ts'] }),
+          Promise.resolve({ modified: ['api.ts', 'unknown.txt'], staged: [], untracked: ['new.ts'], deleted: [] }),
         ),
         getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
           if (to === 'branch-1') return Promise.resolve(['api.ts']);
@@ -119,7 +134,7 @@ describe('AbsorbEngine.previewAbsorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: [], staged: [], untracked: [] }),
+          Promise.resolve({ modified: [], staged: [], untracked: [], deleted: [] }),
         ),
       },
     }));
@@ -138,7 +153,7 @@ describe('AbsorbEngine.previewAbsorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['api.ts', 'config.json'], staged: [], untracked: [] }),
+          Promise.resolve({ modified: ['api.ts', 'config.json'], staged: [], untracked: [], deleted: [] }),
         ),
         getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
           if (to === 'branch-1') return Promise.resolve(['api.ts']);
@@ -170,7 +185,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: [], staged: [], untracked: [] }),
+          Promise.resolve({ modified: [], staged: [], untracked: [], deleted: [] }),
         ),
       },
     }));
@@ -192,7 +207,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [] }),
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [], deleted: ['api.ts'] }),
         ),
         getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
           if (to === 'branch-1') return Promise.resolve(['api.ts']);
@@ -227,7 +242,7 @@ describe('AbsorbEngine.absorb', () => {
 
     const { AbsorbEngine } = await import('../src/core/absorb.ts');
     const stack = buildLinearStack();
-    const result = await AbsorbEngine.absorb('/tmp/repo', stack);
+    const result = await AbsorbEngine.absorb(CWD, stack);
 
     expect(result.absorbed).toBe(true);
     expect(callOrder).toEqual([
@@ -250,7 +265,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('only-branch')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['a.ts', 'b.ts'], staged: [], untracked: [] }),
+          Promise.resolve({ modified: ['a.ts', 'b.ts'], staged: [], untracked: [], deleted: ['a.ts', 'b.ts'] }),
         ),
         getFilesChangedInRange: mock(() => Promise.resolve(['a.ts', 'b.ts'])),
         stash: mock(() => Promise.resolve()),
@@ -266,7 +281,7 @@ describe('AbsorbEngine.absorb', () => {
     }));
 
     const { AbsorbEngine } = await import('../src/core/absorb.ts');
-    const result = await AbsorbEngine.absorb('/tmp/repo', stack);
+    const result = await AbsorbEngine.absorb(CWD, stack);
 
     expect(result.absorbed).toBe(true);
     expect(result.attributions).toHaveLength(1);
@@ -276,12 +291,13 @@ describe('AbsorbEngine.absorb', () => {
   });
 
   test('handles fan-out (two children of same parent, files attributed correctly)', async () => {
+
     mock.module('../src/core/git-shell.ts', () => ({
       GitShell: {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('feat/b')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['b.txt', 'c.txt'], staged: [], untracked: [] }),
+          Promise.resolve({ modified: ['b.txt', 'c.txt'], staged: [], untracked: [], deleted: ['b.txt', 'c.txt'] }),
         ),
         getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
           if (to === 'feat/a') return Promise.resolve([]);
@@ -303,7 +319,7 @@ describe('AbsorbEngine.absorb', () => {
 
     const { AbsorbEngine } = await import('../src/core/absorb.ts');
     const stack = buildFanStack();
-    const result = await AbsorbEngine.absorb('/tmp/repo', stack);
+    const result = await AbsorbEngine.absorb(CWD, stack);
 
     expect(result.absorbed).toBe(true);
     const bAttr = result.attributions.find((a) => a.branch === 'feat/b');
@@ -321,7 +337,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [] }),
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [], deleted: ['api.ts'] }),
         ),
         getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
           if (to === 'branch-1') return Promise.resolve(['api.ts']);
@@ -344,13 +360,134 @@ describe('AbsorbEngine.absorb', () => {
 
     const { AbsorbEngine } = await import('../src/core/absorb.ts');
     const stack = buildLinearStack();
-    const result = await AbsorbEngine.absorb('/tmp/repo', stack);
+    const result = await AbsorbEngine.absorb(CWD, stack);
 
     expect(result.absorbed).toBe(false);
     expect(result.attributions[0]!.success).toBe(false);
     expect(result.attributions[0]!.error).toContain('amend failed');
     expect(checkoutCalls).toContain('branch-3');
     expect(stashPopped).toBe(true);
+    expect(result.recovery).toBeUndefined();
+  });
+
+  test('a cleanup that cannot get back to the original branch says so and keeps the stash', async () => {
+    let stashPopped = false;
+    // Started on branch-3; the amend phase checked branch-1 out and the tree
+    // is stuck there once the way back fails.
+    let head = 'branch-3';
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getCurrentBranch: mock(() => Promise.resolve(head)),
+        getChangedFiles: mock(() =>
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [], deleted: ['api.ts'] }),
+        ),
+        getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
+          if (to === 'branch-1') return Promise.resolve(['api.ts']);
+          return Promise.resolve([]);
+        }),
+        stash: mock(() => Promise.resolve()),
+        // The hook that fails the amend fails the way back out too.
+        checkoutBranch: mock((_cwd: string, branch: string) => {
+          if (branch === 'branch-3') return Promise.reject(new Error('error: pre-checkout hook refused'));
+          head = branch;
+          return Promise.resolve();
+        }),
+        add: mock(() => Promise.resolve()),
+        amendNoEdit: mock(() => Promise.reject(new Error('amend failed: pre-commit hook'))),
+        getBranchHead: mock(() => Promise.resolve('head')),
+        stashPop: mock(() => {
+          stashPopped = true;
+          return Promise.resolve();
+        }),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    const result = await AbsorbEngine.absorb(CWD, buildLinearStack());
+
+    expect(result.absorbed).toBe(false);
+    // Names the branch it could not get back to, the branch you are on, and
+    // where the dirty tree actually is.
+    expect(result.recovery).toContain('branch-3');
+    expect(result.recovery).toContain('branch-1');
+    expect(result.recovery).toContain('stash@{0}');
+    // Popping onto a branch the caller never chose would make it worse.
+    expect(stashPopped).toBe(false);
+  });
+
+  test('a changed file that is not on disk aborts before anything is stashed', async () => {
+    let stashed = false;
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getCurrentBranch: mock(() => Promise.resolve('branch-3')),
+        // What a C-quoted path looks like from here: git named a file the
+        // filesystem does not have, and did not call it a deletion.
+        getChangedFiles: mock(() =>
+          Promise.resolve({ modified: ['api.ts', 'ghost.ts'], staged: [], untracked: [], deleted: ['api.ts'] }),
+        ),
+        getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
+          if (to === 'branch-1') return Promise.resolve(['api.ts']);
+          return Promise.resolve([]);
+        }),
+        stash: mock(() => {
+          stashed = true;
+          return Promise.resolve();
+        }),
+        checkoutBranch: mock(() => Promise.resolve()),
+        add: mock(() => Promise.resolve()),
+        amendNoEdit: mock(() => Promise.resolve()),
+        getBranchHead: mock(() => Promise.resolve('head')),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    await expect(AbsorbEngine.absorb(CWD, buildLinearStack())).rejects.toThrow(/ghost\.ts/);
+    expect(stashed).toBe(false);
+  });
+
+  test('a file git reports as deleted is snapshotted as a deletion, not as unreadable', async () => {
+    let stashed = false;
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getCurrentBranch: mock(() => Promise.resolve('branch-3')),
+        getChangedFiles: mock(() =>
+          Promise.resolve({
+            modified: ['api.ts', 'config.json'],
+            staged: [],
+            untracked: [],
+            deleted: ['api.ts', 'config.json'],
+          }),
+        ),
+        getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
+          if (to === 'branch-1') return Promise.resolve(['api.ts']);
+          return Promise.resolve([]);
+        }),
+        stash: mock(() => {
+          stashed = true;
+          return Promise.resolve();
+        }),
+        checkoutBranch: mock(() => Promise.resolve()),
+        add: mock(() => Promise.resolve()),
+        amendNoEdit: mock(() => Promise.resolve()),
+        getBranchHead: mock(() => Promise.resolve('new-head')),
+        getMergeBase: mock(() => Promise.resolve('new-head')),
+        stashDrop: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    const result = await AbsorbEngine.absorb(CWD, buildLinearStack());
+
+    expect(stashed).toBe(true);
+    expect(result.absorbed).toBe(true);
+    expect(result.unattributed).toEqual(['config.json']);
+    expect(result.recovery).toBeUndefined();
   });
 
   test('excludedFiles filters out files before attribution', async () => {
@@ -361,7 +498,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['api.ts', 'config.json'], staged: [], untracked: [] }),
+          Promise.resolve({ modified: ['api.ts', 'config.json'], staged: [], untracked: [], deleted: ['api.ts', 'config.json'] }),
         ),
         getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
           if (to === 'branch-1') return Promise.resolve(['api.ts']);
@@ -385,7 +522,7 @@ describe('AbsorbEngine.absorb', () => {
 
     const { AbsorbEngine } = await import('../src/core/absorb.ts');
     const stack = buildLinearStack();
-    const result = await AbsorbEngine.absorb('/tmp/repo', stack, ['config.json']);
+    const result = await AbsorbEngine.absorb(CWD, stack, ['config.json']);
 
     expect(result.absorbed).toBe(true);
     expect(result.attributions).toHaveLength(1);
@@ -402,7 +539,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: ['notes.md'] }),
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: ['notes.md'], deleted: ['api.ts', 'notes.md'] }),
         ),
         getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) => {
           if (to === 'branch-1') return Promise.resolve(['api.ts']);
@@ -425,7 +562,7 @@ describe('AbsorbEngine.absorb', () => {
 
     const { AbsorbEngine } = await import('../src/core/absorb.ts');
     const stack = buildLinearStack();
-    const result = await AbsorbEngine.absorb('/tmp/repo', stack);
+    const result = await AbsorbEngine.absorb(CWD, stack);
 
     expect(result.absorbed).toBe(true);
     expect(result.unattributed).toEqual(['notes.md']);
@@ -446,7 +583,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: [], staged: [], untracked: ['notes.md', 'scratch.txt'] }),
+          Promise.resolve({ modified: [], staged: [], untracked: ['notes.md', 'scratch.txt'], deleted: ['notes.md', 'scratch.txt'] }),
         ),
         getFilesChangedInRange: mock(() => Promise.resolve([])),
         stash: mock(() => {
@@ -478,7 +615,7 @@ describe('AbsorbEngine.absorb', () => {
         ...GitShell,
         getCurrentBranch: mock(() => Promise.resolve('branch-3')),
         getChangedFiles: mock(() =>
-          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [] }),
+          Promise.resolve({ modified: ['api.ts'], staged: [], untracked: [], deleted: ['api.ts'] }),
         ),
       },
     }));

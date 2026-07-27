@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { join, dirname } from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, readFile, chmod, lstat } from 'node:fs/promises';
 import { createSandboxRepoWithRemote, addNamedWorktree, cleanupRepo, commit } from './helpers.ts';
 import type { SandboxRepoWithRemote } from './helpers.ts';
 import { AbsorbEngine } from '../../src/core/absorb.ts';
@@ -124,6 +124,34 @@ describe('detached absorb restack', () => {
     expect(repo.git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('feature-b');
     expect(GitShell.isRebaseInProgress(repo.dir)).toBe(false);
     expect(GitShell.isRebaseInProgress(workDir)).toBe(false);
+  });
+
+  test('unattributed work comes back in the launch tree, entry state and all', async () => {
+    // The production path: a work slot, a real cascade, and files no branch
+    // owns riding through the stash alongside the one that gets committed.
+    const { repo, stack, workDir } = await absorbScenario();
+    repo.git('checkout', 'feature-b');
+    await writeFile(join(repo.dir, 'a.txt'), 'a v2\n', 'utf-8');
+    await writeFile(join(repo.dir, 'notes.txt'), 'scratch\n', 'utf-8');
+    await writeFile(join(repo.dir, 'deploy.sh'), '#!/bin/sh\necho deploy\n', 'utf-8');
+    await chmod(join(repo.dir, 'deploy.sh'), 0o755);
+
+    const result = await AbsorbEngine.absorb(repo.dir, stack, undefined, workDir);
+
+    expect(result.absorbed).toBe(true);
+    expect(result.cascadeResult?.results.every((r) => r.success)).toBe(true);
+    expect(result.unattributed.sort()).toEqual(['deploy.sh', 'notes.txt']);
+    expect(result.recovery).toBeUndefined();
+
+    // Both back, byte- and mode-identical, still untracked.
+    expect(await readFile(join(repo.dir, 'notes.txt'), 'utf-8')).toBe('scratch\n');
+    expect((await lstat(join(repo.dir, 'deploy.sh'))).mode & 0o777).toBe(0o755);
+    expect(repo.git('status', '--short')).toBe('?? deploy.sh\n?? notes.txt');
+    // a.txt landed on feature-a and feature-b was restacked onto it.
+    expect(repo.git('show', 'feature-a:a.txt')).toBe('a v2');
+    expect(repo.git('rev-parse', 'feature-b^')).toBe(repo.git('rev-parse', 'feature-a'));
+    // The restore landed, so the stash absorb took is gone rather than kept.
+    expect(repo.git('stash', 'list')).toBe('');
   });
 
   test('restacked child checked out in a clean slot auto-fixes', async () => {
