@@ -62,7 +62,7 @@ async function resetScenario(): Promise<{
 }
 
 /**
- * Add a real `gitq-N` work slot holding `branch` — the pool-managed kind
+ * Add a real `gitq-N` work slot holding `branch`: the pool-managed kind
  * `findSlotForBranch` deliberately skips, so nothing downstream of the CLI
  * pre-guard notices it. Returns `{ path, root }`; `root` is what to clean up.
  */
@@ -215,8 +215,8 @@ describe('gitq reset (CLI) checkout neutrality', () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain('checked out in work slot "gitq-1"');
     expect(stderr).toContain(slot.path);
-    // Nothing moved, and the slot is left exactly as the human had it —
-    // pre-guard-less, this exited 0 with the slot's tree silently stale.
+    // Nothing moved, and the slot is left exactly as the human had it.
+    // Without this guard the command exited 0 with the slot's tree stale.
     expect(repo.git('rev-parse', 'feat/y')).toBe(divergedHead);
     expect(gitIn(slot.path)('rev-parse', 'HEAD')).toBe(divergedHead);
     expect(gitIn(slot.path)('status', '--porcelain')).toBe('');

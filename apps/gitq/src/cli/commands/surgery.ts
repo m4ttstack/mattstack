@@ -248,7 +248,7 @@ export async function resetCommand(ctx: CliContext): Promise<number> {
 
   // `findSlotForBranch` skips `gitq-N` work slots, so neither the pre-guard
   // above nor finalizeBranchRef's slot policy sees one a human checked out onto
-  // the branch — the ref would move and that slot's tree/index would silently
+  // the branch, so the ref would move and that slot's tree/index would silently
   // go stale. Refuse here instead. Narrow on purpose: making the shared
   // worktree lookup work-slot aware for every surgery command is Linear MAT-23.
   const workSlot = map.find((s) => s.isWorkSlot && s.branch === branch);
