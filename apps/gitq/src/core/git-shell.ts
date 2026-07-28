@@ -715,10 +715,16 @@ export const GitShell = {
     await git(['branch', '-D', branch], cwd);
   },
 
-  /** List files changed between a branch and its merge-base with a parent. */
+  /**
+   * List files changed between a branch and its merge-base with a parent.
+   *
+   * NUL-terminated: `split --files` matches these against a user-supplied glob
+   * and against {@link lsTree}, and a C-quoted `"caf\303\251.ts"` matches
+   * neither `café.*` nor the same path read unquoted from somewhere else.
+   */
   async diffNameOnly(cwd: string, base: string, head: string): Promise<string[]> {
-    const { stdout } = await git(['diff', '--name-only', base, head], cwd);
-    return stdout ? stdout.split('\n').filter(Boolean) : [];
+    const { stdout } = await git(['diff', '--name-only', '-z', base, head], cwd);
+    return splitNulPaths(stdout);
   },
 
   /** Checkout specific files from a ref into the working tree. */
@@ -738,38 +744,54 @@ export const GitShell = {
     await git(['rm', '-f', ...files], cwd);
   },
 
-  /** List files in a tree (ref). */
+  /** List files in a tree (ref). NUL-terminated, see {@link diffNameOnly}. */
   async lsTree(cwd: string, ref: string): Promise<string[]> {
-    const { stdout } = await git(['ls-tree', '-r', '--name-only', ref], cwd);
-    return stdout ? stdout.split('\n').filter(Boolean) : [];
+    const { stdout } = await git(['ls-tree', '-r', '--name-only', '-z', ref], cwd);
+    return splitNulPaths(stdout);
   },
 
   /** List files under a specific directory path in a tree (ref). */
   async lsTreePath(cwd: string, ref: string, path: string): Promise<string[]> {
-    const { stdout } = await git(['ls-tree', '-r', '--name-only', ref, '--', path], cwd);
-    return stdout ? stdout.split('\n').filter(Boolean) : [];
+    const { stdout } = await git(['ls-tree', '-r', '--name-only', '-z', ref, '--', path], cwd);
+    return splitNulPaths(stdout);
   },
 
   /**
    * Get file change statuses between two refs.
    * Returns entries with status (M, A, D, R) and paths.
    * For renames (R), `to` contains the destination path.
+   *
+   * NUL-terminated, for the reason in {@link diffNameOnly}. `-z` also drops the
+   * tab separator, so each entry is consumed as fields rather than split from a
+   * line: a status, then one path, or two when it is a rename or a copy.
    */
   async diffNameStatus(
     cwd: string,
     ref1: string,
     ref2: string,
   ): Promise<{ status: string; path: string; to?: string }[]> {
-    const { stdout } = await git(['diff', '--name-status', ref1, ref2], cwd);
-    if (!stdout) return [];
-    return stdout.split('\n').filter(Boolean).map((line) => {
-      const parts = line.split('\t');
-      const status = parts[0]!.charAt(0); // R100 → R
+    const fields = splitNulPaths((await git(['diff', '--name-status', '-z', ref1, ref2], cwd)).stdout);
+    const entries: { status: string; path: string; to?: string }[] = [];
+
+    for (let i = 0; i < fields.length; ) {
+      const status = fields[i]!.charAt(0); // R100 → R
+      const path = fields[i + 1];
+      // Truncated output would otherwise invent an entry with an undefined
+      // path, which reads as a real change to a file with no name.
+      if (path === undefined) break;
+
       if (status === 'R' || status === 'C') {
-        return { status, path: parts[1]!, to: parts[2]! };
+        const to = fields[i + 2];
+        if (to === undefined) break;
+        entries.push({ status, path, to });
+        i += 3;
+      } else {
+        entries.push({ status, path });
+        i += 2;
       }
-      return { status, path: parts[1]! };
-    });
+    }
+
+    return entries;
   },
 
   /** List all local branches. */

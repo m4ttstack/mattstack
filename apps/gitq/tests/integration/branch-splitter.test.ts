@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { StackManager } from '../../src/core/stack-manager.ts';
 import { writeFile, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createSandboxRepo, cleanupRepo, commit, type SandboxRepo } from './helpers.ts';
 
@@ -281,6 +282,42 @@ describe('BranchSplitter.splitByFile integration', () => {
       const newNode = StackManager.findNode(result.newStack, 'feat/ts-only');
       expect(newNode).toBeDefined();
       expect(newNode!.parent).toBe('main');
+    } finally {
+      await cleanupRepo(r.dir);
+    }
+  });
+
+  test('a non-ASCII filename matches the pattern and moves with the rest', async () => {
+    const { BranchSplitter } = await import('../../src/core/branch-splitter.ts');
+
+    const r = await createSandboxRepo();
+    try {
+      r.git('checkout', '-b', 'feat/mixed');
+      await commit(r.dir, r.git, 'api.ts', 'export function handler() {}\n', 'add api.ts');
+      // git C-quotes this path by default, and `"caf\303\251.ts"` matches
+      // neither `*.ts` nor anything on disk. It used to land in remainingFiles
+      // — a wrong selection with no error anywhere.
+      await commit(r.dir, r.git, 'café.ts', 'export const cafe = 1;\n', 'add café.ts');
+      const mixedHead = await commit(r.dir, r.git, 'config.json', '{"key": "value"}\n', 'add config.json');
+
+      r.git('checkout', 'main');
+
+      let stack = StackManager.createStack('test', 'main');
+      stack = StackManager.addNode(stack, 'feat/mixed', 'main');
+      stack = StackManager.updateNode(stack, 'feat/mixed', { lastKnownHead: mixedHead });
+
+      const result = await BranchSplitter.splitByFile(
+        r.dir, stack, 'feat/mixed', ['*.ts'], 'feat/ts-only',
+      );
+
+      expect(result.movedFiles.sort()).toEqual(['api.ts', 'café.ts']);
+      expect(result.remainingFiles).toEqual(['config.json']);
+
+      // And the content actually moved, so the path was usable, not just tidy.
+      r.git('checkout', 'feat/ts-only');
+      expect(await readFile(join(r.dir, 'café.ts'), 'utf-8')).toBe('export const cafe = 1;\n');
+      r.git('checkout', 'feat/mixed');
+      expect(existsSync(join(r.dir, 'café.ts'))).toBe(false);
     } finally {
       await cleanupRepo(r.dir);
     }

@@ -126,3 +126,91 @@ describe('GitShell integration', () => {
     expect(await GitShell.isAncestor(repo.dir, 'feat/test-branch', 'main')).toBe(false);
   });
 });
+
+// ── Paths git quotes ─────────────────────────────────────────────────────────
+//
+// With `core.quotePath` at its default, git C-quotes any path it considers
+// unusual, so `café.txt` comes back as `"caf\303\251.txt"`. That string names no
+// file on disk and matches no glob a user would type, so a consumer comparing it
+// against another path, or against a `--files` pattern, silently selects the
+// wrong set. `-z` output is the fix: NUL-terminated paths are never quoted.
+
+describe('GitShell path listings with a non-ASCII filename', () => {
+  /** A repo whose `uni` branch adds `café.ts` and modifies a plain file. */
+  async function uniRepo(): Promise<SandboxRepo> {
+    const r = await createSandboxRepo();
+    r.git('checkout', '-b', 'uni');
+    await writeFile(join(r.dir, 'café.ts'), 'export const cafe = 1;\n', 'utf-8');
+    await writeFile(join(r.dir, 'plain.ts'), 'export const plain = 1;\n', 'utf-8');
+    r.git('add', '.');
+    r.git('commit', '-m', 'uni: add café.ts and plain.ts');
+    return r;
+  }
+
+  test('diffNameOnly returns the real path, not the C-quoted one', async () => {
+    const { GitShell } = await import('../../src/core/git-shell.ts');
+    const r = await uniRepo();
+    try {
+      const files = await GitShell.diffNameOnly(r.dir, 'main', 'uni');
+
+      expect(files).toEqual(['café.ts', 'plain.ts']);
+      expect(files.some((f) => f.includes('\\303'))).toBe(false);
+    } finally {
+      await cleanupRepo(r.dir);
+    }
+  });
+
+  test('lsTree returns the real path, not the C-quoted one', async () => {
+    const { GitShell } = await import('../../src/core/git-shell.ts');
+    const r = await uniRepo();
+    try {
+      const files = await GitShell.lsTree(r.dir, 'uni');
+
+      expect(files).toContain('café.ts');
+      expect(files.some((f) => f.includes('\\303'))).toBe(false);
+    } finally {
+      await cleanupRepo(r.dir);
+    }
+  });
+
+  test('lsTreePath returns the real path, not the C-quoted one', async () => {
+    const { GitShell } = await import('../../src/core/git-shell.ts');
+    const r = await createSandboxRepo();
+    try {
+      r.git('checkout', '-b', 'uni');
+      await Bun.write(join(r.dir, 'dir', 'café.ts'), 'export const cafe = 1;\n');
+      r.git('add', '.');
+      r.git('commit', '-m', 'uni: add dir/café.ts');
+
+      const files = await GitShell.lsTreePath(r.dir, 'uni', 'dir');
+
+      expect(files).toEqual(['dir/café.ts']);
+    } finally {
+      await cleanupRepo(r.dir);
+    }
+  });
+
+  test('diffNameStatus returns the real path for a plain change and a rename', async () => {
+    const { GitShell } = await import('../../src/core/git-shell.ts');
+    const r = await uniRepo();
+    try {
+      // A rename to a non-ASCII destination: -z puts status, from and to in
+      // three NUL-separated fields rather than one tab-joined line.
+      r.git('checkout', '-b', 'renamed');
+      r.git('mv', 'plain.ts', 'plané.ts');
+      await writeFile(join(r.dir, 'café.ts'), 'export const cafe = 2;\n', 'utf-8');
+      r.git('add', '.');
+      r.git('commit', '-m', 'renamed: mv plain.ts and touch café.ts');
+
+      const entries = await GitShell.diffNameStatus(r.dir, 'uni', 'renamed');
+      const byPath = new Map(entries.map((e) => [e.path, e]));
+
+      expect(byPath.get('café.ts')?.status).toBe('M');
+      const rename = entries.find((e) => e.status === 'R');
+      expect(rename?.path).toBe('plain.ts');
+      expect(rename?.to).toBe('plané.ts');
+    } finally {
+      await cleanupRepo(r.dir);
+    }
+  });
+});
