@@ -60,7 +60,7 @@ Two failures happen before the token is ever considered, both from the remote al
 
 ## The board: `config.json`
 
-The board (`src/server/server.ts`) is a separate process with its own configuration file, `config.json`, resolved relative to the gitq checkout itself, not to `GITQ_CONFIG_DIR`: `CONFIG_PATH = join(import.meta.dir, '..', '..', 'config.json')` (`src/server/config.ts:17`), which is the repository root. Start from `config.example.json`:
+The board (`src/server/server.ts`) is a separate process with its own configuration file, `config.json`, resolved relative to the gitq checkout itself, not to `GITQ_CONFIG_DIR`: `CONFIG_PATH = join(import.meta.dir, '..', '..', 'config.json')` (`src/server/config.ts:24`), which is the repository root. Start from `config.example.json`:
 
 ```json
 {
@@ -70,7 +70,7 @@ The board (`src/server/server.ts`) is a separate process with its own configurat
 }
 ```
 
-Parsed and validated by `parseConfig` (`src/server/config.ts:25-54`):
+Parsed and validated by `parseConfig` (`src/server/config.ts:32-59`):
 
 | Field | Required | Default | Validation |
 | --- | --- | --- | --- |
@@ -79,7 +79,7 @@ Parsed and validated by `parseConfig` (`src/server/config.ts:25-54`):
 | `herdrWorkspace` | No | `"gitq"` | Must be a string if given. |
 
 
-A missing `config.json` is a startup failure: `no config.json at <path>; copy config.example.json and edit it` (`src/server/config.ts:56-64`). The file is read once, at module load (`const config = loadConfig();`, `src/server/config.ts:12`), so an edit needs a server restart to take effect; see [The board](/getting-started/the-board).
+A missing `config.json` is a startup failure: `no config.json at <path>; copy config.example.json and edit it` (`src/server/config.ts:61-69`). The file is read once, at module load (`const config = loadConfig();`, `src/server/server.ts:12`), so an edit needs a server restart to take effect; see [The board](/getting-started/the-board).
 
 `$PORT` in the environment overrides `config.port` at runtime, letting a process manager (launchd, for example) pin the port independently of the file: `const port = Number(process.env.PORT) || config.port;` (`src/server/server.ts:52`).
 
