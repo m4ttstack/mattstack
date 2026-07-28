@@ -548,11 +548,11 @@ gitq: branch "feat-ui" is checked out in slot "wt-ui" (/Users/you/repos/demo/wt-
 
 Exit `1`. Run it from that worktree, or free the branch there. `gitq reset` refuses on the same rule.
 
-Renaming a published branch does not rename it on the remote. The old branch is still on GitLab, and the MR is still attached to it. See [Publish to GitLab](/guides/publish-to-gitlab).
+Renaming a published branch does not rename it on the remote. The old branch is still on the forge, and the MR is still attached to it. See [Publish a stack](/guides/publish).
 
 ## `reset`: snap a branch back to its remote {#reset}
 
-**When you want it.** Local and remote have diverged, for example someone force-pushed the branch on GitLab, and you want your local ref to match exactly what is there.
+**When you want it.** Local and remote have diverged, for example someone force-pushed the branch, and you want your local ref to match exactly what is there.
 
 `gitq reset <branch>` requires a clean launch worktree: uncommitted changes stop it with `gitq: Working tree has uncommitted changes. Commit or stash first.` before anything moves. It does not fetch on its own, so make sure your remote-tracking ref for the branch is current first.
 

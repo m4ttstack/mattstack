@@ -47,9 +47,28 @@ interface ActivityEntry {
   stackName: string;
   branches: string[];
 }
+type ForgeSlug = 'gitlab' | 'github';
+
+/**
+ * How a forge writes a merge/pull request reference, and what to call it.
+ *
+ * A null forge is a repo whose remote names none gitq can identify: it still
+ * gets a working link, just without claiming a notation or a name that might be
+ * the wrong one.
+ */
+const FORGE_STYLE: Record<ForgeSlug, { sigil: string; name: string }> = {
+  gitlab: { sigil: '!', name: 'gitlab' },
+  github: { sigil: '#', name: 'github' },
+};
+
+function mrRef(forge: ForgeSlug | null, iid: number): string {
+  return forge ? `${FORGE_STYLE[forge].sigil}${iid}` : `MR ${iid}`;
+}
+
 interface BoardRepo {
   path: string;
   name: string;
+  forge: ForgeSlug | null;
   stacks: BoardStack[];
   activity: ActivityEntry[];
   worktrees: BoardWorktree[];
@@ -128,9 +147,10 @@ const ROW_H = 32;
 function StackPanel(props: {
   stack: BoardStack;
   jobs: JobInfo[];
+  forge: ForgeSlug | null;
   onMenu: (e: ReactMouseEvent, stack: BoardStack, node: BoardNode | null) => void;
 }) {
-  const { stack, jobs } = props;
+  const { stack, jobs, forge } = props;
   const nodes = topoOrder(stack.nodes, stack.root);
   const height = (nodes.length + 1) * ROW_H;
   const predicted = new Set(stack.predictedConflicts.map((c) => c.branch));
@@ -197,7 +217,7 @@ function StackPanel(props: {
             )}
             {n.mr?.url && (
               <a className="mr-link" href={n.mr.url} target="_blank" rel="noreferrer" title={n.mr.title}>
-                !{n.mr.iid}
+                {mrRef(forge, n.mr.iid)}
               </a>
             )}
           </div>
@@ -403,6 +423,7 @@ function App() {
                     key={stack.stackName}
                     stack={stack}
                     jobs={jobsFor(repo.path, stack.stackName)}
+                    forge={repo.forge}
                     onMenu={(e, s, n) => openMenu(e, repo, s, n)}
                   />
                 ))}
@@ -443,7 +464,8 @@ function App() {
                 setMenu(null);
               }}
             >
-              open !{menu.node.mr.iid} in gitlab
+              open {mrRef(menu.repo.forge, menu.node.mr.iid)}
+              {menu.repo.forge ? ` in ${FORGE_STYLE[menu.repo.forge].name}` : ''}
             </button>
           )}
           {!data.local && !menu.node?.mr?.url && <div className="menu-item">read-only over the tunnel</div>}

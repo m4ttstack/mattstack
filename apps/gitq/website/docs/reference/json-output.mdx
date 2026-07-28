@@ -5,7 +5,7 @@ sidebar_position: 3
 
 # JSON output
 
-Every command accepts `--json` (see [Global flags](/reference/global-flags)) and prints one JSON document to stdout instead of its human summary, through a single shared function, `emit()` (`src/cli/output.ts:4-7`). The shapes on this page come from the actual value each command passes to `emit()`, read at the source, not from a written schema. Most are real captures against a scratch repo, trimmed for length where the real output is long; a few, noted as such, are described from the source type they are built from rather than a live run, because reaching that exact state (a real GitLab publish, a specific per branch failure) either needs the real GitLab API, which this task did not touch, or a lengthy setup for a shape already fully specified in source.
+Every command accepts `--json` (see [Global flags](/reference/global-flags)) and prints one JSON document to stdout instead of its human summary, through a single shared function, `emit()` (`src/cli/output.ts:4-7`). The shapes on this page come from the actual value each command passes to `emit()`, read at the source, not from a written schema. Most are real captures against a scratch repo, trimmed for length where the real output is long; a few, noted as such, are described from the source type they are built from rather than a live run, because reaching that exact state (a real publish, a specific per branch failure) either needs a real forge API, which this task did not touch, or a lengthy setup for a shape already fully specified in source.
 
 Hard failures never reach `emit()`; nothing is printed to stdout for those, under `--json` or not. See [Exit codes and errors](/reference/exit-codes).
 
@@ -293,13 +293,13 @@ None of these five were run live for this page; each shape below is the exact ty
 
 ## `gitq publish` / `gitq import`
 
-Neither was run for this page: both talk to the real GitLab API, which this project's isolation rules keep off limits. Shapes below are from source.
+Neither was run for this page: both talk to a real forge API, which this project's isolation rules keep off limits. Shapes below are from source.
 
 `publish` (`src/cli/commands/forge.ts:104-140`) emits `{ results, skipped, updatedStack }`, where `results` is `PublishNodeResult[]` (`src/core/forge-sync.ts:45-57`): `{ branch, success, action, mrIid?, mrUrl?, error?, changes?, targetBranch? }`.
 
 `action` is always present and says which of the two things happened: `created` for an MR this run opened, `updated` for one that was already there. `changes` is set only on an update and lists what actually moved, `target` when the MR was retargeted and `metadata` when `--mr-meta` rewrote its title and description, either or both (`PublishChange`, `src/core/forge-sync.ts:42`). `targetBranch` is the branch the MR points at after the run: the node's parent in the local tree, or its nearest ancestor that has not merged.
 
-`skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:63-70`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:60`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/gitlab/publish#skipped) for what each reason means.
+`skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:63-70`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:60`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/forge/publish#skipped) for what each reason means.
 
 `import` (`src/cli/commands/forge.ts:142-189`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:94-106`).
 

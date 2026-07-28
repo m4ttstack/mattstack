@@ -46,7 +46,7 @@ Hard failures cover, among others:
 - A lease held on the stack, from `requireStackFree` (`src/cli/slots.ts:19-27`): `stack has a running/parked <action> lease on <path>; finish it first: gitq continue (or gitq abort)`.
 - A local pause file already present, checked only by `undo` (`requireNoPause`, `src/cli/pause-file.ts:40-45`).
 - A `sync` whose remote trunk ref does not resolve, even though the fetch before it succeeded: `gitq: cannot sync: origin/main does not resolve after fetching origin ("main" was never pushed to origin, or this remote's fetch refspec does not cover it; if it was never pushed: git push -u origin main). nothing was rebased`. Thrown from `syncLocalStack` (`src/core/rebase-engine.ts:1252-1260`), so it reaches you through `main.ts`'s catch rather than a `fail()` call. This case used to exit `0` with an empty result, indistinguishable on stdout from an already-current stack; a `0` from `sync` now means the fetch ran and `origin/<root>` resolved. See [`gitq sync`](/reference/cascade/sync#exit-codes).
-- A missing GitLab token, for `publish`/`import` (`src/cli/provider.ts`).
+- A missing token for the repo's forge, or a remote whose host names no forge gitq knows, for `publish`/`import` (`src/cli/provider.ts`).
 - Refusing to overwrite a non-empty local store on `import` without `--replace`.
 - Nothing to resume: `continue` and `abort` both resolve through `findParkedLease` (`src/cli/slots.ts:99-110`) and print the identical `gitq: nothing to continue (no parked cascade)` when nothing is parked, even when the command you ran was `abort`. Verified by running `abort` with nothing parked.
 

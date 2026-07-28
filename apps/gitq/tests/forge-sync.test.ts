@@ -819,7 +819,7 @@ describe('ForgeSync.publishStack — republish', () => {
     expect(calls.updates).toEqual([]);
     expect(result.results).toEqual([]);
     expect(result.skipped).toEqual([
-      { branch: 'feat/b', mrIid: 2, reason: 'mr-unreadable', detail: 'MR !2 was not returned by GitLab' },
+      { branch: 'feat/b', mrIid: 2, reason: 'mr-unreadable', detail: 'MR !2 was not returned by the forge' },
     ]);
   });
 

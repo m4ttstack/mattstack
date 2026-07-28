@@ -12,7 +12,7 @@ sidebar_position: 6
 | Skill | CLI mechanics | Judgment the skill adds |
 | --- | --- | --- |
 | `gitq:sync` | `gitq sync`, `gitq continue`, `gitq abort` | Reading a conflict's both sides and merging them for real, not picking one side mechanically. |
-| `gitq:publish` | `gitq publish --mr-meta <path>` | Writing MR titles and descriptions from the actual diff, deciding which already-published MRs should have their prose overwritten (an `--mr-meta` entry for one replaces what is on GitLab), and holding the gate before anything reaches GitLab. |
+| `gitq:publish` | `gitq publish --mr-meta <path>` | Writing MR titles and descriptions from the actual diff, deciding which already-published MRs should have their prose overwritten (an `--mr-meta` entry for one replaces what is on the forge), and holding the gate before anything reaches it. |
 | `gitq:absorb` | `gitq absorb --preview`, `gitq absorb` | Sanity-checking the file→branch attribution before committing to it; gitq's attribution is mechanical (`git diff --name-only <parent> <branch>`) and can be wrong on a surprising file. |
 | `gitq:restructure` | `gitq split`, `fold`, `reparent`, `rename`, `reset` | Turning a plain-language instruction ("split the UI work out of feat-core") into the right sequence of surgery commands, and gating the whole plan before executing any of it. |
 
@@ -97,5 +97,5 @@ Its step 3 says "surgery never moves the launch worktree's checkout." True for `
 
 - [The board](/getting-started/the-board): where these skills get launched from, and what the badges mean.
 - [Resolve a conflict](/guides/resolve-a-conflict): the conflict loop `gitq:sync` and `gitq:restructure`'s reparent path both follow.
-- [Publish to GitLab](/guides/publish-to-gitlab): what `gitq:publish` gates before it runs.
+- [Publish a stack](/guides/publish): what `gitq:publish` gates before it runs.
 - [Absorb uncommitted changes](/guides/absorb-changes) and [Restructure a stack](/guides/restructure-a-stack): the CLI mechanics behind the other two skills.

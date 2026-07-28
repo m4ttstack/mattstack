@@ -180,7 +180,7 @@ export async function importCommand(ctx: CliContext): Promise<number> {
   // stderr: it is a diagnostic about the run, not part of --json's `{ store }`.
   if (scopedMRs === 0 && openMRs > 0) {
     console.error(
-      `gitq: none of the ${openMRs} open MR(s) GitLab returned belong to ${projectPath} (read from remote ${remoteUrl}); if the project was renamed or transferred, update the remote and import again`,
+      `gitq: none of the ${openMRs} open MR(s) the forge returned belong to ${projectPath} (read from remote ${remoteUrl}); if the project was renamed or transferred, update the remote and import again`,
     );
   }
 

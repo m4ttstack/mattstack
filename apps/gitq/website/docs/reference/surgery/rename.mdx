@@ -27,7 +27,7 @@ Runs `git branch -m <old> <new>` (`src/core/git-shell.ts:594-596`), then renames
 
 - Refuses if `<old>` isn't a node in the stack (`Branch "<old>" not found in stack "<id>"`), or `<new>` already is (`Branch "<new>" already exists in stack "<id>"`).
 - The git rename happens first: if it fails (`<new>` already exists as a git branch), the stack tree is left untouched.
-- Renaming a published branch does not rename it on GitLab. The old name stays on the remote, and the MR is still attached to it.
+- Renaming a published branch does not rename it on the forge. The old name stays on the remote, and the MR is still attached to it.
 
 Recorded to the operation log under `rename`, but **not reversible**: `rename` is not one of the four types in `REVERSIBLE_OPERATIONS`, so `gitq undo` afterward refuses with `cannot undo "rename" (not reversible)` (`src/core/undo.ts:16-21`).
 
@@ -42,5 +42,5 @@ Never exits `2`. See [Exit codes](/reference/exit-codes) for the general contrac
 
 - [Restructure a stack](/guides/restructure-a-stack#rename): a real rename, and the refusal.
 - [`gitq reset`](/reference/surgery/reset): refuses on the same checked-out-elsewhere rule.
-- [Publish to GitLab](/guides/publish-to-gitlab): why a rename doesn't follow to the remote.
+- [Publish a stack](/guides/publish): why a rename doesn't follow to the remote.
 - [`gitq undo`](/reference/other/undo): why a rename cannot be reversed by it.

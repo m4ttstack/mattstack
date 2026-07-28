@@ -8,7 +8,8 @@ import type { OperationEntry } from '../core/operation-log.ts';
 import { GitShell } from '../core/git-shell.ts';
 import { createForgeProvider } from '../cli/provider.ts';
 import type { ForgeProviderContext, ForgeProviderOptions } from '../cli/provider.ts';
-import { readForgeOverrides } from '../core/forges.ts';
+import { readForgeOverrides, resolveForge, type ForgeSlug } from '../core/forges.ts';
+import { hostFromRemoteUrl } from '../core/forge-helpers.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
 import { listLeases } from '../core/leases.ts';
 import type { Stack, StackStore } from '../core/types.ts';
@@ -64,6 +65,15 @@ export interface ActivityEntry {
 export interface BoardRepo {
   path: string;
   name: string;
+  /**
+   * Which forge this repo's remote names, so the UI can use its own notation
+   * (`!42` on GitLab, `#42` on GitHub) rather than picking one for it.
+   *
+   * Null covers both "the remote names no forge gitq can identify" and "nothing
+   * looked", the latter because a repo with no tracked stacks never reads its
+   * remote. Neither case has an MR to render, so the UI treats them the same.
+   */
+  forge: ForgeSlug | null;
   stacks: BoardStack[];
   activity: ActivityEntry[];
   worktrees: BoardWorktree[];
@@ -177,29 +187,65 @@ export async function fetchMrsByBranch(ctx: ForgeProviderContext, branches: stri
   return out;
 }
 
+/** What one repo's remote says about its forge: which one, and whether we can talk to it. */
+export interface RepoForge {
+  /**
+   * Built only when this forge's token is configured, so null is the degraded
+   * case rather than an error: the board shows many repos and they need not
+   * share a forge, so a remote naming none gitq knows, or a forge whose token
+   * is missing, costs this repo its MR enrichment and nothing else. Withholding
+   * every other repo's MRs over it is what this replaced.
+   */
+  provider: ForgeProviderContext | null;
+  /**
+   * The forge the remote names, whether or not a token exists for it.
+   *
+   * Presentation needs this on its own: `!42` is GitLab's reference notation and
+   * `#42` is GitHub's, and a repo shows the right one even when its MRs could
+   * not be fetched. Null means the remote named no forge gitq can identify, in
+   * which case the UI says neither.
+   */
+  slug: ForgeSlug | null;
+}
+
 /**
- * The forge provider for one repo, resolved from that repo's own remote, or null
- * when it has none to offer.
+ * Resolve one repo's forge from its own remote: which forge, and a provider when
+ * its credential is configured.
  *
- * Null is the degraded case, not an error: the board shows many repos and they
- * need not share a forge, so a remote naming none gitq knows, or a forge whose
- * token is not configured, costs this repo its MR enrichment and nothing else.
- * Withholding every other repo's MRs over it is what this replaced.
+ * One remote read and one settings read serve both answers, which is why they
+ * come back together rather than from two entry points.
  */
-export async function resolveRepoProvider(
+export async function resolveRepoForge(
   repoPath: string,
   store: StackStore,
   opts: ForgeProviderOptions = {},
-): Promise<ForgeProviderContext | null> {
+): Promise<RepoForge> {
   // Nothing to enrich, so the remote is never read: the common case for a repo
   // on the board that is not currently stacked.
-  if (store.stacks.length === 0) return null;
+  if (store.stacks.length === 0) return { provider: null, slug: null };
+
+  let remoteUrl: string;
+  try {
+    remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(repoPath));
+  } catch {
+    return { provider: null, slug: null };
+  }
+
+  const overrides = opts.overrides ?? (await readForgeOverrides());
+  const host = hostFromRemoteUrl(remoteUrl);
+  let slug: ForgeSlug | null = null;
+  try {
+    slug = host ? resolveForge(host, overrides)?.slug ?? null : null;
+  } catch {
+    // A malformed `forges` entry. The board is not the place to report it; the
+    // CLI does, loudly, on the next publish or import.
+    slug = null;
+  }
 
   try {
-    const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(repoPath));
-    return await createForgeProvider(remoteUrl, opts);
+    return { provider: await createForgeProvider(remoteUrl, { ...opts, overrides }), slug };
   } catch {
-    return null;
+    return { provider: null, slug };
   }
 }
 
@@ -209,7 +255,7 @@ export async function resolveRepoProvider(
 export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = {}): Promise<BoardRepo> {
   try {
     const store = await loadStore(repo.path);
-    const providerCtx = await resolveRepoProvider(repo.path, store, opts);
+    const { provider: providerCtx, slug: forge } = await resolveRepoForge(repo.path, store, opts);
     let worktrees: BoardWorktree[] = [];
     const slotByBranch = new Map<string, { name: string; dirty: boolean }>();
     try {
@@ -264,11 +310,12 @@ export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = 
       );
     }
     const activity = shapeActivity(await OperationLog.load(), repo.path);
-    return { path: repo.path, name: repo.name, stacks, activity, worktrees, error: null };
+    return { path: repo.path, name: repo.name, forge, stacks, activity, worktrees, error: null };
   } catch (err) {
     return {
       path: repo.path,
       name: repo.name,
+      forge: null,
       stacks: [],
       activity: [],
       worktrees: [],

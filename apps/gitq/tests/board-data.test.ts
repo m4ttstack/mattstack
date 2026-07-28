@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { fetchMrsByBranch, parseActionBody, resolveRepoProvider, shapeActivity, shapeStack } from '../src/server/data.ts';
+import { fetchMrsByBranch, parseActionBody, resolveRepoForge, shapeActivity, shapeStack } from '../src/server/data.ts';
 import type { BoardMr } from '../src/server/data.ts';
 import type { Stack, StackNode, StackStore } from '../src/core/types.ts';
 import type { ForgeOverrides } from '../src/core/forges.ts';
@@ -169,15 +169,16 @@ const GITLAB_ENV = { GITLAB_TOKEN: 'glpat-test' };
 const GITHUB_ENV = { GITHUB_TOKEN: 'ghp-test' };
 
 function resolve(store: StackStore, env: Record<string, string | undefined>, overrides: ForgeOverrides = {}) {
-  return resolveRepoProvider('/repo', store, { env, overrides, secretsFile: '/nonexistent' });
+  return resolveRepoForge('/repo', store, { env, overrides, secretsFile: '/nonexistent' });
 }
 
-describe('resolveRepoProvider', () => {
+describe('resolveRepoForge', () => {
   test('resolves a GitLab remote to the gitlab provider', async () => {
     const ctx = await resolve(storeWith('git@gitlab.com:acme/web.git'), GITLAB_ENV);
 
-    expect(ctx?.provider.providerName).toBe('gitlab');
-    expect(ctx?.projectPath).toBe('acme/web');
+    expect(ctx.provider?.provider.providerName).toBe('gitlab');
+    expect(ctx.provider?.projectPath).toBe('acme/web');
+    expect(ctx.slug).toBe('gitlab');
   });
 
   test('resolves a GitHub remote to the github provider', async () => {
@@ -185,8 +186,9 @@ describe('resolveRepoProvider', () => {
     // the right client rather than none.
     const ctx = await resolve(storeWith('git@github.com:acme/web.git'), GITHUB_ENV);
 
-    expect(ctx?.provider.providerName).toBe('github');
-    expect(ctx?.provider.baseURL).toBe('https://github.com');
+    expect(ctx.provider?.provider.providerName).toBe('github');
+    expect(ctx.provider?.provider.baseURL).toBe('https://github.com');
+    expect(ctx.slug).toBe('github');
   });
 
   test('a board holding both forges resolves each repo independently', async () => {
@@ -195,8 +197,8 @@ describe('resolveRepoProvider', () => {
     const gitlab = await resolve(storeWith('https://gitlab.com/acme/web.git'), env);
     const github = await resolve(storeWith('https://github.com/acme/api.git'), env);
 
-    expect(gitlab?.provider.providerName).toBe('gitlab');
-    expect(github?.provider.providerName).toBe('github');
+    expect(gitlab.provider?.provider.providerName).toBe('gitlab');
+    expect(github.provider?.provider.providerName).toBe('github');
   });
 
   test('resolves a self-hosted host through the forges override', async () => {
@@ -204,23 +206,28 @@ describe('resolveRepoProvider', () => {
       'gitlab.acme.com': { provider: 'gitlab' },
     });
 
-    expect(ctx?.provider.baseURL).toBe('https://gitlab.acme.com');
+    expect(ctx.provider?.provider.baseURL).toBe('https://gitlab.acme.com');
   });
 
   test('degrades to no provider when this forge has no token', async () => {
     // A GitLab token is not a GitHub credential. Before MAT-19 the presence of
     // one was what decided whether ANY repo got enrichment.
-    expect(await resolve(storeWith('git@github.com:acme/web.git'), GITLAB_ENV)).toBeNull();
+    const ctx = await resolve(storeWith('git@github.com:acme/web.git'), GITLAB_ENV);
+
+    expect(ctx.provider).toBeNull();
+    // The forge is still known, which is what keeps the UI showing `#42` rather
+    // than GitLab's `!42` for a repo whose MRs it could not fetch.
+    expect(ctx.slug).toBe('github');
   });
 
   test('degrades to no provider when the remote names no forge gitq knows', async () => {
-    expect(await resolve(storeWith('git@git.acme.com:acme/web.git'), GITLAB_ENV)).toBeNull();
-    expect(await resolve(storeWith('/srv/git/acme/web.git'), GITLAB_ENV)).toBeNull();
+    expect(await resolve(storeWith('git@git.acme.com:acme/web.git'), GITLAB_ENV)).toEqual({ provider: null, slug: null });
+    expect(await resolve(storeWith('/srv/git/acme/web.git'), GITLAB_ENV)).toEqual({ provider: null, slug: null });
   });
 
   test('resolves nothing for a repo with no tracked stacks', async () => {
     // No stacks means nothing to enrich, so the remote is never even read.
-    expect(await resolve(storeWith('git@gitlab.com:acme/web.git', []), GITLAB_ENV)).toBeNull();
+    expect(await resolve(storeWith('git@gitlab.com:acme/web.git', []), GITLAB_ENV)).toEqual({ provider: null, slug: null });
   });
 
   test("one repo's missing token does not withhold another repo's MRs", async () => {
@@ -229,8 +236,8 @@ describe('resolveRepoProvider', () => {
     const ok = await resolve(storeWith('git@gitlab.com:acme/web.git'), env);
     const notOk = await resolve(storeWith('git@github.com:acme/api.git'), env);
 
-    expect(ok?.provider.providerName).toBe('gitlab');
-    expect(notOk).toBeNull();
+    expect(ok.provider?.provider.providerName).toBe('gitlab');
+    expect(notOk.provider).toBeNull();
   });
 });
 

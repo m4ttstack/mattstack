@@ -2,7 +2,8 @@
 name: gitq:publish
 description: >-
   Push a tracked gitq stack's unpublished branches and create or update its
-  GitLab MR chain, writing the MR titles and descriptions itself. Launched by the
+  merge/pull request chain on GitLab or GitHub, writing the MR titles and
+  descriptions itself. Launched by the
   gitq board as "/gitq:publish <repoPath> <stackName> --state <path>
   --status-bin <path>", or invoked by hand without those flags. Holds a
   human gate before anything leaves the machine.
@@ -11,8 +12,10 @@ description: >-
 # gitq publish runner
 
 Push the stack's not-yet-published branches (gitq pushes with
-force-with-lease) and open or retarget its MR chain on GitLab. gitq does the
-pushing and MR plumbing; you write the MR prose and hold the gate.
+force-with-lease) and open or retarget its MR chain on the repo's forge. gitq
+reads which forge that is from the git remote's host, so the same command
+covers GitLab and GitHub, self-hosted included. gitq does the pushing and MR
+plumbing; you write the MR prose and hold the gate.
 
 What `gitq publish` does per branch, so your gate can say it accurately:
 
@@ -28,7 +31,7 @@ What `gitq publish` does per branch, so your gate can say it accurately:
   reason.
 
 A branch's **target** is the branch below it in the stack, skipping any that
-have already merged: gitq keeps merged branches in the tree, GitLab deletes
+have already merged: gitq keeps merged branches in the tree, the forge deletes
 them on merge, so publish targets the nearest one still alive. Locally merged
 branches are left alone and appear in neither list.
 
@@ -67,8 +70,8 @@ just talk to the human; everything else below is unchanged.
    conventions the user's rules define; absent those, use the branch's main
    change as the title and a description of 1-2 sentences of framing plus
    action-first bullets. Only include a branch that already has an MR when
-   you mean to overwrite that MR's title and description on GitLab: an entry
-   replaces whatever is there, including edits made in the GitLab UI. Save
+   you mean to overwrite that MR's title and description on the forge: an entry
+   replaces whatever is there, including edits made in the forge's own UI. Save
    the result as JSON to a temp file (`mktemp` suffixed `.json`) in gitq's
    mr-meta shape:
 
@@ -79,7 +82,7 @@ just talk to the human; everything else below is unchanged.
    Both fields are required, and an empty string means "leave that one
    alone", so a real title and description belong in every entry you write.
    `--mr-meta` cannot blank an MR body: if the human wants one emptied, say
-   that it has to happen in the GitLab UI.
+   that it has to happen in the forge's own UI.
 
 4. **Gate.** Show the human: the branch chain in order, which branches get a
    new MR versus an update (and for an update, whether it is a retarget, a
@@ -94,8 +97,12 @@ just talk to the human; everything else below is unchanged.
      for an update, `changes` (`target`, `metadata`, or both). A branch in
      neither `results` nor `skipped` needed nothing.
    - **exit 1** with a `gitq:` line on stderr: hard failure. The commonest is
-     a missing GitLab token (gitq reads `GITLAB_TOKEN`, then the
-     `gitlabToken` field of `~/.rt/secrets.json`; gitlab.com only). Mark
+     a missing token for the repo's forge. gitq reads the remote's host to
+     decide which it needs: `GITLAB_TOKEN` then `gitlabToken` in
+     `~/.rt/secrets.json` for GitLab, `GITHUB_TOKEN` then `githubToken` for
+     GitHub. A self-hosted host needs a `forges` entry in
+     `~/.config/gitq/settings.json` naming its provider, and the error says so.
+     Mark
      error with the stderr text.
    - **exit 1** after normal JSON: some per-MR results have
      `success: false`. Mark error naming the failed branches, and report

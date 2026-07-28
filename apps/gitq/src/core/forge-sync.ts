@@ -454,7 +454,7 @@ export const ForgeSync = {
           branch: node.branch,
           mrIid: node.mrIid,
           reason: 'mr-unreadable',
-          detail: `MR !${node.mrIid} was not returned by GitLab`,
+          detail: `MR !${node.mrIid} was not returned by the forge`,
         });
         continue;
       }

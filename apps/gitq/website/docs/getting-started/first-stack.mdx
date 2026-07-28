@@ -11,7 +11,7 @@ Every command and every output block below came from a real run. Only the commit
 
 :::note gitq measures a stack against `origin/<root>`
 
-gitq compares the stack root against `origin/<root>`, not your local branch, and branches whose parent is the root rebase directly onto `origin/<root>` when you sync. Your local trunk branch is never rewritten. In a repo with no `origin` remote, `gitq diagnose` cannot see that trunk moved and `gitq sync` fails outright at the fetch. So this tutorial gives the scratch repo a remote: a local bare repository standing in for GitLab. No network involved.
+gitq compares the stack root against `origin/<root>`, not your local branch, and branches whose parent is the root rebase directly onto `origin/<root>` when you sync. Your local trunk branch is never rewritten. In a repo with no `origin` remote, `gitq diagnose` cannot see that trunk moved and `gitq sync` fails outright at the fetch. So this tutorial gives the scratch repo a remote: a local bare repository standing in for a forge. No network involved.
 
 :::
 

@@ -1,6 +1,6 @@
 # gitq
 
-gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to GitLab to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. the skills that drive this CLI from agent panes live in `skills/`, and the board (server + web client) that launches them lives in `src/server/` + `src/client/`.
+gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to a forge (GitLab or GitHub, read from the git remote's host) to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. the skills that drive this CLI from agent panes live in `skills/`, and the board (server + web client) that launches them lives in `src/server/` + `src/client/`.
 
 ## install
 
@@ -45,10 +45,10 @@ Surgery:
 - `gitq rename <old> <new> [--stack <name>]`: rename a branch, in git and in the stack tree.
 - `gitq reset <branch> [--stack <name>]`: reset a local branch to match `origin/<branch>` (for when it diverged, e.g. someone force pushed).
 
-GitLab:
+Forge (GitLab or GitHub, resolved from the git remote's host):
 
-- `gitq publish [--stack <name>] [--mr-meta <path>]`: push and open an MR for every local only branch in the stack, and update the MRs of the branches that already have one: an MR whose target no longer matches the branch's nearest live ancestor gets retargeted, and its title/description are rewritten only when `--mr-meta` names that branch. The target walks up past any branch already merged, so a child is never pointed back at a branch GitLab deleted on merge. A published branch whose MR is closed, unreadable, or opened from some other branch is reported as skipped rather than written to, so an empty result really does mean nothing needed doing. Already published branches are not pushed. `--mr-meta` points at a JSON file of `{"<branch>": {"title": "...", "description": "..."}}` to set MR titles/descriptions; branches not listed get defaults on a new MR and keep what they have on an existing one, and an empty string reads as "not provided".
-- `gitq import [--replace]`: pull stacks for the current repo's remote back from GitLab into local tracking. This rebuilds the whole local store and re-mints stack ids, so it refuses when the repo already has tracked stacks unless you pass `--replace` (the store check runs before the token check, so the refusal works offline). Meant for recovery, not routine use.
+- `gitq publish [--stack <name>] [--mr-meta <path>]`: push and open an MR for every local only branch in the stack, and update the MRs of the branches that already have one: an MR whose target no longer matches the branch's nearest live ancestor gets retargeted, and its title/description are rewritten only when `--mr-meta` names that branch. The target walks up past any branch already merged, so a child is never pointed back at a branch the forge deleted on merge. A published branch whose MR is closed, unreadable, or opened from some other branch is reported as skipped rather than written to, so an empty result really does mean nothing needed doing. Already published branches are not pushed. `--mr-meta` points at a JSON file of `{"<branch>": {"title": "...", "description": "..."}}` to set MR titles/descriptions; branches not listed get defaults on a new MR and keep what they have on an existing one, and an empty string reads as "not provided".
+- `gitq import [--replace]`: pull stacks for the current repo's remote back from the forge into local tracking. This rebuilds the whole local store and re-mints stack ids, so it refuses when the repo already has tracked stacks unless you pass `--replace` (the store check runs before the token check, so the refusal works offline). Meant for recovery, not routine use.
 
 Other:
 
@@ -80,7 +80,7 @@ Stores created by older gitq versions (keyed by a single worktree's path) migrat
 
 ## errors
 
-Hard failures (bad usage, unknown command, no such stack, missing GitLab token, refusing to run while a cascade is paused, refusing to overwrite a non-empty store on `import` without `--replace`, and so on) go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Don't try to parse stderr as JSON; nothing gets written to stdout for these.
+Hard failures (bad usage, unknown command, no such stack, a missing token for the repo's forge, refusing to run while a cascade is paused, refusing to overwrite a non-empty store on `import` without `--replace`, and so on) go to stderr as plain text, prefixed `gitq:`, with exit code `1`, whether or not you passed `--json`. Don't try to parse stderr as JSON; nothing gets written to stdout for these.
 
 A command can also exit `1` after emitting its normal stdout JSON: `sync`/`continue`, `absorb`, and `publish` report structured per branch (or per MR) results, and the process exits `1` if any individual result failed even though the command itself ran to completion. Check the JSON's per item `success` fields for that case, not just the exit code.
 
@@ -114,7 +114,7 @@ Each skill takes `<repoPath> <stackName>` positionals plus optional `--state <pa
 
 ## board
 
-a local web board showing every configured repo's stacks: per branch status badges (from `gitq diagnose`'s engine, plus a "conflict predicted" hint from preflight), MR and pipeline state when a GitLab token is available, live job chips while a pane works, and an activity feed from the operation log. right-clicking a stack offers the four actions; each one spawns a herdr tab running `claude` with the matching `gitq:*` skill and the `--state`/`--status-bin` contract, so the badge updates live while the agent works. relaunching a live action refocuses its tab instead of double-spawning.
+a local web board showing every configured repo's stacks: per branch status badges (from `gitq diagnose`'s engine, plus a "conflict predicted" hint from preflight), MR and pipeline state per repo when that repo's forge token is available, live job chips while a pane works, and an activity feed from the operation log. right-clicking a stack offers the four actions; each one spawns a herdr tab running `claude` with the matching `gitq:*` skill and the `--state`/`--status-bin` contract, so the badge updates live while the agent works. relaunching a live action refocuses its tab instead of double-spawning.
 
 ```bash
 cp config.example.json config.json   # edit: repos to show, port (default 11008), herdrWorkspace

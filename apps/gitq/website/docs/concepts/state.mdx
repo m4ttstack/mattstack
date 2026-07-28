@@ -38,7 +38,7 @@ One file per repo, holding that repo's entire [stack tree](/concepts/stack-tree)
 
 Written by every command that changes the tree: `track`, `untrack`, `add`, `remove`, all of the surgery commands, `sync` (to record each branch's new head), `publish` (to record MR ids and URLs), and `import`.
 
-Deleting it forgets the tree. It does not delete, move, or otherwise disturb a single branch. Rebuild by re-running `gitq track` and `gitq add`, or by importing the stack back from its merge request chain with [`gitq import`](/reference/gitlab/import).
+Deleting it forgets the tree. It does not delete, move, or otherwise disturb a single branch. Rebuild by re-running `gitq track` and `gitq add`, or by importing the stack back from its merge request chain with [`gitq import`](/reference/forge/import).
 
 :::note Older stores migrate themselves
 
@@ -101,7 +101,7 @@ Both of these live in the gitq checkout itself, not in your config directory.
 
 ### `config.json`
 
-The board's own configuration: which repos to display, which port to bind, the herdr workspace, the GitLab host. Read once at server startup, so an edit needs a restart. Start from `config.example.json`. See [The board](/getting-started/the-board) and [Configuration](/reference/configuration).
+The board's own configuration: which repos to display, which port to bind, the herdr workspace. Read once at server startup, so an edit needs a restart. Start from `config.example.json`. See [The board](/getting-started/the-board) and [Configuration](/reference/configuration).
 
 ### `state/jobs/*.json`
 

@@ -101,7 +101,7 @@ demo (root main): feat-a
 
 ## A branch diverged from origin
 
-Someone force-pushed the branch on GitLab (a rebase, an amend, whatever) and your local ref no longer matches. `gitq reset <branch>` snaps it back:
+Someone force-pushed the branch (a rebase, an amend, whatever) and your local ref no longer matches. `gitq reset <branch>` snaps it back:
 
 ```bash
 gitq reset feat-a
@@ -185,13 +185,13 @@ fb1414b feat-a touches README
 
 ## The store is wrong or gone
 
-Deleted `~/.config/gitq/stacks/<hash>.json` by accident, or the tree in it just doesn't match reality anymore and hand-editing isn't worth it. If GitLab still has the MRs, `gitq import --replace` rebuilds the store from there: the reverse direction of `publish`, forge state overwriting local state:
+Deleted `~/.config/gitq/stacks/<hash>.json` by accident, or the tree in it just doesn't match reality anymore and hand-editing isn't worth it. If the forge still has the MRs, `gitq import --replace` rebuilds the store from there: the reverse direction of `publish`, forge state overwriting local state:
 
 ```bash
 gitq import --replace
 ```
 
-Two refusals guard it, both checked from source rather than a live run here since `import` hits the real GitLab API:
+Two refusals guard it, both checked from source rather than a live run here since `import` hits a real forge API:
 
 - **Without `--replace`, over a non-empty store:**
 
@@ -215,7 +215,7 @@ Every stack `import` creates gets a brand-new random id (`crypto.randomUUID()` i
 
 :::
 
-Treat it as a recovery tool for a broken store, not a routine refresh: `gitq sync` is what you want for a stack that's merely behind. See [Publish to GitLab](/guides/publish-to-gitlab#import-replace) for the full command reference.
+Treat it as a recovery tool for a broken store, not a routine refresh: `gitq sync` is what you want for a stack that's merely behind. See [Publish a stack](/guides/publish#import-replace) for the full command reference.
 
 ## A lease is stuck
 

@@ -119,7 +119,7 @@ You resolve it with plain git in the worktree the pause names, `git add` the res
 
 ## What a cascade does not do
 
-- **It does not push.** After a sync, every rebased branch has diverged from its published counterpart and needs a force push. The JSON output's `rebasedBranches` lists exactly which ones. See [Publish to GitLab](/guides/publish-to-gitlab).
+- **It does not push.** After a sync, every rebased branch has diverged from its published counterpart and needs a force push. The JSON output's `rebasedBranches` lists exactly which ones. See [Publish a stack](/guides/publish).
 - **It does not restructure.** The tree comes out of a sync with the same shape it went in with. Changing the shape is [surgery](/reference/surgery/reparent).
 - **It does not skip branches for you.** Every node is attempted unless it is marked `unmanaged`, in which case it is visible in the tree and permanently skipped by the cascade.
 - **It does not touch the local root branch.** Yes, this is the third time. See above.
