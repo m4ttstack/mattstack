@@ -1459,6 +1459,31 @@ describe('ForgeSync.syncStack', () => {
     expect(result.deletedBranches[0]!.reason).toBe('closed');
   });
 
+  test('does not report a branch deleted when the listing missed an MR that is still open', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+    stack = StackManager.updateNode(stack, 'feat/a', {
+      mrIid: 1,
+      status: 'synced',
+      mrUrl: 'https://gitlab.com/group/project/-/merge_requests/1',
+    });
+
+    // An MR absent from the listing but still open on the forge. This is not
+    // hypothetical: GitHub's involvement fetch is search-backed and eventually
+    // consistent, so an MR opened seconds ago is routinely missing from it (a
+    // live run measured ~10s), and any listing can come back short from a page
+    // cap or rate limiting. The direct read is the authoritative answer.
+    const provider: GitProvider = {
+      ...mockProvider([]),
+      fetchSingleMR: (_proj: string, _iid: number) =>
+        Promise.resolve(mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', state: 'opened' })),
+    };
+
+    const result = await ForgeSync.syncStack(provider, stack, MOCK_PROJECT);
+
+    expect(result.deletedBranches).toEqual([]);
+  });
+
   test('pipelineChanges backward compat — existing populateNodeData and reconcile still work without prefetched PRs', async () => {
     let stack = StackManager.createStack('auth', 'main');
     stack = StackManager.addNode(stack, 'feat/a', 'main');

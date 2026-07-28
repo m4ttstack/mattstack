@@ -731,23 +731,34 @@ async function detectSyncChanges(
   }
 
   // Look up each vanished branch's MR to determine the reason
-  const deletedBranches: DeletedBranch[] = await Promise.all(
-    vanished.map(async ({ branch, mrIid, mrUrl }): Promise<DeletedBranch> => {
-      if (mrIid != null && mrUrl) {
-        const projectPath = projectPathFromWebUrl(mrUrl);
-        if (projectPath) {
-          try {
-            const mr = await provider.fetchSingleMR(projectPath, mrIid, null);
-            if (mr?.state === 'merged') return { branch, reason: 'merged', mrIid };
-            if (mr?.state === 'closed') return { branch, reason: 'closed', mrIid };
-          } catch {
-            // Network error — fall through to default
+  const deletedBranches: DeletedBranch[] = (
+    await Promise.all(
+      vanished.map(async ({ branch, mrIid, mrUrl }): Promise<DeletedBranch | null> => {
+        if (mrIid != null && mrUrl) {
+          const projectPath = projectPathFromWebUrl(mrUrl);
+          if (projectPath) {
+            try {
+              const mr = await provider.fetchSingleMR(projectPath, mrIid, null);
+              if (mr?.state === 'merged') return { branch, reason: 'merged', mrIid };
+              if (mr?.state === 'closed') return { branch, reason: 'closed', mrIid };
+              // Still there: the listing came back short, the branch did not go
+              // anywhere. A listing can be incomplete for reasons that have
+              // nothing to do with this MR... GitHub's involvement fetch is
+              // search-backed and eventually consistent, so it misses an MR
+              // opened seconds ago (measured at roughly ten), and any listing
+              // can be cut short by a page cap or by rate limiting. This read
+              // asked the forge about this MR directly, so it is the answer
+              // that counts, and it says nothing vanished.
+              if (mr) return null;
+            } catch {
+              // Network error — fall through to default
+            }
           }
         }
-      }
-      return { branch, reason: 'deleted', mrIid };
-    }),
-  );
+        return { branch, reason: 'deleted', mrIid };
+      }),
+    )
+  ).filter((d): d is DeletedBranch => d !== null);
 
   return { newlyMerged, pipelineChanges, deletedBranches };
 }
