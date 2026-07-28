@@ -303,7 +303,13 @@ export const ForgeSync = {
     }
 
     const { fetched, kept } = await fetchOpenPRsForProject(provider, scope);
-    const discovered = discoverStacksFromPRs(kept);
+    // Sorted before naming, because `deriveStackId` dedups against what it has
+    // already handed out: two chains deriving the same base name mean one takes
+    // a `-2`, and without a fixed order which one took it followed the order the
+    // forge happened to list the MRs in. Same MR set, different attribution.
+    const discovered = discoverStacksFromPRs(kept).sort((a, b) =>
+      `${a.root}\0${[...a.branches].sort().join(',')}`.localeCompare(`${b.root}\0${[...b.branches].sort().join(',')}`),
+    );
     const usedIds = new Set<string>();
 
     const stacks: Stack[] = discovered.map((ds) => {
@@ -758,7 +764,11 @@ function deriveStackId(ds: DiscoveredStack, usedIds: Set<string>): string {
     const pr = ds.mrMap.get(branch);
     if (pr?.targetBranch) targets.add(pr.targetBranch);
   }
-  const leaves = ds.branches.filter((b) => !targets.has(b));
+  // Sorted, not first-found: a chain that forks has several leaves, and the
+  // walk yields them in whatever order the forge listed the MRs. Taking the
+  // first meant the same MR set could name the same stack differently between
+  // runs, so `gitq stacks` attributed it differently for no reason (MAT-22).
+  const leaves = ds.branches.filter((b) => !targets.has(b)).sort();
   const tip = leaves[0] ?? ds.branches[ds.branches.length - 1] ?? ds.root;
 
   const pr = ds.mrMap.get(tip);

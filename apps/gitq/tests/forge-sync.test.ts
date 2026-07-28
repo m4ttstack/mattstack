@@ -383,6 +383,51 @@ describe('ForgeSync.importFromForge', () => {
     expect(StackManager.findNode(stack, 'feat/b')!.parent).toBe('feat/a');
   });
 
+  test('names a discovered stack the same way every time for the same MRs', async () => {
+    // Two independent chains under `main`, so the walk produces two leaves and
+    // `deriveStackId` has to choose. It used to take whichever the BFS queue
+    // happened to yield first, so the same MR set could name the same stack
+    // differently between runs, and `gitq stacks` attributed it differently.
+    const chains = [
+      mockPR({ iid: 1, sourceBranch: 'zeta', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),
+      mockPR({ iid: 2, sourceBranch: 'alpha', targetBranch: 'zeta', webUrl: 'https://github.com/user/repo/pull/2' }),
+      mockPR({ iid: 3, sourceBranch: 'omega', targetBranch: 'zeta', webUrl: 'https://github.com/user/repo/pull/3' }),
+    ];
+
+    const names = new Set<string>();
+    for (const order of [chains, [...chains].reverse(), [chains[1]!, chains[2]!, chains[0]!]]) {
+      const { store } = await ForgeSync.importFromForge(mockProvider(order), '/tmp/repo', 'git@github.com:user/repo.git');
+      names.add(store.stacks.map((s) => s.stackName).sort().join('|'));
+    }
+
+    // One answer, whatever order the forge listed the MRs in.
+    expect(names.size).toBe(1);
+  });
+
+  test('attaches the dedup suffix to the same stack every time', async () => {
+    // Two independent chains whose tips carry the same MR title, so both derive
+    // the same base name and one has to take `-2`. Which one got it depended on
+    // the order the forge listed the MRs in, so the same MR set produced two
+    // different attributions — the same defect as the leaf choice above, one
+    // level up.
+    const same = (iid: number, sourceBranch: string, targetBranch: string) =>
+      mockPR({ iid, sourceBranch, targetBranch, title: 'shared title', webUrl: `https://github.com/user/repo/pull/${iid}` });
+    const chains = [same(1, 'aaa', 'main'), same(2, 'aaa-child', 'aaa'), same(3, 'zzz', 'main'), same(4, 'zzz-child', 'zzz')];
+
+    const attributions = new Set<string>();
+    for (const order of [chains, [...chains].reverse()]) {
+      const { store } = await ForgeSync.importFromForge(mockProvider(order), '/tmp/repo', 'git@github.com:user/repo.git');
+      attributions.add(
+        store.stacks
+          .map((s) => `${s.stackName}=${s.nodes.map((n) => n.branch).sort().join(',')}`)
+          .sort()
+          .join('|'),
+      );
+    }
+
+    expect(attributions.size).toBe(1);
+  });
+
   test('refuses a remote it cannot read a project from, rather than importing the instance', async () => {
     const prs = [
       mockPR({ iid: 1, sourceBranch: 'feat/a', targetBranch: 'main', webUrl: 'https://github.com/user/repo/pull/1' }),

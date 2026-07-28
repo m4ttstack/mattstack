@@ -17,6 +17,7 @@ function pr(overrides: {
   targetBranch: string;
   repositoryId?: string;
   webUrl?: string | null;
+  author?: string;
 }): PullRequest {
   return {
     id: `gitlab:${overrides.iid}`,
@@ -33,7 +34,7 @@ function pr(overrides: {
     createdAt: null,
     updatedAt: null,
     sha: null,
-    author: { id: 'gitlab:user:1', username: 'dev', name: 'Dev', avatarUrl: null },
+    author: { id: `gitlab:user:${overrides.author ?? 'dev'}`, username: overrides.author ?? 'dev', name: overrides.author ?? 'Dev', avatarUrl: null },
     assignees: [],
     reviewers: [],
     roles: ['author'],
@@ -272,5 +273,66 @@ describe('discoverStacksFromPRs', () => {
 
     expect(stacks).toHaveLength(1);
     expect(stacks[0]!.branches).toEqual(['feat/a', 'feat/b']);
+  });
+});
+
+// ── Author-aware chains (MAT-22) ─────────────────────────────────────────────
+
+describe('discoverStacksFromPRs author bucketing', () => {
+  test('two authors stacking on the same intermediate branch are separate stacks', () => {
+    // `shared-base` is one branch with one MR, and both developers targeted it.
+    // Adjacency alone splices their branches into one chain that neither of them
+    // is actually working on.
+    const prs = [
+      pr({ iid: 1, sourceBranch: 'shared-base', targetBranch: 'main', author: 'ana' }),
+      pr({ iid: 2, sourceBranch: 'ana-feature', targetBranch: 'shared-base', author: 'ana' }),
+      pr({ iid: 3, sourceBranch: 'bo-feature', targetBranch: 'shared-base', author: 'bo' }),
+    ];
+
+    const stacks = discoverStacksFromPRs(prs);
+
+    // Ana's chain is the only one that reaches two branches: `bo-feature` is
+    // alone in its bucket once `shared-base` (Ana's MR) is not in it.
+    expect(stacks).toHaveLength(1);
+    expect(stacks[0]!.branches.sort()).toEqual(['ana-feature', 'shared-base']);
+  });
+
+  test("does not merge two authors' chains that share only a target branch", () => {
+    const prs = [
+      pr({ iid: 1, sourceBranch: 'ana-1', targetBranch: 'main', author: 'ana' }),
+      pr({ iid: 2, sourceBranch: 'ana-2', targetBranch: 'ana-1', author: 'ana' }),
+      pr({ iid: 3, sourceBranch: 'bo-1', targetBranch: 'main', author: 'bo' }),
+      pr({ iid: 4, sourceBranch: 'bo-2', targetBranch: 'bo-1', author: 'bo' }),
+    ];
+
+    const stacks = discoverStacksFromPRs(prs);
+
+    expect(stacks).toHaveLength(2);
+    expect(stacks.map((s) => s.branches.sort()).sort()).toEqual([
+      ['ana-1', 'ana-2'],
+      ['bo-1', 'bo-2'],
+    ]);
+  });
+
+  test('one author across two repos still splits by repo as well', () => {
+    const prs = [
+      pr({ iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main', repositoryId: 'gitlab:1', author: 'ana' }),
+      pr({ iid: 2, sourceBranch: 'web-only', targetBranch: 'fix-tests', repositoryId: 'gitlab:1', author: 'ana' }),
+      pr({ iid: 3, sourceBranch: 'fix-tests', targetBranch: 'main', repositoryId: 'gitlab:2', author: 'ana' }),
+      pr({ iid: 4, sourceBranch: 'api-only', targetBranch: 'fix-tests', repositoryId: 'gitlab:2', author: 'ana' }),
+    ];
+
+    expect(discoverStacksFromPRs(prs)).toHaveLength(2);
+  });
+
+  test('an author-less PR gets a bucket to itself rather than pooling', () => {
+    // Same rule the missing-repositoryId case already follows: an absent
+    // identity is not a shared identity.
+    const prs = [
+      pr({ iid: 1, sourceBranch: 'fix-tests', targetBranch: 'main', author: '' }),
+      pr({ iid: 2, sourceBranch: 'update-deps', targetBranch: 'fix-tests', author: '' }),
+    ];
+
+    expect(discoverStacksFromPRs(prs)).toEqual([]);
   });
 });

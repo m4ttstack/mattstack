@@ -207,26 +207,40 @@ export function filterPRsToProject(prs: PullRequest[], wanted: string | ProjectS
  * within a repository... `main`, `develop` and `fix-tests` collide across
  * unrelated projects as a matter of routine, and a single adjacency map over
  * mixed repos would splice those collisions into a stack that exists nowhere.
+ *
+ * And one author at a time within that. A stack is one person's chain of work,
+ * but a target branch is shared state: two developers both stacking on the same
+ * intermediate branch are adjacent in the graph without being in the same stack,
+ * and adjacency alone spliced them into a chain neither was working on (MAT-22).
+ *
+ * The cost of that, accepted deliberately: a stack that genuinely spans two
+ * authors, where you build on a colleague's branch, is now reported as two
+ * stacks rather than one. Authorship is the only signal the forge gives here
+ * without an explicit marker, so this trades a wrong join for a wrong split.
  */
 export function discoverStacksFromPRs(prs: PullRequest[]): DiscoveredStack[] {
-  const byRepo = new Map<string, PullRequest[]>();
-  // A PR the forge gave no repository id for gets a bucket to itself. Pooling
-  // them under one empty key would splice unrelated repos back together...
-  // exactly the collision the bucketing exists to prevent. A bucket of one
-  // never reaches the two-branch minimum, so such a PR joins no stack.
+  const byRepoAndAuthor = new Map<string, PullRequest[]>();
+  // A PR the forge identified no repository or no author for gets a bucket to
+  // itself. Pooling them under one empty key would splice unrelated work back
+  // together... exactly the collision the bucketing exists to prevent. A bucket
+  // of one never reaches the two-branch minimum, so such a PR joins no stack.
   const unidentified: PullRequest[][] = [];
 
   for (const pr of prs) {
-    if (!pr.repositoryId) {
+    const author = pr.author?.username;
+    if (!pr.repositoryId || !author) {
       unidentified.push([pr]);
       continue;
     }
-    const bucket = byRepo.get(pr.repositoryId);
+    // A NUL joiner cannot occur in either part, so no pair of distinct
+    // (repo, author) values can collide on one key.
+    const key = `${pr.repositoryId}\0${author}`;
+    const bucket = byRepoAndAuthor.get(key);
     if (bucket) bucket.push(pr);
-    else byRepo.set(pr.repositoryId, [pr]);
+    else byRepoAndAuthor.set(key, [pr]);
   }
 
-  return [...byRepo.values(), ...unidentified].flatMap(discoverStacksInRepo);
+  return [...byRepoAndAuthor.values(), ...unidentified].flatMap(discoverStacksInRepo);
 }
 
 /** Stack discovery within a single repository, where branch names are unique. */
