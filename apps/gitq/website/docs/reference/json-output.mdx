@@ -249,7 +249,7 @@ Completed (`state: "completed"`, exit `0` if every branch succeeded, `1` otherwi
 
 ## `gitq absorb`
 
-`src/cli/commands/surgery.ts:41-124`. `--preview` emits `{ stack, result }` where `result` is an `AbsorbPreview` (`src/core/absorb.ts:36-43`: `attributed` a `Record<branch, filePath[]>`, `unattributed` a `string[]`, `currentBranch`). `unattributed` is what absorb will leave dirty in the worktree, not a branch assignment; see [`gitq absorb`](/reference/surgery/absorb). Real capture, a clean tree with nothing to attribute:
+`src/cli/commands/surgery.ts:44-127`. `--preview` emits `{ stack, result }` where `result` is an `AbsorbPreview` (`src/core/absorb.ts:36-43`: `attributed` a `Record<branch, filePath[]>`, `unattributed` a `string[]`, `currentBranch`). `unattributed` is what absorb will leave dirty in the worktree, not a branch assignment; see [`gitq absorb`](/reference/surgery/absorb). Real capture, a clean tree with nothing to attribute:
 
 ```json
 {
@@ -289,7 +289,7 @@ None of these five were run live for this page; each shape below is the exact ty
 | `rename` | `RenameResult` (`src/core/branch-rename.ts:5-7`) | `updatedStack` |
 | `reset` | `ResetToRemoteResult` (`src/core/branch-reset.ts:7-11`) | `updatedStack`, `newHead` (the SHA reset to) |
 
-`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:214-227`).
+`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:217-230`).
 
 ## `gitq publish` / `gitq import`
 

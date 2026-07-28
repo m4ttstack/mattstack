@@ -21,10 +21,10 @@ gitq reset <branch> [--stack <name>]
 
 ## Behavior
 
-Guarded by the stack lease, then two up-front refusals, both before any ref moves (`src/cli/commands/surgery.ts:261-278`):
+Guarded by the stack lease, then one up-front refusal before any ref moves (`src/cli/commands/surgery.ts:264-271`):
 
-- `<branch>` checked out in another **non-work worktree**, dirty or not: the same rule `rename` uses (`refuseIfCheckedOutElsewhere`), refusing with `branch "<branch>" is checked out in slot "<name>" (<path>); run this from that worktree or free the branch first`.
-- `<branch>` checked out in a **`gitq-N` work slot**: refuses with `branch "<branch>" is checked out in work slot "<name>" (<path>); free that slot before resetting`. This one is `reset`-local on purpose. `findSlotForBranch` skips work slots, so without it a slot a human had parked on the branch is invisible both to the refusal above and to `finalizeBranchRef`'s slot policy: the command would exit `0` and leave that slot's tree and index stale under a ref that moved out from under them. Teaching the shared worktree lookup about work slots for every surgery command is tracked as MAT-23.
+- `<branch>` checked out in **any other worktree**, dirty or not: the same rule `rename` uses (`refuseIfCheckedOutElsewhere`), refusing with `branch "<branch>" is checked out in slot "<name>" (<path>); run this from that worktree or free the branch first`.
+- A **`gitq-N` work slot** holding the branch refuses through that same guard, with advice that suits one of gitq's own slots instead: `branch "<branch>" is checked out in work slot "<name>" (<path>); gitq leaves its slots detached, so free that slot first`. gitq never parks a slot on a branch itself, so this state only arises from a human `git checkout` inside one. It used to be a `reset`-local check, because `findSlotForBranch` skipped work slots and a parked slot was invisible to both this refusal and `finalizeBranchRef`'s slot policy: the command exited `0` and left that slot's tree and index stale under a ref that had moved. The lookup sees them now (`src/core/worktrees.ts:42-57`), so every surgery command is covered, not just this one.
 
 `resetToRemote` (`src/core/branch-reset.ts:23-56`) then:
 
@@ -37,7 +37,7 @@ Only after that does it update the stack tree's `lastKnownHead` (`src/core/branc
 
 **Your checkout never moves**, in line with the rest of surgery. The ref is rewritten in place, so standing on `feat-a` and running `gitq reset feat-b` leaves you on `feat-a`. A non-work worktree already sitting on `<branch>` (the launch worktree included) gets `finalizeBranchRef`'s slot policy: clean and exactly on the old head, it stays on the branch and is reset to the new head; dirty, mid-rebase, or drifted, the whole command refuses and the ref does not move. Work slots never reach that policy, because the CLI guard above has already refused. The only command in surgery that leaves you on a different branch than it found you on is [`gitq fold`](/reference/surgery/fold), which has to, because it deletes the branch you may be standing on.
 
-**Never written to the operation log at all.** Unlike `split`, `fold`, and `rename`, which are logged but excluded from `REVERSIBLE_OPERATIONS`, `reset` is never wrapped in `withOperationLog` in the first place (`src/cli/commands/surgery.ts:252-286`). `gitq undo` has nothing to give back after a `reset`, ever; whatever the branch pointed at before is gone unless you noted the sha yourself.
+**Never written to the operation log at all.** Unlike `split`, `fold`, and `rename`, which are logged but excluded from `REVERSIBLE_OPERATIONS`, `reset` is never wrapped in `withOperationLog` in the first place (`src/cli/commands/surgery.ts:255-279`). `gitq undo` has nothing to give back after a `reset`, ever; whatever the branch pointed at before is gone unless you noted the sha yourself.
 
 ## Exit codes
 

@@ -21,7 +21,7 @@ Inside it, `settings.json` holds the two keys the CLI reads today, `maxWorkSlots
 { "maxWorkSlots": 5 }
 ```
 
-Read by `getMaxWorkSlots` (`src/core/worktrees.ts:84-88`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
+Read by `getMaxWorkSlots` (`src/core/worktrees.ts:106-110`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
 
 The second key, `forges`, tells gitq which forge a self-hosted host is running. It is keyed by the host of the repo's git remote:
 
