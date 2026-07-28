@@ -2,7 +2,7 @@ import type { Stack, StackNode, RebaseState } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
 import { toErrorMessage } from './error-utils.ts';
-import { findSlotForBranch, getWorktreeMap } from './worktrees.ts';
+import { describeSlot, findSlotForBranch, getWorktreeMap } from './worktrees.ts';
 
 // ── Result types ─────────────────────────────────────────────────────────────
 
@@ -465,10 +465,15 @@ async function isFullyRedundant(
 
 /**
  * Move `branch` from oldHead to newHead after a detached rebase, applying the
- * slot policy: a clean human slot sitting exactly on oldHead is re-verified
- * (TOCTOU guard), the ref CAS-moved, and the slot reset to the new head; a
- * dirty, mid-rebase, or drifted slot refuses (the detached rebase result is
- * simply discarded, which is harmless). Returns a RebaseResult.
+ * slot policy: a clean slot sitting exactly on oldHead is re-verified (TOCTOU
+ * guard), the ref CAS-moved, and the slot reset to the new head; a dirty,
+ * mid-rebase, or drifted slot refuses (the detached rebase result is simply
+ * discarded, which is harmless). Returns a RebaseResult.
+ *
+ * The policy applies to one of gitq's own `gitq-N` slots on the same terms as a
+ * human worktree. A leased slot is always detached and so never matches, which
+ * leaves only the case a human put there, and that tree needs following or
+ * refusing exactly like any other (MAT-23).
  */
 export async function finalizeBranchRef(
   cwd: string,
@@ -486,7 +491,7 @@ export async function finalizeBranchRef(
         return {
           branch,
           success: false,
-          error: `branch is checked out in slot "${owner.name}" (${owner.path}) which is ${fresh ? 'dirty' : owner.rebaseInProgress ? 'mid-rebase' : 'not on the branch head'}; commit or stash there, or free the slot, then retry`,
+          error: `branch is checked out in ${describeSlot(owner)} which is ${fresh ? 'dirty' : owner.rebaseInProgress ? 'mid-rebase' : 'not on the branch head'}; commit or stash there, or free the slot, then retry`,
         };
       }
       await GitShell.updateRefCas(cwd, branch, newHead, oldHead);

@@ -3,7 +3,7 @@ import { StackManager, StackError } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
 import { assertCleanTree } from './git-guards.ts';
 import { finalizeBranchRef } from './rebase-engine.ts';
-import { getWorktreeMap, findSlotForBranch } from './worktrees.ts';
+import { getWorktreeMap, findSlotForBranch, describeSlot } from './worktrees.ts';
 
 /** Result of folding a branch into its parent. */
 export interface FoldResult {
@@ -100,7 +100,7 @@ export async function foldBranch(
   const owner = findSlotForBranch(map, branch);
   if (owner && owner.dirty) {
     throw new StackError(
-      `Branch "${branch}" is checked out in slot "${owner.name}" (${owner.path}) which is dirty; ` +
+      `Branch "${branch}" is checked out in ${describeSlot(owner)} which is dirty; ` +
       `commit or stash there first (folding deletes the branch)`,
     );
   }

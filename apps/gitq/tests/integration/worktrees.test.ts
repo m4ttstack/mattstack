@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach } from 'bun:test';
 import { join, basename, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { rm, writeFile } from 'node:fs/promises';
-import { createSandboxRepo, addNamedWorktree } from './helpers.ts';
+import { createSandboxRepo, addNamedWorktree, addWorkSlot, gitIn } from './helpers.ts';
 import { getWorktreeMap, findSlotForBranch, workSlotRoot, ensureWorkSlot } from '../../src/core/worktrees.ts';
 import { resolveRepoIdentity } from '../../src/core/persistence.ts';
 import { getConfigDir, setConfigDir, repoHash } from '../../src/core/config-paths.ts';
@@ -39,6 +39,44 @@ describe('worktree map', () => {
 
     // Reuse, not re-create: a free detached work slot is returned as-is.
     expect(await ensureWorkSlot(repo.dir, commonDir, map)).toBe(slot);
+  });
+
+  test('finds a branch held by a work slot, which the guards have to see', async () => {
+    const repo = await createSandboxRepo();
+    cleanups.push(repo.dir);
+    repo.git('checkout', '-b', 'feat');
+    repo.git('checkout', 'main');
+    // A human `git checkout` inside a pool slot. gitq leaves its own slots
+    // detached, so a work slot on a branch is always this. Skipping it here
+    // made surgery move the ref and leave this tree silently stale.
+    const work = addWorkSlot(repo, 'gitq-1', 'feat');
+    cleanups.push(work.root);
+
+    const found = findSlotForBranch(await getWorktreeMap(repo.dir), 'feat');
+
+    expect(found?.path).toBe(work.path);
+    expect(found?.isWorkSlot).toBe(true);
+  });
+
+  test('prefers a human worktree over a work slot when both hold the branch', async () => {
+    const repo = await createSandboxRepo();
+    cleanups.push(repo.dir);
+    repo.git('checkout', '-b', 'feat');
+    repo.git('checkout', 'main');
+    const work = addWorkSlot(repo, 'gitq-1', 'feat');
+    cleanups.push(work.root);
+
+    // Git refuses a second checkout of the same branch, so reach the state by
+    // pointing a human worktree at it after the fact.
+    const human = await addNamedWorktree(repo, 'dobby');
+    cleanups.push(human);
+    gitIn(human)('checkout', '--ignore-other-worktrees', 'feat');
+
+    const found = findSlotForBranch(await getWorktreeMap(repo.dir), 'feat');
+
+    // The human's checkout is the one whose message is actionable ("run this
+    // from that worktree"); a work slot only ever says "free it".
+    expect(found?.path).toBe(human);
   });
 
   test('pool repos place work slots as siblings; single checkouts go to the work-slot root', async () => {

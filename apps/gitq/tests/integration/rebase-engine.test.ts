@@ -9,6 +9,8 @@ import {
   commit,
   buildLinearStack,
   buildTreeStack,
+  addWorkSlot,
+  gitIn,
   type SandboxRepo,
 } from './helpers.ts';
 
@@ -1039,6 +1041,65 @@ describe('drift reconciliation', () => {
 
       expect(report.driftWarnings).toEqual([]);
     } finally {
+      await cleanupRepo(r.dir);
+    }
+  });
+});
+
+// ── finalizeBranchRef slot policy ────────────────────────────────────────────
+
+describe('finalizeBranchRef work-slot policy', () => {
+  /**
+   * A repo where `feat` sits at `oldHead` and `newHead` is a commit on a
+   * sibling branch, so `finalizeBranchRef` has a real CAS to perform.
+   */
+  async function refScenario(): Promise<{ r: SandboxRepo; oldHead: string; newHead: string }> {
+    const r = await createSandboxRepo();
+    r.git('checkout', '-b', 'feat');
+    const oldHead = await commit(r.dir, r.git, 'feat.txt', 'feat\n', 'feat: add feat.txt');
+    r.git('checkout', 'main');
+    r.git('checkout', '-b', 'target');
+    const newHead = await commit(r.dir, r.git, 'target.txt', 'target\n', 'target: add target.txt');
+    r.git('checkout', 'main');
+    return { r, oldHead, newHead };
+  }
+
+  test('resets a clean work slot to the new head instead of leaving it stale', async () => {
+    const { r, oldHead, newHead } = await refScenario();
+    const work = addWorkSlot(r, 'gitq-1', 'feat');
+    try {
+      const { finalizeBranchRef } = await import('../../src/core/rebase-engine.ts');
+      const result = await finalizeBranchRef(r.dir, 'feat', oldHead, newHead);
+
+      expect(result.success).toBe(true);
+      expect(r.git('rev-parse', 'feat')).toBe(newHead);
+      // The whole point: the slot's tree and index follow the ref. Before this
+      // it kept oldHead's content while the branch pointed at newHead, and the
+      // command exited 0.
+      expect(gitIn(work.path)('rev-parse', 'HEAD')).toBe(newHead);
+      expect(gitIn(work.path)('status', '--porcelain')).toBe('');
+    } finally {
+      await cleanupRepo(work.root);
+      await cleanupRepo(r.dir);
+    }
+  });
+
+  test('refuses a dirty work slot, naming it as one', async () => {
+    const { r, oldHead, newHead } = await refScenario();
+    const work = addWorkSlot(r, 'gitq-1', 'feat');
+    try {
+      const { finalizeBranchRef } = await import('../../src/core/rebase-engine.ts');
+      await writeFile(join(work.path, 'wip.txt'), 'wip\n', 'utf-8');
+
+      const result = await finalizeBranchRef(r.dir, 'feat', oldHead, newHead);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('work slot "gitq-1"');
+      expect(result.error).toContain('dirty');
+      // Refusing means discarding the rebase result, so the ref must not move.
+      expect(r.git('rev-parse', 'feat')).toBe(oldHead);
+    } finally {
+      await cleanupRepo(work.root);
       await cleanupRepo(r.dir);
     }
   });

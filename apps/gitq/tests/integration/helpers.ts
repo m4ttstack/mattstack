@@ -84,6 +84,25 @@ export async function addNamedWorktree(repo: SandboxRepo, name: string, branch?:
   return realpathSync(path);
 }
 
+/**
+ * Add a real `gitq-N` work slot holding `branch`, the state a human produces by
+ * running `git checkout` inside one of gitq's pool slots. gitq itself always
+ * leaves them detached, so this is the only way to reach it.
+ *
+ * Returns `{ path, root }`; `root` is what to clean up, since the slot lives
+ * inside a directory of its own.
+ */
+export function addWorkSlot(repo: SandboxRepo, name: string, branch: string): { path: string; root: string } {
+  const root = `${repo.dir}-slots`;
+  repo.git('worktree', 'add', join(root, name), branch);
+  return { path: realpathSync(join(root, name)), root };
+}
+
+/** Trimmed `git` bound to an arbitrary directory, for worktrees with no helper of their own. */
+export function gitIn(dir: string): GitHelper {
+  return (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim();
+}
+
 /** Write a file, stage, and commit. Returns the new commit SHA. */
 export async function commit(
   dir: string,

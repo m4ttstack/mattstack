@@ -7,7 +7,7 @@ import { reparentBranch } from '../../core/reparent.ts';
 import { renameBranch } from '../../core/branch-rename.ts';
 import { resetToRemote } from '../../core/branch-reset.ts';
 import { GitShell } from '../../core/git-shell.ts';
-import { getWorktreeMap, findSlotForBranch } from '../../core/worktrees.ts';
+import { getWorktreeMap, findSlotForBranch, describeSlot } from '../../core/worktrees.ts';
 import type { SlotInfo } from '../../core/worktrees.ts';
 import type { Stack, StackStore } from '../../core/types.ts';
 import type { CliContext } from '../context.ts';
@@ -23,17 +23,20 @@ function replaceStack(store: StackStore, updated: Stack): StackStore {
 }
 
 /**
- * Surgery pre-guard: refuse when `branch` is checked out in a NON-work slot
- * other than `ctx.repoRoot` (the primary/current worktree). These commands
- * rewrite the branch ref directly in `ctx.repoRoot`; a copy checked out
- * elsewhere would silently go stale (or block the git rewrite outright).
+ * Surgery pre-guard: refuse when some worktree other than `ctx.repoRoot` holds
+ * `branch`. These commands rewrite the branch ref directly in `ctx.repoRoot`, so
+ * a copy checked out elsewhere would silently go stale.
+ *
+ * gitq's own slots refuse too, with different advice: working from a slot gitq
+ * leases and resets is not something to suggest, so those are told to free it.
  */
 function refuseIfCheckedOutElsewhere(ctx: CliContext, map: SlotInfo[], branch: string): number | null {
   const owner = findSlotForBranch(map, branch);
   if (owner && owner.path !== ctx.repoRoot) {
-    return fail(
-      `branch "${branch}" is checked out in slot "${owner.name}" (${owner.path}); run this from that worktree or free the branch first`,
-    );
+    const advice = owner.isWorkSlot
+      ? 'gitq leaves its slots detached, so free that slot first'
+      : 'run this from that worktree or free the branch first';
+    return fail(`branch "${branch}" is checked out in ${describeSlot(owner)}; ${advice}`);
   }
   return null;
 }
@@ -259,23 +262,13 @@ export async function resetCommand(ctx: CliContext): Promise<number> {
   if (guarded !== null) return guarded;
 
   // Keep the pre-guard even though resetToRemote is ref-only surgery now: a
-  // branch held by another non-work slot refuses here with a pointer to that
-  // slot, rather than deeper down in finalizeBranchRef's slot policy.
+  // branch held by another worktree refuses here with a pointer to it, rather
+  // than deeper down in finalizeBranchRef's slot policy. That includes gitq's
+  // own `gitq-N` slots since MAT-23 made the lookup see them; the narrow
+  // work-slot check that used to sit here is now redundant.
   const map = await getWorktreeMap(ctx.repoRoot);
   const preGuard = refuseIfCheckedOutElsewhere(ctx, map, branch);
   if (preGuard !== null) return preGuard;
-
-  // `findSlotForBranch` skips `gitq-N` work slots, so neither the pre-guard
-  // above nor finalizeBranchRef's slot policy sees one a human checked out onto
-  // the branch, so the ref would move and that slot's tree/index would silently
-  // go stale. Refuse here instead. Narrow on purpose: making the shared
-  // worktree lookup work-slot aware for every surgery command is Linear MAT-23.
-  const workSlot = map.find((s) => s.isWorkSlot && s.branch === branch);
-  if (workSlot) {
-    return fail(
-      `branch "${branch}" is checked out in work slot "${workSlot.name}" (${workSlot.path}); free that slot before resetting`,
-    );
-  }
 
   // No HEAD capture/restore needed: resetToRemote CAS-moves the ref and never
   // checks anything out, so the launch worktree stays on its own branch.

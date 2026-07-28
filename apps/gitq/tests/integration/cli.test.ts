@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +11,7 @@ import {
   buildLinearStack,
   commit,
   addNamedWorktree,
+  addWorkSlot,
   type SandboxRepo,
   type SandboxRepoWithRemote,
 } from './helpers.ts';
@@ -631,6 +632,38 @@ describe('gitq CLI', () => {
     const list = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
     const node = list.stacks[0].nodes.find((n: { branch: string }) => n.branch === 'feat/branch-3');
     expect(node.parent).toBe('feat/branch-1');
+  });
+
+  test('rename refuses when a work slot holds the branch, naming the slot', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    // The pre-guard is shared by absorb, rename and reset, and until MAT-23 it
+    // could not see a `gitq-N` slot at all: rename moved the ref and left this
+    // tree on a branch name that no longer existed.
+    const work = addWorkSlot(repo, 'gitq-1', 'feat/branch-2');
+    dirsToClean.push(work.root);
+
+    const res = await runCli(['rename', 'feat/branch-2', 'feat/renamed'], repo.dir, configDir);
+
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toContain('is checked out in work slot "gitq-1"');
+    expect(res.stderr).toContain(work.path);
+    expect(res.stderr).toContain('free that slot');
+    // Nothing moved.
+    expect(execFileSync('git', ['branch', '--list'], { cwd: repo.dir }).toString()).toContain('feat/branch-2');
+  });
+
+  test('rename refuses when a human worktree holds the branch, telling you to work from it', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    const human = await addNamedWorktree(repo, 'dobby', 'feat/branch-2');
+    dirsToClean.push(human);
+
+    const res = await runCli(['rename', 'feat/branch-2', 'feat/renamed'], repo.dir, configDir);
+
+    expect(res.exitCode).toBe(1);
+    // A human worktree gets different advice from one of gitq's slots: it is a
+    // place they can reasonably run the command from.
+    expect(res.stderr).toContain(`is checked out in slot "${basename(human)}"`);
+    expect(res.stderr).toContain('run this from that worktree');
   });
 
   test('rename renames the git branch and updates the stack tree', async () => {

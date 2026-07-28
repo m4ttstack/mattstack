@@ -39,9 +39,31 @@ export async function getWorktreeMap(anyCwd: string): Promise<SlotInfo[]> {
   return out;
 }
 
-/** The non-work slot that has `branch` checked out, if any. */
+/**
+ * The worktree that has `branch` checked out, if any.
+ *
+ * Work slots count. gitq always leaves its own slots detached, so a `gitq-N`
+ * directory sitting on a branch is one a human ran `git checkout` in, and every
+ * caller here is about to move that branch's ref. Skipping it moved the ref and
+ * left that tree and index holding the old content, with the command exiting 0.
+ *
+ * A human worktree wins when both hold the branch: its refusal can tell the
+ * user to work from there, which is never advice worth giving about a slot gitq
+ * leases out from under them.
+ */
 export function findSlotForBranch(map: SlotInfo[], branch: string): SlotInfo | undefined {
-  return map.find((s) => !s.isWorkSlot && s.branch === branch);
+  const holders = map.filter((s) => s.branch === branch);
+  return holders.find((s) => !s.isWorkSlot) ?? holders[0];
+}
+
+/**
+ * Name a worktree in a refusal.
+ *
+ * Says "work slot" for gitq's own, since the two get different advice: a human
+ * worktree can be worked from, a slot can only be freed.
+ */
+export function describeSlot(slot: SlotInfo): string {
+  return `${slot.isWorkSlot ? 'work slot' : 'slot'} "${slot.name}" (${slot.path})`;
 }
 
 /**
