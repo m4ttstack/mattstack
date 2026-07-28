@@ -94,7 +94,7 @@ Real capture, a node whose parent was marked `merged` with a tombstone that is n
 
 `edges` is one `EdgeDirective` per node (`source`, `target`, `color`, `dashed`, `dimmed`, `badge`); `banner` is a single stack wide directive or `null`, one of `{ kind: 'merged', branches, canDismiss }`, `{ kind: 'drift', branches }`, `{ kind: 'behind-trunk', message }`, or `{ kind: 'rebase-in-progress' }`; `globalBlocks` is a plain string array, for example `"Working tree has uncommitted changes"`.
 
-**On `checkedOutDirty`:** it does not exist on `diagnose`'s node objects, or on `stacks`'s. It exists only on the gitq board's internal `/data.json` payload, a separate JSON contract served by `src/server/data.ts`'s `BoardNode` type (`checkedOutIn: string | null`, `checkedOutDirty: boolean`, `src/server/data.ts:27-36`) and consumed by the React client, not by the CLI. If you are integrating against the CLI directly, only `checkedOutIn` is available, and only from `diagnose`.
+**On `checkedOutDirty`:** it does not exist on `diagnose`'s node objects, or on `stacks`'s. It exists only on the gitq board's internal `/data.json` payload, a separate JSON contract served by `src/server/data.ts`'s `BoardNode` type (`checkedOutIn: string | null`, `checkedOutDirty: boolean`, `src/server/data.ts:28-37`) and consumed by the React client, not by the CLI. If you are integrating against the CLI directly, only `checkedOutIn` is available, and only from `diagnose`.
 
 ## `gitq preflight`
 
