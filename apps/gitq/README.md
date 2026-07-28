@@ -102,6 +102,24 @@ Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say w
 { "forges": { "gitlab.acme.com": { "provider": "gitlab" } } }
 ```
 
+## tests
+
+`bun run test` runs the unit suite then the integration suite. Not bare `bun test`: the unit files `mock.module`, and those mocks leak between files that share a run. One file at a time is `bun test --timeout 30000 <file>`. `bun run check-types` is the only other check; there is no linter.
+
+Two integration files write to a real forge, and skip unless you hand them credentials, so an ordinary run reports them as skips:
+
+```bash
+# GitLab, against the dedicated test account
+GITLAB_TOKEN=... GITLAB_PROJECT_PATH=luke.skycoder/gitq-test-sandbox \
+  bun test --timeout 180000 tests/integration/forge-write-gitlab.test.ts
+
+# GitHub, against a private sandbox repo
+GITHUB_TOKEN="$(gh auth token)" GITHUB_REPO=m4ttheweric/gitq-test-sandbox \
+  bun test --timeout 180000 tests/integration/forge-write-github.test.ts
+```
+
+Both open real branches and MRs on the project you name and close them again in `afterAll`. Point them at a scratch project, never a live one. The GitHub file takes about 40s because it waits out GitHub's search index, which is eventually consistent and does not list a just-opened PR for the first several seconds.
+
 ## skills
 
 `skills/` holds four agent skills that drive this CLI from a Claude pane, one per board action: `gitq:sync` (cascade rebase with judgment-based conflict resolution), `gitq:publish` (push + MR chain, with a human gate before anything leaves the machine), `gitq:absorb` (distribute uncommitted changes, preview first), and `gitq:restructure` (split/fold/reparent/rename surgery from a plain language instruction, gated on a plan). Install them as symlinks into `~/.claude/skills`:
@@ -121,4 +139,4 @@ cp config.example.json config.json   # edit: repos to show, port (default 11008)
 bun run serve                        # http://localhost:11008
 ```
 
-endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. the action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. repo data is cached in memory for 60s with stale-while-revalidate; job state files under `state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish` (`GITLAB_TOKEN` or `~/.rt/secrets.json`); without one the board still renders from the store's last known MR fields. the client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). config changes need a restart.
+endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. the action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. repo data is cached in memory for 60s with stale-while-revalidate; job state files under `state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish`, resolved per repo from that repo's own remote host, so a board showing a gitlab.com repo alongside a github.com one enriches each from its own credential; a repo whose token is missing still renders from the store's last known MR fields. the client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). config changes need a restart.
