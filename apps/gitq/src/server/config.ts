@@ -10,9 +10,16 @@ export interface BoardConfig {
   repos: RepoEntry[];
   port: number;
   herdrWorkspace: string;
-  /** Accepted for forward compatibility; the provider stack is gitlab.com-only today. */
-  gitlabHost: string;
 }
+
+/*
+ * There is deliberately no forge host here. The board resolves each repo's
+ * provider and base URL from that repo's own remote, so a board-wide host
+ * could never be right for more than one of them, and a self-hosted instance
+ * is named once in settings.json's `forges` for the whole of gitq rather than
+ * again per board. A `gitlabHost` key sat here validated and unread until
+ * MAT-19; an on-disk config still carrying it loads fine, ignored.
+ */
 
 export const CONFIG_PATH = join(import.meta.dir, '..', '..', 'config.json');
 
@@ -30,7 +37,7 @@ export function parseConfig(raw: string): BoardConfig {
     throw new Error('config.json is not valid JSON');
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('config.json must be a JSON object');
-  const cfg = parsed as { repos?: unknown; port?: unknown; herdrWorkspace?: unknown; gitlabHost?: unknown };
+  const cfg = parsed as { repos?: unknown; port?: unknown; herdrWorkspace?: unknown };
 
   if (!Array.isArray(cfg.repos) || cfg.repos.length === 0) {
     throw new Error('config.json needs a non-empty "repos" array');
@@ -47,10 +54,8 @@ export function parseConfig(raw: string): BoardConfig {
   if (typeof port !== 'number') throw new Error('"port" must be a number');
   const herdrWorkspace = cfg.herdrWorkspace === undefined ? 'gitq' : cfg.herdrWorkspace;
   if (typeof herdrWorkspace !== 'string') throw new Error('"herdrWorkspace" must be a string');
-  const gitlabHost = cfg.gitlabHost === undefined ? 'https://gitlab.com' : cfg.gitlabHost;
-  if (typeof gitlabHost !== 'string') throw new Error('"gitlabHost" must be a string');
 
-  return { repos, port, herdrWorkspace, gitlabHost };
+  return { repos, port, herdrWorkspace };
 }
 
 export function loadConfig(): BoardConfig {

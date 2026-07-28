@@ -6,12 +6,12 @@ import type { ConflictPrediction } from '../core/rebase-engine.ts';
 import { OperationLog, entryBelongsToRepo } from '../core/operation-log.ts';
 import type { OperationEntry } from '../core/operation-log.ts';
 import { GitShell } from '../core/git-shell.ts';
-import { resolveForgeToken } from '../core/secrets.ts';
 import { createForgeProvider } from '../cli/provider.ts';
-import type { ForgeProviderContext } from '../cli/provider.ts';
+import type { ForgeProviderContext, ForgeProviderOptions } from '../cli/provider.ts';
+import { readForgeOverrides } from '../core/forges.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
 import { listLeases } from '../core/leases.ts';
-import type { Stack } from '../core/types.ts';
+import type { Stack, StackStore } from '../core/types.ts';
 import type { PullRequest } from '@workforge/glance-sdk';
 import type { JobAction } from './job-state.ts';
 import type { RepoEntry } from './config.ts';
@@ -154,7 +154,15 @@ function toBoardMr(pr: PullRequest): BoardMr {
   };
 }
 
-async function fetchMrsByBranch(ctx: ForgeProviderContext, branches: string[]): Promise<Map<string, BoardMr>> {
+/**
+ * The MRs of `branches`, batched when the provider can and one at a time when
+ * it cannot.
+ *
+ * The batch path is feature detection on an optional interface member, not a
+ * check on the provider slug: `GitHubProvider` does not implement
+ * `fetchPullRequestsByBranches`, and must fall back rather than fail.
+ */
+export async function fetchMrsByBranch(ctx: ForgeProviderContext, branches: string[]): Promise<Map<string, BoardMr>> {
   const out = new Map<string, BoardMr>();
   if (branches.length === 0) return out;
   if (ctx.provider.fetchPullRequestsByBranches) {
@@ -169,26 +177,39 @@ async function fetchMrsByBranch(ctx: ForgeProviderContext, branches: string[]): 
   return out;
 }
 
+/**
+ * The forge provider for one repo, resolved from that repo's own remote, or null
+ * when it has none to offer.
+ *
+ * Null is the degraded case, not an error: the board shows many repos and they
+ * need not share a forge, so a remote naming none gitq knows, or a forge whose
+ * token is not configured, costs this repo its MR enrichment and nothing else.
+ * Withholding every other repo's MRs over it is what this replaced.
+ */
+export async function resolveRepoProvider(
+  repoPath: string,
+  store: StackStore,
+  opts: ForgeProviderOptions = {},
+): Promise<ForgeProviderContext | null> {
+  // Nothing to enrich, so the remote is never read: the common case for a repo
+  // on the board that is not currently stacked.
+  if (store.stacks.length === 0) return null;
+
+  try {
+    const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(repoPath));
+    return await createForgeProvider(remoteUrl, opts);
+  } catch {
+    return null;
+  }
+}
+
 /** Assemble one repo's slice of the board. Every failure is contained to the
     repo (error string on the payload); enrichment failures are contained
     further, falling back to stored node fields. */
-export async function collectRepo(repo: RepoEntry): Promise<BoardRepo> {
+export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = {}): Promise<BoardRepo> {
   try {
     const store = await loadStore(repo.path);
-    let providerCtx: ForgeProviderContext | null = null;
-    // Still gated on a GitLab token specifically, which is what it has always
-    // been: the board resolves one provider for every repo it shows, so a
-    // GitHub-remote repo gets no MR enrichment here until MAT-19 makes that
-    // per-repo. Repos whose remote is GitLab are unaffected, and a user who
-    // holds both tokens now gets a correctly-resolved GitHub provider anyway.
-    if (resolveForgeToken('gitlab') && store.stacks.length > 0) {
-      try {
-        const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(repo.path));
-        providerCtx = await createForgeProvider(remoteUrl);
-      } catch {
-        providerCtx = null;
-      }
-    }
+    const providerCtx = await resolveRepoProvider(repo.path, store, opts);
     let worktrees: BoardWorktree[] = [];
     const slotByBranch = new Map<string, { name: string; dirty: boolean }>();
     try {
@@ -257,5 +278,8 @@ export async function collectRepo(repo: RepoEntry): Promise<BoardRepo> {
 }
 
 export async function collectAllRepos(repos: RepoEntry[]): Promise<BoardRepo[]> {
-  return Promise.all(repos.map((r) => collectRepo(r)));
+  // One settings read for the whole refresh rather than one per repo, since
+  // every repo resolves its forge against the same `forges` map.
+  const overrides = await readForgeOverrides();
+  return Promise.all(repos.map((r) => collectRepo(r, { overrides })));
 }

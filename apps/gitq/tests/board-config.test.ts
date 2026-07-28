@@ -7,7 +7,19 @@ describe('parseConfig', () => {
     expect(cfg.repos).toEqual([{ path: '/Users/x/my-repo', name: 'my-repo' }]);
     expect(cfg.port).toBe(11008);
     expect(cfg.herdrWorkspace).toBe('gitq');
-    expect(cfg.gitlabHost).toBe('https://gitlab.com');
+    // `gitlabHost` is gone, deliberately: MAT-19 made the board resolve each
+    // repo's forge from that repo's remote, so a board-wide host could never be
+    // right, and the self-hosted override already lives in settings.json's
+    // `forges`. This assertion used to expect 'https://gitlab.com'.
+    expect('gitlabHost' in cfg).toBe(false);
+  });
+
+  test('a config.json still carrying gitlabHost keeps loading', () => {
+    // Someone's on-disk config has it. An unknown key is ignored rather than
+    // rejected, so removing the field is not a breaking change for them.
+    const cfg = parseConfig('{ "repos": [{ "path": "/r" }], "gitlabHost": "https://gitlab.example.com" }');
+    expect(cfg.repos[0]!.path).toBe('/r');
+    expect('gitlabHost' in cfg).toBe(false);
   });
 
   test('keeps an explicit name and explicit settings', () => {

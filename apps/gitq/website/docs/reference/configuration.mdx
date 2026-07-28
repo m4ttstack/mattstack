@@ -66,8 +66,7 @@ The board (`src/server/server.ts`) is a separate process with its own configurat
 {
   "repos": [{ "path": "/Users/matt/Documents/GitHub/example", "name": "example" }],
   "port": 11008,
-  "herdrWorkspace": "gitq",
-  "gitlabHost": "https://gitlab.com"
+  "herdrWorkspace": "gitq"
 }
 ```
 
@@ -78,7 +77,7 @@ Parsed and validated by `parseConfig` (`src/server/config.ts:25-54`):
 | `repos` | Yes | none | Non-empty array; each entry needs a non-empty `path` string, `name` defaults to the path's basename if omitted. |
 | `port` | No | `11008` | Must be a number if given. |
 | `herdrWorkspace` | No | `"gitq"` | Must be a string if given. |
-| `gitlabHost` | No | `"https://gitlab.com"` | Must be a string if given. Validated and then never read (`src/server/config.ts:50-53`): the board resolves each repo's provider from that repo's remote, so the instance never comes from this field. |
+
 
 A missing `config.json` is a startup failure: `no config.json at <path>; copy config.example.json and edit it` (`src/server/config.ts:56-64`). The file is read once, at module load (`const config = loadConfig();`, `src/server/config.ts:12`), so an edit needs a server restart to take effect; see [The board](/getting-started/the-board).
 

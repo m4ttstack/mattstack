@@ -1,7 +1,9 @@
 import { describe, test, expect } from 'bun:test';
-import { parseActionBody, shapeActivity, shapeStack } from '../src/server/data.ts';
+import { fetchMrsByBranch, parseActionBody, resolveRepoProvider, shapeActivity, shapeStack } from '../src/server/data.ts';
 import type { BoardMr } from '../src/server/data.ts';
-import type { Stack, StackNode } from '../src/core/types.ts';
+import type { Stack, StackNode, StackStore } from '../src/core/types.ts';
+import type { ForgeOverrides } from '../src/core/forges.ts';
+import type { GitProvider, PullRequest } from '@workforge/glance-sdk';
 import type { NodeDirective } from '../src/core/stack-diagnostics.ts';
 import type { OperationEntry } from '../src/core/operation-log.ts';
 import type { RepoEntry } from '../src/server/config.ts';
@@ -150,5 +152,143 @@ describe('shapeStack worktree columns', () => {
     const shaped = shapeStack(ONE_NODE_STACK, new Map(), null, [], [], new Map(), new Map());
     expect(shaped.nodes[0]!.checkedOutIn).toBeNull();
     expect(shaped.nodes[0]!.checkedOutDirty).toBe(false);
+  });
+});
+
+// ── Per-repo provider resolution (MAT-19) ────────────────────────────────────
+//
+// The board shows several repos at once and they need not share a forge. Every
+// case below is offline: `createProvider` builds a client without a request, and
+// a store carrying `remoteUrl` means no git call either.
+
+function storeWith(remoteUrl: string, stacks: Stack[] = [STACK]): StackStore {
+  return { repoPath: '/repo', remoteUrl, stacks };
+}
+
+const GITLAB_ENV = { GITLAB_TOKEN: 'glpat-test' };
+const GITHUB_ENV = { GITHUB_TOKEN: 'ghp-test' };
+
+function resolve(store: StackStore, env: Record<string, string | undefined>, overrides: ForgeOverrides = {}) {
+  return resolveRepoProvider('/repo', store, { env, overrides, secretsFile: '/nonexistent' });
+}
+
+describe('resolveRepoProvider', () => {
+  test('resolves a GitLab remote to the gitlab provider', async () => {
+    const ctx = await resolve(storeWith('git@gitlab.com:acme/web.git'), GITLAB_ENV);
+
+    expect(ctx?.provider.providerName).toBe('gitlab');
+    expect(ctx?.projectPath).toBe('acme/web');
+  });
+
+  test('resolves a GitHub remote to the github provider', async () => {
+    // The whole point of the ticket: this repo needs no GitLab token, and gets
+    // the right client rather than none.
+    const ctx = await resolve(storeWith('git@github.com:acme/web.git'), GITHUB_ENV);
+
+    expect(ctx?.provider.providerName).toBe('github');
+    expect(ctx?.provider.baseURL).toBe('https://github.com');
+  });
+
+  test('a board holding both forges resolves each repo independently', async () => {
+    const env = { ...GITLAB_ENV, ...GITHUB_ENV };
+
+    const gitlab = await resolve(storeWith('https://gitlab.com/acme/web.git'), env);
+    const github = await resolve(storeWith('https://github.com/acme/api.git'), env);
+
+    expect(gitlab?.provider.providerName).toBe('gitlab');
+    expect(github?.provider.providerName).toBe('github');
+  });
+
+  test('resolves a self-hosted host through the forges override', async () => {
+    const ctx = await resolve(storeWith('git@gitlab.acme.com:acme/web.git'), GITLAB_ENV, {
+      'gitlab.acme.com': { provider: 'gitlab' },
+    });
+
+    expect(ctx?.provider.baseURL).toBe('https://gitlab.acme.com');
+  });
+
+  test('degrades to no provider when this forge has no token', async () => {
+    // A GitLab token is not a GitHub credential. Before MAT-19 the presence of
+    // one was what decided whether ANY repo got enrichment.
+    expect(await resolve(storeWith('git@github.com:acme/web.git'), GITLAB_ENV)).toBeNull();
+  });
+
+  test('degrades to no provider when the remote names no forge gitq knows', async () => {
+    expect(await resolve(storeWith('git@git.acme.com:acme/web.git'), GITLAB_ENV)).toBeNull();
+    expect(await resolve(storeWith('/srv/git/acme/web.git'), GITLAB_ENV)).toBeNull();
+  });
+
+  test('resolves nothing for a repo with no tracked stacks', async () => {
+    // No stacks means nothing to enrich, so the remote is never even read.
+    expect(await resolve(storeWith('git@gitlab.com:acme/web.git', []), GITLAB_ENV)).toBeNull();
+  });
+
+  test("one repo's missing token does not withhold another repo's MRs", async () => {
+    const env = GITLAB_ENV;
+
+    const ok = await resolve(storeWith('git@gitlab.com:acme/web.git'), env);
+    const notOk = await resolve(storeWith('git@github.com:acme/api.git'), env);
+
+    expect(ok?.provider.providerName).toBe('gitlab');
+    expect(notOk).toBeNull();
+  });
+});
+
+// ── fetchMrsByBranch provider-capability fallback ────────────────────────────
+
+describe('fetchMrsByBranch', () => {
+  function mockPR(iid: number, sourceBranch: string) {
+    return {
+      iid,
+      webUrl: `https://gitlab.com/acme/web/-/merge_requests/${iid}`,
+      title: `MR ${iid}`,
+      state: 'opened',
+      sourceBranch,
+      pipeline: null,
+    } as unknown as PullRequest;
+  }
+
+  test('uses the batch fetch when the provider offers one', async () => {
+    const calls: string[][] = [];
+    const provider = {
+      fetchPullRequestsByBranches: (_p: string, branches: string[]) => {
+        calls.push(branches);
+        return Promise.resolve(new Map([['a', mockPR(1, 'a')], ['b', null]]));
+      },
+      fetchPullRequestByBranch: () => Promise.reject(new Error('should not be called')),
+    } as unknown as GitProvider;
+
+    const out = await fetchMrsByBranch({ provider, projectPath: 'acme/web' }, ['a', 'b']);
+
+    expect(calls).toEqual([['a', 'b']]);
+    expect([...out.keys()]).toEqual(['a']);
+    expect(out.get('a')!.iid).toBe(1);
+  });
+
+  test('falls back to one call per branch when it does not', async () => {
+    // GitHubProvider does not implement the batch method, and the guard is
+    // feature detection on an optional interface member, not a slug check.
+    const asked: string[] = [];
+    const provider = {
+      fetchPullRequestByBranch: (_p: string, branch: string) => {
+        asked.push(branch);
+        return Promise.resolve(branch === 'a' ? mockPR(7, 'a') : null);
+      },
+    } as unknown as GitProvider;
+
+    const out = await fetchMrsByBranch({ provider, projectPath: 'acme/web' }, ['a', 'b']);
+
+    expect(asked).toEqual(['a', 'b']);
+    expect([...out.keys()]).toEqual(['a']);
+    expect(out.get('a')!.iid).toBe(7);
+  });
+
+  test('asks for nothing when there are no branches', async () => {
+    const provider = {
+      fetchPullRequestsByBranches: () => Promise.reject(new Error('should not be called')),
+      fetchPullRequestByBranch: () => Promise.reject(new Error('should not be called')),
+    } as unknown as GitProvider;
+
+    expect((await fetchMrsByBranch({ provider, projectPath: 'acme/web' }, [])).size).toBe(0);
   });
 });

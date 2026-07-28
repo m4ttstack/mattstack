@@ -22,7 +22,7 @@ Neither is written by gitq; both are read-only inputs. Find neither and `publish
 gitq: no gitlab token for gitlab.com (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)
 ```
 
-Which token gitq wants follows from the repo's remote, not from configuration: a GitHub remote asks for `GITHUB_TOKEN` (or `githubToken`) and is never offered a GitLab one. The instance comes from the remote too, so self-hosted GitLab works, given a `forges` entry naming it. The board is the exception: it builds one provider for every repo it shows and still gates that on a GitLab token, so its `gitlabHost` config field remains accepted and unwired. See [the forge token](/reference/configuration#the-forge-token).
+Which token gitq wants follows from the repo's remote, not from configuration: a GitHub remote asks for `GITHUB_TOKEN` (or `githubToken`) and is never offered a GitLab one. The instance comes from the remote too, so self-hosted GitLab works, given a `forges` entry naming it. The board follows the same rule per repo, so a board showing a GitLab repo and a GitHub repo enriches both, each with its own credential. See [the forge token](/reference/configuration#the-forge-token).
 
 ## What `publish` does, per branch
 

@@ -21,8 +21,7 @@ cp config.example.json config.json
 {
   "repos": [{ "path": "/Users/matt/Documents/GitHub/example", "name": "example" }],
   "port": 11008,
-  "herdrWorkspace": "gitq",
-  "gitlabHost": "https://gitlab.com"
+  "herdrWorkspace": "gitq"
 }
 ```
 
@@ -31,7 +30,8 @@ cp config.example.json config.json
 | `repos` | Required, and must be non-empty. One entry per repo to display. `path` is required. `name` is optional and defaults to the last path segment; it is the label shown on the board. |
 | `port` | Port to listen on. Defaults to `11008`. The `PORT` environment variable wins over this, so a launch agent can pin the port without editing the file. |
 | `herdrWorkspace` | The herdr workspace label that action tabs are launched into. Defaults to `gitq`. |
-| `gitlabHost` | Defaults to `https://gitlab.com`. Accepted for forward compatibility only: nothing reads it. The board resolves each repo's provider from that repo's own remote, so the instance never comes from here. |
+
+There is no forge field. Each repo's provider, instance and token come from that repo's own git remote, so a board-wide host could never be right for more than one of them; a self-hosted instance is named once in `settings.json`'s `forges` for the whole of gitq. A `gitlabHost` key used to sit here validated and unread; an existing `config.json` still carrying it loads fine, ignored.
 
 Config is read once at startup. Editing `config.json` needs a restart. See [Configuration](/reference/configuration).
 
