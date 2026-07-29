@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { basename, join } from 'node:path';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -958,6 +958,48 @@ describe('gitq CLI', () => {
     // clean up git state before teardown
     const abort = await runCli(['abort'], repo.dir, configDir);
     expect(abort.exitCode).toBe(0);
+  });
+
+  test('a dead lease holder does not deadlock the stack (MAT-78)', async () => {
+    const { repo, configDir, stack } = await makeRepoWithStack(2);
+    const commonDir = await resolveRepoIdentity(repo.dir);
+
+    // A pid that is certainly not running: spawn something trivial and wait for
+    // it to exit, so the number was genuinely allocated and is now free. Hard
+    // -coding a large pid would pass by luck and fail on a busy machine.
+    const corpse = Bun.spawn(['true']);
+    const deadPid = corpse.pid;
+    await corpse.exited;
+
+    await mkdir(join(commonDir, 'gitq'), { recursive: true });
+    await writeFile(
+      join(commonDir, 'gitq', 'leases.json'),
+      JSON.stringify({
+        leases: [
+          {
+            slotPath: join(repo.dir, 'gitq-1'),
+            stackId: stack.id,
+            action: 'sync',
+            pid: deadPid,
+            acquiredAt: Date.now(),
+            state: 'running',
+          },
+        ],
+      }),
+    );
+
+    // The deadlock as reported: every mutating command refused on this lease,
+    // while `gitq continue` and `gitq abort` -- the two remedies the refusal
+    // message names -- look only at parked leases and answered "nothing to
+    // continue". The documented way out was editing leases.json by hand.
+    const rename = await runCli(['rename', stack.nodes[0]!.branch, 'feat/renamed'], repo.dir, configDir);
+    expect(rename.exitCode).toBe(0);
+
+    // Invisible to readers, but still on disk: a read holds no write lock, so
+    // the row is cleared by the next acquireLease rather than by this command.
+    expect(await listLeases(commonDir)).toEqual([]);
+    const onDisk = JSON.parse(await Bun.file(join(commonDir, 'gitq', 'leases.json')).text());
+    expect(onDisk.leases).toHaveLength(1);
   });
 
   test('add refuses while a cascade is paused, leaving the store unchanged', async () => {

@@ -41,12 +41,39 @@ async function withRegistry<T>(
   });
 }
 
-export async function listLeases(commonDir: string): Promise<Lease[]> {
-  return (await readJson<LeaseFile>(leasesPath(commonDir), { leases: [] })).leases;
+/**
+ * The leases that still bind, which is not everything the file holds.
+ *
+ * A RUNNING lease whose holder pid is gone binds nobody: the process that
+ * would have released it died without doing so. Filtering here rather than at
+ * each call site is deliberate... `acquireLease` already reaped these, but it
+ * is the one path a caller cannot reach, because `requireStackFree` refuses
+ * through {@link findLease} first and returns. So the reaper sat behind the
+ * guard it was meant to unstick, and a dead lease deadlocked the stack against
+ * two remedies that only ever looked at parked leases (MAT-78).
+ *
+ * A PARKED lease is exempt, and not as an edge case: a parked cascade exited on
+ * purpose waiting on judgment, so its holder is *meant* to be gone. Reaping one
+ * would drop the conflict state the user is being asked to resolve.
+ *
+ * Reaping from disk still happens on the next {@link acquireLease}, which holds
+ * the write lock. A read has no business rewriting the file.
+ */
+export async function listLeases(
+  commonDir: string,
+  opts: { isPidAlive?: (pid: number) => boolean } = {},
+): Promise<Lease[]> {
+  const isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
+  const { leases } = await readJson<LeaseFile>(leasesPath(commonDir), { leases: [] });
+  return leases.filter((l) => l.state === 'parked' || isPidAlive(l.pid));
 }
 
-export async function findLease(commonDir: string, stackId: string): Promise<Lease | null> {
-  return (await listLeases(commonDir)).find((l) => l.stackId === stackId) ?? null;
+export async function findLease(
+  commonDir: string,
+  stackId: string,
+  opts: { isPidAlive?: (pid: number) => boolean } = {},
+): Promise<Lease | null> {
+  return (await listLeases(commonDir, opts)).find((l) => l.stackId === stackId) ?? null;
 }
 
 export type AcquireResult =
