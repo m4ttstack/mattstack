@@ -76,6 +76,12 @@ finish it first: gitq continue (or gitq abort)
 
 The guard is per stack. A second stack in the same repo with no lease of its own is untouched by a pause elsewhere and can be synced normally, in a different slot. See [Work slots and leases](/concepts/work-slots).
 
+### A lease whose holder died
+
+A `running` lease belongs to a live process. If that process is killed, or the machine restarts mid-sync, the lease is left behind with nobody holding it, and it stops counting: `listLeases` (`src/core/leases.ts:62-69`) filters out a running lease whose pid is gone, so the guards above, `continue`/`abort`, the `import` check and the board all look straight through it. The next `sync` clears the row from disk when it takes the write lock. Nothing to run, nothing to clean up.
+
+A `parked` lease is deliberately exempt from that check. Its holder is *supposed* to be gone... the cascade exited `2` and is waiting on your judgment, so treating the missing process as staleness would throw away the conflict you are in the middle of resolving. A parked lease only clears through `gitq continue` or `gitq abort`.
+
 ## The resolve loop
 
 1. **Go to the worktree the pause names.** Not your checkout. The message and `pauseInfo.worktreePath` both give you the path. What you find there is an ordinary mid-rebase state; `git status` reads exactly as it would after any hand-run `git rebase`.

@@ -76,11 +76,11 @@ A lease is a claim on a slot by a stack, recorded in `<commonDir>/gitq/leases.js
 
 Two rules govern the registry, and both are enforced atomically under a file lock: **one lease per stack**, and **one lease per slot**.
 
-`running` means a cascade is actively working. `parked` means it stopped on a conflict and is waiting for you. The distinction matters for reaping: when a new lease is acquired, `running` leases whose process is dead are cleared out automatically, because a killed cascade should not block the next one. `parked` leases are never reaped on their own. A conflict waiting on human judgment is legitimately long-lived, and throwing it away would strand a real mid-rebase state.
+`running` means a cascade is actively working. `parked` means it stopped on a conflict and is waiting for you. The distinction is what decides staleness: a `running` lease is only as real as the process holding it, so once that pid is gone every reader looks straight through it (`listLeases`, `src/core/leases.ts:62-69`) and the next acquisition clears the row from the file. A killed cascade should not block the next one. `parked` leases are never reaped on their own. A conflict waiting on human judgment is legitimately long-lived, and throwing it away would strand a real mid-rebase state.
 
 ### What a lease blocks
 
-While a stack holds a lease, in either state, every command that mutates that stack refuses:
+While a stack holds a lease that still binds ... a `running` one whose process is alive, or a `parked` one ... every command that mutates that stack refuses:
 
 ```
 gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ab12.../gitq-1;
