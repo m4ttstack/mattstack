@@ -14,6 +14,8 @@ import { getWorktreeMap } from '../core/worktrees.ts';
 import { listLeases } from '../core/leases.ts';
 import type { Stack, StackStore } from '../core/types.ts';
 import type { PullRequest } from '@workforge/glance-sdk';
+import { readMrsByBranch, repoNameForPath } from '@mattstack/rt-client';
+import type { RtResponse, MrByBranchData } from '@mattstack/rt-client';
 import type { JobAction } from './job-state.ts';
 import type { RepoEntry } from './config.ts';
 
@@ -164,17 +166,49 @@ function toBoardMr(pr: PullRequest): BoardMr {
   };
 }
 
+/** A `readMrsByBranch`-shaped call, injectable so tests can stub the rt read
+    without a real daemon socket (mirrors how a fake `GitProvider` is passed
+    directly for the provider-path tests below). */
+type RtMrReader = (repoName: string, branches: string[]) => Promise<RtResponse<MrByBranchData>>;
+
 /**
- * The MRs of `branches`, batched when the provider can and one at a time when
- * it cannot.
+ * The MRs of `branches`: rt's project-mrs store first when this repo resolves
+ * to an rt repo name, the direct-forge provider as fallback.
  *
- * The batch path is feature detection on an optional interface member, not a
- * check on the provider slug: `GitHubProvider` does not implement
- * `fetchPullRequestsByBranches`, and must fall back rather than fail.
+ * `getProvider` is a thunk (see `resolveRepoForge`) rather than a resolved
+ * `ForgeProviderContext`, so a repo the rt store fully answers for never
+ * builds a forge client or reads a token -- the provider is invoked only on
+ * the fallback path, at most once per repo since the thunk memoizes it.
+ *
+ * The store answering not-ok covers a grant error, an unreachable daemon, and
+ * a malformed response alike: any of those falls through unchanged rather
+ * than distinguishing reasons, since the fallback is the same either way.
+ *
+ * The provider's batch path is feature detection on an optional interface
+ * member, not a check on the provider slug: `GitHubProvider` does not
+ * implement `fetchPullRequestsByBranches`, and must fall back rather than fail.
  */
-export async function fetchMrsByBranch(ctx: ForgeProviderContext, branches: string[]): Promise<Map<string, BoardMr>> {
+export async function fetchMrsByBranch(
+  getProvider: () => Promise<ForgeProviderContext | null>,
+  branches: string[],
+  rtRepo: string | null,
+  readMrs: RtMrReader = readMrsByBranch,
+): Promise<Map<string, BoardMr>> {
   const out = new Map<string, BoardMr>();
   if (branches.length === 0) return out;
+
+  if (rtRepo) {
+    const res = await readMrs(rtRepo, branches);
+    if (res.ok && res.data) {
+      for (const [branch, entry] of Object.entries(res.data.byBranch)) {
+        if (entry) out.set(branch, toBoardMr(entry.pr));
+      }
+      return out;
+    }
+  }
+
+  const ctx = await getProvider();
+  if (!ctx) return out;
   if (ctx.provider.fetchPullRequestsByBranches) {
     const map = await ctx.provider.fetchPullRequestsByBranches(ctx.projectPath, branches, 'all');
     for (const [branch, pr] of map) if (pr) out.set(branch, toBoardMr(pr));
@@ -187,16 +221,28 @@ export async function fetchMrsByBranch(ctx: ForgeProviderContext, branches: stri
   return out;
 }
 
-/** What one repo's remote says about its forge: which one, and whether we can talk to it. */
+/** Test/CLI seam over rt-client's `repoNameForPath`, so `collectRepo`'s call
+    site reads as domain logic ("what does rt call this repo") rather than
+    naming the rt-client import directly. */
+export function resolveRtRepo(repoPath: string, reposJsonPath?: string): string | null {
+  return repoNameForPath(repoPath, reposJsonPath);
+}
+
+/** What one repo's remote says about its forge: which one, and how to talk to it. */
 export interface RepoForge {
   /**
-   * Built only when this forge's token is configured, so null is the degraded
-   * case rather than an error: the board shows many repos and they need not
-   * share a forge, so a remote naming none gitq knows, or a forge whose token
-   * is missing, costs this repo its MR enrichment and nothing else. Withholding
-   * every other repo's MRs over it is what this replaced.
+   * A memoized thunk rather than a resolved context: building it reads
+   * `~/.rt/secrets.json` (via `createForgeProvider`), and the rt store path in
+   * `fetchMrsByBranch` answers most stacked repos without that read. Calling
+   * `resolveRepoForge` alone -- once per repo, even across many stacks --
+   * never touches secrets; only a caller that actually needs the fallback
+   * invokes this, and every stack in that repo shares the one result.
+   *
+   * Null covers both "the remote names no forge gitq knows" and "this forge's
+   * token is missing", so a repo on a board of several forges loses only its
+   * own MR enrichment rather than withholding every other repo's.
    */
-  provider: ForgeProviderContext | null;
+  getProvider: () => Promise<ForgeProviderContext | null>;
   /**
    * The forge the remote names, whether or not a token exists for it.
    *
@@ -208,12 +254,15 @@ export interface RepoForge {
   slug: ForgeSlug | null;
 }
 
+const NO_PROVIDER = () => Promise.resolve(null);
+
 /**
- * Resolve one repo's forge from its own remote: which forge, and a provider when
- * its credential is configured.
+ * Resolve one repo's forge from its own remote: which forge, and a lazy
+ * provider builder for when its credential is configured.
  *
- * One remote read and one settings read serve both answers, which is why they
- * come back together rather than from two entry points.
+ * `slug` resolution stays eager here (one remote read, one settings read) since
+ * the UI needs it regardless of whether MRs load. Building the provider itself
+ * is deferred to `getProvider`, called only on the fallback path.
  */
 export async function resolveRepoForge(
   repoPath: string,
@@ -222,13 +271,13 @@ export async function resolveRepoForge(
 ): Promise<RepoForge> {
   // Nothing to enrich, so the remote is never read: the common case for a repo
   // on the board that is not currently stacked.
-  if (store.stacks.length === 0) return { provider: null, slug: null };
+  if (store.stacks.length === 0) return { getProvider: NO_PROVIDER, slug: null };
 
   let remoteUrl: string;
   try {
     remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(repoPath));
   } catch {
-    return { provider: null, slug: null };
+    return { getProvider: NO_PROVIDER, slug: null };
   }
 
   const overrides = opts.overrides ?? (await readForgeOverrides());
@@ -242,11 +291,17 @@ export async function resolveRepoForge(
     slug = null;
   }
 
-  try {
-    return { provider: await createForgeProvider(remoteUrl, { ...opts, overrides }), slug };
-  } catch {
-    return { provider: null, slug };
-  }
+  let cached: Promise<ForgeProviderContext | null> | undefined;
+  const getProvider = (): Promise<ForgeProviderContext | null> => {
+    // One build per repo no matter how many stacks/branches ask: the memo
+    // lives on this closure, not on the caller.
+    if (!cached) {
+      cached = createForgeProvider(remoteUrl, { ...opts, overrides }).catch(() => null);
+    }
+    return cached;
+  };
+
+  return { getProvider, slug };
 }
 
 /** Assemble one repo's slice of the board. Every failure is contained to the
@@ -255,7 +310,10 @@ export async function resolveRepoForge(
 export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = {}): Promise<BoardRepo> {
   try {
     const store = await loadStore(repo.path);
-    const { provider: providerCtx, slug: forge } = await resolveRepoForge(repo.path, store, opts);
+    const { getProvider, slug: forge } = await resolveRepoForge(repo.path, store, opts);
+    // Resolved once for the whole repo, same as the provider: every stack's
+    // branches are looked up against the one rt repo name.
+    const rtRepo = resolveRtRepo(repo.path);
     let worktrees: BoardWorktree[] = [];
     const slotByBranch = new Map<string, { name: string; dirty: boolean }>();
     try {
@@ -290,12 +348,10 @@ export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = 
       const branches = stack.nodes.map((n) => n.branch);
       const preflight = await RebaseEngine.preflight(repo.path, stack, branches);
       let mrByBranch = new Map<string, BoardMr>();
-      if (providerCtx) {
-        try {
-          mrByBranch = await fetchMrsByBranch(providerCtx, branches);
-        } catch {
-          // network failure: the stored node fields carry the fallback
-        }
+      try {
+        mrByBranch = await fetchMrsByBranch(getProvider, branches, rtRepo);
+      } catch {
+        // network failure (rt daemon or forge): the stored node fields carry the fallback
       }
       stacks.push(
         shapeStack(
