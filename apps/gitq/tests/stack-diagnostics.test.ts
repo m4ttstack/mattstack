@@ -251,6 +251,48 @@ describe('diagnoseStack', () => {
     expect(auth.primaryAction!.id).toBe('remove-branch');
   });
 
+  test('branch deleted on remote but live MR state is merged... reads as merged', () => {
+    // Stored status lags until a reconcile runs; the board already holds the
+    // live MR state, and a freshly merged branch must not scare as Deleted.
+    const stack = makeStack('main', [
+      makeNode('feat/auth', 'main'),
+    ]);
+    const snapshot = makeSnapshot([
+      makeBranchSnapshot('feat/auth', {
+        existsOnRemote: false,
+        divergence: { state: 'remote-gone', ahead: 0, behind: 0 },
+      }),
+    ]);
+
+    const result = diagnoseStack(snapshot, stack, new Map([['feat/auth', 'merged']]));
+
+    const auth = result.nodes.get('feat/auth')!;
+    expect(auth.situation).toBe('branch-deleted-remote');
+    expect(auth.badge!.label).toBe('Merged');
+    expect(auth.badge!.variant).toBe('merge');
+    expect(auth.statusLine).toBe('Merged and removed from remote');
+    expect(auth.primaryAction!.id).toBe('remove-branch');
+    expect(auth.secondaryActions).toEqual([]);
+  });
+
+  test('branch deleted on remote with live MR state closed... stays Deleted', () => {
+    const stack = makeStack('main', [
+      makeNode('feat/auth', 'main'),
+    ]);
+    const snapshot = makeSnapshot([
+      makeBranchSnapshot('feat/auth', {
+        existsOnRemote: false,
+        divergence: { state: 'remote-gone', ahead: 0, behind: 0 },
+      }),
+    ]);
+
+    const result = diagnoseStack(snapshot, stack, new Map([['feat/auth', 'closed']]));
+
+    const auth = result.nodes.get('feat/auth')!;
+    expect(auth.badge!.label).toBe('Deleted');
+    expect(auth.secondaryActions.some((a) => a.id === 'sync-stack')).toBe(true);
+  });
+
   test('rebase in progress — shows continue/abort', () => {
     const stack = makeStack('main', [
       makeNode('feat/auth', 'main'),

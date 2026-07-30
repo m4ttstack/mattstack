@@ -173,7 +173,11 @@ export async function collectSnapshot(cwd: string, stack: Stack): Promise<StackS
 
 // ── diagnoseStack — pure classifier ──────────────────────────────────────────
 
-export function diagnoseStack(snapshot: StackSnapshot, stack: Stack): StackDiagnostics {
+export function diagnoseStack(
+  snapshot: StackSnapshot,
+  stack: Stack,
+  liveMrStates?: ReadonlyMap<string, string>,
+): StackDiagnostics {
   const nodes = new Map<string, NodeDirective>();
   const edges: EdgeDirective[] = [];
 
@@ -185,7 +189,7 @@ export function diagnoseStack(snapshot: StackSnapshot, stack: Stack): StackDiagn
   // Classify each node
   for (const node of stack.nodes) {
     const bs = snapshot.branches.get(node.branch);
-    nodes.set(node.branch, classifyNode(stack, node, bs ?? null, snapshot, globalBlocks));
+    nodes.set(node.branch, classifyNode(stack, node, bs ?? null, snapshot, globalBlocks, liveMrStates));
   }
 
   // Classify each edge
@@ -208,6 +212,7 @@ function classifyNode(
   bs: BranchSnapshot | null,
   snapshot: StackSnapshot,
   globalBlocks: string[],
+  liveMrStates?: ReadonlyMap<string, string>,
 ): NodeDirective {
   const children = StackManager.getChildren(stack, node.branch);
   const hasChildren = children.length > 0;
@@ -247,7 +252,11 @@ function classifyNode(
 
   // ── Branch deleted on remote ──
   if (bs?.divergence.state === 'remote-gone' && node.status !== 'local-only') {
-    const wasMerged = node.status === 'merged';
+    // The stored status only learns about a merge when a reconcile runs; the
+    // board passes the live MR state so a fresh merge reads as merged, not as
+    // an alarming deletion. Only 'merged' upgrades: a closed-unmerged MR with
+    // a deleted branch really is abandoned.
+    const wasMerged = node.status === 'merged' || liveMrStates?.get(node.branch) === 'merged';
     return {
       branch: node.branch,
       situation: 'branch-deleted-remote',

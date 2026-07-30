@@ -344,15 +344,19 @@ export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = 
     const stacks: BoardStack[] = [];
     for (const stack of store.stacks) {
       const snapshot = await collectSnapshot(repo.path, stack);
-      const diagnostics = diagnoseStack(snapshot, stack);
       const branches = stack.nodes.map((n) => n.branch);
-      const preflight = await RebaseEngine.preflight(repo.path, stack, branches);
       let mrByBranch = new Map<string, BoardMr>();
       try {
         mrByBranch = await fetchMrsByBranch(getProvider, branches, rtRepo);
       } catch {
         // network failure (rt daemon or forge): the stored node fields carry the fallback
       }
+      // Live MR states let diagnostics recognize a fresh merge before any
+      // reconcile has updated the stored node status. Enrichment failure
+      // leaves the map empty and diagnostics fall back to stored state.
+      const liveMrStates = new Map([...mrByBranch].map(([branch, mr]) => [branch, mr.state]));
+      const diagnostics = diagnoseStack(snapshot, stack, liveMrStates);
+      const preflight = await RebaseEngine.preflight(repo.path, stack, branches);
       stacks.push(
         shapeStack(
           stack,
