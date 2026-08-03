@@ -1,6 +1,19 @@
 # gitq
 
-gitq is a deterministic stacked branch engine and CLI for git. it tracks a tree of branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. it also talks to a forge (GitLab or GitHub, read from the git remote's host) to publish and import MRs for a stack. this repo is the engine and CLI only, meant to be driven by agents as much as by hand. the skills that drive this CLI from agent panes live in `skills/`, and the board (server + web client) that launches them lives in `src/server/` + `src/client/`.
+gitq is a deterministic stacked branch engine and CLI for git. It tracks a tree of dependent branches (a "stack"), rebases the whole tree in one shot, and does surgery on it (absorb, split, fold, reparent, rename, reset) without asking you to remember the graph yourself. It talks to a forge (GitLab or GitHub, inferred from the git remote's host) to publish and update MR/PR chains, and it is built to be driven by agents as much as by hand.
+
+![gitq diagnose output for a small tracked stack, run against a demo repo](docs/assets/gitq-diagnose.png)
+
+## highlights
+
+- **Stacks, not single branches.** `gitq track` roots a stack, `gitq add` grows it, `gitq sync` cascades a rebase down the whole tree in one command instead of one `git rebase` per branch.
+- **Built for agents.** Every command takes `-C <path>` and `--json`. A rebase conflict during `sync` is a structured pause, not a failure: git is left mid-rebase, the process exits `2`, and `gitq continue` / `gitq abort` resume or bail. `gitq preflight` predicts conflicts before you run `sync` at all.
+- **`gitq absorb`.** Distributes uncommitted changes to the stack branches whose commits touched those files, `--preview` first to see the attribution before anything is committed.
+- **Forge-aware publishing.** `gitq publish` opens or updates an MR/PR chain on GitLab or GitHub, retargeting branches as the stack underneath them changes.
+- **A board.** A local React web UI (`bun run serve`) shows every tracked stack's branch statuses, MR/pipeline state, and live status while an agent works a stack from one of the bundled skills.
+- **Agent skills included.** Four Claude skills under `skills/` (`gitq:sync`, `gitq:publish`, `gitq:absorb`, `gitq:restructure`) drive this CLI from an agent pane; install them with `bun run scripts/install-skills.ts`.
+
+This repo is the engine and CLI only. The skills that drive it from agent panes live in `skills/`, and the board (server + web client) that launches them lives in `src/server/` + `src/client/`. The full docs site (getting started, concepts, guides, reference) is Docusaurus source under [`website/`](website/); it isn't deployed publicly yet, so read it from the source tree or run it locally with `cd website && bun run start`.
 
 ## install
 
@@ -132,11 +145,11 @@ Each skill takes `<repoPath> <stackName>` positionals plus optional `--state <pa
 
 ## board
 
-a local web board showing every configured repo's stacks: per branch status badges (from `gitq diagnose`'s engine, plus a "conflict predicted" hint from preflight), MR and pipeline state per repo when that repo's forge token is available, live job chips while a pane works, and an activity feed from the operation log. right-clicking a stack offers the four actions; each one spawns a herdr tab running `claude` with the matching `gitq:*` skill and the `--state`/`--status-bin` contract, so the badge updates live while the agent works. relaunching a live action refocuses its tab instead of double-spawning.
+A local web board showing every configured repo's stacks: per branch status badges (from `gitq diagnose`'s engine, plus a "conflict predicted" hint from preflight), MR and pipeline state per repo when that repo's forge token is available, live job chips while a pane works, and an activity feed from the operation log. Right-clicking a stack offers the four actions; each one spawns a herdr tab running `claude` with the matching `gitq:*` skill and the `--state`/`--status-bin` contract, so the badge updates live while the agent works. Relaunching a live action refocuses its tab instead of double-spawning.
 
 ```bash
 cp config.example.json config.json   # edit: repos to show, port (default 11008), herdrWorkspace
 bun run serve                        # http://localhost:11008
 ```
 
-endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. the action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. repo data is cached in memory for 60s with stale-while-revalidate; job state files under `state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish`, resolved per repo from that repo's own remote host, so a board showing a gitlab.com repo alongside a github.com one enriches each from its own credential; a repo whose token is missing still renders from the store's last known MR fields. the client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). config changes need a restart.
+Endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. The action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. Repo data is cached in memory for 60s with stale-while-revalidate; job state files under `state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish`, resolved per repo from that repo's own remote host, so a board showing a gitlab.com repo alongside a github.com one enriches each from its own credential; a repo whose token is missing still renders from the store's last known MR fields. The client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). Config changes need a restart.
