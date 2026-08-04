@@ -11,11 +11,12 @@ gitq parses its own command line in one place, `src/cli/main.ts`, with node's `p
 
 | Flag | Type | Meaning |
 | --- | --- | --- |
-| `-C <path>` | string | Run as if invoked from `<path>` instead of the current directory. Resolved once, before the command dispatches (`src/cli/main.ts:73`). |
+| `-C <path>` | string | Run as if invoked from `<path>` instead of the current directory. Resolved once, before the command dispatches (`src/cli/main.ts:124`). |
 | `--json` | boolean | Emit machine readable JSON on stdout instead of the human summary. See [JSON output](/reference/json-output). |
 | `--stack <name>` | string | Pick which tracked stack a command applies to. Not every command reads it; see the rule below. |
+| `--help`, `-h` | boolean | Print usage and exit `0` without running the command. See the section below. |
 
-These three, plus every command-specific flag below, are declared in one `options` object passed to `parseArgs` (`src/cli/main.ts:51-64`); `allowPositionals: true` is what lets the command name and its own positional arguments (a branch name, for example) through alongside them.
+These three, plus every command-specific flag below, are declared in one `options` object passed to `parseArgs` (`src/cli/main.ts:94-107`); `allowPositionals: true` is what lets the command name and its own positional arguments (a branch name, for example) through alongside them.
 
 ## The `--stack` rule
 
@@ -46,9 +47,22 @@ gitq: --stack required (have: demo, second)
 
 (Source: each command reads its own flags straight off `ctx.flags` in `src/cli/commands/crud.ts`, `src/cli/commands/surgery.ts`, and `src/cli/commands/forge.ts`.)
 
+## `--help` answers before the command runs
+
+`gitq --help` prints the command table; `gitq <command> --help` prints that command's synopsis. Both exit `0`, and `-h` is the same flag. Help is handled in the dispatcher before `createContext` (`src/cli/main.ts:112-117`), so it resolves no repo, reads no store, and takes no lease: `gitq absorb --help` outside a git repo prints usage rather than failing, and inside one with a dirty worktree it absorbs nothing.
+
+That ordering is the point. Every mutating command is one word away from its own help flag, and until this was handled `--help` fell through to the command itself: `gitq absorb --help` ran a real absorb.
+
+```
+$ gitq absorb --help
+usage: gitq absorb [--preview] [--stack <name>] [--json]
+```
+
+The synopsis for each command lives in `USAGE` (`src/cli/main.ts:49-70`), and a test asserts it stays in step with the command table.
+
 ## `parseArgs` runs non-strict, and a typo is silent
 
-`main.ts` calls `parseArgs` with `strict: false` (`src/cli/main.ts:47-65`). Verified directly rather than assumed: an unrecognized flag is never an error. It does not throw, it does not print a warning, and gitq behaves exactly as if you had not passed it at all. There is no "did you mean" and no strict-mode rejection, for any command.
+`main.ts` calls `parseArgs` with `strict: false` (`src/cli/main.ts:90-108`). Verified directly rather than assumed: an unrecognized flag is never an error. It does not throw, it does not print a warning, and gitq behaves exactly as if you had not passed it at all. There is no "did you mean" and no strict-mode rejection, for any command. `--help` and `-h` are the one exception, and they are matched off the raw argv rather than through `parseArgs`.
 
 `--json` typo'd as `--jsonn`, run against a real scratch repo:
 

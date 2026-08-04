@@ -19,7 +19,7 @@ Exit `2` has exactly one source in the whole codebase: `finishCascade` (`src/cli
 
 ## Hard failures: `gitq: <message>` on stderr, nothing on stdout
 
-A hard failure prints `gitq: <message>` to stderr and returns `1`. That single line is `fail()` (`src/cli/output.ts:9-12`), the one function every hard refusal in gitq goes through. `main.ts` also wraps the whole command dispatch in a `try`/`catch` and routes any thrown error through the same `fail()` (`src/cli/main.ts:74-79`), so an unexpected exception looks exactly like a deliberate refusal from the outside.
+A hard failure prints `gitq: <message>` to stderr and returns `1`. That single line is `fail()` (`src/cli/output.ts:9-12`), the one function every hard refusal in gitq goes through. `main.ts` also wraps the whole command dispatch in a `try`/`catch` and routes any thrown error through the same `fail()` (`src/cli/main.ts:125-130`), so an unexpected exception looks exactly like a deliberate refusal from the outside.
 
 Real capture, a duplicate `track`:
 
