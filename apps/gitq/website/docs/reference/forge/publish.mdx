@@ -63,7 +63,7 @@ For each branch it **updates**, in the same order:
 
 1. **Retarget**, only when the MR's `targetBranch` differs from the node's live target: `updatePullRequest(projectPath, mrIid, { targetBranch })`, and the node's `status` goes back to `synced`. This is the half that matters after a [`reparent`](/reference/surgery/reparent), which moves a branch locally and leaves its MR pointing at the old parent until publish runs.
 2. **Rewrite the title and description**, only when `--mr-meta` carries an entry for that branch. The entry replaces what is on the forge, including edits made in its UI; omit the branch, or leave a field empty, and that prose is left alone.
-3. **No push.** A rebased, already-published branch still needs its own `git push --force-with-lease`; publish will not do it for you.
+3. **No push.** A rebased, already-published branch is not pushed here. [`gitq push`](/reference/forge/push) is the command for that.
 
 **A failed create stops the walk. A failed update does not.** A create is the branch's push plus its MR: fail it and the branches below have no base to sit on, so publish stops rather than open MRs against a branch that was never pushed. A failed update leaves the branch and its MR exactly as they were, so the walk carries on and later branches are still created and updated. Either way the failed node is recorded with `success: false` and the command exits `1`.
 

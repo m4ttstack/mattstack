@@ -115,7 +115,7 @@ An **empty string counts as omitted**, on both paths and for either field: `"des
 
 Run `publish` again on a stack it already published and it does three things: opens MRs for any branch added since, retargets the MRs whose branch has moved under a different parent in the meantime, and rewrites the title and description of exactly the published branches you named in `--mr-meta`. A branch needing none of that is not touched and does not show up in the output.
 
-The one thing it still does **not** do is push a branch that already has an MR. A rebased, already-published branch needs its own `git push --force-with-lease`, run by hand or via whatever your normal flow is outside gitq: `publish` pushes a branch exactly once, when it opens that branch's MR.
+The one thing it still does **not** do is push a branch that already has an MR: `publish` pushes a branch exactly once, when it opens that branch's MR. A rebased, already-published branch is [`gitq push`](/reference/forge/push)'s job, which is the usual next step after a restack.
 
 :::note Retarget, not resync
 

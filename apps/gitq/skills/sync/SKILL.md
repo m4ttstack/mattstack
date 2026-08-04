@@ -102,6 +102,7 @@ else below is unchanged.
   commands always run with `-C <repoPath>`.
 - Always end with a terminal `done` or `error` status write (when the status
   flags were given) so the board badge never gets stuck.
-- Sync never pushes. Publishing the rebased stack is gitq:publish's job.
+- Sync never pushes. `gitq push` brings already-published branches up to their
+  restacked heads; opening MRs for branches that have none is gitq:publish's job.
 - If `gitq` is not on PATH, stop and tell the human to run `bun link` in the
   gitq checkout.

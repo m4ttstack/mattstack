@@ -41,7 +41,7 @@ gitq: --stack required (have: demo, second)
 | `--at <sha>` | `split` | Tail-split mode: move every commit from `<sha>` onward into the new branch. Mutually exclusive with `--files`. |
 | `--files <glob[,glob...]>` | `split` | File-split mode: move files matching the comma separated glob(s) into the new branch. Mutually exclusive with `--at`. |
 | `--name <newBranch>` | `split` | Name of the branch either split mode creates. |
-| `--preview` | `absorb` | Show the file attribution without committing or restacking anything. |
+| `--preview` | `absorb`, `push` | Show what the command would do without doing it: the file attribution for `absorb`, the per-branch push plan for `push`. |
 | `--mr-meta <path>` | `publish` | Path to a JSON file of `{"<branch>": {"title": "...", "description": "..."}}`. Branches not listed get default titles and descriptions. |
 | `--replace` | `import` | Overwrite a non-empty local store instead of refusing. |
 
