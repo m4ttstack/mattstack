@@ -12,7 +12,8 @@
     "check-types": "tsc --noEmit",
     "serve": "bun run src/server/server.ts",
     "build": "bun build src/cli/main.ts --outfile dist/gitq.js --target node --format esm --packages external",
-    "prepublishOnly": "bun run check-types && bun run build"
+    "prepublishOnly": "bun run check-types && bun run build",
+    "release": "bun run scripts/release.ts"
   },
   "dependencies": {
     "@mattstack/glance": "^0.13.0",

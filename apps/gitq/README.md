@@ -40,6 +40,26 @@ bun link
 `bun link` points the `gitq` binary at this checkout and runs the TypeScript
 sources directly, so changes take effect without a build.
 
+### cutting a release
+
+```bash
+bun run release patch          # or minor, major, or an explicit 1.2.3
+bun run release patch --dry-run
+```
+
+That verifies you are on a clean `main` in sync with origin, bumps the version,
+runs the type check and unit tests, publishes, then commits the bump and pushes
+it with a `v<version>` tag. It publishes before tagging, so a failed publish
+leaves the repo untouched and the command rerunnable.
+
+Two things it handles that are easy to get wrong by hand. It publishes with
+`bun publish` rather than `npm publish`, because npm leaves this suite's
+`workspace:` and `catalog:` dependency protocols verbatim in the published
+manifest and produces a package nobody can install. And it waits for the
+registry to actually serve the new version, since npm's metadata can lag the
+tarball on a fresh publish, leaving a version that exists but cannot be
+resolved by a range.
+
 ## commands
 
 Every command accepts `-C <path>` (run as if invoked from `<path>`, default cwd) and `--json` (emit machine readable JSON on stdout instead of the human summary). Commands that operate on more than one tracked stack take `--stack <name>` to disambiguate; it's optional when the repo has exactly one stack.
