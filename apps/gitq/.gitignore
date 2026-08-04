@@ -6,3 +6,4 @@ config.json
 logs/
 website/build/
 website/.docusaurus/
+dist/

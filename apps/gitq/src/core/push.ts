@@ -1,3 +1,4 @@
+import { GitShell } from './git-shell.ts';
 import { StackManager } from './stack-manager.ts';
 import type { Stack } from './types.ts';
 
