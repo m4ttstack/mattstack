@@ -628,6 +628,43 @@ export const GitShell = {
     return code === 0 ? stdout : null;
   },
 
+  /**
+   * The line ranges of `file` AT HEAD that the working tree's edit touches,
+   * staged or not.
+   *
+   * `-U0` so a hunk covers only the changed lines and not three lines of
+   * innocent context either side, which would drag neighbouring owners in. A
+   * pure insertion (`-a,0`) reports the line it lands after, since the nearest
+   * committed line is the only ownership evidence an insertion has.
+   */
+  async diffBaseRanges(cwd: string, file: string): Promise<{ start: number; end: number }[]> {
+    const { stdout } = await git(['diff', '-U0', 'HEAD', '--', file], cwd);
+    const ranges: { start: number; end: number }[] = [];
+    for (const match of stdout.matchAll(/^@@ -(\d+)(?:,(\d+))? \+/gm)) {
+      const start = Number(match[1]);
+      const count = match[2] === undefined ? 1 : Number(match[2]);
+      if (start < 1) continue; // insertion at the very top: no line to blame
+      ranges.push({ start, end: count === 0 ? start : start + count - 1 });
+    }
+    return ranges;
+  },
+
+  /** The commit shas that last touched lines `start`..`end` of `file` at `revision`. */
+  async blameLines(
+    cwd: string,
+    revision: string,
+    file: string,
+    start: number,
+    end: number,
+  ): Promise<string[]> {
+    const { stdout } = await git(
+      ['blame', '--porcelain', '-L', `${start},${end}`, revision, '--', file],
+      cwd,
+    );
+    // Porcelain opens each group with "<sha> <origLine> <finalLine> [count]".
+    return [...stdout.matchAll(/^([0-9a-f]{40}) \d+ \d+/gm)].map((m) => m[1] as string);
+  },
+
   /** Fetch from a remote (defaults to origin). */
   async fetch(cwd: string, remote = 'origin'): Promise<void> {
     await git(['fetch', remote], cwd);

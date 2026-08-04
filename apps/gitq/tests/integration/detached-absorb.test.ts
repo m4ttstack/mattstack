@@ -170,9 +170,12 @@ describe('detached absorb restack', () => {
 
   test('restack conflict backs out in the slot, not the launch tree', async () => {
     const { repo, stack, workDir } = await absorbConflictScenario();
-    // dirty edit that amends feature-a in a way feature-b's commit conflicts with
-
-    const result = await AbsorbEngine.absorb(repo.dir, stack, undefined, workDir);
+    // Dirty edit that amends feature-a in a way feature-b's commit conflicts
+    // with. Reached through --at: blame attributes the shared line to
+    // feature-b's revert commit, which is the last one to touch it, so plain
+    // attribution now sends this to feature-b and replays clean. Forcing it
+    // onto feature-a is what still exercises the cascade-conflict backout.
+    const result = await AbsorbEngine.absorb(repo.dir, stack, undefined, workDir, 'feature-a');
 
     expect(result.absorbed).toBe(true);
     const failure = result.cascadeResult?.results.find((r) => !r.success);

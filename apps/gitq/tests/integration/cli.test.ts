@@ -917,10 +917,13 @@ describe('gitq CLI', () => {
   });
 
   // Finding 2: absorb whose descendant restack conflicts must not false-succeed.
+  // Reached through --at: blame attributes F.txt to b2's revert commit, the last
+  // one to touch that line, so plain attribution sends this to b2 and replays
+  // clean. Forcing it onto b1 is what still lands on the conflicting cascade.
   test('absorb aborts and exits 1 when the restack conflicts (no mid-rebase left)', async () => {
     const { repo, configDir } = await makeAbsorbCascadeConflictRepo();
 
-    const res = await runCli(['absorb'], repo.dir, configDir);
+    const res = await runCli(['absorb', '--at', 'b1'], repo.dir, configDir);
     expect(res.exitCode).toBe(1);
     expect(res.stderr).toContain('b2');
     expect(res.stderr).toContain('gitq sync');

@@ -81,6 +81,57 @@ async function buildBranchFileCache(
   return { nodesReversed, cache };
 }
 
+/** Map every commit sha in the stack to the branch whose range holds it. */
+async function buildShaOwners(cwd: string, stack: Stack): Promise<Map<string, string>> {
+  const owners = new Map<string, string>();
+  for (const node of StackManager.toposort(stack)) {
+    try {
+      for (const commit of await GitShell.logOneLine(cwd, `${node.parent}..${node.branch}`)) {
+        owners.set(commit.sha, node.branch);
+      }
+    } catch {
+      // A branch whose range will not walk contributes no ownership evidence,
+      // which just leaves file-level attribution to answer for its files.
+    }
+  }
+  return owners;
+}
+
+/**
+ * The stack branches that own the lines this edit changes.
+ *
+ * Blames only the changed line ranges, so a file two branches touched in
+ * different places attributes by which lines the edit is actually on, not by
+ * which branch touched the file last. Lines owned by commits outside the stack
+ * (the root branch, or history before it) contribute nothing.
+ *
+ * Empty means "no opinion", not "nobody": a new file, a binary file, or a repo
+ * where blame will not run all land here, and the caller falls back to
+ * file-level attribution.
+ */
+async function blameOwners(
+  cwd: string,
+  file: string,
+  shaOwners: Map<string, string>,
+): Promise<Set<string>> {
+  const owners = new Set<string>();
+  if (shaOwners.size === 0) return owners;
+
+  try {
+    const ranges = await GitShell.diffBaseRanges(cwd, file);
+    for (const range of ranges) {
+      for (const sha of await GitShell.blameLines(cwd, 'HEAD', file, range.start, range.end)) {
+        const branch = shaOwners.get(sha);
+        if (branch) owners.add(branch);
+      }
+    }
+  } catch {
+    // Blame is a refinement, never a requirement.
+    return new Set();
+  }
+  return owners;
+}
+
 /**
  * For each changed file, walk the stack from leaves to root (reverse topo)
  * and find the deepest branch whose commits touched that file.
@@ -88,6 +139,12 @@ async function buildBranchFileCache(
  * A file no branch's commits touched gets no branch: absorb has no evidence
  * about where it belongs, and the checked-out branch is a guess, not an
  * answer. Those files come back in `unattributed` and stay in the worktree.
+ *
+ * Which lines the edit is on decides first, via {@link blameOwners}: a file two
+ * branches touched in different places belongs to whichever of them owns the
+ * lines being changed. Only when blame has no opinion does the file-level walk
+ * answer. An edit spanning several owners goes to the deepest of them, the one
+ * choice that always replays.
  *
  * `at` overrides all of that and sends every changed file to one branch.
  * Attribution answers "which branch's commits own this file", which is not
@@ -105,13 +162,23 @@ async function attributeFiles(
   if (at) return { byBranch: new Map([[at, [...changedFiles]]]), unattributed: [] };
 
   const { nodesReversed, cache } = await buildBranchFileCache(cwd, stack);
+  const shaOwners = await buildShaOwners(cwd, stack);
 
   const byBranch = new Map<string, string[]>();
   const unattributed: string[] = [];
 
   for (const file of changedFiles) {
     let target: string | null = null;
+
+    // nodesReversed runs leaves to root, so the first owner it hits is the
+    // deepest one, whether the evidence came from blame or from the file walk.
+    const owners = await blameOwners(cwd, file, shaOwners);
+    if (owners.size > 0) {
+      target = nodesReversed.find((node) => owners.has(node.branch))?.branch ?? null;
+    }
+
     for (const node of nodesReversed) {
+      if (target) break;
       const branchFiles = cache.get(node.branch);
       if (branchFiles?.has(file)) {
         target = node.branch;

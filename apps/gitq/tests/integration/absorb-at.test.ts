@@ -85,17 +85,9 @@ async function makeRegionStack(): Promise<{ dir: string; configDir: string; git:
 }
 
 describe('gitq absorb --at', () => {
-  // The gap the flag exists for: a fix to b1's region is attributed to b2,
-  // because attribution is file-level and b2 is the deepest branch touching it.
-  test('without --at, a fix to the ancestor region lands on the deepest toucher', async () => {
-    const { dir, configDir } = await makeRegionStack();
-    await writeFile(join(dir, 'F.txt'), lines([2, 'L2-fixed'], [9, 'L9-from-b2']), 'utf-8');
-
-    const { stdout, exitCode } = await runCli(['absorb', '--preview', '--json'], dir, configDir);
-    expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout).result.attributed).toEqual({ b2: ['F.txt'] });
-  });
-
+  // Default attribution on this fixture is covered in absorb-blame.test.ts;
+  // here --at is doing the choosing, so these force a target blame would not
+  // have picked.
   test('--at puts the fix on the named branch and the descendant still replays', async () => {
     const { dir, configDir } = await makeRegionStack();
     await writeFile(join(dir, 'F.txt'), lines([2, 'L2-fixed'], [9, 'L9-from-b2']), 'utf-8');
