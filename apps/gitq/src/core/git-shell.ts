@@ -48,6 +48,26 @@ function git(args: string[], cwd: string): Promise<ExecResult> {
  * a file that does not exist. `-z` output is NUL-separated and never quoted,
  * so this is the only listing form callers can hand to the filesystem.
  */
+/**
+ * Run git for its bytes and its exit code, without throwing.
+ *
+ * `git()` above trims stdout and rejects on non-zero, both wrong for blob
+ * content and for `merge-file`, whose exit code is the conflict count and whose
+ * output has to survive a trailing newline intact.
+ */
+function gitRaw(args: string[], cwd: string): Promise<{ stdout: Buffer; code: number }> {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024, encoding: 'buffer' }, (err, stdout) => {
+      // `encoding: 'buffer'` is a request, not a guarantee: a spawn failure and
+      // any execFile stand-in can both hand back a string. Callers here compare
+      // and merge bytes, so normalize before anyone sees it.
+      const bytes = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout ?? ''));
+      const raw = err ? (err as NodeJS.ErrnoException & { code?: number }).code : 0;
+      resolve({ stdout: bytes, code: typeof raw === 'number' ? raw : err ? 1 : 0 });
+    });
+  });
+}
+
 function splitNulPaths(stdout: string): string[] {
   return stdout ? stdout.split('\0').filter(Boolean) : [];
 }
@@ -583,6 +603,29 @@ export const GitShell = {
   /** Get the content of a file at a specific revision. */
   async showFile(cwd: string, revision: string, file: string): Promise<{ stdout: string }> {
     return git(['show', `${revision}:${file}`], cwd);
+  },
+
+  /**
+   * Blob content at a revision, byte-exact, or null when the path is not there.
+   *
+   * Unlike {@link showFile} this keeps trailing newlines, which matters when
+   * the bytes are going back into a commit rather than onto a screen.
+   */
+  async showFileRaw(cwd: string, revision: string, file: string): Promise<Buffer | null> {
+    const { stdout, code } = await gitRaw(['show', `${revision}:${file}`], cwd);
+    return code === 0 ? stdout : null;
+  },
+
+  /**
+   * Three-way merge three files on disk, returning the merged bytes, or null
+   * when the merge conflicts.
+   *
+   * `merge-file` exits with the number of conflicts, so a non-zero code here
+   * means "these changes do not combine", not "git broke".
+   */
+  async mergeFile(cwd: string, ours: string, base: string, theirs: string): Promise<Buffer | null> {
+    const { stdout, code } = await gitRaw(['merge-file', '-p', ours, base, theirs], cwd);
+    return code === 0 ? stdout : null;
   },
 
   /** Fetch from a remote (defaults to origin). */

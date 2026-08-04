@@ -7,6 +7,7 @@ import { reparentBranch } from '../../core/reparent.ts';
 import { renameBranch } from '../../core/branch-rename.ts';
 import { resetToRemote } from '../../core/branch-reset.ts';
 import { GitShell } from '../../core/git-shell.ts';
+import { StackManager } from '../../core/stack-manager.ts';
 import { getWorktreeMap, findSlotForBranch, describeSlot } from '../../core/worktrees.ts';
 import type { SlotInfo } from '../../core/worktrees.ts';
 import type { Stack, StackStore } from '../../core/types.ts';
@@ -41,19 +42,42 @@ function refuseIfCheckedOutElsewhere(ctx: CliContext, map: SlotInfo[], branch: s
   return null;
 }
 
+/**
+ * Name the files absorb would not commit because the edit does not replay onto
+ * the branch it was headed for.
+ *
+ * Silence here would read as "that file was fine", when in fact it is still
+ * dirty and the human's fix went nowhere. Worth its own line, separate from the
+ * unattributed count, because the remedy is different: pick another branch, or
+ * split the edit up.
+ */
+function appendUnapplied(headline: string, unapplied: string[] | undefined, at: string | undefined): string {
+  if (!unapplied || unapplied.length === 0) return headline;
+  const target = at ? ` onto ${at}` : ' onto the branch it was attributed to';
+  const files = unapplied.map((f) => `  ${f}: does not replay${target}, left in the worktree`);
+  return [headline, ...files].join('\n');
+}
+
 export async function absorbCommand(ctx: CliContext): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
 
+  // Validate --at before anything reads the worktree: a target outside the
+  // stack would key the attribution map on a branch the commit walk never
+  // visits, so the files would go nowhere at all.
+  const at = typeof ctx.flags.at === 'string' ? ctx.flags.at : undefined;
+  if (at !== undefined && !StackManager.findNode(stack, at)) {
+    return fail(
+      `--at "${at}" is not in stack "${stack.stackName}" (have: ${stack.nodes.map((n) => n.branch).join(', ')})`,
+    );
+  }
+
   if (ctx.flags.preview === true) {
     // Preview mutates nothing — no pause guard, no operation-log entry.
-    const preview = await AbsorbEngine.previewAbsorb(ctx.repoRoot, stack);
+    const preview = await AbsorbEngine.previewAbsorb(ctx.repoRoot, stack, at);
     const attributedCount = Object.keys(preview.attributed).length;
-    emit(
-      ctx,
-      `absorb preview: ${attributedCount} branch(es) attributed, ${preview.unattributed.length} file(s) left in the worktree`,
-      { stack, result: preview },
-    );
+    const headline = `absorb preview: ${attributedCount} branch(es) attributed, ${preview.unattributed.length} file(s) left in the worktree`;
+    emit(ctx, appendUnapplied(headline, preview.unapplied, at), { stack, result: preview });
     return 0;
   }
 
@@ -63,7 +87,7 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
   // The amend phase checks each attributed branch out in the launch tree;
   // a branch held by another slot would fail halfway through. Refuse it
   // upfront with the preview's attribution.
-  const preview = await AbsorbEngine.previewAbsorb(ctx.repoRoot, stack);
+  const preview = await AbsorbEngine.previewAbsorb(ctx.repoRoot, stack, at);
   const map = await getWorktreeMap(ctx.repoRoot);
   for (const attributedBranch of Object.keys(preview.attributed)) {
     const preGuard = refuseIfCheckedOutElsewhere(ctx, map, attributedBranch);
@@ -80,8 +104,9 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
       reason,
       attributions: [],
       unattributed: preview.unattributed,
+      unapplied: preview.unapplied,
     };
-    emit(ctx, `nothing absorbed (${reason})`, { stack, result });
+    emit(ctx, appendUnapplied(`nothing absorbed (${reason})`, preview.unapplied, at), { stack, result });
     return 0;
   }
 
@@ -91,7 +116,7 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
   // commit phase (attribution + amend) stays in ctx.repoRoot either way.
   return withLeasedSlot(ctx, stack, 'absorb', (workDir) =>
     withOperationLog(ctx, stack, 'absorb', async () => {
-      const result = await AbsorbEngine.absorb(ctx.repoRoot, stack, undefined, workDir);
+      const result = await AbsorbEngine.absorb(ctx.repoRoot, stack, undefined, workDir, at);
       const updatedStack = result.updatedStack ?? stack;
       if (result.updatedStack) {
         await updateStore(ctx.repoRoot, (fresh) => replaceStack(fresh, updatedStack));
@@ -111,9 +136,10 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
       }
 
       const failed = result.attributions.some((a) => !a.success);
-      const headline = result.absorbed
+      const absorbedLine = result.absorbed
         ? `absorbed: ${result.attributions.map((a) => `${a.branch} (${a.files.length})`).join(', ')}`
         : `nothing absorbed${result.reason ? ` (${result.reason})` : ''}`;
+      const headline = appendUnapplied(absorbedLine, result.unapplied, at);
       // `recovery` means work of the human's is sitting somewhere they have to
       // go get: the stash absorb kept, or a branch it could not leave. Print it
       // with the headline and exit non-zero even when the commits landed.

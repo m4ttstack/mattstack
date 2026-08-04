@@ -95,6 +95,31 @@ describe('AbsorbEngine.attributeFiles', () => {
     expect(result.unattributed).toEqual(['unknown.txt', 'notes.md']);
     expect(result.byBranch.size).toBe(0);
   });
+
+  test('an explicit target overrides attribution, taking every changed file', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        getFilesChangedInRange: mock((_cwd: string, _from: string, to: string) =>
+          Promise.resolve(to === 'branch-3' ? ['api.ts'] : []),
+        ),
+      },
+    }));
+
+    const { AbsorbEngine } = await import('../src/core/absorb.ts');
+    const result = await AbsorbEngine.attributeFiles(
+      '/tmp/repo',
+      buildLinearStack(),
+      ['api.ts', 'brand-new.txt'],
+      'branch-1',
+    );
+
+    // api.ts would land on branch-3 by deepest-toucher, and brand-new.txt would
+    // be unattributable. The override takes both, which is the point of it.
+    expect(result.byBranch.get('branch-1')).toEqual(['api.ts', 'brand-new.txt']);
+    expect(result.byBranch.size).toBe(1);
+    expect(result.unattributed).toEqual([]);
+  });
 });
 
 // ── previewAbsorb ────────────────────────────────────────────────────────────

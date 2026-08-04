@@ -1,5 +1,6 @@
-import { readFile, writeFile, mkdir, rm, lstat, readlink, symlink, chmod } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, mkdtemp, rm, lstat, readlink, symlink, chmod } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
@@ -23,6 +24,8 @@ export interface AbsorbResult {
   attributions: AbsorbAttribution[];
   /** Files no branch's commits own. Left uncommitted in the worktree. */
   unattributed: string[];
+  /** Files whose edit does not replay onto their branch. A subset of `unattributed`. */
+  unapplied?: string[];
   cascadeResult?: CascadeResult;
   updatedStack?: Stack;
   /**
@@ -38,6 +41,12 @@ export interface AbsorbPreview {
   attributed: Record<string, string[]>;
   /** Files no branch's commits touched. absorb leaves these in the worktree. */
   unattributed: string[];
+  /**
+   * Files whose edit does not replay onto the branch they were attributed to.
+   * A subset of `unattributed`: absorb leaves these dirty too, but for a
+   * different reason worth telling the human apart.
+   */
+  unapplied: string[];
   /** The branch the worktree is on; where unattributed files stay dirty. */
   currentBranch: string;
 }
@@ -79,12 +88,22 @@ async function buildBranchFileCache(
  * A file no branch's commits touched gets no branch: absorb has no evidence
  * about where it belongs, and the checked-out branch is a guess, not an
  * answer. Those files come back in `unattributed` and stay in the worktree.
+ *
+ * `at` overrides all of that and sends every changed file to one branch.
+ * Attribution answers "which branch's commits own this file", which is not
+ * always "which branch introduced the defect": with one MR and one pipeline
+ * per branch, a fix committed at the deepest toucher leaves every branch below
+ * it red. `at` is how the human says where the fix belongs. Callers validate
+ * that it names a node in the stack.
  */
 async function attributeFiles(
   cwd: string,
   stack: Stack,
   changedFiles: string[],
+  at?: string,
 ): Promise<FileAttribution> {
+  if (at) return { byBranch: new Map([[at, [...changedFiles]]]), unattributed: [] };
+
   const { nodesReversed, cache } = await buildBranchFileCache(cwd, stack);
 
   const byBranch = new Map<string, string[]>();
@@ -113,11 +132,126 @@ async function attributeFiles(
   return { byBranch, unattributed };
 }
 
+/** What absorb should write for one file on one branch. */
+type ContentResolution =
+  /** Write the working tree's copy, absorb's original behavior. */
+  | { kind: 'worktree' }
+  /** Write these bytes: the edit replayed onto the branch's own copy. */
+  | { kind: 'merged'; content: Buffer }
+  /** The edit does not replay onto that branch. Leave the file dirty. */
+  | { kind: 'conflict' };
+
+/**
+ * Decide what to commit for `file` on `branch`.
+ *
+ * Absorb's default is to write the working tree's copy of the file wholesale.
+ * That is right only when `branch` holds the same version of the file the human
+ * edited against, which deepest-toucher attribution guarantees and an explicit
+ * `--at` does not. Writing the whole file onto an ancestor would carry every
+ * descendant's changes to that file down with it, quietly moving their commits
+ * into that branch's MR.
+ *
+ * So when the branch's copy differs from the base, the EDIT is replayed onto
+ * the branch's copy instead of the file being overwritten: a three-way merge
+ * against the version the edit was made on. A merge that conflicts returns
+ * `conflict`, and the caller leaves that file dirty rather than guessing.
+ */
+async function resolveContentForBranch(
+  cwd: string,
+  file: string,
+  branch: string,
+  baseRev: string,
+): Promise<ContentResolution> {
+  const base = await GitShell.showFileRaw(cwd, baseRev, file);
+  // No base means the edit adds the file, so there is nothing to replay onto.
+  if (base === null) return { kind: 'worktree' };
+
+  const ours = await GitShell.showFileRaw(cwd, branch, file);
+  // The branch does not have the file, so again there is nothing to merge with.
+  if (ours === null) return { kind: 'worktree' };
+
+  // Same copy on both sides: the merge would return the working tree's bytes.
+  if (ours.equals(base)) return { kind: 'worktree' };
+
+  let worktree: Buffer;
+  try {
+    worktree = await readFile(join(cwd, file));
+  } catch {
+    // Unreadable here is not this function's error to report: snapshotChanges
+    // refuses the whole run over it, with the file named.
+    return { kind: 'worktree' };
+  }
+
+  if (base.includes(0) || ours.includes(0) || worktree.includes(0)) return { kind: 'conflict' };
+
+  const dir = await mkdtemp(join(tmpdir(), 'gitq-absorb-merge-'));
+  try {
+    const paths = { ours: join(dir, 'ours'), base: join(dir, 'base'), theirs: join(dir, 'theirs') };
+    await writeFile(paths.ours, ours);
+    await writeFile(paths.base, base);
+    await writeFile(paths.theirs, worktree);
+    const merged = await GitShell.mergeFile(cwd, paths.ours, paths.base, paths.theirs);
+    return merged === null ? { kind: 'conflict' } : { kind: 'merged', content: merged };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** Attribution plus the bytes each attributed file will actually be committed as. */
+interface ResolvedAttribution extends FileAttribution {
+  /** Files whose edit does not replay onto their branch. Left in the worktree. */
+  unapplied: string[];
+  /** file → the merged bytes to commit, where the working tree's copy will not do. */
+  merged: Map<string, Buffer>;
+}
+
+/**
+ * Attribute the changed files, then work out what to write for each one.
+ *
+ * A file whose edit cannot be replayed onto its branch drops out of the
+ * attribution entirely and joins `unattributed`, so absorb leaves it dirty
+ * instead of committing a merge nobody checked.
+ */
+async function resolveAttribution(
+  cwd: string,
+  stack: Stack,
+  changedFiles: string[],
+  at?: string,
+): Promise<ResolvedAttribution> {
+  const { byBranch, unattributed } = await attributeFiles(cwd, stack, changedFiles, at);
+
+  const baseRev = await GitShell.getBranchHead(cwd, 'HEAD');
+  const merged = new Map<string, Buffer>();
+  const unapplied: string[] = [];
+  const resolved = new Map<string, string[]>();
+
+  for (const [branch, files] of byBranch) {
+    const kept: string[] = [];
+    for (const file of files) {
+      const resolution = await resolveContentForBranch(cwd, file, branch, baseRev);
+      if (resolution.kind === 'conflict') {
+        unapplied.push(file);
+        continue;
+      }
+      if (resolution.kind === 'merged') merged.set(file, resolution.content);
+      kept.push(file);
+    }
+    if (kept.length > 0) resolved.set(branch, kept);
+  }
+
+  return {
+    byBranch: resolved,
+    unattributed: [...unattributed, ...unapplied],
+    unapplied,
+    merged,
+  };
+}
+
 /**
  * Preview absorb: the same attribution `absorb` runs, with nothing committed.
  * `unattributed` is the set absorb will leave dirty in the worktree.
  */
-async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> {
+async function previewAbsorb(cwd: string, stack: Stack, at?: string): Promise<AbsorbPreview> {
   const currentBranch = await GitShell.getCurrentBranch(cwd);
   const changedResult = await GitShell.getChangedFiles(cwd);
   const allChanged = [
@@ -125,12 +259,12 @@ async function previewAbsorb(cwd: string, stack: Stack): Promise<AbsorbPreview> 
   ];
 
   if (allChanged.length === 0) {
-    return { attributed: {}, unattributed: [], currentBranch };
+    return { attributed: {}, unattributed: [], unapplied: [], currentBranch };
   }
 
-  const { byBranch, unattributed } = await attributeFiles(cwd, stack, allChanged);
+  const { byBranch, unattributed, unapplied } = await resolveAttribution(cwd, stack, allChanged, at);
 
-  return { attributed: Object.fromEntries(byBranch), unattributed, currentBranch };
+  return { attributed: Object.fromEntries(byBranch), unattributed, unapplied, currentBranch };
 }
 
 // ── Worktree Snapshots ───────────────────────────────────────────────────────
@@ -353,6 +487,7 @@ async function absorb(
   stack: Stack,
   excludedFiles?: string[],
   workDir?: string,
+  at?: string,
 ): Promise<AbsorbResult> {
   const currentBranch = await GitShell.getCurrentBranch(cwd);
 
@@ -366,12 +501,17 @@ async function absorb(
     return { absorbed: false, reason: 'no-changes', attributions: [], unattributed: [] };
   }
 
-  const { byBranch: fileMap, unattributed } = await attributeFiles(cwd, stack, allChanged);
+  const {
+    byBranch: fileMap,
+    unattributed,
+    unapplied,
+    merged: mergedContent,
+  } = await resolveAttribution(cwd, stack, allChanged, at);
 
   // Nothing the stack owns. Stashing would put the whole tree through a
   // round trip for no gain, so leave the worktree exactly as it is.
   if (fileMap.size === 0) {
-    return { absorbed: false, reason: 'nothing-attributable', attributions: [], unattributed };
+    return { absorbed: false, reason: 'nothing-attributable', attributions: [], unattributed, unapplied };
   }
 
   // Snapshot the worktree entries before stashing — avoids stash^3 issues
@@ -411,9 +551,17 @@ async function absorb(
 
       for (const file of files) {
         const snapshot = snapshots.get(file);
+        if (!snapshot) continue;
         // Same writer the restore uses, so an absorbed file keeps its mode and
-        // its entry type, and an absorbed deletion stays a deletion.
-        if (snapshot) await writeEntry(cwd, file, snapshot.entry);
+        // its entry type, and an absorbed deletion stays a deletion. A file
+        // whose edit had to be replayed onto this branch carries the merged
+        // bytes instead of the working tree's, but keeps the rest of its entry.
+        const replayed = mergedContent.get(file);
+        const entry: EntrySnapshot =
+          replayed && snapshot.entry.kind === 'file'
+            ? { kind: 'file', content: replayed, mode: snapshot.entry.mode }
+            : snapshot.entry;
+        await writeEntry(cwd, file, entry);
       }
 
       await GitShell.add(cwd, files);
@@ -437,7 +585,7 @@ async function absorb(
 
   if (abortNeeded) {
     const recovery = await unwindFailedAmend(cwd, currentBranch);
-    const aborted: AbsorbResult = { absorbed: false, attributions, unattributed };
+    const aborted: AbsorbResult = { absorbed: false, attributions, unattributed, unapplied };
     if (recovery) aborted.recovery = recovery;
     return aborted;
   }
@@ -471,7 +619,7 @@ async function absorb(
     } catch { /* already popped or empty */ }
   }
 
-  const result: AbsorbResult = { absorbed: true, attributions, unattributed, updatedStack };
+  const result: AbsorbResult = { absorbed: true, attributions, unattributed, unapplied, updatedStack };
   if (cascadeResult) result.cascadeResult = cascadeResult;
   if (restoreFailures.length > 0) {
     const listed = restoreFailures.map((f) => `${f.file} (${f.error})`).join('; ');
