@@ -5,12 +5,12 @@ sidebar_label: absorb
 
 # gitq absorb
 
-Distributes uncommitted worktree changes across the stack branches whose commits own each file, then restacks below the branches it touched.
+Distributes uncommitted worktree changes across the stack branches that own the lines each edit is on, then restacks below the branches it touched.
 
 ## Usage
 
 ```bash
-gitq absorb [--stack <name>] [--preview]
+gitq absorb [--stack <name>] [--at <branch>] [--preview]
 ```
 
 ## Flags
@@ -19,10 +19,11 @@ gitq absorb [--stack <name>] [--preview]
 |------|---------|
 | `--stack <name>` | Which tracked stack to absorb into. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
 | `--preview` | Show the file attribution without committing or restacking anything. |
+| `--at <branch>` | Commit every attributed file to `<branch>` instead of where attribution would put it. Refused before anything is read if `<branch>` is not in the stack. See [Overriding attribution](#at) below. |
 
 ## Behavior
 
-- **Attribution.** For every changed file (modified, staged, or untracked), walks the stack from leaves to root and attributes it to the deepest branch whose own commits touched that path (`src/core/absorb.ts:83-114`). A file no branch's commits touched is **not committed anywhere**: it comes back under `unattributed` and absorb leaves it in the worktree, dirty, for you to place yourself. It is snapshotted before the stash like everything else and written back after the restack (`src/core/absorb.ts:314-336`), so it survives the round trip through the stash the attributed files take.
+- **Attribution.** For every changed file (modified, staged, or untracked), absorb asks which branch owns **the lines the edit is on**. It blames the changed line ranges of the file at HEAD, with `-U0` so a hunk covers only the lines that moved and not three lines of innocent context, and takes the deepest stack branch owning any of them (`blameOwners`, `src/core/absorb.ts:112-133`). Only when blame has no opinion does it fall back to the older question, "whose commits touched this path at all", answered by the same leaves-to-root walk (`src/core/absorb.ts:156-200`). Blame has no opinion about a new file, a binary file, lines written outside the stack, or a repo where blame will not run, so those keep the file-level answer exactly as before. An edit spanning several owners goes to the deepest of them: a file is committed to one branch, and the deepest owner is the only choice that always replays. A file no branch owns either way is **not committed anywhere**: it comes back under `unattributed` and absorb leaves it in the worktree, dirty, for you to place yourself. It is snapshotted before the stash like everything else and written back after the restack (`src/core/absorb.ts:314-336`), so it survives the round trip through the stash the attributed files take.
 - **The snapshot is of the worktree entry, not the bytes** (`src/core/absorb.ts:193-226`): type, mode, symlink target, and what the index held for the path. So a 755 script comes back 755, a symlink comes back a symlink (dangling target included), and a partially staged file keeps its staged blob in the index and its full edit in the worktree. A changed file absorb cannot read is not guessed at: unless git itself called that path a deletion, the run **aborts before anything is stashed**, naming the files, with nothing committed or removed.
 - `--preview` only runs the attribution (`AbsorbEngine.previewAbsorb`) and prints it; it mutates nothing, takes no lease, and writes no operation-log entry (`src/cli/commands/surgery.ts:48-58`). It is the one mutation-family flag allowed to run while the stack is parked.
 - Without `--preview`, guarded by the stack lease. Before doing anything, it runs the same preview and refuses if any branch it would attribute a file to is checked out in a different, non-work-slot worktree, whether or not that worktree is dirty: `branch "<name>" is checked out in slot "<slot>" (<path>); run this from that worktree or free the branch first` (`src/cli/commands/surgery.ts:60-71`).
@@ -33,6 +34,26 @@ gitq absorb [--stack <name>] [--preview]
 - **Does not override the operation-log predicate** (`src/cli/commands/surgery.ts:92-93`): the default `shouldLog` only logs a clean exit `0`. A restack-conflict exit `1` writes no entry at all, even though the commit phase already landed real commits. `gitq undo` afterward has no entry for this absorb; it silently rewinds whichever operation ran before it.
 - With nothing dirty to absorb, prints `nothing absorbed (no-changes)` and exits `0`. When the tree is dirty but no branch owns any of it, prints `nothing absorbed (nothing-attributable)` and exits `0` without stashing, checking out, or committing anything. Both answers come straight off the preview (`src/cli/commands/surgery.ts:76-86`), before a lease is taken: a run with nothing to commit takes no lease, materializes no work slot, and writes no operation-log entry.
 - Recorded to the operation log under `absorb`, and reversible: it is one of the four types in `REVERSIBLE_OPERATIONS` (`src/core/undo.ts:16-21`), but only for a run that actually reached exit `0`.
+
+## Overriding attribution with `--at` {#at}
+
+Attribution answers "which branch owns these lines". That is not always "which branch should carry the fix": with one MR and one pipeline per branch, a fix committed above the branch that introduced the problem leaves every branch below it red on the very thing being fixed. `--at <branch>` sends every attributed file to `<branch>` instead.
+
+The target is checked against the stack before absorb reads the worktree, since a branch the commit walk never visits would silently swallow the files: `--at "<branch>" is not in stack "<name>" (have: ...)`.
+
+**The edit is replayed, not the file.** Absorb normally writes the working tree's copy of a file wholesale, which is correct only when the target holds the version you edited against ... what attribution guarantees and `--at` does not. Writing the whole file onto an ancestor would carry every descendant's changes to that file down with it, moving their commits into that branch's MR. So when the target's copy differs from the base, absorb three-way merges your edit onto the target's copy instead (`resolveContentForBranch`, `src/core/absorb.ts:226-265`).
+
+A merge that conflicts means the edit genuinely has no place on that branch. That file drops out of the attribution **before the stash**, so nothing is committed, nothing is stashed, and no rebase starts. It is reported under `unapplied` and named on stdout:
+
+```
+$ gitq absorb --at s1
+nothing absorbed (nothing-attributable)
+  test/api.spec.ts: does not replay onto s1, left in the worktree
+```
+
+`unapplied` is a subset of `unattributed`: both are left dirty, but the reasons differ and so do the remedies. An unattributed file has no owner, and you place it yourself. An unapplied file has an owner you overruled, and the fix is a different `--at` target, or splitting the edit so each part goes where it belongs.
+
+Exit stays `0`: nothing was refused and nothing failed, there was simply nothing absorb could safely commit. Check `unapplied` under `--json` rather than the exit code.
 
 ## Exit codes
 

@@ -8,7 +8,7 @@ gitq is a deterministic stacked branch engine and CLI for git. It tracks a tree 
 
 - **Stacks, not single branches.** `gitq track` roots a stack, `gitq add` grows it, `gitq sync` cascades a rebase down the whole tree in one command instead of one `git rebase` per branch.
 - **Built for agents.** Every command takes `-C <path>` and `--json`. A rebase conflict during `sync` is a structured pause, not a failure: git is left mid-rebase, the process exits `2`, and `gitq continue` / `gitq abort` resume or bail. `gitq preflight` predicts conflicts before you run `sync` at all.
-- **`gitq absorb`.** Distributes uncommitted changes to the stack branches whose commits touched those files, `--preview` first to see the attribution before anything is committed.
+- **`gitq absorb`.** Distributes uncommitted changes to the stack branches that own the lines each edit is on, `--preview` first to see the attribution before anything is committed.
 - **Forge-aware publishing.** `gitq publish` opens or updates an MR/PR chain on GitLab or GitHub, retargeting branches as the stack underneath them changes.
 - **A board.** A local React web UI (`bun run serve`) shows every tracked stack's branch statuses, MR/pipeline state, and live status while an agent works a stack from one of the bundled skills.
 - **Agent skills included.** Four Claude skills under `skills/` (`gitq:sync`, `gitq:publish`, `gitq:absorb`, `gitq:restructure`) drive this CLI from an agent pane; install them with `bun run scripts/install-skills.ts`.
@@ -66,7 +66,7 @@ Cascade rebase:
 
 Surgery:
 
-- `gitq absorb [--stack <name>] [--preview]`: distribute uncommitted changes to the branches whose commits touched those files, then restack. `--preview` shows the attribution without committing anything. If the restack after absorbing hits a conflict, absorb aborts that rebase (the absorbed commits stay on their branches) and exits `1` with a message telling you to run `gitq sync`, which restacks with full conflict handling.
+- `gitq absorb [--stack <name>] [--at <branch>] [--preview]`: distribute uncommitted changes to the branches that own the lines each edit is on, then restack. Attribution blames the changed lines and takes the deepest stack branch owning any of them, falling back to "whose commits touched this file at all" when blame has no answer (a new file, a binary one, lines from outside the stack). `--at <branch>` overrides that and sends everything to one branch; because the target may not hold the version you edited against, the edit is three-way merged onto its copy rather than the file being overwritten, and a file that will not merge is left dirty and reported as `unapplied` instead of being committed. `--preview` shows the attribution without committing anything. If the restack after absorbing hits a conflict, absorb aborts that rebase (the absorbed commits stay on their branches) and exits `1` with a message telling you to run `gitq sync`, which restacks with full conflict handling.
 - `gitq split <branch> --at <sha> --name <newBranch> [--stack <name>]`: tail split: move everything from `<sha>` onward on `<branch>` into a new child branch.
 - `gitq split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <name>]`: split by file: move files matching the glob(s) off `<branch>` into a new branch.
 - `gitq fold <branch> [--stack <name>]`: fold a branch's commits into its parent, delete it, and reparent its children onto the parent.

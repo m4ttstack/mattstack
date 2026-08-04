@@ -39,6 +39,7 @@ gitq: --stack required (have: demo, second)
 | `--parent <branch>` | `add` | The parent branch the new node attaches under. |
 | `--onto <branch>` | `reparent` | The new parent branch. |
 | `--at <sha>` | `split` | Tail-split mode: move every commit from `<sha>` onward into the new branch. Mutually exclusive with `--files`. |
+| `--at <branch>` | `absorb` | Commit every attributed file to `<branch>` instead of where attribution would put it. Same flag name, different argument: `split` reads a sha, `absorb` reads a branch. |
 | `--files <glob[,glob...]>` | `split` | File-split mode: move files matching the comma separated glob(s) into the new branch. Mutually exclusive with `--at`. |
 | `--name <newBranch>` | `split` | Name of the branch either split mode creates. |
 | `--preview` | `absorb`, `push` | Show what the command would do without doing it: the file attribution for `absorb`, the per-branch push plan for `push`. |

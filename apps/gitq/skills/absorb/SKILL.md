@@ -43,10 +43,19 @@ just talk to the human; everything else below is unchanged.
 
 1. **Mark working.** `bun run <status-bin> <state> working "absorbing into <stackName>"`
 2. **Preview.** `gitq -C <repoPath> absorb --stack <stackName> --preview --json`
-   - Read `result`: `attributed` maps each branch to the files its commits
-     own, and `unattributed` lists the files no branch's commits touched.
-     Absorb commits the attributed files and nothing else; the unattributed
-     ones are left in the worktree, uncommitted, exactly as you found them.
+   - Read `result`: `attributed` maps each branch to the files it owns,
+     `unattributed` lists the files absorb will leave in the worktree, and
+     `unapplied` (a subset of `unattributed`) lists files whose edit does not
+     replay onto the branch it was headed for. Absorb commits the attributed
+     files and nothing else; the rest are left in the worktree, uncommitted,
+     exactly as you found them.
+   - Attribution goes by the lines the edit is on, not just by which branch
+     touched the file, so a fix to an ancestor's lines lands on the ancestor
+     even when a later branch edited elsewhere in the same file.
+   - `unapplied` non-empty means the human overruled attribution with `--at`
+     and the edit will not merge onto that branch. Name those files and stop:
+     the fix is a different `--at` target, or splitting the edit. Do not
+     re-run without `--at` hoping it lands somewhere.
    - Both empty: mark done with "nothing to absorb" and stop.
    - **Tell the human the unattributed files before you apply**, by name.
      Applying will not touch them, but this is the moment they can act on
@@ -63,6 +72,10 @@ just talk to the human; everything else below is unchanged.
      that has nothing to do with it), stop and ask the human instead of
      committing to the wrong branch. Trust the engine on clean, boring
      mappings; escalate on surprising ones.
+   - When the human already knows where a fix belongs (usually because a
+     branch's pipeline is red on exactly that line), `--at <branch>` sends
+     everything there instead. Only pass it when they asked for that branch;
+     never pick a target yourself to make an attribution look tidier.
 3. **Apply.** `gitq -C <repoPath> absorb --stack <stackName> --json`
    - **exit 0**: go to step 5.
    - **exit 1 telling you to run `gitq sync`**: the changes were committed

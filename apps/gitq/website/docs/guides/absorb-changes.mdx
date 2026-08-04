@@ -13,7 +13,7 @@ Every block below came from a real run.
 
 In order:
 
-1. **Attribute.** For each dirty file, walk the stack from the leaves up and find the deepest branch whose own commits touched that file. That branch owns the file. A file no branch has touched has no owner, and absorb will not invent one.
+1. **Attribute.** For each dirty file, blame the lines the edit actually changes and find the deepest stack branch that owns any of them. That branch owns the file. When blame has no answer (a new file, a binary one, or lines written outside the stack) fall back to the older rule: the deepest branch whose own commits touched that file at all. A file no branch owns either way has no owner, and absorb will not invent one. `--at <branch>` overrides all of it when you know where the fix belongs; see [the reference](/reference/surgery/absorb#at).
 2. **Commit.** Stash the tree, then for each owning branch in turn: check it out, write the file back, `git add`, and `git commit --amend --no-edit`. This is an amend of the branch's tip commit, not a new commit on top.
 3. **Restack.** Cascade the descendants of every amended branch onto their parents' new heads, detached in a leased [work slot](/concepts/work-slots).
 4. **Put the rest back.** Write the unowned files back into the worktree, still uncommitted, exactly as they were. The stash in step 2 took the whole tree, so this is what returns the part absorb had no business committing.
