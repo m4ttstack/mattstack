@@ -15,7 +15,7 @@ import {
   renameCommand,
   resetCommand,
 } from './commands/surgery.ts';
-import { publishCommand, importCommand } from './commands/forge.ts';
+import { publishCommand, pushCommand, importCommand } from './commands/forge.ts';
 import { undoCommand } from './commands/undo.ts';
 
 type Command = (ctx: CliContext) => Promise<number>;
@@ -39,6 +39,7 @@ export const COMMANDS: Record<string, Command> = {
   rename: renameCommand,
   reset: resetCommand,
   publish: publishCommand,
+  push: pushCommand,
   import: importCommand,
   undo: undoCommand,
 };
@@ -65,6 +66,7 @@ export const USAGE: Record<string, string> = {
   rename: 'gitq rename <oldBranch> <newBranch> [--stack <name>] [--json]',
   reset: 'gitq reset <branch> [--stack <name>] [--json]',
   publish: 'gitq publish [--mr-meta <path>] [--stack <name>] [--json]',
+  push: 'gitq push [--preview] [--stack <name>] [--json]',
   import: 'gitq import [--replace] [--json]',
   undo: 'gitq undo [--json]',
 };

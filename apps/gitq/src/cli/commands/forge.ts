@@ -2,6 +2,7 @@
 // whole run, so the async API is not safe to depend on here.
 import { readFileSync } from 'node:fs';
 import { ForgeSync, type PublishNodeResult, type PublishSkip } from '../../core/forge-sync.ts';
+import { ForgePush, type PushNodeResult, type PushPlanEntry } from '../../core/push.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { loadStore, updateStore } from '../../core/persistence.ts';
 import type { CliContext } from '../context.ts';
@@ -140,6 +141,48 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
     updatedStack: result.updatedStack,
   });
   return ok ? 0 : 1;
+}
+
+// ── Push output ──────────────────────────────────────────────────────────────
+
+const short = (sha: string | null): string => (sha ? sha.slice(0, 7) : 'none');
+
+function formatPushResult(r: PushNodeResult): string {
+  if (r.action === 'pushed') return `${r.branch}: pushed ${short(r.before)} -> ${short(r.after)}`;
+  if (r.action === 'current') return `${r.branch}: already current`;
+  if (r.action === 'failed') return `${r.branch}: REJECTED (${r.error})`;
+  return `${r.branch}: skipped (${r.detail})`;
+}
+
+function formatPushPlanEntry(e: PushPlanEntry): string {
+  if (e.action === 'push') return `${e.branch}: would push ${short(e.remoteHead)} -> ${short(e.localHead)}`;
+  if (e.action === 'current') return `${e.branch}: already current`;
+  return `${e.branch}: skipped (${e.detail})`;
+}
+
+export async function pushCommand(ctx: CliContext): Promise<number> {
+  const store = await loadStore(ctx.repoRoot);
+  const stack = pickStack(store, ctx.flags);
+  const guarded = await requireStackFree(ctx, stack.id);
+  if (guarded !== null) return guarded;
+
+  // --preview never reaches the executor, which is the whole guarantee.
+  if (ctx.flags.preview === true) {
+    const plan = await ForgePush.planPush(ctx.repoRoot, stack);
+    emit(ctx, plan.map(formatPushPlanEntry).join('\n'), { plan });
+    return 0;
+  }
+
+  const { results } = await ForgePush.pushStack(ctx.repoRoot, stack);
+  const counts = {
+    pushed: results.filter((r) => r.action === 'pushed').length,
+    current: results.filter((r) => r.action === 'current').length,
+    failed: results.filter((r) => r.action === 'failed').length,
+    skipped: results.filter((r) => r.action === 'skipped').length,
+  };
+  const summary = `pushed ${counts.pushed}, current ${counts.current}, failed ${counts.failed}, skipped ${counts.skipped}`;
+  emit(ctx, [...results.map(formatPushResult), '', summary].join('\n'), { results });
+  return counts.failed > 0 ? 1 : 0;
 }
 
 export async function importCommand(ctx: CliContext): Promise<number> {
