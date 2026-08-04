@@ -5,7 +5,7 @@
  * Uses mock providers that simulate real failure modes.
  */
 import { describe, test, expect } from 'bun:test';
-import type { GitProvider, PullRequest, CreatePullRequestInput } from '@workforge/glance-sdk';
+import type { GitProvider, PullRequest, CreatePullRequestInput } from '@mattstack/glance';
 import { ForgeSync } from '../../src/core/forge-sync.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';
 import type { Stack } from '../../src/core/types.ts';

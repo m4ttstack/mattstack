@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { createProvider } from '@workforge/glance-sdk';
-import type { GitProvider, PullRequest } from '@workforge/glance-sdk';
+import { createProvider } from '@mattstack/glance';
+import type { GitProvider, PullRequest } from '@mattstack/glance';
 import { ForgeSync } from '../../src/core/forge-sync.ts';
 import { projectScopeFromWebUrl } from '../../src/core/forge-helpers.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';

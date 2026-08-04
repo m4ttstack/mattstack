@@ -22,7 +22,7 @@ import { writeFile, readFile, mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import type { GitProvider, PullRequest } from '@workforge/glance-sdk';
+import type { GitProvider, PullRequest } from '@mattstack/glance';
 import { GitShell } from '../../src/core/git-shell.ts';
 import { RebaseEngine } from '../../src/core/rebase-engine.ts';
 import { ForgeSync } from '../../src/core/forge-sync.ts';

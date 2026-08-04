@@ -1,5 +1,5 @@
-import { createProvider } from '@workforge/glance-sdk';
-import type { GitProvider } from '@workforge/glance-sdk';
+import { createProvider } from '@mattstack/glance';
+import type { GitProvider } from '@mattstack/glance';
 import { resolveForgeToken, tokenSourceHint } from '../core/secrets.ts';
 import { readForgeOverrides, resolveForge, type ForgeOverrides } from '../core/forges.ts';
 import { hostFromRemoteUrl, projectPathFromRemoteUrl } from '../core/forge-helpers.ts';

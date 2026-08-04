@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { PullRequest } from '@workforge/glance-sdk';
+import type { PullRequest } from '@mattstack/glance';
 import {
   discoverStacksFromPRs,
   filterPRsToProject,

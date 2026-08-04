@@ -1,4 +1,4 @@
-import type { PullRequest } from '@workforge/glance-sdk';
+import type { PullRequest } from '@mattstack/glance';
 import type { DiffStats, PipelineStatus } from './types.ts';
 
 export interface DiscoveredStack {

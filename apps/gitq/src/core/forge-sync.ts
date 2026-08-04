@@ -1,4 +1,4 @@
-import type { GitProvider, PullRequest, CreatePullRequestInput } from '@workforge/glance-sdk';
+import type { GitProvider, PullRequest, CreatePullRequestInput } from '@mattstack/glance';
 import type { Stack, StackStore, PipelineStatus } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
@@ -135,7 +135,7 @@ export interface ImportResult {
 /**
  * Syncs local stack state with a GitHub/GitLab forge.
  *
- * Uses `@workforge/glance-sdk` GitProvider to fetch MR data and reconcile
+ * Uses `@mattstack/glance` GitProvider to fetch MR data and reconcile
  * with the local StackStore.
  */
 export const ForgeSync = {

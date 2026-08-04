@@ -5,8 +5,8 @@
  * Gated on GITLAB_TOKEN + GITLAB_PROJECT_PATH.
  */
 import { describe, test, expect, afterAll } from 'bun:test';
-import { createProvider } from '@workforge/glance-sdk';
-import type { GitProvider } from '@workforge/glance-sdk';
+import { createProvider } from '@mattstack/glance';
+import type { GitProvider } from '@mattstack/glance';
 import { ForgeSync } from '../../src/core/forge-sync.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';
 

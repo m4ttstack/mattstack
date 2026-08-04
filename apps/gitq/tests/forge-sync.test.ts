@@ -9,7 +9,7 @@ import { parseMrMeta } from '../src/cli/commands/forge.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
-import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from '@workforge/glance-sdk';
+import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from '@mattstack/glance';
 
 // ── Mock Provider ────────────────────────────────────────────────────────────
 

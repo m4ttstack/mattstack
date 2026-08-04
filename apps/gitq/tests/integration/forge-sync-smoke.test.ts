@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 import { ForgeSync } from '../../src/core/forge-sync.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';
-import type { GitProvider, PullRequest } from '@workforge/glance-sdk';
+import type { GitProvider, PullRequest } from '@mattstack/glance';
 import {
   createSandboxRepo,
   cleanupRepo,

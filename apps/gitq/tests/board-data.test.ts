@@ -14,7 +14,7 @@ import type { BoardMr } from '../src/server/data.ts';
 import type { ForgeProviderContext } from '../src/cli/provider.ts';
 import type { Stack, StackNode, StackStore } from '../src/core/types.ts';
 import type { ForgeOverrides } from '../src/core/forges.ts';
-import type { GitProvider, PullRequest } from '@workforge/glance-sdk';
+import type { GitProvider, PullRequest } from '@mattstack/glance';
 import type { RtResponse, MrByBranchData } from '@mattstack/rt-client';
 import type { NodeDirective } from '../src/core/stack-diagnostics.ts';
 import type { OperationEntry } from '../src/core/operation-log.ts';

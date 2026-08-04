@@ -13,7 +13,7 @@ import { hostFromRemoteUrl } from '../core/forge-helpers.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
 import { listLeases } from '../core/leases.ts';
 import type { Stack, StackStore } from '../core/types.ts';
-import type { PullRequest } from '@workforge/glance-sdk';
+import type { PullRequest } from '@mattstack/glance';
 import { readMrsByBranch, repoNameForPath } from '@mattstack/rt-client';
 import type { RtResponse, MrByBranchData } from '@mattstack/rt-client';
 import type { JobAction } from './job-state.ts';
