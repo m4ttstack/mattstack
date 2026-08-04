@@ -15,6 +15,7 @@ import {
   type SandboxRepo,
   type SandboxRepoWithRemote,
 } from './helpers.ts';
+import { COMMANDS } from '../../src/cli/main.ts';
 import { setConfigDir } from '../../src/core/config-paths.ts';
 import { saveStore, resolveRepoIdentity } from '../../src/core/persistence.ts';
 import { OperationLog } from '../../src/core/operation-log.ts';
@@ -1088,6 +1089,55 @@ describe('gitq CLI', () => {
     const after = await runCli(['untrack', 'reparent-cascade'], repo.dir, configDir);
     expect(after.exitCode).toBe(0);
     expect(after.stderr).not.toContain('lease');
+  });
+
+  // ── Help (MAT-85) ───────────────────────────────────────────────────────
+
+  // The bug as reported: `--help` was parsed as noise and the command ran. On a
+  // dirty worktree that meant `absorb --help` amended a commit.
+  test('absorb --help prints usage and absorbs nothing', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    repo.git('checkout', 'feat/branch-2');
+    await writeFile(join(repo.dir, 'file-1-a.txt'), 'branch 1 commit A updated\n', 'utf-8');
+
+    const statusBefore = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
+    const headBefore = execFileSync('git', ['rev-parse', 'feat/branch-1'], { cwd: repo.dir }).toString();
+    const stacksBefore = (await runCli(['stacks', '--json'], repo.dir, configDir)).stdout;
+
+    const { stdout, exitCode } = await runCli(['absorb', '--help'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('usage: gitq absorb');
+    expect(stdout).toContain('--preview');
+
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString()).toBe(statusBefore);
+    expect(execFileSync('git', ['rev-parse', 'feat/branch-1'], { cwd: repo.dir }).toString()).toBe(headBefore);
+    expect((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout).toBe(stacksBefore);
+  });
+
+  test('gitq --help lists every command and exits 0', async () => {
+    const { repo, configDir } = await makeRepo();
+    const { stdout, exitCode } = await runCli(['--help'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    const missing = Object.keys(COMMANDS).filter((name) => !stdout.includes(name));
+    expect(missing).toEqual([]);
+  });
+
+  test('-h is treated the same as --help', async () => {
+    const { repo, configDir } = await makeRepo();
+    const { stdout, exitCode } = await runCli(['import', '-h'], repo.dir, configDir);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('usage: gitq import');
+  });
+
+  // Help answers before context resolution, so it needs no repo, no store and
+  // no lease. Run from a directory that is not a git worktree at all.
+  test('--help works outside a git repo', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'gitq-nonrepo-'));
+    dirsToClean.push(outside);
+
+    const { stdout, exitCode } = await runCli(['sync', '--help'], outside, outside);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('usage: gitq sync');
   });
 
   // Finding 5: import refuses to clobber a non-empty store without --replace,
