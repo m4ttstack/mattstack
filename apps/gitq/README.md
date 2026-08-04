@@ -18,11 +18,27 @@ This repo is the engine and CLI only. The skills that drive it from agent panes 
 ## install
 
 ```bash
+npm install -g @mattstack/gitq
+```
+
+That puts a `gitq` binary on your PATH. It runs on plain Node 20 or later; you
+do not need Bun to use it.
+
+Or run it without installing:
+
+```bash
+npx @mattstack/gitq stacks
+```
+
+### working on gitq itself
+
+```bash
 bun install
 bun link
 ```
 
-`bun link` puts a `gitq` binary on your PATH pointed at this checkout.
+`bun link` points the `gitq` binary at this checkout and runs the TypeScript
+sources directly, so changes take effect without a build.
 
 ## commands
 

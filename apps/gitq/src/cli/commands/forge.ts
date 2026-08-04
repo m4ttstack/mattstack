@@ -1,3 +1,6 @@
+// Sync fs on purpose: a unit test mock.module's `node:fs/promises` for the
+// whole run, so the async API is not safe to depend on here.
+import { readFileSync } from 'node:fs';
 import { ForgeSync, type PublishNodeResult, type PublishSkip } from '../../core/forge-sync.ts';
 import { GitShell } from '../../core/git-shell.ts';
 import { loadStore, updateStore } from '../../core/persistence.ts';
@@ -27,7 +30,7 @@ import { createForgeProvider } from '../provider.ts';
 export async function parseMrMeta(path: string): Promise<Record<string, { title?: string; body?: string }> | string> {
   let raw: string;
   try {
-    raw = await Bun.file(path).text();
+    raw = readFileSync(path, 'utf8');
   } catch {
     return `invalid --mr-meta: cannot read ${path}`;
   }
