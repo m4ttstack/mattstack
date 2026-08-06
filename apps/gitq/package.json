@@ -16,7 +16,7 @@
     "release": "bun run scripts/release.ts"
   },
   "dependencies": {
-    "@mattstack/glance": "^0.13.0",
+    "@mattstack/glance": "^0.15.0",
     "picomatch": "^4.0.2"
   },
   "devDependencies": {
