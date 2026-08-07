@@ -91,6 +91,31 @@ a:hover { text-decoration: underline; }
 
 .stacks { display: flex; gap: 16px; flex-wrap: wrap; flex: 1; min-width: 0; }
 
+/* Fully-merged stacks, collapsed to one row per repo. A 100% basis forces a
+   wrap in .stacks, so the group always sits below the active panels however
+   many of them fit on a line. */
+.merged-group { flex-basis: 100%; min-width: 0; }
+.merged-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 2px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.merged-head:hover { color: var(--text); }
+.merged-head .caret { width: 10px; flex: none; }
+.merged-names { color: var(--muted); opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merged-group .stacks { margin-top: 8px; }
+.merged-group .stack { opacity: 0.65; }
+.merged-group .stack:hover { opacity: 1; }
+
 .stack {
   background: var(--panel);
   border: 1px solid var(--border);

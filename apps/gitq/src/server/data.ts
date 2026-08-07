@@ -54,6 +54,24 @@ export interface BoardStack {
   banner: BannerDirective | null;
   globalBlocks: string[];
   predictedConflicts: ConflictPrediction[];
+  /**
+   * Every node merged, so nothing in the stack is still in flight. gitq keeps
+   * merged nodes in the tree as tombstones for their children to reconcile
+   * against (see forge-sync's `resolveLiveTarget`), but a stack with no
+   * unmerged node has no children left to serve: the board collapses these out
+   * of the active grid rather than dropping them, since untracking is a
+   * deliberate, non-undoable act.
+   *
+   * Merged means the same thing here as it does to the badge on the row:
+   * stored status OR a live MR in state `merged`. The stored status only
+   * learns about a merge when a reconcile runs, so a stack whose MRs all
+   * landed today reads as `synced` on disk until the next `gitq sync` ...
+   * diagnostics has the identical rule for `wasMerged`. When the forge fetch
+   * fails the stored status is what's left, so a stack can only be
+   * stale-not-done, never spuriously done. An empty stack is not done: it has
+   * merged nothing.
+   */
+  done: boolean;
 }
 
 export interface ActivityEntry {
@@ -111,14 +129,23 @@ export function shapeStack(
       checkedOutDirty: slot?.dirty ?? false,
     };
   });
-  return { stackName: stack.stackName, root: stack.root, nodes, banner, globalBlocks, predictedConflicts };
+  const done =
+    stack.nodes.length > 0 &&
+    stack.nodes.every((n) => n.status === 'merged' || mrByBranch.get(n.branch)?.state === 'merged');
+  return { stackName: stack.stackName, root: stack.root, nodes, banner, globalBlocks, predictedConflicts, done };
 }
 
-/** The repo's slice of the global operation log, newest first. Legacy entries
-    without a repoPath belong to every repo (entryBelongsToRepo). */
-export function shapeActivity(entries: OperationEntry[], repoPath: string, limit = 20): ActivityEntry[] {
+/**
+ * The repo's slice of the global operation log, newest first. Legacy entries
+ * without a repoPath belong to every repo (entryBelongsToRepo).
+ *
+ * Takes a repo *identity* (the realpath'd git common dir), not a working path:
+ * entries are stamped with the identity plus the worktree the command ran in,
+ * and a board watching one path would otherwise match neither.
+ */
+export function shapeActivity(entries: OperationEntry[], identity: string, limit = 20): ActivityEntry[] {
   return entries
-    .filter((e) => entryBelongsToRepo(e, repoPath))
+    .filter((e) => entryBelongsToRepo(e, identity))
     .map((e) => ({
       id: e.id,
       timestamp: e.timestamp,
@@ -315,13 +342,14 @@ export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = 
     // Resolved once for the whole repo, same as the provider: every stack's
     // branches are looked up against the one rt repo name.
     const rtRepo = resolveRtRepo(repo.path);
+    // One identity for the whole repo: leases are keyed by it and so is the
+    // operation log's per-repo filter. It resolves outside the worktree try
+    // because resolveRepoIdentity never throws ... it falls back to the path.
+    const identity = await resolveRepoIdentity(repo.path);
     let worktrees: BoardWorktree[] = [];
     const slotByBranch = new Map<string, { name: string; dirty: boolean }>();
     try {
-      const [map, leases] = await Promise.all([
-        getWorktreeMap(repo.path),
-        resolveRepoIdentity(repo.path).then((id) => listLeases(id)),
-      ]);
+      const [map, leases] = await Promise.all([getWorktreeMap(repo.path), listLeases(identity)]);
       const stackNameById = new Map(store.stacks.map((s) => [s.id, s.stackName]));
       worktrees = map.map((s) => {
         const lease = leases.find((l) => l.slotPath === s.path) ?? null;
@@ -370,7 +398,7 @@ export async function collectRepo(repo: RepoEntry, opts: ForgeProviderOptions = 
         ),
       );
     }
-    const activity = shapeActivity(await OperationLog.load(), repo.path);
+    const activity = shapeActivity(await OperationLog.load(), identity);
     return { path: repo.path, name: repo.name, forge, stacks, activity, worktrees, error: null };
   } catch (err) {
     return {

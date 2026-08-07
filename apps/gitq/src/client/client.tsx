@@ -39,6 +39,8 @@ interface BoardStack {
   banner: unknown;
   globalBlocks: string[];
   predictedConflicts: ConflictPrediction[];
+  /** Every node merged: rendered in the collapsed group, not the active grid. */
+  done: boolean;
 }
 interface ActivityEntry {
   id: string;
@@ -274,6 +276,10 @@ function App() {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
   const [optimistic, setOptimistic] = useState<Record<string, JobInfo>>({});
+  // Which repos have their merged group expanded, by repo path. Collapsed is the
+  // point of the group, so this starts empty on every load and is not persisted;
+  // polling replaces `data` without remounting, so an expansion survives refreshes.
+  const [openMerged, setOpenMerged] = useState<Record<string, boolean>>({});
   const toastId = useRef(0);
 
   const addToast = useCallback((text: string) => {
@@ -405,34 +411,56 @@ function App() {
       </div>
       {data.fetchError && <div className="error-banner">refresh failed: {data.fetchError} (showing last good data)</div>}
       <div className="main">
-        {data.repos.map((repo) => (
-          <section key={repo.path}>
-            <div className="repo-head">
-              {repo.name}
-              {repo.worktrees.filter((w) => w.isWorkSlot).map((w) => (
-                <span key={w.path} className={`slot-status${w.lease ? ` slot-${w.lease.state}` : ''}`}>
-                  {w.name}: {w.lease ? `${w.lease.state === 'parked' ? 'parked' : w.lease.action} on ${w.lease.stackName}` : 'free'}
-                </span>
-              ))}
-            </div>
-            {repo.error && <div className="repo-error">{repo.error}</div>}
-            <div className="repo-body">
-              <div className="stacks">
-                {repo.stacks.map((stack) => (
-                  <StackPanel
-                    key={stack.stackName}
-                    stack={stack}
-                    jobs={jobsFor(repo.path, stack.stackName)}
-                    forge={repo.forge}
-                    onMenu={(e, s, n) => openMenu(e, repo, s, n)}
-                  />
+        {data.repos.map((repo) => {
+          const active = repo.stacks.filter((s) => !s.done);
+          const merged = repo.stacks.filter((s) => s.done);
+          const mergedOpen = openMerged[repo.path] ?? false;
+          const panel = (stack: BoardStack) => (
+            <StackPanel
+              key={stack.stackName}
+              stack={stack}
+              jobs={jobsFor(repo.path, stack.stackName)}
+              forge={repo.forge}
+              onMenu={(e, s, n) => openMenu(e, repo, s, n)}
+            />
+          );
+          return (
+            <section key={repo.path}>
+              <div className="repo-head">
+                {repo.name}
+                {repo.worktrees.filter((w) => w.isWorkSlot).map((w) => (
+                  <span key={w.path} className={`slot-status${w.lease ? ` slot-${w.lease.state}` : ''}`}>
+                    {w.name}: {w.lease ? `${w.lease.state === 'parked' ? 'parked' : w.lease.action} on ${w.lease.stackName}` : 'free'}
+                  </span>
                 ))}
-                {repo.stacks.length === 0 && !repo.error && <div className="empty">no tracked stacks</div>}
               </div>
-              <ActivityFeed repo={repo} jobs={data.jobs.filter((j) => j.repoPath === repo.path)} />
-            </div>
-          </section>
-        ))}
+              {repo.error && <div className="repo-error">{repo.error}</div>}
+              <div className="repo-body">
+                <div className="stacks">
+                  {active.map(panel)}
+                  {repo.stacks.length === 0 && !repo.error && <div className="empty">no tracked stacks</div>}
+                  {merged.length > 0 && (
+                    <div className="merged-group">
+                      <button
+                        className="merged-head"
+                        aria-expanded={mergedOpen}
+                        onClick={() => setOpenMerged((prev) => ({ ...prev, [repo.path]: !mergedOpen }))}
+                      >
+                        <span className="caret">{mergedOpen ? '▾' : '▸'}</span>
+                        merged ({merged.length})
+                        {!mergedOpen && (
+                          <span className="merged-names">{merged.map((s) => s.stackName).join(', ')}</span>
+                        )}
+                      </button>
+                      {mergedOpen && <div className="stacks">{merged.map(panel)}</div>}
+                    </div>
+                  )}
+                </div>
+                <ActivityFeed repo={repo} jobs={data.jobs.filter((j) => j.repoPath === repo.path)} />
+              </div>
+            </section>
+          );
+        })}
       </div>
       {menu && (
         <div className="menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>

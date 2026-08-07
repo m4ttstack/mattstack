@@ -85,6 +85,31 @@ describe('shapeStack', () => {
     expect(offline.nodes[1]!.mr).toEqual({ iid: 12, url: 'https://x/mr/12', title: 'stored', state: 'unknown', pipelineStatus: 'success' });
     expect(offline.nodes[0]!.mr).toBeNull();
   });
+
+  test('done requires every node merged, and at least one node', () => {
+    const shape = (stack: Stack) => shapeStack(stack, new Map(), null, [], [], new Map());
+    const merged = (branch: string, parent: string) => makeNode(branch, parent, { status: 'merged' });
+
+    expect(shape(STACK).done).toBe(false);
+    expect(shape({ ...STACK, nodes: [merged('a', 'main'), makeNode('b', 'a')] }).done).toBe(false);
+    expect(shape({ ...STACK, nodes: [merged('a', 'main'), merged('b', 'a')] }).done).toBe(true);
+    // An empty stack has merged nothing, so it stays in the active grid.
+    expect(shape({ ...STACK, nodes: [] }).done).toBe(false);
+  });
+
+  test('done counts a live merged MR, not just reconciled status', () => {
+    // The real case: MRs landed today, so every node is still 'synced' on disk
+    // and only the live fetch knows. A stack that reads merged on the board
+    // must read done too.
+    const mr = (state: string): BoardMr => ({ iid: 1, url: null, title: '', state, pipelineStatus: 'success' });
+    const live = new Map([['a', mr('merged')], ['b', mr('merged')]]);
+    expect(shapeStack(STACK, new Map(), null, [], [], live).done).toBe(true);
+
+    const oneOpen = new Map([['a', mr('merged')], ['b', mr('opened')]]);
+    expect(shapeStack(STACK, new Map(), null, [], [], oneOpen).done).toBe(false);
+    // Fetch failure leaves the map empty: stale-not-done rather than done.
+    expect(shapeStack(STACK, new Map(), null, [], [], new Map()).done).toBe(false);
+  });
 });
 
 describe('shapeActivity', () => {
@@ -94,6 +119,18 @@ describe('shapeActivity', () => {
     expect(shaped.map((e) => e.id)).toEqual(['e4', 'e2', 'e1']);
     expect(shaped[0]!).toMatchObject({ operation: 'sync', stackName: 'mystack', branches: ['a'] });
     expect(shapeActivity(entries, '/repo', 2).length).toBe(2);
+  });
+
+  test('matches on commonDir, since ops run in worktrees the board never names', () => {
+    // The board watches one path; a sync runs in whichever worktree held the
+    // stack. Only the shared identity links the two.
+    const inWorktree: OperationEntry = {
+      ...entry('e1', 100),
+      repoPath: '/repo/worktrees/tonks',
+      commonDir: '/repo/.git',
+    };
+    expect(shapeActivity([inWorktree], '/repo/.git').map((e) => e.id)).toEqual(['e1']);
+    expect(shapeActivity([inWorktree], '/repo')).toEqual([]);
   });
 });
 
