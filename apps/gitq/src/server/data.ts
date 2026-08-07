@@ -231,8 +231,9 @@ export function resolveRtRepo(repoPath: string, reposJsonPath?: string): string 
 /** What one repo's remote says about its forge: which one, and how to talk to it. */
 export interface RepoForge {
   /**
-   * A memoized thunk rather than a resolved context: building it reads
-   * `~/.rt/secrets.json` (via `createForgeProvider`), and the rt store path in
+   * A memoized thunk rather than a resolved context: building it resolves a
+   * token (env var, else the rt daemon's grant-gated secrets:forge-token verb,
+   * via `createForgeProvider`), and the rt store path in
    * `fetchMrsByBranch` answers most stacked repos without that read. Calling
    * `resolveRepoForge` alone -- once per repo, even across many stacks --
    * never touches secrets; only a caller that actually needs the fallback
@@ -296,7 +297,7 @@ export async function resolveRepoForge(
     // One build per repo no matter how many stacks/branches ask: the memo
     // lives on this closure, not on the caller.
     if (!cached) {
-      cached = createForgeProvider(remoteUrl, { ...opts, overrides }).catch(() => null);
+      cached = createForgeProvider(remoteUrl, { ...opts, overrides, repoPath }).catch(() => null);
     }
     return cached;
   };

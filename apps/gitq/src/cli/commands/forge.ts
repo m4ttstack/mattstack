@@ -122,7 +122,7 @@ export async function publishCommand(ctx: CliContext): Promise<number> {
   if (guarded !== null) return guarded;
 
   const remoteUrl = store.remoteUrl || (await GitShell.getRemoteUrl(ctx.repoRoot));
-  const { provider, projectPath } = await createForgeProvider(remoteUrl);
+  const { provider, projectPath } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot });
 
   const result = await ForgeSync.publishStack(provider, stack, projectPath, ctx.repoRoot, descriptions);
 
@@ -205,7 +205,7 @@ export async function importCommand(ctx: CliContext): Promise<number> {
   }
 
   const remoteUrl = await GitShell.getRemoteUrl(ctx.repoRoot);
-  const { provider } = await createForgeProvider(remoteUrl);
+  const { provider } = await createForgeProvider(remoteUrl, { repoPath: ctx.repoRoot });
 
   const { store, openMRs, scopedMRs, projectPath } = await ForgeSync.importFromForge(
     provider,

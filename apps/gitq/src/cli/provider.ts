@@ -30,7 +30,12 @@ export interface ForgeProviderOptions {
   /** Host → forge map. Read from settings.json when not injected. */
   overrides?: ForgeOverrides;
   env?: Record<string, string | undefined>;
-  secretsFile?: string;
+  /**
+   * Absolute path of the repo the provider is for. Without it the token can
+   * only come from env vars: the rt-daemon fallback is grant-gated per repo,
+   * so it needs a repo to be granted against (MAT-33).
+   */
+  repoPath?: string;
 }
 
 /**
@@ -65,13 +70,15 @@ export async function createForgeProvider(
     );
   }
 
-  const token = resolveForgeToken(forge.slug, {
+  const { token, reason } = await resolveForgeToken(forge.slug, {
     ...(opts.env ? { env: opts.env } : {}),
-    ...(opts.secretsFile ? { secretsFile: opts.secretsFile } : {}),
+    ...(opts.repoPath ? { repoPath: opts.repoPath } : {}),
     tokenEnv: forge.tokenEnv,
   });
   if (!token) {
-    throw new Error(`no ${forge.slug} token for ${forge.host} (${tokenSourceHint(forge.slug, forge.tokenEnv)})`);
+    throw new Error(
+      `no ${forge.slug} token for ${forge.host} (${reason ?? tokenSourceHint(forge.slug, forge.tokenEnv)})`,
+    );
   }
 
   return { provider: createProvider(forge.slug, forge.baseUrl, token), projectPath: extractProjectPath(remoteUrl) };

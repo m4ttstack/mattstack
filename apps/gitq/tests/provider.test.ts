@@ -10,7 +10,7 @@ const GITLAB_ENV = { GITLAB_TOKEN: 'glpat-test' };
 const GITHUB_ENV = { GITHUB_TOKEN: 'ghp-test' };
 
 function build(remoteUrl: string, env: Record<string, string | undefined>, overrides: ForgeOverrides = {}) {
-  return createForgeProvider(remoteUrl, { env, overrides, secretsFile: '/nonexistent' });
+  return createForgeProvider(remoteUrl, { env, overrides });
 }
 
 describe('createForgeProvider', () => {
@@ -51,7 +51,7 @@ describe('createForgeProvider', () => {
 
     test('wants a GitHub token, not a GitLab one', async () => {
       await expect(build('git@github.com:acme/web.git', GITLAB_ENV)).rejects.toThrow(
-        'no github token for github.com (set GITHUB_TOKEN or add githubToken to ~/.rt/secrets.json)',
+        'no github token for github.com (set GITHUB_TOKEN or track the repo with rt (rt daemon track <repo> live branches); no repo path was available for an rt lookup)',
       );
     });
   });
@@ -116,7 +116,7 @@ describe('createForgeProvider', () => {
     // The token check has always come first so the error stays clean offline.
     // Provider resolution runs before it, but neither touches the network.
     await expect(build('git@gitlab.com:acme/web.git', {})).rejects.toThrow(
-      'no gitlab token for gitlab.com (set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json)',
+      'no gitlab token for gitlab.com (set GITLAB_TOKEN or track the repo with rt (rt daemon track <repo> live branches); no repo path was available for an rt lookup)',
     );
   });
 });

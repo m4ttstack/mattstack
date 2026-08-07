@@ -181,7 +181,7 @@ const GITLAB_ENV = { GITLAB_TOKEN: 'glpat-test' };
 const GITHUB_ENV = { GITHUB_TOKEN: 'ghp-test' };
 
 function resolve(store: StackStore, env: Record<string, string | undefined>, overrides: ForgeOverrides = {}) {
-  return resolveRepoForge('/repo', store, { env, overrides, secretsFile: '/nonexistent' });
+  return resolveRepoForge('/repo', store, { env, overrides });
 }
 
 describe('resolveRepoForge', () => {

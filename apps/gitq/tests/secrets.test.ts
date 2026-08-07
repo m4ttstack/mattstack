@@ -1,72 +1,107 @@
 import { describe, expect, test } from 'bun:test';
 import { resolveForgeToken, tokenSourceHint } from '../src/core/secrets.ts';
 
-async function secretsFileWith(contents: Record<string, string>): Promise<string> {
-  const dir = await import('node:fs/promises').then((fs) => fs.mkdtemp('/tmp/gitq-secrets-'));
-  const path = `${dir}/secrets.json`;
-  await Bun.write(path, JSON.stringify(contents));
-  return path;
-}
+/**
+ * Token resolution after MAT-33: env vars first, then the rt daemon's
+ * grant-gated secrets:forge-token verb through the `daemonToken` seam. The
+ * old ~/.rt/secrets.json file read is gone; nothing here touches disk.
+ */
+
+const refuse = async () => ({ ok: false, error: 'repo gitq is not tracked by rt; run: rt daemon track gitq live branches' });
+const grant = (token: string) => async () => ({ ok: true, data: { token } });
+const explode = async () => {
+  throw new Error('daemon must not be consulted');
+};
 
 describe('resolveForgeToken', () => {
-  test('prefers the GITLAB_TOKEN env var', () => {
-    expect(resolveForgeToken('gitlab', { env: { GITLAB_TOKEN: 'glpat-env' }, secretsFile: '/nonexistent' })).toBe(
-      'glpat-env',
-    );
+  test('env var wins for gitlab and the daemon is never consulted', async () => {
+    const res = await resolveForgeToken('gitlab', {
+      env: { GITLAB_TOKEN: 'glpat-env' },
+      repoPath: '/repo',
+      daemonToken: explode as never,
+    });
+    expect(res).toEqual({ token: 'glpat-env' });
   });
 
-  test('prefers the GITHUB_TOKEN env var', () => {
-    expect(resolveForgeToken('github', { env: { GITHUB_TOKEN: 'ghp-env' }, secretsFile: '/nonexistent' })).toBe(
-      'ghp-env',
-    );
+  test('env var wins for github', async () => {
+    const res = await resolveForgeToken('github', {
+      env: { GITHUB_TOKEN: 'ghp-env' },
+      repoPath: '/repo',
+      daemonToken: explode as never,
+    });
+    expect(res).toEqual({ token: 'ghp-env' });
   });
 
-  test('falls back to gitlabToken in the secrets file', async () => {
-    const path = await secretsFileWith({ gitlabToken: 'glpat-file' });
-    expect(resolveForgeToken('gitlab', { env: {}, secretsFile: path })).toBe('glpat-file');
+  test('a granted repo gets the daemon token when env misses', async () => {
+    const res = await resolveForgeToken('gitlab', {
+      env: {},
+      repoPath: '/Users/matt/Documents/GitHub/gitq',
+      daemonToken: grant('glpat-daemon') as never,
+    });
+    expect(res).toEqual({ token: 'glpat-daemon' });
   });
 
-  test('falls back to githubToken in the secrets file', async () => {
-    const path = await secretsFileWith({ githubToken: 'ghp-file' });
-    expect(resolveForgeToken('github', { env: {}, secretsFile: path })).toBe('ghp-file');
+  test("the daemon's refusal comes back verbatim as the reason", async () => {
+    const res = await resolveForgeToken('gitlab', {
+      env: {},
+      repoPath: '/Users/matt/Documents/GitHub/gitq',
+      daemonToken: refuse as never,
+    });
+    expect(res.token).toBeNull();
+    expect(res.reason).toContain('not tracked by rt');
+    expect(res.reason).toContain('rt daemon track');
   });
 
-  test('never hands one forge the other forge credential', async () => {
-    const path = await secretsFileWith({ gitlabToken: 'glpat-file' });
-
-    expect(resolveForgeToken('github', { env: { GITLAB_TOKEN: 'glpat-env' }, secretsFile: path })).toBeNull();
+  test('no repoPath means env-only, with a reason saying so', async () => {
+    const res = await resolveForgeToken('gitlab', { env: {}, daemonToken: explode as never });
+    expect(res.token).toBeNull();
+    expect(res.reason).toContain('no repo path');
   });
 
-  test('returns null when nothing is configured', () => {
-    expect(resolveForgeToken('gitlab', { env: {}, secretsFile: '/nonexistent' })).toBeNull();
+  test('a repo unknown to ~/.rt/repos.json fails closed before any daemon call', async () => {
+    const res = await resolveForgeToken('gitlab', {
+      env: {},
+      repoPath: '/definitely/not/registered/anywhere',
+      daemonToken: explode as never,
+    });
+    expect(res.token).toBeNull();
+    expect(res.reason).toContain('not registered with rt');
   });
 
-  describe('a host with its own token env var', () => {
-    test('reads the named variable', () => {
-      expect(resolveForgeToken('github', { env: { GHE_ACME_TOKEN: 'ghp-ghe' }, tokenEnv: 'GHE_ACME_TOKEN' })).toBe(
-        'ghp-ghe',
-      );
+  describe('per-host tokenEnv override', () => {
+    test('is authoritative when set', async () => {
+      const res = await resolveForgeToken('github', {
+        env: { GHE_ACME_TOKEN: 'ghp-ghe' },
+        tokenEnv: 'GHE_ACME_TOKEN',
+        daemonToken: explode as never,
+      });
+      expect(res).toEqual({ token: 'ghp-ghe' });
     });
 
-    test('does not fall back to the forge default when it is unset', async () => {
-      // Falling through would send a github.com credential to an enterprise
-      // instance that never issued it. Naming a variable means that variable.
-      const path = await secretsFileWith({ githubToken: 'ghp-file' });
-
-      expect(
-        resolveForgeToken('github', { env: { GITHUB_TOKEN: 'ghp-dotcom' }, secretsFile: path, tokenEnv: 'GHE_ACME_TOKEN' }),
-      ).toBeNull();
+    test('an empty override never falls back to the forge default or the daemon', async () => {
+      const res = await resolveForgeToken('github', {
+        env: { GITHUB_TOKEN: 'ghp-dotcom' },
+        tokenEnv: 'GHE_ACME_TOKEN',
+        repoPath: '/repo',
+        daemonToken: explode as never,
+      });
+      expect(res.token).toBeNull();
+      expect(res.reason).toBe('set GHE_ACME_TOKEN');
     });
   });
 });
 
 describe('tokenSourceHint', () => {
-  test('names the forge-specific env var and secrets key', () => {
-    expect(tokenSourceHint('github')).toBe('set GITHUB_TOKEN or add githubToken to ~/.rt/secrets.json');
-    expect(tokenSourceHint('gitlab')).toBe('set GITLAB_TOKEN or add gitlabToken to ~/.rt/secrets.json');
+  test('names the env var and the rt grant path', () => {
+    expect(tokenSourceHint('github')).toBe(
+      'set GITHUB_TOKEN or track the repo with rt (rt daemon track <repo> live branches)',
+    );
+    expect(tokenSourceHint('gitlab')).toBe(
+      'set GITLAB_TOKEN or track the repo with rt (rt daemon track <repo> live branches)',
+    );
   });
 
-  test('names only the configured variable when a host has one', () => {
+  test('an instance-specific tokenEnv is the whole hint', () => {
     expect(tokenSourceHint('github', 'GHE_ACME_TOKEN')).toBe('set GHE_ACME_TOKEN');
   });
 });
