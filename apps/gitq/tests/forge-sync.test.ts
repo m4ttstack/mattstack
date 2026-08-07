@@ -10,6 +10,7 @@ import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
 import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from '@mattstack/glance';
+import { ReadBackFailedError } from '@mattstack/glance';
 
 // ── Mock Provider ────────────────────────────────────────────────────────────
 
@@ -559,6 +560,69 @@ describe('ForgeSync.publishStack', () => {
     expect(result.results[0]!.branch).toBe('feat/a');
     expect(result.results[0]!.success).toBe(false);
     expect(result.results[0]!.error).toContain('403');
+  });
+
+  test('a create whose read-back failed records the iid instead of re-opening the MR', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+
+    // glance creates the MR, then reads it back; the read can fail while the
+    // MR stands. Without the iid the node stays local-only and the next
+    // publish opens a second MR for the same branch.
+    let creates = 0;
+    const provider: GitProvider = {
+      ...mockProvider([]),
+      createPullRequest: async () => {
+        creates++;
+        throw new ReadBackFailedError('Created MR but failed to fetch it back: GraphQL errors: Timeout', {
+          operation: 'createPullRequest',
+          projectPath: 'user/repo',
+          iid: 321,
+          writeApplied: true,
+        });
+      },
+    };
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(result.results[0]!.success).toBe(false);
+    expect(result.results[0]!.mrIid).toBe(321);
+    expect(result.results[0]!.error).toContain('321');
+
+    const node = StackManager.findNode(result.updatedStack, 'feat/a')!;
+    expect(node.mrIid).toBe(321);
+    expect(node.status).toBe('synced');
+
+    // The re-run is the whole point: with the iid recorded, feat/a is no
+    // longer local-only, so publish must not call createPullRequest again.
+    const second = await ForgeSync.publishStack(provider, result.updatedStack, 'user/repo');
+    expect(creates).toBe(1);
+    expect(second.results.some((r) => r.action === 'created')).toBe(false);
+  });
+
+  test('a write that never landed is still a plain failure with no iid recorded', async () => {
+    let stack = StackManager.createStack('auth', 'main');
+    stack = StackManager.addNode(stack, 'feat/a', 'main');
+
+    // writeApplied false: nothing is on the forge, so recording an iid would
+    // point the node at an MR that does not exist.
+    const provider: GitProvider = {
+      ...mockProvider([]),
+      createPullRequest: async () => {
+        throw new ReadBackFailedError('nope', {
+          operation: 'createPullRequest',
+          projectPath: 'user/repo',
+          iid: 999,
+          writeApplied: false,
+        });
+      },
+    };
+
+    const result = await ForgeSync.publishStack(provider, stack, 'user/repo');
+
+    expect(result.results[0]!.success).toBe(false);
+    expect(result.results[0]!.mrIid).toBeUndefined();
+    expect(StackManager.findNode(result.updatedStack, 'feat/a')!.mrIid).toBeNull();
   });
 
   test('uses provided title and body from descriptions map', async () => {

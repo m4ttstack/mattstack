@@ -1,4 +1,5 @@
 import type { GitProvider, PullRequest, CreatePullRequestInput } from '@mattstack/glance';
+import { ReadBackFailedError } from '@mattstack/glance';
 import type { Stack, StackStore, PipelineStatus } from './types.ts';
 import { StackManager } from './stack-manager.ts';
 import { GitShell } from './git-shell.ts';
@@ -432,6 +433,32 @@ export const ForgeSync = {
             targetBranch,
           });
         } catch (err) {
+          // The MR can exist even though this threw. glance issues the create
+          // and then reads it back; a read-back that fails leaves the MR on
+          // the forge all the same, and `ReadBackFailedError` carries the iid
+          // the create returned. Recording it is what keeps the next publish
+          // from opening a second MR for this branch: the node is otherwise
+          // still `local-only` with a null `mrIid`, which is precisely the
+          // state that sends it down this path again. `mrUrl` is not on the
+          // error, and does not need to be -- the next sync backfills it from
+          // the iid.
+          if (err instanceof ReadBackFailedError && err.writeApplied) {
+            const head = cwd ? await GitShell.getBranchHead(cwd, node.branch).catch(() => null) : null;
+            updatedStack = StackManager.updateNode(updatedStack, node.branch, {
+              mrIid: err.iid,
+              status: 'synced',
+              ...(head ? { lastKnownHead: head } : {}),
+            });
+            results.push({
+              branch: node.branch,
+              success: false,
+              action: 'created',
+              mrIid: err.iid,
+              error: `opened !${err.iid} but could not read it back, so it is recorded without a URL: ${toErrorMessage(err)}`,
+              targetBranch,
+            });
+            break;
+          }
           results.push({
             branch: node.branch,
             success: false,
