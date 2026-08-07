@@ -66,6 +66,7 @@ function baseProvider(): GitProvider {
     providerName: 'mock',
     baseURL: 'https://example.com',
     validateToken: () => Promise.resolve({ id: 'mock:1', username: 'test', name: 'Test', avatarUrl: null }),
+    fetchUser: () => Promise.resolve(null),
     fetchPullRequests: () => Promise.resolve([]),
     fetchSingleMR: () => Promise.resolve(null),
     fetchPullRequestByBranch: () => Promise.resolve(null),

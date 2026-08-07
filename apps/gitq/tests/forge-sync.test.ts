@@ -77,6 +77,7 @@ function mockProvider(prs: PullRequest[]): GitProvider {
     providerName: 'gitlab',
     baseURL: 'https://gitlab.com',
     validateToken: () => Promise.resolve({ id: 'gitlab:user:1', username: 'dev', name: 'Dev', avatarUrl: null }),
+    fetchUser: () => Promise.resolve(null),
     fetchPullRequests: () => Promise.resolve(prs),
     fetchSingleMR: () => Promise.resolve(null),
     fetchPullRequestByBranch: () => Promise.resolve(null),
