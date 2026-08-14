@@ -293,6 +293,114 @@ describe('diagnoseStack', () => {
     expect(auth.secondaryActions.some((a) => a.id === 'sync-stack')).toBe(true);
   });
 
+  // ── Live merge while the branch is still on the remote ──
+  //
+  // The forge that keeps the source branch after a merge (and the local clone
+  // that hasn't pruned yet) never reaches the deleted-remote path above, so
+  // these cover the same lag on the branch-still-exists side. The stored
+  // status here is `local-only` on purpose: that is what a published node
+  // whose create read-back failed actually looks like on disk.
+
+  test('live-merged branch still on remote... reads as Merged, not Behind', () => {
+    // Merging is precisely what puts the branch behind its parent, so the
+    // behind-parent classifier would otherwise claim every fresh merge.
+    const stack = makeStack('main', [
+      makeNode('feat/auth', 'main', { status: 'local-only', mrIid: 41475 }),
+    ]);
+    const snapshot = makeSnapshot([
+      makeBranchSnapshot('feat/auth', { upToDateWithParent: false }),
+    ]);
+
+    const result = diagnoseStack(snapshot, stack, new Map([['feat/auth', 'merged']]));
+
+    const auth = result.nodes.get('feat/auth')!;
+    expect(auth.badge!.label).toBe('Merged');
+    expect(auth.badge!.variant).toBe('merge');
+    expect(auth.statusLine).toContain('safe to remove');
+    expect(auth.primaryAction!.id).toBe('remove-branch');
+  });
+
+  test('live-merged parent still on remote... children need sync', () => {
+    const stack = makeStack('main', [
+      makeNode('feat/auth', 'main', { status: 'local-only', mrIid: 41475 }),
+      makeNode('feat/oauth', 'feat/auth', { status: 'local-only', mrIid: 42012 }),
+    ]);
+    const snapshot = makeSnapshot([
+      makeBranchSnapshot('feat/auth', { upToDateWithParent: false }),
+      makeBranchSnapshot('feat/oauth'),
+    ]);
+
+    const result = diagnoseStack(snapshot, stack, new Map([['feat/auth', 'merged']]));
+
+    const auth = result.nodes.get('feat/auth')!;
+    expect(auth.badge!.label).toBe('Merged');
+    expect(auth.primaryAction!.id).toBe('cascade-merged');
+    expect(auth.removal.allowed).toBe(false);
+
+    // Without the live state this child reads as an unpublished local branch,
+    // which hides the one action that actually unblocks it.
+    const oauth = result.nodes.get('feat/oauth')!;
+    expect(oauth.situation).toBe('parent-merged');
+    expect(oauth.badge!.label).toBe('Needs sync');
+    expect(oauth.primaryAction!.id).toBe('cascade-merged');
+  });
+
+  test('live-merged parent still on remote... raises the merged banner', () => {
+    const stack = makeStack('main', [
+      makeNode('feat/auth', 'main', { status: 'local-only' }),
+      makeNode('feat/oauth', 'feat/auth', { status: 'local-only' }),
+    ]);
+    const snapshot = makeSnapshot([
+      makeBranchSnapshot('feat/auth', { upToDateWithParent: false }),
+      makeBranchSnapshot('feat/oauth'),
+    ]);
+
+    const result = diagnoseStack(snapshot, stack, new Map([['feat/auth', 'merged']]));
+
+    expect(result.banner).toEqual({ kind: 'merged', branches: ['feat/auth'], canDismiss: false });
+  });
+
+  test('live-merged edge dimming matches stored-merged', () => {
+    // The dimmed-Merged edge is reachable only from the deleted-remote
+    // situation (every other merged node classifies as `parent-merged`, whose
+    // edge case runs first), so this pins the one path that reads the merged
+    // rule, and pins it against the stored-status result rather than a
+    // hand-written shape.
+    const nodes = (status: StackNode['status']) => [makeNode('feat/auth', 'main', { status })];
+    const snapshot = makeSnapshot([
+      makeBranchSnapshot('feat/auth', {
+        existsOnRemote: false,
+        divergence: { state: 'remote-gone', ahead: 0, behind: 0 },
+      }),
+    ]);
+
+    // `synced`, not `local-only`: the deleted-remote branch declines a
+    // local-only node outright, so that pairing never reaches the edge default.
+    const live = diagnoseStack(snapshot, makeStack('main', nodes('synced')), new Map([['feat/auth', 'merged']]));
+    const stored = diagnoseStack(snapshot, makeStack('main', nodes('merged')));
+
+    expect(live.edges[0]!.dimmed).toBe(true);
+    expect(live.edges[0]!.badge!.label).toBe('Merged');
+    expect(live.edges[0]).toEqual(stored.edges[0]!);
+  });
+
+  test('live MR state opened... upgrades nothing', () => {
+    // Only `merged` upgrades: an open MR on a branch that is genuinely behind
+    // its parent still needs the rebase the Behind badge asks for.
+    const stack = makeStack('main', [
+      makeNode('feat/auth', 'main', { status: 'local-only', mrIid: 42012 }),
+    ]);
+    const snapshot = makeSnapshot([
+      makeBranchSnapshot('feat/auth', { upToDateWithParent: false }),
+    ]);
+
+    const result = diagnoseStack(snapshot, stack, new Map([['feat/auth', 'opened']]));
+
+    const auth = result.nodes.get('feat/auth')!;
+    expect(auth.situation).toBe('behind-parent');
+    expect(auth.badge!.label).toBe('Behind');
+  });
+
   test('rebase in progress — shows continue/abort', () => {
     const stack = makeStack('main', [
       makeNode('feat/auth', 'main'),

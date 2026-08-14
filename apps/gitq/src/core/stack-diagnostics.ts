@@ -181,6 +181,25 @@ export function diagnoseStack(
   const nodes = new Map<string, NodeDirective>();
   const edges: EdgeDirective[] = [];
 
+  /**
+   * Merged means stored status OR a live MR in state `merged` — the same rule
+   * the board's stack-collapse predicate uses (`shapeStack` in server/data.ts).
+   *
+   * The stored status only learns about a merge when a reconcile runs, and a
+   * node published through a failed create read-back can sit at `local-only`
+   * with an iid indefinitely, so on a freshly merged branch the live state is
+   * the only source that knows. Consulting stored status alone here is what
+   * made a merged branch read as `Behind`: the merge advances trunk past the
+   * branch, and behind-parent claims anything the merged checks decline.
+   *
+   * Defined once and passed down so nodes, edges and the banner cannot drift
+   * apart on what counts as merged. Only `merged` upgrades — a closed-unmerged
+   * MR is not a merge. An absent map (forge fetch failed) leaves every caller
+   * on stored status, so this can go stale-not-merged, never spuriously merged.
+   */
+  const isMerged = (n: StackNode): boolean =>
+    n.status === 'merged' || liveMrStates?.get(n.branch) === 'merged';
+
   // Global blocks
   const globalBlocks: string[] = [];
   if (snapshot.isDirty) globalBlocks.push('Working tree has uncommitted changes');
@@ -189,22 +208,26 @@ export function diagnoseStack(
   // Classify each node
   for (const node of stack.nodes) {
     const bs = snapshot.branches.get(node.branch);
-    nodes.set(node.branch, classifyNode(stack, node, bs ?? null, snapshot, globalBlocks, liveMrStates));
+    nodes.set(node.branch, classifyNode(stack, node, bs ?? null, snapshot, globalBlocks, isMerged));
   }
 
   // Classify each edge
   for (const node of stack.nodes) {
     const bs = snapshot.branches.get(node.branch);
-    edges.push(classifyEdge(stack, node, bs ?? null, nodes));
+    edges.push(classifyEdge(stack, node, bs ?? null, nodes, isMerged));
   }
 
   // Classify the banner
-  const banner = classifyBanner(stack, nodes, snapshot);
+  const banner = classifyBanner(stack, nodes, snapshot, isMerged);
 
   return { nodes, edges, banner, globalBlocks };
 }
 
 // ── Node classification ──────────────────────────────────────────────────────
+
+/** Does this node count as merged: stored status or live MR state. Built once
+    per diagnose in `diagnoseStack`, where the rule is documented. */
+type MergedPredicate = (node: StackNode) => boolean;
 
 function classifyNode(
   stack: Stack,
@@ -212,7 +235,7 @@ function classifyNode(
   bs: BranchSnapshot | null,
   snapshot: StackSnapshot,
   globalBlocks: string[],
-  liveMrStates?: ReadonlyMap<string, string>,
+  isMerged: MergedPredicate,
 ): NodeDirective {
   const children = StackManager.getChildren(stack, node.branch);
   const hasChildren = children.length > 0;
@@ -252,11 +275,10 @@ function classifyNode(
 
   // ── Branch deleted on remote ──
   if (bs?.divergence.state === 'remote-gone' && node.status !== 'local-only') {
-    // The stored status only learns about a merge when a reconcile runs; the
-    // board passes the live MR state so a fresh merge reads as merged, not as
-    // an alarming deletion. Only 'merged' upgrades: a closed-unmerged MR with
-    // a deleted branch really is abandoned.
-    const wasMerged = node.status === 'merged' || liveMrStates?.get(node.branch) === 'merged';
+    // A fresh merge reads as merged, not as an alarming deletion. A
+    // closed-unmerged MR with a deleted branch really is abandoned, and
+    // `isMerged` declines it.
+    const wasMerged = isMerged(node);
     return {
       branch: node.branch,
       situation: 'branch-deleted-remote',
@@ -273,7 +295,7 @@ function classifyNode(
 
   // ── Drift + parent merged (check BEFORE generic parent-merged) ──
   const parentNode = stack.nodes.find((n) => n.branch === node.parent);
-  if (node.status === 'drift' && parentNode?.status === 'merged') {
+  if (node.status === 'drift' && parentNode !== undefined && isMerged(parentNode)) {
     return {
       branch: node.branch,
       situation: 'drift-parent-merged',
@@ -289,7 +311,12 @@ function classifyNode(
   }
 
   // ── Parent merged + tombstone drifted ──
-  if (parentNode?.status === 'merged' && bs?.tombstoneDrifted === true) {
+  // `tombstoneDrifted` is only ever computed for a *stored*-merged parent with
+  // a `lastKnownHead` (see collectSnapshot), so a live-merged parent stays null
+  // here and falls through to the plain parent-merged case below. That is the
+  // correct degradation: no tombstone was recorded, so there is none to drift
+  // from, and the cascade action is the same either way.
+  if (parentNode !== undefined && isMerged(parentNode) && bs?.tombstoneDrifted === true) {
     return {
       branch: node.branch,
       situation: 'parent-merged-drifted',
@@ -303,7 +330,7 @@ function classifyNode(
   }
 
   // ── Parent merged (normal) ──
-  if (parentNode?.status === 'merged') {
+  if (parentNode !== undefined && isMerged(parentNode)) {
     return {
       branch: node.branch,
       situation: 'parent-merged',
@@ -316,8 +343,9 @@ function classifyNode(
     };
   }
 
-  // ── Merged node itself ──
-  if (node.status === 'merged') {
+  // ── Merged node itself (before behind-parent: the merge is what put it
+  //    behind trunk in the first place) ──
+  if (isMerged(node)) {
     if (hasChildren) {
       return {
         branch: node.branch,
@@ -449,6 +477,7 @@ function classifyEdge(
   node: StackNode,
   bs: BranchSnapshot | null,
   nodeDirectives: Map<string, NodeDirective>,
+  isMerged: MergedPredicate,
 ): EdgeDirective {
   const source = node.parent;
   const target = node.branch;
@@ -495,7 +524,7 @@ function classifyEdge(
 
     default:
       // Check if THIS node itself is merged (edge to its children should be dimmed)
-      if (node.status === 'merged') {
+      if (isMerged(node)) {
         return {
           source, target,
           color: 'var(--color-gray-40)', dashed: false, dimmed: true,
@@ -516,6 +545,7 @@ function classifyBanner(
   stack: Stack,
   nodeDirectives: Map<string, NodeDirective>,
   snapshot: StackSnapshot,
+  isMerged: MergedPredicate,
 ): BannerDirective | null {
   // Rebase in progress takes priority
   if (snapshot.rebaseInProgress) {
@@ -524,7 +554,7 @@ function classifyBanner(
 
   // Merged branches with children → primary action banner (non-dismissable)
   const mergedWithChildren = stack.nodes.filter(
-    (n) => n.status === 'merged' && StackManager.getChildren(stack, n.branch).length > 0,
+    (n) => isMerged(n) && StackManager.getChildren(stack, n.branch).length > 0,
   );
   if (mergedWithChildren.length > 0) {
     return { kind: 'merged', branches: mergedWithChildren.map((n) => n.branch), canDismiss: false };
@@ -532,7 +562,7 @@ function classifyBanner(
 
   // Merged leaves → dismissable
   const mergedLeaves = stack.nodes.filter(
-    (n) => n.status === 'merged' && StackManager.getChildren(stack, n.branch).length === 0,
+    (n) => isMerged(n) && StackManager.getChildren(stack, n.branch).length === 0,
   );
   if (mergedLeaves.length > 0) {
     return { kind: 'merged', branches: mergedLeaves.map((n) => n.branch), canDismiss: true };
