@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 
 const SCRIPT = join(import.meta.dir, '..', 'scripts', 'install-skills.ts');
-const SKILLS = ['gitq:sync', 'gitq:publish', 'gitq:absorb', 'gitq:restructure'];
+const SKILLS = ['gitq:sync', 'gitq:publish', 'gitq:absorb', 'gitq:restructure', 'gitq:track'];
 
 let dest: string;
 beforeEach(() => {
@@ -20,7 +20,7 @@ function run() {
 }
 
 describe('install-skills', () => {
-  test('links all four skills by frontmatter name', () => {
+  test('links every skill by frontmatter name', () => {
     const res = run();
     expect(res.status).toBe(0);
     for (const name of SKILLS) {

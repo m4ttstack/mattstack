@@ -172,13 +172,13 @@ Both open real branches and MRs on the project you name and close them again in 
 
 ## skills
 
-`skills/` holds four agent skills that drive this CLI from a Claude pane, one per board action: `gitq:sync` (cascade rebase with judgment-based conflict resolution), `gitq:publish` (push + MR chain, with a human gate before anything leaves the machine), `gitq:absorb` (distribute uncommitted changes, preview first), and `gitq:restructure` (split/fold/reparent/rename surgery from a plain language instruction, gated on a plan). Install them as symlinks into `~/.claude/skills`:
+`skills/` holds five agent skills that drive this CLI from a Claude pane. Four are one per board action: `gitq:sync` (cascade rebase with judgment-based conflict resolution), `gitq:publish` (push + MR chain, with a human gate before anything leaves the machine), `gitq:absorb` (distribute uncommitted changes, preview first), and `gitq:restructure` (split/fold/reparent/rename surgery from a plain language instruction, gated on a plan). The fifth, `gitq:track`, is the way a stack gets onto the board in the first place: point it at a repo and it works out whether the branches are a new stack, a hand-built chain to adopt, or an already-published MR chain, then tracks them accordingly. Install them as symlinks into `~/.claude/skills`:
 
 ```bash
 bun run scripts/install-skills.ts
 ```
 
-Each skill takes `<repoPath> <stackName>` positionals plus optional `--state <path> --status-bin <path>` flags. The board injects those two so the pane can emit lifecycle status (`starting | working | conflict | done | error`) to a JSON state file under `state/jobs/`; invoked by hand without them, the skills skip status writes and just talk to you. The status writer is `bin/gitq-status.ts` (`bun run bin/gitq-status.ts <statePath> <status> [detail]`); the state file helpers live in `src/server/job-state.ts`.
+The four board skills take `<repoPath> <stackName>` positionals plus optional `--state <path> --status-bin <path>` flags. The board injects those two so the pane can emit lifecycle status (`starting | working | conflict | done | error`) to a JSON state file under `state/jobs/`; invoked by hand without them, the skills skip status writes and just talk to you. The status writer is `bin/gitq-status.ts` (`bun run bin/gitq-status.ts <statePath> <status> [detail]`); the state file helpers live in `src/server/job-state.ts`. `gitq:track` has no board action behind it, so it takes only an optional `[repoPath]` and never writes status.
 
 ## board
 
