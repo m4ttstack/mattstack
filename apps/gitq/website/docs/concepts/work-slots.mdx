@@ -29,6 +29,8 @@ Slots live in one of two places:
 | The repo is a **pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, in that same parent directory. A pool at `~/repos/myrepo/{main,feature-a}` gets `~/repos/myrepo/gitq-1`. |
 | Anything else, including a plain single-worktree clone | `<work-slot root>/<hash>/gitq-1`, where `<hash>` is the first 16 hex characters of the SHA-256 of the repo's git common dir. The root is `~/.cache/gitq/work` by default. |
 
+That is the `auto` placement, and `workSlotLocation` in `settings.json` turns it off: set it to `root` and the pool branch never runs, so every slot gitq creates goes to the work-slot root, pool or not. See [`workSlotLocation`](#workslotlocation) below.
+
 The work-slot root follows gitq's config directory, with one carve-out for the default. What decides it is the config directory's *value*, not whether `GITQ_CONFIG_DIR` is set (`getWorkSlotRoot`, `src/core/config-paths.ts:62-65`): when the effective config directory is exactly `~/.config/gitq`, the root is `~/.cache/gitq/work`, out of the config directory, exactly where it has always been, so slots you already have leased are still found. That covers both leaving the variable unset and setting it to that same path. For any other config directory the root is `<config dir>/work/`, so slots are created under `$GITQ_CONFIG_DIR/work/<hash>/`.
 
 Pointing the variable at a throwaway directory therefore moves the git worktrees gitq creates, not just the stack store. It does not make the run invisible to the repo you point it at: the lease registry, a paused cascade's file, and the per-worktree `core.hooksPath` are all written inside that repo's git directory whatever the variable says. See [Where state lives](/concepts/state) for that split, and [Configuration](/reference/configuration).
@@ -48,6 +50,18 @@ A slot under the work-slot root (`~/.cache/gitq/work/` by default) is not inside
 The first time gitq provisions a slot it turns on git's per-worktree config extension for the repo, then sets `core.hooksPath` to `/dev/null` **for that worktree only**. Every slot acquisition re-applies it, so slots created by older versions get healed.
 
 Your own checkouts keep their hooks exactly as they were. Inside a slot, nothing runs: no `pre-commit`, no `post-checkout`, no `post-rewrite`. A cascade replays dozens of commits mechanically, and a hook firing on each one would be slow at best and a spurious failure at worst.
+
+## `workSlotLocation`
+
+Where new slots are created, read from `workSlotLocation` in the same `settings.json`. `auto` is the default and is the two-row table above. `root` forces every slot gitq creates under the work-slot root, even in a pool. Anything else, or no file at all, is `auto`.
+
+```json
+{ "workSlotLocation": "root" }
+```
+
+The pool test is a plain directory comparison: *does any other worktree of this repo live in the primary's parent directory*. That is exactly right for a parent directory that holds nothing but worktrees of one repo, and wrong for a clone sitting directly in a directory of unrelated repos, where the "pool" is your whole repos folder and `gitq-1` lands in the middle of it. `root` is the opt-out for the second shape.
+
+It governs creation only. A slot that already exists is still found and reused where it is, so switching to `root` does not move the slots you already have; remove them (`git worktree remove`, once nothing is leased) and the next cascade creates their replacement under the root.
 
 ## `maxWorkSlots`
 

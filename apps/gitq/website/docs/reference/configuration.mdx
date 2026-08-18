@@ -11,19 +11,29 @@ gitq has two independent configuration surfaces, read by two different processes
 
 gitq's config directory defaults to `~/.config/gitq/` and can be moved with **`GITQ_CONFIG_DIR`**, an environment variable read once, at process start (`src/core/config-paths.ts:13-14`, `const DEFAULT_CONFIG_DIR = envConfigDir ? resolve(envConfigDir) : HOME_CONFIG_DIR`). An empty value counts as unset, and a relative one is resolved against the directory gitq was started in, so the config directory is always an absolute path. Every path the CLI derives, the stack stores, the settings file, the operation log, comes from this one directory (`src/core/config-paths.ts:32-46`). Export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks entirely.
 
-The work slots gitq leases for cascades follow the same directory, with one deliberate carve-out for the default. A non-pool repo gets its slots under the work-slot root (`getWorkSlotRoot`, `src/core/config-paths.ts:62-65`), and what decides that root is the config directory's *value*, not whether the variable is set: `~/.cache/gitq/work/<hash>/` when the effective config directory is exactly `~/.config/gitq`, which includes `GITQ_CONFIG_DIR` pointing at that same path, and `<config dir>/work/<hash>/` for anything else. The default stays outside the config directory, unchanged, so slots you already have leased are still found. Pool repos are unaffected either way: their slots are siblings of your own worktrees. See [Work slots and leases](/concepts/work-slots).
+The work slots gitq leases for cascades follow the same directory, with one deliberate carve-out for the default. A non-pool repo gets its slots under the work-slot root (`getWorkSlotRoot`, `src/core/config-paths.ts:62-65`), and what decides that root is the config directory's *value*, not whether the variable is set: `~/.cache/gitq/work/<hash>/` when the effective config directory is exactly `~/.config/gitq`, which includes `GITQ_CONFIG_DIR` pointing at that same path, and `<config dir>/work/<hash>/` for anything else. The default stays outside the config directory, unchanged, so slots you already have leased are still found. Pool repos are unaffected either way: their slots are siblings of your own worktrees, unless `workSlotLocation` says otherwise (below). See [Work slots and leases](/concepts/work-slots).
 
 What the variable does not move is anything gitq writes into the repo you point it at. The lease registry (`<commonDir>/gitq/leases.json`), a paused cascade's `<gitdir>/gitq-pause.json`, and the `core.hooksPath` gitq pins per work slot all land in the operated-on repo's git directory regardless. A throwaway `GITQ_CONFIG_DIR` gets you a throwaway gitq state directory, not a run that leaves no trace; see [Where state lives](/concepts/state) for the full inventory.
 
-Inside it, `settings.json` holds the two keys the CLI reads today, `maxWorkSlots` and `forges`:
+Inside it, `settings.json` holds the three keys the CLI reads today, `maxWorkSlots`, `workSlotLocation`, and `forges`:
 
 ```json
 { "maxWorkSlots": 5 }
 ```
 
-Read by `getMaxWorkSlots` (`src/core/worktrees.ts:106-110`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
+Read by `getMaxWorkSlots` (`src/core/worktrees.ts:125-129`): the value must be a number of at least `1`, and it is floored; anything else, or no file at all, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
 
-The second key, `forges`, tells gitq which forge a self-hosted host is running. It is keyed by the host of the repo's git remote:
+The second key, `workSlotLocation`, decides where a new work slot is created:
+
+```json
+{ "workSlotLocation": "root" }
+```
+
+Two values. `auto`, the default, keeps the pool-aware placement: a repo whose primary worktree has a sibling worktree of its own gets its slots next to them, everything else gets them under the work-slot root. `root` skips the pool detection and always uses the work-slot root, wherever the config directory puts it. Read by `getWorkSlotLocation` (`src/core/worktrees.ts:119-122`); anything other than `"root"`, including a missing file, is `auto`.
+
+Reach for `root` when the pool detection is technically right but practically wrong: a clone that lives directly in a directory of unrelated repos (`~/repos/myrepo`, next to twenty other checkouts) reads as a pool the moment you add one sibling worktree of it, and `gitq-1` then appears in that directory alongside the repos. The setting only governs slots gitq *creates*: an existing slot is still reused wherever it already sits, so remove it with `git worktree remove` if you want it relocated.
+
+The third key, `forges`, tells gitq which forge a self-hosted host is running. It is keyed by the host of the repo's git remote:
 
 ```json
 {

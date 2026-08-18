@@ -118,7 +118,7 @@ Every state-mutating command (`add`, `remove`, `untrack`, the surgery commands, 
 
 gitq is worktree-native. The stack store is keyed by the repo's git common dir, so every worktree of a repo sees the same stacks and any `gitq` command works from any of them.
 
-Cascades (`sync`, `continue`, `reparent`'s restack, `absorb`'s restack) never run in your checkout: gitq leases a dedicated work worktree (`gitq-1`, `gitq-2`, ... as siblings of the primary worktree when the repo is a pool, else under `~/.cache/gitq/work/`), rebases there with a detached HEAD, and moves branch refs with compare-and-swap at the end. Up to `maxWorkSlots` (settings.json, default 3) cascades can run per repo at once, one stack each; a stack with a running or parked cascade refuses other mutations until it finishes.
+Cascades (`sync`, `continue`, `reparent`'s restack, `absorb`'s restack) never run in your checkout: gitq leases a dedicated work worktree (`gitq-1`, `gitq-2`, ... as siblings of the primary worktree when the repo is a pool, else under `~/.cache/gitq/work/`; `workSlotLocation: "root"` in settings.json keeps them out of the pool always), rebases there with a detached HEAD, and moves branch refs with compare-and-swap at the end. Up to `maxWorkSlots` (settings.json, default 3) cascades can run per repo at once, one stack each; a stack with a running or parked cascade refuses other mutations until it finishes.
 
 A branch checked out in one of your worktrees is handled by policy: if that worktree is clean and sitting exactly on the branch's old head, gitq moves the ref and resets the worktree to the new head (lossless); if it is dirty, mid-rebase, or drifted, that branch fails with a message naming the worktree, and nothing is touched.
 

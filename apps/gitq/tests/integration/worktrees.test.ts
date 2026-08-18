@@ -1,9 +1,15 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { join, basename, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { createSandboxRepo, addNamedWorktree, addWorkSlot, gitIn } from './helpers.ts';
-import { getWorktreeMap, findSlotForBranch, workSlotRoot, ensureWorkSlot } from '../../src/core/worktrees.ts';
+import {
+  getWorktreeMap,
+  findSlotForBranch,
+  workSlotRoot,
+  ensureWorkSlot,
+  getWorkSlotLocation,
+} from '../../src/core/worktrees.ts';
 import { resolveRepoIdentity } from '../../src/core/persistence.ts';
 import { getConfigDir, setConfigDir, repoHash } from '../../src/core/config-paths.ts';
 
@@ -101,6 +107,56 @@ describe('worktree map', () => {
     setConfigDir(sandboxConfigDir);
     try {
       expect(workSlotRoot(singleId, singleMap)).toBe(join(sandboxConfigDir, 'work', repoHash(singleId)));
+    } finally {
+      setConfigDir(restoreConfigDir);
+    }
+  });
+
+  test('workSlotLocation "root" keeps a pool repo\'s slots out of the pool directory', async () => {
+    const pooled = await createSandboxRepo();
+    cleanups.push(pooled.dir);
+    const sib = await addNamedWorktree(pooled, 'harry');
+    cleanups.push(sib);
+    const commonDir = await resolveRepoIdentity(pooled.dir);
+    const map = await getWorktreeMap(pooled.dir);
+
+    // Same repo shape as the pool case above: without the setting this lands
+    // next to `harry`, which is the whole point of the opt-out.
+    expect(workSlotRoot(commonDir, map)).toBe(dirname(pooled.dir));
+
+    const sandboxConfigDir = join(tmpdir(), 'gitq-work-slot-location-test-config');
+    cleanups.push(sandboxConfigDir);
+    const restoreConfigDir = getConfigDir();
+    setConfigDir(sandboxConfigDir);
+    try {
+      await mkdir(sandboxConfigDir, { recursive: true });
+      await writeFile(join(sandboxConfigDir, 'settings.json'), JSON.stringify({ workSlotLocation: 'root' }));
+      expect(await getWorkSlotLocation()).toBe('root');
+
+      // Through ensureWorkSlot, not just the pure function: the setting has to
+      // reach the code that actually runs `git worktree add`.
+      const slot = await ensureWorkSlot(pooled.dir, commonDir, map);
+      expect(slot).toBe(join(sandboxConfigDir, 'work', repoHash(commonDir), 'gitq-1'));
+      expect(dirname(dirname(slot))).not.toBe(dirname(pooled.dir));
+      // The worktree is registered under the repo wherever it was put. Compare
+      // real paths: the sandbox config dir lives under a symlinked tmpdir, and
+      // git reports the resolved path.
+      const registered = (await getWorktreeMap(pooled.dir)).filter((s) => s.isWorkSlot);
+      expect(registered.map((s) => s.path)).toEqual([await realpath(slot)]);
+    } finally {
+      setConfigDir(restoreConfigDir);
+    }
+  });
+
+  test('an unrecognised workSlotLocation falls back to pool-aware placement', async () => {
+    const sandboxConfigDir = join(tmpdir(), 'gitq-work-slot-location-bad-config');
+    cleanups.push(sandboxConfigDir);
+    const restoreConfigDir = getConfigDir();
+    setConfigDir(sandboxConfigDir);
+    try {
+      await mkdir(sandboxConfigDir, { recursive: true });
+      await writeFile(join(sandboxConfigDir, 'settings.json'), JSON.stringify({ workSlotLocation: 'nowhere' }));
+      expect(await getWorkSlotLocation()).toBe('auto');
     } finally {
       setConfigDir(restoreConfigDir);
     }

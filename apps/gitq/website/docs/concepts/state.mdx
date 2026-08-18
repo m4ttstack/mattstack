@@ -14,7 +14,7 @@ Every write is atomic: gitq writes a temp file and renames it over the target. T
 | Path | Holds | Safe to delete |
 | --- | --- | --- |
 | `~/.config/gitq/stacks/<hash>.json` | One repo's tracked stacks | Yes. You lose the tree, not the branches. |
-| `~/.config/gitq/settings.json` | `maxWorkSlots` | Yes. Falls back to the default. |
+| `~/.config/gitq/settings.json` | `maxWorkSlots`, `workSlotLocation`, `forges` | Yes. Falls back to the defaults. |
 | `~/.config/gitq/operation-log.json` | The last 50 operations, all repos | Yes. `log` goes empty, `undo` has nothing to do. |
 | `~/.config/gitq/repos.json` | Nothing today | Yes. |
 | `<commonDir>/gitq/leases.json` | Which stack holds which work slot | Only when nothing is running or parked. |
@@ -48,13 +48,13 @@ gitq used to key this file by a single worktree's path. The first time you run g
 
 ### `settings.json`
 
-The only key gitq reads from it is `maxWorkSlots`:
+The keys gitq reads from it are `maxWorkSlots`, `workSlotLocation`, and `forges`:
 
 ```json
-{ "maxWorkSlots": 5 }
+{ "maxWorkSlots": 5, "workSlotLocation": "root" }
 ```
 
-It must be a number of at least 1. Anything else, or no file at all, gives the default of 3. gitq never creates or writes this file; make it yourself if you want to change the value. See [Work slots and leases](/concepts/work-slots) and [Configuration](/reference/configuration).
+`maxWorkSlots` must be a number of at least 1. Anything else, or no file at all, gives the default of 3. `workSlotLocation` is `auto` (the default: slots join a pool's worktrees) or `root` (slots always go under the work-slot root). gitq never creates or writes this file; make it yourself if you want to change a value. See [Work slots and leases](/concepts/work-slots) and [Configuration](/reference/configuration).
 
 ### `operation-log.json`
 

@@ -66,14 +66,23 @@ export function describeSlot(slot: SlotInfo): string {
   return `${slot.isWorkSlot ? 'work slot' : 'slot'} "${slot.name}" (${slot.path})`;
 }
 
+/** Settings-controlled placement policy for new work slots. */
+export type WorkSlotLocation = 'auto' | 'root';
+
 /**
- * Where work slots live for this repo: a sibling of the primary worktree when
- * the repo is a pool (some other worktree shares the primary's parent dir),
- * else an out-of-tree dir under the configured work-slot root.
+ * Where work slots live for this repo.
+ *
+ * Under `auto`, a pool (some other non-slot worktree shares the primary's
+ * parent dir) puts slots alongside those worktrees, and anything else puts
+ * them out of tree under the configured work-slot root. `root` skips the pool
+ * detection entirely and always uses the out-of-tree root: a clone that sits
+ * directly in a directory of unrelated repos reads as a pool the moment it
+ * gains one sibling worktree, and `gitq-1` appearing among those repos is not
+ * what everyone wants.
  */
-export function workSlotRoot(commonDir: string, map: SlotInfo[]): string {
+export function workSlotRoot(commonDir: string, map: SlotInfo[], location: WorkSlotLocation = 'auto'): string {
   const primary = map.find((s) => s.isPrimary);
-  if (primary) {
+  if (location === 'auto' && primary) {
     const parent = dirname(primary.path);
     const pooled = map.some((s) => !s.isPrimary && !s.isWorkSlot && dirname(s.path) === parent);
     if (pooled) return parent;
@@ -92,7 +101,7 @@ export async function ensureWorkSlot(anyCwd: string, commonDir: string, map: Slo
     await GitShell.disableWorktreeHooks(free.path);
     return free.path;
   }
-  const root = workSlotRoot(commonDir, map);
+  const root = workSlotRoot(commonDir, map, await getWorkSlotLocation());
   const used = new Set(map.filter((s) => s.isWorkSlot).map((s) => s.name));
   let n = 1;
   while (used.has(`gitq-${n}`)) n++;
@@ -100,6 +109,16 @@ export async function ensureWorkSlot(anyCwd: string, commonDir: string, map: Slo
   await GitShell.worktreeAddDetached(anyCwd, path, 'HEAD');
   await GitShell.disableWorktreeHooks(path);
   return path;
+}
+
+/**
+ * Settings-controlled placement policy: `root` forces every new slot under the
+ * work-slot root, `auto` (the default, and what anything unrecognised falls
+ * back to) keeps the pool-aware placement.
+ */
+export async function getWorkSlotLocation(): Promise<WorkSlotLocation> {
+  const settings = await readJson<{ workSlotLocation?: string }>(getSettingsFilePath(), {});
+  return settings.workSlotLocation === 'root' ? 'root' : 'auto';
 }
 
 /** Settings-controlled cap on work slots per repo. */

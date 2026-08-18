@@ -26,6 +26,8 @@ The same identity keying is why leases and the operation log are pool-wide too: 
 | **Pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, as another sibling: `~/repos/myrepo/gitq-1`. |
 | **Anything else**, including a plain single-worktree clone | Out of tree, at `~/.cache/gitq/work/<hash>/gitq-1`. |
 
+That placement is a default, not a rule. Setting `workSlotLocation` to `root` in `settings.json` skips the pool detection entirely and puts every new slot under the out-of-tree root, which is what you want when the "pool" gitq detects is really just a directory full of unrelated clones that happens to contain one sibling worktree. See [`workSlotLocation`](/concepts/work-slots#workslotlocation).
+
 The out-of-tree root follows gitq's config directory, and what decides it is that directory's *value*, not whether `GITQ_CONFIG_DIR` is set (`getWorkSlotRoot`, `src/core/config-paths.ts:62-65`). When the effective config directory is exactly `~/.config/gitq`, unset or set to that same path, the root stays at `~/.cache/gitq/work`, exactly where it has always been. Point the variable anywhere else and slots are created under `$GITQ_CONFIG_DIR/work/<hash>/` instead. Pool slots are unaffected either way: they are siblings of your own worktrees, wherever those live.
 
 Set up a pool by adding a sibling the ordinary way, with `git worktree add`, from any existing worktree:
