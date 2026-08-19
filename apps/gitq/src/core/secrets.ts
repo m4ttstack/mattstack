@@ -38,7 +38,7 @@ const TOKEN_ENV: Record<ForgeSlug, string> = {
  * The token for one forge: its env var, falling back to the rt daemon's
  * grant-gated secrets:forge-token verb (MAT-33).
  *
- * gitq used to open ~/.rt/secrets.json here itself, which depended on a file
+ * gitq used to open ~/.mattstack/rt/secrets.json here itself, which depended on a file
  * format rt owns and walked around rt's per-repo grant model entirely. The
  * daemon read replaces that: an untracked repo is refused, and the refusal
  * reason comes back for the caller's error message. Env vars keep precedence,
@@ -61,7 +61,7 @@ export async function resolveForgeToken(forge: ForgeSlug, opts: ResolveOptions =
   if (!repoName) {
     return {
       token: null,
-      reason: `${tokenSourceHint(forge)}; ${opts.repoPath} is not registered with rt (~/.rt/repos.json)`,
+      reason: `${tokenSourceHint(forge)}; ${opts.repoPath} is not registered with rt (~/.mattstack/rt/repos.json)`,
     };
   }
 

@@ -4,7 +4,7 @@ import { resolveForgeToken, tokenSourceHint } from '../src/core/secrets.ts';
 /**
  * Token resolution after MAT-33: env vars first, then the rt daemon's
  * grant-gated secrets:forge-token verb through the `daemonToken` seam. The
- * old ~/.rt/secrets.json file read is gone; nothing here touches disk.
+ * old ~/.mattstack/rt/secrets.json file read is gone; nothing here touches disk.
  */
 
 const refuse = async () => ({ ok: false, error: 'repo gitq is not tracked by rt; run: rt daemon track gitq live branches' });
@@ -58,7 +58,7 @@ describe('resolveForgeToken', () => {
     expect(res.reason).toContain('no repo path');
   });
 
-  test('a repo unknown to ~/.rt/repos.json fails closed before any daemon call', async () => {
+  test('a repo unknown to ~/.mattstack/rt/repos.json fails closed before any daemon call', async () => {
     const res = await resolveForgeToken('gitlab', {
       env: {},
       repoPath: '/definitely/not/registered/anywhere',

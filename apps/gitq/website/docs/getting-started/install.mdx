@@ -67,7 +67,7 @@ You only need this if you want the board's right-click actions, or want to invok
 
 Everything local works with no credentials at all. Two commands do not: `gitq publish` and `gitq import` talk to a forge API and need a token.
 
-Which forge follows from your remote's host, so which token you need does too. For `gitlab.com`, gitq looks for `GITLAB_TOKEN` in the environment first, then the `gitlabToken` field in `~/.rt/secrets.json`; for `github.com`, `GITHUB_TOKEN` then `githubToken`.
+Which forge follows from your remote's host, so which token you need does too. For `gitlab.com`, gitq looks for `GITLAB_TOKEN` in the environment first, then the `gitlabToken` field in `~/.mattstack/rt/secrets.json`; for `github.com`, `GITHUB_TOKEN` then `githubToken`.
 
 Self-hosted GitLab and GitHub Enterprise work as well, but their hostnames do not say which forge they are, so they need one line of configuration naming it. See [the forge token](/reference/configuration#the-forge-token) and [Publish a stack](/guides/publish).
 

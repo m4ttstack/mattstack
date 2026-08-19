@@ -99,7 +99,7 @@ just talk to the human; everything else below is unchanged.
    - **exit 1** with a `gitq:` line on stderr: hard failure. The commonest is
      a missing token for the repo's forge. gitq reads the remote's host to
      decide which it needs: `GITLAB_TOKEN` then `gitlabToken` in
-     `~/.rt/secrets.json` for GitLab, `GITHUB_TOKEN` then `githubToken` for
+     `~/.mattstack/rt/secrets.json` for GitLab, `GITHUB_TOKEN` then `githubToken` for
      GitHub. A self-hosted host needs a `forges` entry in
      `~/.config/gitq/settings.json` naming its provider, and the error says so.
      Mark

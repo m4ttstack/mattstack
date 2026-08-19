@@ -315,7 +315,7 @@ describe('resolveRepoForge', () => {
 //
 // `getProvider` stands in for `resolveRepoForge`'s memoized thunk (MAT-19 /
 // Step 3b): tests assert on whether it was *invoked* at all, since that call
-// is exactly the one that would otherwise read ~/.rt/secrets.json.
+// is exactly the one that would otherwise read ~/.mattstack/rt/secrets.json.
 
 function mockPR(iid: number, sourceBranch: string) {
   return {
@@ -413,7 +413,7 @@ describe('fetchMrsByBranch: rt store path (Task 5)', () => {
       pipelineStatus: 'unknown',
     });
     // The point of Step 3b: a repo the rt store fully answers for never pays
-    // for a forge client (and never reads ~/.rt/secrets.json).
+    // for a forge client (and never reads ~/.mattstack/rt/secrets.json).
     expect(callCount()).toBe(0);
   });
 

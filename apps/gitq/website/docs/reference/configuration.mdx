@@ -55,16 +55,16 @@ Do not look for other keys: `repos.json` also resolves under this directory (`ge
 
 `publish` and `import` both need a token, and which one they need follows from the repo's remote rather than from configuration. gitq reads the remote's host, resolves the forge from it, and then resolves that forge's credential (`createForgeProvider`, `src/cli/provider.ts:44-78`). A GitHub remote is never offered a GitLab token.
 
-`resolveForgeToken` (`src/core/secrets.ts:38-52`) takes the forge's environment variable first, and if that is unset, the matching field in `~/.rt/secrets.json`:
+`resolveForgeToken` (`src/core/secrets.ts:38-52`) takes the forge's environment variable first, and if that is unset, the matching field in `~/.mattstack/rt/secrets.json`:
 
-| Forge | Environment | `~/.rt/secrets.json` |
+| Forge | Environment | `~/.mattstack/rt/secrets.json` |
 | --- | --- | --- |
 | `gitlab` | **`GITLAB_TOKEN`** | `gitlabToken` |
 | `github` | **`GITHUB_TOKEN`** | `githubToken` |
 
-gitq never writes either location. Missing both is a hard failure before any network call is made, naming the forge, the host, and the variable it actually looked in: `gitq: no github token for github.com (set GITHUB_TOKEN or add githubToken to ~/.rt/secrets.json)` (`src/cli/provider.ts:73-75`).
+gitq never writes either location. Missing both is a hard failure before any network call is made, naming the forge, the host, and the variable it actually looked in: `gitq: no github token for github.com (set GITHUB_TOKEN or add githubToken to ~/.mattstack/rt/secrets.json)` (`src/cli/provider.ts:73-75`).
 
-A self-hosted instance can carry its own credential with `tokenEnv` on its `forges` entry, since a github.com token is not a GitHub Enterprise token. When an entry names a variable, that variable is the only place gitq looks: it does **not** fall back to `GITHUB_TOKEN` or `~/.rt/secrets.json`, because falling back would hand the instance a credential it never issued. The error then names just that variable: `no github token for ghe.acme.com (set GHE_ACME_TOKEN)`.
+A self-hosted instance can carry its own credential with `tokenEnv` on its `forges` entry, since a github.com token is not a GitHub Enterprise token. When an entry names a variable, that variable is the only place gitq looks: it does **not** fall back to `GITHUB_TOKEN` or `~/.mattstack/rt/secrets.json`, because falling back would hand the instance a credential it never issued. The error then names just that variable: `no github token for ghe.acme.com (set GHE_ACME_TOKEN)`.
 
 Two failures happen before the token is ever considered, both from the remote alone. A host with no `forges` entry that gitq does not know is refused rather than guessed at, since defaulting an enterprise GitHub host to GitLab fails somewhere a long way from the cause: `cannot tell which forge "git.acme.com" is (from remote ...)`, with the settings path and the entry to add (`src/cli/provider.ts:56-66`). A remote that names no host at all, a local path or a bare clone directory, gets `no forge host in remote "..."` (`src/cli/provider.ts:49-53`).
 

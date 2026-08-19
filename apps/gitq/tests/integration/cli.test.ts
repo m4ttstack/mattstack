@@ -726,7 +726,7 @@ describe('gitq CLI', () => {
   async function repoWithRemoteUrl(remoteUrl: string): Promise<{ dir: string; configDir: string; home: string }> {
     const repo = await createSandboxRepoWithRemote();
     const configDir = `${repo.dir}-config`;
-    // An empty HOME keeps the ~/.rt/secrets.json fallback from leaking a real
+    // An empty HOME keeps the ~/.mattstack/rt/secrets.json fallback from leaking a real
     // token from the machine running these tests, and keeps ~/.config/gitq's
     // `forges` overrides out of it too.
     const home = await mkdtemp(join(tmpdir(), 'gitq-home-'));

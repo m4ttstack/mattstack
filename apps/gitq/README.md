@@ -144,7 +144,7 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 
 ## Forge token
 
-`publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment, falling back to the `gitlabToken` field in `~/.rt/secrets.json`; a github.com remote wants `GITHUB_TOKEN`, falling back to `githubToken`.
+`publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment, falling back to the `gitlabToken` field in `~/.mattstack/rt/secrets.json`; a github.com remote wants `GITHUB_TOKEN`, falling back to `githubToken`.
 
 Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `~/.config/gitq/settings.json`:
 
