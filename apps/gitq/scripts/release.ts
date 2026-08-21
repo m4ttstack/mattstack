@@ -15,9 +15,8 @@ import { join } from 'path';
  * `dependencies` entries pinned to a local path (`file:...`), by name.
  *
  * A published tarball keeps that spec verbatim: nobody who installs it has
- * the local path, so the dependency resolves nowhere. Matt's ruling makes
- * gitq's `@mattstack/rt-client` `file:` dependency temporary; a release
- * must refuse while one is still in place.
+ * the local path, so the dependency resolves nowhere. A `file:` pin is a
+ * local-development state; a release must refuse while one is in place.
  */
 export function fileDependencies(pkg: { dependencies?: Record<string, string> }): string[] {
   return Object.entries(pkg.dependencies ?? {})
@@ -71,7 +70,7 @@ if (import.meta.main) {
   if (localDeps.length > 0) {
     die(
       `${localDeps.join(', ')} still ${localDeps.length === 1 ? 'points' : 'point'} at a file: dependency; ` +
-        `switch @mattstack/rt-client back to a published version before releasing`,
+        `switch ${localDeps.join(', ')} back to ${localDeps.length === 1 ? 'a published version' : 'published versions'} before releasing`,
     );
   }
 
