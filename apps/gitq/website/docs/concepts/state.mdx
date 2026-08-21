@@ -14,13 +14,12 @@ Every write is atomic: gitq writes a temp file and renames it over the target. T
 | Path | Holds | Safe to delete |
 | --- | --- | --- |
 | `~/.config/gitq/stacks/<hash>.json` | One repo's tracked stacks | Yes. You lose the tree, not the branches. |
-| `~/.config/gitq/settings.json` | `maxWorkSlots`, `workSlotLocation`, `forges` | Yes. Falls back to the defaults. |
+| `~/.config/gitq/settings.json` | `maxWorkSlots`, `workSlotLocation`, `forges` -- the fallback for `gitq.workSlots`/`gitq.forges` in the [settings store](/reference/configuration#the-settings-store), until each is imported | Yes. Falls back to the defaults. |
 | `~/.config/gitq/operation-log.json` | The last 50 operations, all repos | Yes. `log` goes empty, `undo` has nothing to do. |
-| `~/.config/gitq/repos.json` | Nothing today | Yes. |
 | `<commonDir>/gitq/leases.json` | Which stack holds which work slot | Only when nothing is running or parked. |
 | `<gitdir>/gitq-pause.json` | A paused cascade's position | Only after aborting the rebase it describes. |
 | `<gitq checkout>/state/jobs/*.json` | Board job status | Yes. |
-| `<gitq checkout>/config.json` | Board configuration | It is yours to manage. |
+| `<gitq checkout>/config.json` | Board configuration -- the fallback for `gitq.board` in the [settings store](/reference/configuration#the-settings-store), until it's imported | It is yours to manage. |
 
 ## The config directory
 
@@ -48,13 +47,13 @@ gitq used to key this file by a single worktree's path. The first time you run g
 
 ### `settings.json`
 
-The keys gitq reads from it are `maxWorkSlots`, `workSlotLocation`, and `forges`:
+The keys gitq reads from it are `maxWorkSlots`, `workSlotLocation`, and `forges` -- each also readable, and once imported overridable, through the [settings store](/reference/configuration#the-settings-store):
 
 ```json
 { "maxWorkSlots": 5, "workSlotLocation": "root" }
 ```
 
-`maxWorkSlots` must be a number of at least 1. Anything else, or no file at all, gives the default of 3. `workSlotLocation` is `auto` (the default: slots join a pool's worktrees) or `root` (slots always go under the work-slot root). gitq never creates or writes this file; make it yourself if you want to change a value. See [Work slots and leases](/concepts/work-slots) and [Configuration](/reference/configuration).
+`maxWorkSlots` must be a number of at least 1. Anything else, or nothing in the store or this file, gives the default of 3. `workSlotLocation` is `auto` (the default: slots join a pool's worktrees) or `root` (slots always go under the work-slot root). gitq never creates or writes this file; make it yourself if you want to change a value without the store. See [Work slots and leases](/concepts/work-slots) and [Configuration](/reference/configuration).
 
 ### `operation-log.json`
 
@@ -68,10 +67,6 @@ Two details worth knowing:
 - `gitq continue` writes its own entry when the cascade finally completes, and its snapshots were taken when `continue` started, not when the original `sync` did. Undoing a sync that paused part way therefore rewinds to the middle of that cascade, not to before it.
 
 Deleting the file is safe and loses only history.
-
-### `repos.json`
-
-gitq derives a path for this file, and nothing in the CLI reads or writes it today. The board's repo list lives in its own `config.json` (below), not here.
 
 ## Inside the repo
 
@@ -101,7 +96,7 @@ Both of these live in the gitq checkout itself, not in your config directory.
 
 ### `config.json`
 
-The board's own configuration: which repos to display, which port to bind, the herdr workspace. Read once at server startup, so an edit needs a restart. Start from `config.example.json`. See [The board](/getting-started/the-board) and [Configuration](/reference/configuration).
+The board's own configuration: which repos to display, which port to bind, the herdr workspace -- the fallback for `gitq.board` in the [settings store](/reference/configuration#the-settings-store), until that key is imported. Read once at server startup, so an edit (to either the store or the file) needs a restart. Start from `config.example.json` for the file-only path. See [The board](/getting-started/the-board) and [Configuration](/reference/configuration).
 
 ### `state/jobs/*.json`
 
@@ -111,7 +106,7 @@ The agent skill writes these through `bin/gitq-status.ts` as it works; the board
 
 ## What gitq reads but never writes
 
-The GitLab token for `publish` and `import`: `GITLAB_TOKEN` from the environment first, then the `gitlabToken` field in `~/.mattstack/rt/secrets.json`. gitq never writes either. See [Configuration](/reference/configuration).
+The GitLab token for `publish` and `import`: `GITLAB_TOKEN` from the environment first, then a grant-gated read from the rt daemon (`secrets:forge-token`, backed by rt's own encrypted store, not a plaintext file). gitq never writes either. See [Configuration](/reference/configuration).
 
 ## Next
 

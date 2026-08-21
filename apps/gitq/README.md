@@ -138,19 +138,39 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 
 ## where state lives
 
-- `~/.config/gitq/`: stack stores (one JSON file per repo, keyed by a hash of the repo path, under `stacks/`), plus `settings.json`, `repos.json`, and the global `operation-log.json`. Override the base directory with `GITQ_CONFIG_DIR`.
+- `~/.config/gitq/`: stack stores (one JSON file per repo, keyed by a hash of the repo path, under `stacks/`), plus `settings.json` and the global `operation-log.json`. Override the base directory with `GITQ_CONFIG_DIR`.
 - `<commonDir>/gitq/leases.json`: per-repo work-slot lease registry, tracking which stack holds which work slot.
 - `<gitdir>/gitq-pause.json`: present only while a cascade is paused on a conflict, per repo (worktree safe, since it's keyed off the git dir, not the worktree root). During a cascade this lives in the work slot's git dir, not your checkout's.
 
 ## Forge token
 
-`publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment, falling back to the `gitlabToken` field in `~/.mattstack/rt/secrets.json`; a github.com remote wants `GITHUB_TOKEN`, falling back to `githubToken`.
+`publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment; a github.com remote wants `GITHUB_TOKEN`. Neither is ever read from a plaintext file: when the environment variable is unset, gitq asks the rt daemon for a grant-gated token (`secrets:forge-token`), which requires the repo to be tracked with rt (`rt daemon track <repo> live branches`) and refuses otherwise, naming the reason.
 
-Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `~/.config/gitq/settings.json`:
+Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `gitq.forges` (see [Settings](#settings) below) or, until that key is imported, in `~/.config/gitq/settings.json`:
 
 ```json
 { "forges": { "gitlab.acme.com": { "provider": "gitlab" } } }
 ```
+
+## Settings
+
+gitq reads three settings from the [rt](https://rt.cool) settings store when it is available, each falling back to a local file when the store doesn't own the key yet:
+
+| Key | Scope | Shape | File fallback |
+| --- | --- | --- | --- |
+| `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `~/.config/gitq/settings.json` |
+| `gitq.forges` | user | host-keyed map, `tokenEnv` names only (never a live token) | `~/.config/gitq/settings.json` |
+| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | `<gitq checkout>/config.json` |
+
+Set one with the rt CLI, e.g.:
+
+```bash
+rt settings set gitq.workSlots '{"maxWorkSlots":4}' --scope machine
+```
+
+`rt settings set <key> <json-value> --scope user|team|machine` **replaces the whole value stored at that key and scope** — it is not a merge, so a value with more than one field needs every field you want to keep in the JSON you send, not just the one you're changing. Check what's there first with `rt settings explain gitq.workSlots` before writing a partial value over it.
+
+Ownership-vs-file precedence differs by key, not uniformly wholesale: `gitq.forges` and `gitq.board` are wholesale (an owning store value replaces the file's entirely, field by field or not), but `gitq.workSlots` is per field (`maxWorkSlots` and `workSlotLocation` each independently fall back to the file when the store doesn't have that particular field). Either way, until a key (or, for `workSlots`, a field) is imported into the store, its file (`settings.json` for `workSlots`/`forges`, `config.json` for `board`) remains the only place to edit it — the transition is opt-in, not a flag day.
 
 ## tests
 

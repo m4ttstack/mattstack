@@ -14,15 +14,15 @@ This page is verified line by line against `src/cli/commands/forge.ts`, `src/cor
 For a GitLab remote, gitq looks in two places, in order, and stops at the first hit:
 
 1. **`GITLAB_TOKEN`** in the environment.
-2. **`gitlabToken`** in `~/.mattstack/rt/secrets.json`.
+2. The rt daemon's grant-gated `secrets:forge-token` verb, backed by rt's own encrypted store (set with `rt secrets set rt gitlabToken`) — not a plaintext file gitq reads itself. This needs the repo tracked with rt (`rt daemon track <repo> live branches`).
 
-Neither is written by gitq; both are read-only inputs. Find neither and `publish` (and `import`) fail before any network call:
+gitq never writes either; both are read-only inputs. Find neither and `publish` (and `import`) fail before any network call, naming which of the two steps came up empty, e.g. for a repo not tracked with rt:
 
 ```
-gitq: no gitlab token for gitlab.com (set GITLAB_TOKEN or add gitlabToken to ~/.mattstack/rt/secrets.json)
+gitq: no gitlab token for gitlab.com (set GITLAB_TOKEN or track the repo with rt (rt daemon track <repo> live branches); <repoPath> is not registered with rt (~/.mattstack/rt/repos.json))
 ```
 
-Which token gitq wants follows from the repo's remote, not from configuration: a GitHub remote asks for `GITHUB_TOKEN` (or `githubToken`) and is never offered a GitLab one. The instance comes from the remote too, so self-hosted GitLab works, given a `forges` entry naming it. The board follows the same rule per repo, so a board showing a GitLab repo and a GitHub repo enriches both, each with its own credential. See [the forge token](/reference/configuration#the-forge-token).
+Which token gitq wants follows from the repo's remote, not from configuration: a GitHub remote asks for `GITHUB_TOKEN` and is never offered a GitLab one. The instance comes from the remote too, so self-hosted GitLab works, given a `forges` entry naming it (or a `tokenEnv` on that entry, for a credential of its own). The board follows the same rule per repo, so a board showing a GitLab repo and a GitHub repo enriches both, each with its own credential. See [the forge token](/reference/configuration#the-forge-token).
 
 ## What `publish` does, per branch
 

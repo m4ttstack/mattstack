@@ -47,7 +47,7 @@ gitq keeps almost nothing in your repository. At a glance:
 
 | Location | What it holds |
 | --- | --- |
-| `~/.config/gitq/` | The stack stores (one JSON file per repo under `stacks/`), plus `settings.json`, `repos.json`, and the global `operation-log.json`. Override the base directory with the `GITQ_CONFIG_DIR` environment variable. |
+| `~/.config/gitq/` | The stack stores (one JSON file per repo under `stacks/`), plus `settings.json` and the global `operation-log.json`. Override the base directory with the `GITQ_CONFIG_DIR` environment variable. |
 | `<commonDir>/gitq/leases.json` | The per-repo work-slot lease registry: which stack currently holds which work worktree. |
 | `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. During a normal cascade that `<gitdir>` is the leased work slot's, not your checkout's. See [Pause protocol](/concepts/pause-protocol). |
 
@@ -67,7 +67,7 @@ You only need this if you want the board's right-click actions, or want to invok
 
 Everything local works with no credentials at all. Two commands do not: `gitq publish` and `gitq import` talk to a forge API and need a token.
 
-Which forge follows from your remote's host, so which token you need does too. For `gitlab.com`, gitq looks for `GITLAB_TOKEN` in the environment first, then the `gitlabToken` field in `~/.mattstack/rt/secrets.json`; for `github.com`, `GITHUB_TOKEN` then `githubToken`.
+Which forge follows from your remote's host, so which token you need does too. For `gitlab.com`, gitq looks for `GITLAB_TOKEN` in the environment first, then asks the rt daemon for a grant-gated token (which needs the repo tracked with rt); for `github.com`, `GITHUB_TOKEN` then the same daemon lookup. Neither is ever a plaintext file gitq reads itself.
 
 Self-hosted GitLab and GitHub Enterprise work as well, but their hostnames do not say which forge they are, so they need one line of configuration naming it. See [the forge token](/reference/configuration#the-forge-token) and [Publish a stack](/guides/publish).
 
