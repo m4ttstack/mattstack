@@ -65,12 +65,12 @@ It governs creation only. A slot that already exists is still found and reused w
 
 ## `maxWorkSlots`
 
-The cap on slots per repo. It is read from `maxWorkSlots` in `settings.json` in gitq's config directory (`~/.config/gitq/settings.json`, unless `GITQ_CONFIG_DIR` says otherwise). The file is not created for you; make it if you want to change the value. It must be a number of at least 1, and it is floored. Anything else, or no file at all, gives the default of **3**.
+The cap on slots per repo. It is read from `maxWorkSlots` in the `gitq.workSlots` machine-scoped [rt settings store](/reference/configuration#the-settings-store) key when the store owns that field, falling back field by field to `maxWorkSlots` in `settings.json` in gitq's config directory otherwise (`~/.config/gitq/settings.json`, unless `GITQ_CONFIG_DIR` says otherwise). The file is not created for you; make it if you want to change the value without the store. It must be a number of at least 1, and it is floored. Anything else, or nothing in either place, gives the default of **3**.
 
 The cap is checked when a cascade needs a slot and none is free. gitq refuses only when both conditions hold: the repo has already reached the cap, *and* every existing slot is leased. You get:
 
 ```
-gitq: all 3 work slots are busy (max 3); finish or abort a cascade, or raise maxWorkSlots in settings.json
+gitq: all 3 work slots are busy (max 3); finish or abort a cascade, or raise maxWorkSlots -- rt settings explain gitq.workSlots first, then rt settings set gitq.workSlots '{"maxWorkSlots":N,...}' --scope machine (it replaces the whole value, so keep any workSlotLocation you already have) (or, until gitq.workSlots is imported, edit maxWorkSlots in settings.json)
 ```
 
 The usual cause is not three simultaneous cascades. It is one parked cascade you forgot about, sitting on its slot until you `gitq continue` or `gitq abort` it.

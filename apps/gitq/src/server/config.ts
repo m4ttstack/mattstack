@@ -19,9 +19,9 @@ export interface BoardConfig {
  * There is deliberately no forge host here. The board resolves each repo's
  * provider and base URL from that repo's own remote, so a board-wide host
  * could never be right for more than one of them, and a self-hosted instance
- * is named once in settings.json's `forges` for the whole of gitq rather than
- * again per board. A `gitlabHost` key sat here validated and unread until
- * MAT-19; an on-disk config still carrying it loads fine, ignored.
+ * is named once in `gitq.forges` for the whole of gitq rather than again per
+ * board. A `gitlabHost` key sat here validated and unread until MAT-19; an
+ * on-disk config still carrying it loads fine, ignored.
  */
 
 export const CONFIG_PATH = join(import.meta.dir, '..', '..', 'config.json');
@@ -40,17 +40,18 @@ function validateBoardConfig(parsed: unknown, source: string): BoardConfig {
     throw new Error(`${source} needs a non-empty "repos" array`);
   }
   const repos: RepoEntry[] = cfg.repos.map((entry, i) => {
-    if (!entry || typeof entry !== 'object') throw new Error(`repos[${i}] must be an object`);
+    if (!entry || typeof entry !== 'object') throw new Error(`${source} repos[${i}] must be an object`);
     const { path, name } = entry as { path?: unknown; name?: unknown };
-    if (typeof path !== 'string' || path === '') throw new Error(`repos[${i}] needs a "path" string`);
-    if (name !== undefined && typeof name !== 'string') throw new Error(`repos[${i}].name must be a string`);
+    if (typeof path !== 'string' || path === '') throw new Error(`${source} repos[${i}] needs a "path" string`);
+    if (name !== undefined && typeof name !== 'string')
+      throw new Error(`${source} repos[${i}].name must be a string`);
     return { path, name: name ?? basenameOf(path) };
   });
 
   const port = cfg.port === undefined ? 11008 : cfg.port;
-  if (typeof port !== 'number') throw new Error('"port" must be a number');
+  if (typeof port !== 'number') throw new Error(`${source} "port" must be a number`);
   const herdrWorkspace = cfg.herdrWorkspace === undefined ? 'gitq' : cfg.herdrWorkspace;
-  if (typeof herdrWorkspace !== 'string') throw new Error('"herdrWorkspace" must be a string');
+  if (typeof herdrWorkspace !== 'string') throw new Error(`${source} "herdrWorkspace" must be a string`);
 
   return { repos, port, herdrWorkspace };
 }
