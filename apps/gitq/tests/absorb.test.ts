@@ -142,6 +142,8 @@ describe('AbsorbEngine.previewAbsorb', () => {
           if (to === 'branch-1') return Promise.resolve(['api.ts']);
           return Promise.resolve([]);
         }),
+        getBranchHead: mock(() => Promise.resolve('head-sha')),
+        showFileRaw: mock(() => Promise.resolve(null)),
       },
     }));
 
@@ -186,6 +188,8 @@ describe('AbsorbEngine.previewAbsorb', () => {
           if (to === 'branch-2') return Promise.resolve(['config.json']);
           return Promise.resolve([]);
         }),
+        getBranchHead: mock(() => Promise.resolve('head-sha')),
+        showFileRaw: mock(() => Promise.resolve(null)),
       },
     }));
 
