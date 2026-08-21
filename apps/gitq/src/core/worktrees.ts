@@ -1,7 +1,31 @@
 import { basename, dirname, join } from 'node:path';
+import { getSetting } from '@mattstack/rt-client';
 import { GitShell } from './git-shell.ts';
 import { getSettingsFilePath, getWorkSlotRoot, repoHash } from './config-paths.ts';
 import { readJson } from './json-store.ts';
+
+type GetSettingFn = typeof getSetting;
+
+interface WorkSlotsSetting {
+  maxWorkSlots?: number;
+  workSlotLocation?: string;
+}
+
+/**
+ * `gitq.workSlots` off the settings store, or `undefined` when the store
+ * doesn't own it (unset, or the resolver threw -- an unreadable/malformed
+ * store file, never the daemon). `undefined` is the ownership signal each
+ * field below falls back to settings.json on; a thrown error degrades the
+ * same way after one warning rather than crashing slot provisioning.
+ */
+function storeWorkSlots(resolve: GetSettingFn): WorkSlotsSetting | undefined {
+  try {
+    return resolve<WorkSlotsSetting>('gitq.workSlots').value;
+  } catch (err) {
+    console.warn('gitq: gitq.workSlots unavailable, falling back to settings.json', err);
+    return undefined;
+  }
+}
 
 export interface SlotInfo {
   path: string;
@@ -116,14 +140,15 @@ export async function ensureWorkSlot(anyCwd: string, commonDir: string, map: Slo
  * work-slot root, `auto` (the default, and what anything unrecognised falls
  * back to) keeps the pool-aware placement.
  */
-export async function getWorkSlotLocation(): Promise<WorkSlotLocation> {
-  const settings = await readJson<{ workSlotLocation?: string }>(getSettingsFilePath(), {});
-  return settings.workSlotLocation === 'root' ? 'root' : 'auto';
+export async function getWorkSlotLocation(resolve: GetSettingFn = getSetting): Promise<WorkSlotLocation> {
+  const fileSettings = await readJson<{ workSlotLocation?: string }>(getSettingsFilePath(), {});
+  const location = storeWorkSlots(resolve)?.workSlotLocation ?? fileSettings.workSlotLocation;
+  return location === 'root' ? 'root' : 'auto';
 }
 
 /** Settings-controlled cap on work slots per repo. */
-export async function getMaxWorkSlots(): Promise<number> {
-  const settings = await readJson<{ maxWorkSlots?: number }>(getSettingsFilePath(), {});
-  const n = settings.maxWorkSlots;
+export async function getMaxWorkSlots(resolve: GetSettingFn = getSetting): Promise<number> {
+  const fileSettings = await readJson<{ maxWorkSlots?: number }>(getSettingsFilePath(), {});
+  const n = storeWorkSlots(resolve)?.maxWorkSlots ?? fileSettings.maxWorkSlots;
   return typeof n === 'number' && n >= 1 ? Math.floor(n) : 3;
 }

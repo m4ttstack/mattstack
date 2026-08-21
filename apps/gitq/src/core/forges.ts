@@ -1,5 +1,8 @@
+import { getSetting } from '@mattstack/rt-client';
 import { readJson } from './json-store.ts';
 import { getSettingsFilePath } from './config-paths.ts';
+
+type GetSettingFn = typeof getSetting;
 
 /**
  * Which forge a repo's remote points at, and where that forge lives.
@@ -83,8 +86,23 @@ function isForgeSlug(value: unknown): value is ForgeSlug {
   return typeof value === 'string' && (FORGE_SLUGS as readonly string[]).includes(value);
 }
 
-/** The `forges` map from settings.json, the same file `maxWorkSlots` lives in. */
-export async function readForgeOverrides(): Promise<ForgeOverrides> {
+/**
+ * The `forges` map, from `gitq.forges` in the settings store once owned,
+ * settings.json otherwise. Ownership is wholesale, not per-host: the map is
+ * one value, so a store owner replaces the file's map entirely rather than
+ * merging by host. A resolver throw (unreadable/malformed store file, never
+ * the daemon) degrades to the file after one warning. Every entry, from
+ * either source, is validated the same way -- lazily, in resolveForge, which
+ * doesn't know or care which source produced the map it was handed.
+ */
+export async function readForgeOverrides(resolve: GetSettingFn = getSetting): Promise<ForgeOverrides> {
+  let store: ForgeOverrides | undefined;
+  try {
+    store = resolve<ForgeOverrides>('gitq.forges').value;
+  } catch (err) {
+    console.warn('gitq: gitq.forges unavailable, falling back to settings.json', err);
+  }
+  if (store !== undefined) return store;
   const settings = await readJson<{ forges?: ForgeOverrides }>(getSettingsFilePath(), {});
   return settings.forges ?? {};
 }
