@@ -1,6 +1,7 @@
 import { describe, test, expect, spyOn, afterEach } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { getSetting } from '@mattstack/rt-client';
 import { readForgeOverrides, resolveForge, type ForgeOverrides } from '../src/core/forges.ts';
@@ -59,6 +60,17 @@ describe('readForgeOverrides: store-wins-wholesale latch (fake resolver, no real
     });
   });
 
+  test('an owned EMPTY gitq.forges still wins wholesale: the file\'s entries are gone, not merged in', async () => {
+    // {} is a legitimate owned value ("no overrides"), distinct from
+    // undefined ("unowned"). If ownership were mistaken for `??`-style
+    // fallback, an empty store map would let the file's entries show
+    // through; the whole point of "wholesale" is that it doesn't.
+    const fileForges: ForgeOverrides = { 'gitlab.file.example': { provider: 'gitlab' } };
+    await withSandboxConfigDir({ forges: fileForges }, async () => {
+      expect(await readForgeOverrides(fakeResolve({ 'gitq.forges': {} }))).toEqual({});
+    });
+  });
+
   test('a resolver throw degrades to the (empty, no file present) map, never crashes', async () => {
     expect(await readForgeOverrides(throwingResolve())).toEqual({});
   });
@@ -97,9 +109,30 @@ describe('readForgeOverrides: store-wins-wholesale latch (fake resolver, no real
   });
 });
 
-// A real-getSetting-against-the-fake-HOME case is covered in
-// worktrees-work-slots-latch.test.ts, on gitq.workSlots (machine scope).
-// Not duplicated here on gitq.forges (user scope): home-isolation.test.ts
-// asserts that store file does NOT exist yet, and test files share one
-// process-wide fake HOME (tests/preload.ts) -- a real write to the same
-// key/scope here would race that assertion depending on file run order.
+describe('readForgeOverrides: real getSetting against the fake-HOME store', () => {
+  test('a real gitq.forges write in the user store wins wholesale over settings.json', async () => {
+    const { setSetting } = await import('@mattstack/rt-client');
+    // Own HOME for this write, same contract as home-isolation.test.ts: the
+    // resolver reads process.env.HOME at call time, so a write here without
+    // its own HOME would land in the process-wide fake HOME every other
+    // test file shares -- including home-isolation.test.ts's own gitq.forges
+    // write, whose assertion that the store file does not exist yet would
+    // then race this test's file-run order.
+    const prevHome = process.env.HOME;
+    const ownHome = mkdtempSync(join(tmpdir(), 'gitq-forges-real-store-'));
+    if (ownHome === homedir()) {
+      throw new Error('refusing to touch the real account home');
+    }
+    process.env.HOME = ownHome;
+    try {
+      const stored: ForgeOverrides = { 'gitlab.real-store.example': { provider: 'gitlab' } };
+      setSetting('gitq.forges', stored, 'user');
+      const overrides = await readForgeOverrides();
+      expect(overrides).toEqual(stored);
+      expect(resolveForge('gitlab.real-store.example', overrides)?.slug).toBe('gitlab');
+    } finally {
+      process.env.HOME = prevHome;
+      await rm(ownHome, { recursive: true, force: true });
+    }
+  });
+});
