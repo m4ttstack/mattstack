@@ -65,7 +65,13 @@ export async function syncCommand(ctx: CliContext): Promise<number> {
   if (guarded !== null) return guarded;
   return withLeasedSlot(ctx, stack, 'sync', (workDir) =>
     withOperationLog(ctx, stack, 'sync', async () => {
-      const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack, workDir);
+      // --no-fetch: restack onto the possibly-stale local origin/<trunk>
+      // without touching the network. For parent-child restacks after local
+      // commits, or when the remote is unreachable; the ref-resolution guard
+      // below syncLocalStack's fetch still applies, so a trunk that was
+      // never fetched remains a hard failure rather than a silent no-op.
+      const noFetch = ctx.flags['no-fetch'] === true;
+      const result = await RebaseEngine.syncLocalStack(ctx.repoRoot, stack, workDir, { noFetch });
       return finishCascade(ctx, stack.id, result, workDir);
     }, (code) => code !== 2),
   );

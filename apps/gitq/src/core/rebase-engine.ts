@@ -1240,15 +1240,22 @@ export const RebaseEngine = {
    * Uses merge-base approach (not tombstones) since this is a normal
    * pull-and-restack, not a squash-merge recovery.
    */
-  async syncLocalStack(cwd: string, stack: Stack, workDir?: string): Promise<CascadeResult> {
+  async syncLocalStack(
+    cwd: string,
+    stack: Stack,
+    workDir?: string,
+    options?: { noFetch?: boolean },
+  ): Promise<CascadeResult> {
     const trunk = stack.root;
     const remoteTrunk = `origin/${trunk}`;
 
-    try {
-      await GitShell.fetch(cwd);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to fetch from remote: ${detail}`);
+    if (!options?.noFetch) {
+      try {
+        await GitShell.fetch(cwd);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to fetch from remote: ${detail}`);
+      }
     }
 
     // The remote trunk is the rebase target for every top-level node, so a ref

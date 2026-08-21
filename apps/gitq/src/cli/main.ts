@@ -56,7 +56,7 @@ export const USAGE: Record<string, string> = {
   untrack: 'gitq untrack <stackName> [--json]',
   add: 'gitq add <branch> --parent <branch> [--stack <name>] [--json]',
   remove: 'gitq remove <branch> [--stack <name>] [--json]',
-  sync: 'gitq sync [--stack <name>] [--json]',
+  sync: 'gitq sync [--no-fetch] [--stack <name>] [--json]',
   continue: 'gitq continue [--stack <name>] [--json]',
   abort: 'gitq abort [--stack <name>] [--json]',
   absorb: 'gitq absorb [--at <branch>] [--preview] [--stack <name>] [--json]',
