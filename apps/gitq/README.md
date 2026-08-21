@@ -144,13 +144,33 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 
 ## Forge token
 
-`publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment, falling back to the `gitlabToken` field in `~/.mattstack/rt/secrets.json`; a github.com remote wants `GITHUB_TOKEN`, falling back to `githubToken`.
+`publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment; a github.com remote wants `GITHUB_TOKEN`. Neither is ever read from a plaintext file: when the environment variable is unset, gitq asks the rt daemon for a grant-gated token (`secrets:forge-token`), which requires the repo to be tracked with rt (`rt daemon track <repo> live branches`) and refuses otherwise, naming the reason.
 
-Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `~/.config/gitq/settings.json`:
+Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `gitq.forges` (see [Settings](#settings) below) or, until that key is imported, in `~/.config/gitq/settings.json`:
 
 ```json
 { "forges": { "gitlab.acme.com": { "provider": "gitlab" } } }
 ```
+
+## Settings
+
+gitq reads three settings from the [rt](https://rt.cool) settings store when it is available, each falling back to a local file when the store doesn't own the key yet:
+
+| Key | Scope | Shape | File fallback |
+| --- | --- | --- | --- |
+| `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `~/.config/gitq/settings.json` |
+| `gitq.forges` | user | host-keyed map, `tokenEnv` names only (never a live token) | `~/.config/gitq/settings.json` |
+| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | `<gitq checkout>/config.json` |
+
+Set one with the rt CLI, e.g.:
+
+```bash
+rt settings set gitq.workSlots '{"maxWorkSlots":4}' --scope machine
+```
+
+(Check `rt settings set --help` for the exact flags on your rt version; the general shape is `rt settings set <key> <json> --scope <scope>`.)
+
+Ownership is per key and wholesale, not per field: once the store owns a key, its whole value comes from the store, and the file it used to live in is ignored for that key. Until a key is imported into the store, its file (`settings.json` for `workSlots`/`forges`, `config.json` for `board`) remains the only place to edit it — the transition is opt-in, key by key, not a flag day.
 
 ## tests
 

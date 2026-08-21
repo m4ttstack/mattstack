@@ -66,7 +66,9 @@ export async function createForgeProvider(
       ? '{"provider": "gitlab"}'
       : '{"provider": "gitlab", "baseUrl": "https://gitlab.example.com"}';
     throw new Error(
-      `cannot tell which forge "${host}" is (from remote ${remoteUrl}); name it in ${getSettingsFilePath()} as {"forges": {"${host}": ${entry}}}`,
+      `cannot tell which forge "${host}" is (from remote ${remoteUrl}); set it with ` +
+        `rt settings set gitq.forges '{"${host}": ${entry}}' --scope user (or, until that's imported, ` +
+        `in ${getSettingsFilePath()} as {"forges": {"${host}": ${entry}}})`,
     );
   }
 

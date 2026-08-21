@@ -49,7 +49,7 @@ The third key, `forges`, tells gitq which forge a self-hosted host is running. I
 
 You need an entry only for a host gitq cannot identify on its own. `github.com` and `gitlab.com` are known outright (`src/core/forges.ts:38-41`), and an entry for either still wins, which is how you route one through a proxy. The third example above is an `~/.ssh/config` alias: a remote like `git@work:acme/web.git` names no domain at all, so an alias entry has to give a `baseUrl` and is refused without one.
 
-Do not look for other keys: `repos.json` also resolves under this directory (`getReposFilePath`, `src/core/config-paths.ts:38-40`), but nothing in the CLI reads or writes it as of this page. The stack stores and the operation log live here too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/concepts/state) for the full inventory of what is written and when.
+Do not look for other keys: the stack stores and the operation log live in this directory too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/concepts/state) for the full inventory of what is written and when.
 
 ## The forge token
 
