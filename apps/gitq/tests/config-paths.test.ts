@@ -4,7 +4,6 @@ import {
   getConfigDir,
   getStacksDir,
   getSettingsFilePath,
-  getReposFilePath,
   getOperationLogFilePath,
   getWorkSlotRoot,
 } from '../src/core/config-paths.ts';
@@ -70,11 +69,6 @@ describe('config-paths', () => {
   test('getSettingsFilePath derives from config dir', () => {
     setConfigDir('/tmp/test-config');
     expect(getSettingsFilePath()).toBe(join('/tmp/test-config', 'settings.json'));
-  });
-
-  test('getReposFilePath derives from config dir', () => {
-    setConfigDir('/tmp/test-config');
-    expect(getReposFilePath()).toBe(join('/tmp/test-config', 'repos.json'));
   });
 
   test('getOperationLogFilePath derives from config dir', () => {

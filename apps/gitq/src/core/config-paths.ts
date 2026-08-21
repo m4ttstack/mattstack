@@ -35,14 +35,8 @@ export function getStacksDir(): string {
 export function getSettingsFilePath(): string {
   return join(_configDir, 'settings.json');
 }
-export function getReposFilePath(): string {
-  return join(_configDir, 'repos.json');
-}
 export function getOperationLogFilePath(): string {
   return join(_configDir, 'operation-log.json');
-}
-export function getGeneratedPatternsDir(): string {
-  return join(_configDir, 'generated');
 }
 
 /**
@@ -67,5 +61,4 @@ export function getWorkSlotRoot(): string {
 // Legacy constants — used by tests that import directly
 export const STACKS_DIR = join(DEFAULT_CONFIG_DIR, 'stacks');
 export const SETTINGS_PATH = join(DEFAULT_CONFIG_DIR, 'settings.json');
-export const REPOS_PATH = join(DEFAULT_CONFIG_DIR, 'repos.json');
 export const OPERATION_LOG_PATH = join(DEFAULT_CONFIG_DIR, 'operation-log.json');
