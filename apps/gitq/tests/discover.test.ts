@@ -1,7 +1,8 @@
-import { describe, test, expect, mock, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { GitShell as RealGitShell } from '../src/core/git-shell.ts';
 
-afterAll(() => mock.restore());
+restoreMockedModulesAfterAll();
 
 mock.module('node:child_process', () => ({
   execFile: (_cmd: string, _args: string[], _opts: any, cb: Function) => {

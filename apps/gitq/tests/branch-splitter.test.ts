@@ -1,11 +1,11 @@
-import { afterAll, describe, expect, test, mock, beforeEach } from 'bun:test';
+import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { BranchSplitter } from '../src/core/branch-splitter.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
 
-// Clean up all module mocks after this file's tests run.
-afterAll(() => mock.restore());
+restoreMockedModulesAfterAll();
 
 /** Build a test stack with a branch that has multiple commits. */
 function buildTestStack(): Stack {

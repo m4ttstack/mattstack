@@ -1,9 +1,10 @@
-import { afterAll, describe, expect, test, mock, beforeEach } from 'bun:test';
+import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
 
-afterAll(() => mock.restore());
+restoreMockedModulesAfterAll();
 
 function buildFoldStack(): Stack {
   let stack = StackManager.createStack('test', 'main');

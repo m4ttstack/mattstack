@@ -1,9 +1,10 @@
-import { describe, test, expect, mock, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { GitShell as RealGitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
 import type { OperationEntry } from '../src/core/operation-log.ts';
 
-afterAll(() => mock.restore());
+restoreMockedModulesAfterAll();
 
 // Mock GitShell
 const gitShellCalls: { method: string; args: unknown[] }[] = [];

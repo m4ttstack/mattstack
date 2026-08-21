@@ -1,8 +1,7 @@
 import { describe, expect, test, mock } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-// Sync fs on purpose: another unit test mock.module's `node:fs/promises` for
-// the whole run, and these tests only need a file on disk.
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { ForgeSync } from '../src/core/forge-sync.ts';
 import { parseMrMeta } from '../src/cli/commands/forge.ts';
@@ -11,6 +10,8 @@ import { GitShell } from '../src/core/git-shell.ts';
 import type { Stack } from '../src/core/types.ts';
 import type { GitProvider, PullRequest, Pipeline, CreatePullRequestInput } from '@mattstack/glance';
 import { ReadBackFailedError } from '@mattstack/glance';
+
+restoreMockedModulesAfterAll();
 
 // ── Mock Provider ────────────────────────────────────────────────────────────
 

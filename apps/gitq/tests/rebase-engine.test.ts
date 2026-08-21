@@ -1,4 +1,5 @@
-import { afterAll, describe, expect, test, mock, beforeEach } from 'bun:test';
+import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import { RebaseEngine } from '../src/core/rebase-engine.ts';
 import { StackManager } from '../src/core/stack-manager.ts';
 import { GitShell } from '../src/core/git-shell.ts';
@@ -6,9 +7,7 @@ import type { Stack } from '../src/core/types.ts';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Clean up all module mocks after this file's tests run so they don't leak
-// into other test files (e.g. integration tests that need the real GitShell).
-afterAll(() => mock.restore());
+restoreMockedModulesAfterAll();
 
 /** Build a realistic 3-level stack for testing. */
 function buildTestStack(): Stack {

@@ -1,5 +1,8 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
 import type { Stack } from '../src/core/types.ts';
+
+restoreMockedModulesAfterAll();
 
 // Shared state the mock and tests both reference via globalThis. Keyed by
 // path (not a single value) because OperationLog.save now takes a sidecar
