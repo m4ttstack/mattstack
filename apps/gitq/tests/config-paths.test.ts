@@ -4,7 +4,6 @@ import {
   getConfigDir,
   getStacksDir,
   getSettingsFilePath,
-  getReposFilePath,
   getOperationLogFilePath,
   getWorkSlotRoot,
 } from '../src/core/config-paths.ts';
@@ -13,8 +12,21 @@ import { homedir, tmpdir } from 'node:os';
 import { realpathSync } from 'node:fs';
 
 const CONFIG_PATHS_MODULE = join(import.meta.dir, '..', 'src', 'core', 'config-paths.ts');
+// Two HOME views are in play here, and each test group must match the one
+// its own code path actually uses:
+//  - In-process assertions (below, outside the GITQ_CONFIG_DIR describe)
+//    exercise config-paths.ts's already-imported module, whose HOME_CONFIG_DIR
+//    was computed from homedir() once at import time. Bun's homedir() reads
+//    HOME only at process start, so it stays this real value even after
+//    tests/preload.ts mutates process.env.HOME at runtime -- these constants
+//    must match that frozen-real value.
+//  - The GITQ_CONFIG_DIR describe block spawns a FRESH bun process per case,
+//    which inherits process.env.HOME (the preload's fake mkdtemp) as its
+//    OWN process-start HOME, so ITS homedir() resolves under the fake one.
 const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'gitq');
 const DEFAULT_WORK_SLOT_ROOT = join(homedir(), '.cache', 'gitq', 'work');
+const SPAWNED_DEFAULT_CONFIG_DIR = join(process.env.HOME ?? homedir(), '.config', 'gitq');
+const SPAWNED_DEFAULT_WORK_SLOT_ROOT = join(process.env.HOME ?? homedir(), '.cache', 'gitq', 'work');
 
 const originalConfigDir = getConfigDir();
 
@@ -59,11 +71,6 @@ describe('config-paths', () => {
     expect(getSettingsFilePath()).toBe(join('/tmp/test-config', 'settings.json'));
   });
 
-  test('getReposFilePath derives from config dir', () => {
-    setConfigDir('/tmp/test-config');
-    expect(getReposFilePath()).toBe(join('/tmp/test-config', 'repos.json'));
-  });
-
   test('getOperationLogFilePath derives from config dir', () => {
     setConfigDir('/tmp/test-config');
     expect(getOperationLogFilePath()).toBe(join('/tmp/test-config', 'operation-log.json'));
@@ -100,8 +107,8 @@ describe('config-paths', () => {
   describe('GITQ_CONFIG_DIR', () => {
     test('unset gives ~/.config/gitq and the historical cache root', () => {
       const paths = readPathsWith(undefined);
-      expect(paths.exported).toBe(DEFAULT_CONFIG_DIR);
-      expect(paths.workSlotRoot).toBe(DEFAULT_WORK_SLOT_ROOT);
+      expect(paths.exported).toBe(SPAWNED_DEFAULT_CONFIG_DIR);
+      expect(paths.workSlotRoot).toBe(SPAWNED_DEFAULT_WORK_SLOT_ROOT);
     });
 
     test('moves the work-slot root out of the real cache dir', () => {
@@ -112,13 +119,13 @@ describe('config-paths', () => {
 
     test('set to the default path keeps the historical cache root', () => {
       // The special case is value equality, not set-ness. Documented as such.
-      expect(readPathsWith(DEFAULT_CONFIG_DIR).workSlotRoot).toBe(DEFAULT_WORK_SLOT_ROOT);
+      expect(readPathsWith(SPAWNED_DEFAULT_CONFIG_DIR).workSlotRoot).toBe(SPAWNED_DEFAULT_WORK_SLOT_ROOT);
     });
 
     test('empty counts as unset', () => {
       const paths = readPathsWith('');
-      expect(paths.configDir).toBe(DEFAULT_CONFIG_DIR);
-      expect(paths.workSlotRoot).toBe(DEFAULT_WORK_SLOT_ROOT);
+      expect(paths.configDir).toBe(SPAWNED_DEFAULT_CONFIG_DIR);
+      expect(paths.workSlotRoot).toBe(SPAWNED_DEFAULT_WORK_SLOT_ROOT);
     });
 
     test('a relative value becomes an absolute path under the cwd', () => {
