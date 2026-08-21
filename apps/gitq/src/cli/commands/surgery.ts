@@ -15,7 +15,7 @@ import type { CliContext } from '../context.ts';
 import { emit, fail } from '../output.ts';
 import { requireStackFree, withLeasedSlot } from '../slots.ts';
 import { withOperationLog } from '../op-log.ts';
-import { pickStack } from './crud.ts';
+import { pickStack, pickStackVia } from './crud.ts';
 import { finishCascade } from './cascade.ts';
 
 /** Mirrors crud.ts's local helper — replace one stack in the store by id. */
@@ -163,7 +163,7 @@ export async function splitCommand(ctx: CliContext): Promise<number> {
   }
 
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStack(store, ctx.flags);
+  const stack = pickStackVia(store, ctx.flags, branch);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
@@ -202,7 +202,7 @@ export async function foldCommand(ctx: CliContext): Promise<number> {
   if (!branch) return fail('usage: gitq fold <branch> [--stack <name>]');
 
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStack(store, ctx.flags);
+  const stack = pickStackVia(store, ctx.flags, branch);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
@@ -222,7 +222,7 @@ export async function reparentCommand(ctx: CliContext): Promise<number> {
   if (!branch || !onto) return fail('usage: gitq reparent <branch> --onto <newParent> [--stack <name>]');
 
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStack(store, ctx.flags);
+  const stack = pickStackVia(store, ctx.flags, branch);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
@@ -262,7 +262,7 @@ export async function renameCommand(ctx: CliContext): Promise<number> {
   if (!oldBranch || !newBranch) return fail('usage: gitq rename <old> <new> [--stack <name>]');
 
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStack(store, ctx.flags);
+  const stack = pickStackVia(store, ctx.flags, oldBranch);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 
@@ -283,7 +283,7 @@ export async function resetCommand(ctx: CliContext): Promise<number> {
   if (!branch) return fail('usage: gitq reset <branch> [--stack <name>]');
 
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStack(store, ctx.flags);
+  const stack = pickStackVia(store, ctx.flags, branch);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
 

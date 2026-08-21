@@ -17,6 +17,22 @@ export function pickStack(store: StackStore, flags: Record<string, string | bool
   throw new Error(`--stack required (have: ${store.stacks.map((s) => s.stackName).join(', ') || 'none'})`);
 }
 
+/**
+ * Resolve --stack for a command that already names a branch inside the target
+ * stack. A node branch belongs to exactly one stack, so naming it is as
+ * specific as passing --stack; requiring both is a papercut. Falls back to
+ * pickStack when the branch does not pin a single stack — notably a shared
+ * root like `master`, which every stack in the repo may sit on.
+ */
+export function pickStackVia(store: StackStore, flags: Record<string, string | boolean>, branch: string): Stack {
+  if (typeof flags.stack === 'string') return pickStack(store, flags);
+  const owning = store.stacks.filter(
+    (s) => s.root === branch || s.nodes.some((n) => n.branch === branch),
+  );
+  if (owning.length === 1) return owning[0]!;
+  return pickStack(store, flags);
+}
+
 function replaceStack(store: StackStore, updated: Stack): StackStore {
   return { ...store, stacks: store.stacks.map((s) => (s.id === updated.id ? updated : s)) };
 }
@@ -56,7 +72,7 @@ export async function addCommand(ctx: CliContext): Promise<number> {
   const parent = typeof ctx.flags.parent === 'string' ? ctx.flags.parent : null;
   if (!branch || !parent) return fail('usage: gitq add <branch> --parent <branch> [--stack <name>]');
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStack(store, ctx.flags);
+  const stack = pickStackVia(store, ctx.flags, parent);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
   const updated = StackManager.addNode(stack, branch, parent);
@@ -69,7 +85,7 @@ export async function removeCommand(ctx: CliContext): Promise<number> {
   const [branch] = ctx.args;
   if (!branch) return fail('usage: gitq remove <branch> [--stack <name>]');
   const store = await loadStore(ctx.repoRoot);
-  const stack = pickStack(store, ctx.flags);
+  const stack = pickStackVia(store, ctx.flags, branch);
   const guarded = await requireStackFree(ctx, stack.id);
   if (guarded !== null) return guarded;
   const updated = StackManager.removeNode(stack, branch);
