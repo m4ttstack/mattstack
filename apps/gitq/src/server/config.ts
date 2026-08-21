@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { getSetting } from '@mattstack/rt-client';
+import { warnStoreFallback } from '../core/settings-fallback-warn.ts';
 
 type GetSettingFn = typeof getSetting;
 
@@ -82,7 +83,7 @@ export function loadConfig(resolve: GetSettingFn = getSetting, configPath: strin
   try {
     store = resolve<unknown>('gitq.board').value;
   } catch (err) {
-    console.warn('gitq: gitq.board unavailable, falling back to config.json', err);
+    warnStoreFallback('gitq.board', 'config.json', err);
   }
   if (store !== undefined) return validateBoardConfig(store, 'gitq.board');
 

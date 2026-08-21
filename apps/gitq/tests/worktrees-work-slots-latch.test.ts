@@ -5,6 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { getSetting } from '@mattstack/rt-client';
 import { getMaxWorkSlots, getWorkSlotLocation } from '../src/core/worktrees.ts';
+import { resetStoreFallbackWarnings } from '../src/core/settings-fallback-warn.ts';
 import { getConfigDir, setConfigDir } from '../src/core/config-paths.ts';
 
 type GetSettingFn = typeof getSetting;
@@ -31,6 +32,15 @@ async function sandboxConfigDir(fileSettings: Record<string, unknown> = {}): Pro
   cleanups.push(dir);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'settings.json'), JSON.stringify(fileSettings));
+  return dir;
+}
+
+/** Same, but with settings.json holding raw (possibly invalid) bytes, for the corrupt-file cases. */
+async function sandboxConfigDirWithRawFile(raw: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'gitq-work-slots-latch-corrupt-'));
+  cleanups.push(dir);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'settings.json'), raw);
   return dir;
 }
 
@@ -74,14 +84,33 @@ describe('getMaxWorkSlots: store-wins-per-key latch', () => {
     });
   });
 
-  test('a resolver throw warns exactly once, without echoing the thrown error into a value', async () => {
+  test('a resolver throw warns once per process, then suppresses repeats -- across both readers, since they share one key', async () => {
+    resetStoreFallbackWarnings();
+    const dir = await sandboxConfigDir({});
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await withConfigDir(dir, async () => {
+        await getMaxWorkSlots(throwingResolve('rt daemon unreachable'));
+        await getMaxWorkSlots(throwingResolve('rt daemon unreachable'));
+        await getWorkSlotLocation(throwingResolve('rt daemon unreachable'));
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('the warning never prints the raw Error object, only its message', async () => {
+    resetStoreFallbackWarnings();
     const dir = await sandboxConfigDir({});
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await withConfigDir(dir, async () => {
         await getMaxWorkSlots(throwingResolve('rt daemon unreachable'));
       });
-      expect(warn).toHaveBeenCalledTimes(1);
+      const args = warn.mock.calls[0]!;
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.join(' ')).toContain('rt daemon unreachable');
     } finally {
       warn.mockRestore();
     }
@@ -165,3 +194,22 @@ describe('getMaxWorkSlots / getWorkSlotLocation: real getSetting against the fak
     }
   });
 });
+
+describe('getMaxWorkSlots / getWorkSlotLocation: a corrupt settings.json is only ever read as a fallback', () => {
+  test('an owned store field wins without the file being read at all -- a corrupt settings.json never throws', async () => {
+    const dir = await sandboxConfigDirWithRawFile('{not valid json');
+    await withConfigDir(dir, async () => {
+      expect(await getMaxWorkSlots(fakeResolve({ 'gitq.workSlots': { maxWorkSlots: 9 } }))).toBe(9);
+      expect(await getWorkSlotLocation(fakeResolve({ 'gitq.workSlots': { workSlotLocation: 'root' } }))).toBe('root');
+    });
+  });
+
+  test('an unowned field with a corrupt file does throw -- proving the file really is consulted, not silently skipped', async () => {
+    const dir = await sandboxConfigDirWithRawFile('{not valid json');
+    await withConfigDir(dir, async () => {
+      await expect(getMaxWorkSlots(fakeResolve({}))).rejects.toThrow();
+      await expect(getWorkSlotLocation(fakeResolve({}))).rejects.toThrow();
+    });
+  });
+});
+

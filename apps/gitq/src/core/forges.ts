@@ -1,6 +1,7 @@
 import { getSetting } from '@mattstack/rt-client';
 import { readJson } from './json-store.ts';
 import { getSettingsFilePath } from './config-paths.ts';
+import { warnStoreFallback } from './settings-fallback-warn.ts';
 
 type GetSettingFn = typeof getSetting;
 
@@ -100,7 +101,7 @@ export async function readForgeOverrides(resolve: GetSettingFn = getSetting): Pr
   try {
     store = resolve<ForgeOverrides>('gitq.forges').value;
   } catch (err) {
-    console.warn('gitq: gitq.forges unavailable, falling back to settings.json', err);
+    warnStoreFallback('gitq.forges', 'settings.json', err);
   }
   if (store !== undefined) return store;
   const settings = await readJson<{ forges?: ForgeOverrides }>(getSettingsFilePath(), {});

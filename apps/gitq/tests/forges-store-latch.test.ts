@@ -5,6 +5,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { getSetting } from '@mattstack/rt-client';
 import { readForgeOverrides, resolveForge, type ForgeOverrides } from '../src/core/forges.ts';
+import { resetStoreFallbackWarnings } from '../src/core/settings-fallback-warn.ts';
 import { getConfigDir, setConfigDir } from '../src/core/config-paths.ts';
 
 type GetSettingFn = typeof getSetting;
@@ -75,11 +76,27 @@ describe('readForgeOverrides: store-wins-wholesale latch (fake resolver, no real
     expect(await readForgeOverrides(throwingResolve())).toEqual({});
   });
 
-  test('a resolver throw warns exactly once', async () => {
+  test('a resolver throw warns once per process, then suppresses repeats', async () => {
+    resetStoreFallbackWarnings();
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await readForgeOverrides(throwingResolve('rt daemon unreachable'));
+      await readForgeOverrides(throwingResolve('rt daemon unreachable'));
+      await readForgeOverrides(throwingResolve('rt daemon unreachable'));
       expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('the warning never prints the raw Error object, only its message', async () => {
+    resetStoreFallbackWarnings();
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await readForgeOverrides(throwingResolve('rt daemon unreachable'));
+      const args = warn.mock.calls[0]!;
+      expect(args.some((a) => a instanceof Error)).toBe(false);
+      expect(args.join(' ')).toContain('rt daemon unreachable');
     } finally {
       warn.mockRestore();
     }

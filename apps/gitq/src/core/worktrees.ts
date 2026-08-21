@@ -3,6 +3,7 @@ import { getSetting } from '@mattstack/rt-client';
 import { GitShell } from './git-shell.ts';
 import { getSettingsFilePath, getWorkSlotRoot, repoHash } from './config-paths.ts';
 import { readJson } from './json-store.ts';
+import { warnStoreFallback } from './settings-fallback-warn.ts';
 
 type GetSettingFn = typeof getSetting;
 
@@ -22,7 +23,7 @@ function storeWorkSlots(resolve: GetSettingFn): WorkSlotsSetting | undefined {
   try {
     return resolve<WorkSlotsSetting>('gitq.workSlots').value;
   } catch (err) {
-    console.warn('gitq: gitq.workSlots unavailable, falling back to settings.json', err);
+    warnStoreFallback('gitq.workSlots', 'settings.json', err);
     return undefined;
   }
 }
@@ -141,14 +142,14 @@ export async function ensureWorkSlot(anyCwd: string, commonDir: string, map: Slo
  * back to) keeps the pool-aware placement.
  */
 export async function getWorkSlotLocation(resolve: GetSettingFn = getSetting): Promise<WorkSlotLocation> {
-  const fileSettings = await readJson<{ workSlotLocation?: string }>(getSettingsFilePath(), {});
-  const location = storeWorkSlots(resolve)?.workSlotLocation ?? fileSettings.workSlotLocation;
+  const stored = storeWorkSlots(resolve)?.workSlotLocation;
+  const location = stored ?? (await readJson<{ workSlotLocation?: string }>(getSettingsFilePath(), {})).workSlotLocation;
   return location === 'root' ? 'root' : 'auto';
 }
 
 /** Settings-controlled cap on work slots per repo. */
 export async function getMaxWorkSlots(resolve: GetSettingFn = getSetting): Promise<number> {
-  const fileSettings = await readJson<{ maxWorkSlots?: number }>(getSettingsFilePath(), {});
-  const n = storeWorkSlots(resolve)?.maxWorkSlots ?? fileSettings.maxWorkSlots;
+  const stored = storeWorkSlots(resolve)?.maxWorkSlots;
+  const n = stored ?? (await readJson<{ maxWorkSlots?: number }>(getSettingsFilePath(), {})).maxWorkSlots;
   return typeof n === 'number' && n >= 1 ? Math.floor(n) : 3;
 }
