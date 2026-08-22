@@ -382,6 +382,39 @@ function makeTombstoneResolver(
 }
 
 /**
+ * Recover a child's fork point when its parent was rewritten OUTSIDE this
+ * cascade — a `commit --amend`, a `reset --hard` plus a fresh commit, a
+ * hand-run rebase between gitq invocations. Nothing recorded a
+ * `preRebaseHeads` entry for those, so without this the child falls to a
+ * merge-base against the rewritten parent, which lands BELOW the fork point
+ * and sweeps the parent's pre-rewrite commits into the child's range.
+ *
+ * The stored `lastKnownHead` is the surviving record of where the child last
+ * sat on the parent, so it is the fork point — but only when all three hold:
+ * it still exists (an old enough head is garbage-collected), the parent has
+ * genuinely moved off it rather than merely growing past it (plain merge-base
+ * is right for a parent that only gained commits), and it still anchors this
+ * child's own history (a child rewritten away from it needs the merge-base
+ * too). Any of those failing returns undefined and the caller falls back.
+ */
+async function rewrittenParentHead(
+  cwd: string,
+  parentNode: StackNode,
+  childBranch: string,
+): Promise<string | undefined> {
+  const stored = parentNode.lastKnownHead;
+  if (!stored) return undefined;
+  try {
+    if (!(await validateTombstone(cwd, stored))) return undefined;
+    if (await GitShell.isAncestor(cwd, stored, parentNode.branch)) return undefined;
+    if (!(await GitShell.isAncestor(cwd, stored, childBranch))) return undefined;
+    return stored;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Old-base + parent-ref resolvers for merge-base style cascades (sync,
  * restack, and their resumes).
  *
@@ -391,6 +424,8 @@ function makeTombstoneResolver(
  * the original base and sweeps the parent's pre-rebase commits into the
  * child's range; those normally auto-drop by patch id, but conflict
  * spuriously when conflict resolution changed the parent's content.
+ * `rewrittenParentHead` covers the same hazard for a parent rewritten
+ * before the cascade started, where no such entry exists.
  */
 function makeCascadeResolvers(
   cwd: string,
@@ -421,7 +456,10 @@ function makeCascadeResolvers(
 
       const parentRef = resolveParentRef(node);
       const parentHead = await GitShell.getBranchHead(cwd, parentRef);
-      const oldParentHead = parentNode ? preRebaseHeads[node.parent] : undefined;
+      const oldParentHead = parentNode
+        ? (preRebaseHeads[node.parent] ??
+          (await rewrittenParentHead(cwd, parentNode, node.branch)))
+        : undefined;
       const oldBase = oldParentHead
         ? await GitShell.getMergeBase(cwd, node.branch, oldParentHead)
         : await GitShell.getMergeBase(cwd, node.branch, parentRef);
@@ -532,6 +570,23 @@ async function doCascadeLoop(
     const baseResult = await resolveBase(initialStack, node);
 
     if (baseResult.kind === 'skip') {
+      // Nothing to rebase — the branch already sits on its parent. Record
+      // where that is: `lastKnownHead` is the anchor a later cascade uses to
+      // find this node's children's fork point, and a cascade that only ever
+      // wrote it for branches it MOVED would leave it pointing at pre-rewrite
+      // history forever once a human amended or reset a branch by hand. A
+      // skip is the one moment the head is known-good without having touched
+      // it, so it is the moment to catch the record up.
+      try {
+        const liveHead = await GitShell.getBranchHead(cwd, node.branch);
+        if (liveHead && liveHead !== node.lastKnownHead) {
+          updatedStack = StackManager.updateNode(updatedStack, node.branch, {
+            lastKnownHead: liveHead,
+          });
+        }
+      } catch {
+        // best-effort: a head we cannot read just stays as recorded
+      }
       continue;
     }
 
