@@ -7,6 +7,7 @@ import { acquireLease, findLease, listLeases, parkLease, releaseLease } from '..
 import type { Lease } from '../core/leases.ts';
 import type { CliContext } from './context.ts';
 import { fail } from './output.ts';
+import { readPause } from './pause-file.ts';
 
 const exec = promisify(execFile);
 
@@ -15,12 +16,41 @@ export async function slotGitDir(slotPath: string): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * What is actually blocking, appended to a held-lease refusal.
+ *
+ * `pauseInfo` is printed once, when the cascade pauses, and never again: a
+ * later command only learns a lease is held. Recovering the conflict list
+ * then meant still having that first output, or going into the slot and
+ * working it out by hand. The pause file is right there next to the lease,
+ * so read it and say. Best-effort by design — a running (unpaused) lease has
+ * no pause file, and a refusal is not the place to fail over a missing one.
+ */
+export async function pausedDetail(slotPath: string): Promise<string> {
+  try {
+    const pause = await readPause(await slotGitDir(slotPath));
+    const info = pause?.pauseInfo;
+    if (!info) return '';
+    const files = info.conflictTypes?.length
+      ? info.conflictTypes.map((c) => `${c.type} ${c.file}`)
+      : (info.conflictFiles ?? []);
+    if (files.length === 0) return `\n  paused on ${info.currentBranch}`;
+    return (
+      `\n  paused on ${info.currentBranch}, ${files.length} conflict${files.length > 1 ? 's' : ''}:` +
+      files.map((f) => `\n    ${f}`).join('')
+    );
+  } catch {
+    return '';
+  }
+}
+
 /** Per-stack guard: refuse while the stack holds a running or parked lease. */
 export async function requireStackFree(ctx: CliContext, stackId: string): Promise<number | null> {
   const lease = await findLease(ctx.commonDir, stackId);
   if (lease) {
     return fail(
-      `stack has a ${lease.state} ${lease.action} lease on ${lease.slotPath}; finish it first: gitq continue (or gitq abort)`,
+      `stack has a ${lease.state} ${lease.action} lease on ${lease.slotPath}; finish it first: gitq continue (or gitq abort)` +
+        (await pausedDetail(lease.slotPath)),
     );
   }
   return null;
@@ -65,7 +95,10 @@ export async function withLeasedSlot(
   const acquired = await acquireLease(ctx.commonDir, { slotPath, stackId: stack.id, action });
   if (!acquired.ok) {
     const h = acquired.holder;
-    return fail(`stack has a ${h.state} ${h.action} lease on ${h.slotPath}; finish it first: gitq continue (or gitq abort)`);
+    return fail(
+      `stack has a ${h.state} ${h.action} lease on ${h.slotPath}; finish it first: gitq continue (or gitq abort)` +
+        (await pausedDetail(h.slotPath)),
+    );
   }
 
   let code: number;

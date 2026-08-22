@@ -12,6 +12,7 @@ import {
   commit,
   addNamedWorktree,
   addWorkSlot,
+  runCli,
   type SandboxRepo,
   type SandboxRepoWithRemote,
 } from './helpers.ts';
@@ -24,6 +25,7 @@ import { listLeases } from '../../src/core/leases.ts';
 import type { Stack } from '../../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '../../bin/gitq');
+export { runCli };
 
 /**
  * Resolve a worktree's real git dir (worktree-safe: `.git` there is a file
@@ -37,25 +39,6 @@ function gitDirOf(worktreePath: string): string {
     .trim();
 }
 
-export async function runCli(
-  args: string[],
-  cwd: string,
-  configDir: string,
-  envOverride: Record<string, string | undefined> = {},
-) {
-  const proc = Bun.spawn(['bun', BIN, ...args], {
-    cwd,
-    env: { ...process.env, GITQ_CONFIG_DIR: configDir, ...envOverride },
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
 
 // Dirs created by makeRepo() in the current test, cleaned up in afterEach.
 // Tests added later in this file inherit cleanup for free by going through makeRepo().
@@ -454,6 +437,14 @@ describe('gitq CLI', () => {
     expect(secondSync.exitCode).toBe(1);
     expect(secondSync.stderr).toContain('lease');
     expect(secondSync.stderr).toMatch(/continue|abort/);
+
+    // ...and says what is actually blocking. The conflict list is printed
+    // once, when the cascade pauses; without this a later command reports
+    // only that a lease exists, and recovering the file list means still
+    // having that first output or going into the slot by hand.
+    const paused = JSON.parse(sync.stdout).pauseInfo;
+    expect(secondSync.stderr).toContain(`paused on ${paused.currentBranch}`);
+    for (const file of paused.conflictFiles) expect(secondSync.stderr).toContain(file);
 
     // pause file untouched by the refused sync
     const pauseAfter = await Bun.file(`${slotGitDir}/gitq-pause.json`).text();

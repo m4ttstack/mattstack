@@ -19,8 +19,9 @@ For each tracked stack, collects a snapshot of git state (current branch, dirty/
 
 - A branch currently checked out in a sibling worktree (never a work slot, since those run detached) gets a suffix naming it: `  feat-api: behind-parent [in feature-tree]` (`src/cli/commands/diagnose.ts:18`).
 - The full set of situations, in priority order, and what each means, is documented once, in [Reading the tree](/getting-started/reading-the-tree#the-situations). This page does not repeat that table.
+- **A stack whose branches are every one gone from the remote collapses to a single line** naming the count and the remedy: `my-stack: all 3 branches gone from the remote — gitq untrack my-stack` (`src/cli/commands/diagnose.ts:20-45`). The stack is finished, or was deleted elsewhere, and only the tracking record survives; listing each branch says the same thing N times and pushes the live stacks down the screen. Collapsed rather than hidden, on purpose: a tracked stack nobody sees is one nobody remembers to untrack, which is how they accumulate. `--json` is unaffected — every node is still there — and gains `allBranchesGone` on the stack so the board can act on the same signal.
 - A repo with no tracked stacks prints `no stacks`.
-- Takes no flags beyond the global ones. Under `--json`, each stack carries `diagnostics: { nodes, edges, banner, globalBlocks }` in addition to `stackName`, plus the shared `worktrees` array. `nodes` adds `statusLine`, `badge`, `primaryAction`, `secondaryActions`, `blocked`, and `removal`, the fields the board renders from; `edges` and `banner` describe the tree and its headline problem. See [JSON output](/reference/json-output).
+- Takes no flags beyond the global ones. Under `--json`, each stack carries `diagnostics: { nodes, edges, banner, globalBlocks }` in addition to `stackName` and `allBranchesGone`, plus the shared `worktrees` array. `nodes` adds `statusLine`, `badge`, `primaryAction`, `secondaryActions`, `blocked`, and `removal`, the fields the board renders from; `edges` and `banner` describe the tree and its headline problem. See [JSON output](/reference/json-output).
 
 ## Exit codes
 

@@ -501,6 +501,8 @@ gitq sync --stack demo
 
 ```
 gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
+  paused on feat-handlers, 1 conflict:
+    UU config.ts
 ```
 
 ```bash
@@ -509,6 +511,8 @@ gitq remove feat-handlers --stack demo
 
 ```
 gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
+  paused on feat-handlers, 1 conflict:
+    UU config.ts
 ```
 
 Both exit `1`. Read-only commands are unaffected:

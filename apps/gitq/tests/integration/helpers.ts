@@ -203,3 +203,28 @@ export async function buildTreeStack(
   git('checkout', 'main');
   return { stack, shas };
 }
+
+/**
+ * Run the real CLI binary in `cwd` against an isolated config dir, and return
+ * what a user would see. Lives here rather than in a test file so a suite can
+ * use it without importing (and re-running) another suite.
+ */
+export async function runCli(
+  args: string[],
+  cwd: string,
+  configDir: string,
+  envOverride: Record<string, string | undefined> = {},
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const proc = Bun.spawn(['bun', join(import.meta.dir, '../../bin/gitq'), ...args], {
+    cwd,
+    env: { ...process.env, GITQ_CONFIG_DIR: configDir, ...envOverride },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { stdout, stderr, exitCode };
+}
