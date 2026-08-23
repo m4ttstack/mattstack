@@ -61,8 +61,11 @@ describe('command builders', () => {
     expect(prompt).toBe(`/gitq:sync /repo mystack --state /state/job.json --status-bin ${statusBinPath()}`);
   });
 
-  test('statusBinPath points at bin/gitq-status.ts', () => {
-    expect(statusBinPath().endsWith('bin/gitq-status.ts')).toBe(true);
+  // From a checkout it must be bin/gitq -- an executable, not a .ts file run
+  // through `bun run`. The skills invoke it as `<status-bin> job-status`, one
+  // shape that also fits the compiled binary handing out its own path.
+  test('statusBinPath points at the executable gitq entry', () => {
+    expect(statusBinPath().endsWith('/bin/gitq')).toBe(true);
   });
 
   test('buildPaneCommand cds and single-quotes, escaping embedded quotes', () => {

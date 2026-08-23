@@ -118,7 +118,7 @@ Every state-mutating command (`add`, `remove`, `untrack`, the surgery commands, 
 
 gitq is worktree-native. The stack store is keyed by the repo's git common dir, so every worktree of a repo sees the same stacks and any `gitq` command works from any of them.
 
-Cascades (`sync`, `continue`, `reparent`'s restack, `absorb`'s restack) never run in your checkout: gitq leases a dedicated work worktree (`gitq-1`, `gitq-2`, ... as siblings of the primary worktree when the repo is a pool, else under `~/.cache/gitq/work/`; `workSlotLocation: "root"` in settings.json keeps them out of the pool always), rebases there with a detached HEAD, and moves branch refs with compare-and-swap at the end. Up to `maxWorkSlots` (settings.json, default 3) cascades can run per repo at once, one stack each; a stack with a running or parked cascade refuses other mutations until it finishes.
+Cascades (`sync`, `continue`, `reparent`'s restack, `absorb`'s restack) never run in your checkout: gitq leases a dedicated work worktree (`gitq-1`, `gitq-2`, ... as siblings of the primary worktree when the repo is a pool, else under `~/.mattstack/gitq/work/`; `workSlotLocation: "root"` in settings.json keeps them out of the pool always), rebases there with a detached HEAD, and moves branch refs with compare-and-swap at the end. Up to `maxWorkSlots` (settings.json, default 3) cascades can run per repo at once, one stack each; a stack with a running or parked cascade refuses other mutations until it finishes.
 
 A branch checked out in one of your worktrees is handled by policy: if that worktree is clean and sitting exactly on the branch's old head, gitq moves the ref and resets the worktree to the new head (lossless); if it is dirty, mid-rebase, or drifted, that branch fails with a message naming the worktree, and nothing is touched.
 
@@ -138,7 +138,7 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 
 ## where state lives
 
-- `~/.config/gitq/`: stack stores (one JSON file per repo, keyed by a hash of the repo path, under `stacks/`), plus `settings.json` and the global `operation-log.json`. Override the base directory with `GITQ_CONFIG_DIR`.
+- `~/.mattstack/gitq/`: the app root, and everything gitq owns -- stack stores (one JSON file per repo, keyed by a hash of the repo path, under `stacks/`), `settings.json`, the global `operation-log.json`, the work slots gitq creates under `work/`, and the board's `config.json` and `state/jobs/`. `GITQ_APP_ROOT` moves the whole root; `GITQ_CONFIG_DIR` moves just the CLI's subset and wins over it. These files used to live in `~/.config/gitq` (work slots in `~/.cache/gitq/work`): the first run copies that directory in, leaves the original in place for you to delete, and never merges into a root that already holds files. Slots already leased under the old root keep working untouched.
 - `<commonDir>/gitq/leases.json`: per-repo work-slot lease registry, tracking which stack holds which work slot.
 - `<gitdir>/gitq-pause.json`: present only while a cascade is paused on a conflict, per repo (worktree safe, since it's keyed off the git dir, not the worktree root). During a cascade this lives in the work slot's git dir, not your checkout's.
 
@@ -146,7 +146,7 @@ A command can also exit `1` after emitting its normal stdout JSON: `sync`/`conti
 
 `publish` and `import` need a token, and which one follows from your git remote's host. A gitlab.com remote wants `GITLAB_TOKEN` in the environment; a github.com remote wants `GITHUB_TOKEN`. Neither is ever read from a plaintext file: when the environment variable is unset, gitq asks the rt daemon for a grant-gated token (`secrets:forge-token`), which requires the repo to be tracked with rt (`rt daemon track <repo> live branches`) and refuses otherwise, naming the reason.
 
-Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `gitq.forges` (see [Settings](#settings) below) or, until that key is imported, in `~/.config/gitq/settings.json`:
+Self-hosted GitLab and GitHub Enterprise work too, but a hostname does not say which forge it runs, so they need an entry in `gitq.forges` (see [Settings](#settings) below) or, until that key is imported, in `~/.mattstack/gitq/settings.json`:
 
 ```json
 { "forges": { "gitlab.acme.com": { "provider": "gitlab" } } }
@@ -158,9 +158,9 @@ gitq reads three settings from the [rt](https://rt.cool) settings store when it 
 
 | Key | Scope | Shape | File fallback |
 | --- | --- | --- | --- |
-| `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `~/.config/gitq/settings.json` |
-| `gitq.forges` | user | host-keyed map, `tokenEnv` names only (never a live token) | `~/.config/gitq/settings.json` |
-| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | `<gitq checkout>/config.json` |
+| `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | `~/.mattstack/gitq/settings.json` |
+| `gitq.forges` | user | host-keyed map, `tokenEnv` names only (never a live token) | `~/.mattstack/gitq/settings.json` |
+| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | `<app root>/config.json` |
 
 Set one with the rt CLI, e.g.:
 
@@ -198,15 +198,20 @@ Both open real branches and MRs on the project you name and close them again in 
 bun run scripts/install-skills.ts
 ```
 
-The four board skills take `<repoPath> <stackName>` positionals plus optional `--state <path> --status-bin <path>` flags. The board injects those two so the pane can emit lifecycle status (`starting | working | conflict | done | error`) to a JSON state file under `state/jobs/`; invoked by hand without them, the skills skip status writes and just talk to you. The status writer is `bin/gitq-status.ts` (`bun run bin/gitq-status.ts <statePath> <status> [detail]`); the state file helpers live in `src/server/job-state.ts`. `gitq:track` has no board action behind it, so it takes only an optional `[repoPath]` and never writes status.
+The four board skills take `<repoPath> <stackName>` positionals plus optional `--state <path> --status-bin <path>` flags. The board injects those two so the pane can emit lifecycle status (`starting | working | conflict | done | error`) to a JSON state file under `<app root>/state/jobs/`; invoked by hand without them, the skills skip status writes and just talk to you. `--status-bin` is the gitq executable itself, called as `<status-bin> job-status <statePath> <status> [detail]`; the state file helpers live in `src/server/job-state.ts`. `gitq:track` has no board action behind it, so it takes only an optional `[repoPath]` and never writes status.
 
 ## board
 
 A local web board showing every configured repo's stacks: per branch status badges (from `gitq diagnose`'s engine, plus a "conflict predicted" hint from preflight), MR and pipeline state per repo when that repo's forge token is available, live job chips while a pane works, and an activity feed from the operation log. Right-clicking a stack offers the four actions; each one spawns a herdr tab running `claude` with the matching `gitq:*` skill and the `--state`/`--status-bin` contract, so the badge updates live while the agent works. Relaunching a live action refocuses its tab instead of double-spawning.
 
 ```bash
-cp config.example.json config.json   # edit: repos to show, port (default 11008), herdrWorkspace
-bun run serve                        # http://localhost:11008
+mkdir -p ~/.mattstack/gitq
+cp config.example.json ~/.mattstack/gitq/config.json   # edit: repos to show, port (default 11008), herdrWorkspace
+bun run serve                                          # http://localhost:11008
 ```
 
-Endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. The action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. Repo data is cached in memory for 60s with stale-while-revalidate; job state files under `state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish`, resolved per repo from that repo's own remote host, so a board showing a gitlab.com repo alongside a github.com one enriches each from its own credential; a repo whose token is missing still renders from the store's last known MR fields. The client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). Config changes need a restart.
+The board's own files -- `config.json` and `state/jobs/` -- sit in the same app root as everything else (see [where state lives](#where-state-lives)), from a checkout as much as from the compiled binary. Unlike the CLI's files they do not follow `GITQ_CONFIG_DIR`: a throwaway stack store should not also repoint the board.
+
+`bun run build:binary` compiles a standalone `dist/gitq` carrying its own client bundle, so `gitq board` serves the page on a machine with no checkout on it. That binary is what mattstack.app ships in `Contents/Helpers/gitq`.
+
+Endpoints: `/` (the board), `/data.json` (snapshot; `?fresh=1` forces a refetch), `POST /action` `{ repoPath, stack, action }`, `/healthz`. The action route only answers requests whose Host is local (`localhost`, `127.0.0.1`, `*.localhost`); through a tunnel the board is read only, and the client hides the action menu items. Repo data is cached in memory for 60s with stale-while-revalidate; job state files under `<app root>/state/jobs/` are read fresh on every request and pruned once terminal and older than 24h. MR enrichment needs the same token as `publish`, resolved per repo from that repo's own remote host, so a board showing a gitlab.com repo alongside a github.com one enriches each from its own credential; a repo whose token is missing still renders from the store's last known MR fields. The client bundle is built in memory at startup (restart to pick up client changes; `style.css` edits are live). Config changes need a restart.

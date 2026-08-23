@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { getSetting } from '@mattstack/rt-client';
+import { APP_ROOT } from '../core/app-root.ts';
 import { warnStoreFallback } from '../core/settings-fallback-warn.ts';
 
 type GetSettingFn = typeof getSetting;
@@ -25,7 +26,7 @@ export interface BoardConfig {
  * on-disk config still carrying it loads fine, ignored.
  */
 
-export const CONFIG_PATH = join(import.meta.dir, '..', '..', 'config.json');
+export const CONFIG_PATH = join(APP_ROOT, 'config.json');
 
 function basenameOf(path: string): string {
   const parts = path.split('/').filter(Boolean);
@@ -91,7 +92,7 @@ export function loadConfig(resolve: GetSettingFn = getSetting, configPath: strin
   try {
     raw = readFileSync(configPath, 'utf8');
   } catch {
-    throw new Error(`no config.json at ${configPath}; copy config.example.json and edit it`);
+    throw new Error(`no config.json at ${configPath}, and no "gitq.board" in the settings store; set one of them`);
   }
   return parseConfig(raw);
 }

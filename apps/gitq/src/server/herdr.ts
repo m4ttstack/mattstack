@@ -1,5 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
+import { IS_COMPILED } from '../core/app-root.ts';
 import type { JobAction } from './job-state.ts';
 
 const HERDR_BIN = process.env.HERDR_BIN || join(homedir(), '.local', 'bin', 'herdr');
@@ -86,10 +87,18 @@ function shellSingleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Absolute path to the Plan 2 status-writer CLI. The pane runs in the target
-    repo's cwd, so the board injects this path via --status-bin. */
+/**
+ * Absolute path to the gitq executable a spawned pane calls as
+ * `<status-bin> job-status <state> <status>`. The pane runs in the target
+ * repo's cwd, so the board injects this path via --status-bin.
+ *
+ * Compiled, that is this very binary. Path-based rather than inode-based on
+ * purpose: a Sparkle update replaces the whole .app while the board runs, and
+ * a pane that spawns afterwards must reach the NEW binary at the same path.
+ * From a checkout it is bin/gitq, whose bun shebang makes it executable.
+ */
 export function statusBinPath(): string {
-  return join(import.meta.dir, '..', '..', 'bin', 'gitq-status.ts');
+  return IS_COMPILED ? process.execPath : join(import.meta.dir, '..', '..', 'bin', 'gitq');
 }
 
 /** The slash command a spawned pane opens with. Flag shape must match the

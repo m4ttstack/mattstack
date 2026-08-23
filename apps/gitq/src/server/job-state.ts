@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, readdirSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
+import { APP_ROOT } from '../core/app-root.ts';
 
 export type JobStatus = 'starting' | 'working' | 'conflict' | 'done' | 'error';
 export type JobAction = 'sync' | 'publish' | 'absorb' | 'restructure';
@@ -24,7 +25,7 @@ export interface JobState {
 }
 
 /** Per-job JSON files live here; the server owns naming, the agent just writes. */
-export const JOBS_DIR = join(import.meta.dir, '..', '..', 'state', 'jobs');
+export const JOBS_DIR = join(APP_ROOT, 'state', 'jobs');
 
 /** Deterministic file path for a (repo, stack, action) triple, so a repeat
     launch resolves the same file. */

@@ -12,21 +12,20 @@ import { homedir, tmpdir } from 'node:os';
 import { realpathSync } from 'node:fs';
 
 const CONFIG_PATHS_MODULE = join(import.meta.dir, '..', 'src', 'core', 'config-paths.ts');
-// Two HOME views are in play here, and each test group must match the one
-// its own code path actually uses:
-//  - In-process assertions (below, outside the GITQ_CONFIG_DIR describe)
-//    exercise config-paths.ts's already-imported module, whose HOME_CONFIG_DIR
-//    was computed from homedir() once at import time. Bun's homedir() reads
-//    HOME only at process start, so it stays this real value even after
-//    tests/preload.ts mutates process.env.HOME at runtime -- these constants
-//    must match that frozen-real value.
-//  - The GITQ_CONFIG_DIR describe block spawns a FRESH bun process per case,
-//    which inherits process.env.HOME (the preload's fake mkdtemp) as its
-//    OWN process-start HOME, so ITS homedir() resolves under the fake one.
-const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'gitq');
-const DEFAULT_WORK_SLOT_ROOT = join(homedir(), '.cache', 'gitq', 'work');
-const SPAWNED_DEFAULT_CONFIG_DIR = join(process.env.HOME ?? homedir(), '.config', 'gitq');
-const SPAWNED_DEFAULT_WORK_SLOT_ROOT = join(process.env.HOME ?? homedir(), '.cache', 'gitq', 'work');
+// One HOME view now covers both test groups. The app root is derived from
+// process.env.HOME (not the syscall-backed homedir(), which bun freezes at
+// process start), so the already-imported module below and the fresh bun
+// processes the GITQ_CONFIG_DIR block spawns -- which inherit that same env --
+// resolve to the same directory: tests/preload.ts's fake mkdtemp HOME.
+//
+// That is also what keeps the suite off the real machine: the legacy directory
+// the one-time migration reads is HOME-derived too, so under the fake HOME it
+// does not exist and the migration is a no-op.
+const APP_ROOT_DIR = join(process.env.HOME ?? homedir(), '.mattstack', 'gitq');
+const DEFAULT_CONFIG_DIR = APP_ROOT_DIR;
+const DEFAULT_WORK_SLOT_ROOT = join(APP_ROOT_DIR, 'work');
+const SPAWNED_DEFAULT_CONFIG_DIR = DEFAULT_CONFIG_DIR;
+const SPAWNED_DEFAULT_WORK_SLOT_ROOT = DEFAULT_WORK_SLOT_ROOT;
 
 const originalConfigDir = getConfigDir();
 
@@ -76,7 +75,7 @@ describe('config-paths', () => {
     expect(getOperationLogFilePath()).toBe(join('/tmp/test-config', 'operation-log.json'));
   });
 
-  test('getWorkSlotRoot is the ~/.cache/gitq/work path when the config dir is the default', () => {
+  test('getWorkSlotRoot sits under the app root when the config dir is the default', () => {
     // Set explicitly rather than relying on the ambient default: the suite is
     // meant to be runnable with GITQ_CONFIG_DIR exported to a scratch dir.
     setConfigDir(DEFAULT_CONFIG_DIR);
@@ -88,9 +87,9 @@ describe('config-paths', () => {
     expect(getWorkSlotRoot()).toBe(join('/tmp/test-config', 'work'));
   });
 
-  // The default is matched by value, so an unnormalized spelling of the same
-  // directory must not silently move the root somewhere else.
-  test('getWorkSlotRoot normalizes both sides before matching the default', () => {
+  // An unnormalized spelling of a directory must not produce a second,
+  // differently-spelled work-slot root for the same place.
+  test('getWorkSlotRoot normalizes the config dir first', () => {
     setConfigDir(`${DEFAULT_CONFIG_DIR}/`);
     expect(getWorkSlotRoot()).toBe(DEFAULT_WORK_SLOT_ROOT);
     setConfigDir(`${DEFAULT_CONFIG_DIR}/./`);
@@ -105,20 +104,19 @@ describe('config-paths', () => {
   // Work slots are real git worktrees: if any of this regresses, GITQ_CONFIG_DIR
   // no longer sandboxes what gitq writes to disk.
   describe('GITQ_CONFIG_DIR', () => {
-    test('unset gives ~/.config/gitq and the historical cache root', () => {
+    test('unset gives the app root, work slots included', () => {
       const paths = readPathsWith(undefined);
       expect(paths.exported).toBe(SPAWNED_DEFAULT_CONFIG_DIR);
       expect(paths.workSlotRoot).toBe(SPAWNED_DEFAULT_WORK_SLOT_ROOT);
     });
 
-    test('moves the work-slot root out of the real cache dir', () => {
+    test('moves the work-slot root out of the app root', () => {
       expect(readPathsWith('/tmp/gitq-sandbox-config').workSlotRoot).toBe(
         join('/tmp/gitq-sandbox-config', 'work'),
       );
     });
 
-    test('set to the default path keeps the historical cache root', () => {
-      // The special case is value equality, not set-ness. Documented as such.
+    test('set to the app root path is the same as leaving it unset', () => {
       expect(readPathsWith(SPAWNED_DEFAULT_CONFIG_DIR).workSlotRoot).toBe(SPAWNED_DEFAULT_WORK_SLOT_ROOT);
     });
 

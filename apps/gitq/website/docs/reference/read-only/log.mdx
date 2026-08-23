@@ -15,7 +15,7 @@ gitq log
 
 ## Behavior
 
-The operation log itself is one file, global across every repo (`~/.config/gitq/operation-log.json`, capped at the 50 most recent entries). `gitq log` reads all of it, then filters to the entries whose `commonDir` (or legacy `repoPath`) matches this repo, and only shows those (`src/cli/commands/log.ts:9`, `entryBelongsToRepo`). Entries from other repos are counted, not listed: `(N operation(s) from other repos hidden)` is appended when there are any.
+The operation log itself is one file, global across every repo (`~/.mattstack/gitq/operation-log.json`, capped at the 50 most recent entries). `gitq log` reads all of it, then filters to the entries whose `commonDir` (or legacy `repoPath`) matches this repo, and only shows those (`src/cli/commands/log.ts:9`, `entryBelongsToRepo`). Entries from other repos are counted, not listed: `(N operation(s) from other repos hidden)` is appended when there are any.
 
 - Each visible line is `<ISO timestamp> <operation> (<branches>)`, or `no branches` when the entry recorded none.
 - A repo with no logged operations prints `no operations`.

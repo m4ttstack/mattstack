@@ -243,7 +243,7 @@ It fetched, resolved `origin/main` as the new base, then walked the stack in top
 
 ## Clean up
 
-The scratch repo is disposable: `rm -rf /tmp/gitq-demo /tmp/gitq-demo-origin.git`. That deletes the branches but not gitq's record of them, since the stack store lives in `~/.config/gitq/`. It also does not remove the work slot that `sync` leased for the cascade, which lives outside the repo at `~/.cache/gitq/work/<hash>/gitq-1` (the `<hash>` is derived from the repo's git common dir, not from the directory you ran gitq in). If you delete `/tmp/gitq-demo` and recreate it at the same path later, remove that directory too, otherwise the next `gitq sync` hits a raw `fatal: '.../gitq-1' already exists` from git. Drop the record too:
+The scratch repo is disposable: `rm -rf /tmp/gitq-demo /tmp/gitq-demo-origin.git`. That deletes the branches but not gitq's record of them, since the stack store lives in `~/.mattstack/gitq/`. It also does not remove the work slot that `sync` leased for the cascade, which lives outside the repo at `~/.mattstack/gitq/work/<hash>/gitq-1` (the `<hash>` is derived from the repo's git common dir, not from the directory you ran gitq in). If you delete `/tmp/gitq-demo` and recreate it at the same path later, remove that directory too, otherwise the next `gitq sync` hits a raw `fatal: '.../gitq-1' already exists` from git. Drop the record too:
 
 ```bash
 gitq untrack demo

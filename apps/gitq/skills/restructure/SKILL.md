@@ -22,13 +22,13 @@ any conflict resolution along the way.
 | `<stackName>` (positional) | the tracked stack to reshape |
 | `[instruction]` (positional, optional) | what the human wants, in their words |
 | `--state <path>` | lifecycle status file the board polls (optional) |
-| `--status-bin <path>` | absolute path to the board's status-writer CLI (optional) |
+| `--status-bin <path>` | absolute path to the gitq executable, called as `<status-bin> job-status` (optional) |
 
 **Status writes.** When `--state` and `--status-bin` were given, write status
 only by running the injected bin:
 
 ```
-bun run <status-bin> <state> <status> [detail]
+<status-bin> job-status <state> <status> [detail]
 ```
 
 with status one of `working | conflict | done | error` (the board writes
@@ -40,7 +40,7 @@ just talk to the human; everything else below is unchanged.
 1. **Get the intent.** Use the instruction positional. If it is missing or
    too vague to act on ("clean this up"), ask the human what they want
    before touching anything.
-2. **Mark working.** `bun run <status-bin> <state> working "planning restructure"`
+2. **Mark working.** `<status-bin> job-status <state> working "planning restructure"`
 3. **Map intent to operations.** Learn the current shape from
    `gitq -C <repoPath> stacks --json` and `gitq -C <repoPath> diagnose
    --json` (no `--stack` flag on diagnose; find your stack by `stackName`),
@@ -86,7 +86,7 @@ just talk to the human; everything else below is unchanged.
      only a `reparent` can be walked back with `gitq undo`).
 6. **Verify and mark done.** `gitq -C <repoPath> diagnose --json` once more
    to confirm the stack is healthy, then
-   `bun run <status-bin> <state> done "<summary>"` with a summary like
+   `<status-bin> job-status <state> done "<summary>"` with a summary like
    "split feature-x at abc1234 into feature-x-ui, reparented api onto main".
    Report the new tree shape to the human.
 

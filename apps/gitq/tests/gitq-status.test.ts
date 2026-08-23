@@ -22,6 +22,18 @@ function run(args: string[], env: Record<string, string> = {}) {
 }
 
 describe('gitq-status', () => {
+  // A board that started before the verb landed still hands this path out as
+  // --status-bin, while the skills on disk have already moved to
+  // `<status-bin> job-status`. Both spellings must land the same write.
+  test('accepts the job-status verb as well as the bare shape', () => {
+    const state = join(dir, 'verb.json');
+    const res = run(['job-status', state, 'working', 'via the verb']);
+    expect(res.status).toBe(0);
+    const json = JSON.parse(readFileSync(state, 'utf8'));
+    expect(json.status).toBe('working');
+    expect(json.detail).toBe('via the verb');
+  });
+
   test('writes status, detail, and the env session id', () => {
     const state = join(dir, 'job.json');
     const res = run([state, 'conflict', '2 conflicts on api'], { CLAUDE_CODE_SESSION_ID: 'sess-1' });

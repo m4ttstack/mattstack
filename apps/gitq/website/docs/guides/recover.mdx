@@ -148,7 +148,7 @@ gitq sync --stack demo
 ```
 
 ```
-paused on feat-a in /Users/you/.cache/gitq/work/9f13ab2c7e0451dd/gitq-1 (commit ?/?):
+paused on feat-a in /Users/you/.mattstack/gitq/work/9f13ab2c7e0451dd/gitq-1 (commit ?/?):
   UU README.md
 resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
 ```
@@ -185,7 +185,7 @@ fb1414b feat-a touches README
 
 ## The store is wrong or gone
 
-Deleted `~/.config/gitq/stacks/<hash>.json` by accident, or the tree in it just doesn't match reality anymore and hand-editing isn't worth it. If the forge still has the MRs, `gitq import --replace` rebuilds the store from there: the reverse direction of `publish`, forge state overwriting local state:
+Deleted `~/.mattstack/gitq/stacks/<hash>.json` by accident, or the tree in it just doesn't match reality anymore and hand-editing isn't worth it. If the forge still has the MRs, `gitq import --replace` rebuilds the store from there: the reverse direction of `publish`, forge state overwriting local state:
 
 ```bash
 gitq import --replace
@@ -231,7 +231,7 @@ Something claims a stack is mid-cascade (`stack has a parked sync lease on ...` 
 {
   "leases": [
     {
-      "slotPath": "/Users/you/.cache/gitq/work/9f13ab2c7e0451dd/gitq-1",
+      "slotPath": "/Users/you/.mattstack/gitq/work/9f13ab2c7e0451dd/gitq-1",
       "stackId": "f75110fc-52cd-44a0-b26d-8cbe0095158f",
       "action": "sync",
       "pid": 66119,
