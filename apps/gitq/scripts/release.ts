@@ -2,7 +2,7 @@
 /** Cut a release of @mattstack/gitq: verify the tree, bump the version, run
     the gates, publish, then commit and push the bump and its tag.
 
-    Usage: bun run release <patch|minor|major|x.y.z> [--dry-run]
+    Usage: bun run release <patch|minor|major|x.y.z> [--dry-run] [--otp <code>]
 
     Publishing uses `bun publish`, not `npm publish`: bun resolves the
     workspace: and catalog: protocols that this suite's packages use, and npm
@@ -29,10 +29,23 @@ if (import.meta.main) {
   const PKG = join(ROOT, 'package.json');
   const dryRun = process.argv.includes('--dry-run');
   const bumpArg = process.argv[2];
+  const otpIndex = process.argv.indexOf('--otp');
+  const otp = otpIndex === -1 ? undefined : process.argv[otpIndex + 1];
+  if (otpIndex !== -1 && !otp) {
+    console.error('release: --otp needs a value');
+    process.exit(1);
+  }
 
-  const run = (cmd: string[], opts: { capture?: boolean } = {}): string => {
+  /**
+   * `throws: true` makes a failure recoverable by the caller. The publish step
+   * needs it: exiting the process there skips its own rollback, which is how a
+   * failed publish left package.json bumped to a version that was never
+   * published and the tree dirty.
+   */
+  const run = (cmd: string[], opts: { capture?: boolean; throws?: boolean } = {}): string => {
     const proc = Bun.spawnSync(cmd, { cwd: ROOT, stdout: opts.capture ? 'pipe' : 'inherit', stderr: 'inherit' });
     if (proc.exitCode !== 0) {
+      if (opts.throws) throw new Error(`failed: ${cmd.join(' ')}`);
       console.error(`\nfailed: ${cmd.join(' ')}`);
       process.exit(1);
     }
@@ -45,7 +58,7 @@ if (import.meta.main) {
   };
 
   if (!bumpArg || bumpArg.startsWith('--')) {
-    die('usage: bun run release <patch|minor|major|x.y.z> [--dry-run]');
+    die('usage: bun run release <patch|minor|major|x.y.z> [--dry-run] [--otp <code>]');
   }
 
   // 1. The tree has to be somewhere we can safely tag from.
@@ -101,10 +114,15 @@ if (import.meta.main) {
   // 5. Publish first. If it fails, the repo is untouched and rerunnable;
   //    the reverse order would leave a tag pointing at an unpublished version.
   writeFileSync(PKG, JSON.stringify({ ...JSON.parse(readFileSync(PKG, 'utf8')), version: next }, null, 2) + '\n');
+  // --otp is forwarded, not left to the environment: `bun publish` ignores
+  // NPM_CONFIG_OTP and silently falls back to an interactive browser flow,
+  // which cannot complete in a non-interactive run.
+  const publishCmd = ['bun', 'publish', ...(otp ? ['--otp', otp] : [])];
   try {
-    run(['bun', 'publish']);
+    run(publishCmd, { throws: true });
   } catch (err) {
     writeFileSync(PKG, readFileSync(PKG, 'utf8').replace(`"version": "${next}"`, `"version": "${pkg.version}"`));
+    console.error(`\nrelease: publish failed, package.json restored to ${pkg.version}`);
     throw err;
   }
 
