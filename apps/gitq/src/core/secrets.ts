@@ -5,6 +5,13 @@ import type { ForgeSlug } from './forges.ts';
 interface ResolveOptions {
   env?: Record<string, string | undefined>;
   /**
+   * Where rt's repos.json lives. Test seam: rt-client resolves the default
+   * through syscall `homedir()`, which ignores the HOME the test preload
+   * repoints, so without this a test covering the daemon path passes only on a
+   * machine whose real repos.json happens to register the repo it names.
+   */
+  reposJsonPath?: string;
+  /**
    * Env var this instance's token lives in, from its `forges` override.
    *
    * Authoritative when set: a github.com credential is not a GitHub Enterprise
@@ -57,7 +64,7 @@ export async function resolveForgeToken(forge: ForgeSlug, opts: ResolveOptions =
   if (!opts.repoPath) {
     return { token: null, reason: `${tokenSourceHint(forge)}; no repo path was available for an rt lookup` };
   }
-  const repoName = repoNameForPath(opts.repoPath);
+  const repoName = repoNameForPath(opts.repoPath, opts.reposJsonPath);
   if (!repoName) {
     return {
       token: null,

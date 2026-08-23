@@ -1,5 +1,19 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { resolveForgeToken, tokenSourceHint } from '../src/core/secrets.ts';
+
+/**
+ * A repos.json this test owns. rt-client resolves the default one through
+ * syscall `homedir()`, which ignores the HOME the preload repoints -- so
+ * naming a real path here would assert against whatever the developer's own
+ * machine happens to have registered, and fail everywhere else (it did: these
+ * two cases passed locally and failed on the first CI run).
+ */
+const TRACKED_REPO = '/tracked/gitq';
+const reposJsonPath = join(mkdtempSync(join(tmpdir(), 'gitq-secrets-repos-')), 'repos.json');
+writeFileSync(reposJsonPath, JSON.stringify({ gitq: TRACKED_REPO }));
 
 /**
  * Token resolution after MAT-33: env vars first, then the rt daemon's
@@ -35,7 +49,8 @@ describe('resolveForgeToken', () => {
   test('a granted repo gets the daemon token when env misses', async () => {
     const res = await resolveForgeToken('gitlab', {
       env: {},
-      repoPath: '/Users/matt/Documents/GitHub/gitq',
+      repoPath: TRACKED_REPO,
+      reposJsonPath,
       daemonToken: grant('glpat-daemon') as never,
     });
     expect(res).toEqual({ token: 'glpat-daemon' });
@@ -44,7 +59,8 @@ describe('resolveForgeToken', () => {
   test("the daemon's refusal comes back verbatim as the reason", async () => {
     const res = await resolveForgeToken('gitlab', {
       env: {},
-      repoPath: '/Users/matt/Documents/GitHub/gitq',
+      repoPath: TRACKED_REPO,
+      reposJsonPath,
       daemonToken: refuse as never,
     });
     expect(res.token).toBeNull();
