@@ -47,11 +47,11 @@ gitq keeps almost nothing in your repository. At a glance:
 
 | Location | What it holds |
 | --- | --- |
-| `~/.config/gitq/` | The stack stores (one JSON file per repo under `stacks/`), plus `settings.json` and the global `operation-log.json`. Override the base directory with the `GITQ_CONFIG_DIR` environment variable. |
+| `~/.mattstack/gitq/` | gitq's app root: the stack stores (one JSON file per repo under `stacks/`), `settings.json`, the global `operation-log.json`, the work slots it creates under `work/`, and the board's `config.json` and `state/jobs/`. Move the whole root with `GITQ_APP_ROOT`, or just the CLI's subset with `GITQ_CONFIG_DIR`. |
 | `<commonDir>/gitq/leases.json` | The per-repo work-slot lease registry: which stack currently holds which work worktree. |
 | `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. During a normal cascade that `<gitdir>` is the leased work slot's, not your checkout's. See [Pause protocol](/concepts/pause-protocol). |
 
-`GITQ_CONFIG_DIR` is read once per process, so exporting it for a single command is enough to point gitq at a throwaway store. That is worth knowing before you try anything experimental. See [State](/concepts/state) for the full picture.
+`GITQ_CONFIG_DIR` is read once per process, so exporting it for a single command is enough to point gitq at a throwaway store. That is worth knowing before you try anything experimental. If you used gitq before it moved to the app root, the first run copies `~/.config/gitq` in and leaves the original alone. See [State](/concepts/state) for the full picture.
 
 ## Optional: the agent skills
 

@@ -18,7 +18,7 @@ All of them update gitq's tree and the git refs together, and none of them repla
 Like every mutation, surgery refuses while the stack holds a lease:
 
 ```
-gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
+gitq: stack has a parked sync lease on /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
   paused on feat-handlers, 1 conflict:
     UU config.ts
 ```
@@ -438,7 +438,7 @@ gitq reparent feat-p --onto feat-x
 ```
 
 ```
-paused on feat-q in /Users/you/.cache/gitq/work/80c99b99f76bdc37/gitq-1 (commit ?/?):
+paused on feat-q in /Users/you/.mattstack/gitq/work/80c99b99f76bdc37/gitq-1 (commit ?/?):
   UU shared.ts
 resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
 ```
@@ -469,7 +469,7 @@ The pause file is the same document a paused sync writes, with `newBase` and `cu
       "feat-p": "5c1e5f0f0e63101b1a29750959548d78738f6ef0",
       "feat-q": "6b7a1e0465b7d898c145ffbcb666ec3aced2e1e9"
     },
-    "worktreePath": "/Users/you/.cache/gitq/work/80c99b99f76bdc37/gitq-1"
+    "worktreePath": "/Users/you/.mattstack/gitq/work/80c99b99f76bdc37/gitq-1"
   }
 }
 ```

@@ -48,7 +48,7 @@ gitq reads `worktreePath` first and falls back to `treePath` when deciding where
 The human message names the same place:
 
 ```
-paused on feat-handlers in /Users/you/.cache/gitq/work/ab12.../gitq-1 (commit ?/?):
+paused on feat-handlers in /Users/you/.mattstack/gitq/work/ab12.../gitq-1 (commit ?/?):
   UU handlers.ts
 resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
 ```
@@ -62,7 +62,7 @@ Not the pause file. The **lease**.
 A cascade that exits `2` leaves its lease on the work slot in the `parked` state, and every command that would mutate that stack refuses against the lease, from any worktree of the repo:
 
 ```
-gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ab12.../gitq-1;
+gitq: stack has a parked sync lease on /Users/you/.mattstack/gitq/work/ab12.../gitq-1;
 finish it first: gitq continue (or gitq abort)
 ```
 

@@ -40,13 +40,13 @@ branches are left alone and appear in neither list.
 | `<repoPath>` (positional) | absolute path of the repo checkout |
 | `<stackName>` (positional) | the tracked stack to publish |
 | `--state <path>` | lifecycle status file the board polls (optional) |
-| `--status-bin <path>` | absolute path to the board's status-writer CLI (optional) |
+| `--status-bin <path>` | absolute path to the gitq executable, called as `<status-bin> job-status` (optional) |
 
 **Status writes.** When `--state` and `--status-bin` were given, write status
 only by running the injected bin:
 
 ```
-bun run <status-bin> <state> <status> [detail]
+<status-bin> job-status <state> <status> [detail]
 ```
 
 with status one of `working | conflict | done | error` (the board writes
@@ -55,7 +55,7 @@ just talk to the human; everything else below is unchanged.
 
 ## Steps
 
-1. **Mark working.** `bun run <status-bin> <state> working "publishing <stackName>"`
+1. **Mark working.** `<status-bin> job-status <state> working "publishing <stackName>"`
 2. **Check the stack's shape.** `gitq -C <repoPath> diagnose --json` (no
    `--stack` flag; find your stack by `stackName` in the `stacks` array).
    - A paused cascade blocks publish outright (gitq refuses every mutating
@@ -101,7 +101,7 @@ just talk to the human; everything else below is unchanged.
      decide which it needs: `GITLAB_TOKEN` then `gitlabToken` in
      `~/.mattstack/rt/secrets.json` for GitLab, `GITHUB_TOKEN` then `githubToken` for
      GitHub. A self-hosted host needs a `forges` entry in
-     `~/.config/gitq/settings.json` naming its provider, and the error says so.
+     `~/.mattstack/gitq/settings.json` naming its provider, and the error says so.
      Mark
      error with the stderr text.
    - **exit 1** after normal JSON: some per-MR results have
@@ -114,7 +114,7 @@ just talk to the human; everything else below is unchanged.
      skipped branch as published, and never let a run of nothing but skips
      pass as "nothing needed doing".
 6. **Mark done.**
-   `bun run <status-bin> <state> done "<n> MRs created, <m> updated"`
+   `<status-bin> job-status <state> done "<n> MRs created, <m> updated"`
    Then give the human the MR URLs from the publish JSON, in stack order, plus
    any skipped branches and their reasons.
 

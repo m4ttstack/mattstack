@@ -13,7 +13,7 @@ Every block below came from a real run, with `/Users/you/repos/myrepo` standing 
 
 ## One store, every worktree
 
-gitq keys its stack store by the repo's *identity*, not by the directory you happened to run it from: the real path of the shared `.git` (the common dir), hashed. Every worktree of a repo (the primary checkout, every sibling, every work slot) resolves to that same common dir, so they all read and write the same `stacks/<hash>.json`. Run `gitq stacks` from any worktree in the pool and you see the same tracked stacks; run `gitq add` from one and it's visible from all the others immediately, no syncing step involved. See [Where state lives](/concepts/state#the-config-directory) for the mechanism.
+gitq keys its stack store by the repo's *identity*, not by the directory you happened to run it from: the real path of the shared `.git` (the common dir), hashed. Every worktree of a repo (the primary checkout, every sibling, every work slot) resolves to that same common dir, so they all read and write the same `stacks/<hash>.json`. Run `gitq stacks` from any worktree in the pool and you see the same tracked stacks; run `gitq add` from one and it's visible from all the others immediately, no syncing step involved. See [Where state lives](/concepts/state#the-app-root-and-the-config-directory-inside-it) for the mechanism.
 
 The same identity keying is why leases and the operation log are pool-wide too: `<commonDir>/gitq/leases.json` is one file for the whole pool, and `gitq log` / `gitq undo` see every operation run from any worktree of the repo.
 
@@ -24,11 +24,11 @@ The same identity keying is why leases and the operation log are pool-wide too: 
 | Repo shape | Slot location |
 | --- | --- |
 | **Pool**: the primary worktree has at least one sibling worktree of its own in the same parent directory | Alongside them, as another sibling: `~/repos/myrepo/gitq-1`. |
-| **Anything else**, including a plain single-worktree clone | Out of tree, at `~/.cache/gitq/work/<hash>/gitq-1`. |
+| **Anything else**, including a plain single-worktree clone | Out of tree, at `~/.mattstack/gitq/work/<hash>/gitq-1`. |
 
 That placement is a default, not a rule. Setting `workSlotLocation` to `root` in `settings.json` skips the pool detection entirely and puts every new slot under the out-of-tree root, which is what you want when the "pool" gitq detects is really just a directory full of unrelated clones that happens to contain one sibling worktree. See [`workSlotLocation`](/concepts/work-slots#workslotlocation).
 
-The out-of-tree root follows gitq's config directory, and what decides it is that directory's *value*, not whether `GITQ_CONFIG_DIR` is set (`getWorkSlotRoot`, `src/core/config-paths.ts:62-65`). When the effective config directory is exactly `~/.config/gitq`, unset or set to that same path, the root stays at `~/.cache/gitq/work`, exactly where it has always been. Point the variable anywhere else and slots are created under `$GITQ_CONFIG_DIR/work/<hash>/` instead. Pool slots are unaffected either way: they are siblings of your own worktrees, wherever those live.
+The out-of-tree root follows gitq's config directory: `<config dir>/work/`, which is `~/.mattstack/gitq/work/<hash>/` by default and `$GITQ_CONFIG_DIR/work/<hash>/` when that variable moves the config directory (`getWorkSlotRoot`, `src/core/config-paths.ts`). Slots already leased under the older `~/.cache/gitq/work` root keep working and are not moved. Pool slots are unaffected either way: they are siblings of your own worktrees, wherever those live.
 
 Set up a pool by adding a sibling the ordinary way, with `git worktree add`, from any existing worktree:
 

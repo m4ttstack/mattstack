@@ -12,6 +12,8 @@
     "check-types": "tsc --noEmit",
     "serve": "bun run src/server/server.ts",
     "build": "bun build src/cli/main.ts --outfile dist/gitq.js --target node --format esm --packages external",
+    "build:client": "bun run scripts/build-client.ts",
+    "build:binary": "bun run build:client && bun build --compile src/compiled.ts --outfile dist/gitq",
     "prepublishOnly": "bun run check-types && bun run build",
     "release": "bun run scripts/release.ts"
   },

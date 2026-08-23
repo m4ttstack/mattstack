@@ -21,7 +21,7 @@ judge whether the attribution is right.
 | `<repoPath>` (positional) | absolute path of the repo checkout |
 | `<stackName>` (positional) | the tracked stack to absorb into |
 | `--state <path>` | lifecycle status file the board polls (optional) |
-| `--status-bin <path>` | absolute path to the board's status-writer CLI (optional) |
+| `--status-bin <path>` | absolute path to the gitq executable, called as `<status-bin> job-status` (optional) |
 
 The `<repoPath>` positional may be ANY worktree of the repo, not just the
 primary checkout: the board passes the dirty worktree you picked in its
@@ -32,7 +32,7 @@ directory. Run every command below against the given `<repoPath>` as is.
 only by running the injected bin:
 
 ```
-bun run <status-bin> <state> <status> [detail]
+<status-bin> job-status <state> <status> [detail]
 ```
 
 with status one of `working | conflict | done | error` (the board writes
@@ -41,7 +41,7 @@ just talk to the human; everything else below is unchanged.
 
 ## Steps
 
-1. **Mark working.** `bun run <status-bin> <state> working "absorbing into <stackName>"`
+1. **Mark working.** `<status-bin> job-status <state> working "absorbing into <stackName>"`
 2. **Preview.** `gitq -C <repoPath> absorb --stack <stackName> --preview --json`
    - Read `result`: `attributed` maps each branch to the files it owns,
      `unattributed` lists the files absorb will leave in the worktree, and
@@ -102,7 +102,7 @@ just talk to the human; everything else below is unchanged.
    - **exit 0**: restack finished; go to step 5.
    - **exit 1**: mark error with the reason and report.
 5. **Mark done.**
-   `bun run <status-bin> <state> done "absorbed <n> files into <m> branches"`
+   `<status-bin> job-status <state> done "absorbed <n> files into <m> branches"`
    Then report to the human: what landed where (file to branch), which files
    are still dirty in the worktree, and any conflicts you resolved on the
    restack. The dirty set is the `unattributed` list you already read in step

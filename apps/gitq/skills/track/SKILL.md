@@ -119,7 +119,7 @@ Say exactly that, name the affected branches, and stop. Do not publish, and
 do not guess iids into the state file. The ways out are the human's call:
 `gitq import --replace` (naming what it discards first), or hand-editing
 `mrIid`/`mrUrl`/`status` in `$GITQ_CONFIG_DIR/stacks/<hash>.json`, default
-`~/.config/gitq/stacks/`, keyed by the realpath of the repo's git common dir.
+`~/.mattstack/gitq/stacks/`, keyed by the realpath of the repo's git common dir.
 
 ## Rules
 

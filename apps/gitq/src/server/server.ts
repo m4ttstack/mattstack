@@ -5,30 +5,26 @@ import { isLocalRequest } from './local.ts';
 import { SnapshotCache } from './cache.ts';
 import { collectAllRepos, parseActionBody } from './data.ts';
 import type { BoardRepo } from './data.ts';
+import { IS_COMPILED } from '../core/app-root.ts';
+import { getClientAssets } from './client-assets.ts';
 import { getWorktreeMap } from '../core/worktrees.ts';
 import { actionPrompt, buildPaneCommand, focusTab, launchInWorkspace, tabLabel } from './herdr.ts';
 import { jobFilePath, pruneJobStates, readJobStates, writeJobState } from './job-state.ts';
+import embeddedCss from '../client/style.css' with { type: 'text' };
+import favicon from '../client/favicon.svg' with { type: 'text' };
 
 const config = loadConfig();
 
 const cssPath = join(import.meta.dir, '..', 'client', 'style.css');
-const favicon = readFileSync(join(import.meta.dir, '..', 'client', 'favicon.svg'), 'utf8');
 
 const cache = new SnapshotCache<BoardRepo[]>(() => collectAllRepos(config.repos), []);
 
-// Bundle the React client once at startup; served from memory. CSS is
-// re-read per request instead, so style edits are live without a restart.
-const build = await Bun.build({
-  entrypoints: [join(import.meta.dir, '..', 'client', 'client.tsx')],
-  target: 'browser',
-  minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' },
-});
-if (!build.success) {
-  console.error(build.logs.join('\n'));
-  throw new Error('client bundle failed');
-}
-const appJs = await build.outputs[0]!.text();
+// The React client: bundled from source at boot in dev, embedded at build time
+// in the compiled binary. CSS is re-read from disk per request in dev so style
+// edits are live without a restart; compiled, there is no source tree on disk,
+// so the embedded copy answers.
+const { appJs } = await getClientAssets();
+const styleCss = (): string => (IS_COMPILED ? embeddedCss : readFileSync(cssPath, 'utf8'));
 
 const shell = `<!doctype html>
 <html lang="en">
@@ -51,7 +47,7 @@ const LIVE_STATUSES = new Set(['starting', 'working', 'conflict']);
 // $PORT wins over config so launchd can pin the port independently.
 const port = Number(process.env.PORT) || config.port;
 
-Bun.serve({
+const server = Bun.serve({
   port,
   // The cold assembly (git queries per stack + optional GitLab fetch) can
   // exceed Bun's 10s default; give the first request room.
@@ -64,7 +60,7 @@ Bun.serve({
       case '/':
         return new Response(shell, { headers: { 'content-type': 'text/html; charset=utf-8' } });
       case '/style.css':
-        return new Response(readFileSync(cssPath, 'utf8'), { headers: { 'content-type': 'text/css; charset=utf-8' } });
+        return new Response(styleCss(), { headers: { 'content-type': 'text/css; charset=utf-8' } });
       case '/favicon.svg':
         return new Response(favicon, { headers: { 'content-type': 'image/svg+xml' } });
       case '/app.js':
@@ -144,6 +140,18 @@ Bun.serve({
     }
   },
 });
+
+// launchd sends SIGTERM and kills the process outright once its grace window
+// closes; releasing the port before exiting is what lets a restart bind again
+// immediately. `true` closes in-flight connections rather than draining them:
+// nothing here holds a long-lived response, and a hung request must not eat
+// the grace window.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    server.stop(true);
+    process.exit(0);
+  });
+}
 
 console.log(`gitq board on http://localhost:${port}`);
 void cache.get().catch(() => {});

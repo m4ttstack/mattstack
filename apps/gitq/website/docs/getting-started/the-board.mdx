@@ -11,10 +11,11 @@ It is a companion to the CLI, not a replacement for it. Everything it displays c
 
 ## Configure it
 
-The server reads `config.json` from the repo root. Start from the example:
+The server reads `config.json` from the [app root](/reference/configuration#the-app-root) -- `~/.mattstack/gitq`, from a checkout as much as from the compiled binary, unless `GITQ_APP_ROOT` moves it. Start from the example:
 
 ```bash
-cp config.example.json config.json
+mkdir -p ~/.mattstack/gitq
+cp config.example.json ~/.mattstack/gitq/config.json
 ```
 
 ```json
@@ -41,7 +42,9 @@ Config is read once at startup. Editing `config.json` needs a restart. See [Conf
 bun run serve
 ```
 
-It prints one line and keeps running: `gitq board on http://localhost:<port>`, where `<port>` is whatever `config.json` (or `PORT`) resolved to, `11008` by default.
+It prints one line and keeps running: `gitq board on http://localhost:<port>`, where `<port>` is whatever `config.json` (or `PORT`) resolved to, `11008` by default. It shuts down on `SIGTERM`/`SIGINT`, releasing the port before it exits, so a process manager can restart it immediately.
+
+`bun run build:binary` compiles a standalone `dist/gitq` with the client bundle embedded, and `gitq board` runs the same server from it with no checkout on the machine. That binary is the form mattstack.app ships.
 
 The first page load is the slow one: it runs the git queries for every configured repo, plus a forge fetch per repo whose remote names one it has a token for. After that the snapshot is cached for 60 seconds and served stale while it refreshes in the background, so a reload during that window is instant. The `refresh` button in the top bar forces a fresh collection.
 
@@ -87,4 +90,4 @@ The same check is reported to the page, and the client hides every action menu i
 
 ## Restarting
 
-The React client is bundled in memory when the server starts, so **any change to the client code needs a restart** to show up. Two exceptions: `style.css` is re-read on every request, so CSS edits are live; and `config.json`, like the client bundle, is read at startup and needs a restart.
+The React client is bundled in memory when the server starts, so **any change to the client code needs a restart** to show up. Two exceptions: `style.css` is re-read on every request from a checkout, so CSS edits are live; and `config.json`, like the client bundle, is read at startup and needs a restart. The compiled binary serves both the client bundle and `style.css` from copies embedded at build time, so nothing there is live-editable.

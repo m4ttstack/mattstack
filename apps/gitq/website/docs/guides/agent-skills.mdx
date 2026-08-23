@@ -40,10 +40,10 @@ Every skill accepts the same shape:
 
 ## What `--state` and `--status-bin` do
 
-`--status-bin <path>` is the absolute path to `bin/gitq-status.ts`, the small CLI that writes job status. `--state <path>` is a per-job JSON file the board reads to render its job chips. When both are given, a skill writes its progress by running:
+`--status-bin <path>` is the absolute path to the gitq executable itself, whose `job-status` verb writes the job status. From a checkout that is `bin/gitq`; from the compiled binary it is that binary's own path, so a mattstack.app update that replaces the bundle leaves later panes reaching the new one. `--state <path>` is a per-job JSON file the board reads to render its job chips. When both are given, a skill writes its progress by running:
 
 ```bash
-bun run <status-bin> <state> <status> [detail]
+<status-bin> job-status <state> <status> [detail]
 ```
 
 with `<status>` one of five lifecycle values: **`starting`**, **`working`**, **`conflict`**, **`done`**, **`error`**. `starting` is special: the board itself writes it, twice: once to seed the job file before the pane even spawns (so a crash-on-launch still shows up as a job, not silence), and again once the herdr tab exists to record `tabId`/`workspaceId`. Every status after that is the skill's own: `working` right after it starts, `conflict` if it hits one, and always a terminal `done` or `error` before it finishes (every skill's Rules section calls out ending on a terminal status so a board badge can never get stuck mid-run), except while genuinely parked at a human gate with no answer yet.
@@ -55,10 +55,10 @@ with `<status>` one of five lifecycle values: **`starting`**, **`working`**, **`
 Right-clicking a stack action on the board does three things, in order (`src/server/server.ts`'s `/action` handler, `src/server/herdr.ts`'s `actionPrompt`):
 
 1. **Seeds the job file** at a deterministic path derived from `(repoPath, stack, action)`, status `starting`, before anything is spawned.
-2. **Builds the slash command**: `/gitq:<action> <repoPath> <stack> --state <statePath> --status-bin <path/to/bin/gitq-status.ts>`, and launches a herdr tab running `claude` with that as the initial prompt.
+2. **Builds the slash command**: `/gitq:<action> <repoPath> <stack> --state <statePath> --status-bin <path/to/gitq>`, and launches a herdr tab running `claude` with that as the initial prompt.
 3. **Updates the job file** with the new tab's id once the pane exists.
 
-From there the skill takes over and the board just polls: `/data.json` reads every job file under `state/jobs/`, so as the skill runs `working` → maybe `conflict` → `done`, the badge on the board updates without anything else in the loop. Relaunching an action that's already live re-focuses that tab instead of spawning a duplicate: the dedup key is the same `(repoPath, stack, action)` triple.
+From there the skill takes over and the board just polls: `/data.json` reads every job file under `<app root>/state/jobs/`, so as the skill runs `working` → maybe `conflict` → `done`, the badge on the board updates without anything else in the loop. Relaunching an action that's already live re-focuses that tab instead of spawning a duplicate: the dedup key is the same `(repoPath, stack, action)` triple.
 
 Job files older than 24 hours are pruned, but only once they've reached a terminal status; one parked at `conflict` (or sitting at a gate) keeps its file indefinitely, exactly because that's the state a human still needs to see. See [The board](/getting-started/the-board#reading-the-board) and [Where state lives](/concepts/state#the-board).
 

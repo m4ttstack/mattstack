@@ -5,7 +5,15 @@ sidebar_position: 4
 
 # Configuration
 
-gitq has two independent local configuration surfaces, read by two different processes, plus a shared settings store that can override individual keys of either. The CLI reads a settings file inside its own config directory. The board reads a `config.json` sitting in the gitq checkout itself. Neither reads the other's file, and nothing in the CLI reads anything from the board's `config.json`. The [rt](https://rt.cool) settings store sits above both: when it owns a key (or, for `gitq.workSlots`, a field of one), that value wins over whichever file would otherwise have answered.
+gitq has two independent local configuration surfaces, read by two different processes, plus a shared settings store that can override individual keys of either. The CLI reads a settings file inside its own config directory. The board reads a `config.json` sitting in the app root. Neither reads the other's file, and nothing in the CLI reads anything from the board's `config.json`. The [rt](https://rt.cool) settings store sits above both: when it owns a key (or, for `gitq.workSlots`, a field of one), that value wins over whichever file would otherwise have answered.
+
+## The app root
+
+One root holds everything gitq owns: **`~/.mattstack/gitq`**, whether gitq runs from a checkout or as the bundled binary in mattstack.app (`src/core/app-root.ts`). Running both forms against one root is what makes `gitq stacks` answer the same whichever copy is on PATH, and it is the mattstack rule for a bundled helper — a helper never writes inside the read-only app bundle, and never anywhere cwd-relative.
+
+**`GITQ_APP_ROOT`** moves the root, resolved to an absolute path. `GITQ_CONFIG_DIR` still moves the CLI's own subset within it and wins where they overlap (below).
+
+gitq's files used to live in `~/.config/gitq`. The first run after the move copies that directory into the app root, verifies every file, and writes `migrated-from.json` recording where it came from. The old directory is **copied, never moved** — it stays exactly as it was, yours to delete once you are satisfied. Rerunning is a no-op. If both directories hold files and no marker connects them, gitq uses the app root and names the other one once rather than merging two stack stores, since nothing tells it which is current. See [Where state lives](/concepts/state).
 
 ## The settings store
 
@@ -23,9 +31,9 @@ Set a key with `rt settings set <key> <json-value> --scope user|team|machine`. *
 
 ## The CLI: `settings.json`
 
-gitq's config directory defaults to `~/.config/gitq/` and can be moved with **`GITQ_CONFIG_DIR`**, an environment variable read once, at process start (`src/core/config-paths.ts:13-14`, `const DEFAULT_CONFIG_DIR = envConfigDir ? resolve(envConfigDir) : HOME_CONFIG_DIR`). An empty value counts as unset, and a relative one is resolved against the directory gitq was started in, so the config directory is always an absolute path. Every path the CLI derives, the stack stores, the settings file, the operation log, comes from this one directory (`src/core/config-paths.ts:32-46`). Export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks entirely.
+gitq's config directory defaults to the [app root](#the-app-root), `~/.mattstack/gitq`, and can be moved on its own with **`GITQ_CONFIG_DIR`**, an environment variable read once, at process start (`src/core/config-paths.ts`, `const DEFAULT_CONFIG_DIR = envConfigDir ? resolve(envConfigDir) : APP_ROOT`). It wins over `GITQ_APP_ROOT` when both are set. An empty value counts as unset, and a relative one is resolved against the directory gitq was started in, so the config directory is always an absolute path. Every path the CLI derives, the stack stores, the settings file, the operation log, comes from this one directory. Export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks entirely.
 
-The work slots gitq leases for cascades follow the same directory, with one deliberate carve-out for the default. A non-pool repo gets its slots under the work-slot root (`getWorkSlotRoot`, `src/core/config-paths.ts:62-65`), and what decides that root is the config directory's *value*, not whether the variable is set: `~/.cache/gitq/work/<hash>/` when the effective config directory is exactly `~/.config/gitq`, which includes `GITQ_CONFIG_DIR` pointing at that same path, and `<config dir>/work/<hash>/` for anything else. The default stays outside the config directory, unchanged, so slots you already have leased are still found. Pool repos are unaffected either way: their slots are siblings of your own worktrees, unless `workSlotLocation` says otherwise (below). See [Work slots and leases](/concepts/work-slots).
+The work slots gitq leases for cascades follow the same directory, with no carve-out: a non-pool repo gets its slots under `<config dir>/work/<hash>/` (`getWorkSlotRoot`, `src/core/config-paths.ts`). Pool repos are unaffected: their slots are siblings of your own worktrees, unless `workSlotLocation` says otherwise (below). Slots created before the move to the app root, under the old `~/.cache/gitq/work` root, keep working and are not migrated: a slot is recognised by its `gitq-<n>` name in the repo's own `git worktree list`, and leases record absolute paths. See [Work slots and leases](/concepts/work-slots).
 
 What the variable does not move is anything gitq writes into the repo you point it at. The lease registry (`<commonDir>/gitq/leases.json`), a paused cascade's `<gitdir>/gitq-pause.json`, and the `core.hooksPath` gitq pins per work slot all land in the operated-on repo's git directory regardless. A throwaway `GITQ_CONFIG_DIR` gets you a throwaway gitq state directory, not a run that leaves no trace; see [Where state lives](/concepts/state) for the full inventory.
 
@@ -79,7 +87,7 @@ Two failures happen before the token is ever considered, both from the remote al
 
 ## The board: `config.json`
 
-The board (`src/server/server.ts`) is a separate process with its own configuration file, `config.json`, resolved relative to the gitq checkout itself, not to `GITQ_CONFIG_DIR`: `CONFIG_PATH = join(import.meta.dir, '..', '..', 'config.json')` (`src/server/config.ts:27`), which is the repository root. `config.json` is the fallback for the `gitq.board` machine-scoped [store key](#the-settings-store) above; once that key is owned, `repos`/`port`/`herdrWorkspace` come from the store wholesale instead and the file is ignored. Start from `config.example.json` for the file-only path:
+The board (`src/server/server.ts`) is a separate process with its own configuration file, `config.json`, resolved against the [app root](#the-app-root) and deliberately not against `GITQ_CONFIG_DIR`: `CONFIG_PATH = join(APP_ROOT, 'config.json')` (`src/server/config.ts`). Pointing the CLI at a throwaway stack store should not also repoint the board. `config.json` is the fallback for the `gitq.board` machine-scoped [store key](#the-settings-store) above; once that key is owned, `repos`/`port`/`herdrWorkspace` come from the store wholesale instead and the file is ignored. Start from `config.example.json` for the file-only path:
 
 ```json
 {
@@ -97,7 +105,7 @@ Parsed and validated by `validateBoardConfig` (`src/server/config.ts:35-57`) aga
 | `port` | No | `11008` | Must be a number if given. |
 | `herdrWorkspace` | No | `"gitq"` | Must be a string if given. |
 
-A missing `config.json`, with no `gitq.board` in the store either, is a startup failure: `no config.json at <path>; copy config.example.json and edit it` (`src/server/config.ts:93`). The result is read once, at module load (`const config = loadConfig();`, `src/server/server.ts:12`), so an edit — to either the store or the file — needs a server restart to take effect; see [The board](/getting-started/the-board).
+A missing `config.json`, with no `gitq.board` in the store either, is a startup failure: `no config.json at <path>, and no "gitq.board" in the settings store; set one of them` (`src/server/config.ts`). The result is read once, at module load (`const config = loadConfig();`, `src/server/server.ts:12`), so an edit — to either the store or the file — needs a server restart to take effect; see [The board](/getting-started/the-board).
 
 `$PORT` in the environment overrides `config.port` at runtime, letting a process manager (launchd, for example) pin the port independently of the file: `const port = Number(process.env.PORT) || config.port;` (`src/server/server.ts:52`).
 

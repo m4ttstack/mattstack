@@ -21,13 +21,13 @@ merge) belongs to you.
 | `<repoPath>` (positional) | absolute path of the repo checkout |
 | `<stackName>` (positional) | the tracked stack to sync |
 | `--state <path>` | lifecycle status file the board polls (optional) |
-| `--status-bin <path>` | absolute path to the board's status-writer CLI (optional) |
+| `--status-bin <path>` | absolute path to the gitq executable, called as `<status-bin> job-status` (optional) |
 
 **Status writes.** When `--state` and `--status-bin` were given, write status
 only by running the injected bin:
 
 ```
-bun run <status-bin> <state> <status> [detail]
+<status-bin> job-status <state> <status> [detail]
 ```
 
 with status one of `working | conflict | done | error` (the board writes
@@ -37,7 +37,7 @@ else below is unchanged.
 
 ## Steps
 
-1. **Mark working.** `bun run <status-bin> <state> working "syncing <stackName>"`
+1. **Mark working.** `<status-bin> job-status <state> working "syncing <stackName>"`
 2. **Preflight.** `gitq -C <repoPath> preflight --json` (no `--stack` flag;
    it reports every tracked stack). Find your stack's entry by `stackName`
    in the JSON's `stacks` array.
@@ -65,7 +65,7 @@ else below is unchanged.
    porcelain codes: `UU` both modified, `AA` both added, `DU`/`UD` deleted
    on one side).
    - Mark conflict:
-     `bun run <status-bin> <state> conflict "<n> conflicts on <branch> (commit <i>/<total>)"`
+     `<status-bin> job-status <state> conflict "<n> conflicts on <branch> (commit <i>/<total>)"`
    - Understand before editing. Read each conflicted file's markers, and get
      both sides' intent from `git -C <rebaseDir> log --oneline --merge` and
      the surrounding code. Then edit each file to the content that preserves
@@ -82,7 +82,7 @@ else below is unchanged.
    `git rebase --continue` yourself: `gitq continue` runs it AND keeps the
    stack bookkeeping right, and raw git leaves gitq's state stale.
 6. **Mark done.**
-   `bun run <status-bin> <state> done "rebased <n> branches, resolved <m> conflicts"`
+   `<status-bin> job-status <state> done "rebased <n> branches, resolved <m> conflicts"`
    Then give the human a short report: branches rebased, each conflict and
    one line on how you resolved it, anything worth flagging.
 7. **When you cannot resolve.** If a conflict needs a call you cannot make

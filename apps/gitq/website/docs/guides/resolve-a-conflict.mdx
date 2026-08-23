@@ -113,7 +113,7 @@ gitq sync --stack demo
 ```
 
 ```
-paused on feat-api in /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1 (commit ?/?):
+paused on feat-api in /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1 (commit ?/?):
   UU handlers.ts
 resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
 ```
@@ -172,7 +172,7 @@ cat .git/worktrees/gitq-1/gitq-pause.json
     "preRebaseHeads": {
       "feat-api": "c406749d93502beb6f9e7458e2d8bfc014702e1b"
     },
-    "worktreePath": "/Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1"
+    "worktreePath": "/Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1"
   }
 }
 ```
@@ -210,7 +210,7 @@ gitq sync --stack demo --json
     "preRebaseHeads": {
       "feat-api": "c406749d93502beb6f9e7458e2d8bfc014702e1b"
     },
-    "worktreePath": "/Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1"
+    "worktreePath": "/Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1"
   }
 }
 ```
@@ -232,7 +232,7 @@ Still on `feat-handlers`, still clean, no rebase in progress, and `feat-api` sti
 The mid-rebase state is in the slot, and it is an ordinary one:
 
 ```bash
-git -C /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1 status
+git -C /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1 status
 ```
 
 ```
@@ -260,7 +260,7 @@ Git's own advice in that output is for a hand-run rebase. Ignore the `git rebase
 Work in the directory the pause named. The conflict is a normal one:
 
 ```bash
-cd /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1
+cd /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1
 cat handlers.ts
 ```
 
@@ -305,7 +305,7 @@ gitq continue
 ```
 
 ```
-paused on feat-handlers in /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1 (commit ?/?):
+paused on feat-handlers in /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1 (commit ?/?):
   UU config.ts
 resolve with git in that worktree, stage, then: gitq continue (or gitq abort)
 ```
@@ -358,7 +358,7 @@ Then the walk carried on to `feat-handlers`, which conflicted too, on `config.ts
       "feat-api": "c406749d93502beb6f9e7458e2d8bfc014702e1b",
       "feat-handlers": "c5af4806b2724618d4efcf8e08cf49899650a867"
     },
-    "worktreePath": "/Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1"
+    "worktreePath": "/Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1"
   }
 }
 ```
@@ -371,7 +371,7 @@ Two things to read carefully:
 There is no limit on how many times one sync can pause. Same loop each time:
 
 ```bash
-cd /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1
+cd /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1
 cat config.ts
 ```
 
@@ -408,14 +408,14 @@ A  webhooks.ts
 A branch with several commits can conflict more than once on its own. That is the case where `commit N/M` is filled in, from a different run:
 
 ```
-paused on feat-a in /Users/you/.cache/gitq/work/4888e2afaf6d8131/gitq-1 (commit 2/2):
+paused on feat-a in /Users/you/.mattstack/gitq/work/4888e2afaf6d8131/gitq-1 (commit 2/2):
   UU f.txt
 ```
 
 and the pause file gains the two counters:
 
 ```json
-    "worktreePath": "/Users/you/.cache/gitq/work/4888e2afaf6d8131/gitq-1",
+    "worktreePath": "/Users/you/.mattstack/gitq/work/4888e2afaf6d8131/gitq-1",
     "commitIndex": 2,
     "commitTotal": 2
 ```
@@ -500,7 +500,7 @@ gitq sync --stack demo
 ```
 
 ```
-gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
+gitq: stack has a parked sync lease on /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
   paused on feat-handlers, 1 conflict:
     UU config.ts
 ```
@@ -510,7 +510,7 @@ gitq remove feat-handlers --stack demo
 ```
 
 ```
-gitq: stack has a parked sync lease on /Users/you/.cache/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
+gitq: stack has a parked sync lease on /Users/you/.mattstack/gitq/work/ea51913b319fee63/gitq-1; finish it first: gitq continue (or gitq abort)
   paused on feat-handlers, 1 conflict:
     UU config.ts
 ```
@@ -554,7 +554,7 @@ gitq expects to drive the rest of the walk. Finishing the rebase by hand takes t
 The rebase in the slot is **detached**, so a hand-run `git rebase --continue` commits the resolution to a detached HEAD and stops there:
 
 ```bash
-git -C /Users/you/.cache/gitq/work/fda34a04a60d2d52/gitq-1 rebase --continue
+git -C /Users/you/.mattstack/gitq/work/fda34a04a60d2d52/gitq-1 rebase --continue
 ```
 
 ```
