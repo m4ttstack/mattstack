@@ -10,7 +10,7 @@ Distributes uncommitted worktree changes across the stack branches that own the 
 ## Usage
 
 ```bash
-gitq absorb [--stack <name>] [--at <branch>] [--preview]
+gitq absorb [--stack <name>] [--at <branch>[:<glob>]]... [--preview]
 ```
 
 ## Flags
@@ -20,6 +20,7 @@ gitq absorb [--stack <name>] [--at <branch>] [--preview]
 | `--stack <name>` | Which tracked stack to absorb into. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
 | `--preview` | Show the file attribution without committing or restacking anything. |
 | `--at <branch>` | Commit every attributed file to `<branch>` instead of where attribution would put it. Refused before anything is read if `<branch>` is not in the stack. See [Overriding attribution](#at) below. |
+| `--at <branch>:<glob>` | Commit only the files matching `<glob>` to `<branch>`, leaving everything else to attribution. Repeatable. See [Overriding only part of the change](#at-scoped). |
 
 ## Behavior
 
@@ -41,6 +42,30 @@ Attribution answers "which branch owns these lines". That is not always "which b
 
 The target is checked against the stack before absorb reads the worktree, since a branch the commit walk never visits would silently swallow the files: `--at "<branch>" is not in stack "<name>" (have: ...)`.
 
+### Overriding only part of the change {#at-scoped}
+
+A bare `--at` is all or nothing: every file in the change goes to one branch. That is the wrong instrument when attribution got most of the change right and one file wrong, which is the common case on a deep stack. `--at <branch>:<glob>` claims only the files its glob matches; everything else still attributes normally.
+
+The flag is repeatable, and the two forms compose — a bare `--at` alongside scoped ones is the catch-all for whatever no glob claimed:
+
+```bash
+# manifest.json to the branch that can actually carry it; the rest as computed
+gitq absorb --at s1:'packages/**/package.json'
+
+# everything to s2, except the package files, which go to s1
+gitq absorb --at s1:'packages/**' --at s2
+```
+
+Globs are [picomatch](https://github.com/micromatch/picomatch) patterns matched against repo-relative paths, the same syntax `gitq split --files` takes. Quote them, or the shell expands them first. The split on the first `:` is unambiguous because git refs cannot contain a colon.
+
+Three things are refused rather than guessed at, all before anything is read or written:
+
+- **One file claimed by two branches.** Overlapping globs are fine while they agree; a file matched by patterns naming *different* branches is refused, naming the file and both patterns (`resolveScopedTargets`, `src/core/absorb.ts:90-123`). Resolving it by declaration order would put a fix on a branch you did not choose, which is the failure `--at` exists to prevent.
+- **A glob that matches nothing.** A typo looks exactly like a working override whose files quietly went to attribution's choice instead, so an unused pattern is an error, not a no-op.
+- **More than one bare `--at`.** Two catch-alls would each claim "the rest" (`parseAtTargets`, `src/cli/commands/surgery.ts:76-112`).
+
+Run it under `--preview` first: the preview resolves the overrides exactly as the real run will, so it fails on the same three, and its `attributed` map is the final answer for where each file would land.
+
 **The edit is replayed, not the file.** Absorb normally writes the working tree's copy of a file wholesale, which is correct only when the target holds the version you edited against ... what attribution guarantees and `--at` does not. Writing the whole file onto an ancestor would carry every descendant's changes to that file down with it, moving their commits into that branch's MR. So when the target's copy differs from the base, absorb three-way merges your edit onto the target's copy instead (`resolveContentForBranch`, `src/core/absorb.ts:226-265`).
 
 A merge that conflicts means the edit genuinely has no place on that branch. That file drops out of the attribution **before the stash**, so nothing is committed, nothing is stashed, and no rebase starts. It is reported under `unapplied` and named on stdout:
@@ -51,7 +76,7 @@ nothing absorbed (nothing-attributable)
   test/api.spec.ts: does not replay onto s1, left in the worktree
 ```
 
-`unapplied` is a subset of `unattributed`: both are left dirty, but the reasons differ and so do the remedies. An unattributed file has no owner, and you place it yourself. An unapplied file has an owner you overruled, and the fix is a different `--at` target, or splitting the edit so each part goes where it belongs.
+`unapplied` is a subset of `unattributed`: both are left dirty, but the reasons differ and so do the remedies. An unattributed file has no owner, and you place it yourself. An unapplied file has an owner you overruled, and the fix is a different `--at` target, scoping the override with a glob so only the part that belongs there moves, or splitting the edit.
 
 Exit stays `0`: nothing was refused and nothing failed, there was simply nothing absorb could safely commit. Check `unapplied` under `--json` rather than the exit code.
 

@@ -14,14 +14,14 @@ export interface CliContext {
   json: boolean;
   /** Positional args after the command name. */
   args: string[];
-  flags: Record<string, string | boolean>;
+  flags: Record<string, string | boolean | string[]>;
 }
 
 /** Resolve repo paths from a starting directory (the -C value or cwd). */
 export async function createContext(
   startDir: string,
   args: string[],
-  flags: Record<string, string | boolean>,
+  flags: Record<string, string | boolean | string[]>,
 ): Promise<CliContext> {
   const [{ stdout: top }, { stdout: gitDir }, common] = await Promise.all([
     exec('git', ['rev-parse', '--show-toplevel'], { cwd: startDir }),

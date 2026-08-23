@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Stack } from './types.ts';
 import { StackManager } from './stack-manager.ts';
+import picomatch from 'picomatch';
 import { GitShell } from './git-shell.ts';
 import type { ChangedFiles, IndexEntry } from './git-shell.ts';
 import { RebaseEngine, finalizeBranchRef } from './rebase-engine.ts';
@@ -59,7 +60,67 @@ export interface FileAttribution {
   unattributed: string[];
 }
 
+/**
+ * One `--at` override: where the human says some of the change belongs,
+ * against where attribution would have put it.
+ */
+export interface AbsorbTarget {
+  branch: string;
+  /**
+   * The files this target claims. Absent for a bare `--at <branch>`, which is
+   * the catch-all: everything no glob claimed.
+   */
+  glob?: string;
+}
+
 // ── File Attribution ─────────────────────────────────────────────────────────
+
+/**
+ * Resolve the scoped `--at` overrides against the changed files.
+ *
+ * Two globs may overlap freely while they agree; the file only becomes
+ * ambiguous when they name DIFFERENT branches, and then it is refused rather
+ * than resolved by declaration order. Picking one silently would land a fix on
+ * a branch the human did not choose, which is the failure `--at` exists to
+ * prevent in the first place.
+ *
+ * A glob that matches nothing is also refused: a typo looks exactly like a
+ * working override whose files quietly went to the engine's choice instead.
+ */
+function resolveScopedTargets(changedFiles: string[], scoped: AbsorbTarget[]): Map<string, string> {
+  const matchers = scoped.map((t) => ({
+    branch: t.branch,
+    label: `${t.branch}:${t.glob}`,
+    match: picomatch(t.glob!),
+  }));
+  const claimed = new Map<string, string>();
+  const used = new Set<string>();
+
+  for (const file of changedFiles) {
+    const hits = matchers.filter((m) => m.match(file));
+    if (hits.length === 0) continue;
+    for (const hit of hits) used.add(hit.label);
+
+    const distinct = [...new Set(hits.map((h) => h.branch))];
+    if (distinct.length > 1) {
+      const labels = hits.map((h) => `--at ${h.label}`).join(' and ');
+      throw new Error(
+        `"${file}" is claimed by ${labels}; one file cannot go to two branches — narrow one of the globs`,
+      );
+    }
+    claimed.set(file, hits[0]!.branch);
+  }
+
+  const unused = matchers.filter((m) => !used.has(m.label));
+  if (unused.length > 0) {
+    throw new Error(
+      `--at ${unused.map((m) => m.label).join(', --at ')} matched none of the changed files ` +
+        `(${changedFiles.join(', ')})`,
+    );
+  }
+
+  return claimed;
+}
 
 /**
  * Build a map of branch → set of files that branch's commits touched.
@@ -146,51 +207,67 @@ async function blameOwners(
  * answer. An edit spanning several owners goes to the deepest of them, the one
  * choice that always replays.
  *
- * `at` overrides all of that and sends every changed file to one branch.
- * Attribution answers "which branch's commits own this file", which is not
- * always "which branch introduced the defect": with one MR and one pipeline
- * per branch, a fix committed at the deepest toucher leaves every branch below
- * it red. `at` is how the human says where the fix belongs. Callers validate
- * that it names a node in the stack.
+ * `targets` override all of that. Attribution answers "which branch's commits
+ * own this file", which is not always "which branch introduced the defect":
+ * with one MR and one pipeline per branch, a fix committed at the deepest
+ * toucher leaves every branch below it red. A target is how the human says
+ * where the fix belongs. Callers validate that each names a node in the stack.
+ *
+ * A scoped target claims only the files its glob matches; everything else
+ * still attributes normally, so overriding one file out of four does not
+ * forfeit the engine's answer for the other three. A bare target claims
+ * whatever is left, which for a lone bare target is the whole change.
  */
 async function attributeFiles(
   cwd: string,
   stack: Stack,
   changedFiles: string[],
-  at?: string,
+  targets: AbsorbTarget[] = [],
 ): Promise<FileAttribution> {
-  if (at) return { byBranch: new Map([[at, [...changedFiles]]]), unattributed: [] };
+  const scoped = targets.filter((t) => t.glob !== undefined);
+  const catchAll = targets.find((t) => t.glob === undefined);
 
-  const { nodesReversed, cache } = await buildBranchFileCache(cwd, stack);
-  const shaOwners = await buildShaOwners(cwd, stack);
+  const forced = scoped.length > 0 ? resolveScopedTargets(changedFiles, scoped) : new Map<string, string>();
+  const remaining = changedFiles.filter((f) => !forced.has(f));
 
-  const byBranch = new Map<string, string[]>();
+  const computed = new Map<string, string>();
   const unattributed: string[] = [];
 
-  for (const file of changedFiles) {
-    let target: string | null = null;
+  if (catchAll) {
+    for (const file of remaining) computed.set(file, catchAll.branch);
+  } else if (remaining.length > 0) {
+    const { nodesReversed, cache } = await buildBranchFileCache(cwd, stack);
+    const shaOwners = await buildShaOwners(cwd, stack);
 
-    // nodesReversed runs leaves to root, so the first owner it hits is the
-    // deepest one, whether the evidence came from blame or from the file walk.
-    const owners = await blameOwners(cwd, file, shaOwners);
-    if (owners.size > 0) {
-      target = nodesReversed.find((node) => owners.has(node.branch))?.branch ?? null;
-    }
+    for (const file of remaining) {
+      let target: string | null = null;
 
-    for (const node of nodesReversed) {
-      if (target) break;
-      const branchFiles = cache.get(node.branch);
-      if (branchFiles?.has(file)) {
-        target = node.branch;
-        break;
+      // nodesReversed runs leaves to root, so the first owner it hits is the
+      // deepest one, whether the evidence came from blame or the file walk.
+      const owners = await blameOwners(cwd, file, shaOwners);
+      if (owners.size > 0) {
+        target = nodesReversed.find((node) => owners.has(node.branch))?.branch ?? null;
       }
-    }
 
-    if (!target) {
-      unattributed.push(file);
-      continue;
-    }
+      for (const node of nodesReversed) {
+        if (target) break;
+        if (cache.get(node.branch)?.has(file)) {
+          target = node.branch;
+          break;
+        }
+      }
 
+      if (target) computed.set(file, target);
+      else unattributed.push(file);
+    }
+  }
+
+  // Rebuilt in changedFiles order so each branch's list reads in the order the
+  // human's change did, whichever half of the decision claimed it.
+  const byBranch = new Map<string, string[]>();
+  for (const file of changedFiles) {
+    const target = forced.get(file) ?? computed.get(file);
+    if (!target) continue;
     const existing = byBranch.get(target) ?? [];
     existing.push(file);
     byBranch.set(target, existing);
@@ -283,9 +360,9 @@ async function resolveAttribution(
   cwd: string,
   stack: Stack,
   changedFiles: string[],
-  at?: string,
+  targets?: AbsorbTarget[],
 ): Promise<ResolvedAttribution> {
-  const { byBranch, unattributed } = await attributeFiles(cwd, stack, changedFiles, at);
+  const { byBranch, unattributed } = await attributeFiles(cwd, stack, changedFiles, targets);
 
   const baseRev = await GitShell.getBranchHead(cwd, 'HEAD');
   const merged = new Map<string, Buffer>();
@@ -318,7 +395,7 @@ async function resolveAttribution(
  * Preview absorb: the same attribution `absorb` runs, with nothing committed.
  * `unattributed` is the set absorb will leave dirty in the worktree.
  */
-async function previewAbsorb(cwd: string, stack: Stack, at?: string): Promise<AbsorbPreview> {
+async function previewAbsorb(cwd: string, stack: Stack, targets?: AbsorbTarget[]): Promise<AbsorbPreview> {
   const currentBranch = await GitShell.getCurrentBranch(cwd);
   const changedResult = await GitShell.getChangedFiles(cwd);
   const allChanged = [
@@ -329,7 +406,7 @@ async function previewAbsorb(cwd: string, stack: Stack, at?: string): Promise<Ab
     return { attributed: {}, unattributed: [], unapplied: [], currentBranch };
   }
 
-  const { byBranch, unattributed, unapplied } = await resolveAttribution(cwd, stack, allChanged, at);
+  const { byBranch, unattributed, unapplied } = await resolveAttribution(cwd, stack, allChanged, targets);
 
   return { attributed: Object.fromEntries(byBranch), unattributed, unapplied, currentBranch };
 }
@@ -554,7 +631,7 @@ async function absorb(
   stack: Stack,
   excludedFiles?: string[],
   workDir?: string,
-  at?: string,
+  targets?: AbsorbTarget[],
 ): Promise<AbsorbResult> {
   const currentBranch = await GitShell.getCurrentBranch(cwd);
 
@@ -573,7 +650,7 @@ async function absorb(
     unattributed,
     unapplied,
     merged: mergedContent,
-  } = await resolveAttribution(cwd, stack, allChanged, at);
+  } = await resolveAttribution(cwd, stack, allChanged, targets);
 
   // Nothing the stack owns. Stashing would put the whole tree through a
   // round trip for no gain, so leave the worktree exactly as it is.

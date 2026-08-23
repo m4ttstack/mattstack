@@ -1,6 +1,6 @@
 import { loadStore, updateStore } from '../../core/persistence.ts';
 import { AbsorbEngine } from '../../core/absorb.ts';
-import type { AbsorbResult } from '../../core/absorb.ts';
+import type { AbsorbResult, AbsorbTarget } from '../../core/absorb.ts';
 import { BranchSplitter } from '../../core/branch-splitter.ts';
 import { foldBranch } from '../../core/branch-fold.ts';
 import { reparentBranch } from '../../core/reparent.ts';
@@ -51,26 +51,73 @@ function refuseIfCheckedOutElsewhere(ctx: CliContext, map: SlotInfo[], branch: s
  * unattributed count, because the remedy is different: pick another branch, or
  * split the edit up.
  */
-function appendUnapplied(headline: string, unapplied: string[] | undefined, at: string | undefined): string {
+function appendUnapplied(
+  headline: string,
+  unapplied: string[] | undefined,
+  targets: AbsorbTarget[],
+): string {
   if (!unapplied || unapplied.length === 0) return headline;
-  const target = at ? ` onto ${at}` : ' onto the branch it was attributed to';
+  // Only a lone catch-all sends every file to one place, so only then can the
+  // message name the branch without checking which target claimed each file.
+  const only = targets.length === 1 && targets[0]!.glob === undefined ? targets[0]!.branch : null;
+  const target = only ? ` onto ${only}` : ' onto the branch it was attributed to';
   const files = unapplied.map((f) => `  ${f}: does not replay${target}, left in the worktree`);
   return [headline, ...files].join('\n');
+}
+
+/**
+ * Parse the repeatable `--at` flag.
+ *
+ * `--at <branch>` is the catch-all (everything no glob claimed); there can be
+ * only one, since two would each claim "the rest". `--at <branch>:<glob>`
+ * claims just its matches, so several may be given. Git refs cannot contain
+ * `:`, which is what makes the first colon an unambiguous split.
+ */
+function parseAtTargets(raw: unknown, stack: Stack): AbsorbTarget[] | { error: string } {
+  const values = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).filter(
+    (v): v is string => typeof v === 'string',
+  );
+
+  const targets: AbsorbTarget[] = [];
+  for (const value of values) {
+    const colon = value.indexOf(':');
+    const branch = colon === -1 ? value : value.slice(0, colon);
+    const glob = colon === -1 ? undefined : value.slice(colon + 1);
+
+    if (!branch) return { error: `--at "${value}" has no branch before the colon` };
+    if (colon !== -1 && !glob) {
+      return {
+        error: `--at "${value}" has a colon but no glob after it; drop the colon to send everything to "${branch}"`,
+      };
+    }
+    // Checked here, before anything reads the worktree: a target outside the
+    // stack would key the attribution map on a branch the commit walk never
+    // visits, so its files would go nowhere at all.
+    if (!StackManager.findNode(stack, branch)) {
+      return {
+        error: `--at "${branch}" is not in stack "${stack.stackName}" (have: ${stack.nodes.map((n) => n.branch).join(', ')})`,
+      };
+    }
+    targets.push(glob === undefined ? { branch } : { branch, glob });
+  }
+
+  const bare = targets.filter((t) => t.glob === undefined);
+  if (bare.length > 1) {
+    return {
+      error: `only one bare --at is allowed (the catch-all); got ${bare.map((t) => `--at ${t.branch}`).join(' and ')}. Scope all but one with --at <branch>:<glob>`,
+    };
+  }
+
+  return targets;
 }
 
 export async function absorbCommand(ctx: CliContext): Promise<number> {
   const store = await loadStore(ctx.repoRoot);
   const stack = pickStack(store, ctx.flags);
 
-  // Validate --at before anything reads the worktree: a target outside the
-  // stack would key the attribution map on a branch the commit walk never
-  // visits, so the files would go nowhere at all.
-  const at = typeof ctx.flags.at === 'string' ? ctx.flags.at : undefined;
-  if (at !== undefined && !StackManager.findNode(stack, at)) {
-    return fail(
-      `--at "${at}" is not in stack "${stack.stackName}" (have: ${stack.nodes.map((n) => n.branch).join(', ')})`,
-    );
-  }
+  const parsed = parseAtTargets(ctx.flags.at, stack);
+  if ('error' in parsed) return fail(parsed.error);
+  const at = parsed;
 
   if (ctx.flags.preview === true) {
     // Preview mutates nothing — no pause guard, no operation-log entry.
@@ -155,7 +202,11 @@ export async function absorbCommand(ctx: CliContext): Promise<number> {
 export async function splitCommand(ctx: CliContext): Promise<number> {
   const [branch] = ctx.args;
   const name = typeof ctx.flags.name === 'string' ? ctx.flags.name : null;
-  const at = typeof ctx.flags.at === 'string' ? ctx.flags.at : null;
+  // --at is repeatable for absorb, so it arrives as an array; split takes a
+  // single rev and says so rather than silently using the first.
+  const atValues = Array.isArray(ctx.flags.at) ? ctx.flags.at : ctx.flags.at === undefined ? [] : [ctx.flags.at];
+  if (atValues.length > 1) return fail('gitq split takes a single --at <rev>');
+  const at = typeof atValues[0] === 'string' ? atValues[0] : null;
   const files = typeof ctx.flags.files === 'string' ? ctx.flags.files : null;
 
   if (!branch || !name || (!at && !files) || (at && files)) {

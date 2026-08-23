@@ -112,7 +112,7 @@ describe('AbsorbEngine.attributeFiles', () => {
       '/tmp/repo',
       buildLinearStack(),
       ['api.ts', 'brand-new.txt'],
-      'branch-1',
+      [{ branch: 'branch-1' }],
     );
 
     // api.ts would land on branch-3 by deepest-toucher, and brand-new.txt would

@@ -6,7 +6,7 @@ import { emit, fail } from '../output.ts';
 import { requireStackFree } from '../slots.ts';
 
 /** Resolve --stack, defaulting to the repo's only stack. Throws with the available names otherwise. */
-export function pickStack(store: StackStore, flags: Record<string, string | boolean>): Stack {
+export function pickStack(store: StackStore, flags: Record<string, string | boolean | string[]>): Stack {
   const name = typeof flags.stack === 'string' ? flags.stack : null;
   if (name) {
     const found = store.stacks.find((s) => s.stackName === name);
@@ -24,7 +24,7 @@ export function pickStack(store: StackStore, flags: Record<string, string | bool
  * pickStack when the branch does not pin a single stack — notably a shared
  * root like `master`, which every stack in the repo may sit on.
  */
-export function pickStackVia(store: StackStore, flags: Record<string, string | boolean>, branch: string): Stack {
+export function pickStackVia(store: StackStore, flags: Record<string, string | boolean | string[]>, branch: string): Stack {
   if (typeof flags.stack === 'string') return pickStack(store, flags);
   const owning = store.stacks.filter(
     (s) => s.root === branch || s.nodes.some((n) => n.branch === branch),

@@ -175,7 +175,7 @@ describe('detached absorb restack', () => {
     // feature-b's revert commit, which is the last one to touch it, so plain
     // attribution now sends this to feature-b and replays clean. Forcing it
     // onto feature-a is what still exercises the cascade-conflict backout.
-    const result = await AbsorbEngine.absorb(repo.dir, stack, undefined, workDir, 'feature-a');
+    const result = await AbsorbEngine.absorb(repo.dir, stack, undefined, workDir, [{ branch: 'feature-a' }]);
 
     expect(result.absorbed).toBe(true);
     const failure = result.cascadeResult?.results.find((r) => !r.success);
