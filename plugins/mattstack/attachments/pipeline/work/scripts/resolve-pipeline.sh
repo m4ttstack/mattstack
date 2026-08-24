@@ -99,6 +99,7 @@ finish() { # emit and exit per ERR_FILE contents
 }
 
 # --- manifest: same walk as resolve-args, but required here ---
+USED_GLOBAL_FALLBACK=0
 if [ -z "$MANIFEST" ]; then
   d=$PWD
   while :; do
@@ -126,6 +127,17 @@ if [ -z "$MANIFEST" ]; then
   fi
   if [ -z "$MANIFEST" ] && [ -f "$HOME/.mattstack/skills.jsonc" ]; then
     MANIFEST="$HOME/.mattstack/skills.jsonc"
+    USED_GLOBAL_FALLBACK=1
+  fi
+fi
+# A pipeline is inherently repo-scoped. If resolution only reached the global
+# fallback (or nothing) and $PWD is not inside a checkout, the launch directory
+# is the problem, not the manifest -- say so, rather than failing later with a
+# confusing "global manifest has no pipeline for <work-type>".
+if [ "$USED_GLOBAL_FALLBACK" = 1 ] || [ -z "$MANIFEST" ]; then
+  if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    err null not-in-checkout "no per-repo pipeline manifest for $PWD: no .mattstack/skills.jsonc above it, and $PWD is not inside a checkout (no git origin to resolve \$HOME/.mattstack/repos/<slug>/skills.jsonc). cd into a checkout of the repo, or pass --manifest <path>."
+    finish
   fi
 fi
 if [ -z "$MANIFEST" ] || [ ! -f "$MANIFEST" ]; then
