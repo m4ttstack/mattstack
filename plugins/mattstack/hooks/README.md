@@ -1,14 +1,26 @@
 # hooks
 
-Claude Code hooks that live here and are symlinked into `~/.claude/hooks/`.
-herdr installs its own managed hook in that directory and tells you to add
-custom ones beside it rather than editing it, so that is what these are.
+Two delivery mechanisms live here, and they are not interchangeable.
+
+**`hooks.json` is plugin-delivered.** Claude Code reads it from the plugin root
+whenever the mattstack plugin is enabled, so installing the plugin is the whole
+install: nothing is symlinked and `~/.claude/settings.json` is never touched.
+`${CLAUDE_PLUGIN_ROOT}` resolves to the versioned plugin cache, so anything it
+names must be a path inside this repo.
+
+| hook | event | what it does |
+|---|---|---|
+| `plugin/skills/getting-current-time/inject-time.sh` | `UserPromptSubmit` + `PostToolUse` | stamps context with local time, zone, and UTC; the `PostToolUse` pass is throttled to once per 5 minutes so long turns re-stamp without spamming |
+
+**The scripts in this directory are hand-installed** by symlink into
+`~/.claude/hooks/`. herdr installs its own managed hook there and tells you to
+add custom ones beside it rather than editing it, so that is what these are.
 
 | hook | event | what it does |
 |---|---|---|
 | `herdr-doorbell.sh` | `PreToolUse` on `AskUserQuestion` | rings the herdr bell whenever a session in a pane blocks on you |
 
-## install
+## install (hand-installed hooks only)
 
 ```bash
 ln -sfn "$PWD/hooks/herdr-doorbell.sh" ~/.claude/hooks/herdr-doorbell.sh
