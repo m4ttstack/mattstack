@@ -31,7 +31,7 @@
 
 **repo-tools (compiler)**
 
-- `lib/skills/types.ts` — modify: add `PlaceholderContext`, `StageDef`, extend `StepSource` with `stageMeta`, extend `CompileResult` unchanged.
+- `lib/skills/types.ts` — modify: add `PlaceholderContext`, `StageEntry`; extend `StepSource` with `stageMeta` and `description`; `CompileResult` unchanged.
 - `lib/skills/placeholders.ts` — create: the substitution pass. One responsibility: turn a body with `{{…}}` into a body with none, emitting seam markers, or throw.
 - `lib/skills/chain.ts` — create: compile-time produce/consume validation. Pure function over the manifest pipeline order + stage frontmatter.
 - `lib/skills/compile.ts` — modify: `buildBody` calls the placeholder pass instead of appending fills; `include` handling; stage `allowed-tools` union with wildcard rewrite; `lintReferences` allowance for emitted sibling dirs.
@@ -49,7 +49,8 @@
 - `attachments/pipeline/work/scripts/resolve-pipeline.sh`, `resolve-args.sh` — delete from `work` (chain check moves to compiler).
 - `attachments/pipeline/stage-*/SKILL.md` (8) — promote to typed `slots:` + `type: pipeline-step`; `{{slot:domain}}`, `{{stage.fields}}`; delete resolver prose and uow prose; delete each `scripts/resolve-args.sh`.
 - `attachments/pipeline/ship/SKILL.md`, `watch-ci/SKILL.md`, `attachments/orchestration/shepherdr/SKILL.md`, `attachments/review/{review,self-review,receive-review}/SKILL.md` — placeholders; delete resolver prose and relative-path reads.
-- `attachments/review-core-body/SKILL.md`, `attachments/review-dispatch-body/SKILL.md` — create (slotless bodies); delete `attachments/review-core/`, `attachments/review-dispatch/`.
+- `attachments/review-core-body/`, `review-core-body-after/`, `review-dispatch-body/`, `review-dispatch-body-after/` — create (four slotless include bodies, cut around the criteria and reviewer slots); delete `attachments/review-core/`, `attachments/review-dispatch/`.
+- `lib/skills/__tests__/helpers.ts` (repo-tools) — create: `runExpectingCleanExit`, lifted from `surface.test.ts`.
 - `attachments/review-posting/SKILL.md` — `../` reads become `{{include}}`.
 - `attachments/parameterized-skills/references/convention.md` — add compile-native/runtime-native rule; delete "Unit-of-work record" section.
 - `plugin/schemas/uow.md`, `plugin/schemas/uow.schema.json`, README entry — delete.
@@ -160,7 +161,7 @@ git commit -m "skills: placeholder parser and unfilled-placeholder guard"
 
 **Interfaces:**
 - Produces on `StepSource`: `stageMeta: { stage: string; consumes: string[]; produces: string[] } | null` (null for non-stage engines).
-- Produces: `PlaceholderContext` type consumed by Task 3:
+- Produces: `PlaceholderContext` type consumed by Task 3. `slotMode` carries the per-slot decision `buildBody` makes today from `fill.registered` + the internal roster: `inline` (paste the body), `reference` (emit the "invoke that skill" line). `partsPrefix` is where a fill's own files are addressed from: `${CLAUDE_SKILL_DIR}/parts` in a verb, `<stageDir>/parts` in a stage.
 
 ```ts
 export type StageEntry = {
@@ -168,6 +169,8 @@ export type StageEntry = {
 };
 export type PlaceholderContext = {
   fills: Record<string, AttachmentSource | null>;
+  slotMode: Record<string, "inline" | "reference">;
+  partsPrefix: string;
   includes: Record<string, AttachmentSource>;
   pipelines: Record<string, StageEntry[]>;
   repoKey: string;
@@ -179,14 +182,14 @@ export type PlaceholderContext = {
 };
 ```
 
+Also add to `StepSource`: `description: string` (read from `frontmatter.description`, default `""`), which Task 7 uses to synthesize a stage's `VerbDef`. Adding two required fields means every `StepSource` literal in `lib/skills/__tests__/compile.test.ts` (4), `surface.test.ts` (6), and `sources.test.ts` must gain `stageMeta: null, description: ""` -- do that sweep in this task so `bunx tsc --noEmit` is clean before committing.
+
 - [ ] **Step 1: Write the failing test**
 
+`sources.test.ts` already imports `loadStepSource`, `mkdirSync`, `mkdtempSync`, `writeFileSync`, `tmpdir`, and `join`; a second `import` of the same identifier is a syntax error in Bun. Do not add import lines -- append only the tests:
+
 ```ts
-// append to lib/skills/__tests__/sources.test.ts
-import { loadStepSource } from "../sources.ts";
-import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+// append to lib/skills/__tests__/sources.test.ts (imports already present)
 
 test("loadStepSource reads stage metadata into stageMeta", () => {
   const root = mkdtempSync(join(tmpdir(), "rt-step-"));
@@ -225,7 +228,7 @@ In `lib/skills/types.ts`, add after `StepSource`'s `stepFiles` line:
   stageMeta: { stage: string; consumes: string[]; produces: string[] } | null;
 ```
 
-and add the two new types at the end of the file:
+and add the two new types at the end of the file, identical to the Interfaces block above (`slotMode` and `partsPrefix` included; Tasks 3 and 6 read both):
 
 ```ts
 export type StageEntry = {
@@ -234,6 +237,8 @@ export type StageEntry = {
 
 export type PlaceholderContext = {
   fills: Record<string, AttachmentSource | null>;
+  slotMode: Record<string, "inline" | "reference">;
+  partsPrefix: string;
   includes: Record<string, AttachmentSource>;
   pipelines: Record<string, StageEntry[]>;
   repoKey: string;
@@ -261,18 +266,18 @@ function readStageMeta(frontmatter: Record<string, unknown>): StepSource["stageM
 }
 ```
 
-and in `loadStepSource`'s return object add `stageMeta: readStageMeta(frontmatter),`.
+and in `loadStepSource`'s return object add `stageMeta: readStageMeta(frontmatter),` and `description: typeof frontmatter.description === "string" ? frontmatter.description : "",`.
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `bun test lib/skills/__tests__/sources.test.ts`
-Expected: all pass (existing fixtures in `compile.test.ts` will need `stageMeta: null` added to their `StepSource` literals — do that now, it is a type error otherwise: `bunx tsc --noEmit` must be clean).
+Run: `bun test lib/skills && bunx tsc --noEmit`
+Expected: all pass, tsc clean (after the `stageMeta: null, description: ""` fixture sweep across the three test files).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/skills/types.ts lib/skills/sources.ts lib/skills/__tests__/sources.test.ts lib/skills/__tests__/compile.test.ts
-git commit -m "skills: stage metadata on StepSource and the placeholder context type"
+git add lib/skills/types.ts lib/skills/sources.ts lib/skills/__tests__/sources.test.ts lib/skills/__tests__/compile.test.ts lib/skills/__tests__/surface.test.ts
+git commit -m "skills: stage metadata and description on StepSource; the placeholder context type"
 ```
 
 ---
@@ -292,9 +297,10 @@ git commit -m "skills: stage metadata on StepSource and the placeholder context 
 
 - [ ] **Step 1: Write the failing tests**
 
+Extend the existing `import { assertNoPlaceholders, findPlaceholders } from "../placeholders.ts";` line at the top of the file to also import `substitute`; do not add a second import of the module.
+
 ```ts
 // append to lib/skills/__tests__/placeholders.test.ts
-import { substitute } from "../placeholders.ts";
 import type { AttachmentSource, PlaceholderContext } from "../types.ts";
 
 const fill: AttachmentSource = {
@@ -308,7 +314,8 @@ const inc: AttachmentSource = { ...fill, binding: "mattstack:review-core-body", 
 
 function ctx(over: Partial<PlaceholderContext> = {}): PlaceholderContext {
   return {
-    fills: { domain: fill }, includes: { "review-core-body": inc },
+    fills: { domain: fill }, slotMode: { domain: "inline" }, partsPrefix: "${CLAUDE_SKILL_DIR}/parts",
+    includes: { "review-core-body": inc },
     pipelines: { feature: [
       { name: "stage-provision", stage: "provision", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-provision", consumes: ["ticket", "repo"], produces: ["branch", "worktree"] },
       { name: "stage-plan", stage: "plan", dir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan", consumes: ["ticket"], produces: ["approach"] },
@@ -333,6 +340,28 @@ describe("substitute", () => {
   test("unbound optional slot substitutes empty", () => {
     const { body } = substitute("a\n{{slot:domain}}\nb", ctx({ fills: { domain: null } }), "x");
     expect(body).toBe("a\n\nb");
+  });
+
+  test("a fill's own file references are rewritten under parts/<slot>", () => {
+    const withFile = { ...fill, body: "see ${CLAUDE_SKILL_DIR}/ci-config.json" };
+    expect(substitute("{{slot:domain}}", ctx({ fills: { domain: withFile } }), "x").body)
+      .toContain("see ${CLAUDE_SKILL_DIR}/parts/domain/ci-config.json");
+    const inStage = ctx({ fills: { domain: withFile }, partsPrefix: "${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts" });
+    expect(substitute("{{slot:domain}}", inStage, "stage-plan").body)
+      .toContain("see ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/parts/domain/ci-config.json");
+  });
+
+  test("a registered public fill is referenced, not inlined", () => {
+    const pub = { ...fill, registered: true };
+    const { body } = substitute("{{slot:domain}}", ctx({ fills: { domain: pub }, slotMode: { domain: "reference" } }), "x");
+    expect(body).toBe("Slot domain is bound to `acme:plan-policy` (acme:plan-policy@0.4.0) -- invoke that skill when this flow needs it.");
+    expect(body).not.toContain("part: slot:");
+  });
+
+  test("an include's own file references are rewritten under parts/include-<name>", () => {
+    const withRef = { ...inc, body: "shape at ${CLAUDE_SKILL_DIR}/references/adjudicator.md" };
+    const { body } = substitute("{{include:review-core-body}}", ctx({ includes: { "review-core-body": withRef } }), "x");
+    expect(body).toContain("shape at ${CLAUDE_SKILL_DIR}/parts/include-review-core-body/references/adjudicator.md");
   });
 
   test("include inlines with an include marker using source=", () => {
@@ -410,13 +439,20 @@ function fenced(value: unknown): string {
   return "```json\n" + JSON.stringify(value, null, 2) + "\n```";
 }
 
-function slotText(name: string, fill: AttachmentSource | null): string {
+const SKILL_DIR_TOKEN = "${CLAUDE_SKILL_DIR}";
+
+function slotText(name: string, fill: AttachmentSource | null, mode: "inline" | "reference", partsPrefix: string): string {
   if (fill === null) return "";
-  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${fill.body}`;
+  if (mode === "reference") {
+    return `Slot ${name} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`;
+  }
+  const body = fill.body.split(SKILL_DIR_TOKEN).join(`${partsPrefix}/${name}`);
+  return `<!-- part: slot:${name} binding=${fill.binding} version=${fill.version} ${spanOf(fill)} -->\n${body}`;
 }
 
-function includeText(name: string, inc: AttachmentSource): string {
-  return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${inc.body}`;
+function includeText(name: string, inc: AttachmentSource, partsPrefix: string): string {
+  const body = inc.body.split(SKILL_DIR_TOKEN).join(`${partsPrefix}/include-${name}`);
+  return `<!-- part: include:${name} source=${inc.plugin}:${name} version=${inc.version} ${spanOf(inc)} -->\n${body}`;
 }
 
 function workTypeText(pipelines: Record<string, StageEntry[]>): string {
@@ -456,13 +492,13 @@ export function substitute(
           if (!arg) throw new Error(`${where}: ${raw} needs a slot name`);
           if (!(arg in ctx.fills)) throw new Error(`${where}: slot "${arg}" is not declared by this engine`);
           used.slots.push(arg);
-          return slotText(arg, ctx.fills[arg] ?? null);
+          return slotText(arg, ctx.fills[arg] ?? null, ctx.slotMode[arg] ?? "inline", ctx.partsPrefix);
         }
         case "include": {
           const inc = arg ? ctx.includes[arg] : undefined;
           if (!arg || !inc) throw new Error(`${where}: include "${arg}" is not a loaded attachment`);
           used.includes.push(arg);
-          return includeText(arg, inc);
+          return includeText(arg, inc, ctx.partsPrefix);
         }
         case "pipeline.stages": return fenced(ctx.pipelines);
         case "work-type": return workTypeText(ctx.pipelines);
@@ -485,6 +521,8 @@ export function substitute(
 ```
 
 Move the `PLACEHOLDER_RE` constant above these functions so both `findPlaceholders` and `substitute` share it, and note that `String.prototype.replace` with a global regex resets `lastIndex`, so reuse is safe.
+
+A declared-and-bound slot that the body never places as `{{slot:<name>}}` would otherwise vanish silently; the caller (Task 6) compares `used.slots` against the bound slot names and emits a warning `slot "<name>" is bound but never placed in the body` for each miss.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -777,9 +815,10 @@ export function compileSkill(
 
 - [ ] **Step 1: Write the failing tests**
 
+`compile.test.ts` already imports `compileSkill`; add no import. The existing `step` fixture declares `domain` and `forge` as `required: true`, so any test that passes `fills: {}` must use a step with `slots: {}`, or `resolveBoundSlots` throws before the behavior under test runs -- the `slotless` fixture below exists for that.
+
 ```ts
-// append to lib/skills/__tests__/compile.test.ts
-import { compileSkill } from "../compile.ts";
+// append to lib/skills/__tests__/compile.test.ts (compileSkill already imported)
 
 const placeholderStep: StepSource = {
   ...step,
@@ -789,6 +828,8 @@ const placeholderStep: StepSource = {
   allowedTools: ["Bash(${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh:*)"],
   stageMeta: { stage: "watch-ci", consumes: ["mr", "branch"], produces: ["ci"] },
 };
+
+const slotless: StepSource = { ...step, slots: {}, stageMeta: null };
 
 function skillMd(result: { files: CompiledFile[] }): string {
   const f = result.files.find((x) => x.path === "SKILL.md");
@@ -813,9 +854,22 @@ describe("compileSkill with placeholders", () => {
     expect(md).toContain("Run ${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/scripts/ci-watch.sh.");
   });
 
-  test("an unfilled placeholder is a compile error", () => {
+  test("a placeholder that cannot be filled is a compile error", () => {
     const bad = { ...placeholderStep, body: "{{slot:domain}} {{stage.dir}}" };
-    expect(() => compileSkill(verb, bad, { domain: domainFill }, new Set(), {})).toThrow("unfilled placeholder {{stage.dir}}");
+    expect(() => compileSkill(verb, bad, { domain: domainFill }, new Set(), {})).toThrow("{{stage.dir}} used outside a stage");
+  });
+
+  test("a fill's file references resolve under the stage's parts dir inside a stage", () => {
+    const md = skillMd(compileSkill(verb, placeholderStep, { domain: domainFill }, new Set(), {
+      stageDir: "${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci",
+    }));
+    expect(md).toContain("${CLAUDE_SKILL_DIR}/../../attachments/stage-watch-ci/parts/domain/ci-config.json");
+  });
+
+  test("a bound slot the body never places is warned", () => {
+    const orphan = { ...placeholderStep, body: "{{stage.fields}} only" };
+    const r = compileSkill(verb, orphan, { domain: domainFill }, new Set(), { stageDir: "x" });
+    expect(r.warnings).toContain('slot "domain" is bound but never placed in the body');
   });
 
   test("a compile-native engine calling the runtime resolver is a compile error", () => {
@@ -825,7 +879,7 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("stage allowed-tools union rewrites to the leading-wildcard form", () => {
-    const md = skillMd(compileSkill(verb, { ...step, body: "{{pipeline.stages}}" }, {}, new Set(), {
+    const md = skillMd(compileSkill(verb, { ...slotless, body: "{{pipeline.stages}}" }, {}, new Set(), {
       pipelines: { feature: [] },
       stageAllowedTools: ["Bash(${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh:*)", "Bash(*/scripts/ci-forge.sh:*)", "Bash(gh:*)"],
     }));
@@ -835,7 +889,7 @@ describe("compileSkill with placeholders", () => {
   });
 
   test("emitted sibling dirs are not lint-warned as missing files", () => {
-    const r = compileSkill(verb, { ...step, body: "read ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md" }, {}, new Set(), {
+    const r = compileSkill(verb, { ...slotless, body: "read ${CLAUDE_SKILL_DIR}/../../attachments/stage-plan/SKILL.md" }, {}, new Set(), {
       emittedSiblingDirs: ["${CLAUDE_SKILL_DIR}/../../attachments/stage-plan"],
     });
     expect(r.warnings.filter((w) => w.includes("not an emitted file"))).toEqual([]);
@@ -904,8 +958,11 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
       throw new Error(`engine "${step.name}": compile-native engine calls the runtime resolver (resolve-args.sh)`);
     }
     if (!opts.ctx) throw new Error(`engine "${step.name}": placeholders present but no placeholder context`);
-    const { body } = substitute(stepBody, opts.ctx, step.name);
+    const { body, used } = substitute(stepBody, opts.ctx, step.name);
     assertNoPlaceholders(body, step.name);
+    for (const { slotName } of boundSlots) {
+      if (!used.slots.includes(slotName)) notes.push(`slot "${slotName}" is bound but never placed in the body`);
+    }
     sections.push(body);
     return { body: sections.join("\n\n"), notes };
   }
@@ -953,8 +1010,16 @@ export function compileSkill(
   const compiledParts = [`${step.plugin}@${step.version}`, ...boundSlots.map(({ fill }) => `${fill.binding}@${fill.version}`)];
   const compiledFrom = compiledParts.join(" + ");
 
+  const slotMode: Record<string, "inline" | "reference"> = {};
+  for (const { slotName, fill } of boundSlots) {
+    slotMode[slotName] = fill.registered && !internalRoster.has(fill.binding) ? "reference" : "inline";
+  }
+  const partsPrefix = opts.stageDir ? `${opts.stageDir}/parts` : `${CLAUDE_SKILL_DIR_TOKEN}/parts`;
+
   const ctx: PlaceholderContext = {
     fills,
+    slotMode,
+    partsPrefix,
     includes: opts.includes ?? {},
     pipelines: opts.pipelines ?? {},
     repoKey: opts.repoKey ?? "",
@@ -970,7 +1035,7 @@ export function compileSkill(
   const frontmatter = buildFrontmatter(verb, allowedTools, compiledParts);
   const content = `${frontmatter}\n\n${body}\n`;
 
-  const files: CompiledFile[] = [{ path: "SKILL.md", content }, ...buildVendoredFiles(step, boundSlots)];
+  const files: CompiledFile[] = [{ path: "SKILL.md", content }, ...buildVendoredFiles(step, boundSlots, opts.includes ?? {})];
   const fillBindings = boundSlots.map(({ fill }) => fill.binding);
   const warnings = [...lintReferences(body, roster, files, fillBindings, opts.emittedSiblingDirs ?? []), ...notes];
   const errors = [
@@ -981,7 +1046,23 @@ export function compileSkill(
 }
 ```
 
-The include fills' `extraFiles` must also vendor: in `buildVendoredFiles`, add a loop over `opts.includes` emitting `parts/include-<name>/<entry>` (pass `includes` through as a third parameter).
+`buildVendoredFiles` gains a third parameter and vendors each include's `extraFiles`, matching the path `includeText` rewrites body references to:
+
+```ts
+function buildVendoredFiles(step: StepSource, boundSlots: BoundSlot[], includes: Record<string, AttachmentSource>): CompiledFile[] {
+  const files: CompiledFile[] = [];
+  for (const entry of step.stepFiles) files.push({ path: entry, copyFrom: `${step.dir}/${entry}` });
+  for (const { slotName, fill } of boundSlots) {
+    for (const entry of fill.extraFiles) files.push({ path: `parts/${slotName}/${entry}`, copyFrom: `${fill.dir}/${entry}` });
+  }
+  for (const [name, inc] of Object.entries(includes)) {
+    for (const entry of inc.extraFiles) files.push({ path: `parts/include-${name}/${entry}`, copyFrom: `${inc.dir}/${entry}` });
+  }
+  return files;
+}
+```
+
+One existing test changes meaning here, not in Task 7: nothing in `compile.test.ts` needs edits (every existing body is placeholder-free, so the backward path is exercised unchanged). In `surface.test.ts` the test "skips a non-public verb ... prints an internal line and removes its compiled skills/ dir" asserts behavior Task 7 deletes; leave it failing-red at the end of this task and rewrite it in Task 7 (see there).
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -1004,7 +1085,7 @@ git commit -m "skills: compileSkill runs the placeholder pass, unions stage tool
 - Modify: `lib/skills/__tests__/surface.test.ts`
 
 **Interfaces:**
-- `Resolved` gains: `pipelines: Record<string, string[]>`, `stages: VerbDef[]`, `repoKey: string`, `mattstackSha: string`, `mattstackDirty: 0 | 1`, `includesFor: (step: StepSource) => Record<string, AttachmentSource>`.
+- `Resolved` gains: `pipelines: Record<string, string[]>`, `stages: VerbDef[]`, `stageEntries: Record<string, StageEntry[]>`, `repoKey: string`, `mattstackSha: string`, `mattstackDirty: 0 | 1`.
 - New exported pure helper for tests: `outDirFor(packDir: string, name: string, isPublic: boolean): string` returning `join(packDir, isPublic ? "skills" : "attachments", name)`, and `otherSideDir(packDir, name, isPublic)`.
 - A stage target's `isPublic` is `publicSet?.has(name) ?? false` (never public by default). A roster verb's is `!publicSet || publicSet.has(name)` (today's rule).
 
@@ -1078,12 +1159,12 @@ and return them. `repoKey` is the manifest's parent directory name, which is the
 Add a `stageEntries` builder used by both `work` compilation and the chain check:
 
 ```ts
-function stageEntries(resolved: Resolved): Record<string, StageEntry[]> {
+function buildStageEntries(input: Pick<Resolved, "pipelines" | "pluginRoots">): Record<string, StageEntry[]> {
   const out: Record<string, StageEntry[]> = {};
-  for (const [type, names] of Object.entries(resolved.pipelines)) {
+  for (const [type, names] of Object.entries(input.pipelines)) {
     out[type] = names.map((qualified) => {
       const name = qualified.slice(qualified.indexOf(":") + 1);
-      const step = loadStepSource(name, resolved.pluginRoots);
+      const step = loadStepSource(name, input.pluginRoots);
       if (!step.stageMeta) throw new SkillsUsageError(`pipeline "${type}": "${name}" has no metadata.stage; it cannot appear in a pipeline`);
       return {
         name, stage: step.stageMeta.stage,
@@ -1096,12 +1177,94 @@ function stageEntries(resolved: Resolved): Record<string, StageEntry[]> {
 }
 ```
 
-In `compileVerb`, build `includes` by scanning the step body for `{{include:<name>}}` placeholders (`findPlaceholders(step.body).filter((p) => p.kind === "include")`) and `loadInclude`-ing each; collect stage `allowed-tools` for `work` by loading every stage step and taking its `allowedTools` plus its bound fills' `allowedTools`; pass `pipelines: stageEntries(resolved)`, `repoKey`, `mattstackSha`, `mattstackDirty`, `stageDir` (set to the entry `dir` when compiling a stage), `stageAllowedTools`, `emittedSiblingDirs` (every stage entry's `dir`). For a stage target, take `description` from the loaded step's frontmatter (`loadStepSource` must expose it: add `description: string` to `StepSource` read from `frontmatter.description`, default `""`).
+Replace `compileVerb` with this concrete version. It takes `isStage` and threads every new option; the orchestrator is identified as the target whose step body places `{{pipeline.stages}}`, which is what the stage `allowed-tools` union is for.
+
+```ts
+function loadFillsFor(step: StepSource, resolved: Resolved, where: string): Record<string, AttachmentSource | null> {
+  const slotBindings = resolved.bindings[`${step.plugin}:${step.name}`] ?? {};
+  const fills: Record<string, AttachmentSource | null> = {};
+  for (const slotName of Object.keys(step.slots)) {
+    const bindingName = slotBindings[slotName];
+    if (!bindingName) { fills[slotName] = null; continue; }
+    try {
+      fills[slotName] = loadAttachment(bindingName, slotName, resolved.pluginRoots);
+    } catch (err) {
+      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+    }
+  }
+  return fills;
+}
+
+function loadIncludesFor(step: StepSource, resolved: Resolved, where: string): Record<string, AttachmentSource> {
+  const out: Record<string, AttachmentSource> = {};
+  for (const p of findPlaceholders(step.body)) {
+    if (p.kind !== "include" || !p.arg || out[p.arg]) continue;
+    try {
+      out[p.arg] = loadInclude(p.arg, resolved.pluginRoots);
+    } catch (err) {
+      throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+    }
+  }
+  return out;
+}
+
+/** Every stage's own rules plus its bound fills' rules; unioned into the orchestrator because a stage read as a file loads no frontmatter of its own. */
+function stageAllowedToolsFor(resolved: Resolved, entries: Record<string, StageEntry[]>): string[] {
+  const rules: string[] = [];
+  const seen = new Set<string>();
+  for (const list of Object.values(entries)) {
+    for (const entry of list) {
+      if (seen.has(entry.name)) continue;
+      seen.add(entry.name);
+      const step = loadStepSource(entry.name, resolved.pluginRoots);
+      rules.push(...step.allowedTools);
+      for (const fill of Object.values(loadFillsFor(step, resolved, `stage "${entry.name}"`))) {
+        if (fill) rules.push(...fill.allowedTools);
+      }
+    }
+  }
+  return rules;
+}
+
+function compileVerb(verb: VerbDef, resolved: Resolved, isStage: boolean): CompileResult {
+  const where = `${isStage ? "stage" : "verb"} "${verb.name}"`;
+  let step: StepSource;
+  try {
+    step = loadStepSource(verb.engine, resolved.pluginRoots);
+  } catch (err) {
+    throw new SkillsUsageError(`${where}: ${(err as Error).message}`);
+  }
+  if (isStage) verb = { ...verb, description: step.description };
+
+  const entries = resolved.stageEntries;
+  const allStageDirs = Object.values(entries).flat().map((e) => e.dir);
+  const stageDir = isStage ? allStageDirs.find((d) => d.endsWith(`/${verb.name}`)) ?? null : null;
+  const isOrchestrator = findPlaceholders(step.body).some((p) => p.kind === "pipeline.stages");
+
+  try {
+    return compileSkill(verb, step, loadFillsFor(step, resolved, where), resolved.invocable, {
+      internalRoster: resolved.internalRoster,
+      includes: loadIncludesFor(step, resolved, where),
+      pipelines: entries,
+      repoKey: resolved.repoKey,
+      mattstackSha: resolved.mattstackSha,
+      mattstackDirty: resolved.mattstackDirty,
+      stageDir,
+      stageAllowedTools: isOrchestrator ? stageAllowedToolsFor(resolved, entries) : [],
+      emittedSiblingDirs: allStageDirs,
+    });
+  } catch (err) {
+    throw new SkillsUsageError((err as Error).message);
+  }
+}
+```
+
+`Resolved` therefore also carries `stageEntries: Record<string, StageEntry[]>`, computed once inside `resolve` as `buildStageEntries({ pipelines, pluginRoots })` after both are known; the builder is typed over a `Pick` so it can run before a full `Resolved` exists. The old inline slot-binding loop in `compileVerb` is replaced by `loadFillsFor`.
 
 Before any compile, run the chain check once:
 
 ```ts
-    const entries = stageEntries(resolved);
+    const entries = resolved.stageEntries;
     const chainErrors = Object.entries(entries).flatMap(([type, list]) => validateChain(type, list, ["work-type", "ticket", "repo", "mode"]));
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 ```
@@ -1128,6 +1291,8 @@ Replace the loop body in `skillsCompile`:
 ```
 
 Delete the old `internal: … (not compiled; roster entry retired)` branch. Apply the same `targets` + `outDirFor` placement in `skillsCheck`, dropping its `isPublic` skip so internal targets are checked too.
+
+Rewrite the existing `surface.test.ts` test "skips a non-public verb ... prints an internal line and removes its compiled skills/ dir" (it asserts the deleted branch) to: compile with that verb non-public, then `expect(existsSync(join(pack, "skills", "old-verb"))).toBe(false)` and `expect(existsSync(join(pack, "attachments", "old-verb", "SKILL.md"))).toBe(true)`, and assert the log line `compiled old-verb -> attachments`.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -1191,7 +1356,22 @@ In `computeRows`, add the parameter and:
   });
 ```
 
-`defaultPublicSet(skillsNames, verbNames)` is left as is; callers never pass stage names into it. In `runList`, `runApply`, `runSet`, and the palette, compute `stageNames` from `stageRoster(readManifestPipelines(<manifest>))` using the same manifest resolution `resolve` uses (`flags.manifest ?? findDefaultManifest(...)`), and in `runApply` skip `git mv` for any name in `stageNames` (they are regenerated by the compile step, like other compiled targets).
+`defaultPublicSet(skillsNames, verbNames)` is left as is; callers never pass stage names into it. In `runList`, `runApply`, `runSet`, and the palette, compute `stageNames` with this helper and pass it to `computeRows`; in `runApply` skip `git mv` for any name in `stageNames` (they are regenerated by the compile step, like other compiled targets).
+
+```ts
+/**
+ * A rosterless pack (the mattstack plugin repo itself) has no manifest and
+ * `findDefaultManifest` throws for it; the surface verbs must keep working
+ * there, so no manifest means no stages rather than an error.
+ */
+function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
+  if (readVerbRoster(packDir).length === 0) return new Set();
+  const mattstackRoot = flags.mattstackDir ?? mattstackHome();
+  const team = flags.team ?? packNameFor(packDir);
+  const manifest = flags.manifest ?? findDefaultManifest(mattstackRoot, team);
+  return new Set(stageRoster(readManifestPipelines(manifest)).map((v) => v.name));
+}
+```
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -1218,10 +1398,11 @@ git commit -m "skills surface: stages classify as compiled and default internal"
 ```ts
 // lib/skills/__tests__/compile-native.e2e.test.ts
 import { describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readFileSync } from "fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { skillsCompile, skillsCheck } from "../../../commands/skills.ts";
+import { runExpectingCleanExit } from "./helpers.ts";
 
 const FIX = join(import.meta.dir, "fixtures", "compile-native");
 
@@ -1264,15 +1445,58 @@ describe("compile-native end to end", () => {
     const manifest = join(root, "mattstack-home", "repos", "my-repo", "skills.jsonc");
     // stage-ship consumes commits; nothing produces it when stage-plan is alone before it
     const broken = readFileSync(manifest, "utf8").replace('"mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"', '"mattstack:stage-plan", "mattstack:stage-ship"');
-    const { writeFileSync } = await import("fs");
     writeFileSync(manifest, broken);
-    await expect(skillsCompile(["--pack-dir", join(root, "pack"), "--mattstack-dir", join(root, "mattstack-home"), "--manifest", manifest]))
-      .rejects.toThrow('stage "stage-ship" consumes "commits"');
+    const { exitCode, errors } = await runExpectingCleanExit(() =>
+      skillsCompile(["--pack-dir", join(root, "pack"), "--mattstack-dir", join(root, "mattstack-home"), "--manifest", manifest]),
+    );
+    expect(exitCode).toBe(1);
+    expect(errors.join("\n")).toContain('stage "stage-ship" consumes "commits"');
   });
 });
 ```
 
-The fixture `work/SKILL.md` body is exactly the converted engine body from Task 12 (copy it there once Task 12 lands; until then use a minimal body: `{{work-type}}\n\n{{pipeline.stages}}\n\nStart: "$RT_PIPELINE_STATE" run-start {{run-start.flags}}`). Fixture stages: `stage-plan` (consumes `ticket`, produces `approach`, slot `domain` optional, body `{{stage.fields}}\n{{slot:domain}}`), `stage-implement` (consumes `approach`, produces `commits`, no slots), `stage-ship` (consumes `commits ticket`, produces `mr`, no slots). Fixture pack manifest binds `mattstack:stage-plan.domain` to `acme:plan-policy` and the fixture acme plugin ships that attachment with `provides: plan-domain@1`.
+`skillsCompile` runs inside `withCleanErrors`, which catches `SkillsUsageError`, prints it via `console.error`, and calls `process.exit(1)` -- it never rejects, and an unmocked `process.exit` inside `bun test` kills the runner. So this test uses the `runExpectingCleanExit` helper that `surface.test.ts` already defines (it spies `process.exit` to throw a sentinel and captures `console.error`). Move that helper into a shared `lib/skills/__tests__/helpers.ts` and import it from both test files; add `writeFileSync` to this file's `fs` import.
+
+The fixture tree, exactly (`--mattstack-dir` resolves plugin roots from `<dir>/plugins/<name>/`, each needing `.claude-plugin/plugin.json`; the pack roster lives at `<pack>/pack/stubs.jsonc`):
+
+```
+lib/skills/__tests__/fixtures/compile-native/
+  pack/
+    pack/stubs.jsonc        {"verbs":{"work":{"engine":"work","description":"Run a unit of work"}}}
+    pack/surface.jsonc      {"public":["work"]}
+    .claude-plugin/plugin.json   {"name":"acme","version":"0.1.0"}
+  mattstack-home/
+    repos/my-repo/skills.jsonc
+    plugins/mattstack/.claude-plugin/plugin.json   {"name":"mattstack","version":"1.0.0"}
+    plugins/mattstack/attachments/pipeline/work/SKILL.md
+    plugins/mattstack/attachments/pipeline/stage-plan/SKILL.md
+    plugins/mattstack/attachments/pipeline/stage-implement/SKILL.md
+    plugins/mattstack/attachments/pipeline/stage-ship/SKILL.md
+    plugins/acme/.claude-plugin/plugin.json        {"name":"acme","version":"0.1.0"}
+    plugins/acme/attachments/plan-policy/SKILL.md
+```
+
+`repos/my-repo/skills.jsonc` (the header must name the pack, `acme`, for `findDefaultManifest`; the e2e test passes `--manifest` explicitly anyway):
+
+```jsonc
+// acme bindings
+{
+  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },
+  "bindings": { "mattstack:stage-plan": { "domain": "acme:plan-policy" } }
+}
+```
+
+`work/SKILL.md` body (frontmatter: `name: work`, `description: w`, `type: pipeline-step`, no slots):
+
+```
+{{work-type}}
+
+{{pipeline.stages}}
+
+Start: "$RT_PIPELINE_STATE" run-start {{run-start.flags}}
+```
+
+Stages (each `type: pipeline-step`, `description: "<name>"`): `stage-plan` with `slots: { domain: { contract: plan-domain@1, required: false } }`, `metadata.stage: plan`, `stage-consumes: ticket`, `stage-produces: approach`, body `{{stage.fields}}\n{{slot:domain}}`; `stage-implement` with no `slots:`, `stage: implement`, consumes `approach`, produces `commits`, body `{{stage.fields}}`; `stage-ship` with no `slots:`, `stage: ship`, consumes `commits ticket`, produces `mr`, body `{{stage.fields}}`. `acme/attachments/plan-policy/SKILL.md`: frontmatter `name: plan-policy`, `metadata.provides: "plan-domain@1"`, body `policy text`. The broken-chain test's `replace` string matches the `pipelines` line above verbatim.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1393,16 +1617,19 @@ git commit -m "pipeline-state: run-start takes --ticket, --mattstack-sha, --matt
 
 - [ ] **Step 3: Implement** in `certify.sh`, next to the `vendored-resolver` check:
 
+`certify.sh` reports through its `ok` / `fail` helpers (the `fail` helper is what sets the non-zero exit); an ad-hoc `echo FAIL` prints but never bites. Use the helpers:
+
 ```sh
 # A skill that resolves slots at run time (metadata.slots + resolve-args.sh)
 # must never carry a compile-time placeholder: the two modes do not mix.
 if grep -q '^  slots:' "$DIR/SKILL.md" 2>/dev/null && grep -q '{{' "$DIR/SKILL.md"; then
-  echo "FAIL no-placeholders-in-runtime-native: metadata.slots skill contains {{"
-  RESULT=1
+  fail no-placeholders-in-runtime-native "metadata.slots skill contains {{"
 else
-  echo "ok   no-placeholders-in-runtime-native"
+  ok no-placeholders-in-runtime-native
 fi
 ```
+
+Read the existing `vendored-resolver` check first and match its exact helper names and argument order.
 
 - [ ] **Step 4: Run to verify it passes** — fixture reports the FAIL line; every real skill still certifies `ok`.
 
@@ -1435,7 +1662,7 @@ disable-model-invocation: true
 description: "Use when running a unit of work through a configured pipeline -- 'run the feature pipeline', 'do this ticket end to end', 'start a unit of work', or when a repo's .mattstack/skills.jsonc defines pipelines and a ticket or task should flow through its stages."
 allowed-tools:
   - Bash(${CLAUDE_SKILL_DIR}/scripts/pipeline-state.sh:*)
-  - Bash(git -C ${CLAUDE_SKILL_DIR} rev-parse --show-toplevel)
+  - Bash(git -C *:*)
 type: pipeline-step
 slots:
   tiering: { contract: model-tiering@1, required: false }
@@ -1635,13 +1862,13 @@ git commit -m "ship, watch-ci, shepherdr: compile-native slots"
 ### Task 15: Dissolve `review-core` / `review-dispatch`; convert the three review verbs; `review-posting`
 
 **Files:**
-- Create: `attachments/review-core-body/SKILL.md`, `attachments/review-dispatch-body/SKILL.md`
+- Create: `attachments/review-core-body/SKILL.md`, `attachments/review-core-body-after/SKILL.md`, `attachments/review-dispatch-body/SKILL.md`, `attachments/review-dispatch-body-after/SKILL.md` (+ `review-dispatch-body-after/references/adjudicator.md`, moved)
 - Delete: `attachments/review-core/`, `attachments/review-dispatch/`
 - Modify: `attachments/review/review/SKILL.md`, `attachments/review/self-review/SKILL.md`, `attachments/review/receive-review/SKILL.md`, `attachments/review-posting/SKILL.md`
 
 - [ ] **Step 1: Confirm nothing invokes the two directly**
 
-Run: `grep -rn 'review-core\b\|review-dispatch\b' --include=SKILL.md --include=*.jsonc --include=*.sh . ~/.mattstack/teams 2>/dev/null | grep -v '^./attachments/review' | grep -v 'review-core-body\|review-dispatch-body'`
+Run: `grep -rn 'review-core\b\|review-dispatch\b' --include='SKILL.md' --include='*.jsonc' --include='*.sh' . ~/.mattstack/teams 2>/dev/null | grep -v '^./attachments/review' | grep -v 'review-core-body\|review-dispatch-body'` (quote the `--include` patterns: under zsh an unquoted `*.jsonc` glob aborts the command)
 Expected: only the manifest binding line `"mattstack:review-core": { "criteria": ... }` (which becomes dead after this task and is removed from the pack manifest in Task 18) and doc mentions. If a slash invocation or a board launch names them, STOP and report; do not delete.
 
 - [ ] **Step 2: Create the bodies.** `review-core-body/SKILL.md`:
@@ -1654,9 +1881,25 @@ disable-model-invocation: true
 ---
 ```
 
-followed by `review-core/SKILL.md`'s body with (a) the `resolve-args.sh` block and every `resolved.criteria.*` reference removed, (b) the point where the criteria were read replaced by the literal line `<!-- criteria are inlined by the verb above this include -->` is NOT used; instead split: everything before the criteria read goes into `review-core-body`, everything after into a second file `review-core-body-after/SKILL.md` with the same frontmatter shape. Same treatment for `review-dispatch` around `resolved.reviewer.path` → `review-dispatch-body` / `review-dispatch-body-after`.
+followed by `review-core/SKILL.md`'s body, split at the two runtime reads it performs. Its body reads criteria at one point (`resolved.criteria.path`) and, in its step 4, dispatches through `../review-dispatch/SKILL.md`, which itself reads the reviewer at `resolved.reviewer.path`. Both reads become slots owned by the verb, so the shared prose is cut into slotless pieces around them:
 
-- [ ] **Step 3: Convert the verbs.** Each of `review`, `self-review`, `receive-review` keeps its typed `slots:` (`criteria`; `receive-review` also `reply-rules`, and gains `reviewer` if it dispatched through `review-dispatch`), drops `metadata.slots`, and replaces its relative-path read with:
+- `review-core-body` = review-core's body from the top up to (not including) the criteria read, with the `resolve-args.sh` block removed.
+- `review-core-body-after` = review-core's body after the criteria read up to (not including) the step-4 dispatch line.
+- `review-dispatch-body` = review-dispatch's body from the top up to (not including) the reviewer read, `resolve-args.sh` block removed.
+- `review-dispatch-body-after` = review-dispatch's body after the reviewer read to the end, followed by whatever review-core had after its step-4 dispatch line.
+
+No piece may contain `../`, `resolve-args`, `resolved.`, or `{{` (they are include targets). Two survivors of those greps must also go, because they describe a step that no longer exists: review-core's HARD-GATE sentence "Only step 2's resolver call precedes it" and its "## 2. Resolve the `criteria` slot" heading -- delete the sentence and the heading (the criteria now arrive inline from the verb's `{{slot:criteria}}` directly above `review-core-body-after`). Renumber review-core's remaining steps.
+
+`review-dispatch` references its own `references/adjudicator.md` by bare relative path; in the include body write that reference as `${CLAUDE_SKILL_DIR}/references/adjudicator.md`. The compiler rewrites it to `<partsPrefix>/include-review-dispatch-body-after/references/adjudicator.md` and vendors the file there (Task 3's `includeText` + Task 6's `buildVendoredFiles`), so the include target stays portable and the compiled verb finds the file. Move the file with git so Step 6's `git rm -r attachments/review-dispatch` does not take it with it:
+
+```bash
+mkdir -p attachments/review-dispatch-body-after/references
+git mv attachments/review-dispatch/references/adjudicator.md attachments/review-dispatch-body-after/references/adjudicator.md
+```
+
+Each piece's frontmatter is the three-line shape above with its own `name`.
+
+- [ ] **Step 3: Convert the verbs.** All three verbs compose the same four includes around two slots. `review` keeps its typed `slots:` (`criteria`) and adds `reviewer`; `self-review` has no typed `slots:` today (it reached criteria only through review-core) and gains both `criteria` and `reviewer`; `receive-review` keeps `criteria` and `reply-rules` and adds `reviewer`. Each drops `metadata.slots`, deletes its `scripts/resolve-args.sh`, and replaces its relative-path read with:
 
 ```markdown
 {{include:review-core-body}}
@@ -1666,9 +1909,17 @@ followed by `review-core/SKILL.md`'s body with (a) the `resolve-args.sh` block a
 {{slot:criteria}}
 
 {{include:review-core-body-after}}
+
+{{include:review-dispatch-body}}
+
+## Reviewer
+
+{{slot:reviewer}}
+
+{{include:review-dispatch-body-after}}
 ```
 
-(`receive-review` uses the `review-dispatch-body` pair and `{{slot:reviewer}}`.) Delete their `scripts/resolve-args.sh`. `review` also drops the `claude plugin list --json` lookup for `gitlab-mr-threads`: replace with `{{include:gitlab-mr-threads}}` (it is slotless; verify with `grep -c slots attachments/gitlab-mr-threads/SKILL.md` = 0).
+The pack manifest must bind `reviewer` for all three verbs (Task 18 adds `"reviewer"` to each verb's binding, pointing at the same reviewer fill `mattstack:review-dispatch` was bound to). `review` also drops the `claude plugin list --json` lookup for `gitlab-mr-threads`: replace with `{{include:gitlab-mr-threads}}` (slotless; verify with `grep -c slots attachments/gitlab-mr-threads/SKILL.md` = 0).
 
 - [ ] **Step 4: `review-posting`** — replace its `../review-core/SKILL.md` and `../review-dispatch/SKILL.md` references with prose that names the shape ("the draft, in the review flow's Strengths / Issues shape") and no path; it is itself an include target so it may not contain placeholders.
 
@@ -1777,7 +2028,7 @@ Expected: no FAIL, purity ok.
 **Files (private pack repo, NOT public):**
 - Modify: the plan-policy fill (`attachments/<plan-policy>/SKILL.md`): its "write this verdict into the uow record too" sentence becomes "write this verdict with `"$RT_PIPELINE_STATE" field set approach <verdict> --stage plan`".
 - Modify: the gates fill (`attachments/<gates>/SKILL.md`): "decide from the PLANNED paths in the plan or uow record" becomes "decide from the PLANNED paths in the plan (`"$RT_PIPELINE_STATE" field get approach`)".
-- Modify: the repo manifest `~/.mattstack/repos/<slug>/skills.jsonc` AND the pack's `pack/skills.jsonc` template: delete the `"mattstack:review-core"` binding (the verb `mattstack:review` carries `criteria` itself).
+- Modify: the repo manifest `~/.mattstack/repos/<slug>/skills.jsonc` AND the pack's `pack/skills.jsonc` template: delete the `"mattstack:review-core"` and `"mattstack:review-dispatch"` bindings, and add a `"reviewer"` key to the `mattstack:review`, `mattstack:self-review`, and `mattstack:receive-review` bindings pointing at whatever fill `mattstack:review-dispatch.reviewer` was bound to (read it before deleting that line).
 - Modify: two pack fills that mention the retired engines by name in prose only (the review-criteria fill's description says "Use when mattstack:review-core or ..."; a conventions fill lists "review-core (mattstack, internal)"): reword to name the `review` verb. `grep -rn 'review-core\|review-dispatch' <pack>/` must come back empty.
 
 - [ ] **Step 1:** `grep -rn 'uow' <pack>/attachments/` lists the two fills.
