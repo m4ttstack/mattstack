@@ -132,14 +132,31 @@ describe("event emission", () => {
     return bin;
   }
 
+  /**
+   * Polls the detached emitter's log until it contains `needle`, rather than
+   * sleeping a fixed interval and reading once. The emission is a detached
+   * subshell, so on a loaded machine the write lands after any fixed wait would
+   * -- the original `Bun.sleep(300)` failed exactly that way under CI. Returns
+   * the log so callers assert on the full contents; on timeout it returns the
+   * last read so the assertion reports what actually landed.
+   */
+  async function waitForLog(path: string, needle: string, timeoutMs = 5_000): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const log = existsSync(path) ? readFileSync(path, "utf8") : "";
+      if (log.includes(needle)) return log;
+      if (Date.now() >= deadline) return log;
+      await Bun.sleep(20);
+    }
+  }
+
   test("writes emit run-updated through rt, detached", async () => {
     const root = freshRoot();
     const bin = fakeRt(root);
     const env = { RT_RUNS_ROOT: root, PATH: `${bin}:${process.env.PATH}` };
     const r = runState(["run-start", "--repo", "demo", "--work-type", "feature", "--pipeline", "default"], env);
     runState(["stage-start", "--stage", "plan"], { ...env, RT_RUN_DB: r.out.runDb });
-    await Bun.sleep(300); // emission is detached; give the subshell a beat
-    const log = readFileSync(join(root, "rt-calls.log"), "utf8");
+    const log = await waitForLog(join(root, "rt-calls.log"), "events emit run-updated");
     expect(log).toContain("events emit run-updated");
     expect(log).toContain('"kind":"stage-start"');
     expect(log).toContain('"runId":"' + r.out.runId + '"');
