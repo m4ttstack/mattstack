@@ -65,7 +65,7 @@ One syntax, `{{name}}` or `{{name:arg}}`, eight kinds, no logic:
 | `{{stage.fields}}` | For a stage, its own consumes/produces as prose, from frontmatter. |
 | `{{stage.dir}}` | Inside a compiled stage, the stage's own directory as a path relative to the orchestrator: `${CLAUDE_SKILL_DIR}/../../attachments/stage-<name>`. Stages are read as sibling files, not invoked, so `${CLAUDE_SKILL_DIR}` still names `work`'s directory while a stage body is followed; a stage addresses its vendored scripts as `{{stage.dir}}/parts/<slot>/...`. |
 | `{{run-start.flags}}` | The static fragment, keyed by work type like `{{pipeline.stages}}`: `--repo <key> --work-type <t> --pipeline <name> --mattstack-sha <sha> --mattstack-dirty <0\|1>`. The two mattstack values are one per compile, not per work type, and are repeated in every key. `--pack-dirs` is not baked (see below). |
-| `{{compiled-from}}` | Provenance, the content of today's `metadata.compiled`: pack and mattstack versions plus every binding. Also the only version stamp; there is no separate version placeholder. |
+| `{{compiled-from}}` | Provenance, the value of today's `metadata.compiled`: pack and mattstack versions plus every binding. The emitted frontmatter **key stays `metadata.compiled`**; the placeholder only names the value. Also the only version stamp; there is no separate version placeholder. |
 
 `--repo <key>`: the manifest key of the pack's repo. A pack serves one
 manifest; the compiler takes the key from the manifest it compiled against
@@ -124,6 +124,43 @@ Invariants:
   (Section 2): an internal attachment inlines; a registered public skill
   becomes an "invoke `<name>`" line so the public skill stays singly
   canonical. This is `buildBody`'s existing registered-skill rule, kept.
+
+### Seam markers (preserved contract)
+
+The console's compiled view, version timeline, seam-aware compare, and
+copy-agent-context are built on machine-readable seam markers the compiler
+writes into each committed compiled `SKILL.md`. In-place placeholder
+substitution must not drop them. The contract is kept, and extended by
+one kind:
+
+```
+<!-- part: step source=<plugin>:<name> version=<v> path=<p> lines=<a>-<b> -->
+<!-- part: slot:<slot> binding=<plugin>:<fill> version=<v> path=<p> lines=<a>-<b> -->
+<!-- part: include:<attachment> source=<plugin>:<attachment> version=<v> path=<p> lines=<a>-<b> -->
+```
+
+Every inlined region carries five facts: **kind** (`step`, `slot:<name>`,
+or the new `include:<name>`), **ref** (`source=` for step and include,
+`binding=` for slot), **source version**, **source path** (plugin-relative,
+`relative(<plugin root>, skillMdPath)`, per region), and **source line
+span** (1-indexed inclusive, measured in the source file from
+`bodyStartLine`, never in the compiled output). Placeholder expansion is
+where the compiler knows the fill's `bodyStartLine` and length, so the
+marker is emitted at substitution time exactly as `buildBody`/`span()` do
+today; the marker precedes the region it introduces. The contract applies
+**per compiled file**: `work` and every emitted stage carry markers, so a
+stage's provenance reads the same way a verb's does. Markers are comments,
+invisible to the agent, and `stripCompilerComments` keeps excluding them
+from lint. A region split into two includes around a `{{slot}}` (the
+review-verb case in Section 2) carries two `include:` markers with their
+own spans. Source-coordinate spans are the non-negotiable semantic: the
+console attributes a diff hunk to the seam whose span contains it, which is
+meaningless in compiled coordinates.
+
+The regions a non-inlined placeholder produces (`{{pipeline.stages}}`,
+`{{work-type}}`, `{{stage.fields}}`, `{{stage.dir}}`, `{{run-start.flags}}`)
+are compiler-generated text with no source file, so they carry no marker;
+they are part of the enclosing `step` region.
 
 ## Section 2: stage compilation and the surface
 
@@ -289,7 +326,11 @@ emission to `attachments/`, **stale-side removal when a name flips
 public/internal** (the failure most likely to go unnoticed: a working
 artifact on both sides, one stale), the `{{stage.dir}}` body rewrite and
 the leading-wildcard `allowed-tools` union, include-vs-public referencing,
-the slotless-include-target error, and the surface `classify` change. Engines: the existing certify and purity gates, plus one
+the slotless-include-target error, the surface `classify` change, and
+**seam markers**: every inlined region in a compiled verb and in a compiled
+stage carries a marker of the right kind with a plugin-relative path and a
+source-coordinate span that matches the fill's real `bodyStartLine`, and
+the new `include:` kind parses with the same five facts. Engines: the existing certify and purity gates, plus one
 end-to-end proof: compile a real team pack, `rt skills check` clean, and
 the compiled `work` and every stage contain zero `resolve-args` /
 `resolve-pipeline` references and zero `{{`.
