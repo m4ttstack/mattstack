@@ -27,6 +27,27 @@
 
 ---
 
+## Base branch (read first)
+
+Phase A builds on repo-tools `origin/main` at or after `841d4068`
+("machine-readable substrate for the console", #66), in the worktree
+`.claude/worktrees/compile-native-pipeline` on branch
+`worktree-compile-native-pipeline`. That commit added to the compiler,
+and every Phase A task assumes it is present:
+
+- `commands/skills.ts`: `--json` on compile/check/surface; `rt skills packs`,
+  `composition`, `bind`; `tryCompileVerb` (per-verb degrade for `--json` /
+  `--preview`); `Resolved` already has `team`, `fullRoster`, `manifestPath`.
+  Line numbers in this plan are approximate against that file; anchor on
+  function names.
+- `lib/skills/sources.ts`: `readManifestPipelines` **already exists**
+  (line ~340). Task 5 does not create it.
+- `lib/skills/compile.ts`: exported `isInlined(fill, internalRoster)` is the
+  registered-skill rule; Task 6 uses it rather than re-deriving.
+
+Run `git log --oneline -1` in the worktree before Task 1 and confirm the
+SHA is `841d4068` or a descendant; if it is not, stop and say so.
+
 ## File structure
 
 **repo-tools (compiler)**
@@ -639,7 +660,7 @@ git commit -m "skills: compile-time produce/consume chain validation"
 - Modify: `lib/skills/__tests__/sources.test.ts`
 
 **Interfaces:**
-- Produces: `readManifestPipelines(manifestPath: string): Record<string, string[]>` (work type → `<plugin>:<stage>` names, as written in the manifest).
+- Consumes: `readManifestPipelines(manifestPath: string): Record<string, string[]>` **already exists** in `sources.ts` (from #66). Do not re-create it; keep its signature. Add only the input-filtering test below if it is not already covered.
 - Produces: `loadInclude(name: string, roots: PluginRoots): AttachmentSource` — like `loadAttachment` but the target is `mattstack:<name>` under `attachments/`, `provides` may be empty, and it throws if the target declares `slots:` (typed) or `metadata.slots`, or if its body contains a placeholder (uses `findPlaceholders`).
 - Produces: `stageRoster(pipelines: Record<string, string[]>): VerbDef[]` — one `VerbDef` per distinct stage across all pipelines; `name` and `engine` are the bare stage name (`stage-plan`), `description` is filled by the caller from the loaded step's frontmatter (Task 7), so here `description` is `""`.
 
@@ -704,21 +725,10 @@ Expected: FAIL on the three new exports
 
 - [ ] **Step 3: Implement**
 
-Add to `lib/skills/sources.ts`:
+Add to `lib/skills/sources.ts` (leave the existing `readManifestPipelines` in place):
 
 ```ts
 import { findPlaceholders } from "./placeholders.ts";
-
-export function readManifestPipelines(manifestPath: string): Record<string, string[]> {
-  const parsed = JSON.parse(stripJsonc(readFileSync(manifestPath, "utf8"))) as {
-    pipelines?: Record<string, unknown>;
-  };
-  const out: Record<string, string[]> = {};
-  for (const [type, list] of Object.entries(parsed.pipelines ?? {})) {
-    if (Array.isArray(list)) out[type] = list.filter((s): s is string => typeof s === "string");
-  }
-  return out;
-}
 
 export function stageRoster(pipelines: Record<string, string[]>): VerbDef[] {
   const seen = new Set<string>();
@@ -969,12 +979,11 @@ function buildBody(step: StepSource, boundSlots: BoundSlot[], opts: BuildOpts): 
 
   sections.push(stepBody);
   for (const { slotName, fill } of boundSlots) {
-    const internal = opts.internalRoster.has(fill.binding);
-    if (fill.registered && !internal) {
+    if (!isInlined(fill, opts.internalRoster)) {
       sections.push(`Slot ${slotName} is bound to \`${fill.binding}\` (${fill.binding}@${fill.version}) -- invoke that skill when this flow needs it.`);
       continue;
     }
-    if (fill.registered && internal) notes.push(`note: ${fill.binding} is surface-internal; inlined`);
+    if (fill.registered) notes.push(`note: ${fill.binding} is surface-internal; inlined`);
     sections.push(`<!-- part: slot:${slotName} binding=${fill.binding} version=${fill.version} ${span(fill)} -->`);
     sections.push(rewriteSkillDirRefs(fill.body, slotName));
   }
@@ -1012,7 +1021,7 @@ export function compileSkill(
 
   const slotMode: Record<string, "inline" | "reference"> = {};
   for (const { slotName, fill } of boundSlots) {
-    slotMode[slotName] = fill.registered && !internalRoster.has(fill.binding) ? "reference" : "inline";
+    slotMode[slotName] = isInlined(fill, internalRoster) ? "inline" : "reference";
   }
   const partsPrefix = opts.stageDir ? `${opts.stageDir}/parts` : `${CLAUDE_SKILL_DIR_TOKEN}/parts`;
 
@@ -1144,7 +1153,7 @@ function gitFacts(dir: string): { sha: string; dirty: 0 | 1 } {
 }
 ```
 
-Extend `resolve`:
+Extend `resolve` (the real `Resolved` already has `team`, `fullRoster`, and `manifestPath`; add the new fields beside them):
 
 ```ts
   const pipelines = manifestPath ? readManifestPipelines(manifestPath) : {};
@@ -1152,9 +1161,10 @@ Extend `resolve`:
   const repoKey = manifestPath ? basename(dirname(manifestPath)) : "";
   const mattstackDir = pluginRoots.byName.mattstack?.dir ?? "";
   const { sha: mattstackSha, dirty: mattstackDirty } = mattstackDir ? gitFacts(mattstackDir) : { sha: "", dirty: 0 as const };
+  const stageEntries = buildStageEntries({ pipelines, pluginRoots });
 ```
 
-and return them. `repoKey` is the manifest's parent directory name, which is the registry repo key `run-start --repo` expects (the same key `~/.mattstack/runs/<repo>/` is named by).
+and return them alongside the existing fields. `repoKey` is the manifest's parent directory name, which is the registry repo key `run-start --repo` expects (the same key `~/.mattstack/runs/<repo>/` is named by). `skillsComposition` already calls `readManifestPipelines(resolved.manifestPath)` itself; leave that call alone.
 
 Add a `stageEntries` builder used by both `work` compilation and the chain check:
 
@@ -1269,7 +1279,7 @@ Before any compile, run the chain check once:
     if (chainErrors.length > 0) throw new SkillsUsageError(chainErrors.join("\n"));
 ```
 
-Replace the loop body in `skillsCompile`:
+Rework the loop in `skillsCompile`. The real function (post-#66) iterates `resolved.roster` with an `internal-skipped` branch, then `--json`, `--preview`, `--dry-run`, and plain branches, each going through `tryCompileVerb` or `compileVerb`. Keep all four output modes and `tryCompileVerb`; change only what is iterated and where it lands:
 
 ```ts
     const targets: { verb: VerbDef; isPublic: boolean; isStage: boolean }[] = [
@@ -1280,19 +1290,28 @@ Replace the loop body in `skillsCompile`:
     for (const { verb, isPublic, isStage } of targets) {
       const outDir = outDirFor(resolved.packDir, verb.name, isPublic);
       const stale = otherSideDir(resolved.packDir, verb.name, isPublic);
+      const side = isPublic ? "skills" : "attachments";
+      // --json / --preview branches: exactly as today, but call tryCompileVerb(verb, resolved, isStage)
+      // and, in the json row, replace status "internal-skipped" with "compiled" plus a new
+      // `side: "skills" | "attachments"` field. The `internal-skipped` status is retired.
+      ...
       const result = compileVerb(verb, resolved, isStage);
       if (result.errors.length > 0) throw new SkillsUsageError(`${isStage ? "stage" : "verb"} "${verb.name}": ${result.errors.join("; ")}`);
-      // preview / dry-run branches unchanged
-      if (!flags.dryRun && !flags.preview && existsSync(stale)) rmSync(stale, { recursive: true, force: true });
+      if (flags.dryRun) { /* unchanged */ continue; }
+      if (existsSync(stale)) rmSync(stale, { recursive: true, force: true });
       writeCompiledVerb(outDir, result);
-      console.log(`compiled ${verb.name} -> ${isPublic ? "skills" : "attachments"} (${result.files.length} files, ${result.warnings.length} warnings)`);
+      console.log(`compiled ${verb.name} -> ${side} (${result.files.length} files, ${result.warnings.length} warnings)`);
       for (const warning of result.warnings) console.log(`  ${warning}`);
     }
 ```
 
-Delete the old `internal: … (not compiled; roster entry retired)` branch. Apply the same `targets` + `outDirFor` placement in `skillsCheck`, dropping its `isPublic` skip so internal targets are checked too.
+`tryCompileVerb` gains the same `isStage` third parameter and passes it through. Delete the `internal-skipped` branch and the `"internal-skipped"` member of `CompileVerbStatus`; add `side` to `CompileVerbRow`. The post-loop "misplaced" scan stays as is.
 
-Rewrite the existing `surface.test.ts` test "skips a non-public verb ... prints an internal line and removes its compiled skills/ dir" (it asserts the deleted branch) to: compile with that verb non-public, then `expect(existsSync(join(pack, "skills", "old-verb"))).toBe(false)` and `expect(existsSync(join(pack, "attachments", "old-verb", "SKILL.md"))).toBe(true)`, and assert the log line `compiled old-verb -> attachments`.
+In `skillsCheck`, iterate the same `targets`, use `outDirFor` for `outDir`, drop the `isPublic` gate (every target is checked), and retire the `"internal-unchecked"` member of `CheckVerbStatus` along with its branch; a missing `outDir` is `never-compiled` for every target. Add `side` to `CheckVerbRow`.
+
+The console reads these JSON payloads (`--json` on compile and check); the changes above are the contract change it must absorb: `internal-skipped` and `internal-unchecked` disappear, and rows gain `side`. Record that in the PR description.
+
+Rewrite the existing `surface.test.ts` test "skips a non-public verb ... prints an internal line and removes its compiled skills/ dir" (it asserts the deleted branch) to: compile with that verb non-public, then `expect(existsSync(join(pack, "skills", "old-verb"))).toBe(false)` and `expect(existsSync(join(pack, "attachments", "old-verb", "SKILL.md"))).toBe(true)`, and assert the log line `compiled old-verb -> attachments`. Any `surface.test.ts` test asserting a `--json` row with `status: "internal-skipped"` or a check row with `"internal-unchecked"` changes to assert `status: "compiled"` / the real check status plus `side: "attachments"`. Grep the test file for both strings before starting.
 
 - [ ] **Step 4: Run to verify it passes**
 
