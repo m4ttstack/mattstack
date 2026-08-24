@@ -1,0 +1,31 @@
+// Bindings manifest template. Replace acme with your domain prefix,
+// delete slots your domain does not fulfill (they are optional -- the
+// stages fall back to generic behavior), and install per the README.
+{
+  "version": 1,
+  "skills": {
+    "enabled": ["mattstack:work", "mattstack:model-tiering"]
+  },
+  "pipelines": {
+    "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ]
+  },
+  "bindings": {
+    "mattstack:work": { "tiering": "mattstack:model-tiering" },
+    "mattstack:stage-plan": { "domain": "acme:work-policy" },
+    "mattstack:stage-watch-ci": { "forge": "mattstack:ci-forge-gitlab" },
+    "mattstack:review-core": { "criteria": "acme:review-criteria" },
+    "mattstack:receive-review": {
+      "criteria": "acme:review-criteria",
+      "reply-rules": "acme:reply-rules"
+    }
+  }
+}

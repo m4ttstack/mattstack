@@ -1,0 +1,4 @@
+.worktrees/
+.superpowers/
+.DS_Store
+.local-dev

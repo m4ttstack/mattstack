@@ -1,0 +1,10 @@
+// Fixture: pipeline whose only stage lives under an enabled plugin's
+// attachments/ root, one category level below attachments/ -- the shape a
+// stage takes once it moves out of skills/ (unregistered, hidden from the
+// slash menu) but must still resolve for the orchestrator.
+{
+  "version": 1,
+  "pipelines": {
+    "feature": ["fakepack:stage-unregistered"]
+  }
+}

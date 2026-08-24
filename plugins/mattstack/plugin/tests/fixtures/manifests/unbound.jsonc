@@ -1,0 +1,5 @@
+// Fixture: no bindings for the wrapper at all.
+{
+  "version": 1,
+  "bindings": {}
+}

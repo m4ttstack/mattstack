@@ -1,0 +1,169 @@
+---
+name: receive-review
+disable-model-invocation: true
+description: >-
+  Use when processing review feedback received on your OWN MR/PR --
+  "address the review comments", "go through the reviewer's comments and
+  reply", "respond to the review", "handle the feedback on my change".
+  For someone else's change use the domain's review skill; for your own
+  branch before it has feedback use the self-review flow.
+allowed-tools:
+  - Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*)
+type: pipeline-step
+slots:
+  criteria: { contract: review-criteria@1, required: false }
+  reply-rules: { contract: reply-rules@1, required: false }
+metadata:
+  slots: "criteria, reply-rules"
+  slot-criteria: "optional review-criteria@1 -- the domain's review standards: extra depth-triage lines plus an addendum template appended to the fresh-context reviewer or adjudicator prompt"
+  slot-reply-rules: "optional reply-rules@1 -- owns what a reply to a reviewer may say: voice, content, and how much understanding a reply must demonstrate"
+---
+
+# Receive review (feedback on your own change)
+
+The review comments left on **your own** change: pull the open threads, judge
+each against the codebase, decide what to change, reply. Implementation and
+posting each wait for their own explicit approval.
+
+Baseline agents already fetch threads, verify before implementing, clarify
+vague comments, and gate posting; this skill cross-references those rather
+than re-teaching them. It exists for the two things agents get wrong on their
+**own** change: adjudicating the comments in the context that wrote the code
+(author bias), and performative agreement leaking into the replies.
+
+## 1. Resolve the change and filter the threads
+
+- The change and its requirements come from the caller or domain adapter: the
+  diff range, plus the requirements it is judged against. Report a fetch
+  failure or a mismatched pair exactly as found; never fabricate the missing
+  half.
+- Keep only **unresolved human** threads: drop system notes and bot authors.
+  Capture each thread's id, its `file:line`, and its full note chain.
+- Zero unresolved human threads: say so and stop.
+
+Fetch mechanics belong to the forge CLI (`gh` / `glab`) and the adapter.
+
+## 2. Adjudicate in a fresh context
+
+<HARD-GATE>
+Do not judge the reviewer's comments in this session. You (helped) write this
+code; reading the diff here re-derives the same assumptions and nods at them,
+and reading harder buys confidence, not independence. A ruling formed here IS
+the verdict whatever it is labeled, including "the reviewer clearly has a
+point, I'll just add the guard."
+
+**REQUIRED SUB-FLOW:** the review-dispatch flow -- read
+`../../../attachments/review-dispatch/SKILL.md` (relative to this file) --
+adjudicator shape, ONE dispatch covering ALL the threads. Running a
+self-review as an afterthought at the end does not satisfy this: the fresh context is how the
+comments are adjudicated, not a final gut-check.
+</HARD-GATE>
+
+In a compiled skill (see the header comment), bindings are already resolved
+-- do not run resolve-args.sh.
+
+Resolve the slots first:
+
+```bash
+"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"
+```
+
+Nonzero exit: print `errors` verbatim and stop.
+
+Hand review-dispatch the numbered threads (`file:line` plus note chains), the
+requirements, and the diff range; it owns the template, the subagent, and the
+standard blocks.
+
+**Bound `criteria`** (`resolved.criteria.binding` is not `null`): read the
+SKILL.md at `resolved.criteria.path`, evaluate the triage lines it declares
+against this change, and pass its addendum with `{TRIAGE_FLAGS}` (those
+resolved values) and `{SETUP_OBSERVATIONS}` (what was already gathered, else
+`none`) filled, the rest verbatim. No depth block here; the addendum informs
+the per-thread verdicts.
+
+**One dispatch, all threads together.** Related comments must be judged with
+shared context; a partial reading produces wrong conclusions and a wrong
+implementation follows it. This batching rule is this skill's own, held
+whatever the slots bind.
+
+Per thread it returns `valid` / `pushback` / `needs-clarification`, plus that
+entry's relations.
+
+## 3. Verdicts and drafted replies (Gate A)
+
+Present the verdict table plus a drafted reply per thread. Nothing is written
+to code, nothing posted.
+
+**Reply content is a seam.** Unbound `reply-rules`
+(`resolved.reply-rules.binding` is `null`): **REQUIRED SUB-SKILL**
+`superpowers:receiving-code-review`. Bound: read the SKILL.md at
+`resolved.reply-rules.path` and follow it. On top of either branch, these
+hold:
+
+- **Per verdict.** `valid` -> a technical acknowledgment of the fix.
+  `pushback` -> the technical reason, referencing the code or test that shows
+  it. `needs-clarification` -> one crisp question.
+- **An ask is an ask.** If the reply asks the reviewer anything, its verdict
+  is `needs-clarification`, not a `pushback` ending in a question: when the
+  answer would change the ruling, the question is the ruling.
+- **No performative openers.** A reply states the technical content. An
+  opener acknowledging the comment's quality or offering thanks is
+  performative and carries none: "Good call", "You're right", "Great catch",
+  "Nice find", "Thanks" -- and every variant, "Confirmed, thanks." included.
+  Open on what the code does or what changes.
+- **Voice.** Drafting starts by loading the operator's writing-style skill
+  when one is available: that load is step one, and each reply is composed in
+  that voice from the first word, never a second-pass edit. Absent one, a
+  neutral, concise voice.
+
+## 4. Implement valid fixes (Gate B, after explicit approval)
+
+Nothing is implemented until the developer approves it -- not under cover of
+"in a follow-up commit," not while drafting. On the go-ahead, implement the
+`valid` fixes one at a time, verifying each with the project's tests and
+checks before the next. Finalize each valid reply to "Fixed -- `file:line` /
+what changed". Domain ship-time gates still apply to these fixes; this skill
+never checks their box.
+
+## 5. Post replies, gated on verdict category (after explicit approval)
+
+The drafted replies are already bucketed by verdict from step 2.
+
+<HARD-GATE>
+Ask which verdict categories to post as thread replies. **Multi-select**:
+offer only the categories that have at least one thread (nothing came back
+`needs-clarification` -> do not offer it), pre-select every category that has
+threads so nothing drops silently, and let the developer deselect -- e.g.
+post the `valid` "Fixed" replies and the `pushback` reasons now, hold
+`needs-clarification` to ask the reviewer synchronously first.
+</HARD-GATE>
+
+Post thread replies **only** for threads in the selected categories; the rest
+stay unanswered, through any channel. Never a top-level note. Never resolve a
+thread, never approve: both belong to the developer, however settled a thread
+looks once its reply is written. Posting mechanics belong to the forge CLI
+and the adapter.
+
+## Red flags
+
+| Thought | Reality |
+|---|---|
+| "I wrote this, I can tell if the reviewer is right" | That is the author bias. Dispatch the fresh-context adjudication (step 2). |
+| "It's a small comment, I'll just judge it here" | Small own-code judgments are the peak of the bias. Dispatch it. |
+| "I'll run self-review at the end as the check" | Too late. The fresh context adjudicates the comments; it is not a gut-check after. |
+| "I'll open with 'Good call' / 'You're right'" | Performative. State the technical content; no agreement, no thanks. |
+| "I'll process the resolved / bot threads too" | Unresolved human threads only. |
+| "I'll post the replies since they look right" | Post only on explicit go-ahead; never resolve or approve for the developer. |
+| "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation is Gate B, after approval, not a line in the draft. |
+| "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
+
+## Quick reference
+
+| Signal | Action |
+|---|---|
+| "Address my review comments" | Change + requirements as given; unresolved human threads only (step 1). |
+| Threads in hand | Resolve slots, then ONE dispatch via the review-dispatch flow (path above), adjudicator shape. Never inline. |
+| Criteria bound | Its addendum travels with that dispatch, placeholders filled. |
+| Verdicts in hand | Verdict table + drafted replies (Gate A); reply-rules voice, no performative openers. |
+| Developer approves fixes | `valid` one at a time, verify each, finalize to "Fixed -- file:line" (Gate B). |
+| Developer approves posting | Multi-select the categories present, post those as thread replies; never resolve, never approve. |

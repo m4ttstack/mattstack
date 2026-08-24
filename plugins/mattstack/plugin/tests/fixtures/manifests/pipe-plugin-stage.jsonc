@@ -1,0 +1,8 @@
+// Fixture: pipeline whose only stage lives in an enabled plugin, one
+// category level below skills/.
+{
+  "version": 1,
+  "pipelines": {
+    "feature": ["fakepack:stage-nested"]
+  }
+}

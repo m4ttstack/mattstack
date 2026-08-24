@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Stub glab: logs "$*" to $GLAB_LOG, then serves canned fixtures from
+# $GLAB_FIXTURES by matching the api path. Not a glab reimplementation --
+# just enough surface for the ci-forge-gitlab adapter's own tests.
+set -u
+echo "$*" >>"${GLAB_LOG:?}"
+FIX="${GLAB_FIXTURES:?}"
+
+if [ "${GLAB_STUB_AUTH_FAIL:-}" = "1" ] && [ "${1:-}" = "api" ]; then
+  echo "401 Unauthorized" >&2
+  exit 1
+fi
+
+# Targeted mid-walk failure switches, for testing that a failure on a
+# NON-root pipeline inside the recursive bridge walk propagates instead of
+# being silently absorbed. Each fails only that one pipeline's jobs call;
+# every other call (including that same pipeline's bridges call) behaves
+# normally.
+if [ -n "${GLAB_STUB_FAIL_PIPELINE:-}" ]; then
+  case "$1 $2" in
+    "api projects/:fullpath/pipelines/${GLAB_STUB_FAIL_PIPELINE}/jobs"*)
+      echo "401 Unauthorized" >&2; exit 1 ;;
+  esac
+fi
+if [ -n "${GLAB_STUB_FAIL_PIPELINE_404:-}" ]; then
+  case "$1 $2" in
+    "api projects/:fullpath/pipelines/${GLAB_STUB_FAIL_PIPELINE_404}/jobs"*)
+      echo "404 Not Found" >&2; exit 1 ;;
+  esac
+fi
+
+case "$1 $2" in
+  "api projects/:fullpath/pipelines?ref="*)
+    ref=$(printf '%s' "$2" | sed 's/.*ref=\([^&]*\).*/\1/')
+    f="$FIX/pipelines-$ref.json"; [ -f "$f" ] && cat "$f" || { echo "404 Not Found" >&2; exit 1; } ;;
+  "api projects/:fullpath/pipelines/"*"/jobs"*)
+    id=$(printf '%s' "$2" | sed 's|.*/pipelines/\([0-9]*\)/jobs.*|\1|')
+    f="$FIX/jobs-$id.json"; [ -f "$f" ] && cat "$f" || { echo "404 Not Found" >&2; exit 1; } ;;
+  "api projects/:fullpath/pipelines/"*"/bridges"*)
+    id=$(printf '%s' "$2" | sed 's|.*/pipelines/\([0-9]*\)/bridges.*|\1|')
+    f="$FIX/bridges-$id.json"; [ -f "$f" ] && cat "$f" || echo '[]' ;;
+  "api projects/:fullpath/pipelines/"*)
+    id=$(printf '%s' "$2" | sed 's|.*/pipelines/\([0-9]*\).*|\1|')
+    f="$FIX/pipeline-$id.json"; [ -f "$f" ] && cat "$f" || { echo "404 Not Found" >&2; exit 1; } ;;
+  "api projects/:fullpath/jobs/"*"/trace")
+    id=$(printf '%s' "$2" | sed 's|.*/jobs/\([0-9]*\)/trace.*|\1|')
+    f="$FIX/trace-$id.txt"; [ -f "$f" ] && cat "$f" || { echo "404 Not Found" >&2; exit 1; } ;;
+  "api projects/:fullpath/merge_requests?source_branch="*)
+    b=$(printf '%s' "$2" | sed 's/.*source_branch=\([^&]*\).*/\1/')
+    f="$FIX/mrs-$b.json"; [ -f "$f" ] && cat "$f" || echo '[]' ;;
+  "api projects/:fullpath/merge_requests/"*)
+    iid=$(printf '%s' "$2" | sed 's|.*/merge_requests/\([0-9]*\).*|\1|')
+    f="$FIX/mr-$iid.json"; [ -f "$f" ] && cat "$f" || { echo "404 Not Found" >&2; exit 1; } ;;
+  "ci retry"*) echo '{"id": '"$3"'}' ;;
+  *) echo "glab-stub: unhandled: $*" >&2; exit 1 ;;
+esac

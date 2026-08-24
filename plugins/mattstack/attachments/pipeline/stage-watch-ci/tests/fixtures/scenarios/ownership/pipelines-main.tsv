@@ -1,0 +1,3 @@
+27	success	https://fake/pipelines/27	schedule
+29	failed	https://fake/pipelines/29	push
+28	failed	https://fake/pipelines/28	push

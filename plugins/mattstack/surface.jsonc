@@ -1,0 +1,12 @@
+// surface.jsonc -- names this pack's public skills. Everything else is
+// internal and lives under attachments/, unregistered (compiler and
+// runtime resolvers reach it by name, never the slash menu); skills/
+// holds only the public doors, engines live under attachments/<group>/.
+// Ratified 2026-08-21 (surface-ratchet amendment; engines-to-attachments
+// follow-up same day).
+{
+  "public": [
+    "subagent-review-loop",
+    "editing-skills"
+  ]
+}

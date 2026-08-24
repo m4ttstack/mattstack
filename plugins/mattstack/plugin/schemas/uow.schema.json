@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mattstack.dev/schemas/uow.schema.json",
+  "title": "mattstack unit-of-work record v1",
+  "type": "object",
+  "required": ["version", "work-type", "repo", "mode", "stages"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "work-type": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "ticket": { "type": ["string", "null"] },
+    "repo": { "type": "string", "description": "absolute path to the repo or worktree parent" },
+    "mode": { "enum": ["interactive", "worker"] },
+    "branch": { "type": ["string", "null"] },
+    "worktree": { "type": ["string", "null"], "description": "absolute path" },
+    "approach": { "type": ["string", "null"], "description": "triage tier chosen by the plan stage" },
+    "evidence-plan": { "type": ["string", "null"] },
+    "evidence": { "type": ["object", "null"], "description": "paths/URLs of captured artifacts" },
+    "commits": { "type": ["array", "null"], "items": { "type": "string" } },
+    "review": { "type": ["string", "null"] },
+    "mr": { "type": ["string", "null"] },
+    "ci": { "type": ["string", "null"] },
+    "stages": {
+      "type": "object",
+      "additionalProperties": { "enum": ["pending", "running", "done", "failed"] }
+    },
+    "extra": { "type": "object", "description": "open map for domain-pack fields" }
+  }
+}

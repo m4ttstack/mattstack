@@ -1,0 +1,13 @@
+{
+  "name": "mattstack",
+  "version": "0.8.0",
+  "description": "The mattstack skills pack: public doors subagent-review-loop and editing-skills, plus the internal engines (work orchestrator, pipeline stages, review cluster, forge adapters, shepherdr) and attachments (model tiering, execution strategies, account pool, review core/dispatch/posting, parameterized-skill primitive) that compiled team verbs and runtime resolvers draw on by name, not by slash menu.",
+  "author": {
+    "name": "Matthew Goodwin"
+  },
+  "license": "MIT",
+  "skills": [
+    "./skills/review",
+    "./plugin/skills"
+  ]
+}

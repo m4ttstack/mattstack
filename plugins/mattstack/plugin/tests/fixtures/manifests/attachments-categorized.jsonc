@@ -1,0 +1,11 @@
+// Fixture: bound to a skill one category level below an enabled plugin's
+// attachments/ root -- the shape an engine takes once it moves out of
+// skills/ (unregistered, no slash-menu entry) but keeps its group nesting.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fakepack:nested-tiering-attach"
+    }
+  }
+}

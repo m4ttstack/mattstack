@@ -1,0 +1,38 @@
+[
+  {
+    "task": "Split this refactor across four parallel agents in herdr panes",
+    "expect": "shepherdr"
+  },
+  {
+    "task": "Which model should the worker for this mechanical subtask run on?",
+    "expect": "model-tiering"
+  },
+  {
+    "task": "Add a required slot to this wrapper skill and wire up the resolver",
+    "expect": "parameterized-skills"
+  },
+  {
+    "task": "Take this ticket through our repo's pipeline end to end",
+    "expect": "work"
+  },
+  {
+    "task": "This diff needs a proper review with a structured, severity-bucketed verdict before it merges",
+    "expect": "review-core"
+  },
+  {
+    "task": "Gut-check the work we just did on this branch before I ship it",
+    "expect": "self-review"
+  },
+  {
+    "task": "A reviewer left comments on my merge request; go through their feedback and handle it",
+    "expect": "receive-review"
+  },
+  {
+    "task": "The review draft is finished; decide which findings actually get posted to the MR threads",
+    "expect": "review-posting"
+  },
+  {
+    "task": "Have a subagent adversarially review this plan doc and keep iterating until it signs off",
+    "expect": "subagent-review-loop"
+  }
+]

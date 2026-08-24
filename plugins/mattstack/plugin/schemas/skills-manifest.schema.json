@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mattstack.dev/schemas/skills-manifest.schema.json",
+  "title": "mattstack bindings manifest (.mattstack/skills.jsonc)",
+  "description": "Consumer-repo manifest: enabled stack skills, per-work-type pipelines, and slot bindings for parameterized skills. JSONC: JSON plus full-line // comments; no trailing commas.",
+  "type": "object",
+  "required": ["version"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Manifest format version. This schema describes version 1."
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/skillName" },
+          "uniqueItems": true,
+          "description": "Stack skills this repo uses. Declarative record in phase 1; not read by resolve-args.sh."
+        }
+      }
+    },
+    "pipelines": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/definitions/skillName" },
+        "minItems": 1
+      },
+      "description": "Per-work-type pipelines (work type -> ordered stage skills). Schema-complete in phase 1; consumed by the orchestrator in a later phase."
+    },
+    "bindings": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$" },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+        "additionalProperties": { "$ref": "#/definitions/skillName" },
+        "description": "Slot name -> inner skill name, for one wrapper skill."
+      },
+      "description": "Wrapper skill name -> slot bindings. The only section resolve-args.sh reads."
+    }
+  },
+  "definitions": {
+    "skillName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$",
+      "description": "A namespaced skill name: 'name' or 'prefix:name'."
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mattstack zone marker (mattstack.jsonc)",
+  "description": "Marks the top of a mattstack zone. A repo may hold many team zones (one per namespace) and at most one user zone; all team zones in a repo share one org.",
+  "type": "object",
+  "required": ["role"],
+  "properties": {
+    "role": { "enum": ["user", "team"] },
+    "namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "team only: the plugin name users type as /<namespace>:<verb>"
+    },
+    "org": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "team only: the marketplace name; installs read <namespace>@<org>"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "role": { "const": "team" } } },
+      "then": { "required": ["namespace", "org"] }
+    }
+  ]
+}
