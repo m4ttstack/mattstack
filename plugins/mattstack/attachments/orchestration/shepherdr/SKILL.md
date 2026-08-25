@@ -3,7 +3,6 @@ name: shepherdr
 disable-model-invocation: true
 description: "Shepherd a herd of Claude Code agents via herdr panes. Use when the user wants to fan out work across multiple agents, run parallel brainstorms, delegate parallel tasks, or says 'shepherdr', 'shepherd', 'fan out', 'spawn agents', 'delegate this', 'split this across agents', 'herd this', 'run these in parallel with herdr', 'spread this across my accounts', or asks for multi-account or cswap-aware fan-out."
 allowed-tools:
-  - Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*)
   - Bash(*/scripts/pick-account.py:*)
 type: pipeline-step
 slots:
@@ -11,12 +10,6 @@ slots:
   strategy: { contract: execution-strategy@1, required: true }
   accounts: { contract: account-pool@1, required: false }
   domain: { contract: shepherdr-domain@1, required: false }
-metadata:
-  slots: "tiering, strategy, accounts, domain"
-  slot-tiering: "required model-tiering@1 -- given a unit of work, names the least capable model tier and effort that can succeed at it"
-  slot-strategy: "required execution-strategy@1 -- given a unit of work and the surface it executes on, names the method the executor runs and the report contract that method produces"
-  slot-accounts: "optional account-pool@1 -- given the herd's model mix and the accounts already assigned this run, names where to launch the next worker"
-  slot-domain: "optional shepherdr-domain@1 -- owns one team's herd deltas: the default intake when the user names no work, the model floor and strategy pin for its work classes, per-job provisioning, the kickoff brief's method, and what follows an approved report"
 ---
 
 # shepherdr
@@ -65,41 +58,34 @@ it. Do not load it otherwise.
 
 If work arrives unscoped and the user wants it scoped before fan-out, brainstorm with them directly yourself (no pane, no relay), then spawn execution jobs from the result.
 
-### resolving the slots
+## Tiering
 
-In a compiled skill (see the header comment), the slots are already
-resolved -- do not run resolve-args.sh; the tiering, strategy, accounts,
-and (when bound) domain content is inlined below as parts, and the
-strategy bodies live at `parts/strategy/references/strategies.md` in
-this skill's directory.
+{{slot:tiering}}
 
-**REQUIRED before fan-out:**
+## Strategy
 
-```bash
-"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"
-```
+{{slot:strategy}}
 
-On exit 0, read the SKILL.md inside `resolved.tiering.path` (the tier
-table and the recursive principle) and inside
-`resolved.strategy.path` (the strategy table and the strategy bodies in
-its `references/strategies.md`). `resolved.accounts`
-may be `{"binding": null}` -- that is single-account mode, handled below.
-On a nonzero exit, surface the per-slot diagnostics to the user verbatim
-and stop -- never guess a policy from prose.
+The strategy bodies live at `parts/strategy/references/strategies.md` in
+this skill's directory. `accounts` may be unbound -- that is
+single-account mode, handled below.
 
 ### the domain slot
 
-`domain` is optional. Unbound: every default in this engine stands as
-written. Bound: the domain part (inlined below its seam in a compiled
-skill; otherwise the SKILL.md at `resolved.domain.path`, which you read
-before fan-out) carries one team's herd deltas, and wherever this engine
-marks a **domain hook**, the domain part's rules win over the default at
-that point. The hooks: intake (step 1), the model floor and strategy pin
-(the strategy and model question), provisioning (step 2), the brief's
-Method and conventions (job.md), what follows an approved report
-(completion), and wrap-up. A domain part never changes the herd contract
-itself -- questions and reports still flow through the herd DB, and the
-watch in step 3 is still yours.
+`domain` is optional. The hooks below name where a bound domain part's
+rules win over this engine's default: intake (step 1), the model floor
+and strategy pin (the strategy and model question), provisioning (step
+2), the brief's Method and conventions (job.md), what follows an
+approved report (completion), and wrap-up. A domain part never changes
+the herd contract itself -- questions and reports still flow through the
+herd DB, and the watch in step 3 is still yours.
+
+## Domain rules
+
+{{slot:domain}}
+
+When nothing is inlined above, every default in this engine stands as
+written.
 
 ### the strategy and model question (per job)
 
@@ -130,17 +116,18 @@ method skill is the brief's Method); then the recommendation starts at
 that floor, the question carries only the half still open, and a spawn
 below the floor is wrong.
 
-## accounts
+## Accounts
 
-If the `accounts` slot resolved, read the SKILL.md inside
-`resolved.accounts.path` and follow it: it owns the pool question (asked
-once per herd, AFTER models are chosen), the per-spawn pick, and the
-exhaustion decision tree. Pass the launch command it prescribes to
-spawn-agent.sh via `-L`. Unbound slot: single-account mode -- no account
-question, spawns omit `-L`, and workers launch as plain `claude`.
+{{slot:accounts}}
+
+When the section above is non-empty, follow it: it owns the pool
+question (asked once per herd, AFTER models are chosen), the per-spawn
+pick, and the exhaustion decision tree. Pass the launch command it
+prescribes to spawn-agent.sh via `-L`. Empty: single-account mode -- no
+account question, spawns omit `-L`, and workers launch as plain `claude`.
 
 If a worker stalls on a rate limit mid-job (the diagnose read shows a
-limit banner): the bound accounts skill decides whether to respawn
+limit banner): the accounts rules above decide whether to respawn
 automatically or ask the user; the respawn itself is yours. Run
 `herd-job.py --db <db> <job> --status closed` before closing the pane,
 then obtain the new launch command, and respawn into the SAME worktree
@@ -166,8 +153,8 @@ a report (at completion, or at a Method milestone), follow the brief's
 'Publishing a report' section, then stop. If a publish command fails,
 stop and wait -- never invent another channel. Commit incrementally on
 this branch; never push." Announce the respawn to the
-user afterward. With no accounts skill bound there is nowhere else to
-launch; report the stall to the user instead.
+user afterward. With the accounts section above empty there is nowhere
+else to launch; report the stall to the user instead.
 
 ## the herd contract
 
@@ -185,9 +172,8 @@ Every brief is assembled from two verbatim copies, never composed:
 
 1. Copy `references/job-template.md` (in this skill's directory) verbatim
    and fill its slots.
-2. Copy the job's strategy body verbatim from the bound strategy skill's
-   `references/strategies.md` (in a compiled skill:
-   `parts/strategy/references/strategies.md` in this skill's directory)
+2. Copy the job's strategy body verbatim from
+   `parts/strategy/references/strategies.md` in this skill's directory
    into `## Method` and fill its slots.
 
 Do not retype either from memory: the question format the template embeds
@@ -205,13 +191,11 @@ Fill the Method body's `<question-file>`/`<report-file>` slots with
 pointers to the brief's 'Asking the user a question' / 'Publishing a
 report' sections (the draft path is `.superpowers/report-draft.md`). A
 `<strategies-file>` slot gets the absolute path of the strategy bodies
-file itself (in a compiled skill:
-`parts/strategy/references/strategies.md` under this skill's directory,
-else next to `resolved.strategy.path`); a `<strategy-skill-file>` slot
-gets the absolute path of the file carrying the strategy TABLE (in a
-compiled skill: this skill's own SKILL.md, whose strategy part carries
-it; else `resolved.strategy.path`/SKILL.md); the
-strategy skill stays medium-agnostic.
+file itself: `parts/strategy/references/strategies.md` under this
+skill's directory. A `<strategy-skill-file>` slot gets the absolute path
+of the file carrying the strategy TABLE: this skill's own SKILL.md,
+whose strategy part carries it. The strategy skill stays
+medium-agnostic.
 
 ## repo conventions travel in the brief
 
