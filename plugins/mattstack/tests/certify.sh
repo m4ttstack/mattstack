@@ -94,9 +94,24 @@ if [ -z "$DESC" ]; then fail fm-description "no description: in frontmatter"
 elif [ "$DLEN" -gt 500 ]; then fail fm-description "description is $DLEN chars (max 500)"
 else ok fm-description; fi
 
+fm_typed_slots() { # -> "1" when a non-empty top-level slots: block is declared
+  awk '
+    NR == 1 { if ($0 == "---") { fm = 1; next } else exit }
+    fm && $0 == "---" { exit }
+    fm && index($0, "slots:") == 1 {
+      val = substr($0, 7); sub(/^[[:space:]]*/, "", val)
+      if (val != "" && val !~ /^\{[[:space:]]*\}$/) { print "1"; exit }
+      slots = 1; next
+    }
+    slots && $0 ~ /^[[:space:]]/ { print "1"; exit }
+    slots { exit }
+  ' "$DIR/SKILL.md"
+}
+
 SLOTS=$(fm_meta slots); PROVIDES=$(fm_meta provides)
+[ -n "$SLOTS" ] || SLOTS=$(fm_typed_slots)
 if [ -n "$SLOTS" ] && [ -n "$PROVIDES" ]; then
-  fail depth-cap "declares both metadata.slots and metadata.provides (composition depth is capped at 1)"
+  fail depth-cap "declares both slots and metadata.provides (composition depth is capped at 1)"
 else ok depth-cap; fi
 
 if [ -f "$DIR/scripts/resolve-args.sh" ]; then

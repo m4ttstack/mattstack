@@ -10,8 +10,7 @@ slots:
 # ship
 
 The standalone entry for shipping the current branch. Same flow as the
-pipeline's ship stage, reached directly: target from the checkout, no uow
-record.
+pipeline's ship stage, reached directly: target from the checkout.
 
 ## 1. Establish the target
 

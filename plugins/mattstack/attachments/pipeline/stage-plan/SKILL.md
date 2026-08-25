@@ -52,10 +52,11 @@ for "obvious" work.
 | "I already know this is a superpowers job, no need to say so" | Say so. The block is how the human and the run state verify your triage. |
 | "I'll skip the FAILING TEST line, I know what I'll test" | Then writing the line costs nothing. Skipping it is how TDD silently becomes tests-after. |
 
-**REQUIRED SUB-FLOW:** Read
-`../../../attachments/execution-strategy/SKILL.md` (relative to this
-file) to pick the tier. The three tiers below are its strategies of the same names; the
-other strategies it defines are not tiers of this stage.
+**REQUIRED SUB-FLOW:** Follow the strategy flow below to pick the tier. The
+three tiers listed after it are its strategies of the same names; the other
+strategies it defines are not tiers of this stage.
+
+{{include:execution-strategy}}
 
 Print verbatim, one tier:
 

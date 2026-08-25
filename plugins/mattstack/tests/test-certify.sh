@@ -50,6 +50,18 @@ printf -- '---\nname: fake:bothdecl\ndescription: "Use when testing depth."\nmet
 OUT=$("$CERTIFY" "$WORK/bothdecl"); STATUS=$?
 check depth_cap 1 'FAIL depth-cap'
 
+# typed top-level slots + provides together also fails depth-cap
+mkdir -p "$WORK/typeddecl"
+printf -- '---\nname: fake:typeddecl\ndescription: "Use when testing typed depth."\ntype: pipeline-step\nslots:\n  domain: { contract: a@1, required: false }\nmetadata:\n  provides: "b@1"\n---\nbody {{slot:domain}}\n' > "$WORK/typeddecl/SKILL.md"
+OUT=$("$CERTIFY" "$WORK/typeddecl"); STATUS=$?
+check depth_cap_typed 1 'FAIL depth-cap'
+
+# empty typed slots block is not a slot declaration: provides alone is legal
+mkdir -p "$WORK/emptyslots"
+printf -- '---\nname: fake:emptyslots\ndescription: "Use when testing empty slot blocks."\ndisable-model-invocation: true\ntype: pipeline-step\nslots: {}\nmetadata:\n  provides: "b@1"\n---\nbody\n' > "$WORK/emptyslots/SKILL.md"
+OUT=$("$CERTIFY" "$WORK/emptyslots"); STATUS=$?
+check depth_cap_empty_slots 0 'ok   depth-cap'
+
 # drifted vendored resolver fails vendored-resolver
 mkdir -p "$WORK/drifted/scripts"
 cp "$FIX/clean/SKILL.md" "$WORK/drifted/SKILL.md"

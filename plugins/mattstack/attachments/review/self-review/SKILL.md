@@ -11,8 +11,6 @@ type: pipeline-step
 slots:
   criteria: { contract: review-criteria@1, required: false }
   reviewer: { contract: reviewer-dispatch@1, required: false }
-metadata:
-  provides: "self-review-domain@1"
 ---
 
 # Self-review (your own branch)

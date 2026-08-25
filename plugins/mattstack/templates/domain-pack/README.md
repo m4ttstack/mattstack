@@ -20,8 +20,8 @@ A pack is three things:
    repo (structure checks without the purity greps), and keep selection
    micro-tests for any model-visible skill.
 
-Stage contracts shipped by mattstack (see each stage's `slot-domain`
-line for the prose half): provision-domain@1, plan-domain@1,
+Stage contracts shipped by mattstack (see each stage's `slots:` block
+for the `domain` slot's contract): provision-domain@1, plan-domain@1,
 gates-domain@1, evidence-domain@1, self-review-domain@1, ship-domain@1,
 watch-ci-domain@1. The review cluster adds three more (see each skill's
 slot lines): reviewer-dispatch@1 (the `reviewer` slot on `review`,

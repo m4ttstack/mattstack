@@ -259,16 +259,16 @@ binding, so composition depth stays capped at 1: orchestrator -> stage
 
 ```yaml
 ---
-name: mattstack:stage-ship
+name: stage-ship
 description: "..."
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*)
+type: pipeline-step
+slots:
+  domain: { contract: ship-domain@1, required: false }
 metadata:
   stage: "ship"
   stage-consumes: "commits ticket"
   stage-produces: "mr"
-  slots: "domain"
-  slot-domain: "optional ship-domain@1 -- owns the domain's shipping flow end to end"
 ---
 ```
 
@@ -373,9 +373,9 @@ trailing same-line comments, since the strip pass is one regex per line.
 Alongside `stage-consumes`/`stage-produces`, every stage reports lifecycle
 and data to the run DB through the `pipeline-state.sh` helper. The contract:
 
-- The orchestrator exports `RT_RUN_DB` and `RT_PIPELINE_STATE` before the
-  first stage. A stage invoked with neither set is running standalone: skip
-  all state calls silently -- never fail, never warn.
+- A compiled stage always runs under `work`, which exports `RT_RUN_DB` and
+  `RT_PIPELINE_STATE` before the first stage. There is no standalone stage
+  invocation, so the four calls below are unconditional.
 - On entry: `"$RT_PIPELINE_STATE" stage-start --stage <name>`.
 - Consumed fields are read with `field get <key>` (exit 3 = absent; fall
   back to asking or deriving, exactly as consumes-resolution already
