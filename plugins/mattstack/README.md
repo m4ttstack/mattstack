@@ -73,10 +73,11 @@ certification habit, all generalized from the first shipped pack.
 
 ### pipeline
 
-The do-a-unit-of-work pipeline on the primitive. The orchestrator is the
-only model-visible skill; the eight stage skills are pipeline-reached
-(hidden via `disable-model-invocation`) and appear only as entries in a
-manifest's `pipelines.<work-type>` array.
+The do-a-unit-of-work pipeline on the primitive. `work` and its eight
+stage skills all set `disable-model-invocation`; they are reached only
+through a pack's compiled `work` verb (`/<pack>:work`), which the pack's
+surface config makes public, and the eight stages appear only as entries
+in a manifest's `pipelines.<work-type>` array.
 
 - **mattstack:work** -- run one unit of work through the pipeline the compiler baked in from the consumer's manifest.
 - **mattstack:stage-provision** -- provision the environment: ticket + repo in, branch + worktree out.
