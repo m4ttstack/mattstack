@@ -26,7 +26,7 @@ it the full payload:
 - a one-or-two-sentence description of the change
 - the requirements
 - the commit range
-- the setup observations, already gathered above
+- the setup observations from Set up for the depth
 - the filled criteria addendum, when the slot is bound
 
 It owns the template, the subagent, and the standard blocks. Judgment forms

@@ -90,10 +90,13 @@ manifest's `pipelines.<work-type>` array.
 
 ### review
 
-The review cluster: a shared engine plus the protocols around it. All
-are model-visible; the code-review skills plug into domain packs via
-the review-criteria@1, reviewer-dispatch@1, and reply-rules@1 contracts,
-while subagent-review-loop is a standalone one-off with no slots.
+The review cluster: a shared engine plus the protocols around it.
+review-posting and subagent-review-loop are model-visible; review,
+self-review, and receive-review are hidden via `disable-model-invocation`
+and reached only as a pack's compiled verbs. The code-review skills plug
+into domain packs via the review-criteria@1, reviewer-dispatch@1, and
+reply-rules@1 contracts, while subagent-review-loop is a standalone
+one-off with no slots.
 
 - The review flow now lives in five internal include bodies (`review-core-body`, `review-core-body-after`, `review-core-body-tail`, `review-dispatch-body`, `review-dispatch-body-after`) that the compiler inlines into `review`, `self-review`, `receive-review`; not for direct invocation.
 - **mattstack:review** -- review someone else's MR/PR before it merges, from a pasted link, a bare `!iid`/`#number`, or a ticket id: resolve the target, dispatch the judgment to a fresh context, return the structured draft (`criteria` + `reviewer` slots).
