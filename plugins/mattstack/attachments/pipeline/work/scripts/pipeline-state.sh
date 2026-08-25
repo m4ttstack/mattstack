@@ -1,7 +1,7 @@
 #!/bin/sh
 # pipeline-state.sh -- the ONLY write path to a pipeline's run DB.
 # Spec: .local-dev/superpowers/specs/2026-08-21-run-db-design.md
-#   run-start   --repo R --work-type T --pipeline P [--run-id ID] [--spawned-by S] [--pack-dirs "DIR:DIR"] [--ticket ID] [--mattstack-sha SHA] [--mattstack-dirty 0|1]
+#   run-start   --repo R --work-type T --pipeline P [--run-id ID] [--spawned-by S] [--pack-dirs "DIR:DIR"] [--ticket ID] [--mattstack-sha SHA] [--mattstack-dirty 0|1] [--pack-sha NAME=VALUE]
 #   run-status  --status done|failed|abandoned
 #   stage-start --stage NAME        stage-done --stage NAME
 #   stage-fail  --stage NAME [--reason TEXT] [--detail-path PATH]
@@ -109,6 +109,7 @@ case "$cmd" in
     TICKET=$(flag --ticket "$@" x)
     MS_SHA=$(flag --mattstack-sha "$@" x)
     MS_DIRTY=$(flag --mattstack-dirty "$@" x)
+    PACK_SHA=$(flag --pack-sha "$@" x)
     [ -n "$REPO" ] && [ -n "$WT" ] && [ -n "$PIPE" ] || json_fail "run-start needs --repo --work-type --pipeline" 2
     [ -n "$RUN_ID" ] || RUN_ID="$(date +%Y%m%d-%H%M%S)-$(awk 'BEGIN{srand();printf "%04x",int(rand()*65536)}')-$$"
     RUN_DIR="$RUNS_ROOT/$REPO/$RUN_ID"
@@ -148,6 +149,7 @@ case "$cmd" in
       PACKC=${prov#*|}
     fi
     if [ -n "$MS_SHA" ]; then PACKC="${PACKC:+$PACKC,}mattstack=$MS_SHA"; fi
+    if [ -n "$PACK_SHA" ]; then PACKC="${PACKC:+$PACKC,}$PACK_SHA"; fi
     [ "$MS_DIRTY" = 1 ] && PACK_DIRTY=1
 
     sqlite3 "$RT_RUN_DB" "

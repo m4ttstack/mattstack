@@ -15,5 +15,12 @@ case "$(sqlite3 "$db" "SELECT pack_commits FROM runs;")" in *"mattstack=deadbee"
 out2=$(sh "$PS" run-start --repo r --work-type feature --pipeline feature --pack-dirs "")
 db2=$(printf '%s' "$out2" | jq -r .runDb)
 [ -z "$(sqlite3 "$db2" "SELECT value FROM fields WHERE key='ticket';")" ] || { echo "FAIL ticket written without --ticket"; fail=1; }
+out3=$(sh "$PS" run-start --repo r --work-type feature --pipeline feature \
+  --mattstack-sha deadbee --mattstack-dirty 0 --pack-sha acme=abc1234 --pack-dirs "")
+db3=$(printf '%s' "$out3" | jq -r .runDb)
+case "$(sqlite3 "$db3" "SELECT pack_commits FROM runs;")" in
+  *"mattstack=deadbee"*"acme=abc1234"*) ;;
+  *) echo "FAIL pack sha"; fail=1 ;;
+esac
 [ "$fail" = 0 ] && echo "ok   run-start flags"
 exit $fail
