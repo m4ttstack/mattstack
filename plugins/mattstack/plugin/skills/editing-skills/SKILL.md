@@ -9,13 +9,15 @@ Skills load from a **versioned plugin cache**
 (`<config>/plugins/cache/<marketplace>/<plugin>/<version>/`), never from the
 source repo. A source edit is invisible until you bump the plugin version,
 run the update, and restart the session. Same-commit version bumps are the
-convention (see any pack bump in git history).
+convention (see any pack bump in git history). The update copies the whole
+working tree, untracked files and `.worktrees/` included, so prune stray
+worktrees before a bump.
 
 ## The two estates
 
 | | Team pack (acme) | mattstack plugin |
 |---|---|---|
-| Source | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` | `~/Documents/GitHub/mattstack-skills/skills/<category>/<name>/` or `plugin/skills/<name>/` |
+| Source | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills) | `~/Documents/GitHub/mattstack-skills/plugin/skills/<name>/` (invocable) or `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile) |
 | Manifest | `packs/acme/.claude-plugin/plugin.json` | `mattstack-skills/.claude-plugin/plugin.json` |
 | Marketplace | `acme` (directory source = the teams clone itself) | `mattstack` (directory source = `~/Documents/GitHub/mattstack-marketplace`, whose `plugins/mattstack` is a SYMLINK to the mattstack-skills repo) |
 | Update | `claude plugin update acme@acme` | `claude plugin update mattstack@mattstack` |
@@ -28,9 +30,11 @@ convention (see any pack bump in git history).
    `${CLAUDE_SKILL_DIR}/../../../attachments/parameterized-skills/SKILL.md`.
 2. Edit or create `SKILL.md` in the source path above.
 3. **New mattstack skill only**: the manifest's `skills` field is an
-   EXPLICIT array of category roots (`./skills/pipeline`, `orchestration`,
-   `forge`, `review`, `./plugin/skills`). A skill in a new category
-   silently never loads until you add its root to that array.
+   EXPLICIT array of the roots Claude loads directly (`./skills/review`,
+   `./plugin/skills`); a skill under a new root silently never loads until
+   you add it. An engine, include, or fill goes under
+   `attachments/<category>/<name>/` and is never listed there: it reaches
+   a session only when a pack compiles it in.
 4. Bump `version` in the manifest -- same commit as the skill change. For
    mattstack, this is step 1 of "Releasing an engine, include, or fill change" below;
    finish that section's step 2 for each compiled pack.
@@ -54,6 +58,19 @@ verbs to `<pack>/skills/<verb>/`, internal verbs and stages to
 `<pack>/attachments/<name>/`. Edit the engine (mattstack-skills) or the fill
 (`<pack>/attachments/<fill>/`), then recompile; the next compile overwrites
 compiled files.
+
+Writing a fill:
+
+- A file beside the fill is referenced as `${CLAUDE_SKILL_DIR}/<file>`; the
+  compiler vendors it under the verb's `parts/<slot>/` and rewrites the
+  token. A bare `<file>` ships verbatim and points nowhere.
+- A mattstack attachment's rules are inlined with `{{include:<name>}}`
+  alone on its own line (it gets its own seam marker). Nothing else
+  placeholder-shaped belongs in a fill.
+- `rt skills check` names what moved on each stale line (source, fill,
+  include, vendored, frontmatter, structure); a stage's slot binds with
+  `rt skills bind <stage> <slot> <plugin:fill>`, and `rt skills surface set
+  <stage> --public` works before the stage's first compile.
 
 What `compile` and `check` read:
 
