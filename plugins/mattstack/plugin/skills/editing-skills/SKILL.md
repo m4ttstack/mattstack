@@ -32,7 +32,7 @@ convention (see any pack bump in git history).
    `forge`, `review`, `./plugin/skills`). A skill in a new category
    silently never loads until you add its root to that array.
 4. Bump `version` in the manifest -- same commit as the skill change. For
-   mattstack, this is step 1 of "Releasing after a mattstack bump" below;
+   mattstack, this is step 1 of "Releasing an engine, include, or fill change" below;
    finish that section's step 2 for each compiled pack.
 5. Commit and push. For the team pack, push IS the team publish
    (teammates' installs read the same repo). For mattstack, push is
@@ -61,13 +61,13 @@ What `compile` and `check` read:
 |---|---|
 | mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache |
 | the pack's own fills | the pack checkout (`--pack-dir`) |
-| mattstack version in every seam marker | mattstack's `plugin.json` at compile time -- so any mattstack bump, engine edited or not, makes every compiled pack `stale` |
+| mattstack version in every seam marker | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
 
-### Releasing after a mattstack bump (any change) or a fill edit
+### Releasing an engine, include, or fill change
 
 1. Changed a mattstack file? Commit it; `sh tests/certify.sh <its dir>`; bump
    mattstack's `plugin.json`; `claude plugin update mattstack@mattstack`.
-2. For each compiled pack on the machine:
+2. For each compiled pack that `rt skills check --pack <pack>` reports stale:
    1. Bump the pack's `plugin.json` (the version is stamped into the output,
       so this comes before the compile).
    2. `rt skills compile --pack <pack>`; `rt skills check --pack <pack>` -> all `current`.
