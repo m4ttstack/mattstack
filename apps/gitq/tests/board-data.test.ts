@@ -502,6 +502,12 @@ describe('resolveRtRepo', () => {
     expect(resolveRtRepo('/Users/matt/Documents/GitHub/acme/web', path)).toBe('acme-web');
   });
 
+  test('returns the identity-shaped key unchanged (forward-only, no decode)', () => {
+    const identity = 'remote:gitlab.com%2Facme%2Fweb';
+    const path = reposJsonWith({ [identity]: '/Users/matt/Documents/GitHub/acme/web' });
+    expect(resolveRtRepo('/Users/matt/Documents/GitHub/acme/web', path)).toBe(identity);
+  });
+
   test('returns null when no entry matches, or the file is missing/corrupt', () => {
     const path = reposJsonWith({ 'acme-web': '/Users/matt/Documents/GitHub/acme/web' });
     expect(resolveRtRepo('/somewhere/else', path)).toBeNull();

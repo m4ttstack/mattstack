@@ -46,6 +46,24 @@ describe('resolveForgeToken', () => {
     expect(res).toEqual({ token: 'ghp-env' });
   });
 
+  test('forwards a serialized identity to the daemon once repos.json is identity-keyed', async () => {
+    const identity = 'remote:gitlab.com%2Fm4ttstack%2Fgitq';
+    const path = join(mkdtempSync(join(tmpdir(), 'gitq-secrets-repos-')), 'repos.json');
+    writeFileSync(path, JSON.stringify({ [identity]: TRACKED_REPO }));
+    let sentRepoName: string | undefined;
+    const capture = async (repoName: string) => {
+      sentRepoName = repoName;
+      return { ok: true, data: { token: 'glpat-x' } };
+    };
+    await resolveForgeToken('gitlab', {
+      env: {},
+      repoPath: TRACKED_REPO,
+      reposJsonPath: path,
+      daemonToken: capture as never,
+    });
+    expect(sentRepoName).toMatch(/^(remote|path):/);
+  });
+
   test('a granted repo gets the daemon token when env misses', async () => {
     const res = await resolveForgeToken('gitlab', {
       env: {},
