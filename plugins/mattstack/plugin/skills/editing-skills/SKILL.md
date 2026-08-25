@@ -44,44 +44,38 @@ convention (see any pack bump in git history).
 
 ## When a pack compiles verbs from a shared engine
 
-Some team packs don't hand-author their verbs -- they **compile** them with
-`rt skills compile --pack <pack>`, which renders each verb's SKILL.md and
-vendors the verb's scripts from a shared engine (the mattstack `work` /
-`review` / ... orchestrators) plus the pack's slot bindings. Editing the
-pack's `skills/<verb>/` directly is a dead end: the next compile overwrites it.
-A vendored script (e.g. a pipeline resolver) has its source in the **engine**.
+A pack that runs `rt skills compile --pack <pack>` does not hand-author its
+verbs. The compiler fills the `{{placeholder}}` markers in the mattstack
+engines (`work`, `stage-*`, `review`, `self-review`, `receive-review`,
+`ship`, `watch-ci`, `shepherdr`) with the pack's fills and writes public
+verbs to `<pack>/skills/<verb>/`, internal verbs and stages to
+`<pack>/attachments/<name>/`. Edit the engine (mattstack-skills) or the fill
+(`<pack>/attachments/<fill>/`), then recompile; the next compile overwrites
+compiled files.
 
-Two facts drive the release order -- both are load-bearing:
+What `compile` and `check` read:
 
-- **`compile` reads engine files from the INSTALLED mattstack plugin, not the
-  repo.** So a fix committed to an engine script in the source repo does not
-  reach the pack until the **mattstack plugin is republished first** (bump its
-  manifest + `claude plugin update mattstack@mattstack`). A same-version update
-  no-ops and leaves the stale engine in the cache.
-- **`rt skills check --pack <pack>` also compares against the installed
-  mattstack**, so it will **not** flag your repo edit as drift. A clean `check`
-  is NOT proof your fix landed -- it only means the pack matches whatever
-  mattstack is currently installed.
+| Source | Read from |
+|---|---|
+| mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache |
+| the pack's own fills | the pack checkout (`--pack-dir`) |
+| version in each seam marker | that source's `plugin.json`, at compile time |
 
-Recompiling regenerates every verb against the current mattstack, so it also
-lands any pending mattstack version jump; you cannot ship one engine fix in
-isolation from an already-published mattstack bump.
+Release an engine fix to a compiled pack, in this order:
 
-Release order for an engine fix that a compiled pack must pick up:
+1. Commit the engine change in mattstack-skills; `sh tests/certify.sh <engine dir>`.
+2. Bump mattstack's `plugin.json`; `claude plugin update mattstack@mattstack`.
+3. Bump the pack's `plugin.json` (the version is stamped into the output, so
+   this comes before the compile).
+4. `rt skills compile --pack <pack>`; `rt skills check --pack <pack>` -> all `current`.
+5. Commit + push the pack clone; `claude plugin update <pack>@<marketplace>`;
+   restart the session.
 
-1. Edit + commit the engine source in mattstack-skills.
-2. Bump `mattstack-skills/.claude-plugin/plugin.json`; `claude plugin update
-   mattstack@mattstack`.
-3. `rt skills compile --pack <pack>` (re-vendors from the now-updated cache).
-4. `rt skills check --pack <pack>` -> every verb `current`.
-5. Bump the pack's `.claude-plugin/plugin.json`; commit + push the team clone
-   (push = publish).
-6. `claude plugin update <pack>@<marketplace>` on each account.
-7. Restart the session.
-
-Verify by **running the installed compiled script** under
-`<config>/plugins/cache/<marketplace>/<pack>/<version>/...`, not the repo
-source -- that is the only copy the pack's users execute.
+Proof the fix landed: in the installed pack copy
+(`<config>/plugins/cache/<marketplace>/<pack>/<version>/`), the compiled
+verb's `compiled:` metadata names the new mattstack version and the file
+contains no `{{`. `check` alone proves the pack matches the installed
+mattstack, whichever version that is.
 
 ## Verifying
 
