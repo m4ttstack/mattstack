@@ -15,8 +15,7 @@ metadata:
 
 ## Run state
 
-Contract v2 (authoritative text: `references/convention.md` in the
-parameterized-skills skill).
+Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
 
 - First action: `"$RT_PIPELINE_STATE" stage-start --stage implement`
 - Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
