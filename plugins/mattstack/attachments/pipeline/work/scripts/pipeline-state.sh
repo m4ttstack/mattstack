@@ -1,7 +1,7 @@
 #!/bin/sh
 # pipeline-state.sh -- the ONLY write path to a pipeline's run DB.
 # Spec: .local-dev/superpowers/specs/2026-08-21-run-db-design.md
-#   run-start   --repo R --work-type T --pipeline P [--run-id ID] [--spawned-by S] [--pack-dirs "DIR:DIR"]
+#   run-start   --repo R --work-type T --pipeline P [--run-id ID] [--spawned-by S] [--pack-dirs "DIR:DIR"] [--ticket ID] [--mattstack-sha SHA] [--mattstack-dirty 0|1]
 #   run-status  --status done|failed|abandoned
 #   stage-start --stage NAME        stage-done --stage NAME
 #   stage-fail  --stage NAME [--reason TEXT] [--detail-path PATH]
@@ -106,6 +106,9 @@ case "$cmd" in
     PIPE=$(flag --pipeline "$@" x); SPAWN=$(flag --spawned-by "$@" x)
     RUN_ID=$(flag --run-id "$@" x)
     PACK_DIRS=$(flag --pack-dirs "$@" x)
+    TICKET=$(flag --ticket "$@" x)
+    MS_SHA=$(flag --mattstack-sha "$@" x)
+    MS_DIRTY=$(flag --mattstack-dirty "$@" x)
     [ -n "$REPO" ] && [ -n "$WT" ] && [ -n "$PIPE" ] || json_fail "run-start needs --repo --work-type --pipeline" 2
     [ -n "$RUN_ID" ] || RUN_ID="$(date +%Y%m%d-%H%M%S)-$(awk 'BEGIN{srand();printf "%04x",int(rand()*65536)}')-$$"
     RUN_DIR="$RUNS_ROOT/$REPO/$RUN_ID"
@@ -144,6 +147,8 @@ case "$cmd" in
       PACK_DIRTY=${prov%%|*}
       PACKC=${prov#*|}
     fi
+    if [ -n "$MS_SHA" ]; then PACKC="${PACKC:+$PACKC,}mattstack=$MS_SHA"; fi
+    [ "$MS_DIRTY" = 1 ] && PACK_DIRTY=1
 
     sqlite3 "$RT_RUN_DB" "
       INSERT INTO runs (id, repo, work_type, pipeline, status, spawned_by, started_at, pack_commits, pack_dirty)
@@ -153,6 +158,11 @@ case "$cmd" in
               $( [ -n "$PACKC" ] && printf "'%s'" "$(esc "$PACKC")" || printf NULL ),
               $PACK_DIRTY);
     " >/dev/null || json_fail "run id already exists: $RUN_ID" 1
+    if [ -n "$TICKET" ]; then
+      sqlite3 "$RT_RUN_DB" "INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at)
+        VALUES ('$(esc "$RUN_ID")', 'ticket', '$(esc "$TICKET")', 'work', $(now_ms));" >/dev/null \
+        || json_fail "could not record ticket" 1
+    fi
     export RT_RUN_DB
     emit_update run-start ""
     printf '{"ok":true,"runId":"%s","runDb":"%s"}\n' "$RUN_ID" "$RT_RUN_DB"
