@@ -31,7 +31,9 @@ convention (see any pack bump in git history).
    EXPLICIT array of category roots (`./skills/pipeline`, `orchestration`,
    `forge`, `review`, `./plugin/skills`). A skill in a new category
    silently never loads until you add its root to that array.
-4. Bump `version` in the manifest -- same commit as the skill change.
+4. Bump `version` in the manifest -- same commit as the skill change. For
+   mattstack, this is step 1 of "Releasing after a mattstack bump" below;
+   finish that section's step 2 for each compiled pack.
 5. Commit and push. For the team pack, push IS the team publish
    (teammates' installs read the same repo). For mattstack, push is
    backup/other-machines; the local symlink makes the update work even
@@ -59,17 +61,18 @@ What `compile` and `check` read:
 |---|---|
 | mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache |
 | the pack's own fills | the pack checkout (`--pack-dir`) |
-| version in each seam marker | that source's `plugin.json`, at compile time |
+| mattstack version in every seam marker | mattstack's `plugin.json` at compile time -- so any mattstack bump, engine edited or not, makes every compiled pack `stale` |
 
-Release an engine fix to a compiled pack, in this order:
+### Releasing after a mattstack bump (any change) or a fill edit
 
-1. Commit the engine change in mattstack-skills; `sh tests/certify.sh <engine dir>`.
-2. Bump mattstack's `plugin.json`; `claude plugin update mattstack@mattstack`.
-3. Bump the pack's `plugin.json` (the version is stamped into the output, so
-   this comes before the compile).
-4. `rt skills compile --pack <pack>`; `rt skills check --pack <pack>` -> all `current`.
-5. Commit + push the pack clone; `claude plugin update <pack>@<marketplace>`;
-   restart the session.
+1. Changed a mattstack file? Commit it; `sh tests/certify.sh <its dir>`; bump
+   mattstack's `plugin.json`; `claude plugin update mattstack@mattstack`.
+2. For each compiled pack on the machine:
+   1. Bump the pack's `plugin.json` (the version is stamped into the output,
+      so this comes before the compile).
+   2. `rt skills compile --pack <pack>`; `rt skills check --pack <pack>` -> all `current`.
+   3. Commit + push the pack clone; `claude plugin update <pack>@<marketplace>`;
+      restart the session.
 
 Proof the fix landed: in the installed pack copy
 (`<config>/plugins/cache/<marketplace>/<pack>/<version>/`), the compiled
