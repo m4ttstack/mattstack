@@ -273,9 +273,9 @@ metadata:
 ```
 
 - `stage`: the stage's role name, `[a-z][a-z0-9-]*`.
-- `stage-consumes` / `stage-produces`: space-separated unit-of-work record
-  field names (see `plugin/schemas/uow.md`), or the single token `-` for
-  none. Both keys are mandatory when `stage` is present.
+- `stage-consumes` / `stage-produces`: space-separated run-state field
+  names, or the single token `-` for none. Both keys are mandatory when
+  `stage` is present.
 - Stage skills that are only ever reached through a pipeline set
   `disable-model-invocation: true` (selection hygiene).
 - A domain team's custom stage is just a skill with these keys; it needs
@@ -372,16 +372,27 @@ For each entry of `pipelines.<work-type>`, in order, the script:
 | `chain-broken` | 1 | name | consumed field unavailable at that point in the order |
 | `stage-unresolved` | 1 | name | stage's own slot resolution failed (inner errors in `detail`) |
 
-## Unit-of-work record (v1)
+## Compile-native vs runtime-native
 
-Shared context flowing between stages. One JSON file per unit of work at
-`~/.mattstack/work/<work-id>/uow.json` -- outside every repo, exactly like
-shepherdr's job dirs. Schema: `plugin/schemas/uow.schema.json`; field
-vocabulary and lifecycle: `plugin/schemas/uow.md`. Stages read the record
-at the path the orchestrator states, do their work, and write their
-`stage-produces` fields plus their entry in `stages` before finishing. The
-record plus the re-runnable resolve scripts make pipeline state
-recoverable after context compaction; prose is never the state carrier.
+A skill is one of two kinds, never both.
+
+**Compile-native** engines are consumed only after `rt skills compile`. They
+declare typed top-level `slots:` and `type: pipeline-step`, and their
+bodies carry `{{placeholder}}` markers that only the compiler fills
+(`slot`, `include`, `pipeline.stages`, `work-type`, `stage.fields`,
+`stage.dir`, `run-start.flags`, `compiled-from`). Run raw, they visibly do
+not work: an unfilled placeholder is a compile error and never reaches an
+agent. They ship no `resolve-args.sh`; the compiler errors if one is
+called. The pipeline engines, the review verbs, `ship`, `watch-ci`, and
+`shepherdr` are compile-native.
+
+**Runtime-native** wrappers resolve their slots at skill time with the
+vendored `resolve-args.sh` described above. They declare `metadata.slots`
+and must never contain `{{`; the certify gate errors if one does. The
+board's `mr-board:*` wrappers are runtime-native.
+
+An `{{include:<attachment>}}` target must be slotless and contain no
+placeholder; it inlines in place with a seam marker of kind `include`.
 
 ## Hidden skills and the slash menu
 
