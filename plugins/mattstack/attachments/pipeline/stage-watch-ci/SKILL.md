@@ -2,23 +2,25 @@
 name: stage-watch-ci
 description: "Pipeline stage: watch the pipeline the ship stage triggered and triage a red result. Reached only through a resolved pipeline; not for direct invocation."
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/ci-triage.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/ci-attendant.sh:*), Bash(*/scripts/ci-forge.sh:*)
+type: pipeline-step
+slots:
+  domain: { contract: watch-ci-domain@1, required: false }
+  forge: { contract: ci-forge@1, required: false }
+allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/ci-triage.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/ci-attendant.sh:*), Bash(*/scripts/ci-forge.sh:*)
 metadata:
   stage: "watch-ci"
   stage-consumes: "mr branch"
   stage-produces: "ci"
-  slots: "domain, forge"
-  slot-domain: "optional watch-ci-domain@1 -- owns the domain's CI watching: which pipeline to watch, how to poll it, and how real failures are told apart from infrastructure noise"
-  slot-forge: "optional ci-forge@1 -- speaks one forge's CI API: resolves pipelines for a ref, lists jobs across the whole pipeline tree, fetches traces, retries jobs"
 ---
 
 # stage: watch-ci
 
+{{stage.fields}}
+
 ## Run state
 
 Contract v2 (authoritative text: `references/convention.md` in the
-parameterized-skills skill). If `RT_RUN_DB`/`RT_PIPELINE_STATE` are unset you
-are running standalone -- skip every call in this section silently.
+parameterized-skills skill).
 
 - First action: `"$RT_PIPELINE_STATE" stage-start --stage watch-ci`
 - Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
@@ -30,10 +32,17 @@ are running standalone -- skip every call in this section silently.
   "<what actually failed>" --detail-path <path to the triage report>`
   before you report it.
 
-Read the uow record. Run `"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"`;
-nonzero exit: print `errors` verbatim and stop.
+## Domain rules
 
-## The attendant lease (before any watching, when the record has an `mr`)
+{{slot:domain}}
+
+When nothing is inlined above, follow the generic path below.
+
+## Forge
+
+{{slot:forge}}
+
+## The attendant lease (before any watching, when `mr` is set)
 
 Exactly one actor attends an MR's CI at a time: this stage, or the
 mr-board auto-doctor. Both honor the same lease files
@@ -65,11 +74,10 @@ cleanup: staleness handles it.
 
 Then the first branch that matches:
 
-**Domain bound:** read the SKILL.md at `resolved.domain.path` and follow
-its watch-and-triage flow for the record's `mr` and `branch`.
+**Domain rules inlined above:** follow that flow for `mr` and `branch`.
 
-**Forge bound (domain unbound):** launch
-`${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh --forge <resolved.forge.path>/scripts/ci-forge.sh --ref <branch> --timeout 2700`
+**Forge bound (no domain rules above):** launch
+`${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh --forge {{stage.dir}}/parts/forge/scripts/ci-forge.sh --ref <branch> --timeout 2700`
 as a background task and react to its exit code: 0 = green. 1 = read the
 triage report it printed; retry each INFRA-verdict blocking failure once
 with the retry command the report prints and relaunch the watcher; stop
@@ -84,6 +92,6 @@ read the failing job log, classify REAL (the change broke it) vs
 INFRA/flake (unrelated, retry once), report the classification, and stop
 for the user on any REAL failure.
 
-Finish by writing `ci` (`green`, or `red: <one-line triage>`) into the
-record. (The exit-2 and exit-4 stops write no `ci`: the stage is not done
-until a verdict exists.)
+Finish by writing `ci` (`green`, or `red: <one-line triage>`). (The
+exit-2 and exit-4 stops write no `ci`: the stage is not done until a
+verdict exists.)

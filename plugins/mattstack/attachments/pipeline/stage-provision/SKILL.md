@@ -2,22 +2,24 @@
 name: stage-provision
 description: "Pipeline stage: establish where the unit of work happens -- workspace, branch, ticket. Reached only through a resolved pipeline; not for direct invocation."
 disable-model-invocation: true
-allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(rt worktree provision:*)
+type: pipeline-step
+slots:
+  domain: { contract: provision-domain@1, required: false }
+allowed-tools: Bash(rt worktree provision:*)
 metadata:
   stage: "provision"
   stage-consumes: "ticket repo"
   stage-produces: "branch worktree"
-  slots: "domain"
-  slot-domain: "optional provision-domain@1 -- owns the domain's provisioning flow: developer config, environment detection, workspace and branch acquisition, ticket lookup or creation"
 ---
 
 # stage: provision
 
+{{stage.fields}}
+
 ## Run state
 
 Contract v2 (authoritative text: `references/convention.md` in the
-parameterized-skills skill). If `RT_RUN_DB`/`RT_PIPELINE_STATE` are unset you
-are running standalone -- skip every call in this section silently.
+parameterized-skills skill).
 
 - First action: `"$RT_PIPELINE_STATE" stage-start --stage provision`
 - Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
@@ -28,20 +30,17 @@ are running standalone -- skip every call in this section silently.
   on failure: `"$RT_PIPELINE_STATE" stage-fail --stage provision --reason
   "<what actually failed>"` before you report it.
 
-Read the uow record at the path the orchestrator stated. If `mode` is
-`worker`, you were dispatched into a prepared worktree: verify `git status`
-runs cleanly in `$PWD`, write `worktree` ($PWD) and `branch` (current
-branch) into the record, and finish -- no detection, no acquisition.
+Read `mode` with `"$RT_PIPELINE_STATE" field get mode` (unset means
+`interactive`). If `mode` is `worker`, you were dispatched into a prepared
+worktree: verify `git status` runs cleanly in `$PWD`, write `worktree`
+($PWD) and `branch` (current branch), and finish -- no detection, no
+acquisition.
 
-Otherwise resolve the domain slot:
+## Domain rules
 
-```bash
-"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"
-```
+{{slot:domain}}
 
-Nonzero exit: print `errors` verbatim and stop. Bound: read the SKILL.md at
-`resolved.domain.path` and follow it; it owns config, detection, and
-acquisition end to end.
+When nothing is inlined above, follow the generic path below.
 
 Unbound (generic fallback): run
 `rt worktree provision --repo <repo> --ticket <ticket> --json`. Pass
@@ -49,8 +48,8 @@ Unbound (generic fallback): run
 the branch gets no slug.
 
 - `ok`: `EnterWorktree` to `data.path`; write `branch` and `worktree`
-  (`data.path`) into the record. A cold create (`wasOnDeck:false`) can take
-  minutes -- tell the user it's provisioning.
+  (`data.path`). A cold create (`wasOnDeck:false`) can take minutes --
+  tell the user it's provisioning.
 - error `branch-attached:<tree>`: surface "resume in `<tree>`?" to the user
   -- do not silently pick a side.
 - `null` (daemon down) or an `unknown-repo` error: fall back to the old
@@ -62,13 +61,12 @@ the branch gets no slug.
   directly.
 
 Finish by writing `branch` and `worktree` (absolute path; the checkout
-itself when no separate worktree is used) into the record.
+itself when no separate worktree is used).
 
 When this stage is what found or created the ticket -- not when one was
-already known coming in -- also write `ticket` into the record and
-`"$RT_PIPELINE_STATE" field set ticket <value> --stage provision`. This
-field is deliberately absent from `stage-produces` above: that list is a
-completeness gate ("this stage is not done until X exists"), and a
-ticketless run through this stage is a normal, finished run -- so `ticket`
-cannot be a required produce even though this is the one place its value
-can become known.
+already known coming in -- also run `"$RT_PIPELINE_STATE" field set ticket
+<value> --stage provision`. This field is deliberately absent from
+`stage-produces` above: that list is a completeness gate ("this stage is
+not done until X exists"), and a ticketless run through this stage is a
+normal, finished run -- so `ticket` cannot be a required produce even
+though this is the one place its value can become known.
