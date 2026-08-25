@@ -31,7 +31,7 @@ The repo manifest always wins over the home manifest; they do not merge.
 |---|---|---|
 | `version` | const `1` | everyone; the only required key |
 | `skills.enabled` | array of skill names | documentation in phase 1 |
-| `pipelines` | work type -> ordered array of stage-skill names | `resolve-pipeline.sh` (the work orchestrator's companion; phase 2) |
+| `pipelines` | work type -> ordered array of stage-skill names | `rt skills compile` (`{{pipeline.stages}}`); not resolved at run time |
 | `bindings` | wrapper name -> { slot -> inner skill name } | `resolve-args.sh` (phase 1) |
 
 Skill names are `name` or `prefix:name` (`^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$`).

@@ -7,7 +7,6 @@ set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 FIX="$HERE/fixtures"
 CANONICAL="$HERE/../../attachments/parameterized-skills/scripts/resolve-args.sh"
-VENDORED="$HERE/../../attachments/orchestration/shepherdr/scripts/resolve-args.sh"
 
 PASS=0
 FAIL=0
@@ -172,115 +171,6 @@ check slot_decl_invalid 1 '
   and .errors[0].code == "slot-decl-invalid"
   and (.errors[0].message | contains("sometimes"))'
 
-# --- case: vendored copy is byte-identical to the canonical resolver ---
-if cmp -s "$CANONICAL" "$VENDORED"; then
-  echo "ok   vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL vendored_identical: shepherdr's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: work orchestrator's vendored copy is byte-identical too ---
-WORK_VENDORED="$HERE/../../attachments/pipeline/work/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$WORK_VENDORED"; then
-  echo "ok   work_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL work_vendored_identical: work's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: stage-provision's vendored copy is byte-identical too ---
-STAGE_PROVISION_VENDORED="$HERE/../../attachments/pipeline/stage-provision/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$STAGE_PROVISION_VENDORED"; then
-  echo "ok   stage_provision_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL stage_provision_vendored_identical: stage-provision's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: stage-plan's vendored copy is byte-identical too ---
-STAGE_PLAN_VENDORED="$HERE/../../attachments/pipeline/stage-plan/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$STAGE_PLAN_VENDORED"; then
-  echo "ok   stage_plan_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL stage_plan_vendored_identical: stage-plan's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: stage-gates' vendored copy is byte-identical too ---
-STAGE_GATES_VENDORED="$HERE/../../attachments/pipeline/stage-gates/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$STAGE_GATES_VENDORED"; then
-  echo "ok   stage_gates_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL stage_gates_vendored_identical: stage-gates' resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: stage-evidence's vendored copy is byte-identical too ---
-STAGE_EVIDENCE_VENDORED="$HERE/../../attachments/pipeline/stage-evidence/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$STAGE_EVIDENCE_VENDORED"; then
-  echo "ok   stage_evidence_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL stage_evidence_vendored_identical: stage-evidence's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: stage-self-review's vendored copy is byte-identical too ---
-STAGE_SELF_REVIEW_VENDORED="$HERE/../../attachments/pipeline/stage-self-review/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$STAGE_SELF_REVIEW_VENDORED"; then
-  echo "ok   stage_self_review_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL stage_self_review_vendored_identical: stage-self-review's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: stage-ship's vendored copy is byte-identical too ---
-STAGE_SHIP_VENDORED="$HERE/../../attachments/pipeline/stage-ship/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$STAGE_SHIP_VENDORED"; then
-  echo "ok   stage_ship_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL stage_ship_vendored_identical: stage-ship's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: stage-watch-ci's vendored copy is byte-identical too ---
-STAGE_WATCH_CI_VENDORED="$HERE/../../attachments/pipeline/stage-watch-ci/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$STAGE_WATCH_CI_VENDORED"; then
-  echo "ok   stage_watch_ci_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL stage_watch_ci_vendored_identical: stage-watch-ci's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: watch-ci's vendored copy is byte-identical too ---
-WATCH_CI_VENDORED="$HERE/../../attachments/pipeline/watch-ci/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$WATCH_CI_VENDORED"; then
-  echo "ok   watch_ci_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL watch_ci_vendored_identical: watch-ci's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: ship entry's vendored copy is byte-identical too ---
-SHIP_ENTRY_VENDORED="$HERE/../../attachments/pipeline/ship/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$SHIP_ENTRY_VENDORED"; then
-  echo "ok   ship_entry_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL ship_entry_vendored_identical: ship's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
 # --- case: watch-ci's ci scripts stay identical to stage-watch-ci's ---
 for f in ci-watch.sh ci-triage.sh ci-attendant.sh; do
   if cmp -s "$HERE/../../attachments/pipeline/stage-watch-ci/scripts/$f" "$HERE/../../attachments/pipeline/watch-ci/scripts/$f"; then
@@ -291,23 +181,6 @@ for f in ci-watch.sh ci-triage.sh ci-attendant.sh; do
     FAIL=$((FAIL + 1))
   fi
 done
-
-# --- case: live repo binding -- shepherdr resolves inside this repo ---
-# The skills dir is built install-shaped (prefixed symlink) from this repo's
-# own tree so the case passes in any checkout, installed mirror or not.
-REPO_ROOT=$(CDPATH= cd -- "$HERE/../.." && pwd)
-mkdir -p "$WORK/live-skills"
-ln -s "$REPO_ROOT/attachments/model-tiering" "$WORK/live-skills/mattstack:model-tiering"
-ln -s "$REPO_ROOT/attachments/execution-strategy" "$WORK/live-skills/mattstack:execution-strategy"
-ln -s "$REPO_ROOT/attachments/cswap-accounts" "$WORK/live-skills/mattstack:cswap-accounts"
-OUT=$(cd "$REPO_ROOT" && "$VENDORED" --skills-dir "$WORK/live-skills" --plugin-list-cmd "$PLUGIN_LIST")
-STATUS=$?
-check live_shepherdr 0 '
-  .ok == true
-  and .skill == "shepherdr"
-  and .resolved.tiering.binding == "mattstack:model-tiering"
-  and .resolved.strategy.binding == "mattstack:execution-strategy"
-  and .resolved.accounts.binding == "mattstack:cswap-accounts"'
 
 # --- case: per-repo manifest -- matching $HOME/.mattstack/repos/<slug>/skills.jsonc,
 # no committed cwd-up file -> binding resolves from the per-repo file ---

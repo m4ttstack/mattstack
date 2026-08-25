@@ -17,8 +17,8 @@ slots:
 
 The standalone entry for CI watching: same watch-and-triage flow as the
 pipeline's watch-ci stage, reached directly instead of through a unit of
-work. There is no uow record; the target comes from the conversation and
-the checkout, and the verdict goes to the user.
+work. The target comes from the conversation and the checkout, and the
+verdict goes to the user.
 
 ## 1. Establish the target
 

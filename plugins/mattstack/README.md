@@ -78,7 +78,7 @@ only model-visible skill; the eight stage skills are pipeline-reached
 (hidden via `disable-model-invocation`) and appear only as entries in a
 manifest's `pipelines.<work-type>` array.
 
-- **mattstack:work** -- run one unit of work through the pipeline the consumer's manifest defines for its work type; the chain is validated by its companion `scripts/resolve-pipeline.sh`.
+- **mattstack:work** -- run one unit of work through the pipeline the compiler baked in from the consumer's manifest.
 - **mattstack:stage-provision** -- provision the environment: ticket + repo in, branch + worktree out.
 - **mattstack:stage-plan** -- approach triage; prints the APPROACH commitment block before any implementation action.
 - **mattstack:stage-gates** -- run the domain's gates for the touched paths; no-op without a bound domain.
@@ -95,8 +95,7 @@ six are model-visible; the code-review skills plug into domain packs via
 the review-criteria@1, reviewer-dispatch@1, and reply-rules@1 contracts,
 while subagent-review-loop is a standalone one-off with no slots.
 
-- **mattstack:review-core** -- the shared review engine: depth triage, fresh-context reviewer dispatch, severity-bucketed structured draft (`criteria` slot for the domain's standards).
-- **mattstack:review-dispatch** -- keeps review judgment out of the context that wrote the code: dispatches a fresh-context reviewer over a commit range and returns bucketed findings (`reviewer` slot).
+- The review flow now lives in five internal include bodies (`review-core-body`, `review-core-body-after`, `review-core-body-tail`, `review-dispatch-body`, `review-dispatch-body-after`) that the compiler inlines into `review`, `self-review`, `receive-review`; not for direct invocation.
 - **mattstack:self-review** -- review this session's own work on the current branch before shipping; the bias gate against grading your own homework (provides self-review-domain@1, the stage's default adapter).
 - **mattstack:receive-review** -- process the feedback on your OWN MR/PR with technical rigor instead of performative agreement (`criteria` + `reply-rules` slots).
 - **mattstack:review-posting** -- the two-gate posting protocol: which findings land, which replies say enough, before anything reaches the MR/PR.

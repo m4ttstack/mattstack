@@ -14,8 +14,8 @@ qualifies. **Spawn-time only:** an Agent-tool subagent runs in-process on
 the caller's credentials and exposes no account dimension, so this
 contract can only be honored where workers launch as their own sessions.
 
-Paths below are relative to this skill's directory (the wrapper knows it
-as `resolved.accounts.path`).
+Paths below are relative to this skill's directory; the compiler inlines
+this fill under `shepherdr`'s `## Accounts` section at compile time.
 
 ## The pool question
 

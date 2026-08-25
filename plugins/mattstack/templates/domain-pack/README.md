@@ -24,9 +24,9 @@ Stage contracts shipped by mattstack (see each stage's `slot-domain`
 line for the prose half): provision-domain@1, plan-domain@1,
 gates-domain@1, evidence-domain@1, self-review-domain@1, ship-domain@1,
 watch-ci-domain@1. The review cluster adds three more (see each skill's
-slot lines): reviewer-dispatch@1 (review-dispatch's `reviewer` slot),
-review-criteria@1 (the `criteria` slot on review-core and
-receive-review), and reply-rules@1 (receive-review's `reply-rules`
+slot lines): reviewer-dispatch@1 (the `reviewer` slot on `review`,
+`self-review`, `receive-review`), review-criteria@1 (the `criteria`
+slot on the same three), and reply-rules@1 (receive-review's `reply-rules`
 slot); stage-watch-ci also takes a `forge` binding (GitLab adapter
 shipped as mattstack:ci-forge-gitlab). A custom stage is any skill with `metadata.stage` +
 `stage-consumes`/`stage-produces`; add it to your pipeline array with

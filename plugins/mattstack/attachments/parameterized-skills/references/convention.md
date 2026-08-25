@@ -281,96 +281,11 @@ metadata:
 - A domain team's custom stage is just a skill with these keys; it needs
   nothing from this repo beyond the convention.
 
-## Pipeline resolution (the orchestrator's companion script)
+## Pipeline resolution
 
-The `work` orchestrator ships `scripts/resolve-pipeline.sh` alongside its
-vendored `resolve-args.sh`. Chain validation lives there or nowhere: the
-orchestrator's prose runs the script and reacts to its JSON, never
-re-derives the chain.
-
-```
-"${CLAUDE_SKILL_DIR}/scripts/resolve-pipeline.sh" --work-type <t> \
-  [--manifest <path>] [--skills-dir <path>] [--plugin-list-cmd <cmd>] \
-  [--seed "<field field ...>"]
-```
-
-- `--work-type` (required): key into the manifest's `pipelines` map.
-- `--manifest`, `--skills-dir`, `--plugin-list-cmd`: same semantics and
-  defaults as resolve-args.sh, except a missing manifest is an error here
-  (`no-manifest`): a pipeline cannot exist without one.
-- `--seed`: record fields present before stage 1 runs; default
-  `work-type ticket repo mode`.
-
-For each entry of `pipelines.<work-type>`, in order, the script:
-1. locates the skill (same lookup as resolve-args: literal skills-dir name,
-   then enabled plugin) -- else `stage-not-installed`;
-2. requires `metadata.stage` -- else `not-a-stage`; requires both
-   `stage-consumes` and `stage-produces` -- else `stage-decl-invalid`;
-3. checks every consumed field is in the seed set or produced by an earlier
-   stage -- else `chain-broken` (chain checking is suppressed after the
-   first stage-level error to avoid cascading noise);
-4. if the stage declares `slots`, runs the stage's own vendored
-   `scripts/resolve-args.sh` (passing through manifest/skills-dir/
-   plugin-list-cmd) -- missing script is `resolver-missing`; a nonzero exit
-   is `stage-unresolved` with the inner errors embedded in `detail`.
-
-### Success (exit 0)
-
-```json
-{
-  "ok": true,
-  "skill": "mattstack:work",
-  "workType": "feature",
-  "seed": ["work-type", "ticket", "repo", "mode"],
-  "pipeline": [
-    {
-      "name": "mattstack:stage-ship",
-      "stage": "ship",
-      "source": "skills-dir",
-      "path": "/abs/path/to/stage-ship",
-      "consumes": ["commits", "ticket"],
-      "produces": ["mr"],
-      "slots": { "domain": { "binding": "fake:shipper", "contract": "ship-domain@1", "source": "skills-dir", "path": "..." } }
-    }
-  ]
-}
-```
-
-`slots` is `null` for a slotless stage, otherwise the stage's own
-`resolved` object verbatim.
-
-### Failure (exit 1; exit 2 environment/usage)
-
-```json
-{
-  "ok": false,
-  "skill": "mattstack:work",
-  "errors": [
-    { "stage": "mattstack:stage-build", "code": "chain-broken",
-      "message": "stage consumes \"branch\" but no earlier stage produces it and it is not in the seed", "detail": null }
-  ]
-}
-```
-
-### Error codes
-
-| code | exit | stage | meaning |
-|---|---|---|---|
-| `usage` | 2 | null | unknown option or missing --work-type |
-| `jq-missing` | 2 | null | jq not on PATH |
-| `skill-md-missing` | 2 | null | no SKILL.md next to scripts/ |
-| `name-missing` | 2 | null | orchestrator frontmatter has no `name:` |
-| `tmp-failed` | 2 | null | mktemp failed |
-| `no-manifest` | 1 | null | no bindings manifest found |
-| `manifest-invalid` | 1 | null | manifest exists but is not valid JSONC |
-| `no-pipeline` | 1 | null | `pipelines` has no entry for the work type |
-| `pipeline-invalid` | 1 | null | entry is not a non-empty array of strings |
-| `stage-not-installed` | 1 | name | pipeline entry not in skills dir or any enabled plugin |
-| `not-a-stage` | 1 | name | installed skill has no `metadata.stage` |
-| `stage-decl-invalid` | 1 | name | `stage-consumes` or `stage-produces` missing |
-| `resolver-missing` | 1 | name | stage declares slots but ships no scripts/resolve-args.sh |
-| `chain-broken` | 1 | name | consumed field unavailable at that point in the order |
-| `stage-unresolved` | 1 | name | stage's own slot resolution failed (inner errors in `detail`) |
+The compiler reads `pipelines` from the manifest and bakes the stage list
+into the compiled `work` skill via `{{pipeline.stages}}`. Nothing resolves
+pipelines at run time.
 
 ## Compile-native vs runtime-native
 
@@ -460,7 +375,7 @@ and data to the run DB through the `pipeline-state.sh` helper. The contract:
 
 - The orchestrator exports `RT_RUN_DB` and `RT_PIPELINE_STATE` before the
   first stage. A stage invoked with neither set is running standalone: skip
-  all state calls silently — never fail, never warn.
+  all state calls silently -- never fail, never warn.
 - On entry: `"$RT_PIPELINE_STATE" stage-start --stage <name>`.
 - Consumed fields are read with `field get <key>` (exit 3 = absent; fall
   back to asking or deriving, exactly as consumes-resolution already

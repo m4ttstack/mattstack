@@ -16,10 +16,6 @@
     "expect": "work"
   },
   {
-    "task": "This diff needs a proper review with a structured, severity-bucketed verdict before it merges",
-    "expect": "review-core"
-  },
-  {
     "task": "Gut-check the work we just did on this branch before I ship it",
     "expect": "self-review"
   },
