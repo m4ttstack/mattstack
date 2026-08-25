@@ -98,6 +98,21 @@ emit_update() { # $1=kind $2=stage("" for run-level). Never blocks: DB write has
   ( rt events emit run-updated --json "$payload" >/dev/null 2>&1 </dev/null & )
 }
 
+record_identity() { # Upserts claude-session/herdr-pane fields from env, at
+                    # run-start and every stage-start so a pane change after a
+                    # pause/resume or account hop heals. Change-guarded: an
+                    # unchanged value must not bump fields.at, which rt reads
+                    # as pipeline activity (liveness spec, 2026-08-25).
+  for pair in "claude-session|${CLAUDE_CODE_SESSION_ID:-}" "herdr-pane|${HERDR_PANE_ID:-}"; do
+    key=${pair%%|*}; val=${pair#*|}
+    [ -n "$val" ] || continue
+    cur=$(sqlite3 "$RT_RUN_DB" "SELECT value FROM fields WHERE key='$key';" 2>/dev/null)
+    [ "$cur" = "$val" ] && continue
+    db_exec "INSERT OR REPLACE INTO fields (run_id, key, value, produced_by, at)
+             SELECT id, '$key', '$(esc "$val")', 'run', $(now_ms) FROM runs;"
+  done
+}
+
 cmd="${1:-}"; [ -n "$cmd" ] && shift || json_fail "usage: pipeline-state.sh <subcommand>" 2
 
 case "$cmd" in
@@ -166,6 +181,7 @@ case "$cmd" in
         || json_fail "could not record ticket" 1
     fi
     export RT_RUN_DB
+    record_identity
     emit_update run-start ""
     printf '{"ok":true,"runId":"%s","runDb":"%s"}\n' "$RUN_ID" "$RT_RUN_DB"
     ;;
@@ -198,6 +214,7 @@ case "$cmd" in
              COALESCE((SELECT MAX(attempt) FROM stages WHERE name='$(esc "$STAGE")'),0)+1,
              $(now_ms) FROM runs;
       UPDATE runs SET current_stage='$(esc "$STAGE")';"
+    record_identity
     emit_update stage-start "$STAGE"
     printf '{"ok":true}\n'
     ;;
