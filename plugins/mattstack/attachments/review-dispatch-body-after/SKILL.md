@@ -1,17 +1,17 @@
 ---
 name: review-dispatch-body-after
-description: "Fresh-context dispatch shapes after the reviewer slot, plus draft assembly, inlined by the review verbs. Not for direct invocation."
+description: "Fresh-context dispatch shapes after the reviewer slot, inlined by the review verbs. Not for direct invocation."
 disable-model-invocation: true
 ---
 
-**No Reviewer section above** (the slot is unbound): apply
+**Nothing under Reviewer above** (the slot is unbound): apply
 `superpowers:requesting-code-review`. Fill its `code-reviewer.md`
 placeholders -- `DESCRIPTION` (the caller's description),
 `PLAN_OR_REQUIREMENTS` (the requirements), `BASE_SHA` / `HEAD_SHA` (the
 commit range ends) -- then append the standard blocks. If the
 superpowers plugin is not installed, say so and stop.
 
-**A Reviewer section above**: follow it, still appending the standard
+**Content under Reviewer above**: follow it, still appending the standard
 blocks.
 
 Either branch dispatches its template as written: placeholders filled,
@@ -50,36 +50,3 @@ threads together.
 | Template | `superpowers:requesting-code-review`, or the Reviewer section above | `${CLAUDE_SKILL_DIR}/references/adjudicator.md` |
 | Fill (only these) | DESCRIPTION, PLAN_OR_REQUIREMENTS, BASE_SHA, HEAD_SHA | {DIFF_RANGE}, {REQUIREMENTS}, {THREADS} |
 | Returns | Strengths / Critical / Important / Minor / Assessment | per thread: verdict `valid \| pushback \| needs-clarification`, plus relations |
-
-## 4. Assemble the draft
-
-Fold your observations in; present exactly this shape:
-
-- **Strengths** -- specific.
-- **Issues** -- **Critical** (must fix) / **Important** (should fix) /
-  **Minor** (nice to have). Every finding lands in one bucket, with
-  `file:line`, what is wrong, why it matters, and the fix.
-- **Assessment** -- Ready to merge: yes | no | with fixes, plus reasoning.
-
-Those names and those three words are fixed vocabulary: downstream callers
-read the draft by them. Return the draft; never post it, approve, or ship.
-
-## Red flags
-
-| Thought | Reality |
-|---|---|
-| "It's ~20 lines, or it's my own code" | The bias the fresh context removes. Dispatch it (step 3). |
-| "I understand it from sizing it" | The understanding IS the bias. Dispatch it. |
-| "I'll decide the depth as I go" | Print the block first (step 1). |
-| "Tests first, depth after" | Running them IS the depth decision, unprinted. Print, then set up. |
-| "This writes up better its own way" | The five headings ARE the write-up; anything outside them is unreadable downstream. |
-| "I'll post the findings myself" | Return the draft; the caller owns what follows. |
-
-## Quick reference
-
-| Signal | Action |
-|---|---|
-| Inputs in hand | Print REVIEW DEPTH / EVIDENCE CHECK and provider lines. |
-| Criteria bound | Its triage lines into the block, its addendum into the dispatch. |
-| About to judge the diff | Don't. The review dispatch flow (step 3), reviewer shape, full payload. |
-| Draft assembled | Buckets, `file:line`-what-why-fix, assessment word; return it. |

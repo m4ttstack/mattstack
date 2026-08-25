@@ -42,6 +42,8 @@ pack binds them; apply its triage lines and addendum exactly as it directs.
 
 {{include:review-dispatch-body-after}}
 
+{{include:review-core-body-tail}}
+
 ## 3. Deliver
 
 Present the draft to the user. Nothing leaves the machine without an

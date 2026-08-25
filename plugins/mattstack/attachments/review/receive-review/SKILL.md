@@ -57,12 +57,16 @@ Hand the dispatch flow the numbered threads (`file:line` plus note chains), the
 requirements, and the diff range; it owns the template, the subagent, and the
 standard blocks.
 
-**Criteria**, when the pack binds them (the Criteria section in the flow
-below): evaluate the triage lines it declares against this change, and pass
-its addendum with `{TRIAGE_FLAGS}` (those resolved values) and
+## Criteria
+
+{{slot:criteria}}
+
+The Criteria section above is the domain's review standards, when the pack
+binds them: evaluate the triage lines it declares against this change, and
+pass its addendum with `{TRIAGE_FLAGS}` (those resolved values) and
 `{SETUP_OBSERVATIONS}` (what was already gathered, else `none`) filled, the
-rest verbatim. No depth block here -- the depth triage in the flow below
-belongs to its reviewer shape; the addendum informs the per-thread verdicts.
+rest verbatim. No depth block here; the addendum informs the per-thread
+verdicts.
 
 **One dispatch, all threads together.** Related comments must be judged with
 shared context; a partial reading produces wrong conclusions and a wrong
@@ -71,14 +75,6 @@ whatever the slots bind.
 
 Per thread it returns `valid` / `pushback` / `needs-clarification`, plus that
 entry's relations.
-
-{{include:review-core-body}}
-
-## Criteria
-
-{{slot:criteria}}
-
-{{include:review-core-body-after}}
 
 {{include:review-dispatch-body}}
 

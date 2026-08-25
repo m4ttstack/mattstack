@@ -22,6 +22,8 @@
     "mattstack:work": { "tiering": "mattstack:model-tiering" },
     "mattstack:stage-plan": { "domain": "acme:work-policy" },
     "mattstack:stage-watch-ci": { "forge": "mattstack:ci-forge-gitlab" },
+    "mattstack:review": { "criteria": "acme:review-criteria" },
+    "mattstack:self-review": { "criteria": "acme:review-criteria" },
     "mattstack:receive-review": {
       "criteria": "acme:review-criteria",
       "reply-rules": "acme:reply-rules"

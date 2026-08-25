@@ -59,7 +59,7 @@ catch that this one missed.
 
 ## 2. Delegate to the review engine
 
-**REQUIRED SUB-FLOW:** the review flow below -- with the diff,
+Follow the review flow below -- with the diff,
 requirements, and a label (the branch or task name). It triages depth, sets up, dispatches the fresh-context
 reviewer, and returns the draft. Already in the worktree, so `verify` /
 `repro` setup is just running the checks -- no provisioning needed. Do not
@@ -81,6 +81,8 @@ small the change -- see the HARD-GATE above.
 {{slot:reviewer}}
 
 {{include:review-dispatch-body-after}}
+
+{{include:review-core-body-tail}}
 
 ## 3. Act on the draft, then continue or ship
 
