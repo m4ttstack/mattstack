@@ -64,6 +64,12 @@ printf -- '---\nname: fake:dash\ndescription: "Use when testing dashes."\n---\nb
 OUT=$("$CERTIFY" "$WORK/dash"); STATUS=$?
 check em_dash 1 'FAIL no-em-dashes'
 
+# runtime-native skill with placeholders fails no-placeholders-in-runtime-native
+mkdir -p "$WORK/placeholder"
+printf -- '---\nname: fake:placeholder\ndescription: "Use when testing placeholders."\nmetadata:\n  slots: "x"\n---\nbad {{slot:x}} placeholder\n' > "$WORK/placeholder/SKILL.md"
+OUT=$("$CERTIFY" "$WORK/placeholder"); STATUS=$?
+check placeholder 1 'FAIL no-placeholders-in-runtime-native'
+
 # stage decl incomplete: stage without consumes/produces fails stage-decl
 mkdir -p "$WORK/stagebad"
 printf -- '---\nname: fake:stagebad\ndescription: "Use when testing stages."\nmetadata:\n  stage: "ship"\n---\nbody\n' > "$WORK/stagebad/SKILL.md"

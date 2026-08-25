@@ -105,6 +105,14 @@ if [ -f "$DIR/scripts/resolve-args.sh" ]; then
 else ok vendored-resolver
 fi
 
+# A skill that resolves slots at run time (metadata.slots + resolve-args.sh)
+# must never carry a compile-time placeholder: the two modes do not mix.
+if grep -q '^  slots:' "$DIR/SKILL.md" 2>/dev/null && grep -q '{{' "$DIR/SKILL.md"; then
+  fail no-placeholders-in-runtime-native "metadata.slots skill contains {{"
+else
+  ok no-placeholders-in-runtime-native
+fi
+
 STAGE=$(fm_meta stage)
 if [ -n "$STAGE" ]; then
   SC=$(fm_meta stage-consumes); SP=$(fm_meta stage-produces)
