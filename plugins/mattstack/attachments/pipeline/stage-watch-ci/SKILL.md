@@ -74,7 +74,9 @@ cleanup: staleness handles it.
 
 Then the first branch that matches:
 
-**Forge bound:** launch
+**Domain rules inlined above:** follow that flow for `mr` and `branch`.
+
+**Forge bound (no domain rules above):** launch
 `${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh --forge {{stage.dir}}/parts/forge/scripts/ci-forge.sh --ref <branch> --timeout 2700`
 as a background task and react to its exit code: 0 = green. 1 = read the
 triage report it printed; retry each INFRA-verdict blocking failure once

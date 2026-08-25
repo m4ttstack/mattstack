@@ -29,16 +29,16 @@ parameterized-skills skill).
   on failure: `"$RT_PIPELINE_STATE" stage-fail --stage gates --reason
   "<which gate, what it found>"` before you report it.
 
+Apply every triggered pre-implementation gate NOW, before the implement
+stage, and note which gates fired via `"$RT_PIPELINE_STATE" field set
+extra.gates <value> --stage gates` (ship-time gates run again inside the
+ship stage's domain flow; firing here does not discharge them).
+
 ## Domain rules
 
 {{slot:domain}}
 
 When nothing is inlined above, follow the generic path below.
-
-Apply every triggered pre-implementation gate NOW, before the implement
-stage, and note which gates fired via `"$RT_PIPELINE_STATE" field set
-extra.gates <value> --stage gates` (ship-time gates run again inside the
-ship stage's domain flow; firing here does not discharge them).
 
 Unbound (generic fallback): there are no domain gates. Say so in one line
 and finish. Never invent a gate.

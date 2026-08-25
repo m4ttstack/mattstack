@@ -35,8 +35,6 @@ Read the ticket (or the task description standing in for one).
 
 {{slot:domain}}
 
-When nothing is inlined above, follow the generic path below.
-
 <HARD-GATE>
 Print the triage block below before any implementation action -- before
 writing or editing code, before creating a file, before dispatching an

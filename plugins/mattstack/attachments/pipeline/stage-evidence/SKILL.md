@@ -33,17 +33,17 @@ parameterized-skills skill).
 If `evidence-plan` is `none` (or starts with `none`), write `evidence` as
 `{"plan": "none"}` and finish -- nothing to capture.
 
-## Domain rules
-
-{{slot:domain}}
-
-When nothing is inlined above, follow the generic path below.
-
 Capture the BEFORE per the plan now -- before implementation changes the
 surface. Do not defer the before to ship time: reverting code on a running
 dev server to reconstruct it produces stale, false befores. If the ticket
 already embeds the broken state, that IS the before -- record its location
 instead of recapturing.
+
+## Domain rules
+
+{{slot:domain}}
+
+When nothing is inlined above, follow the generic path below.
 
 Unbound (generic fallback): capture what a generic toolchain can -- the
 failing test output, a CLI transcript, or a screenshot the user provides --

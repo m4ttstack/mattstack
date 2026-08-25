@@ -48,8 +48,8 @@ Unbound (generic fallback): run
 the branch gets no slug.
 
 - `ok`: `EnterWorktree` to `data.path`; write `branch` and `worktree`
-  (`data.path`). A cold create (`wasOnDeck:false`) can take
-  minutes -- tell the user it's provisioning.
+  (`data.path`). A cold create (`wasOnDeck:false`) can take minutes --
+  tell the user it's provisioning.
 - error `branch-attached:<tree>`: surface "resume in `<tree>`?" to the user
   -- do not silently pick a side.
 - `null` (daemon down) or an `unknown-repo` error: fall back to the old
@@ -64,7 +64,7 @@ Finish by writing `branch` and `worktree` (absolute path; the checkout
 itself when no separate worktree is used).
 
 When this stage is what found or created the ticket -- not when one was
-already known coming in -- also `"$RT_PIPELINE_STATE" field set ticket
+already known coming in -- also run `"$RT_PIPELINE_STATE" field set ticket
 <value> --stage provision`. This field is deliberately absent from
 `stage-produces` above: that list is a completeness gate ("this stage is
 not done until X exists"), and a ticketless run through this stage is a
