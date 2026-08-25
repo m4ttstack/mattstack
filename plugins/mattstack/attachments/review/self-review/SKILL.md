@@ -94,16 +94,6 @@ Assessment. Because this is your own work:
 Where the domain defines ship-time gates, this self-review complements them
 and never checks their box.
 
-## Bound mode
-
-When reached through a `self-review-domain@1` binding (a pipeline's
-self-review stage), inputs come from the caller's record -- its commits and
-ticket or task fields -- with no interactive ask; a missing ticket there is
-the caller's gap, not a prompt to raise here. The flow still runs
-the HARD-GATE and delegates judgment to the review flow, then ends
-by reporting the verdict plus which findings were fixed or waived. It never
-ships in bound mode; shipping belongs to the caller's later stages.
-
 ## Red flags
 
 | Thought | Reality |
@@ -122,4 +112,3 @@ ships in bound mode; shipping belongs to the caller's later stages.
 | Diff + requirements in hand | Delegate to the review flow (triage -> fresh reviewer -> draft). |
 | About to give an own read of the diff | Don't. The fresh reviewer is primary; this skill owns dispatching it. |
 | Draft in hand | Fix Critical/Important, note Minor, then continue or ship. |
-| Reached via a binding | Record in, no interactive ask, verdict + dispositions out, never ship. |
