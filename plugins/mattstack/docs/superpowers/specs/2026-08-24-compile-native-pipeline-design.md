@@ -79,8 +79,9 @@ into a distributed pack would give teammates wrong paths, and
 `pack_provenance` skips a non-git directory silently, so the failure would
 be silent loss of provenance -- the one thing that flag exists to
 guarantee. So the pack root is derived at run time by one skill-relative
-line, `git -C "${CLAUDE_SKILL_DIR}" rev-parse --show-toplevel`, and passed
-as `--pack-dirs`. The mattstack root is never under the pack checkout (the
+line, `cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P` (the compiler always emits
+a compiled target two levels below the pack root), and passed as
+`--pack-dirs`. The mattstack root is never under the pack checkout (the
 plugin cache is a separate tree on every machine), so a path to it cannot
 be derived from the skill; instead the compiler bakes the mattstack **sha**
 -- a content fact, safe to distribute -- and whether the mattstack tree
@@ -278,8 +279,8 @@ The whole job of a compiled `work` run:
    "$PACK_DIRS"`, where `{{run-start.flags}}` already carries
    `--mattstack-sha` and `--mattstack-dirty` (baked, Section 1) and
    `PACK_DIRS` comes from the single skill-relative line in Section 1,
-   `git -C "${CLAUDE_SKILL_DIR}" rev-parse --show-toplevel` (no
-   `git_root_of`, no loop over fill paths); the agent adds only
+   `cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P` (no `git_root_of`, no loop
+   over fill paths); the agent adds only
    `--ticket <id>` (when named) and `--spawned-by "<surface>"` (when
    spawned). The script computes the pack's HEAD/dirty state itself. It
    returns `runDb`; the agent exports `RT_RUN_DB`. The

@@ -31,8 +31,13 @@ skill sitting beside this one; `dir` is where to read it.
 
 ```bash
 export RT_PIPELINE_STATE="${CLAUDE_SKILL_DIR}/scripts/pipeline-state.sh"
-PACK_DIRS=$(git -C "${CLAUDE_SKILL_DIR}" rev-parse --show-toplevel)
+PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
 ```
+
+`PACK_DIRS` is the pack root by the compiler's layout; `run-start` records
+the pack's commit and dirty state only when that directory is a git
+checkout (an installed plugin cache is not), so absent provenance there is
+expected.
 
 Then run `run-start` with the flags for the chosen work type, adding
 `--ticket <id>` when the request named one and `--spawned-by "<surface>"`
