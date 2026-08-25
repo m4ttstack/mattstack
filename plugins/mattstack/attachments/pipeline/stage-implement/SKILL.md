@@ -2,6 +2,7 @@
 name: stage-implement
 description: "Pipeline stage: build the change under the approach the plan stage committed to, test-first. Reached only through a resolved pipeline; not for direct invocation."
 disable-model-invocation: true
+type: pipeline-step
 metadata:
   stage: "implement"
   stage-consumes: "approach branch worktree"
@@ -10,11 +11,12 @@ metadata:
 
 # stage: implement
 
+{{stage.fields}}
+
 ## Run state
 
 Contract v2 (authoritative text: `references/convention.md` in the
-parameterized-skills skill). If `RT_RUN_DB`/`RT_PIPELINE_STATE` are unset you
-are running standalone -- skip every call in this section silently.
+parameterized-skills skill).
 
 - First action: `"$RT_PIPELINE_STATE" stage-start --stage implement`
 - Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
@@ -25,7 +27,7 @@ are running standalone -- skip every call in this section silently.
   on failure: `"$RT_PIPELINE_STATE" stage-fail --stage implement --reason
   "<what actually failed>"` before you report it.
 
-Read the uow record and honor `approach` exactly:
+Honor `approach` exactly:
 
 - **trivial**: make the change; no test because there is no runtime
   behavior. If you find yourself testing anyway, the triage was wrong --
@@ -40,4 +42,4 @@ Read the uow record and honor `approach` exactly:
 
 Work only inside `worktree`, commit incrementally on `branch`, never push
 from this stage. Finish by writing `commits` (the new commit shas,
-`git log --format=%h` since the branch point) into the record.
+`git log --format=%h` since the branch point).
