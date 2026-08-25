@@ -78,7 +78,7 @@ only model-visible skill; the eight stage skills are pipeline-reached
 (hidden via `disable-model-invocation`) and appear only as entries in a
 manifest's `pipelines.<work-type>` array.
 
-- **mattstack:work** -- run one unit of work through the pipeline the consumer's manifest defines for its work type; the chain is validated by its companion `scripts/resolve-pipeline.sh`, and state lives in a unit-of-work record (`plugin/schemas/uow.md`).
+- **mattstack:work** -- run one unit of work through the pipeline the consumer's manifest defines for its work type; the chain is validated by its companion `scripts/resolve-pipeline.sh`.
 - **mattstack:stage-provision** -- provision the environment: ticket + repo in, branch + worktree out.
 - **mattstack:stage-plan** -- approach triage; prints the APPROACH commitment block before any implementation action.
 - **mattstack:stage-gates** -- run the domain's gates for the touched paths; no-op without a bound domain.
