@@ -109,6 +109,7 @@ one-off with no slots.
 ### forge
 
 - **mattstack:ci-forge-gitlab** -- GitLab implementation of the watch-ci stage's `forge` slot: pipeline tree-walking, job listing, triage refs. Reached only through the binding; the seam exists so a GitHub adapter can be the second implementation.
+- **mattstack:gitlab-mr-threads** -- positioned diff comments and thread replies through `glab api` (JSON `position` bodies, `DiffNote` verification). An include body: the compiler inlines it into `review` and into any pack fill that carries `{{include:gitlab-mr-threads}}`.
 
 ### browser
 
@@ -123,24 +124,23 @@ Catalogued here so they are findable, but they install with
 
 ## Install
 
-Symlink each skill directory into `~/.claude/skills/`, named with its prefix:
+The repo is a Claude Code plugin, published through the
+[mattstack marketplace](https://github.com/m4ttstack/mattstack-marketplace):
 
 ```bash
-ln -s ~/Documents/GitHub/mattstack/attachments/orchestration/shepherdr ~/.claude/skills/mattstack:shepherdr
-ln -s ~/Documents/GitHub/mattstack/attachments/model-tiering ~/.claude/skills/mattstack:model-tiering
-ln -s ~/Documents/GitHub/mattstack/attachments/pipeline/work ~/.claude/skills/mattstack:work
+claude plugin marketplace add m4ttstack/mattstack-marketplace
+claude plugin install mattstack@mattstack
 ```
 
-The eight stage skills install by the same convention, one symlink per
-stage: `attachments/pipeline/stage-<name>` links to
-`~/.claude/skills/mattstack:stage-<name>` (provision, plan, gates,
-evidence, implement, self-review, ship, watch-ci). Engines under
-`attachments/` are unregistered by design (kept out of the typed slash
-menu); a symlink into `~/.claude/skills/` is what makes one locally
-model-invocable again for manual testing.
+That loads the invocable skills (`plugin/skills/`, `skills/review/`). The
+engines, includes, and fills under `attachments/` are not invocable on their
+own: a team pack compiles them into its verbs with `rt skills compile`
+(the `{{slot}}` and `{{include}}` markers are resolved at compile time, and
+`rt skills check` reports which compiled verb drifted and why). The
+`editing-skills` skill carries the edit-bump-update-recompile loop.
 
-The prefix is asserted in two places per skill: the symlink name above and the
-`name:` field in that skill's `SKILL.md` frontmatter. They have to agree.
+A skill's prefix is the `name:` field in its `SKILL.md` frontmatter; the
+plugin name supplies the `mattstack:` namespace.
 
 Anyone still on the old symlink-only browser setup can review and migrate that
 state with `npx @mattstack/fast-browser migrate --dry-run` followed by `npx
