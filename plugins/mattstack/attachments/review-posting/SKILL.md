@@ -15,12 +15,11 @@ ends. This skill owns those decisions, not the judgment behind the draft.
 
 ## Caller inputs
 
-- The draft, in the review-core flow's shape (`../review-core/SKILL.md`,
-  the sibling attachment): Strengths / Issues
-  (Critical / Important / Minor, each `file:line`) / Assessment (yes | no |
-  with fixes). Its provenance is the review-core flow, dispatched via
-  the review-dispatch flow -- take the draft as given, never re-derive or
-  re-judge a finding here.
+- The draft, in the review flow's Strengths / Issues shape: Strengths /
+  Issues (Critical / Important / Minor, each `file:line`) / Assessment
+  (yes | no | with fixes). Its provenance is that flow's fresh-context
+  dispatch -- take the draft as given, never re-derive or re-judge a
+  finding here.
 - A postable target: an MR/PR whose posting mechanics -- anchoring an inline
   comment to a line, verifying it landed, composing the summary body -- the
   caller owns. This skill decides what posts and where; it does not teach

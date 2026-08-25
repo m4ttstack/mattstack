@@ -271,16 +271,6 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# --- case: review entry's vendored copy is byte-identical too ---
-REVIEW_ENTRY_VENDORED="$HERE/../../attachments/review/review/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$REVIEW_ENTRY_VENDORED"; then
-  echo "ok   review_entry_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL review_entry_vendored_identical: review's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
 # --- case: ship entry's vendored copy is byte-identical too ---
 SHIP_ENTRY_VENDORED="$HERE/../../attachments/pipeline/ship/scripts/resolve-args.sh"
 if cmp -s "$CANONICAL" "$SHIP_ENTRY_VENDORED"; then
@@ -301,36 +291,6 @@ for f in ci-watch.sh ci-triage.sh ci-attendant.sh; do
     FAIL=$((FAIL + 1))
   fi
 done
-
-# --- case: review-dispatch's vendored copy is byte-identical too ---
-REVIEW_DISPATCH_VENDORED="$HERE/../../attachments/review-dispatch/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$REVIEW_DISPATCH_VENDORED"; then
-  echo "ok   review_dispatch_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL review_dispatch_vendored_identical: review-dispatch's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: review-core's vendored copy is byte-identical too ---
-REVIEW_CORE_VENDORED="$HERE/../../attachments/review-core/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$REVIEW_CORE_VENDORED"; then
-  echo "ok   review_core_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL review_core_vendored_identical: review-core's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
-
-# --- case: receive-review's vendored copy is byte-identical too ---
-RECEIVE_REVIEW_VENDORED="$HERE/../../attachments/review/receive-review/scripts/resolve-args.sh"
-if cmp -s "$CANONICAL" "$RECEIVE_REVIEW_VENDORED"; then
-  echo "ok   receive_review_vendored_identical"
-  PASS=$((PASS + 1))
-else
-  echo "FAIL receive_review_vendored_identical: receive-review's resolve-args.sh drifted from canonical"
-  FAIL=$((FAIL + 1))
-fi
 
 # --- case: live repo binding -- shepherdr resolves inside this repo ---
 # The skills dir is built install-shaped (prefixed symlink) from this repo's

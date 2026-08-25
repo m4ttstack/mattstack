@@ -7,16 +7,11 @@ description: >-
   reply", "respond to the review", "handle the feedback on my change".
   For someone else's change use the domain's review skill; for your own
   branch before it has feedback use the self-review flow.
-allowed-tools:
-  - Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*)
 type: pipeline-step
 slots:
   criteria: { contract: review-criteria@1, required: false }
   reply-rules: { contract: reply-rules@1, required: false }
-metadata:
-  slots: "criteria, reply-rules"
-  slot-criteria: "optional review-criteria@1 -- the domain's review standards: extra depth-triage lines plus an addendum template appended to the fresh-context reviewer or adjudicator prompt"
-  slot-reply-rules: "optional reply-rules@1 -- owns what a reply to a reviewer may say: voice, content, and how much understanding a reply must demonstrate"
+  reviewer: { contract: reviewer-dispatch@1, required: false }
 ---
 
 # Receive review (feedback on your own change)
@@ -52,34 +47,26 @@ and reading harder buys confidence, not independence. A ruling formed here IS
 the verdict whatever it is labeled, including "the reviewer clearly has a
 point, I'll just add the guard."
 
-**REQUIRED SUB-FLOW:** the review-dispatch flow -- read
-`../../../attachments/review-dispatch/SKILL.md` (relative to this file) --
-adjudicator shape, ONE dispatch covering ALL the threads. Running a
+**REQUIRED SUB-FLOW:** the review dispatch flow below, adjudicator shape,
+ONE dispatch covering ALL the threads. Running a
 self-review as an afterthought at the end does not satisfy this: the fresh context is how the
 comments are adjudicated, not a final gut-check.
 </HARD-GATE>
 
-In a compiled skill (see the header comment), bindings are already resolved
--- do not run resolve-args.sh.
-
-Resolve the slots first:
-
-```bash
-"${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh"
-```
-
-Nonzero exit: print `errors` verbatim and stop.
-
-Hand review-dispatch the numbered threads (`file:line` plus note chains), the
+Hand the dispatch flow the numbered threads (`file:line` plus note chains), the
 requirements, and the diff range; it owns the template, the subagent, and the
 standard blocks.
 
-**Bound `criteria`** (`resolved.criteria.binding` is not `null`): read the
-SKILL.md at `resolved.criteria.path`, evaluate the triage lines it declares
-against this change, and pass its addendum with `{TRIAGE_FLAGS}` (those
-resolved values) and `{SETUP_OBSERVATIONS}` (what was already gathered, else
-`none`) filled, the rest verbatim. No depth block here; the addendum informs
-the per-thread verdicts.
+## Criteria
+
+{{slot:criteria}}
+
+The Criteria section above is the domain's review standards, when the pack
+binds them: evaluate the triage lines it declares against this change, and
+pass its addendum with `{TRIAGE_FLAGS}` (those resolved values) and
+`{SETUP_OBSERVATIONS}` (what was already gathered, else `none`) filled, the
+rest verbatim. No depth block here; the addendum informs the per-thread
+verdicts.
 
 **One dispatch, all threads together.** Related comments must be judged with
 shared context; a partial reading produces wrong conclusions and a wrong
@@ -89,16 +76,22 @@ whatever the slots bind.
 Per thread it returns `valid` / `pushback` / `needs-clarification`, plus that
 entry's relations.
 
+{{include:review-dispatch-body}}
+
+## Reviewer
+
+{{slot:reviewer}}
+
+{{include:review-dispatch-body-after}}
+
 ## 3. Verdicts and drafted replies (Gate A)
 
 Present the verdict table plus a drafted reply per thread. Nothing is written
 to code, nothing posted.
 
-**Reply content is a seam.** Unbound `reply-rules`
-(`resolved.reply-rules.binding` is `null`): **REQUIRED SUB-SKILL**
-`superpowers:receiving-code-review`. Bound: read the SKILL.md at
-`resolved.reply-rules.path` and follow it. On top of either branch, these
-hold:
+**Reply content is a seam.** **No Reply rules section below** (the slot is
+unbound): **REQUIRED SUB-SKILL** `superpowers:receiving-code-review`. **A
+Reply rules section below**: follow it. On top of either branch, these hold:
 
 - **Per verdict.** `valid` -> a technical acknowledgment of the fix.
   `pushback` -> the technical reason, referencing the code or test that shows
@@ -115,6 +108,10 @@ hold:
   when one is available: that load is step one, and each reply is composed in
   that voice from the first word, never a second-pass edit. Absent one, a
   neutral, concise voice.
+
+## Reply rules
+
+{{slot:reply-rules}}
 
 ## 4. Implement valid fixes (Gate B, after explicit approval)
 
@@ -162,7 +159,7 @@ and the adapter.
 | Signal | Action |
 |---|---|
 | "Address my review comments" | Change + requirements as given; unresolved human threads only (step 1). |
-| Threads in hand | Resolve slots, then ONE dispatch via the review-dispatch flow (path above), adjudicator shape. Never inline. |
+| Threads in hand | ONE dispatch via the review dispatch flow (step 2), adjudicator shape. Never inline. |
 | Criteria bound | Its addendum travels with that dispatch, placeholders filled. |
 | Verdicts in hand | Verdict table + drafted replies (Gate A); reply-rules voice, no performative openers. |
 | Developer approves fixes | `valid` one at a time, verify each, finalize to "Fixed -- file:line" (Gate B). |
