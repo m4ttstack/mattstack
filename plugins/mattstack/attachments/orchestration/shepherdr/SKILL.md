@@ -66,9 +66,7 @@ If work arrives unscoped and the user wants it scoped before fan-out, brainstorm
 
 {{slot:strategy}}
 
-The strategy bodies live at `parts/strategy/references/strategies.md` in
-this skill's directory. `accounts` may be unbound -- that is
-single-account mode, handled below.
+`accounts` may be unbound -- that is single-account mode, handled below.
 
 ### the domain slot
 

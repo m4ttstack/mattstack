@@ -81,7 +81,10 @@ be silent loss of provenance -- the one thing that flag exists to
 guarantee. So the pack root is derived at run time by one skill-relative
 line, `cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P` (the compiler always emits
 a compiled target two levels below the pack root), and passed as
-`--pack-dirs`. The mattstack root is never under the pack checkout (the
+`--pack-dirs`. An installed plugin cache is not a git checkout, so this
+derivation records pack provenance only when the pack runs from a git
+checkout; the mattstack sha is baked at compile time regardless. The
+mattstack root is never under the pack checkout (the
 plugin cache is a separate tree on every machine), so a path to it cannot
 be derived from the skill; instead the compiler bakes the mattstack **sha**
 -- a content fact, safe to distribute -- and whether the mattstack tree

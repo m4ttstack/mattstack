@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GitLab ci-forge@1 adapter. Speaks to GitLab only through `glab`; all JSON
 # parsing goes through jq. See the contract this implements:
-#   attachments/pipeline/stage-watch-ci/references/ci-forge-contract.md
+#   attachments/ci-forge-gitlab/references/ci-forge-contract.md
 set -euo pipefail
 
 command -v glab >/dev/null 2>&1 || { echo "ci-forge-gitlab: glab not found" >&2; exit 3; }

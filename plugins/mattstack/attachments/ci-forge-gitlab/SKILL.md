@@ -15,18 +15,18 @@ traces, job retries, and MR target-branch lookup.
 ## Entry point
 
 ```
-scripts/ci-forge.sh <verb> [args]
+${CLAUDE_SKILL_DIR}/scripts/ci-forge.sh <verb> [args]
 ```
 
 Example, list every failed job across the whole pipeline tree for pipeline
 4711:
 
 ```
-scripts/ci-forge.sh jobs 4711 --scope failed
+${CLAUDE_SKILL_DIR}/scripts/ci-forge.sh jobs 4711 --scope failed
 ```
 
 Full verb syntax, TSV row shapes, and the status vocabulary are normative in
-`attachments/pipeline/stage-watch-ci/references/ci-forge-contract.md`; read that
+`${CLAUDE_SKILL_DIR}/references/ci-forge-contract.md`; read that
 doc before writing an invocation for any verb not shown above.
 
 ## Requirements
