@@ -29,7 +29,8 @@
 - `lib/skills/layout.ts` (new): `outDirFor`, `otherSideDir`, `buildStageEntries`, `targetOutDirs`.
 - `lib/skills/placeholders.ts`: fill bodies pass through `substituteIncludesOnly`.
 - `lib/skills/types.ts`: `PlaceholderContext.packSha: string`.
-- `commands/skills.ts`: imports the two modules; `skillsCheck` masks; `loadIncludesFor` scans fills; `runSet` records never-compiled stages; `skillsBind` accepts stage targets.
+- `lib/skills/drift.ts` (new, Task 12): `DriftCause`, `skillMdDriftCauses(onDisk, expected)`.
+- `commands/skills.ts`: imports the three modules; `skillsCheck` masks and reports `staleBecause`; `loadIncludesFor` scans fills via `includeNames`; `buildCompositionVerb` reports `includes`; `runSet` records never-compiled stages; `skillsBind` accepts stage targets.
 
 ---
 
@@ -271,11 +272,178 @@ and in `slotText`, after the `${CLAUDE_SKILL_DIR}` rewrite: `const body = substi
 
 ---
 
+### Task 11 (rt): `composition --json` lists a verb's includes
+
+Runs after Task 7 and before Task 8 (console request, additive field; the console parses by field name).
+
+**Files:**
+- Modify: `commands/skills.ts` (`CompositionVerb` gains `includes: string[]`; `buildCompositionVerb` fills it; `loadIncludesFor` shares the scan)
+- Test: `commands/__tests__/skills.test.ts` (in `describe("skillsComposition --json")`)
+
+**Interfaces:**
+- Produces: `includes: string[]` on every `composition --json` verb row — include NAMES the engine body and its bound, resolvable fill bodies carry (`{{include:<name>}}`), deduped, in encounter order (engine first, then fills in slot order); `[]` when there are none or when `engineError` is set. Names only: composition does not resolve them (a missing include is the compile's error, unchanged).
+
+- [ ] **Step 1: Failing tests** — add to the existing first composition test: `expect(verb.includes).toEqual([]);` and a new test:
+
+```ts
+test("includes names every {{include}} the engine and its bound fills carry, pre-compile", async () => {
+  const mattstackDir = makeMattstackDir();
+  const packDir = makePackDir();
+  const manifestPath = makeManifest("acme");
+  writeFile(
+    join(mattstackDir, "plugins", "mattstack", "skills", "pipeline", "watch-ci", "SKILL.md"),
+    WATCH_CI_SKILL_MD.replace(
+      "Poll the pipeline every 30s and report status.",
+      "{{include:ci-note}}\n\n{{slot:domain}}\n\n{{slot:forge}}\n\n{{include:ci-note}}\n\nPoll the pipeline every 30s and report status.",
+    ),
+  );
+  writeFile(
+    join(mattstackDir, "plugins", "acme", "attachments", "watch-ci-domain", "SKILL.md"),
+    DOMAIN_SKILL_MD + "\n{{include:fill-note}}\n",
+  );
+
+  await skillsComposition(["--pack", "acme", "--pack-dir", packDir, "--mattstack-dir", mattstackDir, "--manifest", manifestPath, "--json"]);
+
+  const verb = JSON.parse(logs.join("\n")).verbs[0];
+  expect(verb.includes).toEqual(["ci-note", "fill-note"]);
+});
+```
+
+- [ ] **Step 2: Run** `bun test commands/__tests__/skills.test.ts -t "skillsComposition"` — FAIL (`includes` undefined).
+- [ ] **Step 3: Implement** — in `commands/skills.ts`:
+
+```ts
+function includeNames(bodies: string[]): string[] {
+  const names: string[] = [];
+  for (const body of bodies) {
+    for (const p of findPlaceholders(body)) {
+      if (p.kind === "include" && p.arg && !names.includes(p.arg)) names.push(p.arg);
+    }
+  }
+  return names;
+}
+```
+
+In `buildCompositionVerb`: the `engineError` return gains `includes: []`; the slot loop collects `fillBodies.push(fill.body)` inside its `try` after `loadAttachment` succeeds; the final return gains `includes: includeNames([step.body, ...fillBodies])`. `loadIncludesFor` (Task 5 taught it to scan fills) iterates `includeNames([step.body, ...<bound fill bodies>])` instead of its own loop, so the two scans cannot drift.
+- [ ] **Step 4: Run** `bun test commands/__tests__/skills.test.ts lib/skills`; `bunx tsc --noEmit`.
+- [ ] **Step 5: Commit** `feat(skills): composition --json lists each verb's includes`.
+
+---
+
+### Task 12 (rt): `check --json` says which chain link moved
+
+Runs after Task 11 and before Task 8 (console request, additive field on stale rows only).
+
+**Files:**
+- Create: `lib/skills/drift.ts`
+- Modify: `commands/skills.ts` (`CheckVerbRow` gains `staleBecause?: DriftCause[]`; `skillsCheck` fills it on `status: "stale"` rows; the human line names the causes)
+- Test: `lib/skills/__tests__/drift.test.ts` (new), `commands/__tests__/skills.test.ts` (`describe("skillsCheck --json")`), `lib/skills/__tests__/compile-native.e2e.test.ts`
+
+**Interfaces:**
+- Produces: `export type DriftCause = "frontmatter" | "source" | "fill" | "include" | "structure" | "vendored"`; `export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause[]` — both arguments already passed through `maskProvenance`. A compiled SKILL.md is split into parts at every `<!-- part: (step|slot:<n>|include:<n>) ` line; the text before the first marker is the `frontmatter` part. If the part-key sequence differs → `["structure"]`. Otherwise every part whose text differs contributes its cause (`step` → `source`, `slot:` → `fill`, `include:` → `include`), deduped, in artifact order. `check` adds `vendored` for any stale non-SKILL.md file and `structure` for a SKILL.md missing on disk. Rows with `status` other than `"stale"` carry no `staleBecause` key; an orphan-only stale row carries `staleBecause: []`.
+
+- [ ] **Step 1: Failing unit tests** — `lib/skills/__tests__/drift.test.ts`:
+
+```ts
+import { describe, expect, test } from "bun:test";
+import { skillMdDriftCauses } from "../drift.ts";
+
+const compiled = [
+  "---\nname: x\n---",
+  "<!-- part: step source=mattstack:x version=1 path=a lines=1-2 -->\nstep body",
+  "<!-- part: slot:domain binding=acme:d version=1 path=b lines=1-1 -->\nfill body",
+  "<!-- part: include:note source=mattstack:note version=1 path=c lines=1-1 -->\nnote body",
+].join("\n\n");
+
+describe("skillMdDriftCauses", () => {
+  test("identical artifacts have no cause", () => {
+    expect(skillMdDriftCauses(compiled, compiled)).toEqual([]);
+  });
+  test("names each part whose text moved, once, in artifact order", () => {
+    const moved = compiled.replace("step body", "step body v2").replace("note body", "note v2");
+    expect(skillMdDriftCauses(compiled, moved)).toEqual(["source", "include"]);
+  });
+  test("a fill edit is a fill cause; its include sits in its own part", () => {
+    expect(skillMdDriftCauses(compiled, compiled.replace("fill body", "fill v2"))).toEqual(["fill"]);
+  });
+  test("text before the first marker is frontmatter", () => {
+    expect(skillMdDriftCauses(compiled, compiled.replace("name: x", "name: x\ndescription: d"))).toEqual(["frontmatter"]);
+  });
+  test("a rebound slot keeps its key and reads as a fill change", () => {
+    const rebound = compiled.replace("slot:domain binding=acme:d", "slot:domain binding=acme:e");
+    expect(skillMdDriftCauses(compiled, rebound)).toEqual(["fill"]);
+  });
+  test("a different part list is structure, whatever else differs", () => {
+    const dropped = compiled.replace(/\n\n<!-- part: include:note[\s\S]*$/, "");
+    expect(skillMdDriftCauses(compiled, dropped)).toEqual(["structure"]);
+  });
+});
+```
+
+- [ ] **Step 2: Run** `bun test lib/skills/__tests__/drift.test.ts` — FAIL (module not found).
+- [ ] **Step 3: Implement** `lib/skills/drift.ts`:
+
+```ts
+export type DriftCause = "frontmatter" | "source" | "fill" | "include" | "structure" | "vendored";
+
+const MARKER_RE = /^<!-- part: (step|slot:\S+|include:\S+) /;
+
+function splitParts(md: string): { key: string; text: string }[] {
+  const parts = [{ key: "frontmatter", text: "" }];
+  for (const line of md.split("\n")) {
+    const marker = MARKER_RE.exec(line);
+    if (marker) parts.push({ key: marker[1]!, text: "" });
+    parts[parts.length - 1]!.text += `${line}\n`;
+  }
+  return parts;
+}
+
+function causeOf(key: string): DriftCause {
+  if (key === "frontmatter") return "frontmatter";
+  if (key === "step") return "source";
+  return key.startsWith("slot:") ? "fill" : "include";
+}
+
+/**
+ * Parts are keyed by kind and name only, so a slot rebound to another fill is
+ * a fill change rather than a structural one; a changed part list is
+ * structural because the parts can no longer be paired.
+ */
+export function skillMdDriftCauses(onDisk: string, expected: string): DriftCause[] {
+  const before = splitParts(onDisk);
+  const after = splitParts(expected);
+  if (before.length !== after.length || before.some((p, i) => p.key !== after[i]!.key)) return ["structure"];
+  const causes: DriftCause[] = [];
+  before.forEach((p, i) => {
+    if (p.text === after[i]!.text) return;
+    const cause = causeOf(p.key);
+    if (!causes.includes(cause)) causes.push(cause);
+  });
+  return causes;
+}
+```
+
+- [ ] **Step 4: Run** the unit tests — PASS.
+- [ ] **Step 5: Failing command tests** — `commands/__tests__/skills.test.ts`, `describe("skillsCheck --json")`. The existing test "separates staleFiles (content drift) from orphanFiles (leftover)…" appends text after the compiled body's last section, which is the forge sentence inside the `slot:domain` region: its expected row becomes `{ name: "watch-ci", status: "stale", staleFiles: ["SKILL.md"], orphanFiles: ["leftover.txt"], side: "skills", staleBecause: ["fill"] }`. Add four tests, each: `makeMattstackDir()`, `makePackDir()`, `makeManifest("acme")`, compile `--verb watch-ci`, mutate a SOURCE (never the compiled output), `logs = []`, `skillsCheck([... "--json"])`, then assert on `JSON.parse(logs.join("\n")).verbs[0]`:
+  - engine body edited (`writeFile(<mattstackDir>/plugins/mattstack/skills/pipeline/watch-ci/SKILL.md, WATCH_CI_SKILL_MD.replace("Poll the pipeline every 30s", "Poll the pipeline every 60s"))`) → `status: "stale"`, `staleFiles: ["SKILL.md"]`, `staleBecause: ["source"]`.
+  - fill body edited (`DOMAIN_SKILL_MD.replace("Domain rules live at", "Domain rules now live at")` at `<mattstackDir>/plugins/acme/attachments/watch-ci-domain/SKILL.md`) → `staleBecause: ["fill"]`.
+  - roster description edited (`STUBS_JSONC.replace("Use when watching or triaging CI.", "Use when watching CI.")` written where `makePackDir` puts `stubs.jsonc`) → `staleBecause: ["frontmatter"]`.
+  - vendored script edited (`"#!/bin/sh\necho polling twice\n"` written where `makeMattstackDir` puts `ci-watch.sh`) → `staleFiles: ["scripts/ci-watch.sh"]`, `staleBecause: ["vendored"]`.
+  Also assert in the existing in-sync `--json` test that the row has no `staleBecause` key (`expect("staleBecause" in parsed.verbs[0]).toBe(false)`).
+- [ ] **Step 6: Failing e2e tests** — `compile-native.e2e.test.ts` (the fixture carries `gitlab-note` via the `plan-policy` fill since Task 5):
+  - edit `mattstack-home/plugins/mattstack/attachments/gitlab-note/SKILL.md` body `note body` → `note body v2` after `build()`; `skillsCheck([..., "--json"])`; the `stage-plan` row has `staleBecause: ["include"]`.
+  - remove the `{{include:gitlab-note}}` line from `pack/attachments/plan-policy/SKILL.md` after `build()`; the `stage-plan` row has `staleBecause: ["structure"]`.
+- [ ] **Step 7: Implement** in `skillsCheck`: `type CheckVerbRow = { …; staleBecause?: DriftCause[] }`; inside the target loop keep `const causes: DriftCause[] = []` and a local `addCause(c)` that pushes when absent; in the file loop, when `stale`: non-SKILL.md → `addCause("vendored")`; SKILL.md missing on disk → `addCause("structure")`; otherwise `for (const c of skillMdDriftCauses(maskedOnDisk, maskedExpected)) addCause(c)` (compute the two masked strings once and reuse them for the comparison). The stale row becomes `{ name, status: "stale", staleFiles, orphanFiles, side, staleBecause: causes }`; the human line becomes `` `${verb.name}: stale (${causes.length > 0 ? `${causes.join(", ")} moved; ` : ""}recompile or investigate drift with git diff) -- ${humanFiles.join(", ")}` ``. In-sync and never-compiled rows are untouched.
+- [ ] **Step 8: Run** `bun test lib/skills commands`; `bunx tsc --noEmit`; `bun test lib/__tests__/no-eager-tui.test.ts`.
+- [ ] **Step 9: Commit** `feat(skills): check --json names the chain link that moved`.
+
+---
+
 ### Task 8 (rt branch → PR; console note)
 
 - [ ] **Step 1:** `bunx tsc --noEmit`; `bun test lib commands`; `bun test lib/__tests__/no-eager-tui.test.ts`; `bun run cli.ts skills check --pack <pack>` (read-only, from the worktree) — report.
-- [ ] **Step 2:** Push `feat/compile-native-followups`; open the PR with a body listing the four contract-relevant facts: `check` masks provenance; `--pack-sha` in `run-start.flags`; a `slot:` part may be followed by an `include:` part; `check --json` unchanged in shape.
-- [ ] **Step 3:** Append to `~/Documents/GitHub/console/.superpowers/sdd/2026-08-23-console-v1-5-wiring/HANDOFF-compiler-phase-a-for-console.md` a dated section "Markers: a slot part may be split by an include part" stating: treat every `<!-- part: … -->` marker as a boundary; do not assume a `slot:` region runs to the next `slot:`/`step` marker.
+- [ ] **Step 2:** Push `feat/compile-native-followups`; open the PR with a body listing the contract-relevant facts: `check` masks provenance; `--pack-sha` in `run-start.flags`; a `slot:` part may be followed by an `include:` part; `check --json` stale rows gain `staleBecause: DriftCause[]` (Task 12); `composition --json` verbs gain `includes: string[]` (Task 11); every other row shape unchanged.
+- [ ] **Step 3:** The console handoff (`~/Documents/GitHub/console/.superpowers/sdd/2026-08-23-console-v1-5-wiring/HANDOFF-compiler-phase-a-for-console.md`) already carries the dated marker note and both field shapes; append one line naming the merged PR number.
 - [ ] **Step 4:** Merge on green CI; pull the shared checkout (Matt).
 
 ---
@@ -304,7 +472,7 @@ and in `slotText`, after the `${CLAUDE_SKILL_DIR}` rewrite: `const body = substi
 
 ## Self-review
 
-**Spec coverage.** §1 → Tasks 2, 10. §2 → Task 5 (+ contract note in Task 8, pack use in Task 9). §3 → Tasks 1, 4, 9. §4 → Tasks 3, 6, 7 (+ Task 10 for the editing-skills consequence). §5 out-of-scope untouched. Testing section → each task's steps; release order → Tasks 1, 8, 9, 10 in that order.
+**Spec coverage.** §1 → Tasks 2, 10. §2 → Task 5 (+ contract note in Task 8, pack use in Task 9). §3 → Tasks 1, 4, 9. §4 → Tasks 3, 6, 7 (+ Task 10 for the editing-skills consequence). §5 out-of-scope untouched. Testing section → each task's steps; release order → Tasks 1, 8, 9, 10 in that order. Tasks 11-12 come from the console lane's 2026-08-25 reply (REPLY-4), not the spec: both are additive `--json` fields the spec's "additive top-level fields only" constraint permits, executed between Tasks 7 and 8 so one PR carries them.
 
 **Placeholder scan.** The moved-verbatim bodies in Task 2/3 are the existing functions (named, with current locations); no TBDs.
 
