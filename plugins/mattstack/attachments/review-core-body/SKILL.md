@@ -22,7 +22,7 @@ Take these as given: never re-resolve, never fabricate. An absent,
 unreadable, or mismatched input is the draft's first finding. The checkout
 is the caller's job; run checks in the one you are handed.
 
-## 1. Commit to a review depth
+## Commit to a review depth
 
 <HARD-GATE>
 Print this block in visible output before any setup: before a test runs, a

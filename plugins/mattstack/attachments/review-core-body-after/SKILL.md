@@ -8,17 +8,17 @@ The Criteria section above carries the domain's review standards when the
 pack binds them; nothing there means no triage lines and no addendum.
 Evaluate each triage line it declares (`NAME: <values> -- <observable
 predicate>`) and print the resolved line in the block. Its addendum goes to
-step 3 with two placeholders filled -- `{TRIAGE_FLAGS}` (those values),
-`{SETUP_OBSERVATIONS}` (step 2's observations, or `none`) -- everything else
+the dispatch with two placeholders filled -- `{TRIAGE_FLAGS}` (those values),
+`{SETUP_OBSERVATIONS}` (the setup observations, or `none`) -- everything else
 verbatim.
 
-## 2. Set up for the depth
+## Set up for the depth
 
 Run what the chosen depth defines. Record commands, output, values seen,
 evidence compared: observations feed the dispatch and the draft, so a check
 with no recorded result was not run.
 
-## 3. Dispatch the review
+## Dispatch the review
 
 **REQUIRED SUB-FLOW:** the review dispatch flow below, reviewer shape. Hand
 it the full payload:
@@ -26,7 +26,7 @@ it the full payload:
 - a one-or-two-sentence description of the change
 - the requirements
 - the commit range
-- the setup observations from step 2
+- the setup observations, already gathered above
 - the filled criteria addendum, when the slot is bound
 
 It owns the template, the subagent, and the standard blocks. Judgment forms
