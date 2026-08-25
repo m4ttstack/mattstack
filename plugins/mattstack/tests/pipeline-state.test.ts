@@ -7,8 +7,12 @@ import { join } from "path";
 const SCRIPT = join(import.meta.dir, "..", "attachments", "pipeline", "work", "scripts", "pipeline-state.sh");
 
 export function runState(args: string[], env: Record<string, string> = {}): { out: any; code: number; raw: string } {
+  // The script records CLAUDE_CODE_SESSION_ID/HERDR_PANE_ID as run fields, and
+  // these tests usually run inside a claude pane where both are set — strip
+  // them so expectations stay deterministic; identity tests pass them via env.
+  const { CLAUDE_CODE_SESSION_ID: _s, HERDR_PANE_ID: _p, ...inherited } = process.env;
   const proc = Bun.spawnSync(["/bin/sh", SCRIPT, ...args], {
-    env: { ...process.env, ...env },
+    env: { ...inherited, ...env },
   });
   const raw = proc.stdout.toString().trim();
   let out: any = null;
@@ -326,5 +330,44 @@ describe("pack provenance capture", () => {
   test("the work verb passes pack dirs to run-start", () => {
     const skill = readFileSync(join(import.meta.dir, "../attachments/pipeline/work/SKILL.md"), "utf8");
     expect(skill).toContain("--pack-dirs");
+  });
+});
+
+describe("record_identity", () => {
+  const IDS = { CLAUDE_CODE_SESSION_ID: "sess-abc", HERDR_PANE_ID: "w1:p1" };
+
+  test("run-start records claude-session and herdr-pane from env", () => {
+    const root = freshRoot();
+    const start = runState(
+      ["run-start", "--repo", "demo", "--work-type", "fix", "--pipeline", "default"],
+      { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0", ...IDS },
+    );
+    const db = start.out.runDb as string;
+    expect(sqlite(db, "SELECT value FROM fields WHERE key='claude-session';")).toBe("sess-abc");
+    expect(sqlite(db, "SELECT value FROM fields WHERE key='herdr-pane';")).toBe("w1:p1");
+    expect(sqlite(db, "SELECT produced_by FROM fields WHERE key='claude-session';")).toBe("run");
+  });
+
+  test("stage-start refreshes a changed pane id but never bumps an unchanged field's at", () => {
+    const root = freshRoot();
+    const start = runState(
+      ["run-start", "--repo", "demo", "--work-type", "fix", "--pipeline", "default"],
+      { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0", ...IDS },
+    );
+    const db = start.out.runDb as string;
+    const at1 = sqlite(db, "SELECT at FROM fields WHERE key='claude-session';");
+    runState(["stage-start", "--stage", "plan"], { RT_RUN_DB: db, RT_RUN_EMIT: "0", ...IDS, HERDR_PANE_ID: "w2:p9" });
+    expect(sqlite(db, "SELECT value FROM fields WHERE key='herdr-pane';")).toBe("w2:p9");
+    expect(sqlite(db, "SELECT at FROM fields WHERE key='claude-session';")).toBe(at1);
+  });
+
+  test("absent env vars record nothing", () => {
+    const root = freshRoot();
+    const start = runState(
+      ["run-start", "--repo", "demo", "--work-type", "fix", "--pipeline", "default"],
+      { RT_RUNS_ROOT: root, RT_RUN_EMIT: "0" },
+    );
+    const db = start.out.runDb as string;
+    expect(sqlite(db, "SELECT COUNT(*) FROM fields WHERE key IN ('claude-session','herdr-pane');")).toBe("0");
   });
 });
