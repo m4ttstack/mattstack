@@ -45,10 +45,11 @@ worktrees before a bump.
    (teammates' installs read the same repo). For mattstack, push is
    backup/other-machines; the local symlink makes the update work even
    before pushing.
-6. **Update EVERY Claude account on the machine** (cswap users have
-   several; one update reaches only the active account's cache):
-   `claude plugin update <plugin>@<marketplace>` under each account's
-   config (e.g. prefix `CLAUDE_CONFIG_DIR=~/.claude` for the main one).
+6. **Update the plugin cache**: `claude plugin update <plugin>@<marketplace>`.
+   cswap users first run `readlink ~/.claude-swap-backup/sessions/*/plugins`.
+   Every line `~/.claude/plugins` = one shared cache, and that one update
+   is the whole step. Any other line = that account keeps its own cache;
+   repeat the update with `CLAUDE_CONFIG_DIR=<that session dir>` prefixed.
 7. Restart the Claude session -- the running process keeps its old cache.
 
 ## When a pack compiles verbs from a shared engine
