@@ -84,7 +84,8 @@ export function scoreRuns(
   picks: string[],
   expected: string,
 ): { correct: number; total: number; pass: boolean } {
-  const clean = (s: string) => s.trim().replace(/^[`'"*\s]+|[`'"*\s.]+$/g, "");
+  // claude -p can append MCP warnings to stdout after the answer; the pick is the first line.
+  const clean = (s: string) => (s.trim().split("\n")[0] ?? "").replace(/^[`'"*\s]+|[`'"*\s.]+$/g, "");
   const correct = picks.filter((p) => clean(p) === expected).length;
   return { correct, total: picks.length, pass: correct === picks.length };
 }

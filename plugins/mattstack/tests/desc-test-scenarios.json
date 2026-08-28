@@ -4,31 +4,31 @@
     "expect": "shepherdr"
   },
   {
-    "task": "Which model should the worker for this mechanical subtask run on?",
-    "expect": "model-tiering"
+    "task": "Spread these three independent tasks across my accounts and watch all of them from one place",
+    "expect": "shepherdr"
   },
   {
-    "task": "Add a required slot to this wrapper skill and wire up the resolver",
-    "expect": "parameterized-skills"
+    "task": "I edited a SKILL.md in the mattstack plugin but the change is not showing up in my session",
+    "expect": "editing-skills"
   },
   {
-    "task": "Take this ticket through our repo's pipeline end to end",
-    "expect": "work"
+    "task": "Add a new skill to the team pack and get it installed on this machine",
+    "expect": "editing-skills"
   },
   {
-    "task": "Gut-check the work we just did on this branch before I ship it",
-    "expect": "self-review"
+    "task": "No timestamp has been injected into this session; get me the current time and zone",
+    "expect": "getting-current-time"
   },
   {
-    "task": "A reviewer left comments on my merge request; go through their feedback and handle it",
-    "expect": "receive-review"
-  },
-  {
-    "task": "The review draft is finished; decide which findings actually get posted to the MR threads",
-    "expect": "review-posting"
+    "task": "The last injected time stamp is twenty minutes old; I need the exact current minute to measure how long that command took",
+    "expect": "getting-current-time"
   },
   {
     "task": "Have a subagent adversarially review this plan doc and keep iterating until it signs off",
+    "expect": "subagent-review-loop"
+  },
+  {
+    "task": "Pressure-test this design spec with a reviewer before we write the implementation plan",
     "expect": "subagent-review-loop"
   }
 ]

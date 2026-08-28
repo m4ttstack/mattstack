@@ -58,4 +58,9 @@ describe("scoreRuns", () => {
     expect(scoreRuns(["a", "a"], "a").pass).toBe(true);
     expect(scoreRuns(["a", "b"], "a").pass).toBe(false);
   });
+
+  test("a pick is its first line: MCP warnings claude -p prints after it do not count against it", () => {
+    const noisy = "shepherdr\nClient.listTools() called but server does not advertise tools capability - returning empty list\n";
+    expect(scoreRuns([noisy], "shepherdr").pass).toBe(true);
+  });
 });
