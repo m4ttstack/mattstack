@@ -44,9 +44,7 @@ lives here now.
 
 ### infra
 
-Moved: getting-current-time now ships as the `current-time` plugin in the
-mattstack marketplace repo (`plugins/current-time`), which bundles the
-skill with the hooks that inject the clock into context automatically.
+- **mattstack:getting-current-time** -- read the clock only when no hook-injected `Current time:` stamp is in context or the work needs sub-5-minute precision. The plugin's `hooks/hooks.json` runs this skill's `inject-time.sh` on every prompt and, throttled, during long turns, so the stamp is normally already there.
 
 ### primitive (plugin/)
 
