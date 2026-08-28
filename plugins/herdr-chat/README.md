@@ -16,7 +16,9 @@ a room or DM, and open the viewer.
 
 Built in Rust with ratatui, themed to match herdr.
 
-Status: **design**. See `docs/superpowers/specs/2026-08-27-herdr-chat-design.md`.
+Status: **shipped**, installed as a github-managed herdr plugin. The design
+record and plans live under `docs/superpowers/`; contributors start with
+[AGENTS.md](AGENTS.md).
 
 ## Install
 
@@ -41,24 +43,25 @@ id:
 
 ```toml
 [[keys.command]]
-key = "prefix+b"
+key = "prefix+B"
 type = "plugin_action"
 command = "m4ttstack.chat.broadcast"
 description = "broadcast to panes"
 
 [[keys.command]]
-key = "prefix+c"
+key = "prefix+P"
 type = "plugin_action"
 command = "m4ttstack.chat.peek"
 description = "chat peek"
 
 [[keys.command]]
-key = "prefix+shift+c"
+key = "prefix+S"
 type = "plugin_action"
 command = "m4ttstack.chat.quick-send"
 description = "quick-send a chat line"
 ```
 
-Pick any keys that don't collide with your existing bindings. `sign-in`,
-`sign-out`, and `open-viewer` can be bound the same way if you want them on a
-key rather than run from the command palette.
+herdr's lowercase letters are mostly taken by its own defaults, so shifted
+letters (`prefix+B`, not `prefix+b`) avoid collisions; pick whatever is free in
+your config. `sign-in`, `sign-out`, and `open-viewer` can be bound the same way
+if you want them on a key rather than run from the command palette.
