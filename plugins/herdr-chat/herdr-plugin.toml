@@ -5,6 +5,10 @@ min_herdr_version = "0.8.0"
 description = "rt chat where the agents live: broadcast, presence, jump-to-pane"
 platforms = ["macos"]
 
+# Runtime commands are wrapped in `sh -c "exec ./..."`: herdr's pane launcher
+# resolves the command via a PATH search, so a bare relative path is not found;
+# sh is on PATH and cwd is the plugin root, so the relative binary resolves.
+
 [[build]]
 command = ["cargo", "build", "--release"]
 
@@ -12,65 +16,65 @@ command = ["cargo", "build", "--release"]
 id = "open-viewer"
 title = "Open chat viewer"
 contexts = ["workspace"]
-command = ["target/release/herdr-chat", "open-viewer"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat open-viewer"]
 
 [[actions]]
 id = "broadcast"
 title = "Broadcast to panes"
 contexts = ["workspace"]
-command = ["target/release/herdr-chat", "broadcast"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat broadcast"]
 
 [[actions]]
 id = "peek"
 title = "Chat peek"
 contexts = ["workspace"]
-command = ["target/release/herdr-chat", "peek"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat peek"]
 
 [[actions]]
 id = "quick-send"
 title = "Quick send"
 contexts = ["workspace"]
-command = ["target/release/herdr-chat", "quick-send"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat quick-send"]
 
 [[actions]]
 id = "sign-in"
 title = "Sign in to chat"
 contexts = ["pane"]
-command = ["target/release/herdr-chat", "sign-in"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat sign-in"]
 
 [[actions]]
 id = "sign-out"
 title = "Sign out of chat"
 contexts = ["pane"]
-command = ["target/release/herdr-chat", "sign-out"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat sign-out"]
 
 [[events]]
 on = "pane.agent_detected"
-command = ["target/release/herdr-chat", "on-agent-detected"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat on-agent-detected"]
 
 [[panes]]
 id = "broadcast-ui"
 title = "Broadcast"
 placement = "popup"
-width = "70%"
-height = "60%"
-command = ["target/release/herdr-chat", "broadcast", "--pane"]
+width = 92
+height = 26
+command = ["sh", "-c", "exec ./target/release/herdr-chat broadcast --pane"]
 
 [[panes]]
 id = "peek-ui"
 title = "Chat peek"
 placement = "popup"
-width = "70%"
-height = "60%"
-command = ["target/release/herdr-chat", "peek", "--pane"]
+width = 72
+height = 20
+command = ["sh", "-c", "exec ./target/release/herdr-chat peek --pane"]
 
 [[panes]]
 id = "quick-send-ui"
 title = "Quick send"
 placement = "popup"
-width = "70%"
-height = "60%"
-command = ["target/release/herdr-chat", "quick-send", "--pane"]
+width = 72
+height = 18
+command = ["sh", "-c", "exec ./target/release/herdr-chat quick-send --pane"]
 
 [[panes]]
 id = "signin-ask"
@@ -78,4 +82,4 @@ title = "Sign in to chat?"
 placement = "popup"
 width = 66
 height = 11
-command = ["target/release/herdr-chat", "signin-ask"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat signin-ask"]

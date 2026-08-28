@@ -14,7 +14,7 @@ use crate::ui::{self, Flow};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 /// A quick-send destination: a room (routes to [`rt::post`]) or a buddy DM
@@ -33,10 +33,35 @@ pub fn send(r: &dyn Runner, target: Target, line: &str) -> Result<(), String> {
     }
 }
 
-/// Recent rooms first, then buddies, each turned into a [`Target`].
-fn targets(rooms: Vec<rt::Room>, buddies: Vec<rt::Buddy>) -> Vec<Target> {
-    let mut out: Vec<Target> = rooms.into_iter().map(|r| Target::Room(r.room)).collect();
-    out.extend(buddies.into_iter().map(|b| Target::Dm(b.handle)));
+/// A pickable target plus, for a DM, the buddy's repo/branch/task detail so the
+/// row can show what that agent is doing. Rooms carry no such detail.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TargetRow {
+    target: Target,
+    detail: Option<rt::AgentDetail>,
+}
+
+/// Recent rooms first, then buddies, each turned into a [`TargetRow`]; a buddy
+/// picks up its agent detail from the pane roster index.
+fn targets(
+    rooms: Vec<rt::Room>,
+    buddies: Vec<rt::Buddy>,
+    details: &std::collections::HashMap<String, rt::AgentDetail>,
+) -> Vec<TargetRow> {
+    let mut out: Vec<TargetRow> = rooms
+        .into_iter()
+        .map(|r| TargetRow {
+            target: Target::Room(r.room),
+            detail: None,
+        })
+        .collect();
+    out.extend(buddies.into_iter().map(|b| {
+        let detail = details.get(&b.handle).cloned();
+        TargetRow {
+            target: Target::Dm(b.handle),
+            detail,
+        }
+    }));
     out
 }
 
@@ -52,7 +77,9 @@ pub fn run(r: &dyn Runner) -> Result<(), String> {
     let theme = theme::load();
     let rooms = rt::rooms(r).unwrap_or_default();
     let buddies = rt::buddies(r).unwrap_or_default();
-    let list = targets(rooms, buddies);
+    let panes = rt::pane_list(r).unwrap_or_default();
+    let details = rt::agent_details(&panes);
+    let list = targets(rooms, buddies, &details);
 
     let Some((target, line)) = compose(&theme, &list).map_err(|e| e.to_string())? else {
         return Ok(());
@@ -65,7 +92,7 @@ pub fn run(r: &dyn Runner) -> Result<(), String> {
 /// target list can be driven without a separate filter/typing mode. Enter
 /// sends the cursor's target with the typed line (both must be non-empty);
 /// Esc cancels.
-fn compose(theme: &AppTheme, targets: &[Target]) -> std::io::Result<Option<(Target, String)>> {
+fn compose(theme: &AppTheme, targets: &[TargetRow]) -> std::io::Result<Option<(Target, String)>> {
     let mut cursor = 0usize;
     let mut scroll = 0usize;
     let mut line = String::new();
@@ -97,7 +124,7 @@ fn compose(theme: &AppTheme, targets: &[Target]) -> std::io::Result<Option<(Targ
                 KeyCode::Char(_) => {}
                 KeyCode::Enter if !line.is_empty() => {
                     if let Some(t) = targets.get(cursor) {
-                        result = Some((t.clone(), line.clone()));
+                        result = Some((t.target.clone(), line.clone()));
                         exit = true;
                     }
                 }
@@ -118,25 +145,12 @@ fn compose(theme: &AppTheme, targets: &[Target]) -> std::io::Result<Option<(Targ
 fn draw(
     frame: &mut Frame,
     theme: &AppTheme,
-    targets: &[Target],
+    targets: &[TargetRow],
     cursor: usize,
     line: &str,
     scroll: &mut usize,
 ) {
-    let full = frame.area();
-    let w = full.width.saturating_sub(4).clamp(24, 88);
-    let h = full.height.saturating_sub(2).max(6);
-    let area = ui::centered(full, w, h);
-    frame.render_widget(Clear, area);
-
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .title(" quick send ")
-        .border_style(theme.border)
-        .style(theme.base);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+    let inner = ui::content(frame.area());
     let rows = Layout::vertical([
         Constraint::Min(1),
         Constraint::Length(1),
@@ -152,7 +166,7 @@ fn draw(
 fn draw_list(
     frame: &mut Frame,
     theme: &AppTheme,
-    targets: &[Target],
+    targets: &[TargetRow],
     cursor: usize,
     area: Rect,
     scroll: &mut usize,
@@ -192,17 +206,35 @@ fn draw_list(
     frame.render_widget(para, area);
 }
 
-fn target_line<'a>(theme: &AppTheme, t: &'a Target, cursor: bool) -> Line<'a> {
+fn target_line<'a>(theme: &AppTheme, row: &'a TargetRow, cursor: bool) -> Line<'a> {
     let marker = if cursor { "\u{203a} " } else { "  " };
     let row_style = if cursor { theme.selected } else { theme.base };
-    let label = match t {
-        Target::Room(room) => format!("# {room}"),
-        Target::Dm(handle) => format!("@ {handle}"),
-    };
-    Line::from(vec![
-        Span::styled(marker, row_style),
-        Span::styled(label, row_style),
-    ])
+    match &row.target {
+        Target::Room(room) => Line::from(vec![
+            Span::styled(marker, row_style),
+            Span::styled(format!("# {room}"), row_style),
+        ]),
+        Target::Dm(handle) => {
+            let mut spans = vec![
+                Span::styled(marker, row_style),
+                Span::styled(format!("@ {handle:<8}"), row_style),
+            ];
+            // For a DM, show where the buddy is and what they're working on,
+            // from the pane roster; a room row has no such detail.
+            if let Some(d) = &row.detail {
+                if let Some(repo) = d.repo.as_deref() {
+                    let branch = d.branch.as_deref().unwrap_or("-");
+                    spans.push(Span::styled(format!("  {repo} \u{b7} {branch}"), theme.dim));
+                }
+                if let Some(title) = d.title.as_deref() {
+                    if title != handle && !title.is_empty() {
+                        spans.push(Span::styled(format!("   {title}"), row_style));
+                    }
+                }
+            }
+            Line::from(spans)
+        }
+    }
 }
 
 fn input_line<'a>(theme: &AppTheme, line: &'a str) -> Paragraph<'a> {
@@ -302,9 +334,10 @@ mod tests {
             pane: None,
             rooms: Vec::new(),
         }];
-        let out = targets(rooms, buddies);
+        let out = targets(rooms, buddies, &std::collections::HashMap::new());
+        let got: Vec<Target> = out.into_iter().map(|r| r.target).collect();
         assert_eq!(
-            out,
+            got,
             vec![
                 Target::Room("build".to_string()),
                 Target::Room("ops".to_string()),

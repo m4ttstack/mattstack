@@ -14,7 +14,7 @@ use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -253,20 +253,7 @@ fn draw(
     filtering: bool,
     scroll: &mut usize,
 ) {
-    let full = frame.area();
-    let w = full.width.saturating_sub(4).clamp(20, 88);
-    let h = full.height.saturating_sub(2).max(6);
-    let area = ui::centered(full, w, h);
-    frame.render_widget(Clear, area);
-
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .title(" pick panes ")
-        .border_style(theme.border)
-        .style(theme.base);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+    let inner = ui::content(frame.area());
     let rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(1),

@@ -18,7 +18,7 @@ use crate::ui::{self, Flow};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
 /// The workspace action: open the broadcast popup. A popup process carries no
@@ -207,20 +207,7 @@ fn draw_compose(
     recents: &[Broadcast],
     ridx: usize,
 ) {
-    let full = frame.area();
-    let w = full.width.saturating_sub(4).clamp(24, 88);
-    let h = full.height.saturating_sub(2).max(8);
-    let area = ui::centered(full, w, h);
-    frame.render_widget(Clear, area);
-
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .title(" broadcast ")
-        .border_style(theme.border)
-        .style(theme.base);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+    let inner = ui::content(frame.area());
     let rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -342,20 +329,7 @@ fn draw_result(
     recipients: &[Recipient],
     warn: Option<&str>,
 ) {
-    let full = frame.area();
-    let w = full.width.saturating_sub(4).clamp(24, 88);
-    let h = full.height.saturating_sub(2).max(6);
-    let area = ui::centered(full, w, h);
-    frame.render_widget(Clear, area);
-
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .title(" broadcast sent ")
-        .border_style(theme.border)
-        .style(theme.base);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+    let inner = ui::content(frame.area());
     let mut lines: Vec<Line> = vec![
         Line::from(Span::styled(line.to_string(), theme.accent)),
         Line::from(""),

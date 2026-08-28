@@ -13,7 +13,7 @@ use crate::ui::{self, Flow};
 
 use crossterm::event::KeyCode;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -133,41 +133,43 @@ fn apply(
 }
 
 fn draw(frame: &mut Frame, theme: &AppTheme, panes: &[String], repos: &[String], idx: usize) {
-    let area = ui::centered(frame.area(), 62, 9);
-    frame.render_widget(Clear, area);
+    let inner = ui::content(frame.area());
 
-    let title = format!(" chat sign-in ({}/{}) ", idx + 1, panes.len());
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .title(title)
-        .border_style(theme.border)
-        .style(theme.base);
-
-    let body = vec![
-        Line::from(Span::styled(
-            format!("Agent detected in {}", repos[idx]),
-            theme.accent,
-        )),
-        Line::from(Span::styled(format!("pane {}", panes[idx]), theme.dim)),
-        Line::from(""),
-        Line::from("Sign in to chat?"),
-        Line::from(vec![
-            Span::styled("[y]", theme.accent),
-            Span::raw("es  "),
-            Span::styled("[a]", theme.accent),
-            Span::raw("lways  "),
-            Span::styled("[n]", theme.accent),
-            Span::raw("ever  "),
-            Span::styled("[s]", theme.accent),
-            Span::raw("kip"),
-        ]),
-    ];
+    let mut body: Vec<Line> = Vec::new();
+    // herdr's popup title is static, so surface the queue position here when
+    // more than one detected pane is waiting on an answer.
+    if panes.len() > 1 {
+        body.push(Line::from(Span::styled(
+            format!("{} of {}", idx + 1, panes.len()),
+            theme.dim,
+        )));
+        body.push(Line::from(""));
+    }
+    body.push(Line::from(Span::styled(
+        format!("Agent detected in {}", repos[idx]),
+        theme.accent,
+    )));
+    body.push(Line::from(Span::styled(
+        format!("pane {}", panes[idx]),
+        theme.dim,
+    )));
+    body.push(Line::from(""));
+    body.push(Line::from("Sign in to chat?"));
+    body.push(Line::from(vec![
+        Span::styled("[y]", theme.accent),
+        Span::raw("es  "),
+        Span::styled("[a]", theme.accent),
+        Span::raw("lways  "),
+        Span::styled("[n]", theme.accent),
+        Span::raw("ever  "),
+        Span::styled("[s]", theme.accent),
+        Span::raw("kip"),
+    ]));
 
     let para = Paragraph::new(body)
-        .block(block)
         .style(theme.base)
         .wrap(Wrap { trim: true });
-    frame.render_widget(para, area);
+    frame.render_widget(para, inner);
 }
 
 #[cfg(test)]

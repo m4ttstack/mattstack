@@ -83,15 +83,15 @@ where
     step(frame, key)
 }
 
-/// A `width` by `height` rect centered in `area`, clamped to fit. Every popup
-/// centers its box through this so the geometry lives in one place.
-pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
-    let w = width.min(area.width);
-    let h = height.min(area.height);
+/// The popup's content rectangle. herdr already frames the popup pane and
+/// shows its title, so plugin popups render borderless into this, inset one
+/// column so text does not sit against herdr's frame. Drawing our own bordered
+/// box here would nest a second frame inside herdr's (a box-in-a-box).
+pub fn content(area: Rect) -> Rect {
     Rect {
-        x: area.x + area.width.saturating_sub(w) / 2,
-        y: area.y + area.height.saturating_sub(h) / 2,
-        width: w,
-        height: h,
+        x: area.x + 1,
+        y: area.y,
+        width: area.width.saturating_sub(2),
+        height: area.height,
     }
 }

@@ -14,7 +14,7 @@ use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 /// Whether a launcher row stands for an online buddy or an unread room.
@@ -36,6 +36,10 @@ pub struct Row {
     pub handle: Option<String>,
     /// The buddy's presence status (buddy rows), else `None`.
     pub status: Option<String>,
+    /// The buddy's repo / branch / task title, from the pane roster (buddy rows).
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub title: Option<String>,
     /// The room name (room rows), else `None`.
     pub room: Option<String>,
     pub unread: u32,
@@ -52,7 +56,11 @@ pub struct Row {
 /// the rest, then the identity label (handle or room) ascending. Since every
 /// unread/mention room outranks every buddy (which sits at 0/0), the effect is
 /// hot rooms on top, then online buddies live-first and alphabetical.
-pub fn rows(buddies: Vec<rt::Buddy>, rooms: Vec<rt::Room>) -> Vec<Row> {
+pub fn rows(
+    buddies: Vec<rt::Buddy>,
+    rooms: Vec<rt::Room>,
+    details: &std::collections::HashMap<String, rt::AgentDetail>,
+) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::new();
 
     for r in rooms {
@@ -63,6 +71,9 @@ pub fn rows(buddies: Vec<rt::Buddy>, rooms: Vec<rt::Room>) -> Vec<Row> {
             kind: RowKind::Room,
             handle: None,
             status: None,
+            repo: None,
+            branch: None,
+            title: None,
             room: Some(r.room),
             unread: r.unread,
             mentions: r.mentions,
@@ -70,10 +81,19 @@ pub fn rows(buddies: Vec<rt::Buddy>, rooms: Vec<rt::Room>) -> Vec<Row> {
     }
 
     for b in buddies {
+        // Offline buddies carry no unread (unread is per-room) and are not
+        // present, so they add no signal to a who's-online launcher.
+        if b.status == "offline" {
+            continue;
+        }
+        let detail = details.get(&b.handle).cloned().unwrap_or_default();
         out.push(Row {
             kind: RowKind::Buddy,
             handle: Some(b.handle),
             status: Some(b.status),
+            repo: detail.repo,
+            branch: detail.branch,
+            title: detail.title,
             room: None,
             unread: 0,
             mentions: 0,
@@ -114,8 +134,8 @@ enum Action {
     None,
     /// Jump to the buddy with this handle.
     Jump(String),
-    /// Open this room in the web viewer.
-    OpenViewer(String),
+    /// Open the web viewer: a specific room, or the home page (`None`).
+    OpenViewer(Option<String>),
 }
 
 /// The workspace action: open the peek popup. A popup process carries no
@@ -131,7 +151,8 @@ pub fn run(r: &dyn Runner) -> Result<(), String> {
     let buddies = rt::buddies(r).unwrap_or_default();
     let rooms = rt::rooms(r).unwrap_or_default();
     let panes = rt::pane_list(r).unwrap_or_default();
-    let launcher = rows(buddies, rooms);
+    let details = rt::agent_details(&panes);
+    let launcher = rows(buddies, rooms, &details);
 
     let action = choose(&theme, &launcher).map_err(|e| e.to_string())?;
 
@@ -143,7 +164,7 @@ pub fn run(r: &dyn Runner) -> Result<(), String> {
             }
             Ok(())
         }
-        Action::OpenViewer(room) => crate::cmd::open_viewer::run(r, Some(&room)),
+        Action::OpenViewer(room) => crate::cmd::open_viewer::run(r, room.as_deref()),
     }
 }
 
@@ -171,10 +192,11 @@ fn choose(theme: &AppTheme, launcher: &[Row]) -> std::io::Result<Action> {
                     }
                 }
                 KeyCode::Char('o') => {
-                    if let Some(room) = launcher.get(cursor).and_then(|r| r.room.clone()) {
-                        action = Action::OpenViewer(room);
-                        exit = true;
-                    }
+                    // Always open the viewer: the cursor's room if it is a room
+                    // row, otherwise the viewer home. On a buddy this pairs with
+                    // Enter (jump to their pane).
+                    action = Action::OpenViewer(launcher.get(cursor).and_then(|r| r.room.clone()));
+                    exit = true;
                 }
                 KeyCode::Esc | KeyCode::Char('q') => exit = true,
                 _ => {}
@@ -198,27 +220,14 @@ fn primary(row: &Row) -> Action {
             None => Action::None,
         },
         RowKind::Room => match &row.room {
-            Some(r) => Action::OpenViewer(r.clone()),
+            Some(r) => Action::OpenViewer(Some(r.clone())),
             None => Action::None,
         },
     }
 }
 
 fn draw(frame: &mut Frame, theme: &AppTheme, launcher: &[Row], cursor: usize, scroll: &mut usize) {
-    let full = frame.area();
-    let w = full.width.saturating_sub(4).clamp(24, 88);
-    let h = full.height.saturating_sub(2).max(6);
-    let area = ui::centered(full, w, h);
-    frame.render_widget(Clear, area);
-
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .title(" chat peek ")
-        .border_style(theme.border)
-        .style(theme.base);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
+    let inner = ui::content(frame.area());
     let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
     draw_list(frame, theme, launcher, cursor, parts[0], scroll);
     frame.render_widget(footer(theme, launcher.get(cursor)), parts[1]);
@@ -276,13 +285,25 @@ fn row_line<'a>(theme: &AppTheme, row: &'a Row, cursor: bool) -> Line<'a> {
         RowKind::Buddy => {
             let (dot, dot_style) = buddy_dot(theme, row.status.as_deref());
             let handle = row.handle.as_deref().unwrap_or("?");
-            let status = row.status.as_deref().unwrap_or("");
-            Line::from(vec![
+            let mut spans = vec![
                 Span::styled(marker, row_style),
                 Span::styled(format!("{dot} "), dot_style),
-                Span::styled(handle.to_string(), row_style),
-                Span::styled(format!("   {status}"), theme.dim),
-            ])
+                Span::styled(format!("{handle:<8}"), row_style),
+            ];
+            // repo · branch, from the pane roster, so the row says where the
+            // agent is, not just who; the dot already carries presence.
+            if let Some(repo) = row.repo.as_deref() {
+                let branch = row.branch.as_deref().unwrap_or("-");
+                spans.push(Span::styled(format!("  {repo} \u{b7} {branch}"), theme.dim));
+            }
+            // The pane title is the agent's task line; skip it when it just
+            // echoes the handle (nothing new to say).
+            if let Some(title) = row.title.as_deref() {
+                if title != handle && !title.is_empty() {
+                    spans.push(Span::styled(format!("   {title}"), row_style));
+                }
+            }
+            Line::from(spans)
         }
         RowKind::Room => {
             let room = row.room.as_deref().unwrap_or("?");
@@ -319,7 +340,7 @@ fn buddy_dot(theme: &AppTheme, status: Option<&str>) -> (char, Style) {
 /// selected row; close is always available.
 fn footer(theme: &AppTheme, selected: Option<&Row>) -> Paragraph<'static> {
     let key = |k: &'static str| Span::styled(k, theme.accent);
-    let mut spans = Vec::new();
+    let mut spans = vec![key("up/down"), Span::styled(" move  ", theme.dim)];
     match selected.map(|r| r.kind) {
         Some(RowKind::Buddy) => {
             spans.push(key("enter"));
@@ -331,6 +352,8 @@ fn footer(theme: &AppTheme, selected: Option<&Row>) -> Paragraph<'static> {
         }
         None => {}
     }
+    spans.push(key("o"));
+    spans.push(Span::styled(" viewer  ", theme.dim));
     spans.push(key("esc"));
     spans.push(Span::styled(" close", theme.dim));
     Paragraph::new(Line::from(spans)).style(theme.base)
@@ -357,15 +380,23 @@ mod tests {
         }
     }
 
+    fn no_details() -> std::collections::HashMap<String, rt::AgentDetail> {
+        std::collections::HashMap::new()
+    }
+
     #[test]
     fn peek_rows_carry_unread_from_rooms() {
-        let out = rows(vec![buddy("fred", "live")], vec![room("build", 3, 1)]);
+        let out = rows(
+            vec![buddy("fred", "live")],
+            vec![room("build", 3, 1)],
+            &no_details(),
+        );
         assert_eq!(out.iter().map(|r| r.unread).sum::<u32>(), 3);
     }
 
     #[test]
     fn a_buddy_with_no_unread_still_appears() {
-        let out = rows(vec![buddy("fred", "live")], vec![]);
+        let out = rows(vec![buddy("fred", "live")], vec![], &no_details());
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].kind, RowKind::Buddy);
         assert_eq!(out[0].handle.as_deref(), Some("fred"));
@@ -378,7 +409,7 @@ mod tests {
         // room's unread; the count lives only on the room row.
         let mut b = buddy("fred", "live");
         b.rooms = vec!["build".to_string()];
-        let out = rows(vec![b], vec![room("build", 3, 0)]);
+        let out = rows(vec![b], vec![room("build", 3, 0)], &no_details());
         let fred = out
             .iter()
             .find(|r| r.handle.as_deref() == Some("fred"))
@@ -393,9 +424,42 @@ mod tests {
 
     #[test]
     fn rooms_without_unread_or_mentions_are_dropped() {
-        let out = rows(vec![], vec![room("quiet", 0, 0), room("busy", 2, 0)]);
+        let out = rows(
+            vec![],
+            vec![room("quiet", 0, 0), room("busy", 2, 0)],
+            &no_details(),
+        );
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].room.as_deref(), Some("busy"));
+    }
+
+    #[test]
+    fn offline_buddies_are_dropped() {
+        let out = rows(
+            vec![buddy("on", "live"), buddy("gone", "offline")],
+            vec![],
+            &no_details(),
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].handle.as_deref(), Some("on"));
+    }
+
+    #[test]
+    fn buddy_rows_pick_up_repo_branch_and_title_from_details() {
+        let mut details = std::collections::HashMap::new();
+        details.insert(
+            "kai".to_string(),
+            rt::AgentDetail {
+                repo: Some("console".into()),
+                branch: Some("feat/x".into()),
+                title: Some("app-kit".into()),
+            },
+        );
+        let out = rows(vec![buddy("kai", "live")], vec![], &details);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].repo.as_deref(), Some("console"));
+        assert_eq!(out[0].branch.as_deref(), Some("feat/x"));
+        assert_eq!(out[0].title.as_deref(), Some("app-kit"));
     }
 
     #[test]
@@ -403,6 +467,7 @@ mod tests {
         let out = rows(
             vec![buddy("amy", "live"), buddy("bob", "live")],
             vec![room("x", 1, 0), room("y", 5, 2)],
+            &no_details(),
         );
         let ids: Vec<&str> = out
             .iter()
@@ -421,6 +486,7 @@ mod tests {
                 buddy("amy", "live"),
             ],
             vec![],
+            &no_details(),
         );
         let ids: Vec<&str> = out.iter().map(|r| r.handle.as_deref().unwrap()).collect();
         // live before idle; alphabetical within a status.

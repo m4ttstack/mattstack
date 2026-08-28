@@ -36,6 +36,32 @@ pub struct ChatPane {
     pub presence: Option<Presence>,
 }
 
+/// Human context for one agent handle, distilled from the pane roster: the repo
+/// and branch its pane sits in, and the pane title (the agent's task line). Lets
+/// a buddy or DM row say what that agent is working on, not just who they are.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentDetail {
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub title: Option<String>,
+}
+
+/// Index the pane roster by signed-in handle. Panes with nobody signed in carry
+/// no presence and are skipped; a handle in two panes keeps its first pane.
+pub fn agent_details(panes: &[ChatPane]) -> std::collections::HashMap<String, AgentDetail> {
+    let mut out = std::collections::HashMap::new();
+    for p in panes {
+        if let Some(pr) = &p.presence {
+            out.entry(pr.handle.clone()).or_insert_with(|| AgentDetail {
+                repo: p.repo.clone(),
+                branch: p.branch.clone(),
+                title: p.title.clone(),
+            });
+        }
+    }
+    out
+}
+
 #[derive(serde::Deserialize, Clone)]
 pub struct Room {
     pub room: String,
