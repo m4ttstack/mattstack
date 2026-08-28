@@ -46,9 +46,12 @@ pack binds them; apply its triage lines and addendum exactly as it directs.
 
 ## 3. Deliver
 
-Present the draft to the user. Nothing leaves the machine without an
-explicit go. On approval, post using the forge's thread mechanics: on GitHub
-use `gh pr review` / `gh pr comment`; on GitLab follow the thread mechanics
-below.
+Present the draft to the user, then run the two-gate posting protocol below
+to decide what lands, which disposition closes the review, and how the
+summary reads. Nothing leaves the machine without an explicit go on both
+gates. Post using the forge's thread mechanics: on GitHub use `gh pr review`
+/ `gh pr comment`; on GitLab follow the thread mechanics below.
+
+{{include:review-posting}}
 
 {{include:gitlab-mr-threads}}
