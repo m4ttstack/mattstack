@@ -70,7 +70,8 @@ For each entry, in order:
 4. `"$RT_PIPELINE_STATE" stage-done --stage <stage>`
 
 A stage failure stops the pipeline. Report which stage and that a resume
-continues from it.
+continues from it. The run itself stays `running`; only the Close
+statuses end it.
 
 ## Resume
 
@@ -79,8 +80,9 @@ Re-entering existing work with no `RT_RUN_DB` set: list
 whose status is `running` -- use `"$RT_PIPELINE_STATE" snapshot` with
 `RT_RUN_DB` pointed at each candidate, never raw sqlite -- confirm the
 match with the user, re-export `RT_RUN_DB`, and re-enter at
-`run.current_stage` with the snapshot's fields and decisions. Do not
-re-ask decided questions.
+`run.current_stage` with the snapshot's fields and decisions (a fresh
+`stage-start` for that stage records the new attempt). Do not re-ask
+decided questions.
 
 ## Close
 

@@ -58,6 +58,14 @@ is tight -- "it's simple", "it's small", or "I'll test after" is the
 `superpowers` starts with brainstorming, which needs a human in the loop
 throughout; an Agent-tool subagent cannot stop and wait for one.
 
+When the picking rules land on `superpowers` and the surface is an
+Agent-tool subagent, the unit fails on this surface: report the conflict
+to the dispatcher rather than recording a strategy the surface cannot
+run (not `superpowers`-and-continue, not a downgraded tier to fit the
+surface). Name the two re-dispatch paths in the report: a pane worker
+with a question relay, or a supplied spec/plan that re-enters the work
+as `resume`, which this surface supports.
+
 ## One plan, one executor
 
 A plan is never sliced across parallel executors: it has one sequential
