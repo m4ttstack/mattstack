@@ -40,6 +40,17 @@ describe("buildRoster", () => {
     expect(roster).toContain("fake:flat");
     expect(roster).not.toContain("fake:hid");
   });
+
+  test("a compiled verb at skills/<name>/SKILL.md (no category dir) is in the roster", () => {
+    const root = mkdtempSync(join(tmpdir(), "roster-"));
+    mkdirSync(join(root, "skills", "verb", "parts"), { recursive: true });
+    writeFileSync(
+      join(root, "skills", "verb", "SKILL.md"),
+      "---\nname: fake:verb\ndescription: Use when compiled.\n---\n",
+    );
+    const roster = buildRoster(root);
+    expect(roster).toContain("fake:verb");
+  });
 });
 
 describe("scoreRuns", () => {

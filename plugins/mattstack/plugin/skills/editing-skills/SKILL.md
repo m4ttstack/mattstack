@@ -17,7 +17,7 @@ worktrees before a bump.
 
 | | Team pack (acme) | mattstack plugin |
 |---|---|---|
-| Source | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills) | `~/Documents/GitHub/mattstack-skills/plugin/skills/<name>/` (invocable) or `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile) |
+| Source | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills) | `~/Documents/GitHub/mattstack-skills/plugin/skills/<name>/` (invocable), `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `pack/stubs.jsonc` + `pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
 | Manifest | `packs/acme/.claude-plugin/plugin.json` | `mattstack-skills/.claude-plugin/plugin.json` |
 | Marketplace | `acme` (directory source = the teams clone itself) | `mattstack` (directory source = `~/Documents/GitHub/mattstack-marketplace`, whose `plugins/mattstack` is a SYMLINK to the mattstack-skills repo) |
 | Update | `claude plugin update acme@acme` | `claude plugin update mattstack@mattstack` |
@@ -30,11 +30,14 @@ worktrees before a bump.
    `${CLAUDE_SKILL_DIR}/../../../attachments/parameterized-skills/SKILL.md`.
 2. Edit or create `SKILL.md` in the source path above.
 3. **New mattstack skill only**: the manifest's `skills` field is an
-   EXPLICIT array of the roots Claude loads directly (`./skills/review`,
-   `./plugin/skills`); a skill under a new root silently never loads until
+   EXPLICIT array of the roots Claude loads directly (`./skills`,
+   `./skills/review`, `./plugin/skills`; each root is scanned one level
+   deep, so `./skills` loads the compiled `skills/shepherdr/` and skips the
+   `review/` group); a skill under a new root silently never loads until
    you add it. An engine, include, or fill goes under
    `attachments/<category>/<name>/` and is never listed there: it reaches
-   a session only when a pack compiles it in.
+   a session only when a pack compiles it in -- the mattstack pack's own
+   roster included.
 4. Bump `version` in the manifest -- same commit as the skill change. For
    mattstack, this is step 1 of "Releasing an engine, include, or fill change" below;
    finish that section's step 2 for each compiled pack.
@@ -57,7 +60,9 @@ engines (`work`, `stage-*`, `review`, `self-review`, `receive-review`,
 verbs to `<pack>/skills/<verb>/`, internal verbs and stages to
 `<pack>/attachments/<name>/`. Edit the engine (mattstack-skills) or the fill
 (`<pack>/attachments/<fill>/`), then recompile; the next compile overwrites
-compiled files.
+compiled files. The mattstack pack is one such pack: `pack/stubs.jsonc`
+rosters `shepherdr`, bound through `pack/skills.jsonc` (a standalone pack
+with no registered repo compiles against its own manifest).
 
 Writing a fill:
 
@@ -78,12 +83,18 @@ What `compile` and `check` read:
 |---|---|
 | mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache |
 | the pack's own fills | the pack checkout (`--pack-dir`) |
+| everything, for `--pack mattstack` itself | the mattstack-skills CHECKOUT (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted |
 | mattstack version in every seam marker | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
 
 ### Releasing an engine, include, or fill change
 
 1. Changed a mattstack file? Commit it; `sh tests/certify.sh <its dir>`; bump
-   mattstack's `plugin.json`; `claude plugin update mattstack@mattstack`.
+   mattstack's `plugin.json`.
+   1. `rt skills check --pack mattstack` stale? The change reaches the
+      pack's own verb: `rt skills compile --pack mattstack`; `rt skills
+      check --pack mattstack` -> `current`; commit `skills/<verb>/` with the
+      bump.
+   2. `claude plugin update mattstack@mattstack`.
 2. For each compiled pack that `rt skills check --pack <pack>` reports stale:
    1. Bump the pack's `plugin.json` (the version is stamped into the output,
       so this comes before the compile).

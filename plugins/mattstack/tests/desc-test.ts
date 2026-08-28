@@ -41,9 +41,10 @@ export function parseFrontmatter(
   };
 }
 
-/** Roster from a repo root: skills/<category>/<skill>/SKILL.md plus
- *  plugin/skills/<skill>/SKILL.md. Hidden (disable-model-invocation)
- *  skills are excluded, matching the platform's listing behavior. */
+/** Roster from a repo root: skills/<category>/<skill>/SKILL.md, the pack's
+ *  compiled verbs at skills/<verb>/SKILL.md, and plugin/skills/<skill>/SKILL.md.
+ *  Hidden (disable-model-invocation) skills are excluded, matching the
+ *  platform's listing behavior. */
 export function buildRoster(repoRoot: string): string {
   const entries: { name: string; description: string }[] = [];
   const addSkillDir = (dir: string) => {
@@ -56,8 +57,16 @@ export function buildRoster(repoRoot: string): string {
   if (existsSync(skillsRoot)) {
     for (const cat of readdirSync(skillsRoot, { withFileTypes: true })) {
       if (!cat.isDirectory()) continue;
-      for (const s of readdirSync(join(skillsRoot, cat.name), { withFileTypes: true })) {
-        if (s.isDirectory()) addSkillDir(join(skillsRoot, cat.name, s.name));
+      const catDir = join(skillsRoot, cat.name);
+      // A compiled verb sits flat (skills/<name>/SKILL.md); hand-authored
+      // skills sit one category deep. A dir with its own SKILL.md is a skill,
+      // never a category.
+      if (existsSync(join(catDir, "SKILL.md"))) {
+        addSkillDir(catDir);
+        continue;
+      }
+      for (const s of readdirSync(catDir, { withFileTypes: true })) {
+        if (s.isDirectory()) addSkillDir(join(catDir, s.name));
       }
     }
   }

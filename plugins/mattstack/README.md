@@ -37,7 +37,7 @@ lives here now.
 
 ### orchestration
 
-- **mattstack:shepherdr** -- transport for a herd of Claude Code agents via herdr panes: breaks work into jobs, spawns an agent per job, watches, relays questions, and integrates. Model, method, and account policy arrive through its three slots (model-tiering@1, execution-strategy@1, account-pool@1). Requires the [herdr skill](https://github.com/ogulcancelik/herdr/blob/master/SKILL.md) (auto-installed if missing).
+- **mattstack:shepherdr** -- transport for a herd of Claude Code agents via herdr panes: breaks work into jobs, spawns an agent per job, watches, relays questions, and integrates. Model, method, and account policy arrive through its slots (model-tiering@1, execution-strategy@1, account-pool@1, and an optional shepherdr-domain@1). The engine lives at `attachments/orchestration/shepherdr/`; this pack compiles it into its own public verb at `skills/shepherdr/` with the generic fills and the domain slot unbound (`pack/stubs.jsonc` + `pack/skills.jsonc`, built by `rt skills compile --pack mattstack`), and a team pack compiles its own domain-bound copy for its repo. Requires the [herdr skill](https://github.com/ogulcancelik/herdr/blob/master/SKILL.md) (auto-installed if missing).
 - **mattstack:model-tiering** -- pick the least capable model tier and effort that can succeed at each unit of work, for both spawn-time (shepherd picking worker models) and delegation-time (a worker dispatching sub-agents) decisions.
 - **mattstack:cswap-accounts** -- cswap provider for the account-pool@1 contract: the account-pool question, per-spawn picking via pick-account.py (scoped per-model pools, spread penalty), and the exhaustion decision tree. Binding-only; reached through a wrapper's accounts slot.
 - **mattstack:execution-strategy** -- name the method an executor should run for a unit of work (trivial, direct-tdd, resume, superpowers, delegate) and the report contract that method owes, including the boundary rules for running the superpowers chain inside a dispatched worker.
@@ -61,9 +61,10 @@ readable JSON both ways). Enforcement lives in the script, never in prose.
   Manifest schema: `plugin/schemas/`. Model-free test matrix:
   `plugin/tests/test-resolve-args.sh`.
 
-First wrapper on the primitive: `mattstack:shepherdr` resolves its
-`tiering`, `strategy`, and `accounts` slots (contracts `model-tiering@1`,
-`execution-strategy@1`, `account-pool@1`) instead of hardcoding policy.
+`shepherdr` was the first wrapper on the primitive and is now
+compile-native: its `tiering`, `strategy`, `accounts`, and `domain` slots
+are `{{slot}}` placeholders the compiler fills, so the runtime resolver
+now serves only runtime-native wrappers (the `mr-board:*` skills).
 
 A domain team starts its own pack from `templates/domain-pack`: skills
 that fulfill the stage contracts, a bindings manifest, and the
@@ -130,7 +131,9 @@ claude plugin marketplace add m4ttstack/mattstack-marketplace
 claude plugin install mattstack@mattstack
 ```
 
-That loads the invocable skills (`plugin/skills/`, `skills/review/`). The
+That loads the invocable skills (`plugin/skills/`, `skills/review/`) and the
+pack's own compiled verb (`skills/shepherdr/`, from `pack/stubs.jsonc` and
+`pack/skills.jsonc` via `rt skills compile --pack mattstack`). The other
 engines, includes, and fills under `attachments/` are not invocable on their
 own: a team pack compiles them into its verbs with `rt skills compile`
 (the `{{slot}}` and `{{include}}` markers are resolved at compile time, and
