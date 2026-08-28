@@ -13,14 +13,31 @@ convention (see any pack bump in git history). The update copies the whole
 working tree, untracked files and `.worktrees/` included, so prune stray
 worktrees before a bump.
 
+Both estates are *directory-source* marketplaces, so a loaded skill's
+reported base dir often points at the SOURCE path, not the cache copy. Don't
+read that as "it loads from source": the versioned cache is still what a
+fresh session loads, and the bump/update/restart rule above still applies.
+The source path in the base dir is a convenience, not the live surface.
+
 ## The two estates
 
 | | Team pack (acme) | mattstack plugin |
 |---|---|---|
 | Source | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills) | `~/Documents/GitHub/mattstack-skills/plugin/skills/<name>/` (invocable), `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `pack/stubs.jsonc` + `pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
 | Manifest | `packs/acme/.claude-plugin/plugin.json` | `mattstack-skills/.claude-plugin/plugin.json` |
-| Marketplace | `acme` (directory source = the teams clone itself) | `mattstack` (directory source = `~/Documents/GitHub/mattstack-marketplace`, whose `plugins/mattstack` is a SYMLINK to the mattstack-skills repo) |
-| Update | `claude plugin update acme@acme` | `claude plugin update mattstack@mattstack` |
+| Marketplace | `name` in the teams-clone `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the teams clone itself) | `mattstack` (directory source = `~/Documents/GitHub/mattstack-marketplace`, whose `plugins/mattstack` is a SYMLINK to the mattstack-skills repo) |
+| Update | `claude plugin update <plugin>@<marketplace>` (derive both, see below) | `claude plugin update mattstack@mattstack` |
+
+**Deriving `<plugin>@<marketplace>` for the update.** The two names are
+independent: `<plugin>` is the `name` in the pack's `plugin.json`;
+`<marketplace>` is the `name` in the teams-clone
+`.claude-plugin/marketplace.json`. They routinely differ, so read
+`marketplace.json` for the value rather than reusing the pack name: a pack
+whose `plugin.json` name is `acme` can ship under a marketplace whose
+`marketplace.json` name is `beacon`, making the update `claude plugin update
+acme@beacon`. `mattstack@mattstack` reads identical only because that plugin
+and its marketplace share a name; a team pack usually does not, and assuming
+it does gives a real-looking command that updates nothing.
 
 ## The pipeline (all three cases)
 
