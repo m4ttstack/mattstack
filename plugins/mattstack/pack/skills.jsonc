@@ -1,0 +1,14 @@
+// Bindings manifest for this pack's own roster (pack/stubs.jsonc). No team
+// zone declares this repo, so merge-manifests.sh never writes a per-repo
+// manifest for it; rt skills compile reads a standalone pack's
+// pack/skills.jsonc directly. Schema: plugin/schemas/skills-manifest.schema.json
+{
+  "version": 1,
+  "bindings": {
+    "mattstack:shepherdr": {
+      "tiering": "mattstack:model-tiering",
+      "strategy": "mattstack:execution-strategy",
+      "accounts": "mattstack:cswap-accounts"
+    }
+  }
+}

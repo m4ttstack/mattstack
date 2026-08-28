@@ -3,11 +3,14 @@
 // runtime resolvers reach it by name, never the slash menu); skills/
 // holds only the public doors, engines live under attachments/<group>/.
 // Ratified 2026-08-21 (surface-ratchet amendment; engines-to-attachments
-// follow-up same day).
+// follow-up same day). shepherdr here is the pack's own compiled verb
+// (pack/stubs.jsonc), emitted to skills/shepherdr/; the engine stays under
+// attachments/orchestration/.
 {
   "public": [
     "subagent-review-loop",
     "editing-skills",
-    "getting-current-time"
+    "getting-current-time",
+    "shepherdr"
   ]
 }

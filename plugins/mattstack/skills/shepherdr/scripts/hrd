@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# `herdr`, routed to the herd session when one is configured.
+#
+# Every shepherdr script calls this instead of `herdr` directly, so one env
+# var switches the whole herd between visible panes and invisible ones.
+#
+# SHEPHERDR_HERD_SESSION unset: plain passthrough, panes land in the UI the
+# user is looking at. This is the historical behavior.
+#
+# SHEPHERDR_HERD_SESSION=<name>: every call targets that named session, whose
+# panes never appear in the attached UI.
+#
+# The `env -u HERDR_SOCKET_PATH` is load-bearing, not defensive. herdr injects
+# HERDR_SOCKET_PATH into every managed pane and it outranks HERDR_SESSION, so
+# HERDR_SESSION alone is silently ignored from inside a pane: no error, and
+# the command hits the default session instead. Verified on 0.7.5 -- setting
+# only HERDR_SESSION returned the visible session's workspaces. Dropping the
+# `-u` would spawn the entire herd into the UI it is supposed to stay out of.
+set -euo pipefail
+
+if [ -n "${SHEPHERDR_HERD_SESSION:-}" ]; then
+  exec env -u HERDR_SOCKET_PATH HERDR_SESSION="$SHEPHERDR_HERD_SESSION" herdr "$@"
+fi
+
+exec herdr "$@"

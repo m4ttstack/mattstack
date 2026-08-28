@@ -1,12 +1,13 @@
 {
   "name": "mattstack",
-  "version": "0.10.9",
-  "description": "The mattstack skills pack: public doors subagent-review-loop and editing-skills, plus the compile-native engines (work orchestrator, pipeline stages, review verbs, forge adapters, shepherdr) and attachments (model tiering, execution strategies, account pool, review include bodies, review-posting, parameterized-skill primitive) that rt skills compile inlines into team verbs at compile time -- reached by name, not by slash menu.",
+  "version": "0.10.10",
+  "description": "The mattstack skills pack: public doors subagent-review-loop, editing-skills, getting-current-time, and the pack's own compiled shepherdr verb (domain-unbound), plus the compile-native engines (work orchestrator, pipeline stages, review verbs, forge adapters, shepherdr) and attachments (model tiering, execution strategies, account pool, review include bodies, review-posting, parameterized-skill primitive) that rt skills compile inlines into team verbs at compile time -- reached by name, not by slash menu.",
   "author": {
     "name": "Matthew Goodwin"
   },
   "license": "MIT",
   "skills": [
+    "./skills",
     "./skills/review",
     "./plugin/skills"
   ]
