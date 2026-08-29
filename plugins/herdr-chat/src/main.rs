@@ -10,6 +10,7 @@ mod ui;
 mod cmd {
     pub mod broadcast;
     pub mod jump;
+    pub mod launcher;
     pub mod open_viewer;
     pub mod peek;
     pub mod picker;
@@ -46,6 +47,12 @@ enum Cmd {
     /// Quick-send: one line to a room or a buddy DM. The workspace action
     /// opens the popup; `--pane` is the popup entrypoint that runs the TUI.
     QuickSend {
+        #[arg(long)]
+        pane: bool,
+    },
+    /// One launcher popup over every capability. The pane action stashes the
+    /// focused pane and opens the popup; `--pane` is the popup entrypoint.
+    Launcher {
         #[arg(long)]
         pane: bool,
     },
@@ -103,6 +110,20 @@ fn main() -> std::process::ExitCode {
                 Ok(_) => std::process::ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("quick-send: {e}");
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+        Cmd::Launcher { pane } => {
+            let result = if pane {
+                cmd::launcher::run(&runner)
+            } else {
+                cmd::launcher::open(&runner)
+            };
+            match result {
+                Ok(_) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("launcher: {e}");
                     std::process::ExitCode::FAILURE
                 }
             }

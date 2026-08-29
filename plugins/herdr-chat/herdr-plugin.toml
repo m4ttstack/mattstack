@@ -37,6 +37,12 @@ contexts = ["workspace"]
 command = ["sh", "-c", "exec ./target/release/herdr-chat quick-send"]
 
 [[actions]]
+id = "launcher"
+title = "Chat launcher"
+contexts = ["pane"]
+command = ["sh", "-c", "exec ./target/release/herdr-chat launcher"]
+
+[[actions]]
 id = "sign-in"
 title = "Sign in to chat"
 contexts = ["pane"]
@@ -71,3 +77,11 @@ placement = "popup"
 width = 72
 height = 18
 command = ["sh", "-c", "exec ./target/release/herdr-chat quick-send --pane"]
+
+[[panes]]
+id = "launcher-ui"
+title = "Chat"
+placement = "popup"
+width = 54
+height = 10
+command = ["sh", "-c", "exec ./target/release/herdr-chat launcher --pane"]

@@ -36,6 +36,32 @@ pub fn state_dir() -> PathBuf {
     PathBuf::from(std::env::var("HERDR_PLUGIN_STATE_DIR").unwrap_or_else(|_| ".".to_string()))
 }
 
+/// The launcher's origin-pane handoff: the pane action writes the focused
+/// pane's id here, and the launcher popup (a separate herdr-spawned process
+/// with no `HERDR_PANE_ID`) reads it back for the sign-in/out quick actions.
+/// `None` clears a stale stash so a pane-less launch cannot sign in whatever
+/// pane a previous launch targeted.
+pub fn stash_origin_pane(dir: &Path, pane: Option<&str>) -> std::io::Result<()> {
+    let path = dir.join("launcher-origin");
+    match pane {
+        Some(p) => atomic_write(&path, p.as_bytes()),
+        None => match fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        },
+    }
+}
+
+pub fn read_origin_pane(dir: &Path) -> Option<String> {
+    let s = fs::read_to_string(dir.join("launcher-origin")).ok()?;
+    let s = s.trim();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
 pub fn push_broadcast(dir: &Path, b: &Broadcast) -> std::io::Result<()> {
     let broadcasts_file = dir.join("broadcasts.json");
     let mut broadcasts = if let Ok(content) = fs::read_to_string(&broadcasts_file) {
@@ -82,6 +108,17 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
         assert!(temps.is_empty(), "temp file left behind: {temps:?}");
+    }
+
+    #[test]
+    fn origin_pane_roundtrips_and_clears() {
+        let d = tempfile::tempdir().unwrap();
+        stash_origin_pane(d.path(), Some("w1:p2")).unwrap();
+        assert_eq!(read_origin_pane(d.path()).as_deref(), Some("w1:p2"));
+        stash_origin_pane(d.path(), None).unwrap();
+        assert!(read_origin_pane(d.path()).is_none());
+        // Clearing an already-clear stash is a no-op, not an error.
+        stash_origin_pane(d.path(), None).unwrap();
     }
 
     #[test]

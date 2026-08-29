@@ -12,7 +12,9 @@ off.
 Capabilities: broadcast one message into a selection of panes, jump from a chat
 mention to that agent's pane, sign panes in/out on a hotkey via the sign-in and
 sign-out actions, peek at who's online and what's unread, quick-send a line to
-a room or DM, and open the viewer.
+a room or DM, and open the viewer. A launcher popup puts all of it behind one
+key: every feature and quick action on the lowercase letter of its direct
+binding.
 
 Built in Rust with ratatui, themed to match herdr.
 
@@ -29,8 +31,9 @@ runs on macOS.
 herdr plugin install m4ttstack/herdr-chat
 ```
 
-This builds the plugin and registers its actions (`broadcast`, `peek`,
-`quick-send`, `sign-in`, `sign-out`, `open-viewer`) and its popup panes. It
+This builds the plugin and registers its actions (`launcher`, `broadcast`,
+`peek`, `quick-send`, `sign-in`, `sign-out`, `open-viewer`) and its popup
+panes. It
 does not bind any keys... herdr keybindings are a user-config concern, not a
 manifest capability, so the plugin can't declare them for you.
 
@@ -41,6 +44,12 @@ config, each pointing at one of the actions above by its `m4ttstack.chat.*`
 id:
 
 ```toml
+[[keys.command]]
+key = "prefix+C"
+type = "plugin_action"
+command = "m4ttstack.chat.launcher"
+description = "chat launcher: every feature behind one key"
+
 [[keys.command]]
 key = "prefix+B"
 type = "plugin_action"

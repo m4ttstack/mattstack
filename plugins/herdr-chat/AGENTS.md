@@ -33,14 +33,15 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   workspace/tab, `pane zoom`), and `open_popup`.
 - `src/deck.rs`: the viewer URL via `deck url chat`, falling back to
   `~/.mattstack/deck/api.json` → `GET /api/v1/apps/chat` → `.row.url`.
-- `src/state.rs`: broadcast history (`push_broadcast`/`recent_broadcasts`) and
-  `state_dir`.
+- `src/state.rs`: broadcast history (`push_broadcast`/`recent_broadcasts`),
+  the launcher's origin-pane stash (`stash_origin_pane`/`read_origin_pane`),
+  and `state_dir`.
 - `src/theme.rs`: reads herdr's `[theme]` so popups match the host.
 - `src/ui.rs`: the shared popup loop and `content()` (see gotchas).
 - `src/run.rs`: the `Runner` seam. Every subprocess goes through it; tests fake
   it, so there are no real `rt`/`herdr`/`deck` calls under `cargo test`.
-- `src/cmd/*`: one file per capability (broadcast, picker, peek, quick_send,
-  sign, open_viewer).
+- `src/cmd/*`: one file per capability (launcher, broadcast, picker, peek,
+  quick_send, sign, open_viewer).
 
 ## Dev loop
 
@@ -72,6 +73,9 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   but no task title. `rt::agent_details` joins the two by handle.
 - **Deliberate self-targets scrub `HERDR_PANE_ID`** from the rt subprocess
   (sign-in/out) so rt's caller's-own-pane refusal does not misfire.
+- **A popup process carries no `HERDR_PANE_ID`.** Anything a popup does to
+  "the pane the hotkey fired on" needs the pane action to stash the id first;
+  the launcher's sign quick actions read it back via `state::read_origin_pane`.
 
 ## Status
 
@@ -84,7 +88,9 @@ hook, no signin-ask popup, no per-repo prefs); sign-in is hotkey-only via
 the pane actions (Matt binds prefix+I / prefix+O). rt-side delivery is now
 socket push (see the delivery-v2 spec above): agents receive message bodies
 in-context, so nothing here types into a pane except broadcast, which stays
-deliberate.
+deliberate. Newest capability: the launcher popup (`launcher` action, bound
+to prefix+C), one menu over every feature and quick action on lowercase
+letters, with sign results shown in-popup.
 One open, non-blocking item: peek and quick-send render a single rich line,
 where the picker is a fuller two-line entry (repo · branch · cwd on line 2);
 match them if the extra depth is wanted.
