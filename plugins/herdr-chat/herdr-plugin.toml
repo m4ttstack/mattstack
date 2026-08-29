@@ -48,10 +48,6 @@ title = "Sign out of chat"
 contexts = ["pane"]
 command = ["sh", "-c", "exec ./target/release/herdr-chat sign-out"]
 
-[[events]]
-on = "pane.agent_detected"
-command = ["sh", "-c", "exec ./target/release/herdr-chat on-agent-detected"]
-
 [[panes]]
 id = "broadcast-ui"
 title = "Broadcast"
@@ -75,11 +71,3 @@ placement = "popup"
 width = 72
 height = 18
 command = ["sh", "-c", "exec ./target/release/herdr-chat quick-send --pane"]
-
-[[panes]]
-id = "signin-ask"
-title = "Sign in to chat?"
-placement = "popup"
-width = 66
-height = 11
-command = ["sh", "-c", "exec ./target/release/herdr-chat signin-ask"]

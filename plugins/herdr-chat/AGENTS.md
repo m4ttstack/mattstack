@@ -32,14 +32,14 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   workspace/tab, `pane zoom`), and `open_popup`.
 - `src/deck.rs`: the viewer URL via `deck url chat`, falling back to
   `~/.mattstack/deck/api.json` → `GET /api/v1/apps/chat` → `.row.url`.
-- `src/state.rs`: the fs2-locked pending sign-in queue and per-repo sign-in
-  prefs.
+- `src/state.rs`: broadcast history (`push_broadcast`/`recent_broadcasts`) and
+  `state_dir`.
 - `src/theme.rs`: reads herdr's `[theme]` so popups match the host.
 - `src/ui.rs`: the shared popup loop and `content()` (see gotchas).
 - `src/run.rs`: the `Runner` seam. Every subprocess goes through it; tests fake
   it, so there are no real `rt`/`herdr`/`deck` calls under `cargo test`.
 - `src/cmd/*`: one file per capability (broadcast, picker, peek, quick_send,
-  sign, detect, signin_ask, open_viewer).
+  sign, open_viewer).
 
 ## Dev loop
 
@@ -70,8 +70,7 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   `ChatPane` carries `title` + `presence`); `rt chat buddies` has repo/branch
   but no task title. `rt::agent_details` joins the two by handle.
 - **Deliberate self-targets scrub `HERDR_PANE_ID`** from the rt subprocess
-  (sign-in/out, on-agent-detected Always) so rt's caller's-own-pane refusal
-  does not misfire.
+  (sign-in/out) so rt's caller's-own-pane refusal does not misfire.
 
 ## Status
 
