@@ -16,9 +16,10 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   that contract, not a definition of it.
 - **The chat protocol and the `rt` CLI this plugin drives:** in `repo-tools`,
   `skills/rt-chat/SKILL.md` (the agent-facing rules),
-  `docs/superpowers/specs/2026-08-2{3,4}-rt-chat-*.md` (schema + wake
-  protocol), and `packages/rt-client/README.md` (the wire shapes `src/rt.rs`
-  mirrors).
+  `docs/superpowers/specs/2026-08-28-rt-chat-delivery-v2-design.md` (the
+  current socket-push delivery model; the 2026-08-2{3,4} wake/presence
+  specs it supersedes carry pointers), and `packages/rt-client/README.md`
+  (the wire shapes `src/rt.rs` mirrors).
 - **The other half of the product**, the web viewer that owns read/compose: the
   `chat` repo (`CLAUDE.md`, `ARCHITECTURE.md`), served at
   <https://chat.mattstack>.
@@ -76,6 +77,14 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 
 Shipped and installed as a github-managed herdr plugin. The polish pass
 (single-window popups, agent-context rows, right-sized modals) landed in #2.
+Since then: #4 moved sign-in/out to zero-turn daemon-side calls
+(`rt chat sign-in|sign-out --pane <id> --json`, never pane injection), and
+#5 removed the on-launch auto-prompt entirely (no `pane.agent_detected`
+hook, no signin-ask popup, no per-repo prefs); sign-in is hotkey-only via
+the pane actions (Matt binds prefix+I / prefix+O). rt-side delivery is now
+socket push (see the delivery-v2 spec above): agents receive message bodies
+in-context, so nothing here types into a pane except broadcast, which stays
+deliberate.
 One open, non-blocking item: peek and quick-send render a single rich line,
 where the picker is a fuller two-line entry (repo · branch · cwd on line 2);
 match them if the extra depth is wanted.
