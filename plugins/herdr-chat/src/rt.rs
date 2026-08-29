@@ -69,6 +69,9 @@ pub struct Room {
     pub unread: u32,
     #[serde(default)]
     pub mentions: u32,
+    /// `"dm"` for a direct-message room; older daemons omit the field.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 // `rt chat buddies --json` rows are rt-client's `PresenceRow & { status }`,
@@ -77,6 +80,8 @@ pub struct Room {
 pub struct Buddy {
     pub handle: String,
     pub status: String,
+    #[serde(default, rename = "sessionId")]
+    pub session_id: Option<String>,
     #[serde(default)]
     pub pane: Option<String>,
     #[serde(default)]
@@ -180,6 +185,18 @@ pub fn pane_list(r: &dyn Runner) -> Result<Vec<ChatPane>, String> {
 pub fn rooms(r: &dyn Runner) -> Result<Vec<Room>, String> {
     let rt = rt_bin();
     let out: Rooms = run_json(r, &[rt.as_str(), "chat", "rooms", "--json"], &[])?;
+    Ok(out.rooms)
+}
+
+/// A specific session's rooms (`--session`), for callers that are not that
+/// session themselves -- the launcher popup asking about its origin pane.
+pub fn rooms_for_session(r: &dyn Runner, session_id: &str) -> Result<Vec<Room>, String> {
+    let rt = rt_bin();
+    let out: Rooms = run_json(
+        r,
+        &[rt.as_str(), "chat", "rooms", "--session", session_id, "--json"],
+        &[],
+    )?;
     Ok(out.rooms)
 }
 
@@ -402,6 +419,20 @@ mod tests {
             call.argv,
             vec!["rt", "pane", "send", "w1:p2", "--text", "hi", "--json"]
         );
+    }
+
+    #[test]
+    fn rooms_for_session_passes_the_session_flag() {
+        let r = FakeRunner::capture(
+            r#"{"ok":true,"rooms":[{"room":"build","unread":1,"mentions":0},{"room":"dm-abc","kind":"dm"}]}"#,
+        );
+        let rooms = rooms_for_session(&r, "sess-1").unwrap();
+        assert_eq!(
+            r.last().argv,
+            vec!["rt", "chat", "rooms", "--session", "sess-1", "--json"]
+        );
+        assert_eq!(rooms.len(), 2);
+        assert_eq!(rooms[1].kind.as_deref(), Some("dm"));
     }
 
     #[test]

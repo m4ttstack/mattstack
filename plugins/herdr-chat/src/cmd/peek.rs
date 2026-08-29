@@ -367,6 +367,7 @@ mod tests {
         rt::Buddy {
             handle: handle.to_string(),
             status: status.to_string(),
+            session_id: None,
             pane: None,
             rooms: Vec::new(),
         }
@@ -377,6 +378,7 @@ mod tests {
             room: name.to_string(),
             unread,
             mentions,
+            kind: None,
         }
     }
 

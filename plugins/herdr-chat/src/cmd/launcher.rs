@@ -4,6 +4,7 @@
 
 use crate::cmd::sign::{self, Sign};
 use crate::herdr;
+use crate::rt;
 use crate::run::Runner;
 use crate::state;
 use crate::theme::{self, AppTheme};
@@ -81,6 +82,51 @@ enum Mode {
     Result(String),
 }
 
+/// The header's picture of the origin pane: who this popup acts for. In a
+/// busy multiplex window the hotkey's target is not obvious, so the header
+/// names the pane and its chat identity before any action fires.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginStatus {
+    pub pane: Option<String>,
+    pub handle: Option<String>,
+    /// The buddy's wire status (`live`/`idle`/`offline`), `None` when the
+    /// pane has no chat session at all.
+    pub status: Option<String>,
+    pub rooms: Vec<String>,
+}
+
+/// Match the stashed origin pane to its buddy row. An offline row still
+/// matches (the header then reads "signed out") -- the pane is identified
+/// either way.
+pub fn origin_status(pane: Option<&str>, buddies: &[rt::Buddy]) -> OriginStatus {
+    let matched = pane.and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)));
+    OriginStatus {
+        pane: pane.map(str::to_string),
+        handle: matched.map(|b| b.handle.clone()),
+        status: matched.map(|b| b.status.clone()),
+        rooms: Vec::new(),
+    }
+}
+
+/// Room display tokens: `#name` per channel, every DM collapsed into one
+/// `dm` token (participant lists are the viewer's business, not a header's).
+pub fn room_tokens(rooms: &[rt::Room]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut any_dm = false;
+    for room in rooms {
+        let dm = room.kind.as_deref() == Some("dm") || room.room.starts_with("dm-");
+        if dm {
+            any_dm = true;
+        } else {
+            out.push(format!("#{}", room.room));
+        }
+    }
+    if any_dm {
+        out.push("dm".to_string());
+    }
+    out
+}
+
 /// The pane action: stash the focused pane's id for the popup's sign actions,
 /// then open the launcher popup. The popup is a separate herdr-spawned process
 /// with no `HERDR_PANE_ID` of its own, so the stash is the only bridge back to
@@ -94,12 +140,26 @@ pub fn open(r: &dyn Runner) -> Result<(), String> {
     herdr::open_popup(r, "launcher-ui")
 }
 
-/// The popup entrypoint: run the menu, then dispatch the one chosen feature
-/// after the popup has torn down.
+/// The popup entrypoint: build the header's origin picture, run the menu,
+/// then dispatch the one chosen feature after the popup has torn down.
 pub fn run(r: &dyn Runner) -> Result<(), String> {
     let theme = theme::load();
     let origin = state::read_origin_pane(&state::state_dir());
-    let chosen = menu(r, &theme, origin.as_deref()).map_err(|e| e.to_string())?;
+    let buddies = rt::buddies(r).unwrap_or_default();
+    let mut status = origin_status(origin.as_deref(), &buddies);
+    // Rooms come from the matched buddy's own session; a signed-out or
+    // unmatched pane has none to show, and a fetch failure degrades to an
+    // empty rooms line rather than blocking the popup.
+    if status.status.as_deref().is_some_and(|s| s != "offline") {
+        if let Some(session) = origin
+            .as_deref()
+            .and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)))
+            .and_then(|b| b.session_id.as_deref())
+        {
+            status.rooms = room_tokens(&rt::rooms_for_session(r, session).unwrap_or_default());
+        }
+    }
+    let chosen = menu(r, &theme, origin.as_deref(), &status).map_err(|e| e.to_string())?;
     dispatch(r, &chosen)
 }
 
@@ -188,7 +248,12 @@ fn fire(
 }
 
 /// Run the launcher popup to completion and return the chosen feature.
-fn menu(r: &dyn Runner, theme: &AppTheme, origin: Option<&str>) -> std::io::Result<Chosen> {
+fn menu(
+    r: &dyn Runner,
+    theme: &AppTheme,
+    origin: Option<&str>,
+    status: &OriginStatus,
+) -> std::io::Result<Chosen> {
     let mut cursor = 0usize;
     let mut mode = Mode::Menu;
     let mut chosen = Chosen::None;
@@ -219,7 +284,7 @@ fn menu(r: &dyn Runner, theme: &AppTheme, origin: Option<&str>) -> std::io::Resu
                 },
             }
         }
-        draw(frame, theme, cursor, &mode);
+        draw(frame, theme, cursor, &mode, status);
         if exit {
             Flow::Exit
         } else {
@@ -229,14 +294,54 @@ fn menu(r: &dyn Runner, theme: &AppTheme, origin: Option<&str>) -> std::io::Resu
     Ok(chosen)
 }
 
-fn draw(frame: &mut Frame, theme: &AppTheme, cursor: usize, mode: &Mode) {
+fn draw(frame: &mut Frame, theme: &AppTheme, cursor: usize, mode: &Mode, status: &OriginStatus) {
     let inner = ui::content(frame.area());
-    let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    let parts = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+    frame.render_widget(header(theme, status), parts[0]);
     match mode {
-        Mode::Menu => draw_menu(frame, theme, cursor, parts[0]),
-        Mode::Result(text) => draw_result(frame, theme, text, parts[0]),
+        Mode::Menu => draw_menu(frame, theme, cursor, parts[1]),
+        Mode::Result(text) => draw_result(frame, theme, text, parts[1]),
     }
-    frame.render_widget(footer(theme, mode), parts[1]);
+    frame.render_widget(footer(theme, mode), parts[2]);
+}
+
+/// Who this popup acts for: dot + handle + status + pane on the first line,
+/// the session's rooms on the second. Signed-out and pane-less launches say
+/// so in place of an identity.
+fn header(theme: &AppTheme, status: &OriginStatus) -> Paragraph<'static> {
+    let (dot, dot_style) = match status.status.as_deref() {
+        Some("live") => ('\u{25cf}', ratatui::style::Style::new().fg(ratatui::style::Color::Green)),
+        Some("idle") => ('\u{25cf}', ratatui::style::Style::new().fg(ratatui::style::Color::Yellow)),
+        _ => ('\u{25cb}', theme.dim),
+    };
+    let word = match status.status.as_deref() {
+        Some("live") => "working",
+        Some("idle") => "idle",
+        Some(_) => "signed out",
+        None => "not signed in",
+    };
+    let mut line1 = vec![Span::styled(format!("  {dot} "), dot_style)];
+    if let Some(handle) = &status.handle {
+        line1.push(Span::styled(handle.clone(), theme.base));
+        line1.push(Span::styled(format!(" \u{b7} {word}"), theme.dim));
+    } else {
+        line1.push(Span::styled(word.to_string(), theme.dim));
+    }
+    match &status.pane {
+        Some(pane) => line1.push(Span::styled(format!(" \u{b7} pane {pane}"), theme.dim)),
+        None => line1.push(Span::styled(" \u{b7} no origin pane", theme.dim)),
+    }
+    let line2 = if status.rooms.is_empty() {
+        Line::from(Span::raw(""))
+    } else {
+        Line::from(Span::styled(format!("    {}", status.rooms.join("  ")), theme.dim))
+    };
+    Paragraph::new(vec![Line::from(line1), line2]).style(theme.base)
 }
 
 /// Two columns, as bound: features on the left, quick actions on the right.
@@ -333,6 +438,60 @@ mod tests {
                 stderr: String::new(),
             })
         }
+    }
+
+    fn buddy(handle: &str, status: &str, pane: Option<&str>, session: Option<&str>) -> rt::Buddy {
+        rt::Buddy {
+            handle: handle.to_string(),
+            status: status.to_string(),
+            session_id: session.map(str::to_string),
+            pane: pane.map(str::to_string),
+            rooms: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn origin_status_names_the_matched_pane_identity() {
+        let buddies = vec![
+            buddy("max", "idle", Some("w1:p1"), Some("s-max")),
+            buddy("eli", "live", Some("w9R:p5"), Some("s-eli")),
+        ];
+        let s = origin_status(Some("w9R:p5"), &buddies);
+        assert_eq!(s.handle.as_deref(), Some("eli"));
+        assert_eq!(s.status.as_deref(), Some("live"));
+        assert_eq!(s.pane.as_deref(), Some("w9R:p5"));
+    }
+
+    #[test]
+    fn origin_status_without_a_match_still_names_the_pane() {
+        let s = origin_status(Some("w2:p9"), &[buddy("max", "idle", Some("w1:p1"), None)]);
+        assert_eq!(s.handle, None);
+        assert_eq!(s.status, None);
+        assert_eq!(s.pane.as_deref(), Some("w2:p9"));
+    }
+
+    #[test]
+    fn origin_status_without_a_pane_is_empty() {
+        let s = origin_status(None, &[]);
+        assert_eq!(s.pane, None);
+        assert_eq!(s.handle, None);
+    }
+
+    #[test]
+    fn room_tokens_hash_channels_and_collapse_dms() {
+        let room = |name: &str, kind: Option<&str>| rt::Room {
+            room: name.to_string(),
+            unread: 0,
+            mentions: 0,
+            kind: kind.map(str::to_string),
+        };
+        let tokens = room_tokens(&[
+            room("build", None),
+            room("dm-abc", Some("dm")),
+            room("rt", None),
+            room("dm-def", Some("dm")),
+        ]);
+        assert_eq!(tokens, vec!["#build", "#rt", "dm"]);
     }
 
     #[test]

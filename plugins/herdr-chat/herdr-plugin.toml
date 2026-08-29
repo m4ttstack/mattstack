@@ -83,5 +83,5 @@ id = "launcher-ui"
 title = "Chat"
 placement = "popup"
 width = 54
-height = 10
+height = 12
 command = ["sh", "-c", "exec ./target/release/herdr-chat launcher --pane"]

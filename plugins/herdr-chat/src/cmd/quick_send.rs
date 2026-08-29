@@ -321,16 +321,19 @@ mod tests {
                 room: "build".to_string(),
                 unread: 0,
                 mentions: 0,
+                kind: None,
             },
             rt::Room {
                 room: "ops".to_string(),
                 unread: 0,
                 mentions: 0,
+                kind: None,
             },
         ];
         let buddies = vec![rt::Buddy {
             handle: "fred".to_string(),
             status: "live".to_string(),
+            session_id: None,
             pane: None,
             rooms: Vec::new(),
         }];
