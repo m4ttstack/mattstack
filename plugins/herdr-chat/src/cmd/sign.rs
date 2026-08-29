@@ -6,20 +6,15 @@ pub enum Sign {
     Out,
 }
 
-pub fn run_with(
-    runner: &dyn Runner,
-    which: Sign,
-    pane: Option<&str>,
-) -> Result<rt::SendResult, String> {
+pub fn run_with(runner: &dyn Runner, which: Sign, pane: Option<&str>) -> Result<String, String> {
     let pane = pane.ok_or_else(|| "pane is required".to_string())?;
-    let cmd = match which {
-        Sign::In => "/chat:sign-in",
-        Sign::Out => "/chat:sign-out",
-    };
-    rt::pane_send(runner, pane, cmd, true)
+    match which {
+        Sign::In => rt::chat_sign_in_pane(runner, pane),
+        Sign::Out => rt::chat_sign_out_pane(runner, pane),
+    }
 }
 
-pub fn run(runner: &dyn Runner) -> Result<rt::SendResult, String> {
+pub fn run(runner: &dyn Runner) -> Result<String, String> {
     let pane = std::env::var("HERDR_PANE_ID")
         .ok()
         .as_deref()
@@ -78,21 +73,13 @@ mod tests {
     }
 
     #[test]
-    fn sign_in_injects_the_slash_command_into_the_focused_pane_scrubbed() {
+    fn sign_in_calls_the_daemon_side_sign_in_for_the_focused_pane_scrubbed() {
         let r = FakeRunner::capture(r#"{"paneId":"w1:p1","delivered":"accepted"}"#);
         run_with(&r, Sign::In, Some("w1:p1")).unwrap();
         let call = r.last();
         assert_eq!(
             call.argv,
-            vec![
-                "rt",
-                "pane",
-                "send",
-                "w1:p1",
-                "--text",
-                "/chat:sign-in",
-                "--json"
-            ]
+            vec!["rt", "chat", "sign-in", "--pane", "w1:p1", "--json"]
         );
         assert!(call
             .env
@@ -107,21 +94,13 @@ mod tests {
     }
 
     #[test]
-    fn sign_out_injects_the_slash_command_into_the_focused_pane_scrubbed() {
+    fn sign_out_calls_the_daemon_side_sign_out_for_the_focused_pane_scrubbed() {
         let r = FakeRunner::capture(r#"{"paneId":"w1:p1","delivered":"accepted"}"#);
         run_with(&r, Sign::Out, Some("w1:p1")).unwrap();
         let call = r.last();
         assert_eq!(
             call.argv,
-            vec![
-                "rt",
-                "pane",
-                "send",
-                "w1:p1",
-                "--text",
-                "/chat:sign-out",
-                "--json"
-            ]
+            vec!["rt", "chat", "sign-out", "--pane", "w1:p1", "--json"]
         );
         assert!(call
             .env

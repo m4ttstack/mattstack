@@ -24,7 +24,7 @@ pub struct Detected {
 pub enum Decision {
     /// pref = Never: no injection, nothing queued.
     Skipped,
-    /// pref = Always: `/chat:sign-in` injected (scrubbed) into the pane.
+    /// pref = Always: daemon-side sign-in called for the pane (scrubbed).
     Injected,
     /// pref = Ask: pane queued and the popup opened.
     Prompted,
@@ -71,7 +71,7 @@ pub fn decide(runner: &dyn Runner, dir: &Path, repo: &str, pane: &str) -> Result
     match state::get_pref(dir, repo) {
         SigninPref::Never => Ok(Decision::Skipped),
         SigninPref::Always => {
-            rt::pane_send(runner, pane, "/chat:sign-in", true)?;
+            rt::chat_sign_in_pane(runner, pane)?;
             Ok(Decision::Injected)
         }
         SigninPref::Ask => {
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn always_injects_scrubbed_sign_in() {
+    fn always_calls_the_daemon_side_scrubbed_sign_in() {
         let r = FakeRunner::ok(SEND_OK);
         let d = tempfile::tempdir().unwrap();
         state::set_pref(d.path(), "chat", SigninPref::Always).unwrap();
@@ -253,15 +253,7 @@ mod tests {
         let call = r.last();
         assert_eq!(
             call.argv,
-            vec![
-                "rt",
-                "pane",
-                "send",
-                "w1:p2",
-                "--text",
-                "/chat:sign-in",
-                "--json"
-            ]
+            vec!["rt", "chat", "sign-in", "--pane", "w1:p2", "--json"]
         );
         assert!(call
             .env

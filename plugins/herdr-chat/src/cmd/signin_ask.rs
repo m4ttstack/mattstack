@@ -1,8 +1,9 @@
 //! The `signin-ask` popup: for every pane queued by the `on-agent-detected`
-//! hook, ask whether to sign that pane in to chat. yes/always inject a scrubbed
-//! `/chat:sign-in`; always/never persist the repo's preference. The pending
-//! file is drained again after the popup so a pane queued while it was open (its
-//! own open having hit `ui_busy`) is picked up rather than stranded.
+//! hook, ask whether to sign that pane in to chat. yes/always call the
+//! daemon-side sign-in (scrubbed); always/never persist the repo's
+//! preference. The pending file is drained again after the popup so a pane
+//! queued while it was open (its own open having hit `ui_busy`) is picked up
+//! rather than stranded.
 
 use crate::cmd::detect::repo_from_panes;
 use crate::rt;
@@ -105,7 +106,7 @@ fn apply(
     for ((pane, repo), choice) in panes.iter().zip(repos).zip(choices) {
         match choice {
             Choice::Yes => {
-                if let Err(e) = rt::pane_send(runner, pane, "/chat:sign-in", true) {
+                if let Err(e) = rt::chat_sign_in_pane(runner, pane) {
                     failures.push(format!("{pane}: {e}"));
                 }
             }
@@ -113,7 +114,7 @@ fn apply(
                 if let Err(e) = state::set_pref(dir, repo, SigninPref::Always) {
                     failures.push(format!("{repo}: {e}"));
                 }
-                if let Err(e) = rt::pane_send(runner, pane, "/chat:sign-in", true) {
+                if let Err(e) = rt::chat_sign_in_pane(runner, pane) {
                     failures.push(format!("{pane}: {e}"));
                 }
             }
@@ -188,8 +189,8 @@ mod tests {
 
     impl Runner for FakeRunner {
         fn run(&self, argv: &[&str], _env: &[(&str, Option<&str>)]) -> std::io::Result<Output> {
-            // `pane send <pane> --text <body> --json`: the target is argv[3].
-            let pane = argv.get(3).copied().unwrap_or_default();
+            // `chat sign-in --pane <pane> --json`: the target is argv[4].
+            let pane = argv.get(4).copied().unwrap_or_default();
             self.sent.lock().unwrap().push(pane.to_string());
             if pane == self.boom {
                 Ok(Output {
@@ -205,6 +206,47 @@ mod tests {
                 })
             }
         }
+    }
+
+    /// Fake [`Runner`] that records every call's argv and env for exact
+    /// assertions, always succeeding.
+    struct CapturingRunner {
+        calls: Mutex<Vec<(Vec<String>, Vec<(String, Option<String>)>)>>,
+    }
+
+    impl Runner for CapturingRunner {
+        fn run(&self, argv: &[&str], env: &[(&str, Option<&str>)]) -> std::io::Result<Output> {
+            self.calls.lock().unwrap().push((
+                argv.iter().map(|s| s.to_string()).collect(),
+                env.iter()
+                    .map(|(k, v)| (k.to_string(), v.map(|s| s.to_string())))
+                    .collect(),
+            ));
+            Ok(Output {
+                status: 0,
+                stdout: r#"{"ok":true}"#.to_string(),
+                stderr: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn apply_confirms_yes_via_the_daemon_side_sign_in_scrubbed() {
+        let r = CapturingRunner {
+            calls: Mutex::new(Vec::new()),
+        };
+        let panes = vec!["w1:p1".to_string()];
+        let repos = vec!["chat".to_string()];
+        let choices = vec![Choice::Yes];
+
+        apply(&r, std::path::Path::new("."), &panes, &repos, &choices).unwrap();
+
+        let (argv, env) = r.calls.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(
+            argv,
+            vec!["rt", "chat", "sign-in", "--pane", "w1:p1", "--json"]
+        );
+        assert!(env.iter().any(|(k, v)| k == "HERDR_PANE_ID" && v.is_none()));
     }
 
     #[test]

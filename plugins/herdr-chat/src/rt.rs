@@ -238,6 +238,39 @@ pub fn post(r: &dyn Runner, room: &str, body: &str) -> Result<(), String> {
     }
 }
 
+/// Run `argv` with `env`, returning stdout on success. Unlike [`run_json`]
+/// this does not parse a typed shape: the daemon-side sign-in/out verbs reply
+/// with a diagnostic blob the caller only surfaces on error.
+fn run_text(r: &dyn Runner, argv: &[&str], env: &[(&str, Option<&str>)]) -> Result<String, String> {
+    let out = r.run(argv, env).map_err(|e| e.to_string())?;
+    if out.status != 0 {
+        return Err(err_text(&out));
+    }
+    Ok(out.stdout)
+}
+
+/// Run rt's zero-turn daemon-side `chat <verb> --pane <pane>`, scrubbing
+/// `HERDR_PANE_ID` like [`pane_send`] so a deliberate self-target is not
+/// refused as the caller's own pane.
+fn chat_sign_pane(r: &dyn Runner, verb: &str, pane: &str) -> Result<String, String> {
+    let rt = rt_bin();
+    run_text(
+        r,
+        &[rt.as_str(), "chat", verb, "--pane", pane, "--json"],
+        &[("HERDR_PANE_ID", None)],
+    )
+}
+
+/// Sign `pane` in to chat daemon-side, with no pane injection.
+pub fn chat_sign_in_pane(r: &dyn Runner, pane: &str) -> Result<String, String> {
+    chat_sign_pane(r, "sign-in", pane)
+}
+
+/// Sign `pane` out of chat daemon-side, with no pane injection.
+pub fn chat_sign_out_pane(r: &dyn Runner, pane: &str) -> Result<String, String> {
+    chat_sign_pane(r, "sign-out", pane)
+}
+
 pub fn dm(r: &dyn Runner, to: &str, body: &str) -> Result<(), String> {
     let rt = rt_bin();
     if body.starts_with('-') {
@@ -493,6 +526,36 @@ mod tests {
         let call = r.last();
         assert_eq!(call.argv, vec!["rt", "chat", "dm", "meg", "-"]);
         assert_eq!(call.stdin.as_deref(), Some("-"));
+    }
+
+    #[test]
+    fn chat_sign_in_pane_runs_the_daemon_side_verb_scrubbed() {
+        let r = FakeRunner::capture(r#"{"ok":true}"#);
+        chat_sign_in_pane(&r, "w1:p1").unwrap();
+        let call = r.last();
+        assert_eq!(
+            call.argv,
+            vec!["rt", "chat", "sign-in", "--pane", "w1:p1", "--json"]
+        );
+        assert!(call
+            .env
+            .iter()
+            .any(|(k, v)| *k == "HERDR_PANE_ID" && v.is_none()));
+    }
+
+    #[test]
+    fn chat_sign_out_pane_runs_the_daemon_side_verb_scrubbed() {
+        let r = FakeRunner::capture(r#"{"ok":true}"#);
+        chat_sign_out_pane(&r, "w1:p1").unwrap();
+        let call = r.last();
+        assert_eq!(
+            call.argv,
+            vec!["rt", "chat", "sign-out", "--pane", "w1:p1", "--json"]
+        );
+        assert!(call
+            .env
+            .iter()
+            .any(|(k, v)| *k == "HERDR_PANE_ID" && v.is_none()));
     }
 
     #[test]
