@@ -21,13 +21,13 @@ metadata:
 
 Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `"$RT_PIPELINE_STATE" stage-start --stage watch-ci`
-- Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
+- First action: `rt runs stage-start --stage watch-ci`
+- Read consumed fields with `rt runs field get <key>` before
   deriving or asking for them.
 - Write each declared produce the moment it exists:
-  `"$RT_PIPELINE_STATE" field set <key> <value> --stage watch-ci`
-- Last action on success: `"$RT_PIPELINE_STATE" stage-done --stage watch-ci`;
-  on failure: `"$RT_PIPELINE_STATE" stage-fail --stage watch-ci --reason
+  `rt runs field set <key> <value> --stage watch-ci`
+- Last action on success: `rt runs stage-done --stage watch-ci`;
+  on failure: `rt runs stage-fail --stage watch-ci --reason
   "<what actually failed>" --detail-path <path to the triage report>`
   before you report it.
 

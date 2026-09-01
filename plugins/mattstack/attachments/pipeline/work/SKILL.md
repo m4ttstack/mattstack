@@ -3,7 +3,7 @@ name: work
 disable-model-invocation: true
 description: "Use when running a unit of work through a configured pipeline -- 'run the feature pipeline', 'do this ticket end to end', 'start a unit of work', or when a repo's .mattstack/skills.jsonc defines pipelines and a ticket or task should flow through its stages."
 allowed-tools:
-  - Bash(${CLAUDE_SKILL_DIR}/scripts/pipeline-state.sh:*)
+  - Bash(rt runs:*)
   - Bash(git -C *:*)
 type: pipeline-step
 slots:
@@ -30,7 +30,6 @@ skill sitting beside this one; `dir` is where to read it.
 ## 3. Start the run
 
 ```bash
-export RT_PIPELINE_STATE="${CLAUDE_SKILL_DIR}/scripts/pipeline-state.sh"
 PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
 ```
 
@@ -47,12 +46,17 @@ fabricate a ticket.
 {{run-start.flags}}
 
 ```bash
-"$RT_PIPELINE_STATE" run-start <flags for the work type> --pack-dirs "$PACK_DIRS" [--ticket <id>] [--spawned-by "<surface>"]
+rt runs run-start <flags for the work type> --pack-dirs "$PACK_DIRS" [--ticket <id>] [--spawned-by "<surface>"]
 export RT_RUN_DB=<runDb from the response>
 ```
 
+The response must parse as JSON with `ok: true` and a `runDb`. Anything
+else (a listing of runs, usage text) means this rt predates the run DB
+write verbs: stop, and tell the user to update rt before continuing. Do
+not proceed without a `runDb`.
+
 Back-fill any spawn-time decision made before the DB existed (account
-selection per `account-pool@1`): `"$RT_PIPELINE_STATE" decision record
+selection per `account-pool@1`): `rt runs decision record
 --contract account-pool@1 --scope run --selection '<JSON>' --decided-by
 <spawning surface>`.
 
@@ -60,14 +64,14 @@ selection per `account-pool@1`): `"$RT_PIPELINE_STATE" decision record
 
 For each entry, in order:
 
-1. `"$RT_PIPELINE_STATE" stage-start --stage <stage>`
+1. `rt runs stage-start --stage <stage>`
 2. Read `<dir>/SKILL.md` and follow it. It carries its own domain rules
    inline and states what it consumes and produces.
-3. When it finishes, `"$RT_PIPELINE_STATE" snapshot` and confirm every
+3. When it finishes, `rt runs snapshot` and confirm every
    field in the entry's `produces` is non-null. A missing field means the
    stage did not finish: `stage-fail --stage <stage> --reason "<what>"`,
    report, stop.
-4. `"$RT_PIPELINE_STATE" stage-done --stage <stage>`
+4. `rt runs stage-done --stage <stage>`
 
 A stage failure stops the pipeline. Report which stage and that a resume
 continues from it. The run itself stays `running`; only the Close
@@ -77,7 +81,7 @@ statuses end it.
 
 Re-entering existing work with no `RT_RUN_DB` set: list
 `~/.mattstack/runs/<repo>/` (the `--repo` value above) for the newest run
-whose status is `running` -- use `"$RT_PIPELINE_STATE" snapshot` with
+whose status is `running` -- use `rt runs snapshot` with
 `RT_RUN_DB` pointed at each candidate, never raw sqlite -- confirm the
 match with the user, re-export `RT_RUN_DB`, and re-enter at
 `run.current_stage` with the snapshot's fields and decisions (a fresh
@@ -86,7 +90,7 @@ decided questions.
 
 ## Close
 
-`"$RT_PIPELINE_STATE" run-status --status done` (or `failed` /
+`rt runs run-status --status done` (or `failed` /
 `abandoned`). Never leave a finished run `running`.
 
 ## Sub-agent tiering

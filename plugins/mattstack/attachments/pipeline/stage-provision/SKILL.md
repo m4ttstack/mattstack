@@ -20,16 +20,16 @@ metadata:
 
 Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `"$RT_PIPELINE_STATE" stage-start --stage provision`
-- Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
+- First action: `rt runs stage-start --stage provision`
+- Read consumed fields with `rt runs field get <key>` before
   deriving or asking for them.
 - Write each declared produce the moment it exists:
-  `"$RT_PIPELINE_STATE" field set <key> <value> --stage provision`
-- Last action on success: `"$RT_PIPELINE_STATE" stage-done --stage provision`;
-  on failure: `"$RT_PIPELINE_STATE" stage-fail --stage provision --reason
+  `rt runs field set <key> <value> --stage provision`
+- Last action on success: `rt runs stage-done --stage provision`;
+  on failure: `rt runs stage-fail --stage provision --reason
   "<what actually failed>"` before you report it.
 
-Read `mode` with `"$RT_PIPELINE_STATE" field get mode` (unset means
+Read `mode` with `rt runs field get mode` (unset means
 `interactive`). If `mode` is `worker`, you were dispatched into a prepared
 worktree: verify `git status` runs cleanly in `$PWD`, write `worktree`
 ($PWD) and `branch` (current branch), and finish -- no detection, no
@@ -63,7 +63,7 @@ Finish by writing `branch` and `worktree` (absolute path; the checkout
 itself when no separate worktree is used).
 
 When this stage is what found or created the ticket -- not when one was
-already known coming in -- also run `"$RT_PIPELINE_STATE" field set ticket
+already known coming in -- also run `rt runs field set ticket
 <value> --stage provision`. This field is deliberately absent from
 `stage-produces` above: that list is a completeness gate ("this stage is
 not done until X exists"), and a ticketless run through this stage is a

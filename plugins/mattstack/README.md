@@ -341,7 +341,7 @@ Tests are plain scripts and `bun:test` files; there is no build step.
 ```bash
 git clone https://github.com/m4ttstack/skills mattstack-skills
 cd mattstack-skills
-bun test                              # tests/desc-test.test.ts, tests/pipeline-state.test.ts
+bun test                              # tests/desc-test.test.ts
 tests/certify.sh <skill-dir>          # certification gate for one skill
 tests/repo-purity.sh                  # whole-tree purity sweep, run bare
 plugin/tests/test-resolve-args.sh     # model-free matrix for the primitive's resolver

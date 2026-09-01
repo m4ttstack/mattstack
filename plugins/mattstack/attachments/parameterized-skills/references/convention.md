@@ -371,12 +371,12 @@ trailing same-line comments, since the strip pass is one regex per line.
 ## Stage contract v2: run state
 
 Alongside `stage-consumes`/`stage-produces`, every stage reports lifecycle
-and data to the run DB through the `pipeline-state.sh` helper. The contract:
+and data to the run DB through `rt runs`. The contract:
 
-- A compiled stage always runs under `work`, which exports `RT_RUN_DB` and
-  `RT_PIPELINE_STATE` before the first stage. There is no standalone stage
-  invocation, so the four calls below are unconditional.
-- On entry: `"$RT_PIPELINE_STATE" stage-start --stage <name>`.
+- A compiled stage always runs under `work`, which exports `RT_RUN_DB`
+  before the first stage. There is no standalone stage invocation, so the
+  four calls below are unconditional.
+- On entry: `rt runs stage-start --stage <name>`.
 - Consumed fields are read with `field get <key>` (exit 3 = absent; fall
   back to asking or deriving, exactly as consumes-resolution already
   prescribes).

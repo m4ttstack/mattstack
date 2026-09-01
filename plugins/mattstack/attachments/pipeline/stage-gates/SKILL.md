@@ -19,17 +19,17 @@ metadata:
 
 Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `"$RT_PIPELINE_STATE" stage-start --stage gates`
-- Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
+- First action: `rt runs stage-start --stage gates`
+- Read consumed fields with `rt runs field get <key>` before
   deriving or asking for them.
 - Write each declared produce the moment it exists:
-  `"$RT_PIPELINE_STATE" field set <key> <value> --stage gates`
-- Last action on success: `"$RT_PIPELINE_STATE" stage-done --stage gates`;
-  on failure: `"$RT_PIPELINE_STATE" stage-fail --stage gates --reason
+  `rt runs field set <key> <value> --stage gates`
+- Last action on success: `rt runs stage-done --stage gates`;
+  on failure: `rt runs stage-fail --stage gates --reason
   "<which gate, what it found>"` before you report it.
 
 Apply every triggered pre-implementation gate NOW, before the implement
-stage, and note which gates fired via `"$RT_PIPELINE_STATE" field set
+stage, and note which gates fired via `rt runs field set
 extra.gates <value> --stage gates` (ship-time gates run again inside the
 ship stage's domain flow; firing here does not discharge them).
 

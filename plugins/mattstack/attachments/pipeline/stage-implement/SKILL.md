@@ -17,13 +17,13 @@ metadata:
 
 Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `"$RT_PIPELINE_STATE" stage-start --stage implement`
-- Read consumed fields with `"$RT_PIPELINE_STATE" field get <key>` before
+- First action: `rt runs stage-start --stage implement`
+- Read consumed fields with `rt runs field get <key>` before
   deriving or asking for them.
 - Write each declared produce the moment it exists:
-  `"$RT_PIPELINE_STATE" field set <key> <value> --stage implement`
-- Last action on success: `"$RT_PIPELINE_STATE" stage-done --stage implement`;
-  on failure: `"$RT_PIPELINE_STATE" stage-fail --stage implement --reason
+  `rt runs field set <key> <value> --stage implement`
+- Last action on success: `rt runs stage-done --stage implement`;
+  on failure: `rt runs stage-fail --stage implement --reason
   "<what actually failed>"` before you report it.
 
 Honor `approach` exactly:
