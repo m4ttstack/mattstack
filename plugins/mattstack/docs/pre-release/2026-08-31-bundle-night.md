@@ -209,3 +209,20 @@ breaking it).
 - Local dev marketplace working copy now DIVERGES from the generator
   source (rt's marketplace/ is canonical for chat plugin); Matt should
   rule on where chat-plugin edits happen from now on.
+
+## Close-out 2026-09-01: v2.8.0 shipped
+
+The bundle night's tag #1 is out. deck 1.0.1 + board 0.1.3 dispatched real
+and merged in the morning; the publish then wedged SIX times before landing.
+Root cause, exposed only by a verbose bounded `swift package resolve` step:
+SPM's own download of Sparkle's binary-artifact zip hangs indefinitely on
+GitHub macOS runners (git resolution took seconds; curl fetches the same
+zip in 2s). Fix: Sparkle vendored through deps.lock (`sparkle-xcframework`
+row) as a local `.binaryTarget`, zero SPM network left in the build (rt
+9739e6f2). Release object verified (dmg/zip/appcast/SHA256SUMS, curated
+notes as body), rt.cool redeployed, mattstack.dev live with the download
+button resolving the release dmg. The Sparkle update leg (the walkthrough's
+one designed skip) is now provable against a real appcast on the next tag.
+The mattstack-release skill was rewritten the same day: release.yml and
+deps.lock are the record; the skill carries by-hand deltas and footguns
+only.
