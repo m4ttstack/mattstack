@@ -139,6 +139,44 @@ one phase further. All harness+product fixes committed on rt main:
    per-app identity), an interactive walkthrough leg, or a headless
    allowance in the assert phase.
 
+## Morning session (2026-09-01): the daemon was never broken by BTM
+
+The 8/10 "headless ceiling" diagnosis was WRONG, and the golden-VM
+walkthrough earned its keep: ssh'd into a kept clone and found the daemon
+had run 15 times, each killed SIGKILL "Code Signature Invalid" /
+CODESIGNING "Invalid Page" on an r-x MALLOC_SMALL region. BTM had
+auto-allowed the login item all along (the notification even says so).
+
+**Root cause: bun's JIT emits code into plain malloc'd pages (not
+MAP_JIT), which `allow-jit` does not cover.** Long-running bun binaries
+need `com.apple.security.cs.allow-unsigned-executable-memory` under the
+hardened runtime. Short invocations (version checks) never warm the JIT,
+so every smoke test passes without it — the whole `--version` smoke
+lattice is structurally blind to this class. Proven by re-signing the
+guest binary with the entitlement: 15 crash-loops → survives.
+
+Pre-release lessons this adds:
+1. **A smoke test proves launch, not life.** Every bun-compiled service
+   in the bundle (rt daemon, console, chat, deck) shares this crash
+   class; the fix went into the shared `scripts/entitlements.plist`.
+   A soak assertion (daemon still up after 30s of real work) belongs in
+   the walkthrough.
+2. **CI's clean room tolerates a dead daemon** ("not booted (expected in
+   CI)"), and the author machine runs the dev daemon from source — so
+   bundled-daemon-under-launchd had never executed anywhere before the
+   VM walkthrough. Gates that fail open hide entire subsystems.
+3. **AMFI's entitlements parser rejects a double hyphen inside XML
+   comments** where plutil says OK — a plist can lint clean and still
+   fail at codesign time.
+
+Also this morning (separate lanes, all shipped): the deck grandfather
+path removed (bundle shape must live in Contents/Helpers; register slims
+records), drawer reworked (source screen owns the dev link; Unlink out of
+the table), forge-leaderboard renamed to boxscore end to end, the
+rt apply-hang fixed (fast refusal when the app is running), welcome-screen
+copy updated, and the CLT git-stub dialog suppressed (probe gates on
+xcode-select before ever invoking git).
+
 ## Still open for the morning
 
 - deck + board real dispatches (Matt's eyeball gate).
