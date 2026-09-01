@@ -132,9 +132,71 @@ Nothing points at the stale clones: deck's live registry references only the
 canonical paths (board/console/chat via dev.workingDirectory, deck itself,
 gitq, forge-leaderboard, mattari, mantine-kit, training-plan).
 
-## Normalization actions
+## Normalization actions (full pass, executed 2026-08-31 ~22:00-22:10)
 
-(appended as performed)
+Publish order (each verified by install before moving on):
+
+1. `@mattstack/mantine-tokyo 0.2.0` published PUBLIC (0.1.2 was already
+   public; access inherited, Matt ratified keeping it).
+2. `@mattstack/app-server 0.1.1` published PRIVATE.
+3. tui-kit: `publishConfig.access` public -> **restricted** (the trap),
+   `@soribashi/core` ^0.3.0 -> ^0.4.0 (workshop's ^0.1.0 too), version
+   0.1.1; gates + typecheck green; published via a BARE `npm publish`
+   which came out restricted ... proving the publishConfig fix. tui-kit
+   8728e30.
+
+Consumers:
+
+| repo | change | verification | commit |
+| --- | --- | --- | --- |
+| board | glance ^0.20, settings-kit ^0.1.3, tui-kit ^0.1.1 | typecheck + build:client + 819 tests green | 7abf385 |
+| gitq | glance ^0.20 | 940 tests green | f20097c |
+| deck | tui-kit ^0.1.1, board assets regenerated | build:board + 727 tests green | d9ef2e4 |
+| chat | vendored tgzs -> registry (^0.1.9/^0.1.1/^0.2.0), vendor/ deleted | build green; Roster.test.tsx fails 4/4 IDENTICALLY pre- and post-swap (worktree A/B) = pre-existing | 2d79493 |
+| console | vendored -> registry incl. app-kit 0.1.7 -> 0.1.9, vendor/ deleted | typecheck + build green; clean-install A/B: committed pre-swap state failed 285 TESTS on a fresh install (stale node_modules had been masking it), post-swap fails 1-3 pre-existing | 5bcf9cd |
+| repo-tools ext rt-context | rt-client ^0.3 -> ^0.11, glance ^0.19 -> ^0.20 | builds | 3e274cb0 |
+
+### Traps for the pre-release skill (new tonight)
+
+- **Same version, different bytes**: chat's vendored app-kit-0.1.9.tgz
+  shasum != the 0.1.9 published from repo HEAD. A kit that moves without a
+  bump makes "the version matches" meaningless. The skill must diff
+  shasums, not versions, when replacing a vendored dep.
+- **Stale node_modules masks a broken committed state**: console's
+  committed state failed 285 tests on a CLEAN install. Verification must
+  run from a fresh worktree + install, never the working checkout.
+- **bun workspace version metadata sticks in bun.lock**: repo-tools'
+  packages/rt-client bumped to 0.11.0 but bun.lock still records 0.10.1
+  even after `bun install --force` (cached-manifest behavior, same as
+  board's dev-loop doc). Harmless to resolution (workspace links by dir).
+  Cure is `rm -rf node_modules bun.lock && bun install`, deliberately NOT
+  run tonight: repo-tools main is the live dev daemon's checkout and
+  yanking node_modules under it is not a 11pm move. Do it in a maintenance
+  window.
+
+### Worktree cleanup (executed)
+
+Removed 6: repo-tools-post-wt, repo-tools-rt-94 (#145 merged),
+chat-qol (prunable), purity-fix scratchpad (+branch), and after verifying
+each branch tip was EXACTLY a merged PR head (#136, #99):
+daemon-stability-audit and rt-63-68-locate. Kept: compile-native-pipeline
+(phases B/C pending) and the 5 active sibling lanes. New CLAUDE.md rule
+going forward: worktrees live in `.claude/worktrees/`, never as siblings.
+
+### End state
+
+Every internal dependency in the estate is now a registry package:
+PUBLIC rt-client 0.11.0, fast-browser alpha.15, gitq 0.2.1, settings-kit
+0.1.3, glance 0.20.0, glance-react 0.4.2, mantine-tokyo 0.2.0,
+soribashi/core 0.4.0. PRIVATE tui-kit 0.1.1, app-kit 0.1.9, app-server
+0.1.1. Zero file:/vendored internal deps outside app-kit's install-probe
+(which exists to test tarballs). All consumers on latest.
+
+Still open, deliberately: fast-browser local alpha.17 unpublished (deps.lock
+pins alpha.15; publish when fast-browser lane wants it); repo-tools lock
+metadata (above); chat Roster tests + console palette/route tests
+(pre-existing failures, owners' lanes); Renovate + changesets adoption
+(recommended, not started).
 
 ## Cross-repo release orchestration (tool assessment)
 
