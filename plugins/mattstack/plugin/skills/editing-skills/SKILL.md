@@ -9,15 +9,20 @@ Skills load from a **versioned plugin cache**
 (`<config>/plugins/cache/<marketplace>/<plugin>/<version>/`), never from the
 source repo. A source edit is invisible until you bump the plugin version,
 run the update, and restart the session. Same-commit version bumps are the
-convention (see any pack bump in git history). The update copies the whole
+convention (see any pack bump in git history). What the update puts in the
+cache differs by estate: a team pack's update copies the pack's whole
 working tree, untracked files and `.worktrees/` included, so prune stray
-worktrees before a bump.
+worktrees before a bump; the mattstack plugin's update clones the checkout's
+committed `main`, so an uncommitted edit or an untracked file never reaches
+the cache.
 
-Both estates are *directory-source* marketplaces, so a loaded skill's
+The team pack is a *directory-source* marketplace, so a loaded pack skill's
 reported base dir often points at the SOURCE path, not the cache copy. Don't
 read that as "it loads from source": the versioned cache is still what a
 fresh session loads, and the bump/update/restart rule above still applies.
-The source path in the base dir is a convenience, not the live surface.
+The source path in the base dir is a convenience, not the live surface. The
+mattstack plugin is a *url-source* entry (a `file://` URL to the checkout),
+so its base dir is the cache clone itself.
 
 ## The two estates
 
@@ -25,7 +30,7 @@ The source path in the base dir is a convenience, not the live surface.
 |---|---|---|
 | Source | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills) | `~/Documents/GitHub/mattstack-skills/plugin/skills/<name>/` (invocable), `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `pack/stubs.jsonc` + `pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
 | Manifest | `packs/acme/.claude-plugin/plugin.json` | `mattstack-skills/.claude-plugin/plugin.json` |
-| Marketplace | `name` in the teams-clone `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the teams clone itself) | `mattstack` (directory source = `~/Documents/GitHub/mattstack-marketplace`, whose `plugins/mattstack` is a SYMLINK to the mattstack-skills repo) |
+| Marketplace | `name` in the teams-clone `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the teams clone itself) | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a url source, a `file://` URL to this checkout at ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257) |
 | Update | `claude plugin update <plugin>@<marketplace>` (derive both, see below) | `claude plugin update mattstack@mattstack` |
 
 **Deriving `<plugin>@<marketplace>` for the update.** The two names are
@@ -59,9 +64,11 @@ it does gives a real-looking command that updates nothing.
    mattstack, this is step 1 of "Releasing an engine, include, or fill change" below;
    finish that section's step 2 for each compiled pack.
 5. Commit and push. For the team pack, push IS the team publish
-   (teammates' installs read the same repo). For mattstack, push is
-   backup/other-machines; the local symlink makes the update work even
-   before pushing.
+   (teammates' installs read the same repo). For mattstack, the commit on
+   `main` is what the update clones, so it is required; push is
+   backup/other-machines. To try an uncommitted edit for one session
+   without touching the cache: `claude --plugin-dir
+   ~/Documents/GitHub/mattstack-skills`.
 6. **Update the plugin cache**: `claude plugin update <plugin>@<marketplace>`.
    cswap users first run `readlink ~/.claude-swap-backup/sessions/*/plugins`.
    Every line `~/.claude/plugins` = one shared cache, and that one update
