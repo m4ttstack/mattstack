@@ -1,12 +1,10 @@
 # herdr-chat
 
 A [herdr](https://github.com/herdrdev/herdr) plugin that brings `rt chat` to
-where the agents actually live: the panes. It does not reimplement the chat
-viewer. Its job is the half the web viewer structurally can't do... touching
-panes.
-
-**The boundary:** _act / glance / jump_ live here; _read / compose_ stay in
-the chat viewer. When you want to read, the plugin hands off.
+where the agents actually live: the panes. Broadcast a message into a
+selection of panes, glance at who's online and what's unread, jump from a
+chat mention straight to that agent's pane, and hand off to the web viewer
+when you want to read the full conversation.
 
 Built in Rust with ratatui, themed to match herdr.
 
