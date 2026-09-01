@@ -114,16 +114,38 @@ one phase further. All harness+product fixes committed on rt main:
    choose. RULING (`50881408`, TDD'd): exactly one profile whose key
    equals this machine's hostname slug auto-adopts; anything else still
    refuses. This also fixes the retry-after-partial-install trap.
-5. The fix ships INSIDE rt in the DMG → release dry run #4 (33473738271)
-   builds the new DMG; final walkthrough follows it.
+5. The fix ships INSIDE rt in the DMG → release dry run #4 (33473738271,
+   green in 12 min on warm caches) → ci84 DMG.
+6. ci84 walkthrough: profile adopt worked; next wall was the ssh session's
+   LOCKED login keychain (age-key store failed). Harness fix: unlock the
+   tester keychain before the recipe — real installs run in a GUI session
+   where it's already unlocked.
+7. **PRODUCT GAP found (morning ticket material): setup app-needs ride the
+   app's own stdout pipe.** A standalone `rt setup apply`/`--post-install`
+   with the app RUNNING waits ~10 min at services.register then dies — the
+   running app never learns about the need (only an app-DRIVEN apply
+   services them; app ABSENT degrades gracefully, which is why CI passes).
+   Fix direction: deliver needs via tray.sock POST too. Harness works
+   around it: quit the app for the recipe, relaunch for asserts.
+8. **FINAL: 8/10 phases green (run 20260901-005726).** The screens phase —
+   the full 21-step post-install + `rt verify --ci` "all critical checks
+   passed" + daemon install — ran GREEN inside the VM: Gatekeeper accept,
+   headless CLT install, home init with fallback identity + profile adopt,
+   tools linked (rt, fast-browser, gitq), services degrade, verify.
+   The 2 remaining assert failures share one root that headless cannot
+   clear: the daemon's Login Items (BTM) approval is a human click, so
+   plain `rt verify` and the daemon-running probe fail by design in a
+   fresh VM. Options for later: golden-side BTM pre-approval (hard:
+   per-app identity), an interactive walkthrough leg, or a headless
+   allowance in the assert phase.
 
 ## Still open for the morning
 
 - deck + board real dispatches (Matt's eyeball gate).
 - Walkthrough result (or its failure log) — see the session report.
 - console manifest port 11001 vs server code 11011 drift (unfixed, noted).
-- `lib/setup/steps/deck.ts` hardcoded app list + no author gate (known,
-  unfixed).
+- `lib/setup/steps/deck.ts`: list is hardcoded but now covers all four
+  apps (verified tonight); the no-author-gate concern stands.
 - release.yml still grandfathered from actionlint (style findings only).
 - Local dev marketplace working copy now DIVERGES from the generator
   source (rt's marketplace/ is canonical for chat plugin); Matt should
