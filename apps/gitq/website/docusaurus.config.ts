@@ -6,11 +6,11 @@ const config: Config = {
   title: "gitq",
   tagline: "A deterministic stacked branch engine and CLI for git",
   favicon: "img/favicon.svg",
-  url: "https://m4ttheweric.github.io",
+  url: "https://m4ttstack.github.io",
   // "/gitq/" is the GitHub Pages project-site path. The local service builds
   // with DOCS_BASE_URL=/ because it serves the site at its own domain root.
   baseUrl: process.env.DOCS_BASE_URL ?? "/gitq/",
-  organizationName: "m4ttheweric",
+  organizationName: "m4ttstack",
   projectName: "gitq",
   trailingSlash: false,
   onBrokenLinks: "throw",
@@ -30,7 +30,7 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/m4ttheweric/gitq/tree/main/website/",
+          editUrl: "https://github.com/m4ttstack/gitq/tree/main/website/",
         },
         blog: false,
         theme: { customCss: "./src/css/custom.css" },
@@ -42,7 +42,7 @@ const config: Config = {
       title: "gitq",
       items: [
         {
-          href: "https://github.com/m4ttheweric/gitq",
+          href: "https://github.com/m4ttstack/gitq",
           label: "GitHub",
           position: "right",
         },

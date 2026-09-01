@@ -5,20 +5,19 @@ sidebar_position: 1
 
 # Install
 
-gitq runs on [Bun](https://bun.sh). There is no compiled binary and no npm package: you clone the repo, install its dependencies, and link the checkout onto your `PATH`.
-
-## Clone and link
-
 ```bash
-git clone https://github.com/m4ttheweric/gitq.git
-cd gitq
-bun install
-bun link
+npm install -g @mattstack/gitq
 ```
 
-`bun link` registers this checkout as the package `gitq` and puts a `gitq` executable on your `PATH`. That executable is `bin/gitq` from the checkout (the `bin` field in `package.json` maps `gitq` to `bin/gitq`), and `bin/gitq` starts with `#!/usr/bin/env bun`, so Bun has to stay installed and on your `PATH` too.
+That puts a `gitq` binary on your `PATH`. It runs on plain Node 20 or later; you do not need [Bun](https://bun.sh) to use the CLI.
 
-Because the link points at the checkout rather than at a copy, updating gitq is just `git pull` in the clone. Nothing to relink, but re-run `bun install` if the pulled commit changed dependencies.
+Or run it without installing:
+
+```bash
+npx @mattstack/gitq stacks
+```
+
+Bun is needed only for the board (`gitq board`), which the npm-installed CLI ships without, and for building gitq from source. See [Build from source](#build-from-source).
 
 ## Confirm it works
 
@@ -33,12 +32,32 @@ gitq stacks
 no stacks
 ```
 
-If you get `command not found`, `bun link` did not land: check that Bun's global bin directory (`~/.bun/bin` by default) is on your `PATH`.
+If you get `command not found`, check that npm's global bin directory is on your `PATH` (`npm config get prefix` shows where npm installs global binaries).
 
 Every command also takes `-C <path>` to run as if invoked from somewhere else, so you can check a repo without leaving the one you are in:
 
 ```bash
 gitq stacks -C ~/some/other/repo
+```
+
+## Build from source
+
+For working on gitq itself, or to run the board (`gitq board`), clone the repo and link it onto your `PATH` with [Bun](https://bun.sh):
+
+```bash
+git clone https://github.com/m4ttstack/gitq.git
+cd gitq
+bun install
+bun run build
+bun link
+```
+
+`bun link` puts this checkout's `gitq` on your `PATH` through the package's `bin` entry, `bin/gitq.mjs`, which loads the built bundle at `dist/gitq.js`. That is why `bun run build` comes first, and why it has to run again after a source change.
+
+To skip the build loop while developing, run the TypeScript sources straight from the checkout instead:
+
+```bash
+bun bin/gitq stacks
 ```
 
 ## Where state lives
