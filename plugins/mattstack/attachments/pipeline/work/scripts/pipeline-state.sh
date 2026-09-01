@@ -224,12 +224,18 @@ case "$cmd" in
     STAGE=$(flag --stage "$@" x); [ -n "$STAGE" ] || json_fail "$cmd needs --stage" 2
     [ "$cmd" = "stage-done" ] && ST=done || ST=failed
     REASON=$(flag --reason "$@" x); DETAIL=$(flag --detail-path "$@" x)
-    db_exec "
+    # A zero-row update means stage-start never landed (skipped, or refused
+    # by the caller's shell guard); answering ok there leaves a run with no
+    # row for the stage and nothing to tell the agent to retry.
+    out=$(sqlite3 "$RT_RUN_DB" "PRAGMA busy_timeout=5000;
       UPDATE stages SET status='$ST', ended_at=$(now_ms),
         reason=$( [ -n "$REASON" ] && printf "'%s'" "$(esc "$REASON")" || printf NULL ),
         detail_path=$( [ -n "$DETAIL" ] && printf "'%s'" "$(esc "$DETAIL")" || printf NULL )
       WHERE name='$(esc "$STAGE")'
-        AND attempt=(SELECT MAX(attempt) FROM stages WHERE name='$(esc "$STAGE")');"
+        AND attempt=(SELECT MAX(attempt) FROM stages WHERE name='$(esc "$STAGE")');
+      SELECT changes();") || json_fail "sqlite write failed" 1
+    changed=$(printf %s "$out" | tail -n 1)
+    [ "$changed" = "0" ] && json_fail "stage never started: $STAGE" 3
     emit_update "$cmd" "$STAGE"
     printf '{"ok":true}\n'
     ;;

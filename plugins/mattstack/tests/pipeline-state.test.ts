@@ -99,6 +99,23 @@ describe("stages, fields, decisions", () => {
     expect(snap.stages.map((s: any) => [s.attempt, s.status])).toEqual([[1, "done"], [2, "running"]]);
   });
 
+  test("stage-done on a stage that was never started fails with exit 3 instead of reporting ok", () => {
+    const { env } = started();
+    const r = runState(["stage-done", "--stage", "plan"], env);
+    expect(r.code).toBe(3);
+    expect(r.out.ok).toBe(false);
+    expect(r.out.error).toContain("plan");
+    expect(runState(["snapshot"], env).out.stages).toEqual([]);
+  });
+
+  test("stage-fail on a stage that was never started fails the same way", () => {
+    const { env } = started();
+    const r = runState(["stage-fail", "--stage", "gates", "--reason", "boom"], env);
+    expect(r.code).toBe(3);
+    expect(r.out.ok).toBe(false);
+    expect(runState(["snapshot"], env).out.stages).toEqual([]);
+  });
+
   test("field set/get round-trips values with single quotes; missing key exits 3", () => {
     const { env } = started();
     expect(runState(["field", "set", "mr-url", "https://x/1?a='b'", "--stage", "ship"], env).out.ok).toBe(true);
