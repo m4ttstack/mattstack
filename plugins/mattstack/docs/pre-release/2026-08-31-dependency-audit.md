@@ -121,11 +121,12 @@ Active, keep: repo-tools-chat-invite, repo-tools-chat-qol,
 repo-tools-rt-runner, repo-tools-tab-desc, deck-push-to-remote (deck-24,
 active tonight), console-cfg (config-lens SDD).
 
-NOT worktrees but stale-named FULL CLONES, each holding real unpushed work,
-do NOT delete without triage:
-- `mr-board/` (pre-rename clone of board): 12 local branches, 14 unpushed commits
-- `local-apps/` (pre-rename clone of deck): 13 local branches, 1 unpushed commit
-- `console-archive/`: 1.2 years idle, 21 dirty files, branch "my-last-commit"
+`mr-board` and `local-apps` looked like stale full clones in the first pass
+but are SYMLINKS to board and deck (old-name compat, kept deliberately). The
+"unpushed" counts were the canonical repos' own local branches. Audit lesson:
+check `ls -la` before classifying a directory as a clone.
+- `console-archive/` is a real directory: 1.2 years idle, 21 dirty files,
+  branch "my-last-commit"; left alone pending Matt.
 
 Nothing points at the stale clones: deck's live registry references only the
 canonical paths (board/console/chat via dev.workingDirectory, deck itself,
