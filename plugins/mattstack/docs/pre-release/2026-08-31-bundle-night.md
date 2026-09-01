@@ -91,6 +91,32 @@ investigations, reported via DM).
 - Console real dispatch was classifier-blocked until Matt's standing
   authorization; dispatches then went via `gh api ...(dispatches)`.
 
+## Walkthrough saga (00:00-00:35, after the ledger above)
+
+The golden-VM walkthrough ran 5 times against the ci83 DMG; each run got
+one phase further. All harness+product fixes committed on rt main:
+
+1. Boot failed: ssh key drift — the golden trusts a key regenerated later
+   in vm/.cache (goldens are never re-provisioned). Fix `696223ab` +
+   `35d922f8`: the walkthrough re-trusts the current key in the CLONE via
+   the admin password bootstrap, for tester AND admin. Goldens stay
+   unbooted. (--no-graphics was a red-herring first hypothesis; the retry
+   with graphics failed identically.)
+2. Install+launch+tray asserts then PASSED: Gatekeeper accepts the
+   notarized ci83 DMG in the VM, tray answers /version, daemon registers.
+3. Headless recipe hit the gitless golden's tool.clt block — the parked
+   "full-green" scenario. Fix `35d922f8`+: walkthrough now drives
+   `rt tools install apple-clt` (as admin) before the cleanroom.
+   **PROVEN: "installed Command Line Tools for Xcode 26.6-26.6 headlessly
+   — git 2.50.1"** — the first time the full gitless-Mac journey ran.
+4. Next blocker: home.init found a lone machine profile (created by the
+   app's own launch moments earlier) and non-interactive init refused to
+   choose. RULING (`50881408`, TDD'd): exactly one profile whose key
+   equals this machine's hostname slug auto-adopts; anything else still
+   refuses. This also fixes the retry-after-partial-install trap.
+5. The fix ships INSIDE rt in the DMG → release dry run #4 (33473738271)
+   builds the new DMG; final walkthrough follows it.
+
 ## Still open for the morning
 
 - deck + board real dispatches (Matt's eyeball gate).
