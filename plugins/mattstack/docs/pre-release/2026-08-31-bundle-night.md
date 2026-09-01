@@ -177,6 +177,27 @@ rt apply-hang fixed (fast refusal when the app is running), welcome-screen
 copy updated, and the CLT git-stub dialog suppressed (probe gates on
 xcode-select before ever invoking git).
 
+## FULLY GREEN (2026-09-01 10:21): 9 passed, 0 failed, 1 skipped
+
+Walkthrough run 20260901-101853 on ci87: the whole gitless-Mac journey —
+Gatekeeper, install, launch, headless CLT, 21-step post-install, daemon
+ALIVE under launchd, verify --ci, all asserts. The one skip is the Sparkle
+update leg (needs a first published release; unproven by design until
+tag #1). The morning's chain to get here, each proven by the next run:
+
+1. bun-JIT entitlement (allow-unsigned-executable-memory) + check-bundle
+   contract flipped to require-it-with-jit (rt 54fb5de7 + follow-up).
+2. Second git-stub dialog source: home-git.ts (the tray polls setup
+   status from launch, whose rt-health rows probe the home repo with
+   git). Now gated on xcode-select, positive-only cache (387f1745).
+3. VM assert holds rt to the --ci verify contract; the daemon stays
+   strictly asserted via launchctl (harness).
+
+Also fixed on ida's morning flag: chat/console CI npm auth (NPM_READ_TOKEN
+secret + npmrc step, the bundle-apps pattern), and app-kit's probe now
+repoints its vendor refs at freshly packed tarballs (version bumps stop
+breaking it).
+
 ## Still open for the morning
 
 - deck + board real dispatches (Matt's eyeball gate).
