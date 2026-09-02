@@ -92,6 +92,15 @@ While watching, refresh each poll round with
 `ci-attendant.sh release <mr-url> <iid>` when done. A crashed session
 needs no cleanup: staleness handles it.
 
+## Where the scripts live
+
+The engine's watcher, triage, and attendant scripts are vendored inside
+this compiled skill's own directory, and the forge adapter beside them. In
+the commands below, `<scripts>` is `${CLAUDE_SKILL_DIR}/scripts` and
+`<forge>` is `${CLAUDE_SKILL_DIR}/parts/forge/scripts/ci-forge.sh`. Nothing
+is derived from a plugin install; the paths are the ones written into this
+text.
+
 ## Domain rules
 
 {{slot:domain}}
