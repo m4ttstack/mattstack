@@ -67,19 +67,36 @@ flow for the target MR and branch.
 
 **Forge rules above non-empty (domain rules above empty):** launch
 `${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh --forge ${CLAUDE_SKILL_DIR}/parts/forge/scripts/ci-forge.sh --ref <branch> --timeout 2700`
-as a background task and react to its exit code: 0 = green. 1 = read the
-triage report it printed; retry each INFRA-verdict blocking failure once
-with the retry command the report prints and relaunch the watcher; stop
-for the user on any REAL blocking failure. 2 = the pipeline outran the
-timeout: relaunch the watcher once, then report the timeout and stop.
-4 = no pipeline ever appeared: verify the branch was pushed, then stop
-for the user.
+as a background task and react to its exit code: 0 = green, on to the
+verdict below. 1 = read the triage report it printed; retry each
+INFRA-verdict blocking failure once with the retry command the report
+prints and relaunch the watcher; any REAL blocking failure is the `ci`
+gate below. 2 = the pipeline outran the timeout: relaunch the watcher
+once, then the `ci` gate. 4 = no pipeline ever appeared: verify the branch
+was pushed, then the `ci` gate.
 
 **Neither section above has content:** poll the forge CLI (`gh pr checks
 <mr> --watch` or `glab ci status --live`) until the pipeline settles.
 Green: done. Red: read the failing job log, classify REAL (the change
-broke it) vs INFRA/flake (unrelated, retry once), report the
-classification, and stop for the user on any REAL failure.
+broke it) vs INFRA/flake (unrelated, retry once); any REAL failure is the
+`ci` gate below.
 
-Finish by reporting the verdict: green, or red with a one-line triage
-per blocking failure and what you did about it.
+## Verdict
+
+Green: one sentence, the verdict, then stop. Any other outcome is gate
+`ci`:
+
+- When `RT_RUN_DB` is set: `rt runs field set gate ci:<run.current_stage>:<attempt> --stage <run.current_stage>`.
+- One sentence: the verdict and the one-line triage per blocking failure.
+- The form: **Fix and re-push** (recommended for a REAL failure in the
+  change) / **Retry the job** / **Hand back**; **Iterate here**; **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope ci:<stage>:<attempt> --selection '{"next":"fix|retry|handback|iterate|hold","note":"<their words or null>"}' --decided-by watch-ci`.
+
+A watch-ci invoked from inside another verb (a ship flow) inherits that
+run, uses `run.current_stage` as its stage, fires no gate beyond `ci`,
+writes no `stage-done` and no `run-status`, and hands control back with
+the verdict.
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}

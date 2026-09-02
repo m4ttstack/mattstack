@@ -41,6 +41,13 @@ When nothing is inlined above, follow the generic path below.
 
 {{slot:forge}}
 
+## Where the scripts live
+
+The engine's watcher, triage, and attendant scripts are vendored inside
+this compiled skill's own directory (`scripts/`), and the forge adapter at
+`{{stage.dir}}/parts/forge/scripts/ci-forge.sh`. Nothing is derived from a
+plugin install; the paths are the ones written into this text.
+
 ## The attendant lease (before any watching, when `mr` is set)
 
 Exactly one actor attends an MR's CI at a time: this stage, or the
@@ -77,20 +84,53 @@ Then the first branch that matches:
 
 **Forge bound (no domain rules above):** launch
 `${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh --forge {{stage.dir}}/parts/forge/scripts/ci-forge.sh --ref <branch> --timeout 2700`
-as a background task and react to its exit code: 0 = green. 1 = read the
-triage report it printed; retry each INFRA-verdict blocking failure once
-with the retry command the report prints and relaunch the watcher; stop
-for the user on any REAL blocking failure. 2 = the pipeline outran the
-timeout: relaunch the watcher once, then report the timeout and stop.
-4 = no pipeline ever appeared: verify the branch was pushed, then stop
-for the user.
+as a background task and react to its exit code: 0 = green, on to the
+mark-ready gate below. 1 = read the triage report it printed; retry each
+INFRA-verdict blocking failure once with the retry command the report
+prints and relaunch the watcher; any REAL blocking failure is the `ci`
+gate below. 2 = the pipeline outran the timeout: relaunch the watcher
+once, then the `ci` gate. 4 = no pipeline ever appeared: verify the branch
+was pushed, then the `ci` gate.
 
 **Neither bound:** poll the forge CLI (`gh pr checks <mr> --watch` or
 `glab ci status --live`) until the pipeline settles. Green: done. Red:
 read the failing job log, classify REAL (the change broke it) vs
-INFRA/flake (unrelated, retry once), report the classification, and stop
-for the user on any REAL failure.
+INFRA/flake (unrelated, retry once); any REAL failure is the `ci` gate
+below.
 
-Finish by writing `ci` (`green`, or `red: <one-line triage>`). (The
-exit-2 and exit-4 stops write no `ci`: the stage is not done until a
-verdict exists.)
+## Gate `ci` (red, timeout, or no pipeline)
+
+- `rt runs field set gate ci:watch-ci:<attempt> --stage watch-ci`
+- One sentence: the verdict and the one-line triage per blocking failure.
+- The form: **Fix and re-push** (recommended for a REAL failure in your
+  change) / **Retry the job** (for a flake the report did not already
+  retry) / **Hand back** (leave it red for the human) / **Abandon the
+  run**; **Iterate here**; **Go back to `<stage>`**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope ci:watch-ci:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-watch-ci`
+- Fix: write no `ci`; hand control back to the orchestrator with one
+  sentence naming the answer, and it redirects to `implement` with the
+  triage as the reason (the work engine's `## Redirect`; the gate answer
+  is what names the stage). Retry: the report's retry command, relaunch
+  the watcher. Hand back: write `ci` as `red: <triage>` and `stage-done`.
+  Abandon: `rt runs run-status --status abandoned`, `unset RT_RUN_DB`.
+
+## Gate `mark-ready` (green, `mr` set, MR still a draft)
+
+- `rt runs field set gate mark-ready --stage watch-ci`
+- One sentence: CI is green for the MR's head; `evidence` is set (or is
+  `-`).
+- The form: **Mark ready now** (recommended when `evidence` is set and not
+  `-`) / **Keep it draft**; **Iterate here**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false}' --decided-by stage-watch-ci`
+- Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
+  `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
+  anything else is a `clarify` gate).
+
+Finish by writing `ci` (`green`, or `red: <one-line triage>` when the
+human handed it back). The exit-2 and exit-4 paths write no `ci` until
+the gate's answer produces a verdict: the stage is not done until one
+exists.
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
