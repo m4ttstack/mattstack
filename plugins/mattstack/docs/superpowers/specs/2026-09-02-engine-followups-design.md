@@ -10,7 +10,7 @@ Facts: the pipeline runs provision, plan, gates, evidence, implement, self-revie
 
 Changes:
 - Replace "The ship stage attaches; it never captures." with: "This stage captures the BEFORE. The ship stage attaches the pair, and where the bound ship domain captures an AFTER it does so there."
-- `## Gate evidence-attach`: the condition becomes "when the domain rules attach here and an MR already exists for the branch"; the form's options become **Hand back the markdown** (recommended; the ship stage attaches) / **Attach to the MR now** (only when an MR exists); Iterate here; Hold. The selection stays `{"annotations":[...],"attach":"now|handback"}`.
+- `## Gate evidence-attach`: the condition becomes "when the domain rules attach here and an MR already exists for the branch"; the form's options become **Hand back the markdown** (recommended; the ship stage attaches) / **Attach to the MR now**; Iterate here; Hold. The selection stays `{"annotations":[...],"attach":"now|handback"}`.
 
 ## 2. Gate wording that assumes layout (E2)
 
@@ -18,37 +18,40 @@ Changes:
 
 ## 3. Standing options on every gate form (E4)
 
-The contract names Iterate here and Hold on every gate form, and Go back to `<stage>` when `snapshot` shows an earlier stage row. Some forms omit them and their selection JSON cannot record them.
+The contract names Iterate here and Hold on every stage or verb gate form, and Go back to `<stage>` when `snapshot` shows an earlier stage row. Some forms omit them and their selection JSON cannot record them.
+
+The recording pattern already in use (work's failure and close gates, stage-watch-ci's `ci` gate) is the rule: every gate's selection JSON carries `next`, a gate-specific enum that always includes `iterate` and `hold`, plus `redirect` with `to` wherever Go back is offered, and `note` (their free text, or null). Gates whose selection lacks `next` today gain it beside their own keys; gates that have it keep their enum and add the missing values. Convention section "Stage contract v3" gains one paragraph saying so, and one more: `clarify` forms carry their candidates, optionally their text, and Hold; they do not offer Iterate here (the free-text candidate plays that role) or Go back.
+
+On a Go back answer at a stage gate the stage hands control back to the orchestrator with one sentence naming the answer, and the orchestrator runs `## Redirect`, exactly as the `ci` gate's Fix answer does today; no stage runs Redirect itself.
 
 Changes:
-- A selection envelope: every gate's selection JSON gains `"next"`: `"proceed"` (the gate's own answer applies), `"iterate"` (their text in `"note"`), `"hold"`, or `"back:<stage>"`. Convention section "Stage contract v3" gains one paragraph defining it; existing gates keep their own keys beside it.
-- stage-plan `plan` gate: add **Go back to provision**; selection adds `next` and `note`.
-- `mark-ready` gate (stage-watch-ci and the standalone ship engine): add **Go back to `<stage>`** (in the pipeline every earlier stage has a row); selection adds `next`.
-- rebase-worktree `conflict` and `push` forms: add **Iterate here**; selections add `next`/`note`.
-- receive-review `verdicts` form: **Edit these** becomes the standing **Iterate here** (their text names the threads and the change); selection enum `approve|iterate|redo|hold`, with `note`.
+- stage-plan `plan` gate: add **Go back to `<stage>`** (one option per earlier stage row); selection becomes `{"tier":..., "failing_test":..., "domain":{...}, "next":"proceed|iterate|redirect|hold", "to":"<stage or null>", "note":"<their words or null>"}`.
+- every `mark-ready` gate (stage-watch-ci, the standalone ship engine, and watch-ci's own-run gate from plan 3): add **Go back to `<stage>`** where earlier stage rows exist; selection becomes `{"ready":true|false, "next":"proceed|iterate|redirect|hold", "to":..., "note":...}`.
+- rebase-worktree `conflict` form: add **Iterate here**; enum `leave|abort|iterate|hold`, plus `note`. `push` form: add **Iterate here**; selection becomes `{"push":true|false, "next":"proceed|iterate|hold", "note":...}`.
+- receive-review `verdicts` form: **Edit these** becomes the standing **Iterate here** (their text names the threads and the change); enum `approve|iterate|redo|hold`, plus `note`.
 
 ## 4. Prose asks in engine text (E5)
 
 Each becomes the contract's form. Outside a run the form alone is the gate; inside a run the scope is `clarify` unless a named gate exists.
-- forge/checkout: "ask the user which branch they mean" becomes gate `clarify`: one sentence naming the candidates, then the structured-question tool with the candidates and their text.
-- pipeline/work Resume: "confirm the match with the user" becomes the Resume form plan 3 defines for standalone verbs: gate `clarify`, **Resume it** (recommended) / **Start fresh**.
+- forge/checkout: "ask the user which branch they mean" becomes gate `clarify`: one sentence naming the candidates, then the structured-question tool with the candidates, their text, and Hold.
+- pipeline/work Resume: "confirm the match with the user" becomes the Resume form plan 3 defines for standalone verbs: gate `clarify`, **Resume it** (recommended) / **Start fresh**; Hold. The work engine's sections are `## 3. Start the run` and `## Resume`; the change lands in `## Resume`.
 - pipeline/work "stop, and tell the user to update rt": stays prose. No run exists yet, so no gate applies; it is an error report, not a decision.
 - forge/rebase-worktree "Dirty: stop and tell the user what's uncommitted": becomes a form: one sentence listing the paths, then **I committed them, retry** / **Abort**; Hold. Under a run, scope `clarify`. The rule "never `git stash` and proceed" stays.
-- orchestration/shepherdr "ask whether to let running agents finish or kill them": becomes one sentence plus the structured-question tool: **Let them finish** (recommended) / **Kill and respawn with the new briefs**.
+- orchestration/shepherdr "ask whether to let running agents finish or kill them": becomes one sentence plus the structured-question tool: **Let them finish** (recommended) / **Kill and respawn with the new briefs**; Hold.
 - review/receive-review: "wait for their own explicit approval" becomes "each waits for its gate's answer"; the section 5 heading "(after explicit approval)" becomes "(on the `post` gate's answer)"; the table row "Post only on explicit go-ahead" becomes "Post only what the `post` gate selected".
 - review-core-body "the developer can raise or lower it": becomes "a different tier is an Iterate here answer at the next gate".
-- review/self-review `clarify` gate: add the two `rt runs` lines review's clarify gate has (`rt runs field set gate clarify --stage <stage>` before the form; `rt runs decision record --contract gate@1 --scope clarify --selection '{"source":"<picked>"}' --decided-by self-review` after).
+- review/self-review `clarify` gate: add the two `rt runs` lines review's clarify gate has (`rt runs field set gate clarify --stage <stage>` before the form; `rt runs decision record --contract gate@1 --scope clarify --selection '{"source":"<picked>"}' --decided-by self-review` after), with `<stage>` in the form the file uses after plan 3 (its Run section defines it).
 
 ## 5. Sibling verbs named as `mattstack:` skills (E7)
 
 forge/checkout-and-open names `mattstack:checkout`; forge/sync-open-mrs names `mattstack:map-open-mrs`, `mattstack:rebase-worktree`, `mattstack:watch-ci`. None is a registered skill; in a compiled pack they are sibling compiled verbs whose path depends on the pack's surface (internal: `../<name>/SKILL.md`; public: `../../skills/<name>/SKILL.md`).
 
-Changes, engine side, until the compiler can render the path: internal siblings become "the pack's compiled `checkout` verb (`../checkout/SKILL.md`, relative to this file)" and "the pack's compiled `map-open-mrs` verb (`../map-open-mrs/SKILL.md`)"; public verbs become "the pack's compiled `rebase-worktree` verb (invoke it by its pack-qualified skill name)" and the same for `watch-ci`. rt follow-up: a `{{verb.path:<name>}}` placeholder that renders the relative path from the current output file using the surface (layout.ts already computes the side).
+Changes, engine side, until the compiler can render the path: internal siblings become "the pack's compiled `checkout` verb (`../checkout/SKILL.md`, relative to this file)" and "the pack's compiled `map-open-mrs` verb (`../map-open-mrs/SKILL.md`)"; public verbs become "the pack's compiled `rebase-worktree` verb (invoke it by its pack-qualified skill name)" and the same for `watch-ci`. The engine sentence states its assumption in a parenthetical: "(when the pack compiles both on the same side; a different surface changes the path)". rt follow-up: a `{{verb.path:<name>}}` placeholder that renders the relative path from the current output file using the surface (layout.ts already computes the side).
 
 ## 6. Compiler-facing text (E9, E10)
 
 - review-posting's description drops "Nothing in this repo binds it; callers reach it by reading this file." (source-repo prose in compiled frontmatter).
-- stage-watch-ci's `## Where the scripts live` becomes the single owner of the `<scripts>` and `<forge>` definitions: it names the vendored `scripts/` directory and `parts/forge/scripts/ci-forge.sh` and defines both placeholders for the commands that follow. Pack side (team pack release): the watch-ci domain fill drops its own copy of that section.
+- `## Where the scripts live` becomes the single owner of the `<scripts>` and `<forge>` definitions, placed directly above `## Domain rules` in both engines that bind the watch-ci domain fill: stage-watch-ci (move its existing section up from below the slot) and the standalone watch-ci engine (add the section; today it has none and the fill is the only definition). The section names the vendored `scripts/` directory and `parts/forge/scripts/ci-forge.sh` and defines both placeholders for the commands that follow. Pack side (team pack release, after this lands): the watch-ci domain fill drops its own copy of that section.
 
 ## 7. Redirect leaves the abandoned stage row running (R1)
 
@@ -60,12 +63,13 @@ Claude Code's Bash tool runs each call in a fresh shell; the live run prefixed e
 
 Changes:
 - convention.md "Stage contract v3": one paragraph: "Each tool call is a fresh shell. Keep `RT_RUN_DB` in the run's prose (the `runDb` from `run-start`) and prefix every `rt runs` command with `RT_RUN_DB=<path>`; `export` and `unset` remain the contract's markers for the run's start and end, not a persistence mechanism."
-- pipeline/work Run section and plan 3's shared Run section: the `export` line gains the same sentence in one line.
+- pipeline/work `## 3. Start the run` (its `export RT_RUN_DB` line) and `## Resume` (its "re-export `RT_RUN_DB`"), and plan 3's shared Run section in the six standalone verbs: each `export` line gains the same sentence in one line.
 - rt follow-up (design, stan): `rt runs` verbs default `RT_RUN_DB` from the running run whose `claude-session` matches the calling session when the harness exposes it, else from the newest running run whose `worktree` field contains the cwd.
 
 ## 9. Left as is, with reasons
 
 - E8 empty `## Reviewer` and `## Domain rules` headings above unbound slots: the paragraph after each explains the emptiness. rt follow-up: the compiler drops a heading whose slot renders empty.
+- E11 stage-watch-ci's frontmatter `allowed-tools` name `${CLAUDE_SKILL_DIR}/scripts/...`, which does not exist in the pipeline host: harmless, the orchestrator's frontmatter carries the leading-wildcard forms and a stage's frontmatter is not loaded when the orchestrator reads the file. Left as is.
 - E12 stage-ship's unbound generic fallback ("Never force-push"): scoped to the unbound path; a bound domain's rules replace it.
 - E6 (compiler): `${CLAUDE_SKILL_DIR}` in an included body is rewritten to the vendored parts dir for stage-compiled outputs but not for attachment-compiled verbs (receive-review, self-review), so `parts/include-review-dispatch-body-after/references/adjudicator.md` is unreachable when a board wrapper loads the file. Reported to stan 2026-09-02; no engine change.
 
