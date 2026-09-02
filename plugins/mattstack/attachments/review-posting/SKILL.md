@@ -26,8 +26,7 @@ ends. This skill owns those decisions, not the judgment behind the draft.
   forge CLI mechanics.
 - **Callers:** a domain adapter's teammate-review skill (the harvest
   `review` skill, after its thinning pass), or any session holding an
-  engine draft and a postable target. Nothing in this repo binds it;
-  callers reach it by reading this file.
+  engine draft and a postable target.
 
 ## The two gates
 
