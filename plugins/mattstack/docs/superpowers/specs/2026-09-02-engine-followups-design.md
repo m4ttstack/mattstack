@@ -20,11 +20,12 @@ Changes:
 
 The contract names Iterate here and Hold on every stage or verb gate form, and Go back to `<stage>` when `snapshot` shows an earlier stage row. Some forms omit them and their selection JSON cannot record them.
 
-The recording pattern already in use (work's failure and close gates, stage-watch-ci's `ci` gate) is the rule: every gate's selection JSON carries `next`, a gate-specific enum that always includes `iterate` and `hold`, plus `redirect` with `to` wherever Go back is offered, and `note` (their free text, or null). Gates whose selection lacks `next` today gain it beside their own keys; gates that have it keep their enum and add the missing values. Convention section "Stage contract v3" gains one paragraph saying so, and one more: `clarify` forms carry their candidates, optionally their text, and Hold; they do not offer Iterate here (the free-text candidate plays that role) or Go back.
+The recording pattern already in use (work's failure and close gates, stage-watch-ci's `ci` gate) is the rule for every form this spec touches: the selection JSON carries `next`, a gate-specific enum that always includes `iterate` and `hold`, plus `redirect` with `to` wherever Go back is offered, and `note` (their free text, or null). Gates that have `next` keep their enum and add the missing values; the five forms listed under Changes gain it beside their own keys. Every other gate (`provision`, `evidence`, `evidence-attach`, sync-open-mrs `sweep` and `push`, receive-review `fixes` and `post`, self-review's `self-review`, the standalone ship engine's `ship`) keeps its current selection in this release; their forms already carry the standing options, and the envelope reaches them in a later pass. Convention section "Stage contract v3" gains one paragraph stating the pattern, and one more on `clarify`: a `clarify` form carries its candidates, optionally their text, and Hold; it does not offer Iterate here (the free-text candidate plays that role) or Go back. Hold on any form: one sentence, end the turn; under a run also record `hold:<stage>:<attempt>` and `rt runs field set hold "<their words>" --stage <stage>`; outside a run nothing is recorded.
 
 On a Go back answer at a stage gate the stage hands control back to the orchestrator with one sentence naming the answer, and the orchestrator runs `## Redirect`, exactly as the `ci` gate's Fix answer does today; no stage runs Redirect itself.
 
 Changes:
+- stage-ship `ship` gate: its form already offers **Go back to `<stage>`** with nowhere to record it; selection becomes `{"dirty":..., "open_as":..., "domain":{...}, "next":"proceed|iterate|redirect|hold|abort", "to":"<stage or null>", "note":"<their words or null>"}`.
 - stage-plan `plan` gate: add **Go back to `<stage>`** (one option per earlier stage row); selection becomes `{"tier":..., "failing_test":..., "domain":{...}, "next":"proceed|iterate|redirect|hold", "to":"<stage or null>", "note":"<their words or null>"}`.
 - every `mark-ready` gate (stage-watch-ci, the standalone ship engine, and watch-ci's own-run gate from plan 3): add **Go back to `<stage>`** where earlier stage rows exist; selection becomes `{"ready":true|false, "next":"proceed|iterate|redirect|hold", "to":..., "note":...}`.
 - rebase-worktree `conflict` form: add **Iterate here**; enum `leave|abort|iterate|hold`, plus `note`. `push` form: add **Iterate here**; selection becomes `{"push":true|false, "next":"proceed|iterate|hold", "note":...}`.
@@ -40,6 +41,7 @@ Each becomes the contract's form. Outside a run the form alone is the gate; insi
 - orchestration/shepherdr "ask whether to let running agents finish or kill them": becomes one sentence plus the structured-question tool: **Let them finish** (recommended) / **Kill and respawn with the new briefs**; Hold.
 - review/receive-review: "wait for their own explicit approval" becomes "each waits for its gate's answer"; the section 5 heading "(after explicit approval)" becomes "(on the `post` gate's answer)"; the table row "Post only on explicit go-ahead" becomes "Post only what the `post` gate selected".
 - review-core-body "the developer can raise or lower it": becomes "a different tier is an Iterate here answer at the next gate".
+- review's `clarify` gate (target ambiguity) and self-review's `clarify` gate (no ticket) add **Hold** to their forms, matching the convention paragraph.
 - review/self-review `clarify` gate: add the two `rt runs` lines review's clarify gate has (`rt runs field set gate clarify --stage <stage>` before the form; `rt runs decision record --contract gate@1 --scope clarify --selection '{"source":"<picked>"}' --decided-by self-review` after), with `<stage>` in the form the file uses after plan 3 (its Run section defines it).
 
 ## 5. Sibling verbs named as `mattstack:` skills (E7)
@@ -63,7 +65,7 @@ Claude Code's Bash tool runs each call in a fresh shell; the live run prefixed e
 
 Changes:
 - convention.md "Stage contract v3": one paragraph: "Each tool call is a fresh shell. Keep `RT_RUN_DB` in the run's prose (the `runDb` from `run-start`) and prefix every `rt runs` command with `RT_RUN_DB=<path>`; `export` and `unset` remain the contract's markers for the run's start and end, not a persistence mechanism."
-- pipeline/work `## 3. Start the run` (its `export RT_RUN_DB` line) and `## Resume` (its "re-export `RT_RUN_DB`"), and plan 3's shared Run section in the six standalone verbs: each `export` line gains the same sentence in one line.
+- pipeline/work `## 3. Start the run` (its `export RT_RUN_DB` line) and `## Resume` (its "re-export `RT_RUN_DB`"), and plan 3's shared Run section in the six standalone verbs: each `export` line gains the same sentence in one line. In the same touch, the six verbs' Resume offer (**Resume it** / **Start fresh**) gains **Hold**, so it matches the work engine's Resume form from section 4.
 - rt follow-up (design, stan): `rt runs` verbs default `RT_RUN_DB` from the running run whose `claude-session` matches the calling session when the harness exposes it, else from the newest running run whose `worktree` field contains the cwd.
 
 ## 9. Left as is, with reasons
