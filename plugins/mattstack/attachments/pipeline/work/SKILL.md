@@ -68,9 +68,10 @@ For each entry, in order:
 2. Read `<dir>/SKILL.md` and follow it. It carries its own domain rules
    inline and states what it consumes and produces.
 3. When it finishes, `rt runs snapshot` and confirm every
-   field in the entry's `produces` is non-null. A missing field means the
-   stage did not finish: `stage-fail --stage <stage> --reason "<what>"`,
-   report, stop.
+   field in the entry's `produces` is non-null and not `-` (the cleared
+   sentinel a redirect writes). A missing or cleared field means the stage
+   did not finish: `stage-fail --stage <stage> --reason "<what>"`, report,
+   stop.
 4. `rt runs stage-done --stage <stage>`
 
 A stage failure stops the pipeline. Report which stage and that a resume
@@ -91,7 +92,9 @@ decided questions.
 ## Close
 
 `rt runs run-status --status done` (or `failed` /
-`abandoned`). Never leave a finished run `running`.
+`abandoned`), then `unset RT_RUN_DB`. Never leave a finished run
+`running`, and never leave the variable pointing at a finished run: the
+next verb in this shell would `stage-start` into it.
 
 ## Sub-agent tiering
 
