@@ -49,8 +49,8 @@ the branch gets no slug.
 - `ok`: `EnterWorktree` to `data.path`; write `branch` and `worktree`
   (`data.path`). A cold create (`wasOnDeck:false`) can take minutes --
   tell the user it's provisioning.
-- error `branch-attached:<tree>`: surface "resume in `<tree>`?" to the user
-  -- do not silently pick a side.
+- error `branch-attached:<tree>`: the provision gate, scope `provision`,
+  below. Never pick a side yourself.
 - `null` (daemon down) or an `unknown-repo` error: fall back to the old
   generic path -- confirm `repo` is a git checkout
   (`git -C <repo> rev-parse --git-dir`); derive a branch name from the
@@ -58,6 +58,24 @@ the branch gets no slug.
   description when there is no ticket); create it from the default branch
   (`git -C <repo> switch -c <branch>`); never commit to the default branch
   directly.
+
+## Gate `provision`
+
+Reached on `branch-attached:<tree>`, and for any question the bound domain
+rules above declare for this gate (a ticket that could not be found, a
+title too generic for a slug, a classification the domain tracks):
+
+- `rt runs field set gate provision --stage provision`
+- One sentence: what was found (the tree, the missing ticket, the title).
+- The form: on `branch-attached`, **Resume in `<tree>`** (recommended) /
+  **Fresh tree**; on a missing ticket, **Create one** / **I will recheck
+  the id**; on a generic title, the slug as their text; the domain's own
+  questions as it words them; then **Iterate here** and **Hold**.
+- `rt runs decision record --contract gate@1 --scope provision --selection '{"resume_in":"<tree or null>","ticket":"create|recheck|null","slug":"<text or null>","domain":{<answers>}}' --decided-by stage-provision`
+- Resume: `EnterWorktree` to that tree and write `branch` and `worktree`
+  from it. Fresh: provision under a new title. Hold: record
+  `hold:provision:<attempt>`, `rt runs field set hold "<their words>"
+  --stage provision`, end the turn.
 
 Finish by writing `branch` and `worktree` (absolute path; the checkout
 itself when no separate worktree is used).
@@ -69,3 +87,7 @@ already known coming in -- also run `rt runs field set ticket
 not done until X exists"), and a ticketless run through this stage is a
 normal, finished run -- so `ticket` cannot be a required produce even
 though this is the one place its value can become known.
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
