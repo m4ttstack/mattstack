@@ -97,9 +97,12 @@ catch that this one missed.
   HEAD`, falling back to the default branch by name) through `HEAD`, plus any
   uncommitted changes -- review the work as it stands now.
 - Requirements: from the branch's ticket or task description. If the branch
-  carries no ticket, gate `clarify`: one sentence, then the structured-question
-  tool with the candidate sources (the task as stated, a linked doc, their
-  text) rather than reviewing against nothing.
+  carries no ticket, gate `clarify` (`rt runs field set gate clarify --stage
+  <stage>` before, `rt runs decision record --contract gate@1 --scope clarify
+  --selection '{"source":"<picked>"}' --decided-by self-review` after): one
+  sentence, then the structured-question tool with the candidate sources
+  (the task as stated, a linked doc, their
+  text, and **Hold**) rather than reviewing against nothing.
 
 ## 2. Delegate to the review engine
 
