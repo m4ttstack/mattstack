@@ -141,7 +141,7 @@ pub fn open(r: &dyn Runner) -> Result<(), String> {
 }
 
 /// The popup entrypoint: build the header's origin picture, run the menu,
-/// then dispatch the one chosen feature after the popup has torn down.
+/// then dispatch the one chosen feature after the menu has torn down.
 pub fn run(r: &dyn Runner) -> Result<(), String> {
     let theme = theme::load();
     let origin = state::read_origin_pane(&state::state_dir());
@@ -163,13 +163,17 @@ pub fn run(r: &dyn Runner) -> Result<(), String> {
     dispatch(r, &chosen)
 }
 
-/// Chain into the picked capability's own popup, or run the viewer directly.
+/// Hand off to the picked capability, or run the viewer directly. This still
+/// runs inside the launcher popup's process, and herdr refuses a second popup
+/// until this one has exited, so the feature popups are reached through their
+/// workspace actions: herdr runs those as its own children, and their
+/// `open_popup` waits out this popup's teardown.
 fn dispatch(r: &dyn Runner, chosen: &Chosen) -> Result<(), String> {
     match chosen {
         Chosen::None => Ok(()),
-        Chosen::Broadcast => crate::cmd::broadcast::open(r),
-        Chosen::Peek => crate::cmd::peek::open(r),
-        Chosen::QuickSend => crate::cmd::quick_send::open(r),
+        Chosen::Broadcast => herdr::invoke_action(r, "broadcast"),
+        Chosen::Peek => herdr::invoke_action(r, "peek"),
+        Chosen::QuickSend => herdr::invoke_action(r, "quick-send"),
         Chosen::OpenViewer => crate::cmd::open_viewer::run(r, None),
     }
 }
@@ -315,8 +319,14 @@ fn draw(frame: &mut Frame, theme: &AppTheme, cursor: usize, mode: &Mode, status:
 /// so in place of an identity.
 fn header(theme: &AppTheme, status: &OriginStatus) -> Paragraph<'static> {
     let (dot, dot_style) = match status.status.as_deref() {
-        Some("live") => ('\u{25cf}', ratatui::style::Style::new().fg(ratatui::style::Color::Green)),
-        Some("idle") => ('\u{25cf}', ratatui::style::Style::new().fg(ratatui::style::Color::Yellow)),
+        Some("live") => (
+            '\u{25cf}',
+            ratatui::style::Style::new().fg(ratatui::style::Color::Green),
+        ),
+        Some("idle") => (
+            '\u{25cf}',
+            ratatui::style::Style::new().fg(ratatui::style::Color::Yellow),
+        ),
         _ => ('\u{25cb}', theme.dim),
     };
     let word = match status.status.as_deref() {
@@ -339,7 +349,10 @@ fn header(theme: &AppTheme, status: &OriginStatus) -> Paragraph<'static> {
     let line2 = if status.rooms.is_empty() {
         Line::from(Span::raw(""))
     } else {
-        Line::from(Span::styled(format!("    {}", status.rooms.join("  ")), theme.dim))
+        Line::from(Span::styled(
+            format!("    {}", status.rooms.join("  ")),
+            theme.dim,
+        ))
     };
     Paragraph::new(vec![Line::from(line1), line2]).style(theme.base)
 }
@@ -512,17 +525,17 @@ mod tests {
     }
 
     #[test]
-    fn feature_choices_chain_into_their_own_popups() {
-        for (chosen, entrypoint) in [
-            (Chosen::Broadcast, "broadcast-ui"),
-            (Chosen::Peek, "peek-ui"),
-            (Chosen::QuickSend, "quick-send-ui"),
+    fn feature_choices_invoke_their_own_workspace_actions() {
+        for (chosen, action) in [
+            (Chosen::Broadcast, "broadcast"),
+            (Chosen::Peek, "peek"),
+            (Chosen::QuickSend, "quick-send"),
         ] {
             let r = FakeRunner::capture("{}");
             dispatch(&r, &chosen).unwrap();
             let argv = r.last();
-            assert_eq!(argv[1..4], ["plugin", "pane", "open"]);
-            assert_eq!(argv.last().map(String::as_str), Some(entrypoint));
+            assert_eq!(argv[1..5], ["plugin", "action", "invoke", action]);
+            assert_eq!(argv[5..], ["--plugin", "m4ttstack.chat"]);
         }
     }
 
@@ -565,7 +578,10 @@ mod tests {
 
     #[test]
     fn sign_result_degrades_on_a_handleless_or_malformed_payload() {
-        assert_eq!(sign_result_text(Item::SignIn, r#"{"ok":true}"#), "signed in");
+        assert_eq!(
+            sign_result_text(Item::SignIn, r#"{"ok":true}"#),
+            "signed in"
+        );
         assert_eq!(sign_result_text(Item::SignOut, "not json"), "signed out");
         assert_eq!(
             sign_result_text(Item::SignIn, r#"{"ok":true,"handle":"kai"}"#),

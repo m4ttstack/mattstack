@@ -8,6 +8,7 @@
 #![allow(dead_code)]
 
 use crate::run::{herdr_bin, Output, Runner};
+use std::time::Duration;
 
 pub struct PaneLoc {
     pub workspace_id: String,
@@ -97,20 +98,67 @@ pub fn focus_pane(r: &dyn Runner, pane_id: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Open a plugin popup pane entrypoint for the chat plugin.
+const PLUGIN_ID: &str = "m4ttstack.chat";
+
+/// herdr's refusal while a popup is still registered (`spawn_popup_command`).
+const POPUP_BUSY: &str = "popup already open";
+const POPUP_OPEN_ATTEMPTS: usize = 40;
+const POPUP_OPEN_RETRY_DELAY: Duration = Duration::from_millis(50);
+
+/// Open a plugin popup pane entrypoint for the chat plugin. herdr holds one
+/// popup per session and refuses a second until the previous one's process
+/// has exited and been reaped, so an open that lands in that window (a popup
+/// handing off to a sibling capability) waits it out instead of failing.
 pub fn open_popup(r: &dyn Runner, entrypoint: &str) -> Result<(), String> {
+    open_popup_with_retry(r, entrypoint, POPUP_OPEN_ATTEMPTS, POPUP_OPEN_RETRY_DELAY)
+}
+
+fn open_popup_with_retry(
+    r: &dyn Runner,
+    entrypoint: &str,
+    attempts: usize,
+    delay: Duration,
+) -> Result<(), String> {
+    let herdr = herdr_bin();
+    let argv = [
+        herdr.as_str(),
+        "plugin",
+        "pane",
+        "open",
+        "--plugin",
+        PLUGIN_ID,
+        "--entrypoint",
+        entrypoint,
+    ];
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let out = r.run(&argv, &[]).map_err(|e| e.to_string())?;
+        if out.status == 0 {
+            return Ok(());
+        }
+        if !out.stderr.contains(POPUP_BUSY) || attempt >= attempts {
+            return Err(err_text(&out));
+        }
+        std::thread::sleep(delay);
+    }
+}
+
+/// Invoke one of this plugin's manifest actions through herdr. The action
+/// runs as herdr's own child, outside the calling popup's process session,
+/// so it survives that popup's teardown (herdr signals the whole session).
+pub fn invoke_action(r: &dyn Runner, action_id: &str) -> Result<(), String> {
     let herdr = herdr_bin();
     run_ok(
         r,
         &[
             herdr.as_str(),
             "plugin",
-            "pane",
-            "open",
+            "action",
+            "invoke",
+            action_id,
             "--plugin",
-            "m4ttstack.chat",
-            "--entrypoint",
-            entrypoint,
+            PLUGIN_ID,
         ],
     )
 }
@@ -313,6 +361,88 @@ mod tests {
                 "m4ttstack.chat",
                 "--entrypoint",
                 "compose",
+            ]
+        );
+    }
+
+    /// Fake [`Runner`] that refuses the first `busy` calls the way herdr does
+    /// while a previous popup is still tearing down, then succeeds.
+    struct BusyThenOk {
+        remaining: Mutex<usize>,
+        calls: Mutex<usize>,
+    }
+
+    impl BusyThenOk {
+        fn refusing(busy: usize) -> Self {
+            BusyThenOk {
+                remaining: Mutex::new(busy),
+                calls: Mutex::new(0),
+            }
+        }
+    }
+
+    impl Runner for BusyThenOk {
+        fn run(&self, _argv: &[&str], _env: &[(&str, Option<&str>)]) -> std::io::Result<Output> {
+            *self.calls.lock().unwrap() += 1;
+            let mut remaining = self.remaining.lock().unwrap();
+            if *remaining > 0 {
+                *remaining -= 1;
+                return Ok(Output {
+                    status: 1,
+                    stdout: String::new(),
+                    stderr: r#"{"id":"cli:plugin","error":{"code":"plugin_pane_open_failed","message":"popup already open"}}"#.to_string(),
+                });
+            }
+            Ok(Output {
+                status: 0,
+                stdout: "{}".to_string(),
+                stderr: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn open_popup_retries_while_the_previous_popup_is_closing() {
+        let r = BusyThenOk::refusing(2);
+        open_popup_with_retry(&r, "broadcast-ui", 5, std::time::Duration::ZERO).unwrap();
+        assert_eq!(*r.calls.lock().unwrap(), 3);
+    }
+
+    #[test]
+    fn open_popup_gives_up_after_the_retry_budget() {
+        let r = BusyThenOk::refusing(usize::MAX);
+        let err = open_popup_with_retry(&r, "broadcast-ui", 4, std::time::Duration::ZERO)
+            .expect_err("expected the busy refusal to surface");
+        assert!(
+            err.contains("popup already open"),
+            "unexpected error: {err}"
+        );
+        assert_eq!(*r.calls.lock().unwrap(), 4);
+    }
+
+    #[test]
+    fn open_popup_does_not_retry_other_failures() {
+        let r = FakeRunner::json("nothing-matches", "{}");
+        let err = open_popup_with_retry(&r, "broadcast-ui", 5, std::time::Duration::ZERO)
+            .expect_err("expected the failure to surface");
+        assert_eq!(err, "no matching fake rule");
+        assert_eq!(r.argvs().len(), 1);
+    }
+
+    #[test]
+    fn invoke_action_builds_the_plugin_action_invoke_argv() {
+        let r = FakeRunner::capture("{}");
+        invoke_action(&r, "broadcast").unwrap();
+        assert_eq!(
+            r.last(),
+            vec![
+                "herdr",
+                "plugin",
+                "action",
+                "invoke",
+                "broadcast",
+                "--plugin",
+                "m4ttstack.chat",
             ]
         );
     }

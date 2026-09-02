@@ -76,6 +76,13 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 - **A popup process carries no `HERDR_PANE_ID`.** Anything a popup does to
   "the pane the hotkey fired on" needs the pane action to stash the id first;
   the launcher's sign quick actions read it back via `state::read_origin_pane`.
+- **A popup cannot open the next popup itself.** herdr keeps one popup per
+  session and refuses `plugin pane open` with `popup already open` until the
+  current popup's process has exited, and on teardown it signals that
+  process's whole session, so a detached helper dies with it. The launcher
+  hands off through `herdr plugin action invoke` (the action runs as herdr's
+  own child), and `herdr::open_popup` retries the busy refusal briefly while
+  the old popup is reaped. Every other failure still surfaces at once.
 
 ## Status
 
