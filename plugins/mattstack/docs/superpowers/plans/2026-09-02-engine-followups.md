@@ -443,17 +443,14 @@ the next gate, against
 review clarify (post-plan-3 text), replace:
 ```
 with one option per candidate (`rt runs field set gate clarify --stage
-<stage>` before and `rt runs decision record --contract gate@1 --scope
-clarify --selection '{"target":"<picked>"}' --decided-by review` after).
-Never a guess.
+<stage>` before, where `<stage>` is `review` for an own run and
 ```
 with:
 ```
-with one option per candidate and **Hold** (`rt runs field set gate clarify
---stage <stage>` before and `rt runs decision record --contract gate@1
---scope clarify --selection '{"target":"<picked>"}' --decided-by review`
-after). Never a guess.
+with one option per candidate and **Hold** (`rt runs field set gate clarify --stage
+<stage>` before, where `<stage>` is `review` for an own run and
 ```
+(the rest of that sentence, through "Never a guess.", stays as it is)
 
 self-review clarify (post-plan-3 text), replace:
 ```
