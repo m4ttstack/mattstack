@@ -48,5 +48,37 @@ Unbound (generic fallback): capture what a generic toolchain can -- the
 failing test output, a CLI transcript, or a screenshot the user provides --
 and store it under `~/.mattstack/work/<work-id>/evidence/`.
 
+## Gate `evidence`
+
+Before any capture, when the domain rules above declare intake questions,
+or the data source is anything other than the local default:
+
+- `rt runs field set gate evidence --stage evidence`
+- One sentence: what the plan asks for and what is unknown.
+- The form: the domain's intake questions as it words them; the data
+  source when it is not local (**Proceed with `<source>`** / **Switch to
+  local**); then **Iterate here** and **Hold**.
+- `rt runs decision record --contract gate@1 --scope evidence --selection '{"intake":{<answers>},"source":"<as confirmed>"}' --decided-by stage-evidence`
+
+## Gate `evidence-attach`
+
+Before the MR is modified, when this stage is asked to attach (the ship
+stage normally attaches; when the domain rules attach here, this gate
+fires first):
+
+- `rt runs field set gate evidence-attach --stage evidence`
+- One sentence: what was captured and where it sits.
+- The form: the proposed annotations as a multi-select, all pre-selected;
+  **Attach to the MR now** (recommended) / **Hand back the markdown**;
+  **Iterate here**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope evidence-attach --selection '{"annotations":[...],"attach":"now|handback"}' --decided-by stage-evidence`
+
+Hold at either gate: record `hold:evidence:<attempt>`, `rt runs field set
+hold "<their words>" --stage evidence`, end the turn.
+
 Finish by writing `evidence` (an object of labeled paths/URLs, at minimum
 the before). The ship stage attaches; it never captures.
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
