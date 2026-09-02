@@ -134,8 +134,9 @@ run, `mr` is set, and the MR is a draft, gate `mark-ready`:
 - `rt runs field set gate mark-ready --stage watch-ci`
 - One sentence: CI is green for the MR's head.
 - The form: **Mark ready now** (recommended) / **Keep it draft**;
-  **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false}' --decided-by watch-ci`
+  **Iterate here**; **Go back to `<stage>`** (one option per earlier stage
+  row when `snapshot` shows any); **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by watch-ci`
 - Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
   `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
   anything else is a `clarify` gate).
