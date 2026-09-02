@@ -76,6 +76,12 @@ fires first):
 Hold at either gate: record `hold:evidence:<attempt>`, `rt runs field set
 hold "<their words>" --stage evidence`, end the turn.
 
+**These thoughts mean you are skipping the gate -- STOP:**
+
+| Thought | Reality |
+|---------|---------|
+| "I don't have concrete case IDs or view names to offer, so I'll add a note after the form explaining that gap" | An open-ended intake question needs no invented options; render it as free text inside the form itself and stop. Explaining the gap outside the form is prose the gate forbids. |
+
 Finish by writing `evidence` (an object of labeled paths/URLs, at minimum
 the before). The ship stage attaches; it never captures.
 
