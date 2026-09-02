@@ -18,6 +18,46 @@ all in one sweep. This skill is a delegator -- it owns sequencing, the user
 gates, and the final report; discovery, rebasing, and CI watching belong to
 a focused skill it calls, not reimplemented here.
 
+## Run
+
+Outside a pipeline this verb is its own run, so the console shows it and
+the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
+and `rt runs snapshot` shows `run.status` = `running`: you were invoked
+from inside that run, you inherit it, `run.current_stage` is your stage,
+and you close nothing at the end.
+
+Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
+`--repo` value in the flags block below) for a run whose `snapshot` shows
+`status` = `running` and `work_type` = `sync-open-mrs`
+(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
+One found: gate `clarify`, one sentence naming it, the structured-question
+tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
+RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
+sync-open-mrs` (a new attempt, which re-records this session) and `rt
+runs field set hold - --stage sync-open-mrs`.
+
+Fresh. The flags for this verb, rendered by the compiler:
+
+{{run-start.flags:sync-open-mrs}}
+
+```bash
+PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
+rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
+export RT_RUN_DB=<runDb from the response>
+rt runs stage-start --stage sync-open-mrs
+```
+
+The response must parse as JSON with `ok: true` and a `runDb`; anything
+else means this rt predates the run verbs: stop and tell the user to
+update rt. Pass `--spawned-by` when a board or another surface launched
+this pane.
+
+Every gate in this verb then writes its `gate` field and its decision with
+`--stage sync-open-mrs`. The close, after the final gate's answer and only
+when this section ran `run-start`: `rt runs stage-done --stage
+sync-open-mrs`, `rt runs run-status --status done` (or `abandoned` when
+the gate said so), then `unset RT_RUN_DB`.
+
 ## 1. Discover
 
 Follow `mattstack:map-open-mrs` and get its table: MR ref, title, source
@@ -30,11 +70,11 @@ rows with nothing local to rebase, and trees whose `git status --porcelain`
 is not empty, which `rebase-worktree` would refuse) and why. Then the gate,
 once for the whole batch, never per branch:
 
-- When `RT_RUN_DB` is set: `rt runs field set gate sweep --stage sync-open-mrs`.
+- `rt runs field set gate sweep --stage sync-open-mrs`.
 - The form: a multi-select of the branches to rebase, in order, all
   pre-selected (deselecting skips one); **Iterate here** (their text
   reorders or excludes); **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope sweep --selection '{"branches":[...]}' --decided-by sync-open-mrs`.
+- `rt runs decision record --contract gate@1 --scope sweep --selection '{"branches":[...]}' --decided-by sync-open-mrs`.
 
 Nothing is touched before the answer.
 
@@ -54,11 +94,11 @@ Once the rebase pass finishes, one sentence: which branches rebased clean
 (old head -> new head each). Then the gate, once for the batch; never push
 a branch unasked, never one-by-one as each rebase completes:
 
-- When `RT_RUN_DB` is set: `rt runs field set gate push --stage sync-open-mrs`.
+- `rt runs field set gate push --stage sync-open-mrs`.
 - The form: a multi-select of the clean branches to `git push
   --force-with-lease`, all pre-selected; **Watch CI after pushing** (yes /
   no); **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by sync-open-mrs`.
+- `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by sync-open-mrs`.
 
 Push the selected branches, then, when asked, follow `mattstack:watch-ci`
 per pushed branch (it inherits this run and hands back its verdict).
@@ -74,6 +114,11 @@ skipped (with reason -- dirty tree, no upstream, NONE row).
 | Thought | Reality |
 |---------|---------|
 | "I'll list the dirty tree too and let the rebase step refuse it" | The sweep form lists only branches the sweep will rebase; a tree the rebase would refuse is a skipped row, named up front with its reason. |
+
+Close, only when `## Run` started this run: after the report, `rt runs
+stage-done --stage sync-open-mrs`, `rt runs run-status --status done`,
+`unset RT_RUN_DB`. The per-branch `rebase-worktree` and `watch-ci` calls
+inherit this run and close nothing.
 
 ## Wrap-up form contract
 
