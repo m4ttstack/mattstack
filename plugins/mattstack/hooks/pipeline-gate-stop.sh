@@ -6,6 +6,7 @@
 # (eight consecutive blocks) is the loop guard; stop_hook_active is
 # deliberately not honoured, or the second stop would slip through in prose.
 set -u
+: "${HOME:=}"
 
 INPUT="$(cat 2>/dev/null)" || exit 0
 [ -n "$INPUT" ] || exit 0

@@ -127,7 +127,7 @@ rm -rf "$SANDBOX/runs/repo-a/20260901-000011-kkkk-11" "$SANDBOX/runs/repo-a/2026
 # rt printing usage instead of JSON: silent.
 mkrun repo-a 20260901-000010-jjjj-10 running "$SID"
 : > "$SANDBOX/usage-flag"
-RT_STUB_USAGE="$SANDBOX/usage-flag" r="$(RT_STUB_USAGE="$SANDBOX/usage-flag" run "$STOP")"
+r="$(RT_STUB_USAGE="$SANDBOX/usage-flag" run "$STOP")"
 check "rt printing usage exits 0" "exit=0 err= out=" "$r"
 rm -f "$SANDBOX/usage-flag"
 
@@ -135,6 +135,13 @@ rm -f "$SANDBOX/usage-flag"
 mv "$SANDBOX/bin/rt" "$SANDBOX/bin/rt.off"
 check "rt missing exits 0" "exit=0 err= out=" "$(run "$STOP")"
 mv "$SANDBOX/bin/rt.off" "$SANDBOX/bin/rt"
+
+# No HOME at all: set -u must not turn a lookup failure into a block.
+mkrun repo-a 20260901-000013-mmmm-13 running "$SID"
+nh="$(printf '%s' "$STOP" | env -i PATH="/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" sh "$HOOK" 2>"$SANDBOX/err"; echo "exit=$?")"
+check "no HOME exits 0 silently" "exit=0" "$nh"
+check "no HOME writes no stderr" "" "$(head -1 "$SANDBOX/err")"
+rm -rf "$SANDBOX/runs/repo-a/20260901-000013-mmmm-13"
 
 # Malformed and empty stdin: silent.
 check "malformed stdin exits 0" "exit=0 err= out=" "$(run 'not json')"
