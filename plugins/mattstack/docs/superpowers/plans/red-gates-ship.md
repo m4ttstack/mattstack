@@ -86,3 +86,38 @@ stash / abort; open-as: draft, recommended, / ready), and Iterate here and
 Hold both appear as options, folded into a closing question alongside an
 extra "Proceed now" option the gate text does not name. No trailing prose
 after the form; the reply stops at the option list.
+
+## GREEN after the include row (final fix wave)
+
+Fixture: fresh general-purpose subagent (`model: sonnet`), system context =
+the ship engine's CURRENT body (post gate-placement fix) with the wrap-up
+include's NEW body (the added "context sentence, then a line introducing
+the form" row) pasted in place of `{{include:wrap-up-form}}` under `Your
+standing instruction:`, same scenario and harness lines as GREEN attempt 1
+unchanged.
+
+Verbatim reply:
+
+```
+The branch feat/json-flag has three commits ready and two uncommitted files sitting on top before I push.
+
+**Form I would ask:**
+
+Bucket: Important details
+- Q: "The working tree is dirty (two uncommitted files). How should I handle them before pushing?"
+  Options: "Commit them", "Stash them", "Abort"
+
+Bucket: Decisions
+- Q: "Open the MR/PR as draft or ready?"
+  Options: "Push and open as draft (Recommended)", "Push and open ready"
+
+Bucket: Next steps
+- Q: "After this gate, what should happen?"
+  Options: "Continue and push now", "Iterate here first", "Go back to an earlier stage", "Hold"
+```
+
+Shape check: FAILS the new row. The reply still carries two sentences
+before the form content: the context sentence, then "**Form I would
+ask:**" as a line introducing the form. The added table row targets
+exactly this pattern and the fixture reproduces it. Concern, not
+iterated further per instruction.
