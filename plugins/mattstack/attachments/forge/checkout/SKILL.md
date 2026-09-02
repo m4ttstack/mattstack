@@ -31,8 +31,12 @@ Detect what was given and resolve it to one remote branch:
 - A ticket id: search open MRs/PRs whose source branch or title carries it
   (`glab mr list --search <id>` / `gh pr list --search <id>`).
 
-If resolution is ambiguous or turns up nothing, ask the user which branch
-they mean -- never guess.
+If resolution is ambiguous or turns up nothing, gate `clarify`: one
+sentence naming the candidates, then the structured-question tool with one
+option per candidate, their text, and **Hold** (under a run, `rt runs field
+set gate clarify --stage <run.current_stage>` before and `rt runs decision
+record --contract gate@1 --scope clarify --selection '{"branch":"<picked>"}'
+--decided-by checkout` after). Never a guess.
 
 ## 2. Acquire the worktree
 
