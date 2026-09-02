@@ -100,8 +100,11 @@ Close statuses end it.
 Re-entering existing work with no `RT_RUN_DB` set: list
 `~/.mattstack/runs/<repo>/` (the `--repo` value above) for the newest run
 whose status is `running` -- use `rt runs snapshot` with
-`RT_RUN_DB` pointed at each candidate, never raw sqlite -- confirm the
-match with the user, re-export `RT_RUN_DB`, and re-enter at
+`RT_RUN_DB` pointed at each candidate, never raw sqlite. One found: gate
+`clarify`, one sentence naming it, the structured-question tool with
+**Resume it** (recommended) / **Start fresh**; **Hold**. Resume: re-export
+`RT_RUN_DB` (each tool call is a fresh shell, so prefix every `rt runs`
+command with it) and re-enter at
 `run.current_stage` with the snapshot's fields and decisions (a fresh
 `stage-start` for that stage records the new attempt). Do not re-ask
 decided questions. Re-entering a held run clears the hold as `## Hold`
