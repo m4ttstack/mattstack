@@ -63,7 +63,7 @@ From the conversation: an MR/PR URL, a bare !iid or #number, a ticket id,
 or a branch name. Resolve to one MR/PR via the forge CLI
 (`glab mr view <ref>` or `gh pr view <ref>`); ambiguity is gate `clarify`:
 one sentence naming the candidates, then the structured-question tool
-with one option per candidate (`rt runs field set gate clarify --stage
+with one option per candidate and **Hold** (`rt runs field set gate clarify --stage
 <stage>` before, where `<stage>` is `review` for an own run and
 `run.current_stage` when inherited, and `rt runs decision record --contract gate@1 --scope
 clarify --selection '{"target":"<picked>"}' --decided-by review` after).

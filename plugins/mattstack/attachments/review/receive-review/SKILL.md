@@ -18,7 +18,7 @@ slots:
 
 The review comments left on **your own** change: pull the open threads, judge
 each against the codebase, decide what to change, reply. Implementation and
-posting each wait for their own explicit approval.
+posting each wait for their gate's answer.
 
 ## Run
 
@@ -183,7 +183,7 @@ checks before the next. Finalize each valid reply to "Fixed -- `file:line` /
 what changed". Domain ship-time gates still apply to these fixes; this skill
 never checks their box.
 
-## 5. Post replies, gated on verdict category (after explicit approval)
+## 5. Post replies, gated on verdict category (on the `post` gate's answer)
 
 The drafted replies are already bucketed by verdict from step 2.
 
@@ -223,7 +223,7 @@ so.
 | "I'll run self-review at the end as the check" | Too late. The fresh context adjudicates the comments; it is not a gut-check after. |
 | "I'll open with 'Good call' / 'You're right'" | Performative. State the technical content; no agreement, no thanks. |
 | "I'll process the resolved / bot threads too" | Unresolved human threads only. |
-| "I'll post the replies since they look right" | Post only on explicit go-ahead; never resolve or approve for the developer. |
+| "I'll post the replies since they look right" | Post only what the `post` gate selected; never resolve or approve for the developer. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation is Gate B, after approval, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
 | "I'll present the table and ask about fixes and posting in the same breath" | Gate A, Gate B, and post are three forms, in order. Prose that asks all three is none of them. |
