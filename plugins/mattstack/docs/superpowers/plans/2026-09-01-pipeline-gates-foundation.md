@@ -290,7 +290,7 @@ git push
 - Modify: `hooks/README.md` (one table row under the plugin-delivered table)
 
 **Interfaces:**
-- Consumes: `rt runs snapshot` JSON: `{ok, run:{id, status, current_stage, started_at, ...}, stages:[{name, status, attempt, started_at, ...}], fields:[{key, value, at, ...}], decisions:[...]}`; the hook's stdin: `{session_id, stop_hook_active, ...}`.
+- Consumes: `rt runs find --session <id> --running` JSON: `{ok:true, runs:[{repo, runId, runDb, status, current_stage, started_at, ended_at}]}` newest first (rt PR #175; an older rt without the verb prints a run listing instead, which is the fallback signal); `rt runs snapshot` JSON: `{ok, run:{id, status, current_stage, started_at, ...}, stages:[{name, status, attempt, started_at, ...}], fields:[{key, value, at, ...}], decisions:[...]}`; the hook's stdin: `{session_id, stop_hook_active, ...}`.
 - Produces: exit 2 with the block message on stderr when this session's run is `running` and not held; exit 0 otherwise.
 
 - [ ] **Step 1: Write the failing tests**
@@ -313,6 +313,12 @@ mkdir -p "$SANDBOX/bin" "$SANDBOX/home" "$SANDBOX/runs"
 cat > "$SANDBOX/bin/rt" <<'STUB'
 #!/usr/bin/env bash
 [ -f "${RT_STUB_USAGE:-/nonexistent}" ] && { echo "usage: rt runs ..."; exit 2; }
+if [ "$1" = "runs" ] && [ "$2" = "find" ]; then
+  # With the find fixture present, behave like rt >= PR 175; without it,
+  # behave like an older rt whose dispatcher falls through to the listing.
+  if [ -f "${RT_STUB_FIND:-/nonexistent}" ]; then cat "$RT_STUB_FIND"; exit 0; fi
+  echo "RUN            REPO   STATUS"; exit 0
+fi
 [ "$1" = "runs" ] && [ "$2" = "snapshot" ] || exit 2
 cat "$RT_RUN_DB.snapshot.json"
 STUB
@@ -339,7 +345,7 @@ EOF
 
 run() { # stdin-json -> "exit=<code> err=<stderr first line> out=<stdout>"
   local out err code
-  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"} sh "$HOOK" 2>"$SANDBOX/err")"
+  out="$(printf '%s' "$1" | env -i HOME="$SANDBOX/home" PATH="$SANDBOX/bin:/usr/bin:/bin" RT_RUNS_ROOT="$SANDBOX/runs" ${RT_STUB_USAGE:+RT_STUB_USAGE="$RT_STUB_USAGE"} ${RT_STUB_FIND:+RT_STUB_FIND="$RT_STUB_FIND"} sh "$HOOK" 2>"$SANDBOX/err")"
   code=$?
   err="$(head -1 "$SANDBOX/err" 2>/dev/null)"
   printf 'exit=%s err=%s out=%s' "$code" "$err" "$out"
@@ -405,6 +411,19 @@ touch -t 202601010000 "$SANDBOX/runs/repo-a/20260901-000009-iiii-9/state.db"
 check "old run dir is not scanned" "exit=0 err= out=" "$(run "$STOP")"
 rm -rf "$SANDBOX/runs/repo-a/20260901-000009-iiii-9"
 
+# With `rt runs find` available, the scan is skipped: an old run dir the scan
+# would ignore is still found through find, and a run find does not return is
+# not blocked even though the scan would see it.
+mkrun repo-a 20260901-000011-kkkk-11 running "$SID"
+touch -t 202601010000 "$SANDBOX/runs/repo-a/20260901-000011-kkkk-11/state.db"
+printf '{"ok":true,"runs":[{"repo":"repo-a","runId":"20260901-000011-kkkk-11","runDb":"%s","status":"running","current_stage":"ship","started_at":1000,"ended_at":null}]}' "$SANDBOX/runs/repo-a/20260901-000011-kkkk-11/state.db" > "$SANDBOX/find.json"
+r="$(RT_STUB_FIND="$SANDBOX/find.json" run "$STOP")"
+case "$r" in exit=2*20260901-000011-kkkk-11*) echo "ok   find result is used over the scan";; *) echo "FAIL find result is used over the scan"; echo "       got : $r"; fails=$((fails+1));; esac
+mkrun repo-a 20260901-000012-llll-12 running "$SID"
+printf '{"ok":true,"runs":[]}' > "$SANDBOX/find-empty.json"
+check "empty find result exits 0 without scanning" "exit=0 err= out=" "$(RT_STUB_FIND="$SANDBOX/find-empty.json" run "$STOP")"
+rm -rf "$SANDBOX/runs/repo-a/20260901-000011-kkkk-11" "$SANDBOX/runs/repo-a/20260901-000012-llll-12" "$SANDBOX/find.json" "$SANDBOX/find-empty.json"
+
 # rt printing usage instead of JSON: silent.
 mkrun repo-a 20260901-000010-jjjj-10 running "$SID"
 : > "$SANDBOX/usage-flag"
@@ -464,12 +483,34 @@ except Exception:
 ' 2>/dev/null)"
 [ -n "$SESSION" ] || exit 0
 
-# Only run dirs written in the last 48 hours are candidates: a snapshot costs
-# a bun start-up each, and the budget below is three seconds in total.
 START=$(date +%s)
+
+# `rt runs find` (rt >= PR 175) answers the session question directly, newest
+# first. An older rt falls through to the run listing, which is not JSON with
+# ok:true, so the candidates come from a directory scan instead: run dirs
+# written in the last 48 hours, since a snapshot costs a bun start-up each and
+# the budget below is three seconds in total.
+CANDIDATES="$("$RT" runs find --session "$SESSION" --running 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if d.get("ok") is not True or not isinstance(d.get("runs"), list):
+    raise SystemExit(1)
+for r in d["runs"]:
+    if isinstance(r, dict) and r.get("runDb"):
+        print(r["runDb"])
+' 2>/dev/null)"
+FOUND=$?
+if [ "$FOUND" -ne 0 ]; then
+  CANDIDATES="$(find "$ROOT" -mindepth 3 -maxdepth 3 -name state.db -mmin -2880 2>/dev/null)"
+fi
+
 BEST=""
-for DB in $(find "$ROOT" -mindepth 3 -maxdepth 3 -name state.db -mmin -2880 2>/dev/null); do
+for DB in $CANDIDATES; do
   [ $(( $(date +%s) - START )) -lt 3 ] || break
+  [ -f "$DB" ] || continue
   SNAP="$(RT_RUN_DB="$DB" "$RT" runs snapshot 2>/dev/null)" || continue
   LINE="$(printf '%s' "$SNAP" | python3 -c '
 import json, sys

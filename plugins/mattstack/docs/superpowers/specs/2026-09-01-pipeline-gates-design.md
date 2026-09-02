@@ -234,17 +234,20 @@ Logic, in order:
    own cap (eight consecutive blocks, then the stop goes through) is the loop
    guard, and every block re-delivers the same exits, hold and close among
    them, so an agent that cannot comply has two ways out before the cap.
-2. Find this session's run. Candidates are the `state.db` files under
-   `${RT_RUNS_ROOT:-~/.mattstack/runs}/*/*/` modified in the last 48 hours,
-   newest first; for each, `RT_RUN_DB=<db> rt runs snapshot` (the binary
-   found with `command -v rt`, falling back to `$HOME/.local/bin/rt`, since a
-   hook's PATH need not include it). A run matches when `run.status` is
-   `running` and its `claude-session` field equals the hook's `session_id`;
-   with two matches, the newer `started_at` wins. No match, `rt` missing,
-   non-JSON output, or three seconds spent: exit 0 silently. A snapshot costs
-   about a third of a second of bun start-up, so the mtime filter is what
-   keeps a machine with many old runs under budget; rt follow-up item 3
-   replaces the scan outright.
+2. Find this session's run. First `rt runs find --session <session_id>
+   --running` (rt PR #175; the binary found with `command -v rt`, falling
+   back to `$HOME/.local/bin/rt`, since a hook's PATH need not include it):
+   its `runs` array, newest first, gives the candidate `runDb` paths. When
+   that output is not JSON with `ok: true` (an rt older than the verb falls
+   through to the run listing), the candidates are the `state.db` files
+   under `${RT_RUNS_ROOT:-~/.mattstack/runs}/*/*/` modified in the last 48
+   hours. For each candidate, `RT_RUN_DB=<db> rt runs snapshot`; a run
+   matches when `run.status` is `running` and its `claude-session` field
+   equals the hook's `session_id`; with two matches, the newer `started_at`
+   wins. No match, `rt` missing, non-JSON output, or three seconds spent:
+   exit 0 silently. A snapshot costs about a third of a second of bun
+   start-up, so the find verb (or, on the fallback, the mtime filter) is
+   what keeps a machine with many runs under budget.
 3. A match whose `hold` field is newer than its latest stage row's
    `started_at` and is not `-`: exit 0.
 4. Otherwise exit 2 with the reason on stderr, which Claude receives as the
@@ -370,8 +373,9 @@ Two of its items are engine edits, owned here:
    nudge yet in this stage, `rt pane send <herdr-pane field> --text
    "/wrap-up"` and `field set nudged <stage>@<ts>`. Backstop for panes
    without the hook.
-3. **`rt runs find --session <id> --json`** read verb, so the hook stops
-   scanning.
+3. **`rt runs find --session <id> [--running]`** read verb (rt PR #175,
+   shipping with item 1): the hook's primary lookup; the directory scan
+   stays as the fallback for an rt that predates it.
 4. **Attention evidence.** When `blocked` and a gate is pending, evidence
    reads "waiting on you: `<scope>`"; a run with a fresh `hold` field is
    `held`, not `stale`. Until this lands a held run reads `stale` after
