@@ -637,9 +637,9 @@ MSG
 for d in $(git diff --name-only main -- attachments | xargs -n1 dirname | sort -u); do sh tests/certify.sh "$d" || exit 1; done
 sh tests/repo-purity.sh
 grep -rn 'explicit approval\|ask the user\|tell the user what\|confirm the match\|ask whether' attachments --include=SKILL.md
-grep -rn 'tell the user to update rt' attachments --include=SKILL.md | wc -l
+grep -rn 'tell the user to' attachments --include=SKILL.md | wc -l
 ```
-Expected: every certify 0, purity ok. The first grep prints exactly three residue lines, all outside spec section 4: cswap-accounts "without explicit approval" (an account rule, not a gate) and shepherdr's two lines about the herd question channel ("or ask the user", "To ask the user a question"), which describe the worker's question command, not a prose ask. The second grep counts 7: work's `## 3. Start the run` plus the six standalone Run sections plan 3 copied it into; spec section 4 keeps that sentence (no run exists yet when it fires). The status lines "tell the user it's provisioning" (stage-provision, shepherdr) and shepherdr's single-job push-back are not matched by these patterns and are not asks.
+Expected: every certify 0, purity ok. The first grep prints exactly three residue lines, all outside spec section 4: cswap-accounts "without explicit approval" (an account rule, not a gate) and shepherdr's two lines about the herd question channel ("or ask the user", "To ask the user a question"), which describe the worker's question command, not a prose ask. The second grep counts 7: work's `## 3. Start the run` plus the six standalone Run sections plan 3 copied it into (the Run sections wrap the sentence after "tell the user to", so the pattern stops there); spec section 4 keeps that sentence (no run exists yet when it fires). The status lines "tell the user it's provisioning" (stage-provision, shepherdr) and shepherdr's single-job push-back are not matched by these patterns and are not asks.
 
 - [ ] **Step 2: Bump, compile, merge, install**
 
