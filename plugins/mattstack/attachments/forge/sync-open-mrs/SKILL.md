@@ -65,7 +65,9 @@ the gate said so), then `unset RT_RUN_DB`.
 
 ## 1. Discover
 
-Follow `mattstack:map-open-mrs` and get its table: MR ref, title, source
+Follow the pack's compiled `map-open-mrs` verb (`../map-open-mrs/SKILL.md`,
+relative to this file, when the pack compiles both on the same side) and get
+its table: MR ref, title, source
 branch, worktree path or NONE.
 
 ## 2. Plan the sweep, then gate `sweep`
@@ -85,7 +87,8 @@ Nothing is touched before the answer.
 
 ## 3. Rebase each branch
 
-In the order from step 2, follow `mattstack:rebase-worktree` per branch. A
+In the order from step 2, follow the pack's compiled `rebase-worktree` verb
+(a public verb; invoke it by its pack-qualified skill name) per branch. A
 conflict stops only that branch -- `rebase-worktree` hands it back
 mid-rebase; record it in a needs-hands list and move on. A precondition
 refusal (dirty tree, no upstream) stops it too -- record it as skipped with
@@ -105,7 +108,8 @@ a branch unasked, never one-by-one as each rebase completes:
   no); **Iterate here**; **Hold**.
 - `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by sync-open-mrs`.
 
-Push the selected branches, then, when asked, follow `mattstack:watch-ci`
+Push the selected branches, then, when asked, follow the pack's compiled
+`watch-ci` verb (a public verb; invoke it by its pack-qualified skill name)
 per pushed branch (it inherits this run and hands back its verdict).
 
 ## 5. Report
