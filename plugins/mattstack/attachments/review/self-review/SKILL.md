@@ -52,8 +52,9 @@ catch that this one missed.
   HEAD`, falling back to the default branch by name) through `HEAD`, plus any
   uncommitted changes -- review the work as it stands now.
 - Requirements: from the branch's ticket or task description. If the branch
-  carries no ticket, ask which requirements to grade against rather than
-  reviewing against nothing.
+  carries no ticket, gate `clarify`: one sentence, then the structured-question
+  tool with the candidate sources (the task as stated, a linked doc, their
+  text) rather than reviewing against nothing.
 
 ## 2. Delegate to the review engine
 
@@ -82,17 +83,27 @@ small the change -- see the HARD-GATE above.
 
 {{include:review-core-body-tail}}
 
-## 3. Act on the draft, then continue or ship
+## 3. The draft, then gate `self-review`
 
 The review flow returns Strengths / Issues (Critical / Important / Minor) /
-Assessment. Because this is your own work:
+Assessment. Present it, then the gate; the draft is the sentence, the form
+is the close:
 
-- Fix Critical and Important findings before shipping; verify each fix.
-- Note Minor findings for the developer to decide.
-- Then continue the work, or ship.
+- When `RT_RUN_DB` is set: `rt runs field set gate self-review --stage <run.current_stage>`.
+- The form: **Fix the blocking findings now** (recommended when any
+  Critical or Important exists) / **Fix the minors too** / **Ship as is**;
+  **Iterate here**; **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope self-review --selection '{"fix":"blocking|all|none","note":"<their words or null>"}' --decided-by self-review`.
+- Fix: one finding at a time, test-first, verify each; then the flow that
+  called this verb continues (ship, or the next task). Ship as is: hand
+  back with the Minor findings listed for the record.
 
 Where the domain defines ship-time gates, this self-review complements them
 and never checks their box.
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
 
 ## Red flags
 
@@ -111,4 +122,4 @@ and never checks their box.
 | "Is this solid?" on the current branch | Point at the branch: diff + requirements (step 1). |
 | Diff + requirements in hand | Delegate to the review flow (triage -> fresh reviewer -> draft). |
 | About to give an own read of the diff | Don't. The fresh reviewer is primary; this skill owns dispatching it. |
-| Draft in hand | Fix Critical/Important, note Minor, then continue or ship. |
+| Draft in hand | Present it, then gate self-review: fix blocking / fix all / ship as is. |
