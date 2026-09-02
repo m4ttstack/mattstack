@@ -55,11 +55,13 @@ explicit answer.
 
 ## Gate 1: severity multi-select
 
-Offer only the levels present in the draft, skipping any level with no
-findings. Pre-select every level that
-has findings, so nothing drops silently -- the developer deselects rather
-than opts in. A common pick: Critical + Important selected, Minor
-deselected.
+One structured question (the caller's wrap-up form contract; the tool is
+`AskUserQuestion` in Claude Code), multi-select. Offer only the levels
+present in the draft, skipping any level with no findings. Pre-select
+every level that has findings, so nothing drops silently -- the developer
+deselects rather than opts in. A common pick: Critical + Important
+selected, Minor deselected. Prose that lists the levels and waits is not
+this gate.
 
 Post inline threads only for selected findings. A deselected or unraised
 finding drops entirely: not into the summary, not into a footnote, not
@@ -79,7 +81,8 @@ approve with a brief note.
 
 ## Gate 2: disposition
 
-Offer only the dispositions the target forge's CLI supports. Comment (the
+A second structured question, single-select, asked only after Gate 1 is
+answered. Offer only the dispositions the target forge's CLI supports. Comment (the
 default) and Approve are available everywhere; Request changes is available
 where the CLI supports it -- `gh` does, `glab` does not. There, frame the
 blocking findings as blocking inside a Comment rather than silently
@@ -131,6 +134,11 @@ left as a bare id or number. Required every time, on every disposition.
 | "No approval landed, but I'll still say 'nothing blocking'" | Tacit approval. Strip the all-clear language unless the disposition actually approves. |
 | "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge CLI. |
 | "Anchor, verify, summary -- that's my two gates" | Those are posting mechanics, not the gates. The gates are the developer's decisions: severity selection and disposition. |
+| "I'll list the severities and the dispositions in one message and let them answer both" | Two gates, two questions, two calls. One paragraph is neither. |
+| "I'll offer just the levels this paragraph names" | Every gate form also carries Iterate here and Hold from the caller's Deliver section; that applies to both gates, not only the ones that spell it out here. |
+| "I'll write out both gate calls in one reply since I have no way to literally pause between them" | Gate 2 is asked only after Gate 1's answer returns; write out Gate 1 alone and stop, never both calls in the same message. |
+| "I'll list each finding as its own option under its level" | Gate 1 selects by severity LEVEL, not by individual finding. One option per level present in the draft, never one option per finding. |
+| "I'll add a Post it / confirm option so the developer can trigger posting from inside this question" | Gate 1 offers only the levels present in the draft plus Iterate here and Hold. Answering the multi-select already is the post decision; no separate confirm/submit option belongs in the set. |
 
 ## Quick reference
 

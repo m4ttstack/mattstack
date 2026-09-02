@@ -16,8 +16,12 @@ The standalone entry for reviewing someone else's change.
 
 From the conversation: an MR/PR URL, a bare !iid or #number, a ticket id,
 or a branch name. Resolve to one MR/PR via the forge CLI
-(`glab mr view <ref>` or `gh pr view <ref>`); ambiguity goes back to the
-user as a question, never a guess.
+(`glab mr view <ref>` or `gh pr view <ref>`); ambiguity is gate `clarify`:
+one sentence naming the candidates, then the structured-question tool
+with one option per candidate (when `RT_RUN_DB` is set, `rt runs field set
+gate clarify --stage review` before and `rt runs decision record
+--contract gate@1 --scope clarify --selection '{"target":"<picked>"}'
+--decided-by review` after). Never a guess.
 
 ## 2. Review
 
@@ -46,11 +50,22 @@ pack binds them; apply its triage lines and addendum exactly as it directs.
 
 ## 3. Deliver
 
-Present the draft to the user, then run the two-gate posting protocol below
-to decide what lands, which disposition closes the review, and how the
-summary reads. Nothing leaves the machine without an explicit go on both
-gates. Post using the forge's thread mechanics: on GitHub use `gh pr review`
-/ `gh pr comment`; on GitLab follow the thread mechanics below.
+Present the draft, then the two posting gates below as two structured
+questions, in order, each its own call: gate `post-severity` (Gate 1),
+then gate `post-disposition` (Gate 2). When `RT_RUN_DB` is set, each gate
+is bracketed by `rt runs field set gate <scope> --stage review` before the
+question and `rt runs decision record --contract gate@1 --scope <scope>
+--selection '<JSON>' --decided-by review` after the answer
+(`{"levels":[...]}` for Gate 1, `{"disposition":"comment|approve|request_changes"}`
+for Gate 2). Each form also offers **Iterate here** (their text changes
+the draft; re-present it and gate again) and **Hold**. Nothing leaves the
+machine without both answers. Post using the forge's thread mechanics: on
+GitHub use `gh pr review` / `gh pr comment`; on GitLab follow the thread
+mechanics below.
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
 
 {{include:review-posting}}
 
