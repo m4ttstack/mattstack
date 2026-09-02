@@ -103,10 +103,8 @@ this as a per-branch step, hand back the old head -> new head line and let
 it gate the batch. Otherwise:
 
 - When `RT_RUN_DB` is set: `rt runs field set gate push --stage <run.current_stage>`.
-- One sentence: publishing the rebase needs `git push --force-with-lease`
-  on this branch.
-- Example of the whole reply: the report line above, then the form;
-  nothing else.
+- The sentence is the old head -> new head line above; nothing else
+  before the form.
 - The form: **Push with force-with-lease now** / **Leave it unpushed**
   (recommended when the branch has an open MR others may have pulled);
   **Hold**.
@@ -118,9 +116,7 @@ Never push unasked.
 
 | Thought | Reality |
 |---------|---------|
-| "I'll write the head-report sentence, then a second sentence restating why a push is needed, since each reads as its own idea" | The whole reply carries exactly one sentence before the form, full stop -- the head-report line already is the one sentence the push gate needs. The force-with-lease mechanics already sit in the form's own **Push with force-with-lease now** option text; do not add a second sentence restating why a push is pending. |
 | "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Render that qualifier attached to that option exactly; never move it to the push option. |
-| "The push gate's paragraph literally says 'One sentence: publishing the rebase needs force-with-lease' -- I'll write that out even though I already reported old head -> new head" | That bullet names the content of the one sentence for callers who skipped the head report; when the head report already ran in this same reply, it already discharges that bullet. Write the head-report sentence, then go straight to the form -- never both sentences. |
 
 ## Wrap-up form contract
 

@@ -17,7 +17,7 @@ metadata:
 
 ## Run state
 
-Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
+Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
 - First action: `rt runs stage-start --stage ship`
 - Read consumed fields with `rt runs field get <key>` before
@@ -27,12 +27,6 @@ Contract v2 (authoritative text: the parameterized-skills skill's convention ref
 - Last action on success: `rt runs stage-done --stage ship`;
   on failure: `rt runs stage-fail --stage ship --reason
   "<what actually failed>"` before you report it.
-
-## Domain rules
-
-{{slot:domain}}
-
-When nothing is inlined above, follow the generic path below.
 
 ## Gate `ship` (before the push, bound or unbound)
 
@@ -56,6 +50,12 @@ get-url origin`. A GitLab host means `glab` (`glab mr create`, `glab mr
 update <iid> --ready`); a GitHub host means `gh` (`gh pr create`, `gh pr
 ready <number>`); anything else is a `clarify` gate (which CLI?) rather than
 a guess.
+
+## Domain rules
+
+{{slot:domain}}
+
+When nothing is inlined above, follow the generic path below.
 
 Unbound (generic fallback): push the branch (`git push -u origin
 <branch>`), then open the MR/PR with the CLI the forge-host rule names,

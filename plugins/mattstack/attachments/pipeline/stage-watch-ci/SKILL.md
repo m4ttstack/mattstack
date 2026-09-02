@@ -19,7 +19,7 @@ metadata:
 
 ## Run state
 
-Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
+Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
 - First action: `rt runs stage-start --stage watch-ci`
 - Read consumed fields with `rt runs field get <key>` before
@@ -81,6 +81,8 @@ cleanup: staleness handles it.
 Then the first branch that matches:
 
 **Domain rules inlined above:** follow that flow for `mr` and `branch`.
+Its red verdict lands at the `ci` gate below and its green at
+`mark-ready`.
 
 **Forge bound (no domain rules above):** launch
 `${CLAUDE_SKILL_DIR}/scripts/ci-watch.sh --forge {{stage.dir}}/parts/forge/scripts/ci-forge.sh --ref <branch> --timeout 2700`
@@ -93,10 +95,10 @@ once, then the `ci` gate. 4 = no pipeline ever appeared: verify the branch
 was pushed, then the `ci` gate.
 
 **Neither bound:** poll the forge CLI (`gh pr checks <mr> --watch` or
-`glab ci status --live`) until the pipeline settles. Green: done. Red:
-read the failing job log, classify REAL (the change broke it) vs
-INFRA/flake (unrelated, retry once); any REAL failure is the `ci` gate
-below.
+`glab ci status --live`) until the pipeline settles. Green: the
+mark-ready gate below. Red: read the failing job log, classify REAL (the
+change broke it) vs INFRA/flake (unrelated, retry once); any REAL failure
+is the `ci` gate below.
 
 ## Gate `ci` (red, timeout, or no pipeline)
 
