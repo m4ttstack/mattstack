@@ -93,9 +93,13 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   hands off through `herdr plugin action invoke` (the action runs as herdr's
   own child), and `herdr::open_popup` retries the busy refusal briefly while
   the old popup is reaped. Every other failure still surfaces at once.
-- **Inside a herdr pane, `cargo test` fails five tests unless
-  `HERDR_BIN_PATH` is unset.** herdr exports it into every pane, and
-  `run::herdr_bin` honors it, so the argv assertions see an absolute path.
+- **A popup cannot open the next popup itself.** herdr keeps one popup per
+  session and refuses `plugin pane open` with `popup already open` until the
+  current popup's process has exited, and on teardown it signals that
+  process's whole session, so a detached helper dies with it. The launcher
+  hands off through `herdr plugin action invoke` (the action runs as herdr's
+  own child), and `herdr::open_popup` retries the busy refusal briefly while
+  the old popup is reaped. Every other failure still surfaces at once.
 - **Show `name`, act on `handle`.** Every row, header and result line renders
   `display_name()`. Every lookup, map key, jump, send and broadcast record
   uses `handle`. A check that a pane title "just echoes the identity"
