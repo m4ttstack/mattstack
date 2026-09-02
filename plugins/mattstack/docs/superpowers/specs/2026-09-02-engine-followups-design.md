@@ -75,7 +75,7 @@ Changes:
 - E12 stage-ship's unbound generic fallback ("Never force-push"): scoped to the unbound path; a bound domain's rules replace it.
 - E6 (compiler): `${CLAUDE_SKILL_DIR}` in an included body is rewritten to the vendored parts dir for stage-compiled outputs but not for attachment-compiled verbs (receive-review, self-review), so `parts/include-review-dispatch-body-after/references/adjudicator.md` is unreachable when a board wrapper loads the file. Reported to stan 2026-09-02; no engine change.
 
-## rt follow-ups (for stan)
+## rt follow-ups (filed as m4ttstack/rt issue 181; implemented by this workstream)
 
 1. E6: same `${CLAUDE_SKILL_DIR}` rewrite for every otherSideDir output.
 2. E7: `{{verb.path:<name>}}` placeholder.
