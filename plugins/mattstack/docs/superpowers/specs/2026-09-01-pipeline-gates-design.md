@@ -288,11 +288,15 @@ another session's run, two matching runs (newest named), a held run, a run
 dir older than 48 hours (not scanned), `rt` missing, `rt` printing usage
 instead of JSON.
 
-**Prerequisite probe, run 2026-09-01.** A temporary user-level Stop hook
-logging its stdin recorded zero Stop events while an `AskUserQuestion` was
-on screen and exactly one after the answer and the final message, with
-`stop_hook_active` false. The design's premise holds on the runtime this
-estate runs.
+**Prerequisite probe, before any of this is built.** The design rests on a
+Stop hook not firing while an `AskUserQuestion` is awaiting the user. The
+docs describe Stop as firing when Claude finishes responding and list only
+the user interrupt as a non-firing case; they do not say this in so many
+words. Plan task one: a temporary user-level Stop hook that appends its
+stdin to a log, a fresh interactive session asked to call the tool, and the
+log checked while the form is up and again after the answer and the final
+message. If Stop fires with the form up, the hook would block the form
+itself and this section is redesigned before anything else is written.
 
 ## 6. Standalone verbs run as single-stage runs
 
