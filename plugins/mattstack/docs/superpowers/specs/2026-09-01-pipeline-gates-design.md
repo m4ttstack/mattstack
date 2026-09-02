@@ -1,7 +1,7 @@
 # Pipeline gates: forms at every decision point, a hook that enforces it
 
 **Date:** 2026-09-01
-**Status:** design approved in conversation (sections 1 to 8); section 9 added from the pack audit; adversarial review round one applied; spec under review
+**Status:** design approved in conversation (sections 1 to 8); section 9 added from the pack audit; adversarial review round one applied; review loop round one applied; spec under review
 **Builds on:** `2026-08-24-compile-native-pipeline-design.md`,
 `2026-08-25-compile-native-followups-design.md`, and rt's
 `2026-09-01-runs-write-verbs-design.md` (rt PR #172, merged to main as
@@ -92,8 +92,15 @@ earlier stage row, which a single-stage run (section 6) never does.
 Outside a run (`RT_RUN_DB` unset), the two `rt runs` lines are skipped and
 the form alone is the gate. Section 6 makes that case rare.
 
-The contract text goes into the parameterized-skills convention reference as
-"Stage contract v3: gates", beside contract v2.
+`-` is the cleared sentinel wherever this spec writes a field (`hold`, a
+redirected stage's produces): `field set <key> -` because the verbs refuse
+an empty value. Every reader treats it as absent: `field get` returning `-`
+is read as "not set", and the work engine's completeness check (every
+produce non-null before `stage-done`) becomes "non-null and not `-`".
+Without that amendment the redirect clear in section 4 clears nothing.
+
+The contract text, sentinel included, goes into the parameterized-skills
+convention reference as "Stage contract v3: gates", beside contract v2.
 
 ## 2. Wrap-up: one include, one compiled door
 
@@ -109,7 +116,7 @@ over: the "if this runtime has no such tool, the chat message itself is the
 form" clause, which is the exemption an agent under pressure reaches for and
 which the Stop hook cannot tell from prose (the estate's runtime always has
 the tool); and the worked example, so the include stays under two hundred
-words for the thirteen engines that inline it. Its "common mistakes" list is
+words for the fourteen engines that inline it. Its "common mistakes" list is
 the seed of a rationalization table; whether the final form is a table or a
 recipe is decided by the RED run (Testing), which is also where the rows
 come from. The expectation, from the observed failure (the agent knows the
@@ -141,11 +148,11 @@ engine supplies; a bound domain fill may add questions (companion spec).
 
 | Engine | Scope | Where | Form content |
 |---|---|---|---|
-| work | `close` | before `run-status`; the run stays `running` until answered | the MR link; mark ready?; watch CI / done / iterate / go back / hold |
+| work | `close` | before `run-status`; the run stays `running` until answered | the MR link and its state (draft or ready, decided at the `mark-ready` gate); done / iterate / go back / hold |
 | work | `<stage>-failed` | replaces "report, stop" after a stage failure | resume / fix and retry / go back / abandon (`run-status abandoned`) |
 | stage-plan | `plan` | after the triage print, before `decision record` | the tier (recommended first), the failing test on direct-tdd, the domain policy's questions |
 | stage-ship, ship | `ship` | before the push | commit / stash / abort on a dirty tree; confirm the commits; draft or ready |
-| ship | `mark-ready` | when the flow reaches it | mark ready now / hold |
+| stage-watch-ci, ship | `mark-ready` | stage-watch-ci: on a green verdict, when `mr` is set and the MR is a draft (the pipeline path); ship: after its own CI verdict (the standalone path). Precondition in both: `ci` green and `evidence` present for the MR's head | mark ready now (recommended) / keep it draft. On yes, the engine runs the forge's ready command under the section 7 host rule; no domain fill supplies it |
 | stage-watch-ci, watch-ci | `ci` | real failure, timeout, no pipeline | fix and re-push / retry the job / hand back / abandon |
 | stage-provision | `provision` | branch already attached to a tree | resume in that tree / fresh tree |
 | stage-evidence | `evidence`, `evidence-attach` | before capture, when the bound domain declares intake questions; before the MR is modified | the domain's intake and source questions; the proposed annotations (multi-select, all pre-selected) and attach now / hand back the markdown |
@@ -181,9 +188,10 @@ rt runs stage-start --stage <to>
 ```
 
 then walk forward from `<to>`; later stages re-run as new attempts. The
-produces are cleared first so the walk's completeness check (every produce
-non-null before `stage-done`) cannot pass on a stale `mr` or `ci` from the
-previous pass. The reason is the human's words, never a category.
+produces are cleared to the `-` sentinel first, and the walk's completeness
+check treats `-` as missing (section 1), so the check cannot pass on a stale
+`mr` or `ci` from the previous pass. The reason is the human's words, never
+a category.
 
 **Ready is the human's call.** The close gate offers *done* and *iterate*;
 the run cannot reach `run-status done` until *done* is picked. A pipeline can
@@ -244,9 +252,9 @@ That last sentence is the design, not a side effect: a mid-run side question
 answered in prose is exactly the dead turn this spec exists to remove, so
 the answer rides in front of a "continue the run?" form.
 
-On `--resume` or `--continue` without an explicit id, the docs say the
-session id a hook receives may be the startup id; a run recorded under the
-old id then goes unmatched and the hook fails open. The Resume section's
+If a resumed or continued session reports a different id to hooks than the
+one its Bash calls exported when the run started, the run goes unmatched
+and the hook fails open. The Resume section's
 fresh `stage-start` re-records `claude-session` (identity is written at
 every `stage-start`), so the mismatch lasts one turn.
 
@@ -333,10 +341,13 @@ Two of its items are engine edits, owned here:
   vendored inside the compiled skill's own directory (`scripts/` and
   `parts/forge/scripts/`), never derived from a plugin install. The fill
   keeps only its script names and its pipeline-shape facts.
-- **stage-ship and ship** generic fallback: read the origin remote's host
-  (`git remote get-url origin`); a GitLab host means `glab`, a GitHub host
-  means `gh`, anything else is a `clarify` gate rather than a guess. Today
-  both name `glab` first and `gh` as an aside.
+- **stage-ship, ship, stage-watch-ci, watch-ci** forge-host rule: read
+  the origin remote's host (`git remote get-url origin`); a GitLab host
+  means `glab`, a GitHub host means `gh`, anything else is a `clarify` gate
+  rather than a guess. It covers the generic push-and-open fallback (today
+  it names `glab` first and `gh` as an aside) and the `mark-ready` action
+  (`glab mr update <iid> --ready`, `gh pr ready <number>`), so the pipeline
+  path needs no domain fill to mark an MR ready.
 
 ## 8. rt follow-ups (handed to rt by DM, not built here)
 
@@ -359,8 +370,8 @@ Two of its items are engine edits, owned here:
 6. **Cross-reference rewriting.** Compiled verbs carry the engines'
    `mattstack:<engine>` references verbatim (`mattstack:checkout`,
    `mattstack:watch-ci`, `mattstack:rebase-worktree`, `mattstack:map-open-mrs`
-   in the audited pack), and those are not invocable names: the plugin
-   registers two skills, the rest are attachments. When the pack compiles
+   in the audited pack), and those are not invocable names: the plugin's
+   public doors are the few `surface.jsonc` lists, the rest are attachments. When the pack compiles
    the referenced engine, the compiler should rewrite the reference to the
    pack's own verb name; when it does not, `rt skills check` should flag it.
 
@@ -439,7 +450,9 @@ Writing-skills TDD, per changed skill:
    ride the same release so held runs do not read stale.
 2. This repo: `rt-runs-verbs` merges to `main` (rt's release makes that
    safe); this branch rebases onto it, merges, bumps.
-3. Personal skills repo: delete the old wrap-up skill and the symlink.
+3. Personal skills repo: delete the old wrap-up skill and the symlink, and
+   change the `~/.claude/CLAUDE.md` line that tells every session to invoke
+   `/matt:wrap-up` at turn end to the compiled door's name.
 4. The team pack: companion spec's changes, recompile, bump, update,
    restart.
 
