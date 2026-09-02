@@ -84,10 +84,16 @@ entry's relations.
 
 {{include:review-dispatch-body-after}}
 
-## 3. Verdicts and drafted replies (Gate A)
+## 3. Verdicts and drafted replies (Gate A, scope `verdicts`)
 
-Present the verdict table plus a drafted reply per thread. Nothing is written
-to code, nothing posted.
+Present the verdict table plus a drafted reply per thread, then the gate.
+Nothing is written to code, nothing posted:
+
+- When `RT_RUN_DB` is set: `rt runs field set gate verdicts --stage <run.current_stage>`.
+- The form: **Verdicts and replies approved** (recommended) / **Edit
+  these** (their text names the threads and the change) / **Redo the
+  adjudication**; **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope verdicts --selection '{"next":"approve|edit|redo|hold","note":"<their words or null>"}' --decided-by receive-review`.
 
 **Reply content is a seam.** **No Reply rules section below** (the slot is
 unbound): **REQUIRED SUB-SKILL** `superpowers:receiving-code-review`. **A
@@ -113,10 +119,17 @@ Reply rules section below**: follow it. On top of either branch, these hold:
 
 {{slot:reply-rules}}
 
-## 4. Implement valid fixes (Gate B, after explicit approval)
+## 4. Implement valid fixes (Gate B, scope `fixes`)
 
 Nothing is implemented until the developer approves it -- not under cover of
-"in a follow-up commit," not while drafting. On the go-ahead, implement the
+"in a follow-up commit," not while drafting. The approval is a form:
+
+- When `RT_RUN_DB` is set: `rt runs field set gate fixes --stage <run.current_stage>`.
+- The form: a multi-select of the `valid` threads, all pre-selected, each
+  option naming `file:line` and the fix; **Iterate here**; **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope fixes --selection '{"threads":[...]}' --decided-by receive-review`.
+
+On the answer, implement the selected
 `valid` fixes one at a time, verifying each with the project's tests and
 checks before the next. Finalize each valid reply to "Fixed -- `file:line` /
 what changed". Domain ship-time gates still apply to these fixes; this skill
@@ -127,12 +140,18 @@ never checks their box.
 The drafted replies are already bucketed by verdict from step 2.
 
 <HARD-GATE>
-Ask which verdict categories to post as thread replies. **Multi-select**:
-offer only the categories that have at least one thread (nothing came back
-`needs-clarification` -> do not offer it), pre-select every category that has
-threads so nothing drops silently, and let the developer deselect -- e.g.
-post the `valid` "Fixed" replies and the `pushback` reasons now, hold
-`needs-clarification` to ask the reviewer synchronously first.
+Gate `post`: one structured question (the tool is `AskUserQuestion` in
+Claude Code), **multi-select**, asking which verdict categories to post as
+thread replies. Offer only the categories that have at least one thread
+(nothing came back `needs-clarification` -> do not offer it), pre-select
+every category that has threads so nothing drops silently, and let the
+developer deselect -- e.g. post the `valid` "Fixed" replies and the
+`pushback` reasons now, hold `needs-clarification` to ask the reviewer
+synchronously first. Also offer **Hold**. When `RT_RUN_DB` is set, `rt runs
+field set gate post --stage <run.current_stage>` before and `rt runs
+decision record --contract gate@1 --scope post --selection
+'{"categories":[...]}' --decided-by receive-review` after. A paragraph
+that lists the categories and waits is not this gate.
 </HARD-GATE>
 
 Post thread replies **only** for threads in the selected categories; the rest
@@ -153,6 +172,7 @@ and the adapter.
 | "I'll post the replies since they look right" | Post only on explicit go-ahead; never resolve or approve for the developer. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation is Gate B, after approval, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
+| "I'll present the table and ask about fixes and posting in the same breath" | Gate A, Gate B, and post are three forms, in order. Prose that asks all three is none of them. |
 
 ## Quick reference
 
@@ -164,3 +184,7 @@ and the adapter.
 | Verdicts in hand | Verdict table + drafted replies (Gate A); reply-rules voice, no performative openers. |
 | Developer approves fixes | `valid` one at a time, verify each, finalize to "Fixed -- file:line" (Gate B). |
 | Developer approves posting | Multi-select the categories present, post those as thread replies; never resolve, never approve. |
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
