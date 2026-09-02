@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.11.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-421 -->
+<!-- part: step source=mattstack:shepherdr version=0.11.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-431 -->
 
 # shepherdr
 
@@ -645,9 +645,15 @@ If the user redirects scope: ask whether to let running agents finish or kill th
    | api tests | 1-3 | 2 | direct-tdd | done | A1-A4 done, 12 tests, suite green |
    ```
 2. Flag drift and failures.
-3. Ask: close panes or keep for review? For each pane you close, run
-   `herd-job.py --db <db> <job> --status closed` first.
-4. Offer worktree cleanup and job-dir cleanup; never auto-remove either.
+3. Gate `wrap-up`, one form (the wrap-up form contract below): **Close
+   the panes** (recommended when every job is done) / **Keep them for
+   review**; a multi-select of the trees to dispose, none pre-selected
+   (an `rt`-provisioned tree with unmerged work is listed but noted, the
+   guard will refuse it); **Delete the job dirs** (yes / no); **Hold**.
+   For each pane you close, run `herd-job.py --db <db> <job> --status
+   closed` first. Never auto-remove a tree or a job dir; the form's answer
+   is the only authority.
+4. Cleanup mechanics, on the answers:
    For an `rt`-provisioned tree: `rt worktree dispose --owner <run-id>`
    (the guard refuses real unmerged work; a `remove-failed` refusal is
    transient -- retry). For a legacy `-b` tree: `git worktree remove
@@ -660,6 +666,36 @@ If the user redirects scope: ask whether to let running agents finish or kill th
 **Domain hook -- wrap-up.** Unbound: as above. A bound domain part may
 state its own tree lifecycle (trees that dispose themselves when their
 work merges, what a disposal refusal means) -- follow it over item 4.
+
+## wrap-up form contract
+
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.11.0 path=attachments/wrap-up-form/SKILL.md lines=7-32 -->
+# Wrap-up
+
+The reply is one optional sentence of context, then a form, then stop. Wait
+for the answers before doing more work.
+
+The form is this runtime's structured-question tool (`AskUserQuestion` in
+Claude Code). One question per open item, in three buckets; omit an empty
+bucket:
+
+| Bucket | The question is | Options |
+|---|---|---|
+| Important details | a confirmation or pick among facts that still matter | concrete values |
+| Decisions | a choice only the user can make | the real alternatives, recommended first and labelled `(Recommended)` |
+| Next steps | whether or in what order to do remaining work | do now / later / skip |
+
+Single or multiple choice as the item needs. If the tool caps how many
+questions fit in one call, fill the first call and wait; the rest go in the
+next call after the answers return, never into the context sentence.
+
+| Thought | Reality |
+|---|---|
+| "A summary with the options listed is just as clear" | A list is text the user has to type back. The form is the answer channel. |
+| "They asked me to be quick, so a compact list" | The form is the quick version: one tap per item. |
+| "The options are obvious, prose is faster" | Obvious to you. The form records which one they picked. |
+| "Next steps can go in prose after the form" | Next steps are questions: do now / later / skip. |
+| "I can hand them a default to save them answering" | Recommended options already do that in the form; a typed reply still costs more than a tap and leaves no record of the pick. |
 
 ## red flags -- stop yourself
 
