@@ -32,7 +32,8 @@ Check these before anything mutates, and report before touching history:
   Dirty: one sentence listing the uncommitted paths, then the
   structured-question tool with **I committed them, retry** / **Abort**;
   **Hold** (under a run, scope `clarify`). Never `git stash` and proceed:
-  moving someone's uncommitted work is not this skill's call.
+  moving someone's uncommitted work is not this skill's call. The STOP
+  table under the push gate binds this form too.
 - **Upstream set.** `git -C <worktree> status -sb` prints the branch line
   first; no `...origin/<branch>` tracking ref there means no upstream --
   stop and report, there's nothing to rebase onto.
