@@ -1,7 +1,7 @@
 # Pipeline gates: forms at every decision point, a hook that enforces it
 
 **Date:** 2026-09-01
-**Status:** design approved in conversation (sections 1 to 8); section 9 added from the pack audit; adversarial review round one applied; review loop round one applied; spec under review
+**Status:** design approved in conversation (sections 1 to 8); section 9 added from the pack audit; adversarial review round one applied; review loop rounds one and two applied; spec under review
 **Builds on:** `2026-08-24-compile-native-pipeline-design.md`,
 `2026-08-25-compile-native-followups-design.md`, and rt's
 `2026-09-01-runs-write-verbs-design.md` (rt PR #172, merged to main as
@@ -80,9 +80,13 @@ The decisions table upserts on `(run, contract, scope)`, so a gate that can
 fire more than once per run carries the stage and attempt in its scope:
 `redirect:ship:2`, `hold:implement:3`, `implement-failed:2`, `ci:watch-ci:2`,
 `conflict:rebase-worktree:1`. The attempt is the current stage row's, read
-from `snapshot`. One-shot gates (`plan`, `close`, `mark-ready`) keep the bare
-name. That is what lets the timeline (section 8, item 5) show a loop's
-history without a schema change.
+from `snapshot`. Gates that fire once per pass (`plan`, `close`,
+`mark-ready`) keep the bare name; after a redirect they fire again and the
+upsert keeps only the latest answer, which is intended: the
+`redirect:<from>:<attempt>` row preserves why the loop happened, and the
+latest `close` or `mark-ready` answer is the one that stands. That is what
+lets the timeline (section 8, item 5) show a loop's history without a schema
+change.
 
 Every gate form carries standing options after its own question: **Iterate
 here** (the human's `Other` text is the change request) and **Hold**
@@ -93,8 +97,10 @@ Outside a run (`RT_RUN_DB` unset), the two `rt runs` lines are skipped and
 the form alone is the gate. Section 6 makes that case rare.
 
 `-` is the cleared sentinel wherever this spec writes a field (`hold`, a
-redirected stage's produces): `field set <key> -` because the verbs refuse
-an empty value. Every reader treats it as absent: `field get` returning `-`
+redirected stage's produces): `field set <key> -`. An empty string would
+store, but it is invisible in a `snapshot` listing and `field get` already
+refuses it, so a visible sentinel that matches `hold`'s is the one readers
+can check. Every reader treats it as absent: `field get` returning `-`
 is read as "not set", and the work engine's completeness check (every
 produce non-null before `stage-done`) becomes "non-null and not `-`".
 Without that amendment the redirect clear in section 4 clears nothing.
@@ -152,7 +158,7 @@ engine supplies; a bound domain fill may add questions (companion spec).
 | work | `<stage>-failed` | replaces "report, stop" after a stage failure | resume / fix and retry / go back / abandon (`run-status abandoned`) |
 | stage-plan | `plan` | after the triage print, before `decision record` | the tier (recommended first), the failing test on direct-tdd, the domain policy's questions |
 | stage-ship, ship | `ship` | before the push | commit / stash / abort on a dirty tree; confirm the commits; draft or ready |
-| stage-watch-ci, ship | `mark-ready` | stage-watch-ci: on a green verdict, when `mr` is set and the MR is a draft (the pipeline path); ship: after its own CI verdict (the standalone path). Precondition in both: `ci` green and `evidence` present for the MR's head | mark ready now (recommended) / keep it draft. On yes, the engine runs the forge's ready command under the section 7 host rule; no domain fill supplies it |
+| stage-watch-ci, ship | `mark-ready` | stage-watch-ci: on a green verdict, when `mr` is set and the MR is a draft (the pipeline path); ship: after its own CI verdict (the standalone path). Precondition in both, as the engine can check it: `ci` is `green` and `evidence` is set and not `-`; whether the evidence matches the MR's head sha is a domain fill's checklist item, not an engine check | mark ready now (recommended) / keep it draft. On yes, the engine runs the forge's ready command under the section 7 host rule; no domain fill supplies it |
 | stage-watch-ci, watch-ci | `ci` | real failure, timeout, no pipeline | fix and re-push / retry the job / hand back / abandon |
 | stage-provision | `provision` | branch already attached to a tree | resume in that tree / fresh tree |
 | stage-evidence | `evidence`, `evidence-attach` | before capture, when the bound domain declares intake questions; before the MR is modified | the domain's intake and source questions; the proposed annotations (multi-select, all pre-selected) and attach now / hand back the markdown |
@@ -170,7 +176,11 @@ red flags gain: "About to end the turn with the run still `running` and no
 form on screen? Stop."
 
 A verb running inside a stage (watch-ci invoked from a ship flow) inherits
-the run and uses `run.current_stage` from `snapshot` as its `--stage`.
+the run and uses `run.current_stage` from `snapshot` as its `--stage`. An
+inheriting verb writes no `stage-done` and no `run-status`: only the verb
+that ran `run-start` closes the stage and the run. Otherwise watch-ci's
+green path would end ship's stage row and mark the run done before ship's
+`mark-ready` gate, and the hook would fail open at exactly that gate.
 
 ## 4. Iteration: redirect and hold
 
@@ -304,8 +314,9 @@ finished run left in the variable does not count). Both the work engine's
 Close and a standalone verb's close end with `unset RT_RUN_DB` after
 `run-status`, since the export otherwise outlives the run in the session's
 shell and the next verb would `stage-start` into a finished run (nothing in
-`stageStart` checks the run's status). It closes with `stage-done` and
-`run-status done` after its final gate.
+`stageStart` checks the run's status). The verb that ran `run-start` closes
+with `stage-done` and `run-status done` after its final gate; a verb that
+inherited the run closes nothing (section 3).
 
 Standalone verbs share the work engine's Resume rule: before `run-start`,
 a `running` run for the repo with this verb's work type is offered as a
@@ -387,7 +398,7 @@ entirely in engine text, so this section is all mattstack. Per verb:
 | review | `post-severity`, `post-disposition` | the existing Gate 1 then Gate 2, severities first | Gate 1: multi-select of the severity levels present, all pre-selected; Gate 2: single-select disposition from the forge's offered set, Comment pre-selected. Two calls, in that order; content approval answers neither |
 | self-review | `self-review` | replaces "fix Critical and Important, note Minor, then continue or ship" | fix the blocking findings now (recommended) / fix minors too / ship as is / iterate; the draft precedes the form, the form is the close |
 | receive-review | `verdicts`, `fixes`, `post` | the existing Gates A, B, and the posting gate | A: approve the verdict table and drafted replies / edit / redo; B: which `valid` fixes to implement (multi-select, all pre-selected); post: which verdict categories to reply with (multi-select, all present pre-selected) |
-| watch-ci | `ci` | replaces "finish by reporting the verdict" on red; on green the verdict is one line and the run closes | fix and re-push / retry the job / hand back / abandon |
+| watch-ci | `ci`, `mark-ready` | replaces "finish by reporting the verdict" on red; on green the verdict is one line, then the `mark-ready` gate when `mr` is set and the MR is a draft, then the run closes only if watch-ci started it (a watch-ci inherited from ship hands control back with the run `running`) | fix and re-push / retry the job / hand back / abandon; mark ready now / keep it draft |
 | ship | `ship`, `mark-ready` | section 3 | section 3 |
 | sync-open-mrs | `sweep`, `push` | the batch go-ahead and the batch force-push offer | rebase these branches in this order (multi-select, all pre-selected) / skip; push all rebased branches / pick / none, then watch CI or not |
 | rebase-worktree | `push`, `conflict` | the closing push ask and the conflict hand-back | force-with-lease push now / leave unpushed; on conflict: resolve here with me / abort / leave the rebase in progress |
@@ -398,11 +409,12 @@ URL as a markdown link) stays; the link is the sentence before the form.
 
 The board wrappers that launch `review` and `receive-review` live in their
 own repo. They delegate the gates to these verbs, so they need no gate of
-their own, and two of their paragraphs currently contradict the engine: one
-numbers the posting gates in the opposite order (disposition before
-severity) and both describe the posting gate as "present it" prose. The
-companion note for that repo: drop the wrapper's own gate text and defer to
-the domain verb's gates by name. The doctor wrapper is excluded on purpose;
+their own. The review wrapper currently numbers the posting gates in the
+opposite order from the engine (disposition before severity) and says
+"present the gate"; the respond wrapper only says "hold at a posting gate".
+The companion note for that repo: drop the wrapper's own gate text and defer
+to the domain verb's gates by name. The "present it" prose in the respond
+path is the pack's own board fill, handled in the companion spec. The doctor wrapper is excluded on purpose;
 its contract is "the human is not watching, never ask in the pane", and its
 escalation string is its whole hand-back.
 
@@ -462,5 +474,5 @@ Writing-skills TDD, per changed skill:
 - Forms at every stage boundary.
 - Any console rendering change (rt and console own it; item 5).
 - The board wrappers themselves; they delegate to the pack's verbs, which
-  sections 6 and 9 cover. Their two contradicting paragraphs are a note to
-  that repo (section 9).
+  sections 6 and 9 cover. The review wrapper's gate-order inversion is a
+  note to that repo (section 9).
