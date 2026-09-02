@@ -20,15 +20,20 @@ and `rt runs snapshot` shows `run.status` = `running`: you were invoked
 from inside that run, you inherit it, `run.current_stage` is your stage,
 and you close nothing at the end.
 
-Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
-`--repo` value in the flags block below) for a run whose `snapshot` shows
-`status` = `running` and `work_type` = `ship`
-(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
-One found: gate `clarify`, one sentence naming it, the structured-question
-tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
-RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage ship` (a new
-attempt, which re-records this session) and `rt runs field set hold -
---stage ship`.
+Otherwise, when a surface launched this pane (the `--spawned-by` case
+below), start fresh: another pane's live run is not yours to resume.
+Launched by hand, first the Resume offer: list `~/.mattstack/runs/<repo>/`
+(the `--repo` value in the flags block below) for runs whose `snapshot`
+shows `run.status` = `running` and `run.work_type` = `ship` (read each with
+`RT_RUN_DB` pointed at its `state.db`; never raw sqlite). Any found: gate
+`clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
+and `current_stage`, then the structured-question tool with one **Resume**
+option per candidate (recommended for a run this session started earlier; a
+run another live pane owns is not yours) / **Start fresh**; **Hold**.
+Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
+ship` (a new attempt, which re-records this session) and `rt runs field set
+hold - --stage ship`; re-enter with the snapshot's decisions and do not
+re-ask a question it already answered.
 
 Fresh. The flags for this verb, rendered by the compiler:
 
@@ -66,7 +71,9 @@ Then gate `ship`, before anything is pushed:
   ready**; every question the domain rules below declare for this gate;
   **Iterate here**; **Hold**.
 - `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>}}' --decided-by ship`.
-- Abort or Hold: nothing is pushed.
+- Abort or Hold: nothing is pushed. Abort, when `## Run` started this run:
+  `rt runs stage-done --stage ship`, `rt runs run-status --status
+  abandoned`, `unset RT_RUN_DB`.
 
 ## Domain rules
 
@@ -101,9 +108,10 @@ draft: gate `mark-ready`.
   forge-host rule above.
 
 Close, only when `## Run` started this run: after the mark-ready answer is
-acted on (or the gate said keep it draft), `rt runs stage-done --stage
-ship`, `rt runs run-status --status done`, `unset RT_RUN_DB`. Abort at the
-ship gate closes with `run-status --status abandoned` instead.
+acted on (or the gate said keep it draft), or on the generic path after the
+URL is printed, `rt runs stage-done --stage ship`, `rt runs run-status
+--status done`, `unset RT_RUN_DB`. Abort at the ship gate closes with
+`run-status --status abandoned` instead (section 1).
 
 ## Wrap-up form contract
 

@@ -345,6 +345,13 @@ work engine's, the placeholder stands alone on its own line above the
 variant ships, the guard falls through to the section 1 "outside a run"
 rule.
 
+Two refinements from the plan 3 review: a pane a surface launched
+(`--spawned-by`) starts fresh and offers no Resume, since another pane's
+live run is not its to resume; a hand-launched pane lists every candidate
+(its `spawned_by`, `started_at`, `current_stage`) with one Resume option
+each, Start fresh, and Hold, recommends only a run this session started,
+and re-enters with the snapshot's decisions without re-asking them.
+
 `rebase-worktree`, `checkout`, `checkout-and-open`, and `map-open-mrs` do
 not start runs: the first is usually a per-branch step inside
 `sync-open-mrs` and inherits its run, and the other three end in a fixed

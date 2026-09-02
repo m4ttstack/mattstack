@@ -26,15 +26,20 @@ and `rt runs snapshot` shows `run.status` = `running`: you were invoked
 from inside that run, you inherit it, `run.current_stage` is your stage,
 and you close nothing at the end.
 
-Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
-`--repo` value in the flags block below) for a run whose `snapshot` shows
-`status` = `running` and `work_type` = `sync-open-mrs`
-(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
-One found: gate `clarify`, one sentence naming it, the structured-question
-tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
-RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
-sync-open-mrs` (a new attempt, which re-records this session) and `rt
-runs field set hold - --stage sync-open-mrs`.
+Otherwise, when a surface launched this pane (the `--spawned-by` case
+below), start fresh: another pane's live run is not yours to resume.
+Launched by hand, first the Resume offer: list `~/.mattstack/runs/<repo>/`
+(the `--repo` value in the flags block below) for runs whose `snapshot`
+shows `run.status` = `running` and `run.work_type` = `sync-open-mrs` (read each with
+`RT_RUN_DB` pointed at its `state.db`; never raw sqlite). Any found: gate
+`clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
+and `current_stage`, then the structured-question tool with one **Resume**
+option per candidate (recommended for a run this session started earlier; a
+run another live pane owns is not yours) / **Start fresh**; **Hold**.
+Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
+sync-open-mrs` (a new attempt, which re-records this session) and `rt runs field set
+hold - --stage sync-open-mrs`; re-enter with the snapshot's decisions and do not
+re-ask a question it already answered.
 
 Fresh. The flags for this verb, rendered by the compiler:
 

@@ -28,15 +28,20 @@ and `rt runs snapshot` shows `run.status` = `running`: you were invoked
 from inside that run, you inherit it, `run.current_stage` is your stage,
 and you close nothing at the end.
 
-Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
-`--repo` value in the flags block below) for a run whose `snapshot` shows
-`status` = `running` and `work_type` = `watch-ci`
-(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
-One found: gate `clarify`, one sentence naming it, the structured-question
-tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
-RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage watch-ci` (a new
-attempt, which re-records this session) and `rt runs field set hold -
---stage watch-ci`.
+Otherwise, when a surface launched this pane (the `--spawned-by` case
+below), start fresh: another pane's live run is not yours to resume.
+Launched by hand, first the Resume offer: list `~/.mattstack/runs/<repo>/`
+(the `--repo` value in the flags block below) for runs whose `snapshot`
+shows `run.status` = `running` and `run.work_type` = `watch-ci` (read each with
+`RT_RUN_DB` pointed at its `state.db`; never raw sqlite). Any found: gate
+`clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
+and `current_stage`, then the structured-question tool with one **Resume**
+option per candidate (recommended for a run this session started earlier; a
+run another live pane owns is not yours) / **Start fresh**; **Hold**.
+Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
+watch-ci` (a new attempt, which re-records this session) and `rt runs field set
+hold - --stage watch-ci`; re-enter with the snapshot's decisions and do not
+re-ask a question it already answered.
 
 Fresh. The flags for this verb, rendered by the compiler:
 
@@ -135,22 +140,26 @@ run, `mr` is set, and the MR is a draft, gate `mark-ready`:
   `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
   anything else is a `clarify` gate).
 
-Then the close. Any other outcome is gate `ci`:
+Then the close below (own run only; on green with no `mark-ready` gate,
+close right after the verdict). Any other outcome is gate `ci`:
 
 - `rt runs field set gate ci:<stage>:<attempt> --stage <stage>`.
 - One sentence: the verdict and the one-line triage per blocking failure.
 - The form: **Fix and re-push** (recommended for a REAL failure in the
-  change) / **Retry the job** / **Hand back**; **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope ci:<stage>:<attempt> --selection '{"next":"fix|retry|handback|iterate|hold","note":"<their words or null>"}' --decided-by watch-ci`.
+  change) / **Retry the job** / **Hand back** / **Abandon the run** (own
+  run only); **Iterate here**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope ci:<stage>:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}' --decided-by watch-ci`.
 
-A watch-ci invoked from inside another verb (a ship flow) inherits that
+A watch-ci invoked from inside another verb (a ship or sync flow) inherits that
 run, uses `run.current_stage` as its stage, fires no gate beyond `ci`,
 writes no `stage-done` and no `run-status`, and hands control back with
 the verdict.
 
-Close, only when `## Run` started this run: after the green verdict's
-mark-ready answer, or after the `ci` gate's Hand back, `rt runs stage-done
---stage watch-ci`, `rt runs run-status --status done`, `unset RT_RUN_DB`.
+Close, only when `## Run` started this run: after the green verdict (and
+its mark-ready answer when that gate fired), or after the `ci` gate's Hand
+back, `rt runs stage-done --stage watch-ci`, `rt runs run-status --status
+done`, `unset RT_RUN_DB`; Abandon the run closes with `run-status --status
+abandoned` instead.
 Fix and re-push keeps the run `running` and re-enters section 3 after the
 push (a new `stage-start --stage watch-ci`).
 
