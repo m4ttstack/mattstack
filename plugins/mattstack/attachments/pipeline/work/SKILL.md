@@ -74,9 +74,24 @@ For each entry, in order:
    stop.
 4. `rt runs stage-done --stage <stage>`
 
-A stage failure stops the pipeline. Report which stage and that a resume
-continues from it. The run itself stays `running`; only the Close
-statuses end it.
+A stage failure is a gate, not a report. Gate `<stage>-failed:<attempt>`
+(the attempt from the failed stage row in `snapshot`):
+
+- `rt runs field set gate <stage>-failed:<attempt> --stage <stage>`
+- One sentence: the stage, the reason `stage-fail` recorded, and the
+  detail path if there is one.
+- The form: **Retry the stage** (recommended when the reason names
+  something you can fix) / **Go back to `<stage>`** (one option per earlier
+  stage row) / **Iterate here** (their text is what to change first) /
+  **Hold** / **Abandon the run**.
+- `rt runs decision record --contract gate@1 --scope <stage>-failed:<attempt> --selection '{"next":"retry|redirect|iterate|hold|abandon","to":"<stage or null>","note":"<their words or null>"}' --decided-by work`
+- Retry: a fresh `stage-start` for the stage (a new attempt) and re-enter
+  it. Go back: `## Redirect`. Iterate: `## Redirect` to the same stage
+  with their note as the reason. Hold: `## Hold`. Abandon:
+  `rt runs run-status --status abandoned`, then `unset RT_RUN_DB`.
+
+The run itself stays `running` through every answer but Abandon; only the
+Close statuses end it.
 
 ## Resume
 
@@ -89,19 +104,73 @@ match with the user, re-export `RT_RUN_DB`, and re-enter at
 `stage-start` for that stage records the new attempt). Do not re-ask
 decided questions.
 
+## Redirect
+
+A gate answer or a human message that names an earlier stage sends the
+run back there. A stage that hands back such an answer (the ci gate's
+*Fix and re-push*) has not finished, and its produces are not checked:
+Redirect runs instead of step 3's completeness check, and no `stage-fail`
+is written for it. In order:
+
+1. `rt runs decision record --contract gate@1 --scope redirect:<from>:<attempt> --selection '{"from":"<current stage>","to":"<stage>","reason":"<their words>"}' --decided-by work`
+   (the attempt is the current stage row's; the reason is what they said,
+   never a category).
+2. For `<to>` and every stage after it in the list, `rt runs field set
+   <key> - --stage <to>` for each key in that stage's `produces`: the
+   cleared sentinel keeps the completeness check honest on the re-run.
+3. `rt runs stage-start --stage <to>` (the DB bumps the attempt), then walk
+   forward from `<to>` exactly as in section 4. Later stages re-run as new
+   attempts; a ship stage re-run pushes new commits to the same MR.
+
+## Hold
+
+A gate answer of *Hold* parks the run without ending it:
+
+1. `rt runs decision record --contract gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their words or empty>"}' --decided-by work`
+2. `rt runs field set hold "<their words, or held>" --stage <stage>`
+3. End the turn with one sentence naming the run and the stage. The Stop
+   hook lets a held run's turn end; the console shows it held.
+
+Resume clears the hold: right after the next `stage-start`, `rt runs field
+set hold - --stage <stage>`.
+
 ## Close
 
-`rt runs run-status --status done` (or `failed` /
-`abandoned`), then `unset RT_RUN_DB`. Never leave a finished run
-`running`, and never leave the variable pointing at a finished run: the
-next verb in this shell would `stage-start` into it.
+The run stays `running` until the human answers the close gate; a green
+`ci` does not end it, the answer does. Gate `close`:
+
+- `rt runs field set gate close --stage <last stage>`
+- One sentence: the MR link and its state (draft, or ready as decided at
+  the `mark-ready` gate) and the `ci` verdict.
+- The form: **Done** (recommended when `ci` is green and the MR is ready)
+  / **Iterate here** (their text is the change request) / **Go back to
+  `<stage>`** (one option per stage row in `snapshot`) / **Hold**.
+- `rt runs decision record --contract gate@1 --scope close --selection '{"next":"done|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by work`
+- Done: `rt runs run-status --status done`, then `unset RT_RUN_DB`.
+  Iterate: `## Redirect` to `implement` (or the stage their note names)
+  with the note as the reason. Go back: `## Redirect`. Hold: `## Hold`.
+
+`failed` and `abandoned` are written by the failure gate's Abandon answer
+or by a human saying so; never leave a finished run `running`, and never
+leave `RT_RUN_DB` pointing at a finished run: the next verb in this shell
+would `stage-start` into it.
 
 ## Sub-agent tiering
 
 {{slot:tiering}}
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
 
 ## Red flags -- stop yourself
 
 - About to run a stage the list does not name, or skip one it does? Stop.
 - About to carry state in prose because a `field set` feels slow? Stop:
   the DB survives compaction; your prose does not.
+- About to end the turn with the run still `running` and no form on
+  screen? Stop. The gate is the form; the Stop hook will send you back.
+- About to write "pipeline complete" after `ci=green`? Stop. Complete is
+  the human's answer at the close gate.
+- About to go back a stage because the human typed it, without a
+  `redirect` decision? Stop. Record it, then `stage-start`.
