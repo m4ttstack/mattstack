@@ -387,9 +387,15 @@ If the user redirects scope: ask whether to let running agents finish or kill th
    | api tests | 1-3 | 2 | direct-tdd | done | A1-A4 done, 12 tests, suite green |
    ```
 2. Flag drift and failures.
-3. Ask: close panes or keep for review? For each pane you close, run
-   `herd-job.py --db <db> <job> --status closed` first.
-4. Offer worktree cleanup and job-dir cleanup; never auto-remove either.
+3. Gate `wrap-up`, one form (the wrap-up form contract below): **Close
+   the panes** (recommended when every job is done) / **Keep them for
+   review**; a multi-select of the trees to dispose, none pre-selected
+   (an `rt`-provisioned tree with unmerged work is listed but noted, the
+   guard will refuse it); **Delete the job dirs** (yes / no); **Hold**.
+   For each pane you close, run `herd-job.py --db <db> <job> --status
+   closed` first. Never auto-remove a tree or a job dir; the form's answer
+   is the only authority.
+4. Cleanup mechanics, on the answers:
    For an `rt`-provisioned tree: `rt worktree dispose --owner <run-id>`
    (the guard refuses real unmerged work; a `remove-failed` refusal is
    transient -- retry). For a legacy `-b` tree: `git worktree remove
@@ -402,6 +408,10 @@ If the user redirects scope: ask whether to let running agents finish or kill th
 **Domain hook -- wrap-up.** Unbound: as above. A bound domain part may
 state its own tree lifecycle (trees that dispose themselves when their
 work merges, what a disposal refusal means) -- follow it over item 4.
+
+## wrap-up form contract
+
+{{include:wrap-up-form}}
 
 ## red flags -- stop yourself
 
