@@ -594,7 +594,7 @@ export RT_RUN_DB=<runDb from the response>   # each tool call is a fresh shell: 
 
 - [ ] **Step 3: the six Run sections**
 
-In each of the six files, replace `export RT_RUN_DB=<runDb from the response>` with the same annotated line, and replace `tool with **Resume it** (recommended) / **Start fresh**. Resume: \`export` with `tool with **Resume it** (recommended) / **Start fresh**; **Hold**. Resume: \`export`.
+In each of the six files, replace `export RT_RUN_DB=<runDb from the response>` with the same annotated line. (The Resume offer already carries **Hold** and the no-re-ask rule: plan 3's final review folded them in.)
 
 - [ ] **Step 4: Certify, commit**
 

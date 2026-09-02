@@ -65,7 +65,7 @@ Claude Code's Bash tool runs each call in a fresh shell; the live run prefixed e
 
 Changes:
 - convention.md "Stage contract v3": one paragraph: "Each tool call is a fresh shell. Keep `RT_RUN_DB` in the run's prose (the `runDb` from `run-start`) and prefix every `rt runs` command with `RT_RUN_DB=<path>`; `export` and `unset` remain the contract's markers for the run's start and end, not a persistence mechanism."
-- pipeline/work `## 3. Start the run` (its `export RT_RUN_DB` line) and `## Resume` (its "re-export `RT_RUN_DB`"), and plan 3's shared Run section in the six standalone verbs: each `export` line gains the same sentence in one line. In the same touch, the six verbs' Resume offer (**Resume it** / **Start fresh**) gains **Hold**, so it matches the work engine's Resume form from section 4.
+- pipeline/work `## 3. Start the run` (its `export RT_RUN_DB` line) and `## Resume` (its "re-export `RT_RUN_DB`"), and plan 3's shared Run section in the six standalone verbs: each `export` line gains the same sentence in one line. The six verbs' Resume offer already carries **Hold** (plan 3's final review folded it in).
 - rt follow-up (design, stan): `rt runs` verbs default `RT_RUN_DB` from the running run whose `claude-session` matches the calling session when the harness exposes it, else from the newest running run whose `worktree` field contains the cwd.
 
 ## 9. Left as is, with reasons
