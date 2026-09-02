@@ -16,7 +16,7 @@
 - No em dashes or en dashes anywhere (certify fails on them). Use a comma, a colon, or parentheses.
 - An include target is a flat `attachments/<name>/SKILL.md` with `type: pipeline-step`, NO `slots` key at all (an empty `slots: {}` is rejected by the compiler's `loadInclude`), and no `{{` anywhere in its body.
 - Compile-native engines under `attachments/` may carry `{{placeholder}}` markers; nothing under `plugin/skills/` or `hooks/` may contain `{{`.
-- Work in the worktree `.worktrees/pipeline-gates` (branch `pipeline-gates`, cut from `rt-runs-verbs`). Commit after every task; push after every commit (`git push`).
+- Work in the worktree `.worktrees/pipeline-gates` (branch `pipeline-gates`, rebased onto `main` at 0.10.16). Commit after every task; push after every commit (`git push`).
 - Follow superpowers:writing-skills for every skill edit: baseline (RED) before the text exists, verify (GREEN) after. Follow the clean-code comment rule: script comments state constraints, never narrate lines.
 - The hook never writes to stdout and fails open (exit 0) on every error path except the one designed block (exit 2 with the message on stderr).
 - The `rt` binary is `command -v rt || $HOME/.local/bin/rt`; never assume PATH inside a hook.
@@ -169,7 +169,7 @@ next call after the answers return, never into the context sentence.
 - [ ] **Step 3: Certify and check the word budget**
 
 Run: `sh tests/certify.sh attachments/wrap-up && awk 'f{print} /^---$/{c++; if(c==2) f=1}' attachments/wrap-up/SKILL.md | wc -w`
-Expected: every line `ok`, exit 0, and a body under 300 words on this measure (the spec's "two hundred" counts prose; `wc -w` also counts every table pipe, and the RED rows add a few more).
+Expected: every line `ok`, exit 0, and a body of about 300 words or fewer on this measure, 320 at most (the spec's "two hundred" counts prose; `wc -w` also counts every table pipe, and each RED row adds about twenty).
 
 - [ ] **Step 4: GREEN, the same scenario with the include**
 
@@ -250,7 +250,7 @@ grep -n 'disable-model-invocation' skills/wrap-up/SKILL.md || echo "invocable: y
 rt skills check --pack mattstack --pack-dir "$W" --mattstack-dir "$W"
 ```
 
-Expected: the frontmatter has `name: "wrap-up"`, the stub's description, and `metadata.compiled: "mattstack@0.10.15"`; the `{{` count is 0; `invocable: yes` (the door must stay model-invocable; if the compiler copied a `disable-model-invocation` line, the include source must not carry one); `check` reports every verb `current`.
+Expected: the frontmatter has `name: "wrap-up"`, the stub's description, and `metadata.compiled: "mattstack@<the version in .claude-plugin/plugin.json, 0.10.16 today>"`; the `{{` count is 0; `invocable: yes` (the door must stay model-invocable; if the compiler copied a `disable-model-invocation` line, the include source must not carry one); `check` reports every verb `current`.
 
 - [ ] **Step 5: Certify the door and add the selection scenarios**
 
