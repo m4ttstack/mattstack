@@ -122,8 +122,11 @@ is the `ci` gate below.
 - One sentence: CI is green for the MR's head; `evidence` is set (or is
   `-`).
 - The form: **Mark ready now** (recommended when `evidence` is set and not
-  `-`) / **Keep it draft**; **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false}' --decided-by stage-watch-ci`
+  `-`) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`** (one
+  option per earlier stage row); **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-watch-ci`
+- Go back: hand control back to the orchestrator with one sentence naming
+  the answer; it runs `## Redirect`.
 - Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
   `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
   anything else is a `clarify` gate).

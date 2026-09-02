@@ -87,12 +87,15 @@ human's answer is the decision:
   other two as alternatives; on direct-tdd a second question confirming
   the FAILING TEST line (keep / rename it: their text); every question the
   bound domain policy declares for this gate, as it words them; then
-  **Iterate here** and **Hold**.
-- `rt runs decision record --contract gate@1 --scope plan --selection '{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>}}' --decided-by stage-plan`
+  **Iterate here**, **Go back to `<stage>`** (one option per earlier stage
+  row in `snapshot`), and **Hold**.
+- `rt runs decision record --contract gate@1 --scope plan --selection '{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-plan`
 - `rt runs decision record --contract execution-strategy@1 --scope run --selection '{"tier":"<picked tier>"}' --decided-by stage-plan`
 - Iterate: re-read the ticket with their note and print a new triage
   block, then gate again. Hold: record `hold:plan:<attempt>` and `rt runs
-  field set hold "<their words>" --stage plan`, then end the turn.
+  field set hold "<their words>" --stage plan`, then end the turn. Go back:
+  hand control back to the orchestrator with one sentence naming the
+  answer; it runs `## Redirect`.
 
 Finish by writing `approach` (the tier the gate recorded) and
 `evidence-plan` (the EVIDENCE value).

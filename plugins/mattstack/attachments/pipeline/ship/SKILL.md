@@ -102,8 +102,9 @@ draft: gate `mark-ready`.
 - `rt runs field set gate mark-ready --stage ship`.
 - One sentence: CI is green; evidence is attached (or is not).
 - The form: **Mark ready now** (recommended when `ci` is green and evidence
-  is set) / **Keep it draft**; **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false}' --decided-by ship`.
+  is set) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`**
+  (one option per earlier stage row when `snapshot` shows any); **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by ship`.
 - Yes: `glab mr update <iid> --ready` or `gh pr ready <number>` per the
   forge-host rule above.
 
