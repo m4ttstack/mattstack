@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Every engine text defect the 0.5.16 compiled read-through found is fixed in mattstack: evidence ownership reads true, every touched gate form carries the contract's standing options and records them, no engine sentence asks the human in prose, sibling verbs are named by their compiled path, compiler-facing text is clean, and the `RT_RUN_DB` persistence rule is written down.
+**Goal:** Every engine text defect the compiled read-through of a team pack on mattstack 0.12.0 found is fixed in mattstack: evidence ownership reads true, every touched gate form carries the contract's standing options and records them, no engine sentence asks the human in prose, sibling verbs are named by their compiled path, compiler-facing text is clean, and the `RT_RUN_DB` persistence rule is written down.
 
 **Architecture:** Markdown edits to engines under `attachments/` plus two paragraphs in the gate convention. Prose asks become the contract's form (one sentence, the structured-question tool, `clarify` scope under a run). Gate selections that lacked `next` gain the existing `next`/`to`/`note` pattern. No compiler change here; the rt items go to stan as a message.
 
