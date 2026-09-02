@@ -40,7 +40,7 @@ instead of recapturing.
 
 ## Gate `evidence`
 
-Before any capture, when the domain rules above declare intake questions,
+Before any capture, when the domain rules below declare intake questions,
 or the data source is anything other than the local default:
 
 - `rt runs field set gate evidence --stage evidence`
@@ -62,15 +62,14 @@ and store it under `~/.mattstack/work/<work-id>/evidence/`.
 
 ## Gate `evidence-attach`
 
-Before the MR is modified, when this stage is asked to attach (the ship
-stage normally attaches; when the domain rules attach here, this gate
-fires first):
+Before the MR is modified, when the domain rules attach here and an MR
+already exists for the branch (the ship stage normally attaches):
 
 - `rt runs field set gate evidence-attach --stage evidence`
 - One sentence: what was captured and where it sits.
 - The form: the proposed annotations as a multi-select, all pre-selected;
-  **Attach to the MR now** (recommended) / **Hand back the markdown**;
-  **Iterate here**; **Hold**.
+  **Hand back the markdown** (recommended; the ship stage attaches) /
+  **Attach to the MR now**; **Iterate here**; **Hold**.
 - `rt runs decision record --contract gate@1 --scope evidence-attach --selection '{"annotations":[...],"attach":"now|handback"}' --decided-by stage-evidence`
 
 Hold at either gate: record `hold:evidence:<attempt>`, `rt runs field set
@@ -83,7 +82,8 @@ hold "<their words>" --stage evidence`, end the turn.
 | "I don't have concrete case IDs or view names to offer, so I'll add a note after the form explaining that gap" | An open-ended intake question needs no invented options; render it as free text inside the form itself and stop. Explaining the gap outside the form is prose the gate forbids. |
 
 Finish by writing `evidence` (an object of labeled paths/URLs, at minimum
-the before). The ship stage attaches; it never captures.
+the before). This stage captures the BEFORE. The ship stage attaches the
+pair, and where the bound ship domain captures an AFTER it does so there.
 
 ## Wrap-up form contract
 
