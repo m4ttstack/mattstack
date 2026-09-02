@@ -376,7 +376,7 @@ ask. Either way the hands-on work stays with workers, never with you.
 
 ## mid-flight changes
 
-If the user redirects scope: ask whether to let running agents finish or kill them. Before any kill, `herd-job.py --db <db> <job> --status closed`, then `scripts/hrd pane close <pane-id>`; respawn with updated briefs.
+If the user redirects scope: one sentence naming the running agents, then the structured-question tool with **Let them finish** (recommended) / **Kill and respawn with the new briefs**; **Hold**. Before any kill, `herd-job.py --db <db> <job> --status closed`, then `scripts/hrd pane close <pane-id>`; respawn with updated briefs.
 
 ## wrap up
 
@@ -429,3 +429,4 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 - About to compose SQL against herd.db? Stop -- herd-read/herd-answer/herd-job are the only DB surface.
 - About to close a pane without `herd-job.py --status closed`? Stop -- the bridge will report a phantom crash.
 - Sweep found a blocked pane the bus never announced? The bridge is sick -- respawn it and say so.
+- About to restate the scope change as a heading and add a sentence explaining each option on the mid-flight form? Stop. One sentence naming the running agents, then the bare three options the text names -- no restated heading, no per-option description.
