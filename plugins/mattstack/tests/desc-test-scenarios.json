@@ -30,5 +30,13 @@
   {
     "task": "Pressure-test this design spec with a reviewer before we write the implementation plan",
     "expect": "subagent-review-loop"
+  },
+  {
+    "task": "Give me a wrap-up: what decisions are still open and what do you need from me",
+    "expect": "wrap-up"
+  },
+  {
+    "task": "Check in before you continue; what is left and what should I decide",
+    "expect": "wrap-up"
   }
 ]
