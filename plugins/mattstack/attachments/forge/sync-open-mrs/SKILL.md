@@ -39,7 +39,8 @@ run another live pane owns is not yours) / **Start fresh**; **Hold**.
 Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
 sync-open-mrs` (a new attempt, which re-records this session) and `rt runs field set
 hold - --stage sync-open-mrs`; re-enter with the snapshot's decisions and do not
-re-ask a question it already answered.
+re-ask a question it already answered. Each tool call is a fresh shell:
+prefix every `rt runs` command with `RT_RUN_DB=<its state.db>`.
 
 Fresh. The flags for this verb, rendered by the compiler:
 
@@ -58,17 +59,17 @@ update rt. Pass `--spawned-by` when a board or another surface launched
 this pane.
 
 Every gate in this verb then writes its `gate` field and its decision with
-`--stage sync-open-mrs`. The close, after the final gate's answer and only
-when this section ran `run-start`: `rt runs stage-done --stage
-sync-open-mrs`, `rt runs run-status --status done` (or `abandoned` when
-the gate said so), then `unset RT_RUN_DB`.
+`--stage sync-open-mrs`. The close, after the final gate's answer and only when
+this section ran `run-start`: `rt runs stage-done --stage sync-open-mrs`, `rt runs
+run-status --status done` (or `abandoned` when the gate said so), then
+`unset RT_RUN_DB`.
 
 ## 1. Discover
 
 Follow the pack's compiled `map-open-mrs` verb (`../map-open-mrs/SKILL.md`,
-relative to this file, when the pack compiles both on the same side) and get
-its table: MR ref, title, source
-branch, worktree path or NONE.
+relative to this file, when the pack compiles both on the same side; a
+different surface changes the path) and get its table: MR ref, title,
+source branch, worktree path or NONE.
 
 ## 2. Plan the sweep, then gate `sweep`
 

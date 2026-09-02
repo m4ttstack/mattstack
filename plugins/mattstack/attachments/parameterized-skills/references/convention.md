@@ -423,9 +423,9 @@ from `snapshot`. Gates that fire once per pass (`plan`, `close`,
 `mark-ready`) keep the bare name; after a redirect they fire again and the
 latest answer stands.
 
-Standing options on every gate form: *Iterate here* (the human's free text
-is the change request) and *Hold*; *Go back to <stage>* when `snapshot`
-shows an earlier stage row.
+Standing options on every gate form but `clarify` (defined below): *Iterate
+here* (the human's free text is the change request) and *Hold*; *Go back to
+<stage>* when `snapshot` shows an earlier stage row.
 
 Iterate here at a stage gate means: act on the human's note inside the
 stage, then gate the same scope again (the upsert keeps the latest
