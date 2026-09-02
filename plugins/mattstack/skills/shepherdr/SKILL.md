@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.11.0 + mattstack:model-tiering@0.11.0 + mattstack:execution-strategy@0.11.0 + mattstack:cswap-accounts@0.11.0"
+  compiled: "mattstack@0.12.0 + mattstack:model-tiering@0.12.0 + mattstack:execution-strategy@0.12.0 + mattstack:cswap-accounts@0.12.0"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.11.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-431 -->
+<!-- part: step source=mattstack:shepherdr version=0.12.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-431 -->
 
 # shepherdr
 
@@ -59,7 +59,7 @@ If work arrives unscoped and the user wants it scoped before fan-out, brainstorm
 
 ## Tiering
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.11.0 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.12.0 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -173,7 +173,7 @@ this skill is the generic framework they override.
 
 ## Strategy
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.11.0 path=attachments/execution-strategy/SKILL.md lines=8-90 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.12.0 path=attachments/execution-strategy/SKILL.md lines=8-90 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -308,7 +308,7 @@ below the floor is wrong.
 
 ## Accounts
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.11.0 path=attachments/cswap-accounts/SKILL.md lines=9-74 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.12.0 path=attachments/cswap-accounts/SKILL.md lines=9-74 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -669,7 +669,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 
 ## wrap-up form contract
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.11.0 path=attachments/wrap-up-form/SKILL.md lines=7-32 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.12.0 path=attachments/wrap-up-form/SKILL.md lines=7-32 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
