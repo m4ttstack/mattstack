@@ -83,6 +83,7 @@ Changes:
 4. R1: a redirected status for a stage row.
 5. R2: session-scoped or cwd-scoped default for `RT_RUN_DB`.
 6. From the pack's 0.5.17 fix: a pack-path token for fills that must name a file in another attachment (the fills use the unbraced `$CLAUDE_SKILL_DIR/../../attachments/<name>/<file>` to escape the vendoring rewrite).
+7. From plan 3's review: a verb invoked once per branch inside one attempt (sync-open-mrs calling watch-ci) upserts one `ci:<stage>:<attempt>` decision per attempt, so only the last branch's answer survives; a per-branch discriminator or a decisions sequence.
 
 ## Testing
 
