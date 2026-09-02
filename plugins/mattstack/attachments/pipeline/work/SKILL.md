@@ -45,15 +45,15 @@ fabricate a ticket.
 
 {{run-start.flags}}
 
-```bash
-rt runs run-start <flags for the work type> --pack-dirs "$PACK_DIRS" [--ticket <id>] [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>
-```
-
 The response must parse as JSON with `ok: true` and a `runDb`. Anything
 else (a listing of runs, usage text) means this rt predates the run DB
 write verbs: stop, and tell the user to update rt before continuing. Do
 not proceed without a `runDb`.
+
+```bash
+rt runs run-start <flags for the work type> --pack-dirs "$PACK_DIRS" [--ticket <id>] [--spawned-by "<surface>"]
+export RT_RUN_DB=<runDb from the response>
+```
 
 Back-fill any spawn-time decision made before the DB existed (account
 selection per `account-pool@1`): `rt runs decision record
