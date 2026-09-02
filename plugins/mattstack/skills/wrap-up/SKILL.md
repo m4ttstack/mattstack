@@ -7,7 +7,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:wrap-up version=0.10.16 path=attachments/wrap-up/SKILL.md lines=7-32 -->
+<!-- part: step source=mattstack:wrap-up-form version=0.10.16 path=attachments/wrap-up-form/SKILL.md lines=7-32 -->
 
 # Wrap-up
 

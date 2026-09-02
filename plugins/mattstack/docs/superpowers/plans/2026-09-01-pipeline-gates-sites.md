@@ -4,16 +4,16 @@
 
 **Goal:** Every human decision point in the mattstack engines becomes a `gate@1` site: a `gate` field write, a form, a decision record, and an action on the answer; the pipeline can be redirected and held from any gate; no engine ends a turn in prose.
 
-**Architecture:** Plan 1 shipped the wrap-up include, the Stop hook, and stage contract v3. This plan edits one engine per task, inlining `{{include:wrap-up}}` once per engine and rewriting each prose ask into the contract's recipe. The work engine gains the close gate, the failure gate, and the Redirect and Hold sections. The pipeline's mark-ready action moves to stage-watch-ci on green under the forge-host rule. Standalone verbs get their gates as form-only sites here; plan 3 gives them runs.
+**Architecture:** Plan 1 shipped the wrap-up include, the Stop hook, and stage contract v3. This plan edits one engine per task, inlining `{{include:wrap-up-form}}` once per engine and rewriting each prose ask into the contract's recipe. The work engine gains the close gate, the failure gate, and the Redirect and Hold sections. The pipeline's mark-ready action moves to stage-watch-ci on green under the forge-host rule. Standalone verbs get their gates as form-only sites here; plan 3 gives them runs.
 
 **Tech Stack:** Markdown engines with `{{placeholder}}` markers; `rt skills compile` and `check`; `tests/certify.sh`; fresh subagents for the RED and GREEN runs.
 
-**Spec:** `docs/superpowers/specs/2026-09-01-pipeline-gates-design.md`, sections 1, 3, 4, 7, 9. Executors read the spec's section before each task. Plan 1 (`2026-09-01-pipeline-gates-foundation.md`) must be complete and merged first; every task below assumes `attachments/wrap-up/SKILL.md` exists and `attachments/parameterized-skills/references/convention.md` carries "Stage contract v3: gates".
+**Spec:** `docs/superpowers/specs/2026-09-01-pipeline-gates-design.md`, sections 1, 3, 4, 7, 9. Executors read the spec's section before each task. Plan 1 (`2026-09-01-pipeline-gates-foundation.md`) must be complete and merged first; every task below assumes `attachments/wrap-up-form/SKILL.md` exists and `attachments/parameterized-skills/references/convention.md` carries "Stage contract v3: gates".
 
 ## Global Constraints
 
 - Every skill directory touched passes `sh tests/certify.sh <dir>` and the tree passes `sh tests/repo-purity.sh`. No `Matt`, no `/Users/matt`, no domain terms, no em or en dashes.
-- `{{include:wrap-up}}` goes alone on its own line, exactly once per engine, in a `## Wrap-up form contract` section placed just before the engine's `## Red flags` section (or at the end of the body when the engine has none). Include targets (`review-posting`, `review-core-body*`, `review-dispatch-body*`, `execution-strategy`, `model-tiering`, `cswap-accounts`, `gitlab-mr-threads`) may NOT carry it: they contain no placeholder by rule.
+- `{{include:wrap-up-form}}` goes alone on its own line, exactly once per engine, in a `## Wrap-up form contract` section placed just before the engine's `## Red flags` section (or at the end of the body when the engine has none). Include targets (`review-posting`, `review-core-body*`, `review-dispatch-body*`, `execution-strategy`, `model-tiering`, `cswap-accounts`, `gitlab-mr-threads`) may NOT carry it: they contain no placeholder by rule.
 - Every gate site is the recipe from contract v3, in this order: `rt runs field set gate <scope> --stage <stage>`; one sentence of context; the structured-question tool; stop; `rt runs decision record --contract gate@1 --scope <scope> --selection '<JSON>' --decided-by <engine>`; act. Repeatable scopes carry `:<stage>:<attempt>`. Outside a run the two `rt runs` lines are skipped (the engine text says "when `RT_RUN_DB` is set").
 - Every gate form lists its own options, then **Hold**, and **Iterate here** wherever a change could be made before deciding; the exceptions are the mechanics gates `conflict` and `push` (rebase-worktree) and shepherdr's `wrap-up`, and Gate A, whose **Edit these** is its iterate. Stage gates add **Go back to `<stage>`** for each earlier stage row in `snapshot`.
 - Follow superpowers:writing-skills: RED before the text, GREEN after, rows harvested from RED. Follow the clean-code comment rule in every script or example.
@@ -23,7 +23,7 @@
 
 RED: dispatch one fresh general-purpose subagent whose system context is the engine's CURRENT body (everything after the frontmatter, placeholders left as they are) under the heading `Your standing instruction:`, and whose user message is the task's scenario. Record the reply verbatim in `docs/superpowers/plans/red-gates-<engine>.md` under `## RED`. Expected: a prose or list ending at the gate site (the failure). Every sentence that justifies prose is a rationalization row candidate.
 
-GREEN: the same dispatch with the engine's NEW body (with the wrap-up include's body pasted in place of `{{include:wrap-up}}`, since the subagent cannot compile). Expected: the reply ends in an `AskUserQuestion` call whose options match the task's gate, preceded by at most one sentence. Record under `## GREEN`. If it still ends in prose, add its justification as a row in the engine's rationalization table and rerun; do not proceed until it complies.
+GREEN: the same dispatch with the engine's NEW body (with the wrap-up include's body pasted in place of `{{include:wrap-up-form}}`, since the subagent cannot compile). Expected: the reply ends in an `AskUserQuestion` call whose options match the task's gate, preceded by at most one sentence. Record under `## GREEN`. If it still ends in prose, add its justification as a row in the engine's rationalization table and rerun; do not proceed until it complies.
 
 The evidence files are committed with the task; they must not contain the word `Matt`.
 
@@ -158,7 +158,7 @@ just before it, after `## Sub-agent tiering`):
 ```markdown
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 
 ## Red flags -- stop yourself
 
@@ -262,7 +262,7 @@ Append at the end of the body:
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 4: Certify, GREEN, commit**
@@ -336,7 +336,7 @@ Append at the end of the body:
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 Run: `sh tests/certify.sh attachments/pipeline/stage-provision` (exit 0). GREEN: one sentence naming `hedwig` and an `AskUserQuestion` with Resume in hedwig (Recommended), Fresh tree, Iterate here, Hold.
@@ -404,7 +404,7 @@ Append at the end of the body:
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 Run: `sh tests/certify.sh attachments/pipeline/stage-evidence` (exit 0). GREEN: one sentence and an `AskUserQuestion` with the three intake questions, Iterate here, Hold.
@@ -483,7 +483,7 @@ Append at the end of the body:
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 3: ship: the same gate, standalone**
@@ -555,7 +555,7 @@ draft: gate `mark-ready`.
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 4: Certify both, GREEN, commit**
@@ -672,7 +672,7 @@ exists.
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 3: watch-ci: the same gate, standalone**
@@ -719,7 +719,7 @@ the verdict.
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 4: Certify both, GREEN, commit**
@@ -802,7 +802,7 @@ mechanics below.
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 3: review-posting: name the tool in both gates**
@@ -925,7 +925,7 @@ and never checks their box.
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 Replace the quick reference row `| Draft in hand | Fix Critical/Important, note Minor, then continue or ship. |` with `| Draft in hand | Present it, then gate self-review: fix blocking / fix all / ship as is. |`.
@@ -1054,7 +1054,7 @@ Append at the end of the body (after the quick reference):
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 5: Certify, GREEN, commit**
@@ -1150,7 +1150,7 @@ Append at the end of the body:
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 3: Certify, GREEN, commit**
@@ -1244,7 +1244,7 @@ Never push unasked.
 
 ## Wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 ```
 
 - [ ] **Step 3: Certify, GREEN, commit**
@@ -1306,7 +1306,7 @@ Insert before `## red flags -- stop yourself`:
 ```markdown
 ## wrap-up form contract
 
-{{include:wrap-up}}
+{{include:wrap-up-form}}
 
 ```
 
@@ -1343,7 +1343,7 @@ git push
 ```bash
 for d in attachments/pipeline/work attachments/pipeline/stage-plan attachments/pipeline/stage-provision attachments/pipeline/stage-evidence attachments/pipeline/stage-ship attachments/pipeline/ship attachments/pipeline/stage-watch-ci attachments/pipeline/watch-ci attachments/review/review attachments/review-posting attachments/review/self-review attachments/review/receive-review attachments/forge/sync-open-mrs attachments/forge/rebase-worktree attachments/orchestration/shepherdr; do sh tests/certify.sh "$d" || exit 1; done
 sh tests/repo-purity.sh
-grep -L '{{include:wrap-up}}' attachments/pipeline/work/SKILL.md attachments/pipeline/stage-plan/SKILL.md attachments/pipeline/stage-provision/SKILL.md attachments/pipeline/stage-evidence/SKILL.md attachments/pipeline/stage-ship/SKILL.md attachments/pipeline/ship/SKILL.md attachments/pipeline/stage-watch-ci/SKILL.md attachments/pipeline/watch-ci/SKILL.md attachments/review/review/SKILL.md attachments/review/self-review/SKILL.md attachments/review/receive-review/SKILL.md attachments/forge/sync-open-mrs/SKILL.md attachments/forge/rebase-worktree/SKILL.md attachments/orchestration/shepherdr/SKILL.md
+grep -L '{{include:wrap-up-form}}' attachments/pipeline/work/SKILL.md attachments/pipeline/stage-plan/SKILL.md attachments/pipeline/stage-provision/SKILL.md attachments/pipeline/stage-evidence/SKILL.md attachments/pipeline/stage-ship/SKILL.md attachments/pipeline/ship/SKILL.md attachments/pipeline/stage-watch-ci/SKILL.md attachments/pipeline/watch-ci/SKILL.md attachments/review/review/SKILL.md attachments/review/self-review/SKILL.md attachments/review/receive-review/SKILL.md attachments/forge/sync-open-mrs/SKILL.md attachments/forge/rebase-worktree/SKILL.md attachments/orchestration/shepherdr/SKILL.md
 grep -l '{{' attachments/review-posting/SKILL.md && echo "FAIL: include target carries a placeholder" || echo "review-posting clean"
 ```
 

@@ -1,6 +1,6 @@
 # RED/GREEN baseline: wrap-up include
 
-Evidence for `attachments/wrap-up/SKILL.md` (plan 1, task 2). Not a skill.
+Evidence for `attachments/wrap-up-form/SKILL.md` (plan 1, task 2). Not a skill.
 
 ## RED
 
@@ -36,12 +36,12 @@ in prose after the form"):
   8787, local-only, 'local-app'") instead of using the form's own
   recommended-option mechanism. This is a distinct rationalization: "I can
   hand them a default to save them from answering all three" -- covered by
-  a new row in the include (see `attachments/wrap-up/SKILL.md`).
+  a new row in the include (see `attachments/wrap-up-form/SKILL.md`).
 
 ## GREEN
 
 Same Step 1 prompt, prefixed with the include's body (everything after the
-frontmatter of `attachments/wrap-up/SKILL.md`) under the heading
+frontmatter of `attachments/wrap-up-form/SKILL.md`) under the heading
 `Your standing instruction:`, sent to a fresh general-purpose subagent (no
 model override).
 

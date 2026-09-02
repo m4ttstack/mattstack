@@ -187,6 +187,12 @@ git push
 
 ### Task 3: The compiled door
 
+Execution note (2026-09-01): the include source was moved to
+`attachments/wrap-up-form/` and the stub's engine points there, because the
+compiler removes `attachments/<verb>/` before writing a public verb (the
+ledger records the ruling). Read `attachments/wrap-up/` below as
+`attachments/wrap-up-form/` and the include as `{{include:wrap-up-form}}`.
+
 **Files:**
 - Modify: `pack/stubs.jsonc` (add the `wrap-up` verb)
 - Modify: `surface.jsonc` (add `"wrap-up"` to `public`)

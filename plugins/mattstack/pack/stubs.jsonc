@@ -9,7 +9,7 @@
       "description": "Use when fanning work out across parallel Claude Code agents in herdr panes in a repo no team pack covers -- 'shepherdr', 'fan out', 'spawn agents', 'split this across agents', 'run these in parallel', 'spread this across my accounts'. Domain-unbound: where a team pack compiles its own shepherdr, that verb wins. Requires a running herdr instance."
     },
     "wrap-up": {
-      "engine": "wrap-up",
+      "engine": "wrap-up-form",
       "description": "Use when wrapping up a session, checking in before continuing, ending a turn with open decisions, when the user asks what you need from them, what decisions are open, or what the next steps are, when they invoke wrap-up or check-in, or when a pipeline gate needs its decision presented as a form."
     }
   }

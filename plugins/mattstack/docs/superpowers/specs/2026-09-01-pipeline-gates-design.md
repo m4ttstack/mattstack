@@ -110,13 +110,13 @@ convention reference as "Stage contract v3: gates", beside contract v2.
 
 ## 2. Wrap-up: one include, one compiled door
 
-`attachments/wrap-up/SKILL.md` is the include. Its body is today's personal
+`attachments/wrap-up-form/SKILL.md` is the include. Its body is today's personal
 wrap-up skill, kept as a positive recipe: one optional sentence of context,
 then the runtime's structured-question tool, then stop; one question per
 open item in three buckets (important details, decisions, next steps);
 recommended option first and labelled; omit an empty bucket; when the tool
 caps questions, fill the first call and wait. It contains no `rt` command
-and no placeholder, so it is a legal include target (`{{include:wrap-up}}`,
+and no placeholder, so it is a legal include target (`{{include:wrap-up-form}}`,
 alone on its own line). Two things from the personal skill do not carry
 over: the "if this runtime has no such tool, the chat message itself is the
 form" clause, which is the exemption an agent under pressure reaches for and
@@ -129,7 +129,12 @@ come from. The expectation, from the observed failure (the agent knows the
 form is wanted and writes prose anyway), is a discipline failure.
 
 The public door is compiled from the same file: `wrap-up` joins
-`pack/stubs.jsonc` as a zero-slot verb and `surface.jsonc` lists it. `rt
+`pack/stubs.jsonc` as a zero-slot verb whose `engine` is `wrap-up-form`, and
+`surface.jsonc` lists it. The include's directory cannot share the verb's
+name: the compiler removes `attachments/<verb>/` as a stale private compile
+before writing a public verb (`commands/skills.ts`, `otherSideDir`), which
+deleted the include source on the first compile attempt. A compiler guard
+against removing a directory that holds a source is rt follow-up item 7. `rt
 skills compile --pack mattstack` emits `skills/wrap-up/SKILL.md`; `rt skills
 check` catches drift. One source, no hand copy.
 
@@ -140,15 +145,15 @@ key at all (an empty `slots: {}` is truthy and is rejected) or contains a
 placeholder; `loadStepSource` also searches the flat `attachments/<name>/`
 path, requires `type: pipeline-step`, and reads an absent `slots` key as no
 slots. So the include's frontmatter is `type: pipeline-step` with no `slots`
-key, unlike the forge engines' `slots: {}`. The first implementation task
-compiles the door and runs `check` to confirm it in practice.
+key, unlike the forge engines' `slots: {}`. Confirmed in practice by plan 1
+Task 3 (with the directory-name rule above).
 
 The personal `wrap-up` skill is deleted from its source repo and the
 `~/.claude/skills/` symlink removed, in the same release.
 
 ## 3. Gate sites
 
-Each engine that gains a gate inlines `{{include:wrap-up}}` once and writes
+Each engine that gains a gate inlines `{{include:wrap-up-form}}` once and writes
 its gate sites as the section 1 recipe. The form content column is what the
 engine supplies; a bound domain fill may add questions (companion spec).
 
@@ -398,6 +403,11 @@ Two of its items are engine edits, owned here:
    public doors are the few `surface.jsonc` lists, the rest are attachments. When the pack compiles
    the referenced engine, the compiler should rewrite the reference to the
    pack's own verb name; when it does not, `rt skills check` should flag it.
+7. **Compile must not delete a source.** `rt skills compile` removes
+   `attachments/<verb>/` before writing a public verb, to clean a stale
+   private compile; when that directory holds a source SKILL.md (no
+   `compiled:` marker, a `type:` of its own), it should refuse or skip. Until
+   then, no include or engine source may share a compiled verb's name.
 
 ## 9. Standalone verb gate sites
 

@@ -1,5 +1,5 @@
 ---
-name: wrap-up
+name: wrap-up-form
 description: "Use when wrapping up a session, checking in before continuing, ending a turn with open decisions, when the user asks what you need from them, what decisions are open, or what the next steps are, when they invoke wrap-up or check-in, or when a pipeline gate needs its decision presented as a form."
 type: pipeline-step
 ---
