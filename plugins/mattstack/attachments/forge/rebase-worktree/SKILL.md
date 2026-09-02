@@ -64,11 +64,6 @@ never improvise a multi-branch rebase here.
 | "The pipeline needs the default branch's fix" | A stacked MR reaches the default branch through its stack root. Rebasing it there directly destroys the stack. |
 | "Just this parent; the children catch up later" | The moment the parent rewrites, every child points at history that no longer exists. |
 | "No open MR in either direction" | Then the branch is genuinely stack-free: proceed. |
-| "I'll report old head -> new head, then also write out the push gate's one sentence as a second sentence" | The old head -> new head report already is the one sentence the push gate needs; do not add a second sentence restating why a push is pending. |
-| "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Render that qualifier attached to that option exactly; never move it to the push option. |
-| "The push gate's paragraph literally says 'One sentence: publishing the rebase needs force-with-lease' -- I'll write that out even though I already reported old head -> new head" | That bullet names the content of the one sentence for callers who skipped the head report; when the head report already ran in this same reply, it already discharges that bullet. Write the head-report sentence, then go straight to the form -- never both sentences. |
-| "I'll write the head-report sentence, then a second sentence naming force-with-lease before the form, since each reads as its own idea" | The whole reply carries exactly one sentence before the form, full stop -- the head-report line. The force-with-lease mechanics already sit in the form's own **Push with force-with-lease now** option text; restating them in prose is the second sentence the wrap-up form contract forbids. |
-| "I'll narrate the gate's own bullets -- 'One sentence: ...', a heading like 'Decisions needed from you', a numbered question line -- as part of the reply" | None of those bullets are reply text to copy; they are authoring instructions describing what to produce, not what to print. A compliant reply for this gate is exactly: the head-report sentence ("Old head -> new head on `<branch>`.") then a blank line then the three options joined by ` / ` ("**Push with force-with-lease now** / **Leave it unpushed** (Recommended when the branch has an open MR others may have pulled) / **Hold**") -- nothing before that sentence, nothing between it and the options, no heading, no restated instruction text, no extra question line. |
 
 ## Rebase
 
@@ -110,12 +105,22 @@ it gate the batch. Otherwise:
 - When `RT_RUN_DB` is set: `rt runs field set gate push --stage <run.current_stage>`.
 - One sentence: publishing the rebase needs `git push --force-with-lease`
   on this branch.
+- Example of the whole reply: the report line above, then the form;
+  nothing else.
 - The form: **Push with force-with-lease now** / **Leave it unpushed**
   (recommended when the branch has an open MR others may have pulled);
   **Hold**.
 - When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"push":true|false}' --decided-by rebase-worktree`.
 
 Never push unasked.
+
+**These thoughts mean you are skipping the gate -- STOP:**
+
+| Thought | Reality |
+|---------|---------|
+| "I'll write the head-report sentence, then a second sentence restating why a push is needed, since each reads as its own idea" | The whole reply carries exactly one sentence before the form, full stop -- the head-report line already is the one sentence the push gate needs. The force-with-lease mechanics already sit in the form's own **Push with force-with-lease now** option text; do not add a second sentence restating why a push is pending. |
+| "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Render that qualifier attached to that option exactly; never move it to the push option. |
+| "The push gate's paragraph literally says 'One sentence: publishing the rebase needs force-with-lease' -- I'll write that out even though I already reported old head -> new head" | That bullet names the content of the one sentence for callers who skipped the head report; when the head report already ran in this same reply, it already discharges that bullet. Write the head-report sentence, then go straight to the form -- never both sentences. |
 
 ## Wrap-up form contract
 
