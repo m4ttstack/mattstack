@@ -34,10 +34,38 @@ Contract v2 (authoritative text: the parameterized-skills skill's convention ref
 
 When nothing is inlined above, follow the generic path below.
 
+## Gate `ship` (before the push, bound or unbound)
+
+- `rt runs field set gate ship --stage ship`
+- One sentence: the branch, the commits about to go (`git log --oneline
+  @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
+  tree is dirty.
+- The form: on a dirty tree, **Commit the changes** / **Stash them** /
+  **Abort**; **Push and open as draft** (recommended) / **Push and open
+  ready**; every question the domain rules above declare for this gate
+  (a ticket mismatch, an MR already open); **Iterate here**; **Go back to
+  `<stage>`**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>}}' --decided-by stage-ship`
+- Abort or Hold: no push. Hold records `hold:ship:<attempt>` and `rt runs
+  field set hold "<their words>" --stage ship`, then the turn ends.
+
+## Forge-host rule
+
+The forge CLI is read from the origin remote, never assumed: `git remote
+get-url origin`. A GitLab host means `glab` (`glab mr create`, `glab mr
+update <iid> --ready`); a GitHub host means `gh` (`gh pr create`, `gh pr
+ready <number>`); anything else is a `clarify` gate (which CLI?) rather than
+a guess.
+
 Unbound (generic fallback): push the branch (`git push -u origin
-<branch>`), then open a PR/MR with the repo's forge CLI (`gh pr create` or
-`glab mr create`), title from the ticket or first commit subject, body
-linking the ticket and the `evidence` field's entries. Never force-push;
-never push a branch whose tests you have not seen pass in this session.
+<branch>`), then open the MR/PR with the CLI the forge-host rule names,
+as draft unless the gate said ready, title from the ticket or first commit
+subject, body linking the ticket and the `evidence` field's entries. Never
+force-push; never push a branch whose tests you have not seen pass in this
+session.
 
 Finish by writing `mr` (the MR/PR URL).
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
