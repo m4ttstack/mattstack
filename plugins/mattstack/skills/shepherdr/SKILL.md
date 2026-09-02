@@ -669,7 +669,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 
 ## wrap-up form contract
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.12.0 path=attachments/wrap-up-form/SKILL.md lines=7-32 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.12.0 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
@@ -696,6 +696,7 @@ next call after the answers return, never into the context sentence.
 | "The options are obvious, prose is faster" | Obvious to you. The form records which one they picked. |
 | "Next steps can go in prose after the form" | Next steps are questions: do now / later / skip. |
 | "I can hand them a default to save them answering" | Recommended options already do that in the form; a typed reply still costs more than a tap and leaves no record of the pick. |
+| "The context sentence, then a line introducing the form" | Two sentences. The form needs no introduction; the sentence is the whole preamble. |
 
 ## red flags -- stop yourself
 
