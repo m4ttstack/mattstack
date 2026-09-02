@@ -20,11 +20,6 @@ before shipping. This is the self-facing caller of the review flow inlined
 below: point the engine at the current branch, then act on the draft it
 returns.
 
-Whoever wrote the code re-derives the same assumptions while reading it back
-and nods at them; a bug on the page reads as the intent that produced it. The
-judgment does not happen here -- it happens in the fresh context that
-the review flow dispatches.
-
 ## Run
 
 Outside a pipeline this verb is its own run, so the console shows it and
@@ -64,6 +59,11 @@ Every gate in this verb then writes its `gate` field and its decision with
 this section ran `run-start`: `rt runs stage-done --stage self-review`, `rt runs
 run-status --status done` (or `abandoned` when the gate said so), then
 `unset RT_RUN_DB`.
+
+Whoever wrote the code re-derives the same assumptions while reading it back
+and nods at them; a bug on the page reads as the intent that produced it. The
+judgment does not happen here -- it happens in the fresh context that
+the review flow dispatches.
 
 <HARD-GATE>
 Do not form the code-quality judgment yourself -- not even a careful first
