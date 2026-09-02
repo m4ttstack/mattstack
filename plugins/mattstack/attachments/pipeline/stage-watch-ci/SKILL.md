@@ -35,7 +35,7 @@ Contracts v2 and v3 (authoritative text: the parameterized-skills skill's conven
 
 The engine's watcher, triage, and attendant scripts are vendored inside
 this compiled skill's own directory, and the forge adapter beside them. In
-the commands below, `<scripts>` is `{{stage.dir}}/scripts` and `<forge>` is
+the commands below, `<scripts>` is `{{stage.dir}}/scripts/` and `<forge>` is
 `{{stage.dir}}/parts/forge/scripts/ci-forge.sh`. Nothing is derived from a
 plugin install; the paths are the ones written into this text.
 

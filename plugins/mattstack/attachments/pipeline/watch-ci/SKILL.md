@@ -97,7 +97,7 @@ needs no cleanup: staleness handles it.
 
 The engine's watcher, triage, and attendant scripts are vendored inside
 this compiled skill's own directory, and the forge adapter beside them. In
-the commands below, `<scripts>` is `${CLAUDE_SKILL_DIR}/scripts` and
+the commands below, `<scripts>` is `${CLAUDE_SKILL_DIR}/scripts/` and
 `<forge>` is `${CLAUDE_SKILL_DIR}/parts/forge/scripts/ci-forge.sh`. Nothing
 is derived from a plugin install; the paths are the ones written into this
 text.
