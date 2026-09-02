@@ -427,6 +427,11 @@ Standing options on every gate form: *Iterate here* (the human's free text
 is the change request) and *Hold*; *Go back to <stage>* when `snapshot`
 shows an earlier stage row.
 
+Iterate here at a stage gate means: act on the human's note inside the
+stage, then gate the same scope again (the upsert keeps the latest
+answer). Redirect is only for Go back. On a form with more than one
+question, Iterate here and Hold are the last question's options.
+
 `-` is the cleared sentinel for any field this contract writes (`hold`, a
 redirected stage's produces): `field set <key> -`. Every reader treats it as
 absent: `field get` returning `-` reads as not set, and the orchestrator's

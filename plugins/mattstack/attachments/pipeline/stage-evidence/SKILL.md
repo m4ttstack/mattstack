@@ -17,7 +17,7 @@ metadata:
 
 ## Run state
 
-Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
+Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
 - First action: `rt runs stage-start --stage evidence`
 - Read consumed fields with `rt runs field get <key>` before
@@ -38,16 +38,6 @@ dev server to reconstruct it produces stale, false befores. If the ticket
 already embeds the broken state, that IS the before -- record its location
 instead of recapturing.
 
-## Domain rules
-
-{{slot:domain}}
-
-When nothing is inlined above, follow the generic path below.
-
-Unbound (generic fallback): capture what a generic toolchain can -- the
-failing test output, a CLI transcript, or a screenshot the user provides --
-and store it under `~/.mattstack/work/<work-id>/evidence/`.
-
 ## Gate `evidence`
 
 Before any capture, when the domain rules above declare intake questions,
@@ -59,6 +49,16 @@ or the data source is anything other than the local default:
   source when it is not local (**Proceed with `<source>`** / **Switch to
   local**); then **Iterate here** and **Hold**.
 - `rt runs decision record --contract gate@1 --scope evidence --selection '{"intake":{<answers>},"source":"<as confirmed>"}' --decided-by stage-evidence`
+
+## Domain rules
+
+{{slot:domain}}
+
+When nothing is inlined above, follow the generic path below.
+
+Unbound (generic fallback): capture what a generic toolchain can -- the
+failing test output, a CLI transcript, or a screenshot the user provides --
+and store it under `~/.mattstack/work/<work-id>/evidence/`.
 
 ## Gate `evidence-attach`
 

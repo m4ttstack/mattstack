@@ -17,7 +17,7 @@ metadata:
 
 ## Run state
 
-Contract v2 (authoritative text: the parameterized-skills skill's convention reference).
+Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
 - First action: `rt runs stage-start --stage self-review`
 - Read consumed fields with `rt runs field get <key>` before

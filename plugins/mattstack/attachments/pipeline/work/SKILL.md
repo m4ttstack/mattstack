@@ -153,8 +153,8 @@ The run stays `running` until the human answers the close gate; a green
   Iterate: `## Redirect` to `implement` (or the stage their note names)
   with the note as the reason. Go back: `## Redirect`. Hold: `## Hold`.
 
-`failed` and `abandoned` are written by the failure gate's Abandon answer
-or by a human saying so; never leave a finished run `running`, and never
+`failed` and `abandoned` are written by the failure gate's or the ci
+gate's Abandon answer or by a human saying so; never leave a finished run `running`, and never
 leave `RT_RUN_DB` pointing at a finished run: the next verb in this shell
 would `stage-start` into it.
 
