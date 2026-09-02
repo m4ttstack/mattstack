@@ -12,12 +12,52 @@ slots:
 The standalone entry for shipping the current branch. Same flow as the
 pipeline's ship stage, reached directly: target from the checkout.
 
+## Run
+
+Outside a pipeline this verb is its own run, so the console shows it and
+the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
+and `rt runs snapshot` shows `run.status` = `running`: you were invoked
+from inside that run, you inherit it, `run.current_stage` is your stage,
+and you close nothing at the end.
+
+Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
+`--repo` value in the flags block below) for a run whose `snapshot` shows
+`status` = `running` and `work_type` = `ship`
+(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
+One found: gate `clarify`, one sentence naming it, the structured-question
+tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
+RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage ship` (a new
+attempt, which re-records this session) and `rt runs field set hold -
+--stage ship`.
+
+Fresh. The flags for this verb, rendered by the compiler:
+
+{{run-start.flags:ship}}
+
+```bash
+PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
+rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
+export RT_RUN_DB=<runDb from the response>
+rt runs stage-start --stage ship
+```
+
+The response must parse as JSON with `ok: true` and a `runDb`; anything
+else means this rt predates the run verbs: stop and tell the user to
+update rt. Pass `--spawned-by` when a board or another surface launched
+this pane.
+
+Every gate in this verb then writes its `gate` field and its decision with
+`--stage ship`. The close, after the final gate's answer and only when
+this section ran `run-start`: `rt runs stage-done --stage ship`, `rt runs
+run-status --status done` (or `abandoned` when the gate said so), then
+`unset RT_RUN_DB`.
+
 ## 1. Establish the target, then the ship gate
 
 Current branch (`git branch --show-current`); refuse the default branch.
 Then gate `ship`, before anything is pushed:
 
-- When `RT_RUN_DB` is set: `rt runs field set gate ship --stage ship`.
+- `rt runs field set gate ship --stage ship`.
 - One sentence: the branch, the commits about to go (`git log --oneline
   @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
   tree is dirty (`git status --porcelain`).
@@ -25,7 +65,7 @@ Then gate `ship`, before anything is pushed:
   **Abort**; **Push and open as draft** (recommended) / **Push and open
   ready**; every question the domain rules below declare for this gate;
   **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>}}' --decided-by ship`.
+- `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>}}' --decided-by ship`.
 - Abort or Hold: nothing is pushed.
 
 ## Domain rules
@@ -52,13 +92,18 @@ When the domain flow above ran CI to green (its inherited watch-ci hands
 back with the verdict; it fires no gate beyond `ci`), and the MR is a
 draft: gate `mark-ready`.
 
-- When `RT_RUN_DB` is set: `rt runs field set gate mark-ready --stage ship`.
+- `rt runs field set gate mark-ready --stage ship`.
 - One sentence: CI is green; evidence is attached (or is not).
 - The form: **Mark ready now** (recommended when `ci` is green and evidence
   is set) / **Keep it draft**; **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false}' --decided-by ship`.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false}' --decided-by ship`.
 - Yes: `glab mr update <iid> --ready` or `gh pr ready <number>` per the
   forge-host rule above.
+
+Close, only when `## Run` started this run: after the mark-ready answer is
+acted on (or the gate said keep it draft), `rt runs stage-done --stage
+ship`, `rt runs run-status --status done`, `unset RT_RUN_DB`. Abort at the
+ship gate closes with `run-status --status abandoned` instead.
 
 ## Wrap-up form contract
 
