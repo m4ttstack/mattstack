@@ -20,6 +20,46 @@ pipeline's watch-ci stage, reached directly instead of through a unit of
 work. The target comes from the conversation and the checkout, and the
 verdict goes to the user.
 
+## Run
+
+Outside a pipeline this verb is its own run, so the console shows it and
+the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
+and `rt runs snapshot` shows `run.status` = `running`: you were invoked
+from inside that run, you inherit it, `run.current_stage` is your stage,
+and you close nothing at the end.
+
+Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
+`--repo` value in the flags block below) for a run whose `snapshot` shows
+`status` = `running` and `work_type` = `watch-ci`
+(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
+One found: gate `clarify`, one sentence naming it, the structured-question
+tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
+RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage watch-ci` (a new
+attempt, which re-records this session) and `rt runs field set hold -
+--stage watch-ci`.
+
+Fresh. The flags for this verb, rendered by the compiler:
+
+{{run-start.flags:watch-ci}}
+
+```bash
+PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
+rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
+export RT_RUN_DB=<runDb from the response>
+rt runs stage-start --stage watch-ci
+```
+
+The response must parse as JSON with `ok: true` and a `runDb`; anything
+else means this rt predates the run verbs: stop and tell the user to
+update rt. Pass `--spawned-by` when a board or another surface launched
+this pane.
+
+Every gate in this verb then writes its `gate` field and its decision with
+`--stage watch-ci`. The close, after the final gate's answer and only when
+this section ran `run-start`: `rt runs stage-done --stage watch-ci`, `rt runs
+run-status --status done` (or `abandoned` when the gate said so), then
+`unset RT_RUN_DB`.
+
 ## 1. Establish the target
 
 - **Branch**: the one the user named, else `git branch --show-current`.
@@ -83,19 +123,36 @@ broke it) vs INFRA/flake (unrelated, retry once); any REAL failure is the
 
 ## Verdict
 
-Green: one sentence, the verdict, then stop. Any other outcome is gate
-`ci`:
+Green: one sentence, the verdict. Then, only when `## Run` started this
+run, `mr` is set, and the MR is a draft, gate `mark-ready`:
 
-- When `RT_RUN_DB` is set: `rt runs field set gate ci:<run.current_stage>:<attempt> --stage <run.current_stage>`.
+- `rt runs field set gate mark-ready --stage watch-ci`
+- One sentence: CI is green for the MR's head.
+- The form: **Mark ready now** (recommended) / **Keep it draft**;
+  **Iterate here**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false}' --decided-by watch-ci`
+- Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
+  `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
+  anything else is a `clarify` gate).
+
+Then the close. Any other outcome is gate `ci`:
+
+- `rt runs field set gate ci:<stage>:<attempt> --stage <stage>`.
 - One sentence: the verdict and the one-line triage per blocking failure.
 - The form: **Fix and re-push** (recommended for a REAL failure in the
   change) / **Retry the job** / **Hand back**; **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope ci:<stage>:<attempt> --selection '{"next":"fix|retry|handback|iterate|hold","note":"<their words or null>"}' --decided-by watch-ci`.
+- `rt runs decision record --contract gate@1 --scope ci:<stage>:<attempt> --selection '{"next":"fix|retry|handback|iterate|hold","note":"<their words or null>"}' --decided-by watch-ci`.
 
 A watch-ci invoked from inside another verb (a ship flow) inherits that
 run, uses `run.current_stage` as its stage, fires no gate beyond `ci`,
 writes no `stage-done` and no `run-status`, and hands control back with
 the verdict.
+
+Close, only when `## Run` started this run: after the green verdict's
+mark-ready answer, or after the `ci` gate's Hand back, `rt runs stage-done
+--stage watch-ci`, `rt runs run-status --status done`, `unset RT_RUN_DB`.
+Fix and re-push keeps the run `running` and re-enters section 3 after the
+push (a new `stage-start --stage watch-ci`).
 
 ## Wrap-up form contract
 
