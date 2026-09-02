@@ -70,9 +70,11 @@ For each entry, in order:
 3. When it finishes, `rt runs snapshot` and confirm every
    field in the entry's `produces` is non-null and not `-` (the cleared
    sentinel a redirect writes). A missing or cleared field means the stage
-   did not finish: `stage-fail --stage <stage> --reason "<what>"`, report,
-   stop.
+   did not finish: `stage-fail --stage <stage> --reason "<what>"`, then the
+   failure gate below.
 4. `rt runs stage-done --stage <stage>`
+
+After the last entry, `## Close`.
 
 A stage failure is a gate, not a report. Gate `<stage>-failed:<attempt>`
 (the attempt from the failed stage row in `snapshot`):
@@ -102,7 +104,8 @@ whose status is `running` -- use `rt runs snapshot` with
 match with the user, re-export `RT_RUN_DB`, and re-enter at
 `run.current_stage` with the snapshot's fields and decisions (a fresh
 `stage-start` for that stage records the new attempt). Do not re-ask
-decided questions.
+decided questions. Re-entering a held run clears the hold as `## Hold`
+says.
 
 ## Redirect
 
