@@ -17,7 +17,7 @@
 - Every replacement is exact: the old text must be present verbatim (line numbers are locators; the quoted text is the authority); an implementer that cannot find it stops with NEEDS_CONTEXT.
 - Form wording follows the convention: one sentence, then the structured-question tool; options are the ones the text names; Hold on every form; Iterate here and Go back only on stage and verb gates, never on `clarify` forms.
 - Selection JSON pattern for touched gates: `next` (gate enum including `iterate` and `hold`, plus `redirect` with `to` where Go back is offered) and `note`. Untouched gates keep their selections (spec section 3 enumerates them).
-- RED/GREEN fixtures (Tasks 5 to 8): a fresh `model: sonnet` subagent gets the engine text (old for RED, new for GREEN) plus the scenario and these harness lines verbatim: "Do not run any tools; reply only. Address the user generically as 'you'. Do not add options beyond what the gate text names. If a form is called for, write its one sentence of context and then the questions and options exactly as the tool would take them; do not narrate calling a tool. You have no AskUserQuestion tool in this environment; render the form as text." RED passes when the reply is prose; GREEN passes when the reply is one sentence and a form with the named options. Evidence is written only from the tool result, to `docs/superpowers/plans/evidence/red-followups-<task>.md`. The remedy for a GREEN failure is a rationalization row in the engine, never a prompt change.
+- RED/GREEN fixtures (Tasks 5 to 8): a fresh `model: sonnet` subagent gets the engine text (old for RED, new for GREEN) plus the scenario and these harness lines verbatim: "Do not run any tools; reply only. Address the user generically as 'you'. Do not add options beyond what the gate text names. If a form is called for, write its one sentence of context and then the questions and options exactly as the tool would take them; do not narrate calling a tool. You have no AskUserQuestion tool in this environment; render the form as text." RED passes when the reply is prose; GREEN passes when the reply is one sentence and a form with the named options. Evidence is written only from the tool result, to `docs/superpowers/plans/evidence/red-followups-<task>.md` (`mkdir -p docs/superpowers/plans/evidence` first; the directory does not exist on this branch). The remedy for a GREEN failure is a rationalization row in the engine, never a prompt change.
 - Commit after every task; push the branch.
 
 ---
@@ -72,7 +72,7 @@ git push
 **Files:**
 - Modify: `attachments/pipeline/stage-evidence/SKILL.md`
 
-- [ ] **Step 1: Three replacements**
+- [ ] **Step 1: Four replacements**
 
 Replace:
 ```
@@ -164,11 +164,12 @@ with:
   **Iterate here**, **Go back to `<stage>`** (one option per earlier stage
   row in `snapshot`), and **Hold**.
 - `rt runs decision record --contract gate@1 --scope plan --selection '{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-plan`
-- Go back: hand control back to the orchestrator with one sentence naming
-  the answer; it runs `## Redirect`.
 ```
+Then, in the bullet that begins `- Iterate: re-read the ticket with their note`, append after its last sentence: ` Go back: hand control back to the orchestrator with one sentence naming the answer; it runs \`## Redirect\`.` (plain backticks around `## Redirect`).
 
 - [ ] **Step 3: mark-ready, three sites**
+
+On the post-plan-3 tree the decision lines in ship and watch-ci end with a period after the closing backtick; the anchors below match as substrings and the period survives.
 
 stage-watch-ci, replace:
 ```
@@ -195,9 +196,9 @@ Standalone ship engine (`attachments/pipeline/ship/SKILL.md`, post-plan-3 text h
 with:
 ```
 - The form: **Mark ready now** (recommended when `ci` is green and evidence
-  is set) / **Keep it draft**; **Iterate here**; **Hold** (a standalone run
-  has no earlier stage, so no Go back).
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}' --decided-by ship`
+  is set) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`**
+  (one option per earlier stage row when `snapshot` shows any); **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by ship`
 ```
 
 watch-ci's own-run mark-ready (added by plan 3 Task 6), replace:
@@ -209,9 +210,9 @@ watch-ci's own-run mark-ready (added by plan 3 Task 6), replace:
 with:
 ```
 - The form: **Mark ready now** (recommended) / **Keep it draft**;
-  **Iterate here**; **Hold** (a standalone run has no earlier stage, so no
-  Go back).
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}' --decided-by watch-ci`
+  **Iterate here**; **Go back to `<stage>`** (one option per earlier stage
+  row when `snapshot` shows any); **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by watch-ci`
 ```
 
 - [ ] **Step 4: Certify, commit**
@@ -229,7 +230,7 @@ git push
 ### Task 4: Standing options on the forge and review gates (spec 3: rebase-worktree, receive-review)
 
 **Files:**
-- Modify: `attachments/forge/rebase-worktree/SKILL.md`, `attachments/review/receive-review/SKILL.md` (post-plan-3 text: no `When RT_RUN_DB is set` prefixes; `--stage <stage>`)
+- Modify: `attachments/forge/rebase-worktree/SKILL.md` (plan 3 does not touch it; its gate lines keep their `When RT_RUN_DB is set:` prefixes, which the anchors below exclude), `attachments/review/receive-review/SKILL.md` (post-plan-3 text: no prefixes; `--stage <stage>`)
 
 - [ ] **Step 1: rebase-worktree**
 
@@ -422,11 +423,11 @@ git push
 
 - [ ] **Step 1: RED (self-review clarify only)**
 
-Fixture: self-review's `- Requirements:` bullet plus "The branch is `fix-flaky-timeouts`, no ticket id; the task description in the conversation says 'stabilize the timeout tests'." Expected RED: the form appears but no `rt runs` bracketing is described and Hold is absent.
+Fixture: self-review's `- Requirements:` bullet plus "The branch is `fix-flaky-timeouts`, no ticket id; the task description in the conversation says 'stabilize the timeout tests'." Expected RED: the reply's form has no Hold option (the harness hides tool narration, so Hold present or absent is the observable discriminator).
 
 - [ ] **Step 2: Edits**
 
-receive-review, replace `posting each wait for their own explicit approval.` with `posting each wait for their gate's answer.`; replace the heading `## 5. Post replies, gated on verdict category (after explicit approval)` with `## 5. Post replies, gated on verdict category (on the \`post\` gate's answer)`; replace `Post only on explicit go-ahead; never resolve or approve for the developer.` with `Post only what the \`post\` gate selected; never resolve or approve for the developer.`
+receive-review, replace `posting each wait for their own explicit approval.` with `posting each wait for their gate's answer.`; replace the heading `## 5. Post replies, gated on verdict category (after explicit approval)` with the heading `## 5. Post replies, gated on verdict category (on the post gate's answer)` where `post` is wrapped in plain backticks; replace `Post only on explicit go-ahead; never resolve or approve for the developer.` with `Post only what the post gate selected; never resolve or approve for the developer.` where `post` is wrapped in plain backticks.
 
 review-core-body, replace:
 ```
@@ -509,9 +510,9 @@ git push
 **Files:**
 - Modify: `attachments/review-posting/SKILL.md`, `attachments/pipeline/stage-watch-ci/SKILL.md`, `attachments/pipeline/watch-ci/SKILL.md` (post-plan-3 text)
 
-- [ ] **Step 1: review-posting description**
+- [ ] **Step 1: review-posting Callers bullet**
 
-Replace (inside the frontmatter description):
+Replace (in the body, the **Callers:** bullet under `## Caller inputs`; the frontmatter is untouched):
 ```
   engine draft and a postable target. Nothing in this repo binds it;
   callers reach it by reading this file.
@@ -520,7 +521,7 @@ with:
 ```
   engine draft and a postable target.
 ```
-(keep the YAML block valid; certify checks frontmatter.)
+(the bullet keeps its shape; certify still checks the frontmatter.)
 
 - [ ] **Step 2: stage-watch-ci scripts section moves above the slot**
 
@@ -604,7 +605,7 @@ git add -A attachments
 git commit -m "run sections: fresh shell per call; Resume offers Hold; redirected rows explained"
 git push
 ```
-Expected: each grep count 1.
+Expected: work counts 2 (Task 6's Resume sentence plus this comment); each of the six verbs counts 1.
 
 ---
 
@@ -635,9 +636,9 @@ MSG
 ```bash
 for d in $(git diff --name-only main -- attachments | xargs -n1 dirname | sort -u); do sh tests/certify.sh "$d" || exit 1; done
 sh tests/repo-purity.sh
-grep -rn 'explicit approval\|ask the user\|tell the user what\|confirm the match\|ask whether' attachments --include=SKILL.md
+grep -rn 'explicit approval\|ask the user\|tell the user\|confirm the match\|ask whether' attachments --include=SKILL.md
 ```
-Expected: every certify 0, purity ok, the grep prints only work's "tell the user to update rt" line (spec section 4 keeps it).
+Expected: every certify 0, purity ok, and the grep prints exactly four residue lines, all outside spec section 4: work's "tell the user to update rt" (kept by the spec), cswap-accounts "without explicit approval" (an account rule, not a gate), and shepherdr's two lines about the herd question channel ("or ask the user", "To ask the user a question"), which describe the worker's question command, not a prose ask.
 
 - [ ] **Step 2: Bump, compile, merge, install**
 

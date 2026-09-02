@@ -52,7 +52,7 @@ Changes, engine side, until the compiler can render the path: internal siblings 
 
 ## 6. Compiler-facing text (E9, E10)
 
-- review-posting's description drops "Nothing in this repo binds it; callers reach it by reading this file." (source-repo prose in compiled frontmatter).
+- review-posting's **Callers:** bullet (under `## Caller inputs`) drops "Nothing in this repo binds it; callers reach it by reading this file." (source-repo prose that surfaces in compiled text).
 - `## Where the scripts live` becomes the single owner of the `<scripts>` and `<forge>` definitions, placed directly above `## Domain rules` in both engines that bind the watch-ci domain fill: stage-watch-ci (move its existing section up from below the slot) and the standalone watch-ci engine (add the section; today it has none and the fill is the only definition). The section names the vendored `scripts/` directory and `parts/forge/scripts/ci-forge.sh` and defines both placeholders for the commands that follow. Pack side (team pack release, after this lands): the watch-ci domain fill drops its own copy of that section.
 
 ## 7. Redirect leaves the abandoned stage row running (R1)
