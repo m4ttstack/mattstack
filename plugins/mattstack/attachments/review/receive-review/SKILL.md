@@ -138,10 +138,10 @@ Nothing is written to code, nothing posted:
 
 - `rt runs field set gate verdicts --stage <stage>` (`receive-review` for an
   own run, `run.current_stage` when inherited).
-- The form: **Verdicts and replies approved** (recommended) / **Edit
-  these** (their text names the threads and the change) / **Redo the
+- The form: **Verdicts and replies approved** (recommended) / **Iterate
+  here** (their text names the threads and the change) / **Redo the
   adjudication**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope verdicts --selection '{"next":"approve|edit|redo|hold","note":"<their words or null>"}' --decided-by receive-review`.
+- `rt runs decision record --contract gate@1 --scope verdicts --selection '{"next":"approve|iterate|redo|hold","note":"<their words or null>"}' --decided-by receive-review`.
 
 **Reply content is a seam.** **No Reply rules section below** (the slot is
 unbound): **REQUIRED SUB-SKILL** `superpowers:receiving-code-review`. **A
