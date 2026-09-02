@@ -288,15 +288,13 @@ another session's run, two matching runs (newest named), a held run, a run
 dir older than 48 hours (not scanned), `rt` missing, `rt` printing usage
 instead of JSON.
 
-**Prerequisite probe, before any of this is built.** The design rests on a
-Stop hook not firing while an `AskUserQuestion` is awaiting the user. The
-docs describe Stop as firing when Claude finishes responding and list only
-the user interrupt as a non-firing case; they do not say this in so many
-words. Plan task one: a temporary user-level Stop hook that appends its
-stdin to a log, a fresh interactive session asked to call the tool, and the
-log checked while the form is up and again after the answer and the final
-message. If Stop fires with the form up, the hook would block the form
-itself and this section is redesigned before anything else is written.
+**Prerequisite probe, run 2026-09-01 22:45 CDT.** A temporary user-level
+Stop hook logging its stdin, in a Claude Code 2.1.258 session driven through
+a herdr pane: zero Stop events while the `AskUserQuestion` form was on
+screen (herdr status `blocked`), exactly one after the answer and the final
+message "done", with `hook_event_name` Stop, `stop_hook_active` false, and
+the session id matching the pane's session. The design's premise holds on
+the runtime this estate runs.
 
 ## 6. Standalone verbs run as single-stage runs
 
