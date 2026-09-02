@@ -50,7 +50,7 @@ Fresh. The flags for this verb, rendered by the compiler:
 ```bash
 PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
 rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>
+export RT_RUN_DB=<runDb from the response>   # each tool call is a fresh shell: prefix every rt runs command with RT_RUN_DB=<runDb>
 rt runs stage-start --stage watch-ci
 ```
 

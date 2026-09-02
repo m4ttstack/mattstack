@@ -52,7 +52,7 @@ not proceed without a `runDb`.
 
 ```bash
 rt runs run-start <flags for the work type> --pack-dirs "$PACK_DIRS" [--ticket <id>] [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>
+export RT_RUN_DB=<runDb from the response>   # each tool call is a fresh shell: prefix every rt runs command with RT_RUN_DB=<runDb>
 ```
 
 Back-fill any spawn-time decision made before the DB existed (account
@@ -127,6 +127,9 @@ is written for it. In order:
 3. `rt runs stage-start --stage <to>` (the DB bumps the attempt), then walk
    forward from `<to>` exactly as in section 4. Later stages re-run as new
    attempts; a ship stage re-run pushes new commits to the same MR.
+
+The stage you leave keeps its `running` row; `snapshot` readers treat a
+`running` row followed by a later attempt of an earlier stage as redirected.
 
 ## Hold
 
