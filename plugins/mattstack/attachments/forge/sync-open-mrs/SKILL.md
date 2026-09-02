@@ -23,12 +23,19 @@ a focused skill it calls, not reimplemented here.
 Follow `mattstack:map-open-mrs` and get its table: MR ref, title, source
 branch, worktree path or NONE.
 
-## 2. Plan the sweep, get one go
+## 2. Plan the sweep, then gate `sweep`
 
-Present the plan: which branches will be rebased, in what order, and
-which rows are skipped up front -- NONE rows, nothing local to rebase --
-with the reason for each. Get exactly one go-ahead from the user for the
-whole batch before touching any branch. Not a per-branch confirmation.
+One sentence: how many branches rebase, how many are skipped up front (NONE
+rows, nothing local to rebase) and why. Then the gate, once for the whole
+batch, never per branch:
+
+- When `RT_RUN_DB` is set: `rt runs field set gate sweep --stage sync-open-mrs`.
+- The form: a multi-select of the branches to rebase, in order, all
+  pre-selected (deselecting skips one); **Iterate here** (their text
+  reorders or excludes); **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope sweep --selection '{"branches":[...]}' --decided-by sync-open-mrs`.
+
+Nothing is touched before the answer.
 
 ## 3. Rebase each branch
 
@@ -40,16 +47,27 @@ the reason and move on; neither ever blocks the rest of the sweep.
 `rebase-worktree` also asks per branch whether to push after a clean rebase
 -- defer that; step 4 makes the push call once for the whole batch.
 
-## 4. Offer pushes, then watch CI
+## 4. Gate `push`, then watch CI
 
-Once the rebase pass finishes, list every branch that rebased clean and
-offer `git push --force-with-lease` for all of them as one batch
-decision -- never push a branch unasked, and never push one-by-one as
-each rebase completes. On yes, push each, then, only if the user wants
-CI watched, follow `mattstack:watch-ci` per pushed branch.
+Once the rebase pass finishes, one sentence: which branches rebased clean
+(old head -> new head each). Then the gate, once for the batch; never push
+a branch unasked, never one-by-one as each rebase completes:
+
+- When `RT_RUN_DB` is set: `rt runs field set gate push --stage sync-open-mrs`.
+- The form: a multi-select of the clean branches to `git push
+  --force-with-lease`, all pre-selected; **Watch CI after pushing** (yes /
+  no); **Iterate here**; **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by sync-open-mrs`.
+
+Push the selected branches, then, when asked, follow `mattstack:watch-ci`
+per pushed branch (it inherits this run and hands back its verdict).
 
 ## 5. Report
 
 One table, every branch from step 1 landing in exactly one bucket:
 rebased (old head -> new head), pushed, conflicted (needs-hands), or
 skipped (with reason -- dirty tree, no upstream, NONE row).
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
