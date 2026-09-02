@@ -86,8 +86,8 @@ gate:
 
 - When `RT_RUN_DB` is set: `rt runs field set gate conflict:rebase-worktree:<attempt> --stage <run.current_stage>`.
 - The form: **Leave the rebase in progress for me** (recommended) /
-  **Abort the rebase** (`git rebase --abort`) ; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope conflict:rebase-worktree:<attempt> --selection '{"next":"leave|abort|hold"}' --decided-by rebase-worktree`.
+  **Abort the rebase** (`git rebase --abort`); **Iterate here**; **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope conflict:rebase-worktree:<attempt> --selection '{"next":"leave|abort|iterate|hold","note":"<their words or null>"}' --decided-by rebase-worktree`.
 
 Never resolve the conflict yourself, `git add` the files, or run `git
 rebase --continue` or `git rebase --skip`; `--abort` only on that answer.
@@ -107,8 +107,8 @@ it gate the batch. Otherwise:
   before the form.
 - The form: **Push with force-with-lease now** / **Leave it unpushed**
   (recommended when the branch has an open MR others may have pulled);
-  **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"push":true|false}' --decided-by rebase-worktree`.
+  **Iterate here**; **Hold**.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"push":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}' --decided-by rebase-worktree`.
 
 Never push unasked.
 
