@@ -446,3 +446,21 @@ A verb that inherited a run (invoked from inside a stage) uses
 `run-start` closes the stage and the run. Every close ends with
 `unset RT_RUN_DB` after `run-status`, so the export does not outlive the run
 in the session's shell.
+
+Selections record the standing options with the pattern work's failure and
+close gates use: `next` is the gate's own enum and always includes
+`iterate` and `hold`, plus `redirect` with `to` wherever the form offers Go
+back; `note` carries their free text or null. A gate's own answer keys
+stand beside them.
+
+A `clarify` form carries its candidates, optionally their text, and Hold;
+it offers no Iterate here (the free-text candidate plays that role) and no
+Go back, and its selection keeps its single key. Hold on any form: one
+sentence, end the turn; under a run also record `hold:<stage>:<attempt>`
+and `rt runs field set hold "<their words>" --stage <stage>`; outside a run
+nothing is recorded.
+
+Each tool call is a fresh shell. Keep `RT_RUN_DB` in the run's prose (the
+`runDb` from `run-start`) and prefix every `rt runs` command with
+`RT_RUN_DB=<path>`; `export` and `unset` remain the contract's markers for
+the run's start and end, not a persistence mechanism.
