@@ -164,11 +164,11 @@ writes `rt runs field set hold "<reason>" --stage <stage>`, and the agent
 ends its turn. The Stop hook (section 5) allows a turn to end when the
 `hold` field's `at` is newer than the latest stage row's `started_at`.
 Resume (the existing section, plus the redirect rule) clears it with `field
-set hold - --stage <stage>` right after the next `stage-start`. `snapshot`
-returns fields ordered by `at`; if the fields table keeps one row per set
-rather than one per key, the newest `hold` row is the one that counts (the
-plan verifies which before the hook is written). Without hold, parking a
-run overnight would fight the hook.
+set hold - --stage <stage>` right after the next `stage-start`. The fields
+table is one row per key (`PRIMARY KEY (run_id, key)`, upsert on set), so
+`snapshot` carries exactly one `hold` row with the `at` of its last write,
+and `field set` accepts any key; no rt change is needed for `gate`, `hold`,
+or `nudged`. Without hold, parking a run overnight would fight the hook.
 
 ## 5. The Stop hook
 
