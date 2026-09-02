@@ -20,6 +20,46 @@ The review comments left on **your own** change: pull the open threads, judge
 each against the codebase, decide what to change, reply. Implementation and
 posting each wait for their own explicit approval.
 
+## Run
+
+Outside a pipeline this verb is its own run, so the console shows it and
+the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
+and `rt runs snapshot` shows `run.status` = `running`: you were invoked
+from inside that run, you inherit it, `run.current_stage` is your stage,
+and you close nothing at the end.
+
+Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
+`--repo` value in the flags block below) for a run whose `snapshot` shows
+`status` = `running` and `work_type` = `receive-review`
+(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
+One found: gate `clarify`, one sentence naming it, the structured-question
+tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
+RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage receive-review` (a new
+attempt, which re-records this session) and `rt runs field set hold -
+--stage receive-review`.
+
+Fresh. The flags for this verb, rendered by the compiler:
+
+{{run-start.flags:receive-review}}
+
+```bash
+PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
+rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
+export RT_RUN_DB=<runDb from the response>
+rt runs stage-start --stage receive-review
+```
+
+The response must parse as JSON with `ok: true` and a `runDb`; anything
+else means this rt predates the run verbs: stop and tell the user to
+update rt. Pass `--spawned-by` when a board or another surface launched
+this pane.
+
+Every gate in this verb then writes its `gate` field and its decision with
+`--stage receive-review`. The close, after the final gate's answer and only when
+this section ran `run-start`: `rt runs stage-done --stage receive-review`, `rt runs
+run-status --status done` (or `abandoned` when the gate said so), then
+`unset RT_RUN_DB`.
+
 Baseline agents already fetch threads, verify before implementing, clarify
 vague comments, and gate posting; this skill cross-references those rather
 than re-teaching them. It exists for the two things agents get wrong on their
@@ -34,7 +74,9 @@ than re-teaching them. It exists for the two things agents get wrong on their
   half.
 - Keep only **unresolved human** threads: drop system notes and bot authors.
   Capture each thread's id, its `file:line`, and its full note chain.
-- Zero unresolved human threads: say so and stop.
+- Zero unresolved human threads: say so and stop. Close, only when `## Run`
+  started this run: `rt runs stage-done --stage receive-review`, `rt runs
+  run-status --status done`, `unset RT_RUN_DB`.
 
 Fetch mechanics belong to the forge CLI (`gh` / `glab`) and the adapter.
 
@@ -89,11 +131,11 @@ entry's relations.
 Present the verdict table plus a drafted reply per thread, then the gate.
 Nothing is written to code, nothing posted:
 
-- When `RT_RUN_DB` is set: `rt runs field set gate verdicts --stage <run.current_stage>`.
+- `rt runs field set gate verdicts --stage <stage>`.
 - The form: **Verdicts and replies approved** (recommended) / **Edit
   these** (their text names the threads and the change) / **Redo the
   adjudication**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope verdicts --selection '{"next":"approve|edit|redo|hold","note":"<their words or null>"}' --decided-by receive-review`.
+- `rt runs decision record --contract gate@1 --scope verdicts --selection '{"next":"approve|edit|redo|hold","note":"<their words or null>"}' --decided-by receive-review`.
 
 **Reply content is a seam.** **No Reply rules section below** (the slot is
 unbound): **REQUIRED SUB-SKILL** `superpowers:receiving-code-review`. **A
@@ -124,10 +166,10 @@ Reply rules section below**: follow it. On top of either branch, these hold:
 Nothing is implemented until the developer approves it -- not under cover of
 "in a follow-up commit," not while drafting. The approval is a form:
 
-- When `RT_RUN_DB` is set: `rt runs field set gate fixes --stage <run.current_stage>`.
+- `rt runs field set gate fixes --stage <stage>`.
 - The form: a multi-select of the `valid` threads, all pre-selected, each
   option naming `file:line` and the fix; **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope fixes --selection '{"threads":[...]}' --decided-by receive-review`.
+- `rt runs decision record --contract gate@1 --scope fixes --selection '{"threads":[...]}' --decided-by receive-review`.
 
 On the answer, implement the selected
 `valid` fixes one at a time, verifying each with the project's tests and
@@ -147,11 +189,11 @@ thread replies. Offer only the categories that have at least one thread
 every category that has threads so nothing drops silently, and let the
 developer deselect -- e.g. post the `valid` "Fixed" replies and the
 `pushback` reasons now, hold `needs-clarification` to ask the reviewer
-synchronously first. Also offer **Hold**. When `RT_RUN_DB` is set, `rt runs
-field set gate post --stage <run.current_stage>` before and `rt runs
-decision record --contract gate@1 --scope post --selection
-'{"categories":[...]}' --decided-by receive-review` after. A paragraph
-that lists the categories and waits is not this gate.
+synchronously first. Also offer **Hold**. `rt runs field set gate post
+--stage <stage>` before and `rt runs decision record --contract gate@1
+--scope post --selection '{"categories":[...]}' --decided-by
+receive-review` after. A paragraph that lists the categories and waits is
+not this gate.
 </HARD-GATE>
 
 Post thread replies **only** for threads in the selected categories; the rest
@@ -159,6 +201,12 @@ stay unanswered, through any channel. Never a top-level note. Never resolve a
 thread, never approve: both belong to the developer, however settled a thread
 looks once its reply is written. Posting mechanics belong to the forge CLI
 and the adapter.
+
+Close, only when `## Run` started this run: after the selected categories
+are posted, `rt runs stage-done --stage receive-review`, `rt runs
+run-status --status done`, `unset RT_RUN_DB`. Zero unresolved human
+threads (step 1) closes the same way, right after the sentence that says
+so.
 
 ## Red flags
 
