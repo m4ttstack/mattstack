@@ -116,7 +116,7 @@ git push
 - Test: `sh tests/certify.sh attachments/wrap-up`; a RED/GREEN subagent pair (below)
 
 **Interfaces:**
-- Produces: the include name `wrap-up`, referenced by engines as `{{include:wrap-up}}` (plan 2) and by `pack/stubs.jsonc` as `"engine": "wrap-up"` (Task 3).
+- Produces: the include name `wrap-up`, referenced by engines as `{{include:wrap-up-form}}` (plan 2) and by `pack/stubs.jsonc` as `"engine": "wrap-up-form"` (Task 3).
 
 - [ ] **Step 1: RED, baseline without the include**
 
@@ -174,6 +174,8 @@ Expected: every line `ok`, exit 0, and a body of about 300 words or fewer on thi
 - [ ] **Step 4: GREEN, the same scenario with the include**
 
 Dispatch one fresh general-purpose subagent with the Step 1 prompt, prefixed by the include's body (everything after the frontmatter) under the heading `Your standing instruction:`. Expected: the reply is an `AskUserQuestion` call with three or four questions (port, publish, slug, next steps), recommended options labelled, nothing after it. Append the result to `docs/superpowers/plans/red-wrap-up-baseline.md` under `## GREEN`. If it still writes prose, read its justification, add the row, and rerun; do not proceed until it complies.
+
+Execution note (2026-09-01): the spec's Testing section asks for five-rep micro-tests of the include wording against a no-guidance control; this task ran one RED and one GREEN, both async and shape-only, and the ledger rules that Task 7 Step 6's live `/mattstack:wrap-up` is the binding GREEN.
 
 - [ ] **Step 5: Commit**
 
@@ -797,7 +799,7 @@ Expected: `check` all `current`; the door's `compiled:` names `mattstack@0.11.0`
 ```bash
 sh tests/repo-purity.sh
 sh tests/test-certify.sh
-for d in attachments/wrap-up attachments/pipeline/work attachments/parameterized-skills skills/wrap-up; do sh tests/certify.sh "$d" || exit 1; done
+for d in attachments/wrap-up-form attachments/pipeline/work attachments/parameterized-skills skills/wrap-up; do sh tests/certify.sh "$d" || exit 1; done
 hooks/tests/test-pipeline-gate-stop.sh
 hooks/tests/test-herdr-doorbell.sh
 bun tests/desc-test.ts --reps 5

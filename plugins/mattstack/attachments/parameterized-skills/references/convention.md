@@ -402,7 +402,8 @@ A gate is a named human decision point. Every gate site in an engine is one
 recipe, in this order:
 
 - `rt runs field set gate <scope> --stage <stage>` (the commitment; it also
-  names the pending gate to the console).
+  names the pending gate to the console). A gate whose `gate` field is newer
+  than its last `gate@1` decision for that scope is pending.
 - One sentence of context, then the runtime's structured-question tool
   (`AskUserQuestion` in Claude Code) per the wrap-up include, then stop. The
   turn ends on the form, never on prose.

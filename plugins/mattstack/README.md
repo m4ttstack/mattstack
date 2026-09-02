@@ -347,6 +347,7 @@ tests/repo-purity.sh                  # whole-tree purity sweep, run bare
 plugin/tests/test-resolve-args.sh     # model-free matrix for the primitive's resolver
 plugin/tests/test-merge-manifests.sh  # manifest-merge matrix
 hooks/tests/test-herdr-doorbell.sh    # offline, stubs herdr on PATH
+tests/stubs-no-source-collision.sh    # attachments/<verb>/ vs a hand-written source
 ```
 
 Skill-local tests live beside the skills they cover, for example
