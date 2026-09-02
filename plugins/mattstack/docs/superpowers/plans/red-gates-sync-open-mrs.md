@@ -107,5 +107,52 @@ Shape check: complies. The reply ends in the form (nothing after Hold).
 The multi-select carries exactly the two rebasable branches, in order,
 both pre-selected; the NONE and dirty rows are named as skipped up
 front, outside the selectable set. Options are Iterate here and Hold,
-matching the gate exactly -- no extras. Attempt 1's deviation did not
-recur on an unchanged body; no engine edit was made between attempts.
+matching the gate exactly -- no extras.
+
+Correction: attempt 2 complying on an unchanged body was not evidence of
+sampling variance. Review ruled attempt 1's failure real -- section 2
+named only NONE rows as skipped up front, so the engine text itself
+allowed a dirty-tree branch into the multi-select; attempt 2 landing
+correctly was luck, not a closed gap. Section 2's sentence now also
+names dirty trees (`git status --porcelain` not empty, which
+`rebase-worktree` would refuse) as skipped up front, and a
+rationalization row was added ahead of `## Wrap-up form contract`:
+
+| Thought | Reality |
+|---------|---------|
+| "I'll list the dirty tree too and let the rebase step refuse it" | The sweep form lists only branches the sweep will rebase; a tree the rebase would refuse is a skipped row, named up front with its reason. |
+
+## GREEN attempt 3
+
+Fixture: fresh general-purpose subagent, system context = the
+sync-open-mrs engine's NEW body with the corrected section 2 sentence and
+the new rationalization row in place, same scenario as RED, same harness
+lines, unchanged.
+
+Verbatim reply:
+
+```
+Two branches have worktrees and are ready to rebase, one has no worktree (NONE) with nothing local to rebase, and one has a dirty tree that rebase-worktree would refuse, so I'm skipping it up front.
+
+**sweep**
+
+Select the branches to rebase, in order:
+- [x] Branch 1 (worktree)
+- [x] Branch 2 (worktree)
+
+Skipped up front (not part of this sweep):
+- Branch 3: NONE, no worktree, nothing local to rebase
+- Branch 4: dirty tree, rebase-worktree would refuse it
+
+Options:
+- Iterate here (reorder or exclude branches by replying with changes)
+- Hold
+```
+
+Shape check: complies. One sentence precedes the form. The multi-select
+carries exactly the two rebasable branches, in order, both pre-selected;
+the NONE row and the dirty-tree row are both named as skipped up front,
+outside the selectable set, each with its reason. Options are Iterate
+here and Hold, matching the gate exactly -- no extras, nothing after.
+The section 2 clause and the rationalization row close the gap attempt 1
+exposed.

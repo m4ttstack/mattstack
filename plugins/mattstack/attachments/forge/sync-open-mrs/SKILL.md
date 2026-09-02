@@ -26,8 +26,9 @@ branch, worktree path or NONE.
 ## 2. Plan the sweep, then gate `sweep`
 
 One sentence: how many branches rebase, how many are skipped up front (NONE
-rows, nothing local to rebase) and why. Then the gate, once for the whole
-batch, never per branch:
+rows with nothing local to rebase, and trees whose `git status --porcelain`
+is not empty, which `rebase-worktree` would refuse) and why. Then the gate,
+once for the whole batch, never per branch:
 
 - When `RT_RUN_DB` is set: `rt runs field set gate sweep --stage sync-open-mrs`.
 - The form: a multi-select of the branches to rebase, in order, all
@@ -67,6 +68,12 @@ per pushed branch (it inherits this run and hands back its verdict).
 One table, every branch from step 1 landing in exactly one bucket:
 rebased (old head -> new head), pushed, conflicted (needs-hands), or
 skipped (with reason -- dirty tree, no upstream, NONE row).
+
+**These thoughts mean you are skipping the gate -- STOP:**
+
+| Thought | Reality |
+|---------|---------|
+| "I'll list the dirty tree too and let the rebase step refuse it" | The sweep form lists only branches the sweep will rebase; a tree the rebase would refuse is a skipped row, named up front with its reason. |
 
 ## Wrap-up form contract
 
