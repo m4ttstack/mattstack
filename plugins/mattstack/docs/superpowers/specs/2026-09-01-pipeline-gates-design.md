@@ -97,16 +97,19 @@ discipline failure (the agent knows the form is wanted and writes prose
 anyway), and that is the form that holds under pressure.
 
 The public door is compiled from the same file: `wrap-up` joins
-`pack/stubs.jsonc` as a zero-slot verb (the pattern the forge
-`rebase-worktree` engine already uses: `type: pipeline-step`, `slots: {}`)
-and `surface.jsonc` lists it. `rt skills compile --pack mattstack` emits
-`skills/wrap-up/SKILL.md`; `rt skills check` catches drift. One source, no
-hand copy.
+`pack/stubs.jsonc` as a zero-slot verb and `surface.jsonc` lists it. `rt
+skills compile --pack mattstack` emits `skills/wrap-up/SKILL.md`; `rt skills
+check` catches drift. One source, no hand copy.
 
-The first implementation task is a spike: confirm the compiler accepts one
-attachment as both an include target and a verb engine. If it does not, the
-door is a hand-authored `plugin/skills/wrap-up/SKILL.md` and `tests/certify.sh`
-gains a check that its body equals the include's body.
+One file serves both roles, verified against the compiler (rt main,
+`lib/skills/sources.ts`): `loadInclude` resolves only the flat path
+`attachments/<name>/SKILL.md` and rejects a target that declares a `slots`
+key at all (an empty `slots: {}` is truthy and is rejected) or contains a
+placeholder; `loadStepSource` also searches the flat `attachments/<name>/`
+path, requires `type: pipeline-step`, and reads an absent `slots` key as no
+slots. So the include's frontmatter is `type: pipeline-step` with no `slots`
+key, unlike the forge engines' `slots: {}`. The first implementation task
+compiles the door and runs `check` to confirm it in practice.
 
 The personal `wrap-up` skill is deleted from its source repo and the
 `~/.claude/skills/` symlink removed, in the same release.
