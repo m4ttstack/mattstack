@@ -395,3 +395,48 @@ and data to the run DB through `rt runs`. The contract:
   decided.
 - Stages never run sqlite directly and never read another run's DB. The
   helper is the whole interface.
+
+## Stage contract v3: gates
+
+A gate is a named human decision point. Every gate site in an engine is one
+recipe, in this order:
+
+- `rt runs field set gate <scope> --stage <stage>` (the commitment; it also
+  names the pending gate to the console).
+- One sentence of context, then the runtime's structured-question tool
+  (`AskUserQuestion` in Claude Code) per the wrap-up include, then stop. The
+  turn ends on the form, never on prose.
+- On the answer: `rt runs decision record --contract gate@1 --scope <scope>
+  --selection '<answers as JSON>' --decided-by <engine>`, then act on it.
+
+Scopes. Pipeline gates: `plan`, `provision`, `evidence`, `evidence-attach`,
+`ship`, `mark-ready`, `ci`, `close`, `<stage>-failed`, `redirect`, `hold`.
+Standalone verbs add their own (`post-severity`, `post-disposition`,
+`self-review`, `verdicts`, `fixes`, `post`, `sweep`, `push`, `conflict`,
+`wrap-up`). `clarify` is the generic scope for any mid-verb "which one do
+you mean". The decisions table upserts on `(run, contract, scope)`, so a
+gate that can fire more than once per run carries stage and attempt:
+`redirect:ship:2`, `hold:implement:3`, `implement-failed:2`, `ci:watch-ci:2`,
+`conflict:rebase-worktree:1`; the attempt is the current stage row's, read
+from `snapshot`. Gates that fire once per pass (`plan`, `close`,
+`mark-ready`) keep the bare name; after a redirect they fire again and the
+latest answer stands.
+
+Standing options on every gate form: *Iterate here* (the human's free text
+is the change request) and *Hold*; *Go back to <stage>* when `snapshot`
+shows an earlier stage row.
+
+`-` is the cleared sentinel for any field this contract writes (`hold`, a
+redirected stage's produces): `field set <key> -`. Every reader treats it as
+absent: `field get` returning `-` reads as not set, and the orchestrator's
+completeness check is "non-null and not `-`".
+
+Outside a run (`RT_RUN_DB` unset), the two `rt runs` lines are skipped and
+the form alone is the gate.
+
+A verb that inherited a run (invoked from inside a stage) uses
+`run.current_stage` as its `--stage`, writes no `stage-done` and no
+`run-status`, and fires no gate beyond its own: only the verb that ran
+`run-start` closes the stage and the run. Every close ends with
+`unset RT_RUN_DB` after `run-status`, so the export does not outlive the run
+in the session's shell.
