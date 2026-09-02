@@ -615,7 +615,7 @@ Expected: work counts 2 (Task 6's Resume sentence plus this comment); each of th
 
 ```bash
 rt chat dm stan <<'MSG'
-Six rt follow-ups from the mattstack engine spec (docs/superpowers/specs/2026-09-02-engine-followups-design.md, section "rt follow-ups"):
+Seven rt follow-ups from the mattstack engine spec (docs/superpowers/specs/2026-09-02-engine-followups-design.md, section "rt follow-ups"):
 
 - E6: the ${CLAUDE_SKILL_DIR} rewrite for included bodies should apply to every otherSideDir output (receive-review, self-review), not only stages.
 - E7: a {{verb.path:<name>}} placeholder rendering the sibling verb's relative path from the output file, using the surface.
@@ -623,6 +623,7 @@ Six rt follow-ups from the mattstack engine spec (docs/superpowers/specs/2026-09
 - R1: a redirected status for a stage row (rt runs stage-redirect --stage <from> --to <to>, or stage-done --status redirected).
 - R2: rt runs verbs default RT_RUN_DB from the running run whose claude-session matches the caller, else the newest running run whose worktree contains the cwd.
 - Pack-path token: fills need to name a file in another attachment without the vendoring rewrite (today they use unbraced $CLAUDE_SKILL_DIR/../../attachments/<name>/<file>).
+- Repeatable scopes inside one attempt: sync-open-mrs runs watch-ci once per pushed branch and every red upserts the same ci:sync-open-mrs:<attempt> row, so only the last branch's decision survives; the scope needs a per-branch discriminator or the decisions table needs a sequence.
 None blocks a release; the engine text carries interim wording for each.
 MSG
 ```
