@@ -194,7 +194,14 @@ pub fn rooms_for_session(r: &dyn Runner, session_id: &str) -> Result<Vec<Room>, 
     let rt = rt_bin();
     let out: Rooms = run_json(
         r,
-        &[rt.as_str(), "chat", "rooms", "--session", session_id, "--json"],
+        &[
+            rt.as_str(),
+            "chat",
+            "rooms",
+            "--session",
+            session_id,
+            "--json",
+        ],
         &[],
     )?;
     Ok(out.rooms)
