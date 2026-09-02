@@ -4,7 +4,7 @@
 
 **Goal:** `review`, `self-review`, `receive-review`, `ship`, `watch-ci`, and `sync-open-mrs` start a single-stage run for themselves when no run is active, so the Stop hook covers their panes (board-launched reviews included) and the console shows them as runs.
 
-**Architecture:** Each verb gains a `## Run` section at its start: the Resume offer, `run-start` with the compiler-rendered `{{run-start.flags:<verb>}}` line, `export RT_RUN_DB`, `stage-start`; and a close after its final gate (`stage-done`, `run-status done`, `unset RT_RUN_DB`). The guard is "no running run in `RT_RUN_DB`", so a verb invoked inside a pipeline stage or another verb inherits instead. `watch-ci` gains the `mark-ready` gate when it started its own run.
+**Architecture:** Each verb gains a `## Run` section at its start: the Resume offer, the compiler-rendered `{{run-start.flags:<verb>}}` block (a fenced JSON block with one key, the same shape the work engine gets), `run-start` with those flags, `export RT_RUN_DB`, `stage-start`; and a close after its final gate (`stage-done`, `run-status done`, `unset RT_RUN_DB`). The guard is "no running run in `RT_RUN_DB`", so a verb invoked inside a pipeline stage or another verb inherits instead. `watch-ci` gains the `mark-ready` gate when it started its own run.
 
 **Tech Stack:** Markdown engines; the rt compiler's `{{run-start.flags:<verb>}}` placeholder variant (rt follow-up item 1, on rt branch `run-start-flags-verb`); `rt skills compile` with the hidden `--pack-dir` and `--mattstack-dir` flags; `tests/certify.sh`.
 
@@ -29,8 +29,9 @@ and `rt runs snapshot` shows `run.status` = `running`: you were invoked
 from inside that run, you inherit it, `run.current_stage` is your stage,
 and you close nothing at the end.
 
-Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` for a
-run whose `snapshot` shows `status` = `running` and `work_type` = `<verb>`
+Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
+`--repo` value in the flags block below) for a run whose `snapshot` shows
+`status` = `running` and `work_type` = `<verb>`
 (read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
 One found: gate `clarify`, one sentence naming it, the structured-question
 tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
@@ -38,11 +39,13 @@ RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage <verb>` (a new
 attempt, which re-records this session) and `rt runs field set hold -
 --stage <verb>`.
 
-Fresh:
+Fresh. The flags for this verb, rendered by the compiler:
+
+{{run-start.flags:<verb>}}
 
 ```bash
 PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
-rt runs run-start {{run-start.flags:<verb>}} --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
+rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
 export RT_RUN_DB=<runDb from the response>
 rt runs stage-start --stage <verb>
 ```
@@ -94,7 +97,7 @@ git checkout pack/stubs.jsonc
 rm -rf attachments/run-flags-probe
 ```
 
-Expected: the preview contains one line beginning `--repo ` and containing `--work-type review --pipeline review --mattstack-sha`. An error naming `run-start.flags:review` as unknown means the rt on this machine predates the variant: stop, report, and wait for the release.
+Expected: the preview contains a fenced `json` block with the single key `review` whose value begins `--repo ` and contains `--work-type review --pipeline review --mattstack-sha` (on this pack the repo key is `pack` and the sha is the plugin version, since the pack declares no pipelines; fine for a probe). An error naming `run-start.flags:review` as unknown means the rt on this machine predates the variant: stop, report, and wait for the release.
 
 ---
 
@@ -112,7 +115,7 @@ Insert the Run section (from the header, with `<verb>` = `review`) between `The 
 
 - [ ] **Step 2: Rewrite the gate bracketing and add the close**
 
-In section 3, replace `When `RT_RUN_DB` is set, each gate is bracketed by` with `Each gate is bracketed by` (the run exists now; the outside-run rule no longer applies here), and change `--stage review` to `--stage <stage>` where `<stage>` is `review` for an own run and `run.current_stage` for an inherited one. Append to section 3, after the posting mechanics sentence:
+In section 3, replace `When `RT_RUN_DB` is set, each gate is bracketed by` with `Each gate is bracketed by` (the run exists now; the outside-run rule no longer applies here), and change `--stage review` to `--stage <stage>` where `<stage>` is `review` for an own run and `run.current_stage` for an inherited one. In section 1's `clarify` gate, drop the `when `RT_RUN_DB` is set, ` clause and change its `--stage review` the same way. Append to section 3, after the posting mechanics sentence:
 
 ```markdown
 
@@ -123,7 +126,7 @@ message still ends with the target's link (the close HARD-GATE below).
 
 - [ ] **Step 3: Certify, compile check, commit**
 
-Run: `sh tests/certify.sh attachments/review/review` (exit 0). Then, with the team pack's name from `rt skills packs` and its checkout path: `rt skills compile --pack <that name> --verb review --pack-dir <that checkout> --mattstack-dir "$PWD" --dry-run --json` prints a rendered `--work-type review --pipeline review` line and no error.
+Run: `sh tests/certify.sh attachments/review/review` (exit 0). Task 1 already proved the variant renders; the team pack's own compile happens in its release.
 
 ```bash
 git add attachments/review/review/SKILL.md
@@ -243,7 +246,14 @@ Insert the Run section with `<verb>` = `watch-ci` between the paragraph ending `
 
 - [ ] **Step 2: Bracket the ci gate, add mark-ready and the close**
 
-In `## Verdict`, drop the `When `RT_RUN_DB` is set: ` prefixes; `<run.current_stage>` becomes `<stage>` (`watch-ci` for an own run, inherited otherwise). Replace `Green: one sentence, the verdict, then stop.` with:
+In `## Verdict`, drop the `When `RT_RUN_DB` is set: ` prefixes; `<run.current_stage>` becomes `<stage>` (`watch-ci` for an own run, inherited otherwise). Replace the whole opening paragraph of `## Verdict`:
+
+```markdown
+Green: one sentence, the verdict, then stop. Any other outcome is gate
+`ci`:
+```
+
+with:
 
 ```markdown
 Green: one sentence, the verdict. Then, only when `## Run` started this

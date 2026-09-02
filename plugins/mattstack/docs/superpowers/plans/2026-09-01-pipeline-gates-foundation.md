@@ -169,7 +169,7 @@ next call after the answers return, never into the context sentence.
 - [ ] **Step 3: Certify and check the word budget**
 
 Run: `sh tests/certify.sh attachments/wrap-up && awk 'f{print} /^---$/{c++; if(c==2) f=1}' attachments/wrap-up/SKILL.md | wc -w`
-Expected: every line `ok`, exit 0, and a body under 220 words (the spec's budget is two hundred; the table borders count as words here, so 220 on this measure).
+Expected: every line `ok`, exit 0, and a body under 300 words on this measure (the spec's "two hundred" counts prose; `wc -w` also counts every table pipe, and the RED rows add a few more).
 
 - [ ] **Step 4: GREEN, the same scenario with the include**
 
@@ -238,7 +238,7 @@ W="$PWD"
 rt skills compile --pack mattstack --verb wrap-up --pack-dir "$W" --mattstack-dir "$W" --dry-run --json
 ```
 
-Expected: JSON naming `skills/wrap-up/SKILL.md` as the file it would write, no error. An error mentioning `loadInclude` or `slots` means the include's frontmatter has a `slots` key; remove it. An error that `wrap-up` is not found under `attachments/*` means the directory name or `type: pipeline-step` is wrong.
+Expected: a JSON result whose row for the verb reads `{"name":"wrap-up","status":"compiled","files":[{"path":"SKILL.md"}],"side":"skills"}` (the `side` says it lands under `skills/`), no error. An error mentioning `loadInclude` or `slots` means the include's frontmatter has a `slots` key; remove it. An error that `wrap-up` is not found under `attachments/*` means the directory name or `type: pipeline-step` is wrong.
 
 - [ ] **Step 4: Compile for real and inspect the door**
 
@@ -447,7 +447,7 @@ exit $((fails > 0))
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `chmod +x hooks/tests/test-pipeline-gate-stop.sh && hooks/tests/test-pipeline-gate-stop.sh`
-Expected: every case that wants exit 2 FAILs (the hook file does not exist yet, so `sh` exits non-zero with an error and no case reads `exit=2`); the script ends with a failure count.
+Expected: every case FAILs (the hook file does not exist yet, so `sh` exits 127 with an error on stderr for every payload, so even the exit-0 cases see a non-empty `err=`); the script ends with a failure count.
 
 - [ ] **Step 3: Write the hook**
 
@@ -528,20 +528,22 @@ if (fields.get("claude-session") or {}).get("value") != sid:
 last_start = max([int(s.get("started_at") or 0) for s in (d.get("stages") or [])] or [0])
 hold = fields.get("hold") or {}
 held = hold.get("value") not in (None, "", "-") and int(hold.get("at") or 0) > last_start
-print("%d\t%s\t%s\t%s" % (int(run.get("started_at") or 0), run.get("id") or "?", run.get("current_stage") or "unknown", "held" if held else "open"))
+print("%d|%s|%s|%s" % (int(run.get("started_at") or 0), run.get("id") or "?", run.get("current_stage") or "unknown", "held" if held else "open"))
 ' "$SESSION" 2>/dev/null)" || continue
   [ -n "$LINE" ] || continue
-  if [ -z "$BEST" ] || [ "${LINE%%	*}" -gt "${BEST%%	*}" ]; then BEST="$LINE"; fi
+  if [ -z "$BEST" ] || [ "${LINE%%|*}" -gt "${BEST%%|*}" ]; then BEST="$LINE"; fi
 done
 
+# Fields are started_at|id|stage|state; `|` never appears in a run id or a
+# stage name, and it survives being pasted where a tab would not.
 [ -n "$BEST" ] || exit 0
-STATE="${BEST##*	}"
+STATE="${BEST##*|}"
 [ "$STATE" = "open" ] || exit 0
-REST="${BEST#*	}"; RUN_ID="${REST%%	*}"
-REST="${REST#*	}"; STAGE="${REST%%	*}"
+REST="${BEST#*|}"; RUN_ID="${REST%%|*}"
+REST="${REST#*|}"; STAGE="${REST%%|*}"
 
 cat >&2 <<EOF
-Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Four exits: continue the stage; open the decision as a form (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, the structured-question tool, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); or close it (the close gate, then \`rt runs run-status done|failed|abandoned\`). If the user asked you something mid-run, the answer is the sentence before the form.
+Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Four exits: continue the stage; open the decision as a form (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, the structured-question tool, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); or close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`). If the user asked you something mid-run, the answer is the sentence before the form.
 EOF
 exit 2
 ```
@@ -756,7 +758,7 @@ git push
 
 ### Task 7: Release the foundation
 
-Precondition: `rt-runs-verbs` has merged to `main` (stan's release lands it; check `git log origin/main --oneline -3` for its commit). Until then, stop at Step 1 and report.
+Precondition: `rt-runs-verbs` is on `main` (it is, as of 2026-09-01: `origin/main` carries d7b3d80 and a 0.10.16 bump that reorders the work engine's `run-start` block, lines no plan quotes). Confirm with `git log origin/main --oneline -3`.
 
 **Files:**
 - Modify: `.claude-plugin/plugin.json` (version)
@@ -774,7 +776,7 @@ Expected: `origin/main` contains the `rt-runs-verbs` commit ("pipeline: stage sk
 
 - [ ] **Step 2: Bump the version and recompile**
 
-Edit `.claude-plugin/plugin.json`: `"version": "0.11.0"` (from whatever main carries; the minor bump marks the new public door and the new hook).
+Edit `.claude-plugin/plugin.json`: `"version": "0.11.0"` (main carries 0.10.16; the minor bump marks the new public door and the new hook).
 
 ```bash
 rt skills compile --pack mattstack --pack-dir "$PWD" --mattstack-dir "$PWD"
@@ -800,7 +802,7 @@ Expected: every command exits 0.
 - [ ] **Step 4: Commit the bump, merge, push**
 
 ```bash
-git add .claude-plugin/plugin.json skills/wrap-up
+git add .claude-plugin/plugin.json skills
 git commit -m "mattstack: bump to 0.11.0 for the pipeline gates foundation"
 git push
 cd /Users/matt/Documents/GitHub/mattstack-skills

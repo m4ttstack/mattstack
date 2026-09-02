@@ -15,7 +15,7 @@
 - Every skill directory touched passes `sh tests/certify.sh <dir>` and the tree passes `sh tests/repo-purity.sh`. No `Matt`, no `/Users/matt`, no domain terms, no em or en dashes.
 - `{{include:wrap-up}}` goes alone on its own line, exactly once per engine, in a `## Wrap-up form contract` section placed just before the engine's `## Red flags` section (or at the end of the body when the engine has none). Include targets (`review-posting`, `review-core-body*`, `review-dispatch-body*`, `execution-strategy`, `model-tiering`, `cswap-accounts`, `gitlab-mr-threads`) may NOT carry it: they contain no placeholder by rule.
 - Every gate site is the recipe from contract v3, in this order: `rt runs field set gate <scope> --stage <stage>`; one sentence of context; the structured-question tool; stop; `rt runs decision record --contract gate@1 --scope <scope> --selection '<JSON>' --decided-by <engine>`; act. Repeatable scopes carry `:<stage>:<attempt>`. Outside a run the two `rt runs` lines are skipped (the engine text says "when `RT_RUN_DB` is set").
-- Every gate form lists its own options, then **Iterate here** and **Hold**; stage gates add **Go back to `<stage>`** for each earlier stage row in `snapshot`.
+- Every gate form lists its own options, then **Hold**, and **Iterate here** wherever a change could be made before deciding; the exceptions are the mechanics gates `conflict` and `push` (rebase-worktree) and shepherdr's `wrap-up`, and Gate A, whose **Edit these** is its iterate. Stage gates add **Go back to `<stage>`** for each earlier stage row in `snapshot`.
 - Follow superpowers:writing-skills: RED before the text, GREEN after, rows harvested from RED. Follow the clean-code comment rule in every script or example.
 - Work in `.worktrees/pipeline-gates`; commit and push after every task.
 
@@ -84,7 +84,10 @@ Insert after the `## Resume` section and before `## Close`:
 ## Redirect
 
 A gate answer or a human message that names an earlier stage sends the
-run back there. In order:
+run back there. A stage that hands back such an answer (the ci gate's
+*Fix and re-push*) has not finished, and its produces are not checked:
+Redirect runs instead of step 3's completeness check, and no `stage-fail`
+is written for it. In order:
 
 1. `rt runs decision record --contract gate@1 --scope redirect:<from>:<attempt> --selection '{"from":"<current stage>","to":"<stage>","reason":"<their words>"}' --decided-by work`
    (the attempt is the current stage row's; the reason is what they said,
@@ -145,17 +148,18 @@ The run stays `running` until the human answers the close gate; a green
 or by a human saying so; never leave a finished run `running`, and never
 leave `RT_RUN_DB` pointing at a finished run: the next verb in this shell
 would `stage-start` into it.
+```
 
+- [ ] **Step 5: Add the include and extend the red flags**
+
+Replace the `## Red flags -- stop yourself` list with (the include lands
+just before it, after `## Sub-agent tiering`):
+
+```markdown
 ## Wrap-up form contract
 
 {{include:wrap-up}}
-```
 
-- [ ] **Step 5: Extend the red flags**
-
-Replace the `## Red flags -- stop yourself` list with:
-
-```markdown
 ## Red flags -- stop yourself
 
 - About to run a stage the list does not name, or skip one it does? Stop.
@@ -197,7 +201,7 @@ git push
 
 Scenario: `You have read the ticket ("add a --json flag to the list command") and printed the triage block choosing direct-tdd with a named failing test. The domain policy asks whether to run the heavy local suite now or ship on the scoped gates. Write your next message to the user.` Expected failure: the agent proceeds to implement, or asks in prose.
 
-- [ ] **Step 2: Replace the record paragraph**
+- [ ] **Step 2: Replace the record paragraph and add the gate after the printed proposal**
 
 Replace:
 
@@ -205,6 +209,20 @@ Replace:
 Record it: `rt runs decision record --contract
 execution-strategy@1 --scope run --selection '{"tier":"<chosen tier>"}'
 --decided-by stage-plan`.
+```
+
+with:
+
+```markdown
+Record nothing yet: the tier is recorded through the plan gate below, once
+the whole proposal (this block plus the domain policy's lines) is printed.
+```
+
+Then replace:
+
+```markdown
+Finish by writing `approach` (the tier) and `evidence-plan` (the EVIDENCE
+value).
 ```
 
 with:
@@ -225,6 +243,9 @@ human's answer is the decision:
 - Iterate: re-read the ticket with their note and print a new triage
   block, then gate again. Hold: record `hold:plan:<attempt>` and `rt runs
   field set hold "<their words>" --stage plan`, then end the turn.
+
+Finish by writing `approach` (the tier the gate recorded) and
+`evidence-plan` (the EVIDENCE value).
 ```
 
 - [ ] **Step 3: Add the include and the rationalization row**
@@ -656,7 +677,21 @@ exists.
 
 - [ ] **Step 3: watch-ci: the same gate, standalone**
 
-Apply the same two branch replacements as Step 2 to `watch-ci`'s section 3 (its forge-bound branch reads `on to the verdict below` instead of `on to the mark-ready gate below`, since the standalone verb without a run fires no mark-ready until plan 3). Then replace:
+In `watch-ci`'s section 3, replace the forge-bound branch's tail (identical wording to stage-watch-ci's, same line breaks) with the Step 2 text, except its first clause reads `0 = green, on to the verdict below.` since the standalone verb without a run fires no mark-ready until plan 3. Then replace the neither-bound tail, which in this file breaks as:
+
+```markdown
+broke it) vs INFRA/flake (unrelated, retry once), report the
+classification, and stop for the user on any REAL failure.
+```
+
+with:
+
+```markdown
+broke it) vs INFRA/flake (unrelated, retry once); any REAL failure is the
+`ci` gate below.
+```
+
+Then replace:
 
 ```markdown
 Finish by reporting the verdict: green, or red with a one-line triage
@@ -1181,7 +1216,8 @@ Never resolve the conflict yourself, `git add` the files, or run `git
 rebase --continue` or `git rebase --skip`; `--abort` only on that answer.
 ```
 
-Replace `## After a clean rebase` through its last paragraph:
+Replace the last paragraph of `## After a clean rebase` (the old head -> new
+head report paragraph above it stays):
 
 ```markdown
 Pushing is a separate decision. State that publishing the rebase needs

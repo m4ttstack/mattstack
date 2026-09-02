@@ -258,7 +258,7 @@ Logic, in order:
    > (`rt runs field set gate <scope> --stage <stage>`, one sentence, the
    > structured-question tool, stop); park it (`rt runs field set hold
    > "<why>" --stage <stage>`); or close it (the close gate, then `rt runs
-   > run-status done|failed|abandoned`). If the user asked you something
+   > run-status --status done|failed|abandoned`). If the user asked you something
    > mid-run, the answer is the sentence before the form.
 
 That last sentence is the design, not a side effect: a mid-run side question
@@ -301,9 +301,15 @@ the hook nor the console can see them. This is where the review wall-of-text
 lives, including every review or respond a board pane launches. Each of
 those six gains, at its start:
 
+```markdown
+{{run-start.flags:<verb>}}
+```
+
+then
+
 ```bash
 PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
-rt runs run-start {{run-start.flags:<verb>}} --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
+rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
 export RT_RUN_DB=<runDb from the response>
 rt runs stage-start --stage <verb>
 ```
@@ -325,11 +331,14 @@ Standalone verbs share the work engine's Resume rule: before `run-start`,
 a `running` run for the repo with this verb's work type is offered as a
 `clarify` gate (resume it / start fresh); resuming re-exports `RT_RUN_DB`
 and its `stage-start` re-records the session. `{{run-start.flags:<verb>}}` is a
-placeholder variant rt adds (section 8, item 1): the existing placeholder
-renders one flag line per pipeline in the manifest; the variant renders one
-line with `--work-type <verb> --pipeline <verb>` and the same provenance
-flags, so the repo key stays derived in one place (the compiler) and the
-console groups the verb's runs with the repo's pipelines. Until that
+placeholder variant rt adds (section 8, item 1; rt PR #175): the existing
+placeholder renders a fenced JSON block with one flag line per pipeline in
+the manifest; the variant renders the same shape with one key, `<verb>`,
+whose value carries `--work-type <verb> --pipeline <verb>` and the same
+provenance flags, so the repo key stays derived in one place (the compiler)
+and the console groups the verb's runs with the repo's pipelines. Like the
+work engine's, the placeholder stands alone on its own line above the
+`run-start` fence. Until that
 variant ships, the guard falls through to the section 1 "outside a run"
 rule.
 
@@ -365,9 +374,9 @@ Two of its items are engine edits, owned here:
 
 ## 8. rt follow-ups (handed to rt by DM, not built here)
 
-1. **`{{run-start.flags:<verb>}}`** placeholder variant (section 6). Needed
-   for this release; about ten lines in `runStartFlags` plus a test, per
-   rt's own estimate.
+1. **`{{run-start.flags:<verb>}}`** placeholder variant (section 6; rt PR
+   #175). It renders the same fenced JSON block as the no-argument form,
+   with the verb as its single key.
 2. **Idle nudge.** The agent-status poller already sees a running run's
    agent flip to `idle`. After sixty seconds idle with no `hold` and no
    nudge yet in this stage, `rt pane send <herdr-pane field> --text
