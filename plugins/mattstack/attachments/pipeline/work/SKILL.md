@@ -102,7 +102,8 @@ Re-entering existing work with no `RT_RUN_DB` set: list
 whose status is `running` -- use `rt runs snapshot` with
 `RT_RUN_DB` pointed at each candidate, never raw sqlite. One found: gate
 `clarify`, one sentence naming it, the structured-question tool with
-**Resume it** (recommended) / **Start fresh**; **Hold**. Resume: re-export
+**Resume it** (recommended) / **Start fresh**; **Hold**. Start fresh: `## 3.
+Start the run`; the found run keeps its status. Resume: re-export
 `RT_RUN_DB` (each tool call is a fresh shell, so prefix every `rt runs`
 command with it) and re-enter at
 `run.current_stage` with the snapshot's fields and decisions (a fresh
@@ -183,3 +184,6 @@ would `stage-start` into it.
   the human's answer at the close gate.
 - About to go back a stage because the human typed it, without a
   `redirect` decision? Stop. Record it, then `stage-start`.
+- About to describe each option under a form, or ask "which would you
+  like?" after it? Stop. The one sentence sits above the form; the options
+  are labels, nothing more.

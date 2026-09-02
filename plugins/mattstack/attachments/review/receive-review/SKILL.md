@@ -41,7 +41,8 @@ run another live pane owns is not yours) / **Start fresh**; **Hold**.
 Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
 receive-review` (a new attempt, which re-records this session) and `rt runs field set
 hold - --stage receive-review`; re-enter with the snapshot's decisions and do not
-re-ask a question it already answered.
+re-ask a question it already answered. Each tool call is a fresh shell:
+prefix every `rt runs` command with `RT_RUN_DB=<its state.db>`.
 
 Fresh. The flags for this verb, rendered by the compiler:
 

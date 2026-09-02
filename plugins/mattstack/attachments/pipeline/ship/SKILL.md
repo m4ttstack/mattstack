@@ -33,7 +33,8 @@ run another live pane owns is not yours) / **Start fresh**; **Hold**.
 Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
 ship` (a new attempt, which re-records this session) and `rt runs field set
 hold - --stage ship`; re-enter with the snapshot's decisions and do not
-re-ask a question it already answered.
+re-ask a question it already answered. Each tool call is a fresh shell:
+prefix every `rt runs` command with `RT_RUN_DB=<its state.db>`.
 
 Fresh. The flags for this verb, rendered by the compiler:
 
@@ -105,6 +106,8 @@ draft: gate `mark-ready`.
   is set) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`**
   (one option per earlier stage row when `snapshot` shows any); **Hold**.
 - `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by ship`.
+- Go back (inherited run only): hand control back to the caller with one
+  sentence naming the answer.
 - Yes: `glab mr update <iid> --ready` or `gh pr ready <number>` per the
   forge-host rule above.
 
