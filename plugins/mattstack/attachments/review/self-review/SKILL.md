@@ -25,6 +25,46 @@ and nods at them; a bug on the page reads as the intent that produced it. The
 judgment does not happen here -- it happens in the fresh context that
 the review flow dispatches.
 
+## Run
+
+Outside a pipeline this verb is its own run, so the console shows it and
+the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
+and `rt runs snapshot` shows `run.status` = `running`: you were invoked
+from inside that run, you inherit it, `run.current_stage` is your stage,
+and you close nothing at the end.
+
+Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
+`--repo` value in the flags block below) for a run whose `snapshot` shows
+`status` = `running` and `work_type` = `self-review`
+(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
+One found: gate `clarify`, one sentence naming it, the structured-question
+tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
+RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage self-review` (a new
+attempt, which re-records this session) and `rt runs field set hold -
+--stage self-review`.
+
+Fresh. The flags for this verb, rendered by the compiler:
+
+{{run-start.flags:self-review}}
+
+```bash
+PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
+rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
+export RT_RUN_DB=<runDb from the response>
+rt runs stage-start --stage self-review
+```
+
+The response must parse as JSON with `ok: true` and a `runDb`; anything
+else means this rt predates the run verbs: stop and tell the user to
+update rt. Pass `--spawned-by` when a board or another surface launched
+this pane.
+
+Every gate in this verb then writes its `gate` field and its decision with
+`--stage self-review`. The close, after the final gate's answer and only when
+this section ran `run-start`: `rt runs stage-done --stage self-review`, `rt runs
+run-status --status done` (or `abandoned` when the gate said so), then
+`unset RT_RUN_DB`.
+
 <HARD-GATE>
 Do not form the code-quality judgment yourself -- not even a careful first
 pass meant to be backed up by a fresh review later. The fresh-context
@@ -89,17 +129,21 @@ The review flow returns Strengths / Issues (Critical / Important / Minor) /
 Assessment. Present it, then the gate; the draft is the sentence, the form
 is the close:
 
-- When `RT_RUN_DB` is set: `rt runs field set gate self-review --stage <run.current_stage>`.
+- `rt runs field set gate self-review --stage <stage>`.
 - The form: **Fix the blocking findings now** (recommended when any
   Critical or Important exists) / **Fix the minors too** / **Ship as is**;
   **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope self-review --selection '{"fix":"blocking|all|none","note":"<their words or null>"}' --decided-by self-review`.
+- `rt runs decision record --contract gate@1 --scope self-review --selection '{"fix":"blocking|all|none","note":"<their words or null>"}' --decided-by self-review`.
 - Fix: one finding at a time, test-first, verify each; then the flow that
   called this verb continues (ship, or the next task). Ship as is: hand
   back with the Minor findings listed for the record.
 
 Where the domain defines ship-time gates, this self-review complements them
 and never checks their box.
+
+Close, only when `## Run` started this run: after the fixes the gate
+selected are verified, `rt runs stage-done --stage self-review`, `rt runs
+run-status --status done`, `unset RT_RUN_DB`.
 
 ## Wrap-up form contract
 
