@@ -20,15 +20,20 @@ and `rt runs snapshot` shows `run.status` = `running`: you were invoked
 from inside that run, you inherit it, `run.current_stage` is your stage,
 and you close nothing at the end.
 
-Otherwise, first the Resume offer: list `~/.mattstack/runs/<repo>/` (the
-`--repo` value in the flags block below) for a run whose `snapshot` shows
-`status` = `running` and `work_type` = `review`
-(read each with `RT_RUN_DB` pointed at its `state.db`; never raw sqlite).
-One found: gate `clarify`, one sentence naming it, the structured-question
-tool with **Resume it** (recommended) / **Start fresh**. Resume: `export
-RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage review` (a new
-attempt, which re-records this session) and `rt runs field set hold -
---stage review`.
+Otherwise, when a surface launched this pane (the `--spawned-by` case
+below), start fresh: another pane's live run is not yours to resume.
+Launched by hand, first the Resume offer: list `~/.mattstack/runs/<repo>/`
+(the `--repo` value in the flags block below) for runs whose `snapshot`
+shows `run.status` = `running` and `run.work_type` = `review` (read each with
+`RT_RUN_DB` pointed at its `state.db`; never raw sqlite). Any found: gate
+`clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
+and `current_stage`, then the structured-question tool with one **Resume**
+option per candidate (recommended for a run this session started earlier; a
+run another live pane owns is not yours) / **Start fresh**; **Hold**.
+Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
+review` (a new attempt, which re-records this session) and `rt runs field set
+hold - --stage review`; re-enter with the snapshot's decisions and do not
+re-ask a question it already answered.
 
 Fresh. The flags for this verb, rendered by the compiler:
 
@@ -59,7 +64,8 @@ or a branch name. Resolve to one MR/PR via the forge CLI
 (`glab mr view <ref>` or `gh pr view <ref>`); ambiguity is gate `clarify`:
 one sentence naming the candidates, then the structured-question tool
 with one option per candidate (`rt runs field set gate clarify --stage
-<stage>` before and `rt runs decision record --contract gate@1 --scope
+<stage>` before, where `<stage>` is `review` for an own run and
+`run.current_stage` when inherited, and `rt runs decision record --contract gate@1 --scope
 clarify --selection '{"target":"<picked>"}' --decided-by review` after).
 Never a guess.
 
