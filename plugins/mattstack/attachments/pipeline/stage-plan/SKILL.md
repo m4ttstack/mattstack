@@ -50,6 +50,7 @@ for "obvious" work.
 | "It's basically trivial" | Only docs/config/rename are trivial. Behavior change = direct-tdd. Print it. |
 | "I already know this is a superpowers job, no need to say so" | Say so. The block is how the human and the run state verify your triage. |
 | "I'll skip the FAILING TEST line, I know what I'll test" | Then writing the line costs nothing. Skipping it is how TDD silently becomes tests-after. |
+| "The tier is obvious, I'll record it and move on" | Printing is the proposal. Recording without the form takes the human's decision for them. |
 
 **REQUIRED SUB-FLOW:** Follow the strategy flow below to pick the tier. The
 three tiers listed after it are its strategies of the same names; the other
@@ -69,14 +70,33 @@ Print verbatim, one tier:
 > APPROACH: superpowers -- <one-line reason>
 > EVIDENCE: <as above>
 
-Record it: `rt runs decision record --contract
-execution-strategy@1 --scope run --selection '{"tier":"<chosen tier>"}'
---decided-by stage-plan`.
+Record nothing yet: the tier is recorded through the plan gate below, once
+the whole proposal (this block plus the domain policy's lines) is printed.
 
 Plus every additional line the bound domain policy defines (printed
 exactly as it specifies), and any tier floor it sets. On direct-tdd the
 FAILING TEST line is mandatory: naming the test before touching code is
 the point.
 
-Finish by writing `approach` (the tier) and `evidence-plan` (the EVIDENCE
-value).
+Then the plan gate, scope `plan`. The printed block is the proposal; the
+human's answer is the decision:
+
+- `rt runs field set gate plan --stage plan`
+- One sentence naming the printed tier and why.
+- The form: the tier, printed one first and labelled `(Recommended)`, the
+  other two as alternatives; on direct-tdd a second question confirming
+  the FAILING TEST line (keep / rename it: their text); every question the
+  bound domain policy declares for this gate, as it words them; then
+  **Iterate here** and **Hold**.
+- `rt runs decision record --contract gate@1 --scope plan --selection '{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>}}' --decided-by stage-plan`
+- `rt runs decision record --contract execution-strategy@1 --scope run --selection '{"tier":"<picked tier>"}' --decided-by stage-plan`
+- Iterate: re-read the ticket with their note and print a new triage
+  block, then gate again. Hold: record `hold:plan:<attempt>` and `rt runs
+  field set hold "<their words>" --stage plan`, then end the turn.
+
+Finish by writing `approach` (the tier the gate recorded) and
+`evidence-plan` (the EVIDENCE value).
+
+## Wrap-up form contract
+
+{{include:wrap-up-form}}
