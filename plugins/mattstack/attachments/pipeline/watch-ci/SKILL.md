@@ -66,6 +66,8 @@ this section ran `run-start`: `rt runs stage-done --stage watch-ci`, `rt runs
 run-status --status done` (or `abandoned` when the gate said so), then
 `unset RT_RUN_DB`.
 
+{{include:run-identity}}
+
 ## 1. Establish the target
 
 - **Branch**: the one the user named, else `git branch --show-current`.
@@ -73,6 +75,9 @@ run-status --status done` (or `abandoned` when the gate said so), then
   branch (`glab mr list --source-branch <branch>` or
   `gh pr list --head <branch>`). No MR is fine -- branch pipelines still
   watch; the lease step is skipped.
+
+When the run is yours, record the target per Run identity above:
+`branch`, and `mr` when one exists.
 
 ## 2. The attendant lease (when there is an MR)
 

@@ -72,6 +72,8 @@ than re-teaching them. It exists for the two things agents get wrong on their
 **own** change: adjudicating the comments in the context that wrote the code
 (author bias), and performative agreement leaking into the replies.
 
+{{include:run-identity}}
+
 ## 1. Resolve the change and filter the threads
 
 - The change and its requirements come from the caller or domain adapter: the
@@ -85,6 +87,10 @@ than re-teaching them. It exists for the two things agents get wrong on their
   run-status --status done`, `unset RT_RUN_DB`.
 
 Fetch mechanics belong to the forge CLI (`gh` / `glab`) and the adapter.
+
+When the run is yours, record the resolved change per Run identity above:
+`mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id it
+names, when one exists).
 
 ## 2. Adjudicate in a fresh context
 

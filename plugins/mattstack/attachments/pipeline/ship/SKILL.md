@@ -58,6 +58,8 @@ this section ran `run-start`: `rt runs stage-done --stage ship`, `rt runs
 run-status --status done` (or `abandoned` when the gate said so), then
 `unset RT_RUN_DB`.
 
+{{include:run-identity}}
+
 ## 1. Establish the target, then the ship gate
 
 Current branch (`git branch --show-current`); refuse the default branch.
@@ -76,6 +78,8 @@ Then gate `ship`, before anything is pushed:
   `rt runs stage-done --stage ship`, `rt runs run-status --status
   abandoned`, `unset RT_RUN_DB`.
 
+When the run is yours, record `branch` per Run identity above.
+
 ## Domain rules
 
 {{slot:domain}}
@@ -93,6 +97,9 @@ remote get-url origin`): a GitLab host means `glab`, a GitHub host means
 mr create --fill --draft` or `gh pr create --fill --draft`; drop the draft
 flag when the gate said ready), title from the branch's commits. Print the
 URL.
+
+Either path, when the run is yours: record `mr` (the created MR/PR URL)
+per Run identity above.
 
 ## 3. Mark ready (standalone path)
 
