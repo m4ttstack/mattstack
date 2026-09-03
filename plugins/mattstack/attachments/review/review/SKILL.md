@@ -58,6 +58,8 @@ this section ran `run-start`: `rt runs stage-done --stage review`, `rt runs
 run-status --status done` (or `abandoned` when the gate said so), then
 `unset RT_RUN_DB`.
 
+{{include:run-identity}}
+
 ## 1. Resolve the target
 
 From the conversation: an MR/PR URL, a bare !iid or #number, a ticket id,
@@ -69,6 +71,10 @@ with one option per candidate and **Hold** (`rt runs field set gate clarify --st
 `run.current_stage` when inherited, and `rt runs decision record --contract gate@1 --scope
 clarify --selection '{"target":"<picked>"}' --decided-by review` after).
 Never a guess.
+
+When the run is yours, record the resolved target per Run identity above:
+`mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id the
+MR itself names in branch, title, or description, when one exists).
 
 ## 2. Review
 
