@@ -95,7 +95,12 @@ Writing a fill:
   compiler vendors it under the verb's `parts/<slot>/` and rewrites the
   token. A bare `<file>` ships verbatim and points nowhere.
 - A mattstack attachment's rules are inlined with `{{include:<name>}}`
-  alone on its own line (it gets its own seam marker). Nothing else
+  alone on its own line (it gets its own seam marker). A sibling verb is
+  named with `{{verb.path:<name>}}` (renders the reading path from the
+  compiled file, whichever side each lands on), and a file in ANOTHER
+  attachment with `{{pack.path:<attachment>/<file>}}` (renders a
+  host-anchored path; the file must exist at compile time, and a compiled
+  verb's output is not addressable this way). Nothing else
   placeholder-shaped belongs in a fill.
 - `rt skills check` names what moved on each stale line (source, fill,
   include, vendored, frontmatter, structure); a stage's slot binds with
