@@ -126,7 +126,7 @@ denormalizing `mr` onto the list row, which stays out of scope
   review engine (it records nothing), then verify against the edited engine
   that all three keys are recorded and that a ticketless target skips
   `ticket` without stalling.
-- Console: unit tests over the resolver and both components: enrichment
+- Console: unit tests over the resolver and the detail card: enrichment
   present, field only, neither.
 - End to end: one board-launched review of a real MR; read the run back with
   `rt runs show --json` (three identity fields present) and load its console
