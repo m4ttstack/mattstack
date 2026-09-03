@@ -1,7 +1,6 @@
 ---
 name: run-identity
-description: "Use when a standalone verb has just resolved the target its run is about -- recording the run's ticket, branch, and mr fields so the console board and run detail can show them."
-type: pipeline-step
+description: "Use when a standalone verb has just resolved the target its run is about -- recording the run's ticket, branch, and mr fields so the console board and run detail can show them. Not for direct invocation."
 ---
 
 # Run identity
@@ -17,7 +16,9 @@ identity belongs to the verb that started it, and must not be overwritten
 with the target of a review or a watch invoked mid-run.
 
 When the run is yours, record each key the moment the target-resolution
-step produces it: `rt runs field set <key> <value> --stage <verb>`.
+step produces it: `rt runs field set <key> <value> --stage <verb>`. The
+stage is always the verb's own name; identity is own-run only, so the
+inherited-run stage form never applies here.
 
 Skip a key the target does not have: a branch with no ticket records no
 `ticket`. Never guess a value, and never block on a missing one.

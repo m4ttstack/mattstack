@@ -80,6 +80,11 @@ than re-teaching them. It exists for the two things agents get wrong on their
   diff range, plus the requirements it is judged against. Report a fetch
   failure or a mismatched pair exactly as found; never fabricate the missing
   half.
+
+When the run is yours, record the resolved change per Run identity above:
+`mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id it
+names, when one exists).
+
 - Keep only **unresolved human** threads: drop system notes and bot authors.
   Capture each thread's id, its `file:line`, and its full note chain.
 - Zero unresolved human threads: say so and stop. Close, only when `## Run`
@@ -87,10 +92,6 @@ than re-teaching them. It exists for the two things agents get wrong on their
   run-status --status done`, `unset RT_RUN_DB`.
 
 Fetch mechanics belong to the forge CLI (`gh` / `glab`) and the adapter.
-
-When the run is yours, record the resolved change per Run identity above:
-`mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id it
-names, when one exists).
 
 ## 2. Adjudicate in a fresh context
 
