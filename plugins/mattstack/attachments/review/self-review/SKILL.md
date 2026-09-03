@@ -92,6 +92,8 @@ inline is evidence of what surfaced, not of what a fresh, unbiased read would
 catch that this one missed.
 </HARD-GATE>
 
+{{include:run-identity}}
+
 ## 1. Point at the branch
 
 - Diff: the merge-base with the default branch (`git merge-base origin/HEAD
@@ -104,6 +106,9 @@ catch that this one missed.
   sentence, then the structured-question tool with the candidate sources
   (the task as stated, a linked doc, their
   text, and **Hold**) rather than reviewing against nothing.
+
+When the run is yours, record the branch per Run identity above: `branch`
+(the current branch), `ticket` (the branch's ticket, when it carries one).
 
 ## 2. Delegate to the review engine
 
