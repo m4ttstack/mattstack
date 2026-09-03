@@ -63,9 +63,10 @@ run-status --status done` (or `abandoned` when the gate said so), then
 ## 1. Establish the target, then the ship gate
 
 Current branch (`git branch --show-current`); refuse the default branch.
-Then gate `ship`, before anything is pushed:
 
 When the run is yours, record `branch` per Run identity above.
+
+Then gate `ship`, before anything is pushed:
 
 - `rt runs field set gate ship --stage ship`.
 - One sentence: the branch, the commits about to go (`git log --oneline
