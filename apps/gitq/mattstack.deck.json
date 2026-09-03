@@ -4,7 +4,8 @@
   "description": "Stacked-branch management for git.",
   "icon": "./src/client/favicon.svg",
   "port": 11008,
-  "commands": {
+  "includeInBundle": true,
+  "dev": {
     "start": "bun src/server/server.ts",
     "build": "bun run build:client",
     "deploy": "bun run build:client && deck restart gitq"
