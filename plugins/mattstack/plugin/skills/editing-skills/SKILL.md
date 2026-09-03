@@ -16,22 +16,22 @@ worktrees before a bump; the mattstack plugin's update clones the checkout's
 committed `main`, so an uncommitted edit or an untracked file never reaches
 the cache.
 
-The team pack is a *directory-source* marketplace, so a loaded pack skill's
+The team pack is a _directory-source_ marketplace, so a loaded pack skill's
 reported base dir often points at the SOURCE path, not the cache copy. Don't
 read that as "it loads from source": the versioned cache is still what a
 fresh session loads, and the bump/update/restart rule above still applies.
 The source path in the base dir is a convenience, not the live surface. The
-mattstack plugin is a *url-source* entry (a `file://` URL to the checkout),
+mattstack plugin is a _url-source_ entry (a `file://` URL to the checkout),
 so its base dir is the cache clone itself.
 
 ## The two estates
 
-| | Team pack (acme) | mattstack plugin |
-|---|---|---|
-| Source | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills) | `~/Documents/GitHub/mattstack-skills/plugin/skills/<name>/` (invocable), `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `pack/stubs.jsonc` + `pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
-| Manifest | `packs/acme/.claude-plugin/plugin.json` | `mattstack-skills/.claude-plugin/plugin.json` |
-| Marketplace | `name` in the teams-clone `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the teams clone itself) | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a url source, a `file://` URL to this checkout at ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257) |
-| Update | `claude plugin update <plugin>@<marketplace>` (derive both, see below) | `claude plugin update mattstack@mattstack` |
+|             | Team pack (acme)                                                                                                                            | mattstack plugin                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source      | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills)                   | `~/Documents/GitHub/mattstack-skills/plugin/skills/<name>/` (invocable), `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `pack/stubs.jsonc` + `pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
+| Manifest    | `packs/acme/.claude-plugin/plugin.json`                                                                                                     | `mattstack-skills/.claude-plugin/plugin.json`                                                                                                                                                                                                                                                                                    |
+| Marketplace | `name` in the teams-clone `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the teams clone itself) | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a url source, a `file://` URL to this checkout at ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257)                                                                                            |
+| Update      | `claude plugin update <plugin>@<marketplace>` (derive both, see below)                                                                      | `claude plugin update mattstack@mattstack`                                                                                                                                                                                                                                                                                       |
 
 **Deriving `<plugin>@<marketplace>` for the update.** The two names are
 independent: `<plugin>` is the `name` in the pack's `plugin.json`;
@@ -68,7 +68,7 @@ it does gives a real-looking command that updates nothing.
    `main` is what the update clones, so it is required; push is
    backup/other-machines. To try an uncommitted edit for one session
    without touching the cache: `claude --plugin-dir
-   ~/Documents/GitHub/mattstack-skills`.
+~/Documents/GitHub/mattstack-skills`.
 6. **Update the plugin cache**: `claude plugin update <plugin>@<marketplace>`.
    cswap users first run `readlink ~/.claude-swap-backup/sessions/*/plugins`.
    Every line `~/.claude/plugins` = one shared cache, and that one update
@@ -105,16 +105,16 @@ Writing a fill:
 - `rt skills check` names what moved on each stale line (source, fill,
   include, vendored, frontmatter, structure); a stage's slot binds with
   `rt skills bind <stage> <slot> <plugin:fill>`, and `rt skills surface set
-  <stage> --public` works before the stage's first compile.
+<stage> --public` works before the stage's first compile.
 
 What `compile` and `check` read:
 
-| Source | Read from |
-|---|---|
-| mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache |
-| the pack's own fills | the pack checkout (`--pack-dir`) |
-| everything, for `--pack mattstack` itself | the mattstack-skills CHECKOUT (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted |
-| mattstack version in every seam marker | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
+| Source                                       | Read from                                                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache                                                                                                 |
+| the pack's own fills                         | the pack checkout (`--pack-dir`)                                                                                                     |
+| everything, for `--pack mattstack` itself    | the mattstack-skills CHECKOUT (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
+| mattstack version in every seam marker       | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
 
 ### Releasing an engine, include, or fill change
 
@@ -122,7 +122,7 @@ What `compile` and `check` read:
    mattstack's `plugin.json`.
    1. `rt skills check --pack mattstack` stale? The change reaches the
       pack's own verb: `rt skills compile --pack mattstack`; `rt skills
-      check --pack mattstack` -> `current`; commit `skills/<verb>/` with the
+check --pack mattstack` -> `current`; commit `skills/<verb>/` with the
       bump.
    2. `claude plugin update mattstack@mattstack`.
 2. For each compiled pack that `rt skills check --pack <pack>` reports stale:
@@ -143,3 +143,7 @@ mattstack, whichever version that is.
 `ls <config>/plugins/cache/<marketplace>/<plugin>/` shows installed
 versions; the newest must match your bump. A skill invocable by name in a
 fresh session is the end-to-end proof.
+
+## Final Validation
+
+If you changed a skill, ALWAYS manually read the compiled output in FULL of ALL affected skills (no grep) to validate expected vs what was outputted. Many errors have been caught this way.
