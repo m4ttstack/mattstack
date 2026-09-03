@@ -53,6 +53,9 @@ New `attachments/run-identity/SKILL.md`, an inert include target
 
 ## 3. Recording points, per verb
 
+Every row below is the own-run case; an inherited verb records no identity
+(section 2's ownership bullet), the watch-ci and ship rows included.
+
 | engine | where | records |
 |---|---|---|
 | review | after "1. Resolve the target" lands on one MR/PR | `mr` (its URL), `branch` (its source branch), `ticket` (the id the MR itself names in branch, title, or description, when one exists) |
@@ -61,32 +64,45 @@ New `attachments/run-identity/SKILL.md`, an inert include target
 | watch-ci | after "1. Establish the target" | `branch`; `mr` when one exists |
 | ship | "1. Establish the target" (`branch`); then "2. Ship" once the created MR/PR URL prints (`mr`) | `branch`, then `mr` |
 
-Each engine gains `{{include:run-identity}}` directly after its `## Run`
-section, plus one sentence at the recording point naming that verb's keys.
-`sync-open-mrs` is untouched: a sweep over many MRs has no single identity.
-
-Plan 3's constraint that the `## Run` section stays verbatim-identical
-across verbs holds: the include sits after that section, never inside it.
+Each engine gains the `{{include:run-identity}}` line standing alone,
+placed immediately above the verb's first numbered step heading (the last
+line before "1. ..."), plus one sentence at the recording point naming
+that verb's keys. The line is identical in every engine, so plan 3's
+constraint that the `## Run` text stays verbatim-identical across verbs
+holds. `sync-open-mrs` is untouched: a sweep over many MRs has no single
+identity.
 
 ## 4. Console fallback (console app repo)
 
-The run detail card and the board row render the MR column only from the
-enrichment join (`enrichment.mr`, keyed on `run.branch` against the branch
-cache); the `mr` field feeds only the copy hotkey. A run whose branch has
-left the cache (merged and pruned, or never on the board) shows
-"not recorded" despite holding the MR URL on the row.
+The run detail card renders the MR column only from the enrichment join
+(`enrichment.mr`, keyed on `run.branch` against the branch cache); the
+`mr` field the card already holds feeds only the copy hotkey. A run whose
+branch has left the cache (merged and pruned, or never on the board) shows
+"not recorded" despite having the MR URL in its fields.
 
-Change, in the console app: a small resolver that prefers `enrichment.mr`
-and otherwise falls back to the `mr` field's URL, parsing the iid from its
+Change, in the console app: the detail card prefers `enrichment.mr` and
+otherwise falls back to the `mr` field's URL, parsing the iid from its
 tail (`merge_requests/<iid>` or `pull/<iid>`); the fallback renders the
-link without state or CI status, which only enrichment knows. Both the
-summary card and the board row use it. The copy hotkey's precedence
-(enrichment URL, else the field) is already right and stays.
+link without state or CI status, which only enrichment knows. The copy
+hotkey's precedence (enrichment URL, else the field) is already right and
+stays.
+
+The board row and the search list stay enrichment-only: run list rows
+denormalize only `ticket` and `branch` (by design, so the list renders
+without a per-row detail fetch), the `mr` field is not in hand there, and
+the search list passes no enrichment at all. Recording `branch` is what
+improves those surfaces. If the row-level gap ever matters, the path is rt
+denormalizing `mr` onto the list row, which stays out of scope
+(section 6).
 
 ## 5. Release
 
-1. mattstack-skills: the include plus five engines; `sh tests/certify.sh` on
-   each touched directory; `tests/repo-purity.sh`; patch bump; commit.
+1. mattstack-skills: the include plus five engines; `sh tests/certify.sh`
+   on each touched directory; `tests/repo-purity.sh`;
+   `tests/stubs-no-source-collision.sh` (a new attachment source must not
+   collide with a compiled verb); patch bump; `rt skills check --pack
+   mattstack` (expected `current`: the touched engines are not in
+   mattstack's own roster); commit.
 2. `claude plugin update mattstack@mattstack` before any pack compile:
    includes resolve from the installed cache, and the update also delivers
    the pending 0.13.3 and 0.13.4 changes.
@@ -99,7 +115,8 @@ summary card and the board row use it. The copy hotkey's precedence
 - `worktree` and `commits` on standalone verbs: review holds no tree, and a
   ship's commits belong to the pipeline's implement stage.
 - Any rt change: `field set` upserts by key and the store already promotes
-  `ticket` and `branch` onto the run row.
+  `ticket` and `branch` onto the run row. Denormalizing `mr` onto the list
+  row (section 4's residual gap) is future rt work, not this design.
 - Branch-cache or enrichment changes.
 - The board wrappers: they delegate to the pack's verbs, which record.
 
