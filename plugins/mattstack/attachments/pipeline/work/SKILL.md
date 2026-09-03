@@ -122,15 +122,16 @@ is written for it. In order:
 1. `rt runs decision record --contract gate@1 --scope redirect:<from>:<attempt> --selection '{"from":"<current stage>","to":"<stage>","reason":"<their words>"}' --decided-by work`
    (the attempt is the current stage row's; the reason is what they said,
    never a category).
-2. For `<to>` and every stage after it in the list, `rt runs field set
+2. `rt runs stage-redirect --stage <from> --to <to> --reason "<their
+   words>"`: the stage you leave closes as `redirected`, so `snapshot`
+   never shows it `running` behind a later attempt. Exit 3 means that row
+   was not running; say so in one line and continue.
+3. For `<to>` and every stage after it in the list, `rt runs field set
    <key> - --stage <to>` for each key in that stage's `produces`: the
    cleared sentinel keeps the completeness check honest on the re-run.
-3. `rt runs stage-start --stage <to>` (the DB bumps the attempt), then walk
+4. `rt runs stage-start --stage <to>` (the DB bumps the attempt), then walk
    forward from `<to>` exactly as in section 4. Later stages re-run as new
    attempts; a ship stage re-run pushes new commits to the same MR.
-
-The stage you leave keeps its `running` row; `snapshot` readers treat a
-`running` row followed by a later attempt of an earlier stage as redirected.
 
 ## Hold
 
