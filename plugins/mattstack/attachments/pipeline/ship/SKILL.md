@@ -65,6 +65,8 @@ run-status --status done` (or `abandoned` when the gate said so), then
 Current branch (`git branch --show-current`); refuse the default branch.
 Then gate `ship`, before anything is pushed:
 
+When the run is yours, record `branch` per Run identity above.
+
 - `rt runs field set gate ship --stage ship`.
 - One sentence: the branch, the commits about to go (`git log --oneline
   @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
@@ -77,8 +79,6 @@ Then gate `ship`, before anything is pushed:
 - Abort or Hold: nothing is pushed. Abort, when `## Run` started this run:
   `rt runs stage-done --stage ship`, `rt runs run-status --status
   abandoned`, `unset RT_RUN_DB`.
-
-When the run is yours, record `branch` per Run identity above.
 
 ## Domain rules
 

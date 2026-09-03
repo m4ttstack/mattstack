@@ -43,8 +43,7 @@ Create `attachments/run-identity/SKILL.md` with exactly:
 ````markdown
 ---
 name: run-identity
-description: "Use when a standalone verb has just resolved the target its run is about -- recording the run's ticket, branch, and mr fields so the console board and run detail can show them."
-type: pipeline-step
+description: "Use when a standalone verb has just resolved the target its run is about -- recording the run's ticket, branch, and mr fields so the console board and run detail can show them. Not for direct invocation."
 ---
 
 # Run identity
@@ -60,7 +59,9 @@ identity belongs to the verb that started it, and must not be overwritten
 with the target of a review or a watch invoked mid-run.
 
 When the run is yours, record each key the moment the target-resolution
-step produces it: `rt runs field set <key> <value> --stage <verb>`.
+step produces it: `rt runs field set <key> <value> --stage <verb>`. The
+stage is always the verb's own name; identity is own-run only, so the
+inherited-run stage form never applies here.
 
 Skip a key the target does not have: a branch with no ticket records no
 `ticket`. Never guess a value, and never block on a missing one.
@@ -165,7 +166,7 @@ Expected: no matches.
 
 - [ ] **Step 2: receive-review**
 
-Insert the bare `{{include:run-identity}}` line (blank line each side) immediately above `## 1. Resolve the change and filter the threads`. Append to the end of that section (after the line "Fetch mechanics belong to the forge CLI (`gh` / `glab`) and the adapter."), as its own paragraph:
+Insert the bare `{{include:run-identity}}` line (blank line each side) immediately above `## 1. Resolve the change and filter the threads`. Insert directly after the section's first bullet (the one beginning "The change and its requirements come from the caller or domain adapter"), before the "Keep only unresolved human threads" bullet, as its own paragraph (a paragraph break on both sides), so a no-op run still records identity before closing done:
 
 ```
 When the run is yours, record the resolved change per Run identity above:
@@ -175,7 +176,7 @@ names, when one exists).
 
 - [ ] **Step 3: self-review**
 
-Insert the include line immediately above `## 1. Point at the branch`. Append to the end of that section, as its own paragraph:
+Insert the include line immediately above `## 1. Point at the branch`. Insert directly after the "Diff:" bullet, before the "Requirements:" bullet (whose clarify gate can end in Hold), as its own paragraph (a paragraph break on both sides):
 
 ```
 When the run is yours, record the branch per Run identity above: `branch`
@@ -193,7 +194,7 @@ When the run is yours, record the target per Run identity above:
 
 - [ ] **Step 5: ship**
 
-Insert the include line immediately above `## 1. Establish the target, then the ship gate`. Append to the end of that section, as its own paragraph:
+Insert the include line immediately above `## 1. Establish the target, then the ship gate`. Insert directly after the section's opening line ("Current branch (`git branch --show-current`); refuse the default branch. Then gate `ship`, before anything is pushed:"), before the first gate bullet, so Abort/Hold paths still record branch, as its own paragraph:
 
 ```
 When the run is yours, record `branch` per Run identity above.

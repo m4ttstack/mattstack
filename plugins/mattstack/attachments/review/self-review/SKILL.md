@@ -99,6 +99,10 @@ catch that this one missed.
 - Diff: the merge-base with the default branch (`git merge-base origin/HEAD
   HEAD`, falling back to the default branch by name) through `HEAD`, plus any
   uncommitted changes -- review the work as it stands now.
+
+When the run is yours, record the branch per Run identity above: `branch`
+(the current branch), `ticket` (the branch's ticket, when it carries one).
+
 - Requirements: from the branch's ticket or task description. If the branch
   carries no ticket, gate `clarify` (`rt runs field set gate clarify --stage
   <stage>` before, `rt runs decision record --contract gate@1 --scope clarify
@@ -106,9 +110,6 @@ catch that this one missed.
   sentence, then the structured-question tool with the candidate sources
   (the task as stated, a linked doc, their
   text, and **Hold**) rather than reviewing against nothing.
-
-When the run is yours, record the branch per Run identity above: `branch`
-(the current branch), `ticket` (the branch's ticket, when it carries one).
 
 ## 2. Delegate to the review engine
 
