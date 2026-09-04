@@ -139,17 +139,14 @@ entry's relations.
 
 {{include:review-dispatch-body-after}}
 
-## 3. Verdicts and drafted replies (Gate A, scope `verdicts`)
+## 3. Report the adjudication
 
-Present the verdict table plus a drafted reply per thread, then the gate.
-Nothing is written to code, nothing posted:
-
-- `rt runs field set gate verdicts --stage <stage>` (`receive-review` for an
-  own run, `run.current_stage` when inherited).
-- The form: **Verdicts and replies approved** (recommended) / **Iterate
-  here** (their text names the threads and the change) / **Redo the
-  adjudication**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope verdicts --selection '{"next":"approve|iterate|redo|hold","note":"<their words or null>"}' --decided-by receive-review`.
+Present the verdict table plus a drafted reply per thread, then the
+recommendation, in one structured block -- nothing is written to code,
+nothing posted yet. Bucket each thread by its verdict (`valid` /
+`pushback` / `needs-clarification`) and its recommended action
+(`fix` / `reply` / `skip`); the gate below reads from this bucketing, not
+from a fresh pass over the threads.
 
 **Reply content is a seam.** **No Reply rules section below** (the slot is
 unbound): **REQUIRED SUB-SKILL** `superpowers:receiving-code-review`. **A
@@ -175,49 +172,101 @@ Reply rules section below**: follow it. On top of either branch, these hold:
 
 {{slot:reply-rules}}
 
-## 4. Implement valid fixes (Gate B, scope `fixes`)
+## 4. Decide: respond-plan (Gate `respond-plan`)
 
-Nothing is implemented until the developer approves it -- not under cover of
-"in a follow-up commit," not while drafting. The approval is a form:
+The verb adjudicates; it never decides what gets fixed or posted. Decision
+intake: when the caller hands this step a decided `{plan, post}` object (a
+board wrapper, or any caller that already collected the two answers), use
+`plan` and ask nothing here -- its per-question answers, keyed by question
+id with verbatim option strings, are the decision. Use the decider the
+caller names alongside it. Otherwise (a direct terminal run) the verb runs
+the gate itself:
 
-- `rt runs field set gate fixes --stage <stage>`.
-- The form: a multi-select of the `valid` threads, all pre-selected, each
-  option naming `file:line` and the fix; **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope fixes --selection '{"threads":[...]}' --decided-by receive-review`.
+- `rt runs field set gate respond-plan --stage <stage>`.
+- Run gate-protocol's Runs integration with kind `respond-plan` and these
+  questions -- one multi-select per thread GROUP (groups bound the form
+  cap; threads stay individually decidable because the option values carry
+  thread ids) plus one code-changes question:
 
-On the answer, implement the selected
-`valid` fixes one at a time, verifying each with the project's tests and
-checks before the next. Finalize each valid reply to "Fixed -- `file:line` /
-what changed". Domain ship-time gates still apply to these fixes; this skill
-never checks their box.
+  ```json
+  [
+    {"id": "threads-1", "label": "Threads 1-8: reply, fix, or skip each", "multi": true,
+     "options": ["reply:<threadId>", "fix:<threadId>", "skip:<threadId>", "... one triple per thread in the group, ids verbatim"]},
+    {"id": "code-changes", "label": "Approve the proposed code changes?", "multi": false,
+     "options": ["approve", "revise"]}
+  ]
+  ```
 
-## 5. Post replies, gated on verdict category (on the `post` gate's answer)
+  More threads than one group's cap allows: repeat the `threads-N` question
+  per group. Chunk the in-pane form across those groups per gate-protocol's
+  Attended step 1, but submit exactly ONE `rt gate answer` after the LAST
+  chunk -- never one per chunk. Plus **Iterate here**; **Hold**.
+- Selecting `fix:<threadId>` implies that thread's reply; `skip:<threadId>`
+  means neither. Exactly one of the `reply` / `fix` / `skip` triple is
+  expected per thread -- a selection with none or more than one of the
+  triple for a thread is contradictory: re-ask it via a NEW gate (same
+  shape, noting the conflict), never re-answer the closed one and never
+  guess which was meant.
+- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{...as answered},"code_changes":"approve|revise"}' --decided-by <the answer's by>`.
 
-The drafted replies are already bucketed by verdict from step 2.
+`code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
+their note -- never revised in this session, the bias HARD-GATE still
+applies.
+
+## 5. Implement approved fixes
+
+Nothing is implemented until `respond-plan` approves it -- not under cover
+of "in a follow-up commit," not while drafting. On `code-changes: approve`,
+implement the `fix:<threadId>` threads one at a time, verifying each with
+the project's tests and checks before the next. Finalize each fixed reply
+to "Fixed -- `file:line` / what changed". Domain ship-time gates still
+apply to these fixes; this skill never checks their box.
+
+## 6. Decide and post: respond-post (Gate `respond-post`)
+
+The drafted replies are bucketed from step 3; `skip:<threadId>` threads
+never reach this offer.
 
 <HARD-GATE>
-Gate `post`: one structured question (the tool is `AskUserQuestion` in
-Claude Code), **multi-select**, asking which verdict categories to post as
-thread replies. Offer only the categories that have at least one thread
-(nothing came back `needs-clarification` -> do not offer it), pre-select
-every category that has threads so nothing drops silently, and let the
-developer deselect -- e.g. post the `valid` "Fixed" replies and the
-`pushback` reasons now, hold `needs-clarification` to ask the reviewer
-synchronously first. Also offer **Hold**. `rt runs field set gate post
---stage <stage>` before and `rt runs decision record --contract gate@1
---scope post --selection '{"categories":[...]}' --decided-by
-receive-review` after. A paragraph that lists the categories and waits is
-not this gate.
+Decision intake: when the caller's `{plan, post}` object already carries
+`post`, use it and ask nothing here. Otherwise the verb runs the gate
+itself:
+
+- `rt runs field set gate respond-post --stage <stage>`.
+- Run gate-protocol's Runs integration with kind `respond-post` and these
+  questions:
+
+  ```json
+  [
+    {"id": "replies", "label": "Post which replies?", "multi": true, "options": ["<threadId> per drafted reply"]},
+    {"id": "disposition", "label": "Disposition", "multi": false, "options": ["resolve-addressed", "leave-open"]}
+  ]
+  ```
+
+  Offer only threads with a drafted reply (`reply:<threadId>` or a
+  finalized `fix:<threadId>` from step 5); pre-select every one so nothing
+  drops silently, and let the developer deselect -- e.g. post the `valid`
+  "Fixed" replies and the `pushback` reasons now, hold a
+  `needs-clarification` thread to ask the reviewer synchronously first.
+  Plus **Iterate here**; **Hold**. A paragraph that lists the categories and
+  waits is not this gate.
 </HARD-GATE>
 
-Post thread replies **only** for threads in the selected categories; the rest
-stay unanswered, through any channel. Never a top-level note. Never resolve a
-thread, never approve: both belong to the developer, however settled a thread
-looks once its reply is written. Posting mechanics belong to the forge CLI
-and the adapter.
+Post thread replies **only** for the selected `replies`; the rest stay
+unanswered, through any channel. Never a top-level note, never approve the
+change: that stays the developer's, however settled a thread looks once its
+reply is written. `disposition` governs the developer's call on the posted
+threads: `resolve-addressed` resolves each one just replied to, where the
+forge distinguishes resolve from reply; `leave-open` posts without
+resolving. Posting mechanics belong to the forge CLI and the adapter.
 
-Close, only when `## Run` started this run: after the selected categories
-are posted, `rt runs stage-done --stage receive-review`, `rt runs
+At execution time, after posting: `rt runs decision record --contract
+gate@1 --scope respond-post --selection
+'{"replies":[...],"disposition":"resolve-addressed|leave-open"}'
+--decided-by <the answer's by>`.
+
+Close, only when `## Run` started this run: after the selected replies are
+posted, `rt runs stage-done --stage receive-review`, `rt runs
 run-status --status done`, `unset RT_RUN_DB`. Zero unresolved human
 threads (step 1) closes the same way, right after the sentence that says
 so.
@@ -231,10 +280,11 @@ so.
 | "I'll run self-review at the end as the check" | Too late. The fresh context adjudicates the comments; it is not a gut-check after. |
 | "I'll open with 'Good call' / 'You're right'" | Performative. State the technical content; no agreement, no thanks. |
 | "I'll process the resolved / bot threads too" | Unresolved human threads only. |
-| "I'll post the replies since they look right" | Post only what the `post` gate selected; never resolve or approve for the developer. |
-| "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation is Gate B, after approval, not a line in the draft. |
+| "I'll ask both gate questions, the caller already handed `{plan, post}`" | Decision intake first: a caller-handed object answers `respond-plan` and `respond-post` -- ask nothing. |
+| "I'll post the replies since they look right" | Post only what `respond-post` selected; resolve only when `disposition` says so, never approve for the developer. |
+| "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `respond-plan`'s `code-changes: approve`, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
-| "I'll present the table and ask about fixes and posting in the same breath" | Gate A, Gate B, and post are three forms, in order. Prose that asks all three is none of them. |
+| "I'll present the table and ask about fixes and posting in the same breath" | `respond-plan` and `respond-post` are two gates, in order. Prose that asks both at once is neither. |
 
 ## Quick reference
 
@@ -243,9 +293,15 @@ so.
 | "Address my review comments" | Change + requirements as given; unresolved human threads only (step 1). |
 | Threads in hand | ONE dispatch via the review dispatch flow (step 2), adjudicator shape. Never inline. |
 | Criteria bound | Its addendum travels with that dispatch, placeholders filled. |
-| Verdicts in hand | Verdict table + drafted replies (Gate A); reply-rules voice, no performative openers. |
-| Developer approves fixes | `valid` one at a time, verify each, finalize to "Fixed -- file:line" (Gate B). |
-| Developer approves posting | Multi-select the categories present, post those as thread replies; never resolve, never approve. |
+| Verdicts in hand | Verdict table + drafted replies, one block (step 3); reply-rules voice, no performative openers. |
+| Caller hands `{plan, post}` | Use it, ask nothing; decided-by is the caller's named decider. |
+| No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (replies + disposition), in order. |
+| `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
+| `respond-post` answered | Post the selected `replies`; `resolve-addressed` resolves them, `leave-open` doesn't; never approve. |
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 
