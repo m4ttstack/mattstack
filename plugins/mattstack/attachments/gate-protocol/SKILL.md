@@ -77,6 +77,73 @@ terminal; a verb that re-asks after Hold or Iterate opens a NEW gate rather
 than reusing the old one. Openers may mark such options pane-only via `meta`
 so remote cards (board, console) render them disabled.
 
+## Runs integration
+
+A gated pipeline site publishes its decision on the run's subject and lets
+attendance pick the branch. Each tool call is a fresh shell: capture values
+in the same call that uses them.
+
+1. **Read the run identity once** (id and attendance from the run record):
+
+   ```bash
+   SNAP=$(rt runs snapshot)   # reads RT_RUN_DB; {"run":{...},"stages":[...],...}
+   RUN_ID=$(printf '%s' "$SNAP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["id"])')
+   SPAWNED_BY=$(printf '%s' "$SNAP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"].get("spawned_by") or "")')
+   ```
+
+   **Attendance rule:** unattended iff `SPAWNED_BY` is non-empty; attended
+   otherwise. Every site uses this test and no other.
+
+2. **Bracket and publish.** Keep the run-record bracket, then open the gate.
+   Attended panes include a nudge so an external answer doorbells this
+   session; unattended panes need none (the wait is the delivery):
+
+   ```bash
+   rt runs field set gate <scope> --stage <stage>
+   if [ -z "$SPAWNED_BY" ]; then   # attended: nudge this session so an external answer doorbells it
+     GATE=$(rt gate open --subject "run:$RUN_ID" --kind <scope> --questions '<questions json>' \
+       --nudge "{\"session\":\"$CLAUDE_CODE_SESSION_ID\"}")
+   else                            # unattended: no nudge; the wait is the delivery
+     GATE=$(rt gate open --subject "run:$RUN_ID" --kind <scope> --questions '<questions json>')
+   fi
+   GATE_ID=$(printf '%s' "$GATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+   ```
+
+3. **Attended:** present the site's question as today's unchanged in-pane
+   form, then record the form's choice: `rt gate answer "$GATE_ID"
+   --answers '<json>' --by pane`. A CAS rejection means another surface
+   answered first -- say which answer won and proceed on the recorded one.
+   If the doorbell arrived while the form sat, the next step is the same
+   registry verify either way.
+
+4. **Unattended:** block in a bounded wait and re-run on budget:
+
+   ```bash
+   rt gate wait "$GATE_ID" --timeout 90s
+   ```
+
+   Exit 124 with `{"ok":true,"timedOut":true}` = no answer yet: run the
+   same command again; this loop IS the wait. Exit 0 prints
+   `{"ok":true,"status":"answered","row":{...}}` -- the answers are at
+   `row.answer.answers`, the deciding surface at `row.answer.by`.
+   `status:"closed"` or a `gate not found` failure is terminal: the
+   decision site was abandoned; end this path cleanly, never invent an
+   answer, never present a form.
+
+5. **Record at execution time**, decider = the surface that answered:
+
+   ```bash
+   rt runs decision record --contract gate@1 --scope <scope> \
+     --selection '<json>' --decided-by <row.answer.by>
+   ```
+
+   (`--decided-by` is `pane`, `board`, `console`, or `shepherd` -- never a
+   verb name.)
+
+6. **Daemon down** (gate open fails): attended sites fall back to the
+   unchanged in-pane form alone, recording `--decided-by pane`; unattended
+   sites fail the stage rather than presenting a form.
+
 ## Red flags
 
 | Thought | Reality |

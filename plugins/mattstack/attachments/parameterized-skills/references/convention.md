@@ -396,24 +396,18 @@ and data to the run DB through `rt runs`. The contract:
 - Stages never run sqlite directly and never read another run's DB. The
   helper is the whole interface.
 
-## Stage contract v3: gates
+## Stage contract v4: gates
 
-A gate is a named human decision point. Every gate site in an engine is one
-recipe, in this order:
-
-- `rt runs field set gate <scope> --stage <stage>` (the commitment; it also
-  names the pending gate to the console). A gate whose `gate` field is newer
-  than its last `gate@1` decision for that scope is pending.
-- One sentence of context, then the runtime's structured-question tool
-  (`AskUserQuestion` in Claude Code) per the wrap-up include, then stop. The
-  turn ends on the form, never on prose.
-- On the answer: `rt runs decision record --contract gate@1 --scope <scope>
-  --selection '<answers as JSON>' --decided-by <engine>`, then act on it.
+A gate is a named human decision point. Every gate site in an engine
+brackets with `field set gate` -> publishes and resolves per
+gate-protocol's Runs integration -> `decision record --decided-by <the
+answer's by>`. A gate whose `gate` field is newer than its last `gate@1`
+decision for that scope is pending.
 
 Scopes. Pipeline gates: `plan`, `provision`, `evidence`, `evidence-attach`,
 `ship`, `mark-ready`, `ci`, `close`, `<stage>-failed`, `redirect`, `hold`.
-Standalone verbs add their own (`post-severity`, `post-disposition`,
-`self-review`, `verdicts`, `fixes`, `post`, `sweep`, `push`, `conflict`,
+Standalone verbs add their own (`post`, `respond-plan`, `respond-post`,
+`doctor-escalation`, `self-review`, `sweep`, `push`, `conflict`,
 `wrap-up`). `clarify` is the generic scope for any mid-verb "which one do
 you mean". The decisions table upserts on `(run, contract, scope)`, so a
 gate that can fire more than once per run carries stage and attempt:
