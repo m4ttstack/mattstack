@@ -207,7 +207,7 @@ the gate itself:
   triple for a thread is contradictory: re-ask it via a NEW gate (same
   shape, noting the conflict), never re-answer the closed one and never
   guess which was meant.
-- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{...as answered},"code_changes":"approve|revise"}' --decided-by <the answer's by>`.
+- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{...as answered},"code-changes":"approve|revise"}' --decided-by <the answer's by>`.
 
 `code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
 their note -- never revised in this session, the bias HARD-GATE still
