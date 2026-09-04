@@ -106,10 +106,11 @@ When the run is yours, record the branch per Run identity above: `branch`
 - Requirements: from the branch's ticket or task description. If the branch
   carries no ticket, gate `clarify` (`rt runs field set gate clarify --stage
   <stage>` before, `rt runs decision record --contract gate@1 --scope clarify
-  --selection '{"source":"<picked>"}' --decided-by self-review` after): one
-  sentence, then the structured-question tool with the candidate sources
-  (the task as stated, a linked doc, their
-  text, and **Hold**) rather than reviewing against nothing.
+  --selection '{"source":"<picked>"}' --decided-by <the answer's by>` after):
+  one sentence, then run gate-protocol's Runs integration with kind
+  `clarify` and these questions: the candidate sources (the task as stated,
+  a linked doc, their text, and **Hold**) rather than reviewing against
+  nothing.
 
 ## 2. Delegate to the review engine
 
@@ -146,10 +147,11 @@ is the close:
 
 - `rt runs field set gate self-review --stage <stage>` (`self-review` for an
   own run, `run.current_stage` when inherited).
-- The form: **Fix the blocking findings now** (recommended when any
+- Run gate-protocol's Runs integration with kind `self-review` and these
+  questions: **Fix the blocking findings now** (recommended when any
   Critical or Important exists) / **Fix the minors too** / **Ship as is**;
   **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope self-review --selection '{"fix":"blocking|all|none","note":"<their words or null>"}' --decided-by self-review`.
+- `rt runs decision record --contract gate@1 --scope self-review --selection '{"fix":"blocking|all|none","note":"<their words or null>"}' --decided-by <the answer's by>`.
 - Fix: one finding at a time, test-first, verify each; then the flow that
   called this verb continues (ship, or the next task). Ship as is: hand
   back with the Minor findings listed for the record.
@@ -160,6 +162,10 @@ and never checks their box.
 Close, only when `## Run` started this run: after the fixes the gate
 selected are verified, `rt runs stage-done --stage self-review`, `rt runs
 run-status --status done`, `unset RT_RUN_DB`.
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 

@@ -148,10 +148,11 @@ run, `mr` is set, and the MR is a draft, gate `mark-ready`:
 
 - `rt runs field set gate mark-ready --stage watch-ci`
 - One sentence: CI is green for the MR's head.
-- The form: **Mark ready now** (recommended) / **Keep it draft**;
+- Run gate-protocol's Runs integration with kind `mark-ready` and these
+  questions: **Mark ready now** (recommended) / **Keep it draft**;
   **Iterate here**; **Go back to `<stage>`** (one option per earlier stage
   row when `snapshot` shows any); **Hold**.
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by watch-ci`
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
   `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
   anything else is a `clarify` gate).
@@ -161,10 +162,11 @@ close right after the verdict). Any other outcome is gate `ci`:
 
 - `rt runs field set gate ci:<stage>:<attempt> --stage <stage>`.
 - One sentence: the verdict and the one-line triage per blocking failure.
-- The form: **Fix and re-push** (recommended for a REAL failure in the
-  change) / **Retry the job** / **Hand back** / **Abandon the run** (own
-  run only); **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope ci:<stage>:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}' --decided-by watch-ci`.
+- Run gate-protocol's Runs integration with kind `ci:<stage>:<attempt>` and
+  these questions: **Fix and re-push** (recommended for a REAL failure in
+  the change) / **Retry the job** / **Hand back** / **Abandon the run**
+  (own run only); **Iterate here**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope ci:<stage>:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|hold","note":"<their words or null>"}' --decided-by <the answer's by>`.
 
 A watch-ci invoked from inside another verb (a ship or sync flow) inherits that
 run, uses `run.current_stage` as its stage, fires no gate beyond `ci`,
@@ -178,6 +180,10 @@ done`, `unset RT_RUN_DB`; Abandon the run closes with `run-status --status
 abandoned` instead.
 Fix and re-push keeps the run `running` and re-enters section 3 after the
 push (a new `stage-start --stage watch-ci`).
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 

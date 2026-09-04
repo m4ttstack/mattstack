@@ -82,11 +82,12 @@ A stage failure is a gate, not a report. Gate `<stage>-failed:<attempt>`
 - `rt runs field set gate <stage>-failed:<attempt> --stage <stage>`
 - One sentence: the stage, the reason `stage-fail` recorded, and the
   detail path if there is one.
-- The form: **Retry the stage** (recommended when the reason names
-  something you can fix) / **Go back to `<stage>`** (one option per earlier
-  stage row) / **Iterate here** (their text is what to change first) /
-  **Hold** / **Abandon the run**.
-- `rt runs decision record --contract gate@1 --scope <stage>-failed:<attempt> --selection '{"next":"retry|redirect|iterate|hold|abandon","to":"<stage or null>","note":"<their words or null>"}' --decided-by work`
+- Run gate-protocol's Runs integration with kind `<stage>-failed:<attempt>`
+  and these questions: **Retry the stage** (recommended when the reason
+  names something you can fix) / **Go back to `<stage>`** (one option per
+  earlier stage row) / **Iterate here** (their text is what to change
+  first) / **Hold** / **Abandon the run**.
+- `rt runs decision record --contract gate@1 --scope <stage>-failed:<attempt> --selection '{"next":"retry|redirect|iterate|hold|abandon","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Retry: a fresh `stage-start` for the stage (a new attempt) and re-enter
   it. Go back: `## Redirect`. Iterate: `## Redirect` to the same stage
   with their note as the reason. Hold: `## Hold`. Abandon:
@@ -119,7 +120,7 @@ run back there. A stage that hands back such an answer (the ci gate's
 Redirect runs instead of step 3's completeness check, and no `stage-fail`
 is written for it. In order:
 
-1. `rt runs decision record --contract gate@1 --scope redirect:<from>:<attempt> --selection '{"from":"<current stage>","to":"<stage>","reason":"<their words>"}' --decided-by work`
+1. `rt runs decision record --contract gate@1 --scope redirect:<from>:<attempt> --selection '{"from":"<current stage>","to":"<stage>","reason":"<their words>"}' --decided-by <the answer's by>`
    (the attempt is the current stage row's; the reason is what they said,
    never a category).
 2. `rt runs stage-redirect --stage <from> --to <to> --reason "<their
@@ -137,7 +138,7 @@ is written for it. In order:
 
 A gate answer of *Hold* parks the run without ending it:
 
-1. `rt runs decision record --contract gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their words or empty>"}' --decided-by work`
+1. `rt runs decision record --contract gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their words or empty>"}' --decided-by <the answer's by>`
 2. `rt runs field set hold "<their words, or held>" --stage <stage>`
 3. End the turn with one sentence naming the run and the stage. The Stop
    hook lets a held run's turn end; the console shows it held.
@@ -153,10 +154,11 @@ The run stays `running` until the human answers the close gate; a green
 - `rt runs field set gate close --stage <last stage>`
 - One sentence: the MR link and its state (draft, or ready as decided at
   the `mark-ready` gate) and the `ci` verdict.
-- The form: **Done** (recommended when `ci` is green and the MR is ready)
+- Run gate-protocol's Runs integration with kind `close` and these
+  questions: **Done** (recommended when `ci` is green and the MR is ready)
   / **Iterate here** (their text is the change request) / **Go back to
   `<stage>`** (one option per stage row in `snapshot`) / **Hold**.
-- `rt runs decision record --contract gate@1 --scope close --selection '{"next":"done|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by work`
+- `rt runs decision record --contract gate@1 --scope close --selection '{"next":"done|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Done: `rt runs run-status --status done`, then `unset RT_RUN_DB`.
   Iterate: `## Redirect` to `implement` (or the stage their note names)
   with the note as the reason. Go back: `## Redirect`. Hold: `## Hold`.
@@ -169,6 +171,10 @@ would `stage-start` into it.
 ## Sub-agent tiering
 
 {{slot:tiering}}
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 

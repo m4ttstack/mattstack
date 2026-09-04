@@ -32,11 +32,13 @@ Detect what was given and resolve it to one remote branch:
   (`glab mr list --search <id>` / `gh pr list --search <id>`).
 
 If resolution is ambiguous or turns up nothing, gate `clarify`: one
-sentence naming the candidates, then the structured-question tool with one
-option per candidate, their text, and **Hold** (under a run, `rt runs field
-set gate clarify --stage <run.current_stage>` before and `rt runs decision
-record --contract gate@1 --scope clarify --selection '{"branch":"<picked>"}'
---decided-by checkout` after). Never a guess.
+sentence naming the candidates, then, under a run, run gate-protocol's
+Runs integration with kind `clarify` and these questions: one option per
+candidate, their text, and **Hold** (`rt runs field set gate clarify
+--stage <run.current_stage>` before and `rt runs decision record --contract
+gate@1 --scope clarify --selection '{"branch":"<picked>"}' --decided-by
+<the answer's by>` after). With no run, present the same form in-pane
+only. Never a guess.
 
 ## 2. Acquire the worktree
 
@@ -72,3 +74,7 @@ Report what was created.
 - Never commit or push on the checked-out branch -- it belongs to someone
   else.
 - State plainly whose branch this is when you report the result.
+
+## Gate protocol
+
+{{include:gate-protocol}}

@@ -79,10 +79,11 @@ is not empty, which `rebase-worktree` would refuse) and why. Then the gate,
 once for the whole batch, never per branch:
 
 - `rt runs field set gate sweep --stage sync-open-mrs`.
-- The form: a multi-select of the branches to rebase, in order, all
+- Run gate-protocol's Runs integration with kind `sweep` and these
+  questions: a multi-select of the branches to rebase, in order, all
   pre-selected (deselecting skips one); **Iterate here** (their text
   reorders or excludes); **Hold**.
-- `rt runs decision record --contract gate@1 --scope sweep --selection '{"branches":[...]}' --decided-by sync-open-mrs`.
+- `rt runs decision record --contract gate@1 --scope sweep --selection '{"branches":[...]}' --decided-by <the answer's by>`.
 
 Nothing is touched before the answer.
 
@@ -104,10 +105,11 @@ Once the rebase pass finishes, one sentence: which branches rebased clean
 a branch unasked, never one-by-one as each rebase completes:
 
 - `rt runs field set gate push --stage sync-open-mrs`.
-- The form: a multi-select of the clean branches to `git push
+- Run gate-protocol's Runs integration with kind `push` and these
+  questions: a multi-select of the clean branches to `git push
   --force-with-lease`, all pre-selected; **Watch CI after pushing** (yes /
   no); **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by sync-open-mrs`.
+- `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by <the answer's by>`.
 
 Push the selected branches, then, when asked, follow the pack's compiled
 `watch-ci` verb (a public verb; invoke it by its pack-qualified skill name)
@@ -129,6 +131,10 @@ Close, only when `## Run` started this run: after the report, `rt runs
 stage-done --stage sync-open-mrs`, `rt runs run-status --status done`,
 `unset RT_RUN_DB`. The per-branch `rebase-worktree` and `watch-ci` calls
 inherit this run and close nothing.
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 
