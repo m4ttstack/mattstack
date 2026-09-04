@@ -372,11 +372,22 @@ NEVER the question. Treat every push as a VERIFY-ONLY signal: re-read the
 registry, never trust the push payload as an answer.
 
 1. `rt gate list --open --subject-prefix run:`. **List-and-match IS the
-   filter:** for each open row, resolve the subject's run id to a repo +
-   branch (`rt runs show <run-id> --repo <repo> --json` against this
-   herd's own job repos) and keep only rows matching one of the jobs
-   table's active `repo` + `branch` rows. Unrelated runs' gates -- another
-   herd, a manual pipeline pane -- drop silently.
+   filter:** for each open row, resolve the subject's run id with
+   `rt runs show <run-id> --json` (no `--repo` needed -- the daemon scans
+   every repo's run dir for the id) and read the run's `worktree` field
+   out of the JSON's `fields` array (it is not top-level on `run`:
+   `jq -r '.fields[] | select(.key=="worktree") | .value'`). Keep the gate
+   only when that value is byte-identical to one of the jobs table's
+   active `worktree` rows -- worktree is a unique absolute path per job,
+   the strong key. Never match on `repo` + `branch` alone: two clones of
+   the same repo, or a human's own pipeline run, can share a branch name
+   by chance and would otherwise be relayed as this herd's own. A run
+   whose `worktree` field is not yet written (only the `provision` gate's
+   ambiguity path can fire that early, and shepherdr's workers run in
+   `mode: worker`, which writes `worktree` without gating) cannot be
+   matched -- drop it silently rather than falling back to `repo` +
+   `branch`. Unrelated runs' gates -- another herd, a manual pipeline
+   pane -- drop silently.
 2. Present each matched gate's questions in the shepherd conversation
    exactly as today's relay: batch up to 4 together in one
    AskUserQuestion call, options verbatim, the job's recommendation
