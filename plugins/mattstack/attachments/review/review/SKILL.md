@@ -103,17 +103,45 @@ pack binds them; apply its triage lines and addendum exactly as it directs.
 
 ## 3. Deliver
 
-Present the draft, then the two posting gates below as two structured
-questions, in order, each its own call: gate `post-severity` (Gate 1),
-then gate `post-disposition` (Gate 2). Each gate is bracketed by `rt runs
-field set gate <scope> --stage <stage>` before the question and `rt runs
-decision record --contract gate@1 --scope <scope> --selection '<JSON>'
---decided-by review` after the answer (`{"levels":[...]}` for Gate 1,
-`{"disposition":"comment|approve|request_changes"}` for Gate 2). Each form
-also offers **Iterate here** (their text changes the draft; re-present it
-and gate again) and **Hold**. Nothing leaves the machine without both
-answers. Post using the forge's thread mechanics: on GitHub use `gh pr
-review` / `gh pr comment`; on GitLab follow the thread mechanics below.
+Present the draft, then state the severity levels present in one structured
+line -- for example "Findings: Critical (2), Important (1)." -- skipping
+any level with no findings.
+
+Decision intake: when the caller hands this step a decided selection (a
+board wrapper, or any @2 caller, handing `{tiers, outcome}` down through the
+fill -- tiers naming the severity levels, outcome naming the disposition),
+use it and ask nothing. Otherwise (a direct terminal run) ask ONE combined
+question with the runtime's structured-question tool: tiers multi-select
+over the levels present (every level with findings pre-selected),
+disposition single-select (Comment pre-selected; the offered set is
+forge-conditional -- Request changes only where the target forge's CLI
+supports it, `gh` does, `glab` does not; verify before offering, don't
+assume from memory), plus **Iterate here** (their text changes the draft;
+re-present it and ask again) and **Hold**. The old two-gate protocol --
+`post-severity` then `post-disposition` as two sequential structured
+questions -- retires: nothing here presents two gates in a row.
+
+When this step asks its own question, bracket it the way every gate does:
+`rt runs field set gate post --stage <stage>` before the question. Skip
+that write when the caller already handed the decision -- nothing is
+pending in that case.
+
+Execute posting per review-posting (below), handing it the decided
+selection as `{levels: <tiers>, disposition: <outcome>}`. Then, when an
+rt-runs run is active, record the decision at execution time, after
+posting: `rt runs decision record --contract gate@1 --scope post
+--selection '{"levels":[...],"disposition":"..."}' --decided-by <decider>`,
+where `<decider>` names the surface that actually answered -- `board`,
+`console`, `pane`, or `shepherd`. Use the decider the caller names alongside
+its handed selection; when this step asked its own question, `<decider>` is
+`pane`. This replaces the old `post-severity` + `post-disposition` record
+pair with one record at scope `post`.
+
+Post using the forge's thread mechanics: on GitHub use `gh pr review` / `gh
+pr comment`; on GitLab follow the thread mechanics below.
+
+Review verbs produce judgment and execute posting; they never decide what
+posts.
 
 Close, only when `## Run` started this run: `rt runs stage-done --stage
 review`, `rt runs run-status --status done`, `unset RT_RUN_DB`. The final
