@@ -1,6 +1,7 @@
 ---
 name: gate-protocol
 description: "Use when a gated pane or wrapper needs to publish a human decision point and carry it to an answer -- opening the daemon's gate registry, presenting the in-pane form, blocking in gate wait, handling a CAS rejection, or reconciling a doorbell push. Not for direct invocation; a gated verb includes this part."
+disable-model-invocation: true
 ---
 
 # Gate protocol
