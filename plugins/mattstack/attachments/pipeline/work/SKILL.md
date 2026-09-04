@@ -122,7 +122,8 @@ is written for it. In order:
 
 1. `rt runs decision record --contract gate@1 --scope redirect:<from>:<attempt> --selection '{"from":"<current stage>","to":"<stage>","reason":"<their words>"}' --decided-by <the answer's by>`
    (the attempt is the current stage row's; the reason is what they said,
-   never a category).
+   never a category). A human-typed redirect with no open gate has no
+   answer to cite: record `--decided-by pane`.
 2. `rt runs stage-redirect --stage <from> --to <to> --reason "<their
    words>"`: the stage you leave closes as `redirected`, so `snapshot`
    never shows it `running` behind a later attempt. Exit 3 means that row
