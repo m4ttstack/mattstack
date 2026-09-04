@@ -29,7 +29,19 @@ plans, often gitignored and outside the worktree. "none" if none.>
 for untracked state (dependency install, env or secrets sync); and the
 branch name. "none" if the repo has no rules.>
 
-## Asking the user a question
+## Pipeline runs
+When your Method runs a pipeline verb (`work`, `ship`, `review`, ...),
+start its run with `--spawned-by shepherdr` on `run-start`. That flag is
+what makes the verb's own attendance test take the unattended branch, so
+once the run exists its gated questions ride the daemon's gate registry
+(the verb's own `gate-protocol` integration), never herd-ask -- do not
+call herd-ask.py for a question that carries a run id.
+
+## Asking the user a question (no run id yet)
+Use this only before a run exists -- design-job touchpoints and any
+question your Method needs answered ahead of `run-start`. Once a run is
+running, its questions go through the gate registry above instead.
+
 Run exactly (real values are filled in below; do not improvise paths):
 
     python3 <scripts-dir>/herd-ask.py --db <db-path> --run <run-id> --job <job> \

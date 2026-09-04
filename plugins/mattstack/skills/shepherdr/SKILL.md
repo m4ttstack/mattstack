@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.14.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-432 -->
+<!-- part: step source=mattstack:shepherdr version=0.14.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-485 -->
 
 # shepherdr
 
@@ -569,6 +569,19 @@ lifecycle into `blocked`/`gone` events:
 scripts/herd-bridge.py --db <db>
 ```
 
+**The gate subscription** (one-time registration, not a background wait):
+
+```bash
+rt gate subscribe --subject-prefix run: --session "$CLAUDE_CODE_SESSION_ID"
+```
+
+Any worker job whose Method starts a pipeline verb's run carries
+`--spawned-by shepherdr` on `run-start` (job-template.md), which routes
+that run's gated questions through the daemon's gate registry instead of
+herd-ask. This subscription is how pushes for those gates reach this
+session -- see gate relay below. herd-wait.sh and herd-bridge.py stay
+exactly as today: pane lifecycle is not a gate concern.
+
 `herd-wait.sh` exits tell you what happened:
 
 | exit | meaning | act |
@@ -588,7 +601,12 @@ scripts/herd-bridge.py --db <db>
 
 Never read scrollback when the DB has the answer.
 
-## question relay
+## question relay (design-job and pre-run questions)
+
+Herd-ask/relay carries only questions with no run id yet: design-job
+touchpoints and anything a Method asks before `run-start`. Once a job's
+Method starts a pipeline verb's run, that run's own questions ride the
+gate registry instead -- see gate relay below.
 
 1. `herd-read.py --db <db> question <qid>`. Skip unless `status: open`.
 2. If `needs: pane`: doorbell the user -- "agent <job> needs you in pane <id>" -- and do not relay. In a herd session the pane is invisible, so put it in front of them: `scripts/attend.sh <pane-id> -l <job>`, tell them to detach with `ctrl+b q`, and close the tab it prints once they are done. Afterwards, `herd-answer.py --db <db> --qid <id> --pane-handled`.
@@ -600,6 +618,38 @@ Never read scrollback when the DB has the answer.
    scripts/herd-answer.py --db <db> --qid <id> --target $TARGET "2"
    ```
 7. Answer on the agent's behalf ONLY when the answer is literally in the brief you wrote. Everything else goes to the user.
+
+## gate relay (run-backed questions)
+
+A push on the subscription above carries only the gate id and status --
+NEVER the question. Treat every push as a VERIFY-ONLY signal: re-read the
+registry, never trust the push payload as an answer.
+
+1. `rt gate list --open --subject-prefix run:`. **List-and-match IS the
+   filter:** for each open row, resolve the subject's run id to a repo +
+   branch (`rt runs show <run-id> --repo <repo> --json` against this
+   herd's own job repos) and keep only rows matching one of the jobs
+   table's active `repo` + `branch` rows. Unrelated runs' gates -- another
+   herd, a manual pipeline pane -- drop silently.
+2. Present each matched gate's questions in the shepherd conversation
+   exactly as today's relay: batch up to 4 together in one
+   AskUserQuestion call, options verbatim, the job's recommendation
+   first.
+3. Record the human's choice:
+   ```bash
+   rt gate answer <id> --answers '<json>' --by shepherd
+   ```
+   A CAS rejection means another surface answered first -- say in one
+   line which answer won and from where, and proceed on the recorded
+   one; never re-ask.
+4. Answer on the agent's behalf ONLY when the answer is literally in the
+   brief you wrote -- same "theirs to answer, never yours" policy as
+   question relay, now read off the gate's `kind`/`meta` instead of a
+   herd question's `needs`. Everything else goes to the user.
+5. **Recovery after any gap** (relaunch, missed push, degraded bus): the
+   same list-and-match (step 1), plus `rt gate subscriptions` to confirm
+   this session's row is still alive -- re-subscribe (watch, above) if it
+   was pruned.
 
 ## artifact gates (design jobs)
 
@@ -710,4 +760,7 @@ next call after the answers return, never into the context sentence.
 - About to compose SQL against herd.db? Stop -- herd-read/herd-answer/herd-job are the only DB surface.
 - About to close a pane without `herd-job.py --status closed`? Stop -- the bridge will report a phantom crash.
 - Sweep found a blocked pane the bus never announced? The bridge is sick -- respawn it and say so.
+- About to treat a gate push's payload as the answer, or as the question? Stop -- it carries only the gate id and status; list-and-match, then present what the registry returns.
+- About to relay a run-backed question through herd-ask? Stop -- a job that ran `--spawned-by shepherdr` gets its questions through the gate registry, never herd-ask.
+- After a relaunch, about to skip checking `rt gate subscriptions`? Stop -- a pruned subscription means pushes never arrive; re-subscribe first.
 - About to restate the scope change as a heading and add a sentence explaining each option on the mid-flight form? Stop. One sentence naming the running agents, then the bare three options the text names -- no restated heading, no per-option description.
