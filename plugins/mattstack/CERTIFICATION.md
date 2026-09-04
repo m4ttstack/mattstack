@@ -59,5 +59,10 @@ The written purity rule and per-skill certification checklist for this repo
 | 2026-09-04 | mattstack:review-posting | pure | pass | 5/5 (scenarios unchanged) | execution-only rewrite: caller-decided {levels, disposition}, never asks; the 2026-08-18 F4 note (restore Gate 1/2 tags) closes as moot, the two-gate protocol is retired; certify 10/10 |
 | 2026-09-04 | mattstack:review | pure | pass | 5/5 (scenarios unchanged) | Deliver step reworked to caller-owned decisions with the one combined fallback question; decision record moves to scope post with --decided-by surface names; certify 10/10 |
 
+| 2026-09-04 | mattstack:gate-protocol | pure | pass | n/a (hidden, include-reached) | Runs integration recipe added (facility publish, attendance rule, bounded wait, decided-by surfaces); certify 10/10 at authoring and review |
+| 2026-09-04 | mattstack:receive-review | pure | pass | 5/5 (scenarios unchanged) | caller-owned two-gate protocol (respond-plan, respond-post); verdicts/fixes retired; adjudication and execution halves unchanged; certify 9/9 |
+| 2026-09-04 | mattstack:shepherdr | pure | pass | 5/5 (scenarios unchanged) | run-backed herd questions ride the gate registry (one subscription, worktree-key list-and-match, answers --by shepherd); herd scripts untouched; all 3 script suites green |
+| 2026-09-04 | (12 verb dirs: stage-plan, stage-provision, stage-evidence, stage-ship, stage-watch-ci, ship, watch-ci, work, self-review, sync-open-mrs, rebase-worktree, checkout) | pure | pass | n/a (site adoption) | v4 gate-site adoption: publish per gate-protocol Runs integration, questions verbatim, decided-by from the answer; certify 9-10/10 each at task review and release |
+
 
 (Ledger rows are appended by the orchestrating session as each lane lands -- lanes themselves never edit this file.)
