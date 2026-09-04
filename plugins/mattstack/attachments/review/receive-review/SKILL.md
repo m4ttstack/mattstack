@@ -175,10 +175,12 @@ Reply rules section below**: follow it. On top of either branch, these hold:
 ## 4. Decide: respond-plan (Gate `respond-plan`)
 
 The verb adjudicates; it never decides what gets fixed or posted. Decision
-intake: when the caller hands this step a decided `{plan, post}` object (a
-board wrapper, or any caller that already collected the two answers), use
-`plan` and ask nothing here -- its per-question answers, keyed by question
-id with verbatim option strings, are the decision. Use the decider the
+intake: when the caller hands this step decided answers -- the `{plan}`
+half alone (a board wrapper hands it after its own first gate, `{post}`
+following later before posting) or a combined `{plan, post}` object from a
+caller that collected both up front -- use `plan` and ask nothing here: its
+per-question answers, keyed by question id with verbatim option strings,
+are the decision. Use the decider the
 caller names alongside it. Otherwise (a direct terminal run) the verb runs
 the gate itself:
 
