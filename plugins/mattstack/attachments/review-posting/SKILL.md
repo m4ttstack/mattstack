@@ -1,98 +1,74 @@
 ---
 name: review-posting
 description: >-
-  Use when a finished review draft with severity-bucketed findings is
-  about to be posted to an MR/PR -- deciding which findings land, which
-  review disposition to leave, how the summary reads, and how to close
-  out. Not for producing the review itself.
+  Use when a decided review selection ({levels, disposition}) plus a review
+  draft are ready to post to an MR/PR -- posting inline threads for the
+  selected levels, composing the summary, executing the chosen disposition,
+  and closing out. Not for producing the review, and not for deciding what
+  posts -- the caller decides; this part only executes.
 ---
 
-# Review posting (the two-gate protocol)
+# Review posting (execution only)
 
-Turning a finished draft into what lands on the MR/PR: which findings get a
-thread, what disposition closes it, how the summary reads, how the close
-ends. This skill owns those decisions, not the judgment behind the draft.
+Turning a decided review selection into what lands on the MR/PR: which
+findings get a thread, what disposition closes it, how the summary reads,
+how the close ends. This part owns execution. The decision -- which
+severity levels post and what disposition closes the review -- belongs to
+the caller.
 
 ## Caller inputs
 
+- A decided selection: `{levels: [...], disposition: "comment" | "approve"
+  | "request_changes"}`. `levels` names the severity buckets to post
+  (whichever of Critical / Important / Minor the draft carries); `disposition`
+  names the one the caller already chose. Arriving without both is a caller
+  bug -- see the guard below.
 - The draft, in the review flow's Strengths / Issues shape: Strengths /
   Issues (Critical / Important / Minor, each `file:line`) / Assessment
-  (yes | no | with fixes). Its provenance is that flow's fresh-context
-  dispatch -- take the draft as given, never re-derive or re-judge a
-  finding here.
+  (yes | no | with fixes), when it is in context -- take it as given, never
+  re-derive or re-judge a finding here. When the draft is not in context
+  (the parked-resume case), read it from the written report file instead;
+  the report's fixed severity buckets are enough to execute from.
 - A postable target: an MR/PR whose posting mechanics -- anchoring an inline
   comment to a line, verifying it landed, composing the summary body -- the
-  caller owns. This skill decides what posts and where; it does not teach
-  forge CLI mechanics.
-- **Callers:** a domain adapter's teammate-review skill (the harvest
-  `review` skill, after its thinning pass), or any session holding an
-  engine draft and a postable target.
+  caller owns. This part decides how to execute, not what posts or where.
+- **Callers:** the review verb's Deliver step, a domain adapter's
+  teammate-review skill (the harvest `review` skill, after its thinning
+  pass), or any session holding an engine draft, a decided selection, and a
+  postable target.
 
-## The two gates
+## Guard: never asks
 
-Two decisions belong to the developer, and only the developer: which
-findings get an inline thread (**Gate 1**) and what disposition closes the
-review (**Gate 2**). Anchoring inline comments, verifying they landed on
-the right lines, and composing the summary are posting MECHANICS -- the
-ordering work this skill does once both gates are answered. Mechanics are
-not a gate; relabeling them as "the two gates" mislabels ordering as
-consent.
+This part never asks a question. Arriving without a decided `{levels,
+disposition}` is a caller bug: stop and say so in one line, never improvise
+a severity or disposition question to cover the gap. Deciding what posts is
+one layer up, not here.
 
-A go-ahead on the draft's CONTENT answers neither gate. "Get that posted,"
-"looks good, ship it," a nod at the findings -- none of that is a severity
-selection and none of it is a disposition. Treating content approval as
-approval of scope and verdict is the failure this skill exists to prevent:
-ask both gates explicitly, even when the partner sounds ready to ship.
+## No side door
 
-## Order rule
-
-Present the draft with each finding under its severity level, then clear
-Gate 1 before Gate 2 -- severities first, so the developer sees exactly
-what would land before choosing a verdict. Post nothing -- no inline
-thread, no summary comment, no disposition -- until both gates have an
-explicit answer.
-
-## Gate 1: severity multi-select
-
-One structured question (the caller's wrap-up form contract; the tool is
-`AskUserQuestion` in Claude Code), multi-select. Offer only the levels
-present in the draft, skipping any level with no findings. Pre-select
-every level that has findings, so nothing drops silently -- the developer
-deselects rather than opts in. A common pick: Critical + Important
-selected, Minor deselected. Prose that lists the levels and waits is not
-this gate.
-
-Post inline threads only for selected findings. A deselected or unraised
+Post inline threads only for the selected levels. A deselected or unraised
 finding drops entirely: not into the summary, not into a footnote, not
-through any other channel. No side door.
+through any other channel.
 
 ## Summary comment
 
-Posting mechanics are inline threads for the selected findings plus ONE
-summary comment -- identical mechanics regardless of which disposition Gate
-2 lands on. The summary carries Strengths and the Assessment, and its issue
+Posting mechanics are inline threads for the selected levels plus ONE
+summary comment -- identical mechanics regardless of which disposition was
+chosen. The summary carries Strengths and the Assessment, and its issue
 list is scoped to the levels actually posted: a deselected Minor does not
 resurface in the summary either.
 
-Empty selection (every level deselected): no inline threads, post only the
+Empty selection (`levels` is empty): no inline threads, post only the
 summary. Under Approve with nothing selected: skip the issue list and just
 approve with a brief note.
 
-## Gate 2: disposition
+## Posting mechanics by disposition
 
-A second structured question, single-select, asked only after Gate 1 is
-answered. Offer only the dispositions the target forge's CLI supports. Comment (the
-default) and Approve are available everywhere; Request changes is available
-where the CLI supports it -- `gh` does, `glab` does not. There, frame the
-blocking findings as blocking inside a Comment rather than silently
-downgrading the recommendation. Verify CLI support before offering a
-disposition; don't assume from memory.
-
-The draft's Assessment informs the recommendation, never decides it: yes
-leans toward Approve; no or with fixes leans toward Comment or Request
-changes. Regardless of Assessment, the pre-selected default is always
-Comment, and the developer chooses from the offered set. Never choose the
-disposition for the developer, and never approve on their behalf.
+Comment and Approve execute everywhere. Request changes executes only where
+the target forge's CLI supports it (`gh` does, `glab` does not); there,
+frame the blocking findings as blocking inside a Comment instead of silently
+downgrading the recommendation -- say the CLI can't carry Request changes,
+don't just post a plain Comment as if nothing changed.
 
 On Approve: post the findings first, then approve.
 
@@ -102,8 +78,8 @@ When the chosen disposition carries no approval -- Comment, or a
 blocking-framed Comment standing in for an unavailable Request changes --
 strip "nothing blocking," "LGTM," and "good to merge" from the summary.
 Either leave the merge decision to the author or say plainly that approval
-is being withheld pending the noted items. Only an approving disposition
-may carry an unqualified all-clear.
+is being withheld pending the noted items. Only an approving disposition may
+carry an unqualified all-clear.
 
 ## Writing style
 
@@ -127,25 +103,22 @@ left as a bare id or number. Required every time, on every disposition.
 
 | Thought | Reality |
 |---|---|
-| "'Get that posted' covers it" | Answers neither gate. Ask severity selection and disposition, each explicitly, before posting anything. |
+| "No selection arrived, I'll ask which levels to post" | Never improvise a question here. Arriving without a decided selection is a caller bug: stop and say so. |
 | "I'll fold the deselected Minors into the summary note" | No side door. A deselected finding drops entirely; it does not move to a different channel. |
-| "Two Criticals -- that settles the disposition" | Never choose the disposition for the developer. Assessment informs the recommendation; it does not decide it. |
 | "No approval landed, but I'll still say 'nothing blocking'" | Tacit approval. Strip the all-clear language unless the disposition actually approves. |
 | "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge CLI. |
-| "Anchor, verify, summary -- that's my two gates" | Those are posting mechanics, not the gates. The gates are the developer's decisions: severity selection and disposition. |
-| "I'll list the severities and the dispositions in one message and let them answer both" | Two gates, two questions, two calls. One paragraph is neither. |
-| "I'll offer just the levels this paragraph names" | Every gate form also carries Iterate here and Hold from the caller's Deliver section; that applies to both gates, not only the ones that spell it out here. |
-| "I'll write out both gate calls in one reply since I have no way to literally pause between them" | Gate 2 is asked only after Gate 1's answer returns; write out Gate 1 alone and stop, never both calls in the same message. |
-| "I'll list each finding as its own option under its level" | Gate 1 selects by severity LEVEL, not by individual finding. One option per level present in the draft, never one option per finding. |
-| "I'll add a Post it / confirm option so the developer can trigger posting from inside this question" | Gate 1 offers only the levels present in the draft plus Iterate here and Hold. Answering the multi-select already is the post decision; no separate confirm/submit option belongs in the set. |
+| "`glab` can't do Request changes, I'll just post a plain Comment" | Frame the blocking findings as blocking inside the Comment; don't silently downgrade the recommendation. |
+| "The selection looked stale, I'll re-ask to be sure" | Not this part's call. A decided selection is trusted as handed; re-deciding belongs to the caller, not the executor. |
 
 ## Quick reference
 
 | Signal | Action |
 |---|---|
-| Draft + postable target in hand | Present findings by severity; post nothing yet. |
-| Partner gives a content go-ahead | Still ask Gate 1 and Gate 2 separately -- content approval answers neither. |
-| Gate 1 answered | Inline threads for selected findings only; deselected findings drop, no side door. |
-| Gate 2 answered | Post per the chosen disposition, offered set forge-conditional; on Approve, findings first, then approve. |
+| Decided `{levels, disposition}` + draft (or report) + target in hand | Post per the sections above. |
+| No decided selection arrived | Stop; name it a caller bug. Never ask a question here. |
+| Posting inline threads | Selected levels only; deselected findings drop, no side door. |
+| Posting the summary | One comment, scoped to the levels actually posted. |
+| Disposition is Approve | Post the findings first, then approve. |
+| Disposition is Request changes on a CLI that lacks it | Blocking-framed Comment, said explicitly. |
 | Disposition carries no approval | Strip all-clear language from the summary; state the decision is deferred or withheld. |
 | About to close | Markdown link to the real URL, read from the forge CLI -- every time. |
