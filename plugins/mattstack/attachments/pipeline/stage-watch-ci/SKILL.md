@@ -105,11 +105,13 @@ is the `ci` gate below.
 
 - `rt runs field set gate ci:watch-ci:<attempt> --stage watch-ci`
 - One sentence: the verdict and the one-line triage per blocking failure.
-- The form: **Fix and re-push** (recommended for a REAL failure in your
-  change) / **Retry the job** (for a flake the report did not already
-  retry) / **Hand back** (leave it red for the human) / **Abandon the
-  run**; **Iterate here**; **Go back to `<stage>`**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope ci:watch-ci:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-watch-ci`
+- Run gate-protocol's Runs integration with kind `ci:watch-ci:<attempt>`
+  and these questions: **Fix and re-push** (recommended for a REAL
+  failure in your change) / **Retry the job** (for a flake the report did
+  not already retry) / **Hand back** (leave it red for the human) /
+  **Abandon the run**; **Iterate here**; **Go back to `<stage>`**;
+  **Hold**.
+- `rt runs decision record --contract gate@1 --scope ci:watch-ci:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Fix: write no `ci`; hand control back to the orchestrator with one
   sentence naming the answer, and it redirects to `implement` with the
   triage as the reason (the work engine's `## Redirect`; the gate answer
@@ -122,10 +124,11 @@ is the `ci` gate below.
 - `rt runs field set gate mark-ready --stage watch-ci`
 - One sentence: CI is green for the MR's head; `evidence` is set (or is
   `-`).
-- The form: **Mark ready now** (recommended when `evidence` is set and not
-  `-`) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`** (one
-  option per earlier stage row); **Hold**.
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-watch-ci`
+- Run gate-protocol's Runs integration with kind `mark-ready` and these
+  questions: **Mark ready now** (recommended when `evidence` is set and
+  not `-`) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`**
+  (one option per earlier stage row); **Hold**.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Go back: hand control back to the orchestrator with one sentence naming
   the answer; it runs `## Redirect`.
 - Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
@@ -136,6 +139,10 @@ Finish by writing `ci` (`green`, or `red: <one-line triage>` when the
 human handed it back). The exit-2 and exit-4 paths write no `ci` until
 the gate's answer produces a verdict: the stage is not done until one
 exists.
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 
