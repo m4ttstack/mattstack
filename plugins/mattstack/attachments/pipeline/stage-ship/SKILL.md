@@ -34,12 +34,13 @@ Contracts v2 and v3 (authoritative text: the parameterized-skills skill's conven
 - One sentence: the branch, the commits about to go (`git log --oneline
   @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
   tree is dirty.
-- The form: on a dirty tree, **Commit the changes** / **Stash them** /
+- Run gate-protocol's Runs integration with kind `ship` and these
+  questions: on a dirty tree, **Commit the changes** / **Stash them** /
   **Abort**; **Push and open as draft** (recommended) / **Push and open
   ready**; every question the domain rules below declare for this gate
   (a ticket mismatch, an MR already open); **Iterate here**; **Go back to
   `<stage>`**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-ship`
+- `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Go back: hand control back to the orchestrator with one sentence naming
   the answer; it runs `## Redirect`.
 - Abort or Hold: no push. Hold records `hold:ship:<attempt>` and `rt runs
@@ -67,6 +68,10 @@ force-push; never push a branch whose tests you have not seen pass in this
 session.
 
 Finish by writing `mr` (the MR/PR URL).
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 

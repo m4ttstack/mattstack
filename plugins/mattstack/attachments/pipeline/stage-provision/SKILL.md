@@ -67,11 +67,12 @@ title too generic for a slug, a classification the domain tracks):
 
 - `rt runs field set gate provision --stage provision`
 - One sentence: what was found (the tree, the missing ticket, the title).
-- The form: on `branch-attached`, **Resume in `<tree>`** (recommended) /
+- Run gate-protocol's Runs integration with kind `provision` and these
+  questions: on `branch-attached`, **Resume in `<tree>`** (recommended) /
   **Fresh tree**; on a missing ticket, **Create one** / **I will recheck
   the id**; on a generic title, the slug as their text; the domain's own
   questions as it words them; then **Iterate here** and **Hold**.
-- `rt runs decision record --contract gate@1 --scope provision --selection '{"resume_in":"<tree or null>","ticket":"create|recheck|null","slug":"<text or null>","domain":{<answers>}}' --decided-by stage-provision`
+- `rt runs decision record --contract gate@1 --scope provision --selection '{"resume_in":"<tree or null>","ticket":"create|recheck|null","slug":"<text or null>","domain":{<answers>}}' --decided-by <the answer's by>`
 - Resume: `EnterWorktree` to that tree and write `branch` and `worktree`
   from it. Fresh: provision under a new title. Hold: record
   `hold:provision:<attempt>`, `rt runs field set hold "<their words>"
@@ -87,6 +88,10 @@ already known coming in -- also run `rt runs field set ticket
 not done until X exists"), and a ticketless run through this stage is a
 normal, finished run -- so `ticket` cannot be a required produce even
 though this is the one place its value can become known.
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 

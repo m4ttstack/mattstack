@@ -45,10 +45,11 @@ or the data source is anything other than the local default:
 
 - `rt runs field set gate evidence --stage evidence`
 - One sentence: what the plan asks for and what is unknown.
-- The form: the domain's intake questions as it words them; the data
+- Run gate-protocol's Runs integration with kind `evidence` and these
+  questions: the domain's intake questions as it words them; the data
   source when it is not local (**Proceed with `<source>`** / **Switch to
   local**); then **Iterate here** and **Hold**.
-- `rt runs decision record --contract gate@1 --scope evidence --selection '{"intake":{<answers>},"source":"<as confirmed>"}' --decided-by stage-evidence`
+- `rt runs decision record --contract gate@1 --scope evidence --selection '{"intake":{<answers>},"source":"<as confirmed>"}' --decided-by <the answer's by>`
 
 ## Domain rules
 
@@ -67,10 +68,11 @@ already exists for the branch (the ship stage normally attaches):
 
 - `rt runs field set gate evidence-attach --stage evidence`
 - One sentence: what was captured and where it sits.
-- The form: the proposed annotations as a multi-select, all pre-selected;
-  **Hand back the markdown** (recommended; the ship stage attaches) /
-  **Attach to the MR now**; **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope evidence-attach --selection '{"annotations":[...],"attach":"now|handback"}' --decided-by stage-evidence`
+- Run gate-protocol's Runs integration with kind `evidence-attach` and
+  these questions: the proposed annotations as a multi-select, all
+  pre-selected; **Hand back the markdown** (recommended; the ship stage
+  attaches) / **Attach to the MR now**; **Iterate here**; **Hold**.
+- `rt runs decision record --contract gate@1 --scope evidence-attach --selection '{"annotations":[...],"attach":"now|handback"}' --decided-by <the answer's by>`
 
 Hold at either gate: record `hold:evidence:<attempt>`, `rt runs field set
 hold "<their words>" --stage evidence`, end the turn.
@@ -84,6 +86,10 @@ hold "<their words>" --stage evidence`, end the turn.
 Finish by writing `evidence` (an object of labeled paths/URLs, at minimum
 the before). This stage captures the BEFORE. The ship stage attaches the
 pair, and where the bound ship domain captures an AFTER it does so there.
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 

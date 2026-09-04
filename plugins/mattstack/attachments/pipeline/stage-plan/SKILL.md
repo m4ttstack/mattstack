@@ -83,14 +83,15 @@ human's answer is the decision:
 
 - `rt runs field set gate plan --stage plan`
 - One sentence naming the printed tier and why.
-- The form: the tier, printed one first and labelled `(Recommended)`, the
+- Run gate-protocol's Runs integration with kind `plan` and these
+  questions: the tier, printed one first and labelled `(Recommended)`, the
   other two as alternatives; on direct-tdd a second question confirming
   the FAILING TEST line (keep / rename it: their text); every question the
   bound domain policy declares for this gate, as it words them; then
   **Iterate here**, **Go back to `<stage>`** (one option per earlier stage
   row in `snapshot`), and **Hold**.
-- `rt runs decision record --contract gate@1 --scope plan --selection '{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by stage-plan`
-- Proceed: `rt runs decision record --contract execution-strategy@1 --scope run --selection '{"tier":"<picked tier>"}' --decided-by stage-plan`
+- `rt runs decision record --contract gate@1 --scope plan --selection '{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
+- Proceed: `rt runs decision record --contract execution-strategy@1 --scope run --selection '{"tier":"<picked tier>"}' --decided-by <the answer's by>`
 - Iterate: re-read the ticket with their note and print a new triage
   block, then gate again. Hold: record `hold:plan:<attempt>` and `rt runs
   field set hold "<their words>" --stage plan`, then end the turn. Go back:
@@ -99,6 +100,10 @@ human's answer is the decision:
 
 Finish by writing `approach` (the tier the gate recorded) and
 `evidence-plan` (the EVIDENCE value).
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 
