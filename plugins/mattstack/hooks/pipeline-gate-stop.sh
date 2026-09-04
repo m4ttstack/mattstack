@@ -88,6 +88,6 @@ REST="${BEST#*|}"; RUN_ID="${REST%%|*}"
 REST="${REST#*|}"; STAGE="${REST%%|*}"
 
 cat >&2 <<EOF
-Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Four exits: continue the stage; open the decision as a form (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, the structured-question tool, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); or close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`). If the user asked you something mid-run, the answer is the sentence before the form.
+Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Four exits: continue the stage; open the decision (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, then run gate-protocol's Runs integration with kind \`<scope>\`, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); or close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`). If the user asked you something mid-run, the answer is the sentence before the gate.
 EOF
 exit 2

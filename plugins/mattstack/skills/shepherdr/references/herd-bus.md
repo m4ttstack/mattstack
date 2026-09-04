@@ -20,6 +20,12 @@ shepherd relaunch (never re-snapshots).
 Events are doorbells; rows are the letters. Job names must be unique
 within a run -- prefix with the repo when a multi-repo herd collides.
 
+Run-backed worker questions -- any job whose Method started a pipeline
+verb's run with `--spawned-by shepherdr` -- do not ride this bus. They
+carry no `qid` here at all; the daemon's gate registry pushes to this
+session's `rt gate subscribe --subject-prefix run:` subscription instead.
+See SKILL.md's gate relay for that flow.
+
 ## the DB
 
 questions(id, job, needs, context, question, options, status
@@ -67,6 +73,12 @@ The DB, not the cursor, makes resume correct:
 3. One pane-list sweep against active jobs.
 4. Restart herd-bridge.py, re-arm herd-wait.sh. Replayed events whose
    rows are already answered/handled skip idempotently.
+5. Gate registry reconciliation: `rt gate subscriptions` to confirm this
+   session's row is still alive, re-subscribing (`rt gate subscribe
+   --subject-prefix run: --session "$CLAUDE_CODE_SESSION_ID"`) if it was
+   pruned; then the gate relay's list-and-match (`rt gate list --open
+   --subject-prefix run:`) to pick up any gate opened while this shepherd
+   was down.
 
 ## degraded mode
 
