@@ -55,5 +55,9 @@ The written purity rule and per-skill certification checklist for this repo
 | 2026-08-18 | mattstack:ci-forge-gitlab | pure | pass | n/a (hidden, slot-reached) | harvest integration certified incl. F3 fix (jobs --scope native-status filter); certify re-run exit 0 |
 | 2026-08-18 | mattstack:stage-watch-ci | pure | pass | n/a (hidden) | rewritten by the ci-engine harvest (forge split) incl. F1 fix (ref forwarded to all three triage call sites); certify re-run exit 0 |
 
+| 2026-09-04 | mattstack:gate-protocol | pure | pass | n/a (hidden, include-reached) | new shared pane-protocol part (gate facility, engine 0.14.0); certify 10/10 at authoring and at review |
+| 2026-09-04 | mattstack:review-posting | pure | pass | 5/5 (scenarios unchanged) | execution-only rewrite: caller-decided {levels, disposition}, never asks; the 2026-08-18 F4 note (restore Gate 1/2 tags) closes as moot, the two-gate protocol is retired; certify 10/10 |
+| 2026-09-04 | mattstack:review | pure | pass | 5/5 (scenarios unchanged) | Deliver step reworked to caller-owned decisions with the one combined fallback question; decision record moves to scope post with --decided-by surface names; certify 10/10 |
+
 
 (Ledger rows are appended by the orchestrating session as each lane lands -- lanes themselves never edit this file.)
