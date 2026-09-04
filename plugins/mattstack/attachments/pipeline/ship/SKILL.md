@@ -72,11 +72,12 @@ Then gate `ship`, before anything is pushed:
 - One sentence: the branch, the commits about to go (`git log --oneline
   @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
   tree is dirty (`git status --porcelain`).
-- The form: on a dirty tree, **Commit the changes** / **Stash them** /
+- Run gate-protocol's Runs integration with kind `ship` and these
+  questions: on a dirty tree, **Commit the changes** / **Stash them** /
   **Abort**; **Push and open as draft** (recommended) / **Push and open
   ready**; every question the domain rules below declare for this gate;
   **Iterate here**; **Hold**.
-- `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>}}' --decided-by ship`.
+- `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>}}' --decided-by <the answer's by>`.
 - Abort or Hold: nothing is pushed. Abort, when `## Run` started this run:
   `rt runs stage-done --stage ship`, `rt runs run-status --status
   abandoned`, `unset RT_RUN_DB`.
@@ -110,10 +111,11 @@ draft: gate `mark-ready`.
 
 - `rt runs field set gate mark-ready --stage ship`.
 - One sentence: CI is green; evidence is attached (or is not).
-- The form: **Mark ready now** (recommended when `ci` is green and evidence
+- Run gate-protocol's Runs integration with kind `mark-ready` and these
+  questions: **Mark ready now** (recommended when `ci` is green and evidence
   is set) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`**
   (one option per earlier stage row when `snapshot` shows any); **Hold**.
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by ship`.
+- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`.
 - Go back (inherited run only): hand control back to the caller with one
   sentence naming the answer.
 - Yes: `glab mr update <iid> --ready` or `gh pr ready <number>` per the
@@ -124,6 +126,10 @@ acted on (or the gate said keep it draft), or on the generic path after the
 URL is printed, `rt runs stage-done --stage ship`, `rt runs run-status
 --status done`, `unset RT_RUN_DB`. Abort at the ship gate closes with
 `run-status --status abandoned` instead (section 1).
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 

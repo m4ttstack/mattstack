@@ -89,9 +89,12 @@ back to it with that sentence; it owns the sweep's gates. Otherwise the
 gate:
 
 - When `RT_RUN_DB` is set: `rt runs field set gate conflict:rebase-worktree:<attempt> --stage <run.current_stage>`.
-- The form: **Leave the rebase in progress for me** (recommended) /
-  **Abort the rebase** (`git rebase --abort`); **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope conflict:rebase-worktree:<attempt> --selection '{"next":"leave|abort|iterate|hold","note":"<their words or null>"}' --decided-by rebase-worktree`.
+- When `RT_RUN_DB` is set, run gate-protocol's Runs integration with kind
+  `conflict:rebase-worktree:<attempt>` and these questions: **Leave the
+  rebase in progress for me** (recommended) / **Abort the rebase**
+  (`git rebase --abort`); **Iterate here**; **Hold**. With no run, present
+  the same form in-pane only.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope conflict:rebase-worktree:<attempt> --selection '{"next":"leave|abort|iterate|hold","note":"<their words or null>"}' --decided-by <the answer's by>`.
 
 Never resolve the conflict yourself, `git add` the files, or run `git
 rebase --continue` or `git rebase --skip`; `--abort` only on that answer.
@@ -109,10 +112,12 @@ it gate the batch. Otherwise:
 - When `RT_RUN_DB` is set: `rt runs field set gate push --stage <run.current_stage>`.
 - The sentence is the old head -> new head line above; nothing else
   before the form.
-- The form: **Push with force-with-lease now** / **Leave it unpushed**
-  (recommended when the branch has an open MR others may have pulled);
-  **Iterate here**; **Hold**.
-- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"push":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}' --decided-by rebase-worktree`.
+- When `RT_RUN_DB` is set, run gate-protocol's Runs integration with kind
+  `push` and these questions: **Push with force-with-lease now** / **Leave
+  it unpushed** (recommended when the branch has an open MR others may
+  have pulled); **Iterate here**; **Hold**. With no run, present the same
+  form in-pane only.
+- When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"push":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}' --decided-by <the answer's by>`.
 
 Never push unasked.
 
@@ -122,6 +127,10 @@ Never push unasked.
 |---------|---------|
 | "Push with force-with-lease now is the natural next action, so I'll mark it Recommended" | Only **Leave it unpushed** carries a recommended label, and only conditionally (an open MR others may have pulled). Render that qualifier attached to that option exactly; never move it to the push option. |
 | "Restating the finding and explaining each option makes the ask clearer" | A gate's form is one sentence of context, then the bare option labels the gate text names, nothing more -- no restated heading, no per-option description, no conditional aside on when Hold applies. |
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 
