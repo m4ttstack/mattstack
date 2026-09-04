@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@mattstack/glance": "^0.24.0",
-    "@mattstack/rt-client": "^0.13.0",
+    "@mattstack/rt-client": "^0.14.0",
     "picomatch": "^4.0.2"
   },
   "devDependencies": {
