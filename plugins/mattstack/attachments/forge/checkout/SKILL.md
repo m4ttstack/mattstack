@@ -37,14 +37,14 @@ Runs integration with kind `clarify` and these questions: one option per
 candidate, their text, and **Hold** (`rt runs field set gate clarify
 --stage <run.current_stage>` before and `rt runs decision record --contract
 gate@1 --scope clarify --selection '{"branch":"<picked>"}' --decided-by
-<the answer's by>` after). With no run: a human invocation presents the same form in-pane only. A
-SPAWNED pane (the launch instruction said a surface spawned this pane --
-the same signal `run-start --spawned-by` is taken from; a board wrapper
-invocation counts as spawned per se) never presents a form here: nobody
-is watching the pane and no gate row reaches any surface. End this path
-instead with one error line the spawning surface can read (its own
-status or report channel when it has one, stderr otherwise) and stop.
-Never a guess.
+<the answer's by>` after). With no run: a human invocation presents the
+same form in-pane only. A SPAWNED pane (the launch instruction said a
+surface spawned this pane -- the same signal `run-start --spawned-by`
+is taken from; a board wrapper invocation counts as spawned per se)
+never presents a form here: nobody is watching the pane and no gate row
+reaches any surface. End this path instead with one error line the
+spawning surface can read (its own status or report channel when it has
+one, stderr otherwise) and stop. Never a guess.
 
 ## 2. Acquire the worktree
 
