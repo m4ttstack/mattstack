@@ -29,12 +29,23 @@ tree, hands conflicts back to a human, and never pushes unasked.
 Check these before anything mutates, and report before touching history:
 
 - **Clean tree.** `git -C <worktree> status --porcelain` must be empty.
-  Dirty: one sentence listing the uncommitted paths, then the
-  structured-question tool with **I committed them, retry** / **Abort**;
-  **Hold** (under a run, scope `clarify`, recorded with `--selection
-  '{"tree":"retry|abort"}' --decided-by rebase-worktree`). Never `git
-  stash` and proceed: moving someone's uncommitted work is not this
-  skill's call. The STOP table under the push gate binds this form too.
+  Dirty: one sentence listing the uncommitted paths, then, when
+  `RT_RUN_DB` is set, `rt runs field set gate clarify --stage
+  <run.current_stage>` and run gate-protocol's Runs integration with
+  kind `clarify` and these questions: **I committed them, retry** /
+  **Abort**; **Hold**, recorded after with `rt runs decision record
+  --contract gate@1 --scope clarify --selection
+  '{"tree":"retry|abort"}' --decided-by <the answer's by>`. With no run:
+  a human invocation presents the same form in-pane only. A SPAWNED pane
+  (the launch instruction said a surface spawned this pane -- the same
+  signal `run-start --spawned-by` is taken from; a board wrapper
+  invocation counts as spawned per se) never presents a form here:
+  nobody is watching the pane and no gate row reaches any surface. End
+  this path instead with one error line the spawning surface can read
+  (its own status or report channel when it has one, stderr otherwise)
+  and stop. Never `git stash` and proceed: moving someone's uncommitted
+  work is not this skill's call. The STOP table under the push gate
+  binds this form too.
 - **Upstream set.** `git -C <worktree> status -sb` prints the branch line
   first; no `...origin/<branch>` tracking ref there means no upstream --
   stop and report, there's nothing to rebase onto.
