@@ -16,7 +16,9 @@ Open before anything that depends on the answer: `rt gate open --subject <s>
 --kind <k> --questions <json> [--meta <json>] [--agent <id>] [--pane <id>]
 [--nudge <spec>]`. Opening on a subject that already carries an open gate of
 the same kind supersedes the old one, so a relaunch after a crash is safe
-without a separate cleanup step. After open, branch on attendance below.
+without a separate cleanup step. Check ## Presentation first -- a herdr
+pane's form-vs-wait split overrides attendance -- then branch on attendance
+below for everything else.
 
 ## Attendance
 
@@ -63,8 +65,9 @@ named by `origin.paneId`.
 
 ## Unattended (spawned by a herd, a board launch, or any `--spawned-by` surface)
 
-1. No form. Block in `rt gate wait <id>`; the answer returns as the tool
-   result.
+1. Wait-presentation gates only (see ## Presentation -- a herdr pane under
+   the option cap gets a form instead, regardless of attendance): no form,
+   block in `rt gate wait <id>`; the answer returns as the tool result.
 2. `closed` means the decision site is abandoned: end that path cleanly per
    the verb's own policy. Never invent an answer for a closed gate.
 3. A human who opens the pane can interrupt the wait and answer
@@ -114,20 +117,30 @@ in the same call that uses them.
 2. **Bracket and publish.** Keep the run-record bracket, then open the
    gate. Guard first: an empty `$RUN_ID` must never reach `gate open` (an
    empty id mints a junk `run:` subject the daemon accepts) -- treat it as
-   the daemon-down fallback in step 6. Pick presentation per the
-   Presentation section, then stamp origin and context. Context is a
-   VERBATIM QUOTE of the material the decision is about (the task summary
-   from the brief, the plan section under decision, the failing check
-   output), never a freshly composed summary; measure it with
-   `LC_ALL=C wc -c` and omit `--context` when over 8192 bytes. Emit
+   the daemon-down fallback in step 6. Compute presentation with the
+   canonical snippet below -- form iff `$HERDR_ENV` is non-empty AND every
+   question's option list is 4 or fewer, else wait -- then stamp origin and
+   context. Context is a VERBATIM QUOTE of the material the decision is
+   about (the task summary from the brief, the plan section under decision,
+   the failing check output), never a freshly composed summary; measure it
+   with `LC_ALL=C wc -c` and omit `--context` when over 8192 bytes. Emit
    labeled options (`{"value": "...", "label": "..."}`) whenever a
    site's option values are not already human-readable; labels cap at 200
    UTF-8 bytes -- middle-truncate a long path, never alter the value.
 
    The open runs ONLY inside the non-empty branch; the empty branch stops
-   this recipe and takes step 6's fallback.
+   this recipe and takes step 6's fallback. The nudge is a real branch on
+   `$GATE_PRESENTATION`, never both comments on one unconditional call --
+   a wait-presentation open must genuinely omit `--nudge`.
 
    ```bash
+   QUESTIONS='<questions json>'
+   MAX_OPTS=$(printf '%s' "$QUESTIONS" | python3 -c 'import json,sys; qs=json.load(sys.stdin); print(max((len(q.get("options", [])) for q in qs), default=0))')
+   if [ -n "$HERDR_ENV" ] && [ "$MAX_OPTS" -le 4 ]; then
+     export GATE_PRESENTATION=form
+   else
+     export GATE_PRESENTATION=wait
+   fi
    rt runs field set gate <scope> --stage <stage>
    if [ -z "$RUN_ID" ]; then
      echo "gate site: no run id; not opening a run: gate. STOP: take step 6's fallback." >&2
@@ -142,11 +155,14 @@ if pane:
 print(json.dumps(o))
 EOF
 )
-     # form presentation (set GATE_PRESENTATION=form above): nudge this session
-     GATE=$(rt gate open --subject "run:$RUN_ID" --kind <scope> --questions '<questions json>' \
-       --context "$CONTEXT" --origin "$ORIGIN" \
-       --nudge "{\"session\":\"$CLAUDE_CODE_SESSION_ID\"}")
-     # wait presentation: same command WITHOUT --nudge
+     if [ "$GATE_PRESENTATION" = form ]; then
+       GATE=$(rt gate open --subject "run:$RUN_ID" --kind <scope> --questions "$QUESTIONS" \
+         --context "$CONTEXT" --origin "$ORIGIN" \
+         --nudge "{\"session\":\"$CLAUDE_CODE_SESSION_ID\"}")
+     else
+       GATE=$(rt gate open --subject "run:$RUN_ID" --kind <scope> --questions "$QUESTIONS" \
+         --context "$CONTEXT" --origin "$ORIGIN")
+     fi
      GATE_ID=$(printf '%s' "$GATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
    fi
    ```
@@ -221,7 +237,7 @@ EOF
 | Attended, form answered | `rt gate answer <id> --answers <json> --by pane` |
 | Attended, CAS rejected | Discard the form's answer, say who won, proceed on the recorded answer |
 | Attended, doorbell arrives mid-form | Let it queue; verify against the registry after the form resolves |
-| Unattended, waiting on the answer | `rt gate wait <id>`; act on the returned result |
-| Unattended, wait returns `closed` | End that path per the verb's own policy; never invent an answer |
+| Wait presentation, waiting on the answer | Set the `waiting-gate` marker, launch ONE background `rt gate wait <id>`, end the turn; act on the answer at re-invoke |
+| Wait presentation, wait returns `closed` | Clear the marker, end that path per the verb's own policy; never invent an answer |
 | Daemon unreachable | Form-only, no gate calls |
 | Hold or Iterate chosen | Handle in-pane; a re-ask opens a NEW gate |
