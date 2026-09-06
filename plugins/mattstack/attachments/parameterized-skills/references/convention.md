@@ -432,7 +432,11 @@ absent: `field get` returning `-` reads as not set, and the orchestrator's
 completeness check is "non-null and not `-`".
 
 Outside a run (`RT_RUN_DB` unset), the two `rt runs` lines are skipped and
-the form alone is the gate.
+the form alone is the gate -- for an ATTENDED invocation. A SPAWNED pane
+with no run never presents that form: nobody is watching it and no gate
+row reaches any surface, so it ends the path with one error line instead
+(see the forge parts' dirty-tree, conflict, push, and clarify gates for
+the exact wording).
 
 A verb that inherited a run (invoked from inside a stage) uses
 `run.current_stage` as its `--stage`, writes no `stage-done` and no

@@ -390,9 +390,11 @@ registry, never trust the push payload as an answer.
    pane -- drop silently.
 2. Present each matched gate's questions in the shepherd conversation
    exactly as today's relay: batch up to 4 together in one
-   AskUserQuestion call, options verbatim, the job's recommendation
-   first.
-3. Record the human's choice:
+   AskUserQuestion call, each option's `label` when it has one (else the
+   bare option string), the job's recommendation first.
+3. Record the human's choice, submitting each answer's `value` verbatim
+   -- never a rendered `label` (the daemon's strict membership checks
+   values only, per gate-protocol):
    ```bash
    rt gate answer <id> --answers '<json>' --by shepherd
    ```
