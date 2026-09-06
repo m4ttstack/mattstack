@@ -47,10 +47,11 @@ same signal as everywhere else in this file (`--spawned-by` /
 
 The nudge follows PRESENTATION, not attendance: every form-presentation
 open passes `--nudge` with this pane's own session id; a wait-presentation
-open never does (there, the wait or the doorbell push is the delivery).
-The daemon completes a remotely answered form by queueing the doorbell
-and then injecting a single Escape into the pane named by
-`origin.paneId`.
+open never does -- delivery there is the wait's own completion for a pane
+that takes it, or CAS-on-submit reconciliation for an attended non-herdr
+pane that takes the form despite the stamp. The daemon completes a
+remotely answered form by queueing the doorbell and then injecting a
+single Escape into the pane named by `origin.paneId`.
 
 ## Attended (a human's interactive session; default for a human-invoked verb)
 
@@ -72,9 +73,11 @@ and then injecting a single Escape into the pane named by
    signal -- it never carries or implies the answer, only "re-read the
    registry." A push for a gate already reconciled is discarded.
 
-## Unattended (spawned by a herd, a board launch, or any `--spawned-by`
-surface -- and, per ## Presentation, any herdr pane whose gate exceeded
-the option cap even when attended)
+## Unattended (spawned, or a herdr pane over the option cap)
+
+Spawned by a herd, a board launch, or any `--spawned-by` surface; per
+## Presentation, this also covers an attended herdr pane whose gate
+exceeded the option cap.
 
 1. Wait-presentation gates only (see ## Presentation -- a herdr pane under
    the option cap gets a form instead regardless of attendance, and an
