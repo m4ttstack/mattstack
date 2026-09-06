@@ -24,6 +24,23 @@ Attendance comes from the invocation context, never from asking: the
 spawning surface says so (`--spawned-by`), and a human-run verb defaults to
 attended.
 
+## Presentation
+
+Herdr panes are form-first: when `HERDR_ENV=1` and every question fits the
+native form tool's per-question option cap (4 options), the gate opens
+with `presentation: "form"` and the pane presents the form regardless of
+attendance -- a human can focus in from any surface and answer it, and an
+unattended pane blocks on its form harmlessly until some surface answers.
+Any question over the cap, or a spawned non-herdr pane, means
+`presentation: "wait"` (the idle wait below). A human-run non-herdr pane
+keeps the plain attended form path unchanged.
+
+The nudge follows PRESENTATION, not attendance: every form open passes
+`--nudge` with this pane's own session id; wait opens never do (there, the
+wait is the delivery). The daemon completes a remotely answered form by
+queueing the doorbell and then injecting a single Escape into the pane
+named by `origin.paneId`.
+
 ## Attended (a human's interactive session; default for a human-invoked verb)
 
 1. Present the normal in-pane structured form -- the in-pane experience does
@@ -94,41 +111,82 @@ in the same call that uses them.
    **Attendance rule:** unattended iff `SPAWNED_BY` is non-empty; attended
    otherwise. Every site uses this test and no other.
 
-2. **Bracket and publish.** Keep the run-record bracket, then open the gate.
-   Attended panes include a nudge so an external answer doorbells this
-   session; unattended panes need none (the wait is the delivery):
+2. **Bracket and publish.** Keep the run-record bracket, then open the
+   gate. Guard first: an empty `$RUN_ID` must never reach `gate open` (an
+   empty id mints a junk `run:` subject the daemon accepts) -- treat it as
+   the daemon-down fallback in step 6. Pick presentation per the
+   Presentation section, then stamp origin and context. Context is a
+   VERBATIM QUOTE of the material the decision is about (the task summary
+   from the brief, the plan section under decision, the failing check
+   output), never a freshly composed summary; measure it with
+   `LC_ALL=C wc -c` and omit `--context` when over 8192 bytes. Emit
+   labeled options (`{"value": "...", "label": "..."}`) whenever a
+   site's option values are not already human-readable; labels cap at 200
+   UTF-8 bytes -- middle-truncate a long path, never alter the value.
+
+   The open runs ONLY inside the non-empty branch; the empty branch stops
+   this recipe and takes step 6's fallback.
 
    ```bash
    rt runs field set gate <scope> --stage <stage>
-   if [ -z "$SPAWNED_BY" ]; then   # attended: nudge this session so an external answer doorbells it
+   if [ -z "$RUN_ID" ]; then
+     echo "gate site: no run id; not opening a run: gate. STOP: take step 6's fallback." >&2
+   else
+     ORIGIN=$(python3 - "$RUN_ID" <<'EOF'
+import json, os, sys
+o = {"runId": sys.argv[1], "worktree": os.getcwd(),
+     "presentation": os.environ.get("GATE_PRESENTATION", "wait")}
+pane = os.environ.get("HERDR_PANE_ID")
+if pane:
+    o["paneId"] = pane
+print(json.dumps(o))
+EOF
+)
+     # form presentation (set GATE_PRESENTATION=form above): nudge this session
      GATE=$(rt gate open --subject "run:$RUN_ID" --kind <scope> --questions '<questions json>' \
+       --context "$CONTEXT" --origin "$ORIGIN" \
        --nudge "{\"session\":\"$CLAUDE_CODE_SESSION_ID\"}")
-   else                            # unattended: no nudge; the wait is the delivery
-     GATE=$(rt gate open --subject "run:$RUN_ID" --kind <scope> --questions '<questions json>')
+     # wait presentation: same command WITHOUT --nudge
+     GATE_ID=$(printf '%s' "$GATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
    fi
-   GATE_ID=$(printf '%s' "$GATE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
    ```
 
-3. **Attended:** present the site's question as today's unchanged in-pane
-   form, then record the form's choice: `rt gate answer "$GATE_ID"
-   --answers '<json>' --by pane`. A CAS rejection means another surface
-   answered first -- say which answer won and proceed on the recorded one.
-   If the doorbell arrived while the form sat, the next step is the same
-   registry verify either way.
+3. **Form presentation:** present the site's question as the structured
+   in-pane form -- unchanged for a human-run non-herdr pane, and now the
+   form-first default for any herdr pane per the Presentation section
+   above. Render each option's `label` when it has one; submit the chosen
+   option's `value` verbatim. Record the form's choice: `rt gate answer
+   "$GATE_ID" --answers '<json>' --by pane`. A CAS rejection means another
+   surface answered first -- say which answer won and proceed on the
+   recorded one. If the doorbell arrived while the form sat, the next step
+   is the same registry verify either way.
 
-4. **Unattended:** block in a bounded wait and re-run on budget:
+   Doorbell priming: a message saying this gate was answered elsewhere is
+   a recognized signal whose ONLY action is a verifying registry read
+   (`rt gate wait "$GATE_ID" --timeout 2s`); it never carries or implies
+   the answer. If your pending form is dismissed under you, the queued
+   doorbell arrives as your next input -- verify and proceed on the
+   recorded answer.
+
+4. **Wait presentation:** record the marker, arm the wait, END THE TURN.
 
    ```bash
-   rt gate wait "$GATE_ID" --timeout 90s
+   rt runs field set waiting-gate "$GATE_ID" --stage <stage>
    ```
 
-   Exit 124 with `{"ok":true,"timedOut":true}` = no answer yet: run the
-   same command again; this loop IS the wait. Exit 0 prints
-   `{"ok":true,"status":"answered","row":{...}}` -- the answers are at
-   `row.answer.answers`, the deciding surface at `row.answer.by`.
-   `status:"closed"` or a `gate not found` failure is terminal: the
-   decision site was abandoned; end this path cleanly, never invent an
-   answer, never present a form.
+   Launch ONE background shell command (the shell tool's run-in-background
+   mode) running `rt gate wait "$GATE_ID"` -- the unbounded form loops
+   internally around the daemon clamp and survives daemon restarts, so it
+   exits only on answered or closed, printing
+   `{"ok":true,"status":"answered","row":{...}}` as its last stdout. Then
+   end the turn in one line: `holding at gate $GATE_ID`. The pane is idle
+   but armed: typed input lands instantly, and the wait's completion
+   re-invokes this pane with the answer as the tool result. On re-invoke,
+   clear the marker FIRST (`rt runs field set waiting-gate - --stage
+   <stage>`), then read the answers at `row.answer.answers` and the
+   deciding surface at `row.answer.by`. `status:"closed"` or a
+   `gate not found` failure is terminal: clear the marker, end this path
+   cleanly, never invent an answer, never present a form.
 
 5. **Record at execution time**, decider = the surface that answered:
 
