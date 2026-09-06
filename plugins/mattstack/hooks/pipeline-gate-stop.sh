@@ -73,7 +73,9 @@ if (fields.get("claude-session") or {}).get("value") != sid:
 last_start = max([int(s.get("started_at") or 0) for s in (d.get("stages") or [])] or [0])
 hold = fields.get("hold") or {}
 held = hold.get("value") not in (None, "", "-") and int(hold.get("at") or 0) > last_start
-print("%d|%s|%s|%s" % (int(run.get("started_at") or 0), run.get("id") or "?", run.get("current_stage") or "unknown", "held" if held else "open"))
+wg = fields.get("waiting-gate") or {}
+waiting = wg.get("value") not in (None, "", "-") and int(wg.get("at") or 0) > last_start
+print("%d|%s|%s|%s" % (int(run.get("started_at") or 0), run.get("id") or "?", run.get("current_stage") or "unknown", "held" if (held or waiting) else "open"))
 ' "$SESSION" 2>/dev/null)" || continue
   [ -n "$LINE" ] || continue
   if [ -z "$BEST" ] || [ "${LINE%%|*}" -gt "${BEST%%|*}" ]; then BEST="$LINE"; fi
@@ -88,6 +90,6 @@ REST="${BEST#*|}"; RUN_ID="${REST%%|*}"
 REST="${REST#*|}"; STAGE="${REST%%|*}"
 
 cat >&2 <<EOF
-Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Four exits: continue the stage; open the decision (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, then run gate-protocol's Runs integration with kind \`<scope>\`, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); or close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`). If the user asked you something mid-run, the answer is the sentence before the gate.
+Run \`$RUN_ID\` is \`running\` in stage \`$STAGE\`. A turn cannot end here in prose. Five exits: continue the stage; open the decision (\`rt runs field set gate <scope> --stage $STAGE\`, one sentence, then run gate-protocol's Runs integration with kind \`<scope>\`, stop); park it (\`rt runs field set hold "<why>" --stage $STAGE\`); close it (the close gate, then \`rt runs run-status --status done|failed|abandoned\`); or arm a gate wait (\`rt runs field set waiting-gate <gateId> --stage $STAGE\`, fire the background wait per gate-protocol, end the turn). If the user asked you something mid-run, the answer is the sentence before the gate.
 EOF
 exit 2
