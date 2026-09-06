@@ -64,6 +64,8 @@ The written purity rule and per-skill certification checklist for this repo
 | 2026-09-04 | mattstack:shepherdr | pure | pass | 5/5 (scenarios unchanged) | run-backed herd questions ride the gate registry (one subscription, worktree-key list-and-match, answers --by shepherd); herd scripts untouched; all 3 script suites green |
 | 2026-09-04 | (12 verb dirs: stage-plan, stage-provision, stage-evidence, stage-ship, stage-watch-ci, ship, watch-ci, work, self-review, sync-open-mrs, rebase-worktree, checkout) | pure | pass | n/a (site adoption) | v4 gate-site adoption: publish per gate-protocol Runs integration, questions verbatim, decided-by from the answer; certify 9-10/10 each at task review and release |
 | 2026-09-05 | mattstack:gate-protocol | pure | pass | n/a (hidden, include-reached) | W4 T16: origin/context stamping, presentation-keyed nudge (form vs wait, form-first on herdr panes), idle background wait with the waiting-gate marker set/clear, doorbell priming for form-first pipeline panes; bounded 90s poll loop retired; certify 10/10 |
+| 2026-09-05 | checkout | pure | pass | n/a (site adoption) | W4 T18: spawned no-run context guard -- a spawned pane with no armed run errors out visibly instead of presenting an unwatched form (gate clarify); certify 10/10 |
+| 2026-09-05 | rebase-worktree | pure | pass | n/a (site adoption) | W4 T18: spawned no-run context guard -- spawned panes with no armed run error out visibly instead of presenting unwatched forms (gates conflict:rebase-worktree and push); certify 10/10 |
 
 
 (Ledger rows are appended by the orchestrating session as each lane lands -- lanes themselves never edit this file.)
