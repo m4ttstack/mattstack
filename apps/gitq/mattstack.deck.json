@@ -9,5 +9,9 @@
     "start": "bun src/server/server.ts",
     "build": "bun run build:client",
     "deploy": "bun run build:client && deck restart gitq"
+  },
+  "bundle": {
+    "build": "bun install --frozen-lockfile && bun run build:binary",
+    "artifact": "dist/gitq"
   }
 }
