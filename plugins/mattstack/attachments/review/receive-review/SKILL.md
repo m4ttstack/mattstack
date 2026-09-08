@@ -186,34 +186,52 @@ the gate itself:
 
 - `rt runs field set gate respond-plan --stage <stage>`.
 - Run gate-protocol's Runs integration with kind `respond-plan` and these
-  questions -- one multi-select per thread GROUP (groups bound the form
-  cap; threads stay individually decidable because the option values carry
-  thread ids) plus one code-changes question:
+  questions: ONE single-select per unresolved thread, in verdict-table
+  order, plus one code-changes question. A thread question's id is
+  `thread-<n>` by 1-based position, its label the thread's `file:line`,
+  its options that thread's verb triple with the thread id VERBATIM in the
+  value and the bare verb in the label:
 
   ```json
   [
-    {"id": "threads-1", "label": "Threads 1-8: reply, fix, or skip each", "multi": true,
-     "options": ["reply:<threadId>", "fix:<threadId>", "skip:<threadId>", "... one triple per thread in the group, ids verbatim"]},
+    {"id": "thread-1", "label": "<file>:<line>", "multi": false,
+     "options": [{"value": "reply:<threadId>", "label": "reply"}, {"value": "fix:<threadId>", "label": "fix"}, {"value": "skip:<threadId>", "label": "skip"}]},
+    {"id": "thread-2", "label": "<file>:<line>", "multi": false,
+     "options": ["... the next thread's triple, its own id verbatim; one such question per thread"]},
     {"id": "code-changes", "label": "Approve the proposed code changes?", "multi": false,
-     "options": ["approve", "revise"]}
+     "options": ["approve", "revise", "skip"]}
   ]
   ```
 
-  More threads than one group's cap allows: repeat the `threads-N` question
-  per group. Chunk the in-pane form across those groups per gate-protocol's
-  Attended step 1, but submit exactly ONE `rt gate answer` after the LAST
-  chunk -- never one per chunk. Plus **Iterate here**; **Hold**.
-- Selecting `fix:<threadId>` implies that thread's reply; `skip:<threadId>`
-  means neither. Exactly one of the `reply` / `fix` / `skip` triple is
-  expected per thread -- a selection with none or more than one of the
-  triple for a thread is contradictory: re-ask it via a NEW gate (same
-  shape, noting the conflict), never re-answer the closed one and never
-  guess which was meant.
-- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{...as answered},"code-changes":"approve|revise"}' --decided-by <the answer's by>`.
+  One question per thread keeps every question at three options, under
+  the form cap, so a herdr pane gets `form` for any thread count; never
+  fold several threads into one multi-select. It also makes reply / fix /
+  skip mutually exclusive per thread by construction. The thread id lives
+  in the option VALUE, never in the question id: every consumer joins by
+  reading each `answers` key other than `code-changes`, unwrapping a
+  `{value, note}` object to its `value`, and splitting at the first `:`;
+  `thread-<n>` is a container, nothing keys on it.
+- In-pane form (gate-protocol's Attended step 1): the form tool takes at
+  most four questions per call, so ask the thread questions in order, up
+  to four per call, until every thread is asked. Then one last call:
+  `code-changes`, only when some thread answered `fix:` (otherwise submit
+  its sentinel `skip` unasked, the same hide rule the board and console
+  cards apply), plus a pane-only **Continue** / **Iterate here** / **Hold**
+  question. That pane-only question never reaches the registry, and
+  Iterate / Hold are never extra options on a thread or code-changes
+  question: a fourth and fifth option there would push it over the cap.
+  Continue: submit exactly ONE `rt gate answer` after that last call,
+  carrying every thread answer plus `code-changes`, never one per chunk.
+- `fix:<threadId>` implies that thread's reply; `skip:<threadId>` means
+  neither.
+- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{"<threadId>":"reply|fix|skip","...":"one entry per thread, keyed by the id read out of its answer value"},"code-changes":"approve|revise|skip"}' --decided-by <the answer's by>`.
 
 `code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
 their note -- never revised in this session, the bias HARD-GATE still
-applies.
+applies. `code-changes: skip` (the no-fix sentinel) implements nothing:
+straight to step 6 with the `reply:` threads' drafts. A thread answered
+`fix:` under `skip` stays unimplemented and has no finalized reply, so it
+is held out of step 6 rather than posted as a draft.
 
 ## 5. Implement approved fixes
 
