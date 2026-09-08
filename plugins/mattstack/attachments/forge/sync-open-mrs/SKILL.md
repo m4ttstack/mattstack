@@ -95,8 +95,10 @@ conflict stops only that branch -- `rebase-worktree` hands it back
 mid-rebase; record it in a needs-hands list and move on. A precondition
 refusal (dirty tree, no upstream) stops it too -- record it as skipped with
 the reason and move on; neither ever blocks the rest of the sweep.
-`rebase-worktree` also asks per branch whether to push after a clean rebase
--- defer that; step 4 makes the push call once for the whole batch.
+A branch `rebase-worktree` synced through `rt sync` comes back already
+pushed ("pushed by rt sync"); record it as pushed. A branch that took its
+manual path comes back with the push still to decide -- defer that; step
+4 makes the push call once for all of those.
 
 ## 4. Gate `push`, then watch CI
 
@@ -106,8 +108,8 @@ a branch unasked, never one-by-one as each rebase completes:
 
 - `rt runs field set gate push --stage sync-open-mrs`.
 - Run gate-protocol's Runs integration with kind `push` and these
-  questions: a multi-select of the clean branches to `git push
-  --force-with-lease`, all pre-selected; **Watch CI after pushing** (yes /
+  questions: a multi-select of the clean, still-unpushed branches to `git
+  push --force-with-lease`, all pre-selected; **Watch CI after pushing** (yes /
   no); **Iterate here**; **Hold**.
 - `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by <the answer's by>`.
 
