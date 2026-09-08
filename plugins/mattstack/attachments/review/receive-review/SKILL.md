@@ -208,8 +208,9 @@ the gate itself:
   fold several threads into one multi-select. It also makes reply / fix /
   skip mutually exclusive per thread by construction. The thread id lives
   in the option VALUE, never in the question id: every consumer joins by
-  reading each `answers` key other than `code-changes` and splitting the
-  value at its first `:`; `thread-<n>` is a container, nothing keys on it.
+  reading each `answers` key other than `code-changes`, unwrapping a
+  `{value, note}` object to its `value`, and splitting at the first `:`;
+  `thread-<n>` is a container, nothing keys on it.
 - In-pane form (gate-protocol's Attended step 1): the form tool takes at
   most four questions per call, so ask the thread questions in order, up
   to four per call, until every thread is asked. Then one last call:
