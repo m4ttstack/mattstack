@@ -8,6 +8,7 @@ allowed-tools:
   - Bash(git -C * log:*)
   - Bash(git -C * rebase:*)
   - Bash(git -C * symbolic-ref:*)
+  - Bash(rt sync:*)
   - Bash(glab mr list:*)
   - Bash(gh pr list:*)
   - Bash(glab mr view:*)
@@ -20,9 +21,10 @@ slots: {}
 
 # rebase-worktree
 
-Bring one worktree's branch current with the default branch: fetch, show
-what will replay, then rebase. This never guesses -- it refuses on a dirty
-tree, hands conflicts back to a human, and never pushes unasked.
+Bring one worktree's branch current with the default branch: `rt sync`
+first, the manual fetch-and-rebase only where rt sync did not run. This
+never guesses -- it refuses on a dirty tree, refuses a stack member, and
+hands conflicts back to a human.
 
 ## Preconditions
 
@@ -53,6 +55,40 @@ Check these before anything mutates, and report before touching history:
   refs/remotes/origin/HEAD`; if that's unset, fall back to the forge
   CLI's repo view (`glab repo view` / `gh repo view`). Never hardcode a
   branch name.
+
+## Fast path: rt sync
+
+With the preconditions clean, one call does the fetch, the stack check,
+the rebase, and the push, and says why when it will not. Note the head,
+then run it with the worktree as the working directory:
+
+```
+git -C <worktree> log -1 --oneline
+cd <worktree> && rt sync --json
+```
+
+`rt` not on PATH: go to **Manual path**. Otherwise the exit code decides,
+and nothing else does:
+
+| exit | stdout | next |
+|---|---|---|
+| 0 | nothing | Synced: rt sync rebased (or found the branch current) and pushed with force-with-lease. Report the move as in **After a clean rebase**; the push already happened, so no push gate. |
+| 3 | a `rebase-conflict` bundle (`unresolvedFiles`, `backupBranch`, `state: mid-rebase`) | The rebase is paused in the worktree. Go to **On conflict** with `unresolvedFiles` as the files. |
+| 4, `kind: stack-refusal` | `stack` or `mrs`, `tool`, `hint` | REFUSE: say the `hint`, name the `tool` to run. The run ends here; the restack belongs to the stack tool. |
+| 4, `kind: stack-check-unavailable` | `hint` | The stack could not be verified either way. Run **Manual path** from its Stack guards; if those commands fail for the same reason, stop and report both failures. Never rebase an unverified branch. |
+| other | one line on stderr | Report the line, then **Manual path**. |
+
+| Thought | Reality |
+|---|---|
+| "Exit 4, but I can see the MR targets the default branch, so I'll rebase by hand" | `stack-refusal` is the guard's verdict, not a hint. Only `stack-check-unavailable` opens the manual path, and only through its own guards. |
+| "Exit 0, so now the push gate" | rt sync already pushed; that is the fast path's contract. A push form for a push that happened is a false choice. Report it as pushed. |
+| "The check could not run, so the safe move is to stop and ask" | The manual guards are the same check by other means. Run them; stop only when they fail too. |
+
+## Manual path
+
+For a machine without `rt`, an rt sync that ended with `stack-check-unavailable`,
+or any other non-zero exit: both guards, then the rebase, then the gates
+below.
 
 ## Stack guards
 
@@ -93,9 +129,10 @@ replay, not just what replayed.
 
 ## On conflict: gate `conflict`
 
-If `rebase` reports a conflict, stop immediately. One sentence listing the
-conflicted files (`git -C <worktree> status --porcelain`, the `UU` and
-similar rows). When a caller is composing this as a per-branch step, hand
+If the rebase reports a conflict (rt sync exit 3, or `git rebase` on the
+manual path), stop immediately. One sentence listing the conflicted files
+(the bundle's `unresolvedFiles`, or `git -C <worktree> status --porcelain`,
+the `UU` and similar rows). When a caller is composing this as a per-branch step, hand
 back to it with that sentence; it owns the sweep's gates. Otherwise the
 gate:
 
@@ -123,9 +160,14 @@ Report the move as old head -> new head: note the branch's
 `git -C <worktree> log -1 --oneline` before the fetch, then run the same
 command again once the rebase finishes, and show both.
 
-Pushing is a separate decision, gate `push`. When a caller is composing
-this as a per-branch step, hand back the old head -> new head line and let
-it gate the batch. Otherwise:
+On the fast path the line ends with "pushed by rt sync": the push is
+done, and this section is finished. When a caller is composing this as a
+per-branch step, hand that line back; it has nothing to gate for this
+branch.
+
+On the manual path pushing is a separate decision, gate `push`. When a
+caller is composing this as a per-branch step, hand back the old head ->
+new head line and let it gate the batch. Otherwise:
 
 - When `RT_RUN_DB` is set: `rt runs field set gate push --stage <run.current_stage>`.
 - The sentence is the old head -> new head line above; nothing else
