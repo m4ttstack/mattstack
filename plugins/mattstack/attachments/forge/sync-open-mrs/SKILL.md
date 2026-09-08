@@ -103,8 +103,9 @@ manual path comes back with the push still to decide -- defer that; step
 ## 4. Gate `push`, then watch CI
 
 Once the rebase pass finishes, one sentence: which branches rebased clean
-(old head -> new head each). Then the gate, once for the batch; never push
-a branch unasked, never one-by-one as each rebase completes:
+(old head -> new head each, "pushed by rt sync" where that happened). Then
+the gate, once for the batch of still-unpushed branches; never push one of
+those unasked, never one-by-one as each rebase completes:
 
 - `rt runs field set gate push --stage sync-open-mrs`.
 - Run gate-protocol's Runs integration with kind `push` and these
