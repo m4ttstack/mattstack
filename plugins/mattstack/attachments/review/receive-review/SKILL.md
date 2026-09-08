@@ -228,7 +228,9 @@ the gate itself:
 `code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
 their note -- never revised in this session, the bias HARD-GATE still
 applies. `code-changes: skip` (the no-fix sentinel) implements nothing:
-straight to step 6 with the `reply:` threads' drafts.
+straight to step 6 with the `reply:` threads' drafts. A thread answered
+`fix:` under `skip` stays unimplemented and has no finalized reply, so it
+is held out of step 6 rather than posted as a draft.
 
 ## 5. Implement approved fixes
 
