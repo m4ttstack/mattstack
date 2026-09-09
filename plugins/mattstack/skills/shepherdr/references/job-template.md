@@ -50,7 +50,15 @@ answer that did not arrive through `rt herd answer` does not exist. Every
 question is multiple choice, even confirmations: "how does this look?"
 becomes options "Approve, proceed", "Approve with changes (describe)",
 "Walk me through <section> first". The first option is always your
-recommendation. If the command fails, stop and wait.
+recommendation. Your reply opens with the command itself: `rt herd ask`,
+its `--questions` JSON filled in, its `--context` filled in, exactly as
+written above, and nothing before it -- not a sentence about whether it
+worked, not a summary of the decision, the command's text first. Only
+after that line may you say whether it succeeded or failed. If it failed,
+stop and wait exactly as written: no invented reason (an unset variable, a
+missing script, a daemon version), no asking the user to just answer
+directly instead, no proceeding on your own judgment -- nothing further
+until the answer arrives through `rt herd answer`.
 
 ## Publishing a milestone
 When your Method stops at a milestone (a spec or a plan is ready for
