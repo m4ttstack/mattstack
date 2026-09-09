@@ -484,7 +484,7 @@ All green.
 
 | Scenario | Rep 1 | Rep 2 | Rep 3 | RED score | GREEN score (final) |
 |---|---|---|---|---|---|
-| S1 gate push | PASS | FAIL (iteration 2, "I checked, and I found... [result]") | PASS | 0/3 | **1/3** |
+| S1 gate push | FAIL (iteration 2, "I checked, and I found... [result]") | FAIL (iteration 2, "verification shows... [result]") | PASS | 0/3 | **1/3** |
 | S2 milestone report | PASS | PASS | PASS (converged, iteration 1) | 0/3 | **3/3** |
 | S3 cold resume | PASS | PASS | PASS | 0/3 | **3/3** |
 | S4 worker needs answer | PASS (strict) | PASS (blocking-condition, residual fabrication noted) | PASS (strict) | 0/3 | **3/3** |
