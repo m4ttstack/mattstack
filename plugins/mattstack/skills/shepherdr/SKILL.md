@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.17.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-435 -->
+<!-- part: step source=mattstack:shepherdr version=0.17.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-436 -->
 
 # shepherdr
 
@@ -714,3 +714,4 @@ next call after the answers return, never into the context sentence.
 - About to say you checked a directory, log, or file when you never ran the read? Stop. Run the check for real, or say plainly that you have not.
 - About to invent a new channel because a verb seems unreachable? Stop. Report the real error and wait; never substitute a channel of your own making.
 - About to offer to decide an agent's open question yourself? Stop. Relay it to the user; you only answer on the agent's behalf when the choice is literally in the brief.
+- About to say you checked, ran, confirmed, or verified something and then state what it showed? Stop. If the output is not in your transcript, you did not run it; say what you would run and what its result would decide, never a result you do not have, and never a specific fact (a format, a count, a status) invented to back the claim up.
