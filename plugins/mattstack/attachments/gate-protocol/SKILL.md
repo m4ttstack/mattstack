@@ -51,7 +51,12 @@ open never does -- delivery there is the wait's own completion for a pane
 that takes it, or CAS-on-submit reconciliation for an attended non-herdr
 pane that takes the form despite the stamp. The daemon completes a
 remotely answered form by queueing the doorbell and then injecting a
-single Escape into the pane named by `origin.paneId`.
+single Escape into the pane named by `origin.paneId`, falling back to the
+top-level `--pane` value when the origin carries no paneId. A
+form-presentation open that names no injectable pane (`origin.paneId` or
+`--pane`), or that omits `--nudge`, is rejected at `gate open` rather than
+opened as a gate no other surface can ever unblock; a rejection there is
+handled exactly like any other failed open (step 6 below).
 
 ## Attended (a human's interactive session; default for a human-invoked verb)
 
@@ -257,9 +262,10 @@ EOF
    (`--decided-by` is `pane`, `board`, `console`, or `shepherd` -- never a
    verb name.)
 
-6. **Daemon down** (gate open fails): attended sites fall back to the
-   unchanged in-pane form alone, recording `--decided-by pane`; unattended
-   sites fail the stage rather than presenting a form.
+6. **Daemon down** (gate open fails, a rejected form-presentation open
+   included): attended sites fall back to the unchanged in-pane form
+   alone, recording `--decided-by pane`; unattended sites fail the stage
+   rather than presenting a form.
 
 ## Red flags
 
