@@ -201,11 +201,11 @@ clarification even when it is present in the same document.
 
 ### Point 1 summary
 
-**0/5 at every one of 7 wordings tested (round 0 plus 6 iterations, 20 reps
-total).** Every rep independently and consistently names `rt herd list` (or
-`rt herd list` paired with `rt gate list`) as its first action, never `rt
-herd gates`, regardless of how the "what arrives, and what you do" section is
-worded. See Self-review below for why I stopped iterating and what I believe
+**0/5 at every one of 7 wordings tested (round 0 plus 6 iterations, 23 reps
+total: 3 formal 5-rep rounds plus 4 two-rep screens).** Every rep
+independently and consistently names `rt herd list` (or `rt herd list`
+paired with `rt gate list`) as its first action, never `rt herd gates`,
+regardless of how the "what arrives, and what you do" section is worded. See Self-review below for why I stopped iterating and what I believe
 the actual fix requires.
 
 ---
@@ -334,10 +334,11 @@ All green.
 
 ## Self-review findings / concerns
 
-1. **Point 1 (shepherd shaping) never converged.** 7 wordings, 20 reps, 0
-   passes throughout. Every rep names `rt herd list` (sometimes paired with
-   `rt gate list`) as its first action, never `rt herd gates`, regardless of
-   how directly "what arrives, and what you do" forbids it. I read this as a
+1. **Point 1 (shepherd shaping) never converged.** 7 wordings, 23 reps (3
+   formal 5-rep rounds plus 4 two-rep screens), 0 passes throughout. Every
+   rep names `rt herd list` (sometimes paired with `rt gate list`) as its
+   first action, never `rt herd gates`, regardless of how directly "what
+   arrives, and what you do" forbids it. I read this as a
    genuine limit of what a wording change confined to that one section can
    do, for two compounding reasons:
    - The "prerequisites" section (out of this task's edit scope) sits near

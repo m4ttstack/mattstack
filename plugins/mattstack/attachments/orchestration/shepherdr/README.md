@@ -94,9 +94,11 @@ looked exactly like a corrupted terminal.
 
 **headless panes are born 53x23.** the server sizes panes for a client
 that never attached. a claude TUI at that size is unusable and every
-`pane read` comes back hard-wrapped. spawn fixes it with a one-shot
-`terminal session control --takeover --cols/--rows`, which resizes the
-pane in about 0.2s and the size persists after the controller detaches.
+`pane read` comes back hard-wrapped. `spawn-agent.sh` used to fix it with
+a one-shot `terminal session control --takeover --cols/--rows`, which
+resized the pane in about 0.2s and the size persisted after the
+controller detached. if hidden panes come up tiny under `rt herd spawn`,
+that is the fix to reapply.
 
 **panes cannot move between sessions.** separate server processes. there
 is no "pull this agent into my UI", only `rt herd attend` streaming it into

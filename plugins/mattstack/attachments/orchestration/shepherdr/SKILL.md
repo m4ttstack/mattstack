@@ -252,8 +252,8 @@ strategy and model question, `<effort>` from the session default when
 overridden, `--account` from the bound accounts skill when the herd is
 account-distributed. The verb provisions the tree, launches claude with the
 brief, signs the worker into the room, accepts the fresh-worktree trust
-dialog, and records the job. A cold provision (`wasOnDeck: false` in the
-output) can take minutes; tell the user it is provisioning. Stagger 4+
+dialog, and records the job. A cold provision, when no on-deck tree is
+ready, can take minutes; tell the user it is provisioning. Stagger 4+
 spawns: spawn one, confirm it returned, spawn the next.
 
 Any error from the verb is reported to the user; never hand-roll a tree,
