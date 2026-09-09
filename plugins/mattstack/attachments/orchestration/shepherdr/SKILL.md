@@ -54,7 +54,7 @@ offer `rt herd stop --hidden`; never run it unprompted.
 
 **Execution job** -- fully specified up front. Brief in, report out, zero questions expected. Use when the work is known: a plan exists, findings are verified, the refactor is scoped.
 
-**Design job** -- questions are expected during the run: method choices, artifact gates, and mid-run touchpoints all flow through the question contract below. N design jobs = N parallel brainstorms; the user answers one agent's question while the others think.
+**Design job** -- questions are expected during the run: method choices, milestone gates, and mid-run touchpoints all flow through what arrives, and what you do and milestone gates (design jobs) below. N design jobs = N parallel brainstorms; the user answers one agent's question while the others think.
 
 If work arrives unscoped and the user wants it scoped before fan-out, brainstorm with them directly yourself (no pane, no relay), then spawn execution jobs from the result.
 
@@ -220,7 +220,7 @@ Decompose into independent jobs. Good decomposition:
 
 Write each brief to the scratchpad, one file per job, using the two-copy assembly above.
 
-**Single-job case:** if decomposition yields exactly one job, push back: tell the user "this is probably not the right skill for this" and do the work yourself, here in the main pane. Never spawn a single pane -- one agent behind a relay is pure overhead. Still create the worktree (`~/.mattstack/shepherdr/worktrees/<repo>/<job>/`, same creation steps) so the work stays isolated from the user's checkout. The delegator rules above don't apply -- work hands-on as normal. A bound domain part may name the one legitimate single-worker exception; apply it.
+**Single-job case:** if decomposition yields exactly one job, push back: tell the user "this is probably not the right skill for this" and do the work yourself, here in the main pane. Never spawn a single pane -- one agent behind a relay is pure overhead. Still create the worktree (`rt worktree provision --repo <repo> --branch <job> --disposal job`) so the work stays isolated from the user's checkout. The delegator rules above don't apply -- work hands-on as normal. A bound domain part may name the one legitimate single-worker exception; apply it.
 
 ## step 2: spawn
 
@@ -393,7 +393,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 
 ## red flags -- stop yourself
 
-- About to read a pane "to see how it's going"? Stop. The wait will tell you.
+- About to read a pane "to see how it's going"? Stop. The gates and the room will tell you.
 - About to read a spec "just to check it"? Stop. Doorbell the user or spawn a reviewer.
 - About to fix a test or merge a branch yourself? Stop. That is an integration job.
 - About to summarize an agent's question in your own words? Stop. Relay verbatim.
@@ -401,6 +401,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 - Spawning Opus for a fully-specified execution job? That's overspending. Sonnet handles mechanical work.
 - About to ask the account question before models are chosen? Stop. Some providers budget per-model pools separately; model-blind headroom is misleading.
 - About to pick a strategy or model per job without asking? Stop. The bound skills give you the recommendation; the choice is the user's -- a bound domain part may pin the strategy half or set a floor (see the model-floor hook), and only the half still open is asked.
+- About to compose method prose for a brief instead of copying a strategy body? Stop. The body is the contract; copy it verbatim and fill its slots -- unless a bound domain part supplies the `## Method` block (see the Method-copy hook).
 - About to restate the scope change as a heading and add a sentence explaining each option on the mid-flight form? Stop. One sentence naming the running agents, then the bare three options the text names -- no restated heading, no per-option description.
 - About to run a background wait, a watcher, or a sweep? Stop. The daemon pushes; nothing arms.
 - About to answer a gate from the push's text? Stop. It carries only an id; `rt herd gates` is the question.
