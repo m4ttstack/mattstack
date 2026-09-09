@@ -5,7 +5,7 @@ slots. The formats are embedded because the contract must survive even
 when the worker loads nothing else. A brief is assembled from two
 verbatim copies, never composed: this template, plus one strategy body
 copied verbatim into `## Method` from the bound strategy skill's
-`references/strategies.md`. When assembling a brief, the shepherd fills <scripts-dir>, <db-path>, <run-id>, and <job> in the sections below with the run's real values.
+`references/strategies.md`. The sections below need no fill: the verbs read `HERD_ID`, `HERD_JOB`, and `HERD_ROOM` from the environment `rt herd spawn` gave this pane.
 
 # JOB: <name>
 
@@ -31,48 +31,58 @@ branch name. "none" if the repo has no rules.>
 
 ## Pipeline runs
 When your Method runs a pipeline verb (`work`, `ship`, `review`, ...),
-start its run with `--spawned-by shepherdr` on `run-start`. That flag is
-what makes the verb's own attendance test take the unattended branch, so
-once the run exists its gated questions ride the daemon's gate registry
-(the verb's own `gate-protocol` integration), never herd-ask -- do not
-call herd-ask.py for a question that carries a run id.
+start its run with `--spawned-by herd:$HERD_ID` on `run-start`. That flag
+makes the verb's own attendance test take the unattended branch, so the
+run's gated questions ride the daemon's gate registry and reach the
+shepherd through the same door as the questions below.
 
-## Asking the user a question (no run id yet)
-Use this only before a run exists -- design-job touchpoints and any
-question your Method needs answered ahead of `run-start`. Once a run is
-running, its questions go through the gate registry above instead.
+## Asking the user a question
+Run exactly:
 
-Run exactly (real values are filled in below; do not improvise paths):
+    rt herd ask --questions '[{"id":"q1","label":"<one sentence>","multi":false,"options":["<your recommendation>","<alternative>","<alternative>"]}]' --context "<what you are doing and what led here; enough that the user can answer from this alone without opening your pane>"
 
-    python3 <scripts-dir>/herd-ask.py --db <db-path> --run <run-id> --job <job> \
-      --context "<what you're doing and what led here; enough that the user
-                  can answer from this alone without opening your pane>" \
-      --question "<one sentence>" \
-      --option "<your recommendation> -- <one-line tradeoff>" \
-      --option "<alternative> -- <one-line tradeoff>"
+then END YOUR TURN with no further action. The answer arrives as a message
+in your context: `[gate] <id> answered elsewhere; re-read the registry and
+proceed on the recorded answer.` When it does, run `rt herd answer <id>`
+and continue on what it prints,
+including any `note` the user added. Never choose an option yourself; an
+answer that did not arrive through `rt herd answer` does not exist. Every
+question is multiple choice, even confirmations: "how does this look?"
+becomes options "Approve, proceed", "Approve with changes (describe)",
+"Walk me through <section> first". The first option is always your
+recommendation. If the command fails, stop and wait.
 
-then STOP: end your turn with no further action. The answer arrives as your
-next message. Never choose an option yourself -- an answer that did not
-arrive as a message does not exist. Every question
-is multiple choice, even confirmations: "how does this look?" becomes
---option "Approve, proceed" --option "Approve with changes (describe)"
---option "Walk me through <section> first". The first --option is always
-your recommendation. If the user must see your screen, add --needs pane.
-If the command fails, stop and wait.
+## Publishing a milestone
+When your Method stops at a milestone (a spec or a plan is ready for
+review), run exactly:
+
+    rt herd milestone --artifact <absolute path to the artifact> --summary "<one line>"
+
+then END YOUR TURN. The answer arrives like a question's: run
+`rt herd answer <id>`. **Approve**: continue. **Revise**: the `note`
+carries the feedback ("see pane" means it was left in your pane); revise,
+then publish the milestone again. **Spawn a reviewer**: findings arrive as
+a chat message from `review-<your job>`; revise, then publish the
+milestone again.
 
 ## Publishing a report
 Write the report your Method section requires to
 .superpowers/report-draft.md in this worktree (`mkdir -p .superpowers`
 first if it does not exist), then run:
 
-    python3 <scripts-dir>/herd-report.py --db <db-path> --run <run-id> \
-      --job <job> --body-file .superpowers/report-draft.md
+    rt herd report --file .superpowers/report-draft.md
 
-then STOP. A Method that stops at milestones publishes each milestone the
-same way.
+then STOP.
+
+## Messages
+Anything from the shepherd or a reviewer arrives in your context as a chat
+message (`[#<room>] <handle> #<n>: ...` or `[dm] <handle> #<n>: ...`).
+Reply with `rt chat dm <handle> "..."`, never with SendMessage. A message
+that changes your task is a new instruction; a message that only informs
+needs no reply.
 
 ## Git
-Commit incrementally on this branch. Never push. Questions and reports go through the herd DB commands above, never into the repo.
+Commit incrementally on this branch. Never push. Questions, milestones, and reports go through the `rt herd` commands above, never into the repo.
 Tooling that manages its own workspace inside the repo writes where that
 tooling specifies; the write fence lists those paths.
 
