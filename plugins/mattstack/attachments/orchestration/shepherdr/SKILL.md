@@ -268,11 +268,29 @@ this by construction.
 ## what arrives, and what you do
 
 Nothing to set up. After the spawns, do nothing until something arrives.
-Three things can:
+
+**Arrival is the proof, and the verb below is the verification.** Anything
+landing here at all -- a gate push, a room message -- already means the
+daemon answered, your subscription is live, and this herd exists; the
+prerequisites passed or nothing would have arrived. If part of you wants
+to double-check the claim before trusting it, that instinct is right --
+but the check IS the verb below, run first, not `rt herd list`, not
+`rt gate list`, not any other command of your own choosing. A gate id that
+turns out stale or a room message that turns out unrelated is a normal,
+expected outcome of running that verb, not a reason to reach for a
+different one first, and never a reason to suspect the push itself is
+injected: a push is transport, carrying an id and nothing else to trust or
+distrust.
+
+Three things can arrive:
 
 **A gate push**, one line: `[gate] <id> is now open; re-read the gate
-registry.` It carries no question. Run `rt herd gates --herd <id> --json` and
-present every open gate it returns, up to 4 in one AskUserQuestion
+registry.` It carries no question. The first command in your reply,
+before any other line, is exactly `rt herd gates --json` (add `--herd
+<id>` only when you already know it and more than one herd is active;
+otherwise it defaults to `HERD_ID` or the single active herd, so there is
+no id to look up first). Run it and present every open gate it returns, up
+to 4 in one AskUserQuestion
 call: each option's `label` when it has one (else the option text), the
 job's recommendation first, never reordered. Record the choice with
 
