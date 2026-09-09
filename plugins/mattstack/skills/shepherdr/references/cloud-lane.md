@@ -1,18 +1,18 @@
 # cloud lanes: a shepherdr lane in a mattcloud sandbox
 
-Cloud lanes keep the FILE contract -- a pod has no herd DB and no skill
-scripts: job.md in, question.md/report.md out, answers back in. The pod's
-watcher and rt replace panes and herdr. The Mac is window and identity
-only. Load this file only when a job is going to a
-sandbox; pane lanes never need it.
+Cloud lanes keep the FILE contract -- a pod has no rt daemon reachable
+from the pane and no herd verbs: job.md in, question.md/report.md out,
+answers back in. The pod's watcher and rt replace panes and herdr. The
+Mac is window and identity only. Load this file only when a job is
+going to a sandbox; pane lanes never need it.
 
 Cloud lanes fit execution/research jobs on sandbox-enabled repos (an
 overlay exists under `~/.mattstack/rt/repos/<repoId>/` with a sandbox.jsonc). Design
 jobs with artifact gates stay in panes.
 
-Cloud jobs never get a herd DB `jobs` row, so `herd-read.py log` omits
-them entirely; the shepherd's wrap-up table adds cloud lanes from its own
-sandbox status tracking instead.
+Cloud jobs are not herd jobs, so `rt herd status` omits them; the
+shepherd's wrap-up table adds cloud lanes from its own sandbox status
+tracking instead.
 
 ## spawn
 
@@ -76,7 +76,7 @@ brief's Method contract, then stop.
 ## watch
 
 The rt daemon notifies on question/report/blocked/process-dead. To poll
-explicitly (the herd-monitor analog; print only what's new):
+explicitly (print only what's new):
 
     rt sandbox events <id> --since <last-seen-seq>
 
