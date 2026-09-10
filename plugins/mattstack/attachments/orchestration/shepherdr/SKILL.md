@@ -43,12 +43,17 @@ jobs. If none of those apply, say so and dispatch subagents instead.
 
 When the user asks for the herd to stay out of sight ("invisible",
 "background", "headless", "don't clutter my UI"), pass `--hidden` to
-`rt herd start`. Every worker pane then lives on a headless herdr server the
-daemon starts and targets for you; nothing else in this skill changes. To
+`rt herd start`. Every worker pane then lives on the daemon's shared
+background herdr server (session `bg`); the generic pane verbs address its
+panes as `bg:<pane>` refs, exactly as herd surfaces print them. Nothing
+else in this skill changes. To
 put one worker in front of the user, `rt herd attend <job> --herd <id>`
 opens a focused tab in the visible session attached to that pane (the user
 detaches with `ctrl+b q`; close the tab it printed afterwards). At wrap-up,
-offer `rt herd stop --hidden`; never run it unprompted.
+offer `rt herd stop --hidden`; never run it unprompted. The background
+server is shared: the stop refuses while ANY background claim is live
+(another herd, a runner board, an `agent --bg` pane), naming the owners --
+report the refusal, never work around it.
 
 ## job types
 
