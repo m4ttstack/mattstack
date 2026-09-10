@@ -415,6 +415,62 @@ async function rewrittenParentHead(
 }
 
 /**
+ * Resolve the most precise oldBase for replaying `node` onto its parent.
+ *
+ * Every candidate is an ancestor of the child, so the deepest one (the
+ * smallest replay range) is the true fork point: a stored forkPoint from the
+ * last gitq restack, a merge-base against the parent's pre-cascade head, a
+ * merge-base against a head recovered from `lastKnownHead`, or a plain
+ * merge-base against the live parent. A candidate that falls back too far
+ * sweeps the parent's own commits into the child's range, which is exactly
+ * what picking the smallest range avoids.
+ */
+async function resolveBestOldBase(
+  cwd: string,
+  node: StackNode,
+  parentRef: string,
+  preRebaseHeads: Record<string, string>,
+  parentNode?: StackNode,
+): Promise<string | null> {
+  const candidates = new Set<string>();
+
+  if (
+    node.forkPoint &&
+    (await validateTombstone(cwd, node.forkPoint)) &&
+    (await GitShell.isAncestor(cwd, node.forkPoint, node.branch).catch(() => false))
+  ) {
+    candidates.add(node.forkPoint);
+  }
+
+  const oldParentHead =
+    preRebaseHeads[node.parent] ??
+    (parentNode ? await rewrittenParentHead(cwd, parentNode, node.branch) : undefined);
+  if (oldParentHead) {
+    try {
+      candidates.add(await GitShell.getMergeBase(cwd, node.branch, oldParentHead));
+    } catch { /* candidate unavailable */ }
+  }
+  try {
+    candidates.add(await GitShell.getMergeBase(cwd, node.branch, parentRef));
+  } catch { /* candidate unavailable */ }
+
+  const ordered = [...candidates];
+  if (ordered.length === 0) return null;
+  if (ordered.length === 1) return ordered[0] ?? null;
+
+  let best = ordered[0] ?? null;
+  let bestCount = Number.POSITIVE_INFINITY;
+  for (const candidate of ordered) {
+    const count = await GitShell.revListCount(cwd, candidate, node.branch).catch(() => null);
+    if (count !== null && count < bestCount) {
+      bestCount = count;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/**
  * Old-base + parent-ref resolvers for merge-base style cascades (sync,
  * restack, and their resumes).
  *
@@ -456,13 +512,8 @@ function makeCascadeResolvers(
 
       const parentRef = resolveParentRef(node);
       const parentHead = await GitShell.getBranchHead(cwd, parentRef);
-      const oldParentHead = parentNode
-        ? (preRebaseHeads[node.parent] ??
-          (await rewrittenParentHead(cwd, parentNode, node.branch)))
-        : undefined;
-      const oldBase = oldParentHead
-        ? await GitShell.getMergeBase(cwd, node.branch, oldParentHead)
-        : await GitShell.getMergeBase(cwd, node.branch, parentRef);
+      const oldBase = await resolveBestOldBase(cwd, node, parentRef, preRebaseHeads, parentNode);
+      if (oldBase === null) return { kind: 'skip' };
       if (oldBase === parentHead) return { kind: 'skip' };
       return { kind: 'rebase', oldBase };
     } catch {
@@ -579,9 +630,12 @@ async function doCascadeLoop(
       // it, so it is the moment to catch the record up.
       try {
         const liveHead = await GitShell.getBranchHead(cwd, node.branch);
-        if (liveHead && liveHead !== node.lastKnownHead) {
+        const liveFork = await GitShell.getMergeBase(cwd, node.branch, resolveNewBase(node))
+          .catch(() => node.forkPoint);
+        if (liveHead && (liveHead !== node.lastKnownHead || liveFork !== node.forkPoint)) {
           updatedStack = StackManager.updateNode(updatedStack, node.branch, {
             lastKnownHead: liveHead,
+            forkPoint: liveFork,
           });
         }
       } catch {
@@ -911,8 +965,11 @@ async function doCascadeLoop(
 
     try {
       const newHead = await GitShell.getBranchHead(cwd, node.branch);
+      const newFork = await GitShell.getMergeBase(cwd, node.branch, targetBase)
+        .catch(() => node.forkPoint);
       updatedStack = StackManager.updateNode(updatedStack, node.branch, {
         lastKnownHead: newHead,
+        forkPoint: newFork,
       });
       rebasedBranches.push(node.branch);
     } catch {
@@ -1182,8 +1239,14 @@ export const RebaseEngine = {
     if (isNode) {
       try {
         const newHead = await GitShell.getBranchHead(cwd, pauseInfo.currentBranch);
+        const resumedNode = StackManager.findNode(updatedStack, pauseInfo.currentBranch);
+        const newFork = pauseInfo.currentTarget
+          ? await GitShell.getMergeBase(cwd, pauseInfo.currentBranch, pauseInfo.currentTarget)
+              .catch(() => resumedNode?.forkPoint ?? null)
+          : (resumedNode?.forkPoint ?? null);
         updatedStack = StackManager.updateNode(updatedStack, pauseInfo.currentBranch, {
           lastKnownHead: newHead,
+          forkPoint: newFork,
         });
         rebasedBranches.push(pauseInfo.currentBranch);
       } catch { /* best-effort HEAD update */ }

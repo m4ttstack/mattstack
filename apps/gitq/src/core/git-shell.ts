@@ -978,6 +978,12 @@ export const GitShell = {
     });
   },
 
+  /** Count commits in `from..to`. */
+  async revListCount(cwd: string, from: string, to: string): Promise<number> {
+    const { stdout } = await git(['rev-list', '--count', `${from}..${to}`], cwd);
+    return Number.parseInt(stdout, 10) || 0;
+  },
+
   /** Validate that a git object exists. Returns the object type or null if missing. */
   async catFileType(cwd: string, sha: string): Promise<string | null> {
     try {
