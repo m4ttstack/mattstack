@@ -86,6 +86,11 @@ export interface DriftWarning {
   mergedParent: string;
 }
 
+export interface ForkPointWarning {
+  branch: string;
+  parent: string;
+}
+
 export interface PreFlightReport {
   /** True if the working tree has any uncommitted state — untracked, staged, or unstaged (blocks rebase). */
   dirty: boolean;
@@ -97,6 +102,8 @@ export interface PreFlightReport {
   threadWarnings: ThreadWarning[];
   /** Branches whose merged parent tombstone is not in their ancestry (needs reconciliation). */
   driftWarnings: DriftWarning[];
+  /** Children whose fork point cannot be recovered: a sync would sweep the parent's own commits and conflict. */
+  forkPointWarnings: ForkPointWarning[];
 }
 
 // ── Internal types ───────────────────────────────────────────────────────────
@@ -143,6 +150,7 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
   const conflictBranches: ConflictPrediction[] = [];
   const threadWarnings: ThreadWarning[] = [];
   const driftWarnings: DriftWarning[] = [];
+  const forkPointWarnings: ForkPointWarning[] = [];
 
   for (const branch of branches) {
     const node = StackManager.findNode(stack, branch);
@@ -164,6 +172,23 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
       if (drift.drifted) {
         driftWarnings.push({ branch, mergedParent: directParent!.branch });
       }
+    }
+
+    // Probe fork-point recovery for children of live stack-internal parents,
+    // with the same candidates the cascade will use, so a doomed sweep is
+    // named here instead of surfacing as a wall of spurious conflicts.
+    if (directParent && directParent.status !== 'merged') {
+      try {
+        const parentHead = await GitShell.getBranchHead(cwd, directParent.branch);
+        const oldBase = await resolveBestOldBase(cwd, node, directParent.branch, {}, directParent);
+        if (
+          oldBase &&
+          oldBase !== parentHead &&
+          (await detectForkPointSweep(cwd, node.branch, directParent.branch, oldBase)) > 0
+        ) {
+          forkPointWarnings.push({ branch: node.branch, parent: directParent.branch });
+        }
+      } catch { /* best-effort probe */ }
     }
 
     // Run conflict prediction unless the working tree is dirty (any
@@ -190,7 +215,7 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
     }
   }
 
-  return { dirty, hasStagedChanges: staged, conflictBranches, threadWarnings, driftWarnings };
+  return { dirty, hasStagedChanges: staged, conflictBranches, threadWarnings, driftWarnings, forkPointWarnings };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -415,6 +440,85 @@ async function rewrittenParentHead(
 }
 
 /**
+ * Detect the doomed sweep: the replay range `oldBase..child` contains commits
+ * that are patch-identical to commits already on the parent (so the recovered
+ * base sits below the true fork point and the range carries the parent's own
+ * chain), AND the replay is predicted to conflict (so patch-id auto-drop will
+ * not absorb the drifted duplicates). When only the first holds, auto-drop
+ * handles the duplicates and the rebase is safe to run.
+ */
+async function detectForkPointSweep(
+  cwd: string,
+  branch: string,
+  parentRef: string,
+  oldBase: string,
+): Promise<number> {
+  const entries = await GitShell.cherry(cwd, parentRef, branch, oldBase).catch(
+    () => [] as { sha: string; unique: boolean }[],
+  );
+  const duplicates = entries.filter((e) => !e.unique).length;
+  if (duplicates === 0) return 0;
+  const predicted = await GitShell.mergeTreeDryRun(cwd, parentRef, branch, oldBase).catch(() => null);
+  return predicted && predicted.length > 0 ? duplicates : 0;
+}
+
+/**
+ * Resolve the most precise oldBase for replaying `node` onto its parent.
+ *
+ * Every candidate is an ancestor of the child, so the deepest one (the
+ * smallest replay range) is the true fork point: a stored forkPoint from the
+ * last gitq restack, a merge-base against the parent's pre-cascade head, a
+ * merge-base against a head recovered from `lastKnownHead`, or a plain
+ * merge-base against the live parent. A candidate that falls back too far
+ * sweeps the parent's own commits into the child's range, which is exactly
+ * what picking the smallest range avoids.
+ */
+async function resolveBestOldBase(
+  cwd: string,
+  node: StackNode,
+  parentRef: string,
+  preRebaseHeads: Record<string, string>,
+  parentNode?: StackNode,
+): Promise<string | null> {
+  const candidates = new Set<string>();
+
+  if (
+    node.forkPoint &&
+    (await validateTombstone(cwd, node.forkPoint)) &&
+    (await GitShell.isAncestor(cwd, node.forkPoint, node.branch).catch(() => false))
+  ) {
+    candidates.add(node.forkPoint);
+  }
+
+  const oldParentHead =
+    preRebaseHeads[node.parent] ??
+    (parentNode ? await rewrittenParentHead(cwd, parentNode, node.branch) : undefined);
+  if (oldParentHead) {
+    try {
+      candidates.add(await GitShell.getMergeBase(cwd, node.branch, oldParentHead));
+    } catch { /* candidate unavailable */ }
+  }
+  try {
+    candidates.add(await GitShell.getMergeBase(cwd, node.branch, parentRef));
+  } catch { /* candidate unavailable */ }
+
+  const ordered = [...candidates];
+  if (ordered.length === 0) return null;
+  if (ordered.length === 1) return ordered[0] ?? null;
+
+  let best = ordered[0] ?? null;
+  let bestCount = Number.POSITIVE_INFINITY;
+  for (const candidate of ordered) {
+    const count = await GitShell.revListCount(cwd, candidate, node.branch).catch(() => null);
+    if (count !== null && count < bestCount) {
+      bestCount = count;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/**
  * Old-base + parent-ref resolvers for merge-base style cascades (sync,
  * restack, and their resumes).
  *
@@ -456,14 +560,24 @@ function makeCascadeResolvers(
 
       const parentRef = resolveParentRef(node);
       const parentHead = await GitShell.getBranchHead(cwd, parentRef);
-      const oldParentHead = parentNode
-        ? (preRebaseHeads[node.parent] ??
-          (await rewrittenParentHead(cwd, parentNode, node.branch)))
-        : undefined;
-      const oldBase = oldParentHead
-        ? await GitShell.getMergeBase(cwd, node.branch, oldParentHead)
-        : await GitShell.getMergeBase(cwd, node.branch, parentRef);
+      const oldBase = await resolveBestOldBase(cwd, node, parentRef, preRebaseHeads, parentNode);
+      if (oldBase === null) return { kind: 'skip' };
       if (oldBase === parentHead) return { kind: 'skip' };
+      if (parentNode) {
+        const swept = await detectForkPointSweep(cwd, node.branch, parentRef, oldBase);
+        if (swept > 0) {
+          return {
+            kind: 'error',
+            message:
+              `cannot recover the fork point of "${node.branch}" on "${node.parent}": ` +
+              `the parent was rewritten and the child's recorded base is stale, so a rebase ` +
+              `would replay ${swept} of the parent's own commit(s) and conflict on them. ` +
+              `Restack the child manually (cherry-pick its own commits onto "${node.parent}"); ` +
+              `gitq records the fork point on every restack it performs, so this heals itself ` +
+              `once the child is restacked through gitq.`,
+          };
+        }
+      }
       return { kind: 'rebase', oldBase };
     } catch {
       return { kind: 'skip' };
@@ -579,9 +693,12 @@ async function doCascadeLoop(
       // it, so it is the moment to catch the record up.
       try {
         const liveHead = await GitShell.getBranchHead(cwd, node.branch);
-        if (liveHead && liveHead !== node.lastKnownHead) {
+        const liveFork = await GitShell.getMergeBase(cwd, node.branch, resolveNewBase(node))
+          .catch(() => node.forkPoint);
+        if (liveHead && (liveHead !== node.lastKnownHead || liveFork !== node.forkPoint)) {
           updatedStack = StackManager.updateNode(updatedStack, node.branch, {
             lastKnownHead: liveHead,
+            forkPoint: liveFork,
           });
         }
       } catch {
@@ -911,8 +1028,11 @@ async function doCascadeLoop(
 
     try {
       const newHead = await GitShell.getBranchHead(cwd, node.branch);
+      const newFork = await GitShell.getMergeBase(cwd, node.branch, targetBase)
+        .catch(() => node.forkPoint);
       updatedStack = StackManager.updateNode(updatedStack, node.branch, {
         lastKnownHead: newHead,
+        forkPoint: newFork,
       });
       rebasedBranches.push(node.branch);
     } catch {
@@ -1058,6 +1178,10 @@ export const RebaseEngine = {
 
     let updatedStack = stack;
     let firstResult: RebaseResult = { branch: pauseInfo.currentBranch, success: true };
+    // The ref the resumed branch finally lands on. For a cascade pause that is
+    // the paused target; a reconcile pause's currentTarget is the tombstone,
+    // so the follow-up below overwrites this with the real target it resolves.
+    let finalTarget = pauseInfo.phase === 'reconcile' ? null : (pauseInfo.currentTarget ?? null);
 
     // ── Reconcile phase follow-up ────────────────────────────────────────
     // When continuing from a reconciliation pause, the child is now synced
@@ -1077,6 +1201,7 @@ export const RebaseEngine = {
           const targetBase = useTombstone && node.parent === pauseInfo.mergedBranch
             ? pauseInfo.newBase
             : makeCascadeResolvers(cwd, stack, pauseInfo.newBase).resolveParentRef(node);
+          finalTarget = targetBase;
 
           if (pauseInfo.worktreePath) {
             // Detached: the slot HEAD holds the reconciled commits already.
@@ -1182,8 +1307,14 @@ export const RebaseEngine = {
     if (isNode) {
       try {
         const newHead = await GitShell.getBranchHead(cwd, pauseInfo.currentBranch);
+        const resumedNode = StackManager.findNode(updatedStack, pauseInfo.currentBranch);
+        const newFork = finalTarget
+          ? await GitShell.getMergeBase(cwd, pauseInfo.currentBranch, finalTarget)
+              .catch(() => resumedNode?.forkPoint ?? null)
+          : (resumedNode?.forkPoint ?? null);
         updatedStack = StackManager.updateNode(updatedStack, pauseInfo.currentBranch, {
           lastKnownHead: newHead,
+          forkPoint: newFork,
         });
         rebasedBranches.push(pauseInfo.currentBranch);
       } catch { /* best-effort HEAD update */ }

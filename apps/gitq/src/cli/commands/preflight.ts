@@ -25,7 +25,10 @@ export async function preflightCommand(ctx: CliContext): Promise<number> {
       const slotConflicts = s.slotConflicts.length > 0
         ? `\nslot conflicts:\n${s.slotConflicts.map((c) => `  ${c.branch}: ${c.slot}${c.dirty ? ' (dirty)' : ''}`).join('\n')}`
         : '';
-      return `${s.stackName}: dirty=${s.report.dirty}\n${conflicts || '  no predicted conflicts'}${slotConflicts}`;
+      const forkPointWarnings = s.report.forkPointWarnings.length > 0
+        ? `\nfork-point warnings:\n${s.report.forkPointWarnings.map((w) => `  ${w.branch}: fork point on ${w.parent} is unrecoverable, sync would sweep parent commits`).join('\n')}`
+        : '';
+      return `${s.stackName}: dirty=${s.report.dirty}\n${conflicts || '  no predicted conflicts'}${slotConflicts}${forkPointWarnings}`;
     })
     .join('\n');
   emit(ctx, human || 'no stacks', { stacks, worktrees });

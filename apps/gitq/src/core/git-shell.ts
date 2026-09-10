@@ -158,6 +158,16 @@ async function objectType(cwd: string, sha: string): Promise<string | null> {
  * Thin, typed wrapper around the git CLI.
  * All methods require a `cwd` (the repo root).
  */
+/** Untracked files whose basename marks them as tool-generated transients. */
+const TRANSIENT_UNTRACKED_PREFIXES = ['.watchman-cookie-'];
+
+function isTransientUntracked(line: string): boolean {
+  if (!line.startsWith('?? ')) return false;
+  const path = line.slice(3);
+  const basename = path.slice(path.lastIndexOf('/') + 1);
+  return TRANSIENT_UNTRACKED_PREFIXES.some((prefix) => basename.startsWith(prefix));
+}
+
 export const GitShell = {
   /** Get the current branch name. */
   async getCurrentBranch(cwd: string): Promise<string> {
@@ -314,10 +324,23 @@ export const GitShell = {
     await git(['update-ref', `refs/heads/${branch}`, newSha, expectedOldSha], cwd);
   },
 
-  /** Check if the working tree has uncommitted changes (staged or unstaged). */
+  /** Check if the working tree has uncommitted changes (staged or unstaged).
+      Transient untracked junk (watchman cookies) is not dirt: it regenerates
+      while a watch is live, so counting it makes delete-then-check a race no
+      caller can win, and a rebase never collides with it. */
   async isDirty(cwd: string): Promise<boolean> {
+    return (await GitShell.dirtyPaths(cwd)).length > 0;
+  },
+
+  /** Porcelain status paths with transient untracked junk filtered out. */
+  async dirtyPaths(cwd: string): Promise<string[]> {
     const { stdout } = await git(['status', '--porcelain'], cwd);
-    return stdout.length > 0;
+    if (!stdout) return [];
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .filter((line) => !isTransientUntracked(line))
+      .map((line) => line.slice(3));
   },
 
   /**
@@ -945,14 +968,21 @@ export const GitShell = {
    * Returns each commit in `upstream..head` annotated with whether it is
    * unique (`+`) or has an equivalent patch already in upstream (`-`).
    */
-  async cherry(cwd: string, upstream: string, head: string): Promise<{ sha: string; unique: boolean }[]> {
-    const { stdout } = await git(['cherry', '-v', upstream, head], cwd);
+  async cherry(cwd: string, upstream: string, head: string, limit?: string): Promise<{ sha: string; unique: boolean }[]> {
+    const args = limit ? ['cherry', '-v', upstream, head, limit] : ['cherry', '-v', upstream, head];
+    const { stdout } = await git(args, cwd);
     if (!stdout) return [];
     return stdout.split('\n').filter(Boolean).map((line) => {
       const unique = line.startsWith('+');
       const sha = line.slice(2, line.indexOf(' ', 2));
       return { sha, unique };
     });
+  },
+
+  /** Count commits in `from..to`. */
+  async revListCount(cwd: string, from: string, to: string): Promise<number> {
+    const { stdout } = await git(['rev-list', '--count', `${from}..${to}`], cwd);
+    return Number.parseInt(stdout, 10) || 0;
   },
 
   /** Validate that a git object exists. Returns the object type or null if missing. */
