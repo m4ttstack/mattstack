@@ -319,12 +319,33 @@ started a pipeline verb is covered by the same call.
 |---|---|---|
 | `<job> #<n>: <body>` mentioning you | a report | completion (below) |
 | `<job> #<n>: milestone: <artifact>` | a milestone announcement (quiet; its gate push is the wake) | nothing; the gate push handles it |
-| `herdr #<n>: <job> blocked` | the pane has sat on a prompt for 30s | `rt pane peek <pane>`; if a human is needed, the attend flow (hidden mode) or the pane id |
+| `herdr #<n>: <job> blocked` | the pane has sat on a prompt for 30s | gate check first, `rt pane peek <pane>` only when that comes back empty (see "diagnosing a blocked worker" below); if a human is needed, the attend flow (hidden mode) or the pane id |
 | `herdr #<n>: <job> exited` | the pane died with the job live | report the crash to the user with the job and pane; never silently respawn |
 
 **A relaunch or compaction.** `rt herd resume <id>`; nothing else.
 
 Never read scrollback when the registry or the room has the answer.
+
+## diagnosing a blocked worker
+
+The `blocked` room message already names the check: `rt herd gates --herd
+<id> --json` first -- it returns every open question and pipeline-run
+gate scoped to your jobs, and rows now carry `presentation` and `owner`.
+Only when that call comes back empty does `rt pane peek <ref>` earn its
+read (`bg:` refs work for hidden herds too); "blocked, no open question,
+no open gate" is what makes reading the pane legitimate, not a hunch.
+
+**Never send a pane a key of your own choosing to unstick it -- especially
+Escape.** The daemon injects Escape itself, automatically, when a
+form-presentation gate is answered from elsewhere; you never need to, and
+doing it blind can interrupt real work. If a pane still looks stuck after
+the gate check above, read the gate row's `presentation` before you touch
+the pane at all: `"form"` means a pane-local form really is up, and
+answering the gate -- never a keystroke you send -- is what resolves it;
+`"wait"` (or a gate with no pane) means the worker may be sitting on a
+correct background `rt gate wait`, and a keystroke there interrupts a
+worker that was never actually stuck. Leave the pane alone and answer the
+gate through the registry instead.
 
 ## milestone gates (design jobs)
 
@@ -357,6 +378,14 @@ On a report line from `<job>`:
    Compare against the write fence. Files outside the fence = drift; flag it to the user.
 2. Cross-job overlap: for every other active job, `git -C <its worktree> diff --stat` and compare changed-file sets. A file two jobs both changed is a collision; flag it now, not at integration.
 3. Update the status table (`rt herd status --herd <id>` is its source).
+
+**Relay only what you measured.** A worker's report is its own account of
+its environment (servers up, ports free, processes running, CI green) and
+is routinely stale or wrong; forwarding it to the user as fact launders an
+unverified claim into something they read as checked. Measure it yourself
+before you assert it (`rt endpoint lookup`, a `curl`, `lsof`, a CI status
+call); when you are not going to measure it, attribute it out loud -- "the
+worker reports X" -- rather than state it as your own finding.
 
 The daemon marked the job `done` when the report was published; nothing
 to record. When all jobs are done, **integration is its own job**: spawn an
@@ -404,7 +433,19 @@ a question for one worker is a DM.
    ```
    A disposal refusal is reported in the guard's own words. In hidden
    mode, also offer `rt herd stop --hidden`.
-5. Never push on the agents' behalf.
+5. **Confirm a closed pane's dev servers actually died -- check processes,
+   not claims.** `rt endpoint lookup <role>` can report "not running" while
+   the process is still alive (a claim can be released before the process
+   exits, and closing a pane does not reliably kill what it started). For
+   any port a job's servers used: `lsof -ti tcp:<port>` for the pid, then
+   `lsof -a -p <pid> -d cwd` to confirm that pid's cwd is the job's
+   worktree before touching it, then plain `kill` -- escalate to `-9` only
+   when the process is wedged (100% CPU, no listener; a healthy process
+   takes SIGTERM). **Never** `pkill -f "<worktree-path>"` to find it: the
+   worktree path lives only in the process's cwd, never its command line,
+   so that pattern matches nothing and a `|| echo stopped` fallback prints
+   a false all-clear.
+6. Never push on the agents' behalf.
 
 **Domain hook -- wrap-up.** Unbound: as above. A bound domain part may
 state its own tree lifecycle (trees that dispose themselves when their
@@ -439,3 +480,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 - About to invent a new channel because a verb seems unreachable? Stop. Report the real error and wait; never substitute a channel of your own making.
 - About to offer to decide an agent's open question yourself? Stop. Relay it to the user; you only answer on the agent's behalf when the choice is literally in the brief.
 - About to say you checked, ran, confirmed, or verified something and then state what it showed? Stop. If the output is not in your transcript, you did not run it; say what you would run and what its result would decide, never a result you do not have, and never a specific fact (a format, a count, a status) invented to back the claim up.
+- Worker pane shows a structured question with no gate to match it (`rt herd gates` returns nothing for it)? Stop. That is the banned bare pane-local form -- it is unreachable from every channel, not just you; flag it to the user rather than trying to answer it yourself.
+- About to send a pane a keystroke -- especially Escape -- to unstick it? Stop. The daemon injects Escape itself on a remote answer; check the gate row's `presentation` first, and if it says `"wait"`, leave the pane alone.
+- About to relay a worker's claim about its own environment (servers up, ports free, processes running, CI green) as your own finding? Stop. Measure it, or say plainly "the worker reports X" -- an unverified claim you forward becomes something the user reads as checked.
+- About to call a pane's dev servers stopped because the pane closed, or run `pkill -f "<worktree-path>"` to find them? Stop. A worktree path lives only in a process's cwd, never its command line -- that pkill matches nothing. Check the port (`lsof -ti tcp:<port>`), confirm the pid's cwd, then `kill` it.
