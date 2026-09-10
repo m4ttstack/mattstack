@@ -141,6 +141,9 @@ describe('detached reconciliation', () => {
     expect(repo.git('merge-base', 'feature-b', 'origin/main')).toBe(originMain);
     expect(repo.git('rev-parse', 'feature-b')).not.toBe(oldChildHead);
     expect(GitShell.isRebaseInProgress(workDir)).toBe(false);
+    // the recorded fork point follows the FINAL target too, not the tombstone
+    const contChild = cont.updatedStack.nodes.find((n) => n.branch === 'feature-b');
+    expect(contChild?.forkPoint).toBe(originMain);
   });
 
   test('child checked out in a clean human slot auto-fixes instead of refusing', async () => {

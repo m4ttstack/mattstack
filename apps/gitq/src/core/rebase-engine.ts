@@ -1178,6 +1178,10 @@ export const RebaseEngine = {
 
     let updatedStack = stack;
     let firstResult: RebaseResult = { branch: pauseInfo.currentBranch, success: true };
+    // The ref the resumed branch finally lands on. For a cascade pause that is
+    // the paused target; a reconcile pause's currentTarget is the tombstone,
+    // so the follow-up below overwrites this with the real target it resolves.
+    let finalTarget = pauseInfo.phase === 'reconcile' ? null : (pauseInfo.currentTarget ?? null);
 
     // ── Reconcile phase follow-up ────────────────────────────────────────
     // When continuing from a reconciliation pause, the child is now synced
@@ -1197,6 +1201,7 @@ export const RebaseEngine = {
           const targetBase = useTombstone && node.parent === pauseInfo.mergedBranch
             ? pauseInfo.newBase
             : makeCascadeResolvers(cwd, stack, pauseInfo.newBase).resolveParentRef(node);
+          finalTarget = targetBase;
 
           if (pauseInfo.worktreePath) {
             // Detached: the slot HEAD holds the reconciled commits already.
@@ -1303,8 +1308,8 @@ export const RebaseEngine = {
       try {
         const newHead = await GitShell.getBranchHead(cwd, pauseInfo.currentBranch);
         const resumedNode = StackManager.findNode(updatedStack, pauseInfo.currentBranch);
-        const newFork = pauseInfo.currentTarget
-          ? await GitShell.getMergeBase(cwd, pauseInfo.currentBranch, pauseInfo.currentTarget)
+        const newFork = finalTarget
+          ? await GitShell.getMergeBase(cwd, pauseInfo.currentBranch, finalTarget)
               .catch(() => resumedNode?.forkPoint ?? null)
           : (resumedNode?.forkPoint ?? null);
         updatedStack = StackManager.updateNode(updatedStack, pauseInfo.currentBranch, {
