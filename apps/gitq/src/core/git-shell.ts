@@ -158,6 +158,16 @@ async function objectType(cwd: string, sha: string): Promise<string | null> {
  * Thin, typed wrapper around the git CLI.
  * All methods require a `cwd` (the repo root).
  */
+/** Untracked files whose basename marks them as tool-generated transients. */
+const TRANSIENT_UNTRACKED_PREFIXES = ['.watchman-cookie-'];
+
+function isTransientUntracked(line: string): boolean {
+  if (!line.startsWith('?? ')) return false;
+  const path = line.slice(3);
+  const basename = path.slice(path.lastIndexOf('/') + 1);
+  return TRANSIENT_UNTRACKED_PREFIXES.some((prefix) => basename.startsWith(prefix));
+}
+
 export const GitShell = {
   /** Get the current branch name. */
   async getCurrentBranch(cwd: string): Promise<string> {
@@ -314,10 +324,23 @@ export const GitShell = {
     await git(['update-ref', `refs/heads/${branch}`, newSha, expectedOldSha], cwd);
   },
 
-  /** Check if the working tree has uncommitted changes (staged or unstaged). */
+  /** Check if the working tree has uncommitted changes (staged or unstaged).
+      Transient untracked junk (watchman cookies) is not dirt: it regenerates
+      while a watch is live, so counting it makes delete-then-check a race no
+      caller can win, and a rebase never collides with it. */
   async isDirty(cwd: string): Promise<boolean> {
+    return (await GitShell.dirtyPaths(cwd)).length > 0;
+  },
+
+  /** Porcelain status paths with transient untracked junk filtered out. */
+  async dirtyPaths(cwd: string): Promise<string[]> {
     const { stdout } = await git(['status', '--porcelain'], cwd);
-    return stdout.length > 0;
+    if (!stdout) return [];
+    return stdout
+      .split('\n')
+      .filter(Boolean)
+      .filter((line) => !isTransientUntracked(line))
+      .map((line) => line.slice(3));
   },
 
   /**
