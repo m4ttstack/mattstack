@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.17.0 + mattstack:model-tiering@0.17.0 + mattstack:execution-strategy@0.17.0 + mattstack:cswap-accounts@0.17.0"
+  compiled: "mattstack@0.17.1 + mattstack:model-tiering@0.17.1 + mattstack:execution-strategy@0.17.1 + mattstack:cswap-accounts@0.17.1"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.17.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-436 -->
+<!-- part: step source=mattstack:shepherdr version=0.17.1 path=attachments/orchestration/shepherdr/SKILL.md lines=15-441 -->
 
 # shepherdr
 
@@ -42,12 +42,17 @@ jobs. If none of those apply, say so and dispatch subagents instead.
 
 When the user asks for the herd to stay out of sight ("invisible",
 "background", "headless", "don't clutter my UI"), pass `--hidden` to
-`rt herd start`. Every worker pane then lives on a headless herdr server the
-daemon starts and targets for you; nothing else in this skill changes. To
+`rt herd start`. Every worker pane then lives on the daemon's shared
+background herdr server (session `bg`); the generic pane verbs address its
+panes as `bg:<pane>` refs, exactly as herd surfaces print them. Nothing
+else in this skill changes. To
 put one worker in front of the user, `rt herd attend <job> --herd <id>`
 opens a focused tab in the visible session attached to that pane (the user
 detaches with `ctrl+b q`; close the tab it printed afterwards). At wrap-up,
-offer `rt herd stop --hidden`; never run it unprompted.
+offer `rt herd stop --hidden`; never run it unprompted. The background
+server is shared: the stop refuses while ANY background claim is live
+(another herd, a runner board, an `agent --bg` pane), naming the owners --
+report the refusal, never work around it.
 
 ## job types
 
@@ -59,7 +64,7 @@ If work arrives unscoped and the user wants it scoped before fan-out, brainstorm
 
 ## Tiering
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.17.0 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.17.1 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -173,7 +178,7 @@ this skill is the generic framework they override.
 
 ## Strategy
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.17.0 path=attachments/execution-strategy/SKILL.md lines=8-90 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.17.1 path=attachments/execution-strategy/SKILL.md lines=8-90 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -304,7 +309,7 @@ below the floor is wrong.
 
 ## Accounts
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.17.0 path=attachments/cswap-accounts/SKILL.md lines=9-74 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.17.1 path=attachments/cswap-accounts/SKILL.md lines=9-74 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -661,7 +666,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 
 ## wrap-up form contract
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.17.0 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.17.1 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

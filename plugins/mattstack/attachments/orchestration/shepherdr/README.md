@@ -13,8 +13,10 @@ for you, the human driving it.
 tab each. you can watch them work and take over any pane by clicking into
 it.
 
-**hidden** (`--hidden` on `rt herd start`). agents land in a separate
-headless herdr session whose panes never appear in your UI. you see
+**hidden** (`--hidden` on `rt herd start`). agents land on the daemon's
+shared background herdr server, whose panes never appear in your UI (rt
+prints them as `bg:<pane>` refs, and `rt pane peek/send/focus` take those
+refs directly). you see
 nothing until something needs you. this is the mode to ask for when a
 six-agent fan-out would bury your sidebar.
 
@@ -71,11 +73,15 @@ rt herd wrap-up <id> --close-panes --delete-job-dirs --archive-room
 
 wrap-up only does what its flags name, so pick the ones that match what
 you want gone (add `--dispose <job>` per worktree you want disposed too).
-in hidden mode, stop the session itself after:
+in hidden mode, stop the server itself after:
 
 ```bash
 rt herd stop --hidden
 ```
+
+the server is shared with other background work (runner boards, `rt agent
+start --bg`); the stop refuses while any of it is still live, naming the
+owners.
 
 ## things that bit us, so you don't rediscover them
 
