@@ -36,6 +36,19 @@ makes the verb's own attendance test take the unattended branch, so the
 run's gated questions ride the daemon's gate registry and reach the
 shepherd through the same door as the questions below.
 
+## Never raise a form the shepherd cannot see
+
+A structured question (this runtime's native form tool) is safe only when
+it is the declared presentation of a gate already open in the daemon's
+registry (`presentation: "form"` plus a `paneId`, which is what lets a
+remote answer reach you). Never put up a bare pane-local form on your own
+initiative outside that path: it makes this pane unreachable from every
+channel at once, not only from the shepherd, and a form with no backing
+gate can sit unanswered indefinitely because nothing else knows it
+exists. Every question this brief asks you to raise goes through `rt herd
+ask` below, or through `rt gate open` inside a pipeline run -- both open
+the backing gate before anything appears on screen.
+
 ## Asking the user a question
 Run exactly:
 
