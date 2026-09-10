@@ -968,8 +968,9 @@ export const GitShell = {
    * Returns each commit in `upstream..head` annotated with whether it is
    * unique (`+`) or has an equivalent patch already in upstream (`-`).
    */
-  async cherry(cwd: string, upstream: string, head: string): Promise<{ sha: string; unique: boolean }[]> {
-    const { stdout } = await git(['cherry', '-v', upstream, head], cwd);
+  async cherry(cwd: string, upstream: string, head: string, limit?: string): Promise<{ sha: string; unique: boolean }[]> {
+    const args = limit ? ['cherry', '-v', upstream, head, limit] : ['cherry', '-v', upstream, head];
+    const { stdout } = await git(args, cwd);
     if (!stdout) return [];
     return stdout.split('\n').filter(Boolean).map((line) => {
       const unique = line.startsWith('+');

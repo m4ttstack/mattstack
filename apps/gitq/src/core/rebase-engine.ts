@@ -415,6 +415,29 @@ async function rewrittenParentHead(
 }
 
 /**
+ * Detect the doomed sweep: the replay range `oldBase..child` contains commits
+ * that are patch-identical to commits already on the parent (so the recovered
+ * base sits below the true fork point and the range carries the parent's own
+ * chain), AND the replay is predicted to conflict (so patch-id auto-drop will
+ * not absorb the drifted duplicates). When only the first holds, auto-drop
+ * handles the duplicates and the rebase is safe to run.
+ */
+async function detectForkPointSweep(
+  cwd: string,
+  branch: string,
+  parentRef: string,
+  oldBase: string,
+): Promise<number> {
+  const entries = await GitShell.cherry(cwd, parentRef, branch, oldBase).catch(
+    () => [] as { sha: string; unique: boolean }[],
+  );
+  const duplicates = entries.filter((e) => !e.unique).length;
+  if (duplicates === 0) return 0;
+  const predicted = await GitShell.mergeTreeDryRun(cwd, parentRef, branch, oldBase).catch(() => null);
+  return predicted && predicted.length > 0 ? duplicates : 0;
+}
+
+/**
  * Resolve the most precise oldBase for replaying `node` onto its parent.
  *
  * Every candidate is an ancestor of the child, so the deepest one (the
@@ -515,6 +538,21 @@ function makeCascadeResolvers(
       const oldBase = await resolveBestOldBase(cwd, node, parentRef, preRebaseHeads, parentNode);
       if (oldBase === null) return { kind: 'skip' };
       if (oldBase === parentHead) return { kind: 'skip' };
+      if (parentNode) {
+        const swept = await detectForkPointSweep(cwd, node.branch, parentRef, oldBase);
+        if (swept > 0) {
+          return {
+            kind: 'error',
+            message:
+              `cannot recover the fork point of "${node.branch}" on "${node.parent}": ` +
+              `the parent was rewritten and the child's recorded base is stale, so a rebase ` +
+              `would replay ${swept} of the parent's own commit(s) and conflict on them. ` +
+              `Restack the child manually (cherry-pick its own commits onto "${node.parent}"); ` +
+              `gitq records the fork point on every restack it performs, so this heals itself ` +
+              `once the child is restacked through gitq.`,
+          };
+        }
+      }
       return { kind: 'rebase', oldBase };
     } catch {
       return { kind: 'skip' };

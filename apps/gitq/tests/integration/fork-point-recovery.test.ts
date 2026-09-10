@@ -47,6 +47,10 @@ async function buildDriftedSweepRepo(): Promise<{ repo: SandboxRepo; forkSha: st
   repo.git('checkout', 'feat/base');
   repo.git('reset', '--hard', 'main');
   repo.git('cherry-pick', t1Sha);
+  // Amend the message so T1's rewrite gets a fresh sha while keeping the same
+  // patch-id: shared-ancestry dedup would otherwise hide the sweep this
+  // fixture exists to create.
+  repo.git('commit', '--amend', '-m', 'commit T1 rewritten');
   await commit(repo.dir, repo.git, 'file-t2.txt', 'commit T2 prime\n', 'commit T2 prime');
 
   repo.git('checkout', 'main');
