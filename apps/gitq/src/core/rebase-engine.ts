@@ -86,6 +86,11 @@ export interface DriftWarning {
   mergedParent: string;
 }
 
+export interface ForkPointWarning {
+  branch: string;
+  parent: string;
+}
+
 export interface PreFlightReport {
   /** True if the working tree has any uncommitted state — untracked, staged, or unstaged (blocks rebase). */
   dirty: boolean;
@@ -97,6 +102,8 @@ export interface PreFlightReport {
   threadWarnings: ThreadWarning[];
   /** Branches whose merged parent tombstone is not in their ancestry (needs reconciliation). */
   driftWarnings: DriftWarning[];
+  /** Children whose fork point cannot be recovered: a sync would sweep the parent's own commits and conflict. */
+  forkPointWarnings: ForkPointWarning[];
 }
 
 // ── Internal types ───────────────────────────────────────────────────────────
@@ -143,6 +150,7 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
   const conflictBranches: ConflictPrediction[] = [];
   const threadWarnings: ThreadWarning[] = [];
   const driftWarnings: DriftWarning[] = [];
+  const forkPointWarnings: ForkPointWarning[] = [];
 
   for (const branch of branches) {
     const node = StackManager.findNode(stack, branch);
@@ -164,6 +172,23 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
       if (drift.drifted) {
         driftWarnings.push({ branch, mergedParent: directParent!.branch });
       }
+    }
+
+    // Probe fork-point recovery for children of live stack-internal parents,
+    // with the same candidates the cascade will use, so a doomed sweep is
+    // named here instead of surfacing as a wall of spurious conflicts.
+    if (directParent && directParent.status !== 'merged') {
+      try {
+        const parentHead = await GitShell.getBranchHead(cwd, directParent.branch);
+        const oldBase = await resolveBestOldBase(cwd, node, directParent.branch, {}, directParent);
+        if (
+          oldBase &&
+          oldBase !== parentHead &&
+          (await detectForkPointSweep(cwd, node.branch, directParent.branch, oldBase)) > 0
+        ) {
+          forkPointWarnings.push({ branch: node.branch, parent: directParent.branch });
+        }
+      } catch { /* best-effort probe */ }
     }
 
     // Run conflict prediction unless the working tree is dirty (any
@@ -190,7 +215,7 @@ async function preflight(cwd: string, stack: Stack, branches: string[]): Promise
     }
   }
 
-  return { dirty, hasStagedChanges: staged, conflictBranches, threadWarnings, driftWarnings };
+  return { dirty, hasStagedChanges: staged, conflictBranches, threadWarnings, driftWarnings, forkPointWarnings };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
