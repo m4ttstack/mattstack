@@ -319,7 +319,7 @@ started a pipeline verb is covered by the same call.
 |---|---|---|
 | `<job> #<n>: <body>` mentioning you | a report | completion (below) |
 | `<job> #<n>: milestone: <artifact>` | a milestone announcement (quiet; its gate push is the wake) | nothing; the gate push handles it |
-| `herdr #<n>: <job> blocked` | the pane has sat on a prompt for 30s | `rt pane peek <pane>`; if a human is needed, the attend flow (hidden mode) or the pane id |
+| `herdr #<n>: <job> blocked` | the pane has sat on a prompt for 30s | gate check first, `rt pane peek <pane>` only when that comes back empty (see "diagnosing a blocked worker" below); if a human is needed, the attend flow (hidden mode) or the pane id |
 | `herdr #<n>: <job> exited` | the pane died with the job live | report the crash to the user with the job and pane; never silently respawn |
 
 **A relaunch or compaction.** `rt herd resume <id>`; nothing else.
