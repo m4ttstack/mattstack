@@ -413,7 +413,7 @@ describe('indexRowsByKeys', () => {
 
 describe('legacy row normalization', () => {
   it('reads pre-redesign rows with defaults for the new fields', () => {
-    getStore().__rawInsertLinearIssue?.(
+    getStore().__rawInsertLinearIssue(
       'ACME-9',
       JSON.stringify({
         id: 'uuid-ACME-9',
@@ -437,7 +437,7 @@ describe('legacy row normalization', () => {
   });
 
   it('a null-closedAt upsert over a legacy stored row keeps the incoming linkedMrs', () => {
-    getStore().__rawInsertLinearIssue?.(
+    getStore().__rawInsertLinearIssue(
       'ACME-10',
       JSON.stringify({
         id: 'uuid-ACME-10',

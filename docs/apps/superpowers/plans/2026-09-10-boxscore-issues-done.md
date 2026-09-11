@@ -16,7 +16,7 @@
 - Comments only state constraints code cannot show (repo rule: clean-code comments); no decision-history or reviewer-facing comments.
 - Full gates: `bun run typecheck && bun run test && bun run lint` must pass at every commit; a task may not leave the suite red.
 - Closing keywords: `close/closes/closed/closing`, `fix/fixes/fixed/fixing`, `resolve/resolves/resolved/resolving`, `implement/implements/implemented/implementing`; keyword and identifier at most 40 non-newline chars apart.
-- Identifier matching must not prefix-match (ACME-302 must not match ACME-3027); branch form accepts `acme-123` and `cv_123`; title/description form accepts `ACME-123` and `CV:123`, case-insensitive.
+- Identifier matching must not prefix-match (ACME-302 must not match ACME-3027); branch form accepts `acme-123` and `acme_123`; title/description form accepts `ACME-123` and `ACME:123`, case-insensitive.
 - Revert MRs (`isRevertTitle` from `src/shared/reverts.ts`) never earn closing grade.
 - Verify-query chunk size is 25 (attachments raise per-issue query cost; the spike ran 20 without a failure, 100 risks complexity limits).
 
@@ -49,7 +49,7 @@ describe('textRefGrade', () => {
 
   it('grades a branch reference closing, in dash and underscore forms', () => {
     expect(textRefGrade({ ...base, sourceBranch: 'acme-3027-delete-v1' }, 'ACME-3027')).toBe('closing');
-    expect(textRefGrade({ ...base, sourceBranch: 'cv_3027_delete_v1' }, 'ACME-3027')).toBe('closing');
+    expect(textRefGrade({ ...base, sourceBranch: 'acme_3027_delete_v1' }, 'ACME-3027')).toBe('closing');
   });
 
   it('grades a closing keyword in the description closing, through markdown links', () => {
@@ -79,7 +79,7 @@ describe('textRefGrade', () => {
   });
 
   it('accepts the colon identifier form', () => {
-    expect(textRefGrade({ ...base, description: 'fixes CV:28' }, 'ACME-28')).toBe('closing');
+    expect(textRefGrade({ ...base, description: 'fixes ACME:28' }, 'ACME-28')).toBe('closing');
   });
 });
 ```
@@ -428,11 +428,11 @@ const rawWithAttachment = (id: string, urls: string[]) => ({
 
 describe('parseMrUrl', () => {
   it('extracts projectPath and iid', () => {
-    expect(parseMrUrl('https://gitlab.com/acme/acme-dev/-/merge_requests/43944'))
-      .toEqual({ projectPath: 'acme/acme-dev', iid: 43944 });
+    expect(parseMrUrl('https://gitlab.example.com/acme/monorepo/-/merge_requests/12345'))
+      .toEqual({ projectPath: 'acme/monorepo', iid: 12345 });
   });
   it('rejects non-MR urls', () => {
-    expect(parseMrUrl('https://gitlab.com/acme/acme-dev/-/issues/9')).toBeNull();
+    expect(parseMrUrl('https://gitlab.example.com/acme/monorepo/-/issues/9')).toBeNull();
   });
 });
 
@@ -653,7 +653,7 @@ Expected: all PASS.
 - [ ] **Step 2: Replay the real board**
 
 Run (from `apps/boxscore/`): `bun run report -- --range 90d` against the live store (`~/.mattstack/boxscore/boxscore.sqlite`, read via a `--refresh`-free invocation; it may need one refresh first to populate `closedAt`: `bun run report -- --range 90d --refresh`).
-Expected: Issues-done column lands near the spike's R2-last numbers (Matthew ~102, Doug ~74, Jorge ~36, Ed ~37 as of 2026-09-10; drift from new merges is fine). `bun run validate` reports no integrity failures.
+Expected: Issues-done column lands near the spike's R2-last numbers (the top rows near ~102/~74/~37/~36 per the spike replay as of 2026-09-10; drift from new merges is fine). `bun run validate` reports no integrity failures.
 
 - [ ] **Step 3: Report the observed numbers in the task report** (not in code comments), then commit any straggler fixes.
 

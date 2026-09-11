@@ -20,10 +20,16 @@ describe('textRefGrade', () => {
 
   it('grades a branch reference closing, in dash and underscore forms', () => {
     expect(
-      textRefGrade({ ...base, sourceBranch: 'acme-3027-delete-v1' }, 'ACME-3027')
+      textRefGrade(
+        { ...base, sourceBranch: 'acme-3027-delete-v1' },
+        'ACME-3027'
+      )
     ).toBe('closing');
     expect(
-      textRefGrade({ ...base, sourceBranch: 'cv_3027_delete_v1' }, 'ACME-3027')
+      textRefGrade(
+        { ...base, sourceBranch: 'acme_3027_delete_v1' },
+        'ACME-3027'
+      )
     ).toBe('closing');
   });
 
@@ -70,8 +76,8 @@ describe('textRefGrade', () => {
   });
 
   it('accepts the colon identifier form', () => {
-    expect(textRefGrade({ ...base, description: 'fixes CV:28' }, 'ACME-28')).toBe(
-      'closing'
-    );
+    expect(
+      textRefGrade({ ...base, description: 'fixes ACME:28' }, 'ACME-28')
+    ).toBe('closing');
   });
 });
