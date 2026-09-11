@@ -28,8 +28,9 @@ describe('textRefGrade', () => {
     expect(textRefGrade({ ...base, description }, 'ACME-28')).toBe('mention');
   });
 
-  it('does not prefix-match identifiers', () => {
+  it('does not prefix-match identifiers in title or branch', () => {
     expect(textRefGrade({ ...base, title: 'ACME-3027: thing' }, 'ACME-302')).toBeNull();
+    expect(textRefGrade({ ...base, sourceBranch: 'acme-3027-delete-v1' }, 'ACME-302')).toBeNull();
   });
 
   it('returns null when the identifier appears nowhere', () => {
