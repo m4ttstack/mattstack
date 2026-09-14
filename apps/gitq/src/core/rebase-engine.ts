@@ -1304,6 +1304,12 @@ export const RebaseEngine = {
 
     const isNode = StackManager.findNode(stack, pauseInfo.currentBranch) !== undefined;
 
+    // Held across the handoff below: the remaining-branch cascade resolves
+    // against the ORIGINAL stack by design, so its returned stack carries this
+    // branch's pre-rebase values and would otherwise discard what we just
+    // recorded for the branch the human resolved.
+    let resumedUpdate: { lastKnownHead: string; forkPoint: string | null } | null = null;
+
     if (isNode) {
       try {
         const newHead = await GitShell.getBranchHead(cwd, pauseInfo.currentBranch);
@@ -1312,10 +1318,8 @@ export const RebaseEngine = {
           ? await GitShell.getMergeBase(cwd, pauseInfo.currentBranch, finalTarget)
               .catch(() => resumedNode?.forkPoint ?? null)
           : (resumedNode?.forkPoint ?? null);
-        updatedStack = StackManager.updateNode(updatedStack, pauseInfo.currentBranch, {
-          lastKnownHead: newHead,
-          forkPoint: newFork,
-        });
+        resumedUpdate = { lastKnownHead: newHead, forkPoint: newFork };
+        updatedStack = StackManager.updateNode(updatedStack, pauseInfo.currentBranch, resumedUpdate);
         rebasedBranches.push(pauseInfo.currentBranch);
       } catch { /* best-effort HEAD update */ }
     }
@@ -1358,7 +1362,13 @@ export const RebaseEngine = {
 
     const combined: CascadeResult = {
       results: [...results, ...cascadeResult.results],
-      updatedStack: cascadeResult.updatedStack,
+      updatedStack: resumedUpdate
+        ? StackManager.updateNode(
+            cascadeResult.updatedStack,
+            pauseInfo.currentBranch,
+            resumedUpdate,
+          )
+        : cascadeResult.updatedStack,
       state: cascadeResult.state,
       rebasedBranches: [...rebasedBranches, ...(cascadeResult.rebasedBranches ?? [])],
     };
