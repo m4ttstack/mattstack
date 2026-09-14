@@ -16,6 +16,10 @@
     "expect": "editing-skills"
   },
   {
+    "task": "rt skills check says my team pack's installed cache is lagging behind its source version",
+    "expect": "editing-skills"
+  },
+  {
     "task": "No timestamp has been injected into this session; get me the current time and zone",
     "expect": "getting-current-time"
   },

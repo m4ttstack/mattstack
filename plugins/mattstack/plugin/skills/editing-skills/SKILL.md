@@ -1,6 +1,6 @@
 ---
 name: editing-skills
-description: Use when adding, editing, publishing, or debugging why a change isn't live in any mattstack-connected skill surface -- the mattstack plugin, a team pack (acme), or a compiled/vendored pipeline verb built with `rt skills compile` -- e.g. "add a mattstack skill", "why isn't my skill or pipeline change showing up", "rt skills compile / check", "update the work orchestrator", or any change under mattstack-skills, a teams/<team> pack, or a shared work/review engine.
+description: Use when adding, editing, publishing, or debugging why a change isn't live in any mattstack-connected skill surface -- the mattstack plugin, a team pack (acme), or a compiled/vendored pipeline verb -- e.g. "add a mattstack skill", "why isn't my skill or pipeline change showing up", "rt skills compile / check / sync", "an installed cache is lagging", "update the work orchestrator", or any change under mattstack-skills, a teams/<team> pack, or a shared work/review engine.
 ---
 
 # Editing and Publishing Estate Skills
@@ -61,20 +61,40 @@ it does gives a real-looking command that updates nothing.
    a session only when a pack compiles it in -- the mattstack pack's own
    roster included.
 4. Bump `version` in the manifest -- same commit as the skill change. For
-   mattstack, this is step 1 of "Releasing an engine, include, or fill change" below;
-   finish that section's step 2 for each compiled pack.
+   mattstack, this is step 1 of "Releasing an engine, include, or fill change"
+   below; finish that section's step 3 for each compiled pack.
 5. Commit and push. For the team pack, push IS the team publish
    (teammates' installs read the same repo). For mattstack, the commit on
    `main` is what the update clones, so it is required; push is
    backup/other-machines. To try an uncommitted edit for one session
    without touching the cache: `claude --plugin-dir
 ~/Documents/GitHub/mattstack-skills`.
-6. **Update the plugin cache**: `claude plugin update <plugin>@<marketplace>`.
-   cswap users first run `readlink ~/.claude-swap-backup/sessions/*/plugins`.
-   Every line `~/.claude/plugins` = one shared cache, and that one update
-   is the whole step. Any other line = that account keeps its own cache;
-   repeat the update with `CLAUDE_CONFIG_DIR=<that session dir>` prefixed.
+6. **Bring the caches current**: `rt skills sync --pack <pack>`, one call per
+   pack. It runs the whole deterministic tail as code -- `git pull --ff-only`
+   in both checkouts, engine cache update, check, patch-bump, compile,
+   recheck, a commit + push scoped to the pack, pack cache update, verify --
+   and reports `restartNeeded`. The pull is the step hand-runs forget: a
+   checkout parked on a merged branch compiles stale engines and nothing says
+   so.
+   The middle of that chain (patch-bump, compile, recheck, commit + push)
+   fires ONLY when check finds compiled output drifting from its sources, so
+   your step 4 bump is never doubled: a hand-authored skill compiles to
+   nothing and so never drifts, leaving sync as just the cache update. Sync's
+   own bump is for the other case, where a shared engine rebuilt a pack's
+   verbs and nobody has versioned that yet.
+   Guards, all refused before anything mutates: both checkouts clean and on
+   `main`, no `.worktrees/` or `.claude/worktrees/` under the pack, a
+   resolvable `claude` binary, a marketplace for each. Run it against the
+   canonical checkouts -- from a feature worktree or an unmerged branch it
+   refuses by design, so land the work on `main` first.
+   Sync only WARNS about a cswap session whose `plugins` is not a symlink
+   resolving to `<config>/plugins`; for each session it names, repeat the
+   update with `CLAUDE_CONFIG_DIR=<that session dir>` prefixed. By hand when
+   sync refuses: `claude plugin update <plugin>@<marketplace>`.
 7. Restart the Claude session -- the running process keeps its old cache.
+
+What sync never does is author or bump the ENGINE, so steps 1-5 stay yours in
+every case.
 
 ## When a pack compiles verbs from a shared engine
 
@@ -118,19 +138,25 @@ What `compile` and `check` read:
 
 ### Releasing an engine, include, or fill change
 
-1. Changed a mattstack file? Commit it; `sh tests/certify.sh <its dir>`; bump
-   mattstack's `plugin.json`.
-   1. `rt skills check --pack mattstack` stale? The change reaches the
-      pack's own verb: `rt skills compile --pack mattstack`; `rt skills
-check --pack mattstack` -> `current`; commit `skills/<verb>/` with the
-      bump.
-   2. `claude plugin update mattstack@mattstack`.
-2. For each compiled pack that `rt skills check --pack <pack>` reports stale:
-   1. Bump the pack's `plugin.json` (the version is stamped into the output,
-      so this comes before the compile).
-   2. `rt skills compile --pack <pack>`; `rt skills check --pack <pack>` -> all `current`.
-   3. Commit + push the pack clone; `claude plugin update <pack>@<marketplace>`;
-      restart the session.
+1. Yours, and only yours, in this order: `sh tests/certify.sh <its dir>` on the
+   edited file; bump mattstack's `plugin.json`; commit the file and the bump
+   together; push `main`. Sync consumes whatever `main` says and never bumps
+   the engine, so a skipped bump leaves the engine cache -- and therefore
+   every pack that compiles against it -- silently on the old version.
+2. `rt skills sync --pack mattstack`. The engine and its own compiled verb
+   share a checkout, so the chain collapses to one pull and one update.
+3. `rt skills sync --pack <pack>` for each other compiled pack. `rt skills
+   check --pack <pack>` names which packs are stale, and its
+   `installed cache: lagging (<a> installed vs <b> source) -- run rt skills sync`
+   line is the other trigger; lag alone leaves check's exit code at 0, so read
+   the line, not the status.
+4. Restart the sessions sync reported `restartNeeded` for.
+
+Sync refuses with `content drift survives recompile` when the pack has real
+content changes pending. That is a handoff to this skill, not a failure: sync
+leaves its version bump and compiled output in the pack working tree, so carry
+that tree forward by hand -- compile, check, commit, push, then
+`claude plugin update <pack>@<marketplace>`.
 
 Proof the fix landed: in the installed pack copy
 (`<config>/plugins/cache/<marketplace>/<pack>/<version>/`), the compiled
