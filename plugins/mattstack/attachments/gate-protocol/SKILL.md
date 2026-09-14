@@ -222,12 +222,13 @@ EOF
    recorded one. If the doorbell arrived while the form sat, the next step
    is the same registry verify either way.
 
-   Doorbell priming: a message saying this gate was answered elsewhere is
-   a recognized signal whose ONLY action is a verifying registry read
-   (`rt gate wait "$GATE_ID" --timeout 2s`); it never carries or implies
-   the answer. If your pending form is dismissed under you, the queued
-   doorbell arrives as your next input -- verify and proceed on the
-   recorded answer.
+   Doorbell priming: a message saying this gate was answered by another
+   surface (it names which one) is a recognized signal whose ONLY action is
+   a verifying registry read (`rt gate wait "$GATE_ID" --timeout 2s`); it
+   never carries or implies the answer. The surface that recorded the answer
+   never receives this push; only other surfaces do. If your pending form is
+   dismissed under you, the queued doorbell arrives as your next input --
+   verify and proceed on the recorded answer.
 
 4. **Wait presentation (`$GATE_PRESENTATION = wait`), UNATTENDED panes and
    over-cap herdr panes only** (an attended non-herdr pane took step 3

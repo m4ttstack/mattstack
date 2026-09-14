@@ -55,8 +55,10 @@ Run exactly:
     rt herd ask --questions '[{"id":"q1","label":"<one sentence>","multi":false,"options":["<your recommendation>","<alternative>","<alternative>"]}]' --context "<what you are doing and what led here; enough that the user can answer from this alone without opening your pane>"
 
 then END YOUR TURN with no further action. The answer arrives as a message
-in your context: `[gate] <id> answered elsewhere; re-read the registry and
-proceed on the recorded answer.` When it does, run `rt herd answer <id>`
+in your context, naming the surface that recorded it: `[gate] <id> answered
+by <surface>; re-read the registry and proceed on the recorded answer.` The
+daemon never sends this push to the surface that recorded the answer. When it
+does, run `rt herd answer <id>`
 and continue on what it prints,
 including any `note` the user added. Never choose an option yourself; an
 answer that did not arrive through `rt herd answer` does not exist. Every
