@@ -70,5 +70,7 @@ out-of-pool account, 3. abandon.
 
 ## Quirk
 
-cswap sessions share settings and skills but not plugin caches, so
-missing-plugin symptoms in worker panes are expected -- do not chase them.
+cswap sessions share plugins along with settings and skills (the plugin
+cache is a shared symlink), so a worker pane missing a plugin's tools is a
+real failure: check the pane's plugin list and the shared cache instead of
+dismissing it.
