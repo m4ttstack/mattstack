@@ -52,7 +52,7 @@ not proceed without a `runDb`.
 
 ```bash
 rt runs run-start <flags for the work type> --pack-dirs "$PACK_DIRS" [--ticket <id>] [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>   # each tool call is a fresh shell: prefix every rt runs command with RT_RUN_DB=<runDb>
+export RT_RUN_DB=<runDb from the response>
 ```
 
 Back-fill any spawn-time decision made before the DB existed (account
@@ -104,11 +104,12 @@ Re-entering existing work with no `RT_RUN_DB` set: run `rt runs --repo
 `clarify`, one sentence naming it, the structured-question tool with
 **Resume it** (recommended) / **Start fresh**; **Hold**. Start fresh: `## 3.
 Start the run`; the found run keeps its status. Resume: re-export
-`RT_RUN_DB` (each tool call is a fresh shell, so prefix every `rt runs`
-command with it) and re-enter at
-`run.current_stage` with the snapshot's fields and decisions (a fresh
-`stage-start` for that stage records the new attempt). Do not re-ask
-decided questions. Re-entering a held run clears the hold as `## Hold`
+`RT_RUN_DB` and re-enter at `run.current_stage` with the snapshot's fields
+and decisions (a fresh `stage-start` for that stage records the new
+attempt). rt runs verbs resolve your run automatically (env RT_RUN_DB
+first, else the run this session started, else the newest running run in
+this worktree; ambiguity errors loudly). Export RT_RUN_DB only to drive a
+different run than yours. Do not re-ask decided questions. Re-entering a held run clears the hold as `## Hold`
 says.
 
 ## Redirect
