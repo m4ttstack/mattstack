@@ -30,10 +30,10 @@ and you close nothing at the end.
 
 Otherwise, when a surface launched this pane (the `--spawned-by` case
 below), start fresh: another pane's live run is not yours to resume.
-Launched by hand, first the Resume offer: list `~/.mattstack/runs/<repo>/`
-(the `--repo` value in the flags block below) for runs whose `snapshot`
-shows `run.status` = `running` and `run.work_type` = `self-review` (read each with
-`RT_RUN_DB` pointed at its `state.db`; never raw sqlite). Any found: gate
+Launched by hand, first the Resume offer: run `rt runs --repo <repo>
+--json` (the `--repo` value in the flags block below) and keep the runs
+whose `status` is `running` and `work_type` is `self-review`; never read
+the run dbs by hand. Any found: gate
 `clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
 and `current_stage`, then the structured-question tool with one **Resume**
 option per candidate (recommended for a run this session started earlier; a

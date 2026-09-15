@@ -98,10 +98,9 @@ Close statuses end it.
 
 ## Resume
 
-Re-entering existing work with no `RT_RUN_DB` set: list
-`~/.mattstack/runs/<repo>/` (the `--repo` value above) for the newest run
-whose status is `running` -- use `rt runs snapshot` with
-`RT_RUN_DB` pointed at each candidate, never raw sqlite. One found: gate
+Re-entering existing work with no `RT_RUN_DB` set: run `rt runs --repo
+<repo> --json` (the `--repo` value above) and keep the newest run whose
+`status` is `running`; never read the run dbs by hand. One found: gate
 `clarify`, one sentence naming it, the structured-question tool with
 **Resume it** (recommended) / **Start fresh**; **Hold**. Start fresh: `## 3.
 Start the run`; the found run keeps its status. Resume: re-export
