@@ -103,14 +103,15 @@ Re-entering existing work with no `RT_RUN_DB` set: run `rt runs --repo
 `status` is `running`; never read the run dbs by hand. One found: gate
 `clarify`, one sentence naming it, the structured-question tool with
 **Resume it** (recommended) / **Start fresh**; **Hold**. Start fresh: `## 3.
-Start the run`; the found run keeps its status. Resume: re-export
-`RT_RUN_DB` and re-enter at `run.current_stage` with the snapshot's fields
+Start the run`; the found run keeps its status. Resume: `export
+RT_RUN_DB=~/.mattstack/runs/<repo>/<its id>/state.db` (the candidate
+row's `id`) and re-enter at `run.current_stage` with the snapshot's fields
 and decisions (a fresh `stage-start` for that stage records the new
-attempt). rt runs verbs resolve your run automatically (env RT_RUN_DB
-first, else the run this session started, else the newest running run in
-this worktree; ambiguity errors loudly). Export RT_RUN_DB only to drive a
-different run than yours. Do not re-ask decided questions. Re-entering a held run clears the hold as `## Hold`
-says.
+attempt). Do not re-ask decided questions. Re-entering a held run clears
+the hold as `## Hold` says. rt runs verbs resolve your run automatically
+(env RT_RUN_DB first, else the run this session started, else the newest
+running run in this worktree; ambiguity errors loudly). Export RT_RUN_DB
+only to drive a different run than yours.
 
 ## Redirect
 

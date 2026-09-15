@@ -38,7 +38,8 @@ run dbs by hand. Any found: gate
 and `current_stage`, then the structured-question tool with one **Resume**
 option per candidate (recommended for a run this session started earlier; a
 run another live pane owns is not yours) / **Start fresh**; **Hold**.
-Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
+Resume: `export RT_RUN_DB=~/.mattstack/runs/<repo>/<its id>/state.db`
+(the candidate row's `id`), then `rt runs stage-start --stage
 watch-ci` (a new attempt, which re-records this session) and `rt runs field set
 hold - --stage watch-ci`; re-enter with the snapshot's decisions and do not
 re-ask a question it already answered. rt runs verbs resolve your run
