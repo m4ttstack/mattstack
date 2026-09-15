@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mattstack": {
+      "command": "rt",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
