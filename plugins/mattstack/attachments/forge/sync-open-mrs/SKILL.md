@@ -39,8 +39,10 @@ run another live pane owns is not yours) / **Start fresh**; **Hold**.
 Resume: `export RT_RUN_DB=<its state.db>`, then `rt runs stage-start --stage
 sync-open-mrs` (a new attempt, which re-records this session) and `rt runs field set
 hold - --stage sync-open-mrs`; re-enter with the snapshot's decisions and do not
-re-ask a question it already answered. Each tool call is a fresh shell:
-prefix every `rt runs` command with `RT_RUN_DB=<its state.db>`.
+re-ask a question it already answered. rt runs verbs resolve your run
+automatically (env RT_RUN_DB first, else the run this session started,
+else the newest running run in this worktree; ambiguity errors loudly).
+Export RT_RUN_DB only to drive a different run than yours.
 
 Fresh. The flags for this verb, rendered by the compiler:
 
@@ -49,7 +51,7 @@ Fresh. The flags for this verb, rendered by the compiler:
 ```bash
 PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
 rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>   # each tool call is a fresh shell: prefix every rt runs command with RT_RUN_DB=<runDb>
+export RT_RUN_DB=<runDb from the response>
 rt runs stage-start --stage sync-open-mrs
 ```
 
