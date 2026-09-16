@@ -152,36 +152,44 @@ daemon records job state as a side effect of every verb. There is no herd
 DB, no script, and no background wait. `rt herd status` is the whole
 picture at any moment.
 
-### job.md: two verbatim copies
+### job.md: assembled by rt herd brief
 
-Every brief is assembled from two verbatim copies, never composed:
+Every brief is assembled by the verb, never composed:
 
-1. Copy `references/job-template.md` (in this skill's directory) verbatim
-   and fill its slots.
-2. Copy the job's strategy body verbatim from
-   `parts/strategy/references/strategies.md` in this skill's directory
-   into `## Method` and fill its slots.
+```bash
+rt herd brief --job <name> \
+  --template <this skill's dir>/references/job-template.md \
+  --strategy <strategy> --strategies <this skill's dir>/parts/strategy/references/strategies.md \
+  --fill <slot>=<value> ... \
+  --out <brief path>
+```
 
-Do not retype either from memory: the question format the template embeds
-and the report contract the body embeds are the workers' only guaranteed
-copy of the contract.
+It copies `references/job-template.md` verbatim, copies the named
+strategy body verbatim from `parts/strategy/references/strategies.md`
+into `## Method`, and fills the template's literal `<angle-bracket>`
+slots from the repeatable `--fill <slot>=<value>` flags; an unfilled
+marker in the output is an error listing the leftovers, so nothing is
+retyped from memory and no slot goes silently empty. Pass both paths
+from this skill's own directory; rt never guesses skill paths.
 
-**Domain hook -- the Method copy.** Unbound: the two-copy assembly as
-written. A bound domain part may supply the `## Method` block itself (its
-team's pipeline skill is the method); then no strategy body is copied in,
-the strategies-file slots are not filled, and the report contract is
+**Domain hook -- the Method copy.** Unbound: the assembly as written. A
+bound domain part may supply the `## Method` block itself (its team's
+pipeline skill is the method); then pass `--method-file <path>` instead
+of `--strategy`/`--strategies` (they are mutually exclusive), the
+strategies-file slots are not filled, and the report contract is
 whatever that method skill produces. The template's remaining sections
-still copy verbatim -- the question and report channels never change.
+still come from the template verbatim -- the question and report
+channels never change.
 
-Fill the Method body's `<question-file>`/`<report-file>` slots with
-pointers to the brief's 'Asking the user a question' / 'Publishing a
-report' sections (the draft path is `.superpowers/report-draft.md`). A
+The Method body's `<question-file>`/`<report-file>` slots get pointers
+to the brief's 'Asking the user a question' / 'Publishing a report'
+sections (the draft path is `.superpowers/report-draft.md`). A
 `<strategies-file>` slot gets the absolute path of the strategy bodies
 file itself: `parts/strategy/references/strategies.md` under this
-skill's directory. A `<strategy-skill-file>` slot gets the absolute path
-of the file carrying the strategy TABLE: this skill's own SKILL.md,
-whose strategy part carries it. The strategy skill stays
-medium-agnostic.
+skill's directory. A `<strategy-skill-file>` slot gets the absolute
+path of the file carrying the strategy TABLE: this skill's own
+SKILL.md, whose strategy part carries it. The strategy skill stays
+medium-agnostic. Each of these is supplied as a `--fill`.
 
 ## repo conventions travel in the brief
 
@@ -465,7 +473,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 - Spawning Opus for a fully-specified execution job? That's overspending. Sonnet handles mechanical work.
 - About to ask the account question before models are chosen? Stop. Some providers budget per-model pools separately; model-blind headroom is misleading.
 - About to pick a strategy or model per job without asking? Stop. The bound skills give you the recommendation; the choice is the user's -- a bound domain part may pin the strategy half or set a floor (see the model-floor hook), and only the half still open is asked.
-- About to compose method prose for a brief instead of copying a strategy body? Stop. The body is the contract; copy it verbatim and fill its slots -- unless a bound domain part supplies the `## Method` block (see the Method-copy hook).
+- About to compose method prose for a brief instead of running `rt herd brief`? Stop. The verb copies the template and the strategy body; `--method-file` is the only path for a domain-supplied `## Method` block (see the Method-copy hook).
 - About to restate the scope change as a heading and add a sentence explaining each option on the mid-flight form? Stop. One sentence naming the running agents, then the bare three options the text names -- no restated heading, no per-option description.
 - About to run a background wait, a watcher, or a sweep? Stop. The daemon pushes; nothing arms.
 - About to answer a gate from the push's text? Stop. It carries only an id; `rt herd gates` is the question.
