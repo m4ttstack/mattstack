@@ -298,24 +298,25 @@ distrust.
 Three things can arrive:
 
 **A gate push**, one line: `[gate] <id> is now open; re-read the gate
-registry.` It carries no question. The first command in your reply,
-before any other line, is exactly `rt herd gates --json` (add `--herd
-<id>` only when you already know it and more than one herd is active;
-otherwise it defaults to `HERD_ID` or the single active herd, so there is
-no id to look up first). Run it and present every open gate it returns, up
-to 4 in one AskUserQuestion
-call: each option's `label` when it has one (else the option text), the
-job's recommendation first, never reordered. Record the choice with
+registry.` It carries no question; the registry read is your first
+action: the `herd_gates` tool, or `rt herd gates --json` in bash (both
+default to `HERD_ID` or the single active herd, so there is no id to
+look up first; name the herd only when more than one is active). Present
+every open gate it returns, up to 4 in one AskUserQuestion call: each
+option's `label` when it has one (else the option text), the job's
+recommendation first, never reordered. Record the choice with
 
 ```bash
 rt gate answer <gate-id> --answers '<json>' --by shepherd
 ```
 
 submitting each answer's `value` verbatim (the daemon rejects anything
-else). Free text the user adds rides the answer's `note`. A CAS rejection
-means another surface answered first: say in one line which answer won and
-from where, and move on; never re-ask. Answer on the agent's behalf ONLY
-when the answer is literally in the brief you wrote.
+else); `--by shepherd` is CLI-only on purpose, so the registry records
+which surface decided. Free text the user adds rides the answer's
+`note`. A CAS rejection means another surface answered first: say in one
+line which answer won and from where, and move on; never re-ask. Answer
+on the agent's behalf ONLY when the answer is literally in the brief you
+wrote.
 
 `rt herd gates` returns the herd's own gates and any pipeline-run gates
 whose worktree belongs to one of your jobs, so a worker whose Method
@@ -476,19 +477,19 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 - About to compose method prose for a brief instead of running `rt herd brief`? Stop. The verb copies the template and the strategy body; `--method-file` is the only path for a domain-supplied `## Method` block (see the Method-copy hook).
 - About to restate the scope change as a heading and add a sentence explaining each option on the mid-flight form? Stop. One sentence naming the running agents, then the bare three options the text names -- no restated heading, no per-option description.
 - About to run a background wait, a watcher, or a sweep? Stop. The daemon pushes; nothing arms.
-- About to answer a gate from the push's text? Stop. It carries only an id; `rt herd gates` is the question.
+- About to answer a gate from the push's text? Stop. It carries only an id; the registry read (`herd_gates`, or `rt herd gates --json`) is the question.
 - About to `herdr agent prompt` a worker? Stop. `rt chat dm <handle>` is the channel, and it is on the record.
 - About to tell a worker "to revise" in prose? Stop. Revise is a gate answer with a note; findings are a DM.
 - About to record a job as done, closed, or crashed by hand? Stop. The verbs and the daemon own job state.
 - Fresh session and about to reconstruct a herd from memory? Stop. `rt herd resume <id>`.
 - About to ask the user for a run id or db path so you can "pick up watching" the herd? Stop. `rt herd list` names every active herd; there is no id to hunt for.
-- About to hand-verify a gate against `rt gate list --open --subject-prefix run:` yourself? Stop. `rt herd gates --herd <id>` already scopes to your herd and your jobs' pipeline runs.
+- About to hand-verify a gate against `rt gate list --open --subject-prefix run:` yourself? Stop. `rt herd gates --herd <id>` (or the `herd_gates` tool) already scopes to your herd and your jobs' pipeline runs.
 - About to paste a command's output before you have actually run it? Stop. Run the verb for real, or tell the user it has not run yet.
 - About to say you checked a directory, log, or file when you never ran the read? Stop. Run the check for real, or say plainly that you have not.
 - About to invent a new channel because a verb seems unreachable? Stop. Report the real error and wait; never substitute a channel of your own making.
 - About to offer to decide an agent's open question yourself? Stop. Relay it to the user; you only answer on the agent's behalf when the choice is literally in the brief.
 - About to say you checked, ran, confirmed, or verified something and then state what it showed? Stop. If the output is not in your transcript, you did not run it; say what you would run and what its result would decide, never a result you do not have, and never a specific fact (a format, a count, a status) invented to back the claim up.
-- Worker pane shows a structured question with no gate to match it (`rt herd gates` returns nothing for it)? Stop. That is the banned bare pane-local form -- it is unreachable from every channel, not just you; flag it to the user rather than trying to answer it yourself.
+- Worker pane shows a structured question with no gate to match it (`rt herd gates` returns nothing for it)? Stop. That is the banned bare pane-local form -- it is unreachable from every channel, not just you; flag it to the user rather than trying to answer it yourself. In covered panes (any `rt agent` launch carrying a subject, herd spawns included) the launch-injected gate-fork hook denies the bare form at source, so seeing one means the pane is uncovered or its daemon was unreachable.
 - About to send a pane a keystroke -- especially Escape -- to unstick it? Stop. The daemon injects Escape itself on a remote answer; check the gate row's `presentation` first, and if it says `"wait"`, leave the pane alone.
 - About to relay a worker's claim about its own environment (servers up, ports free, processes running, CI green) as your own finding? Stop. Measure it, or say plainly "the worker reports X" -- an unverified claim you forward becomes something the user reads as checked.
 - About to call a pane's dev servers stopped because the pane closed, or run `pkill -f "<worktree-path>"` to find them? Stop. A worktree path lives only in a process's cwd, never its command line -- that pkill matches nothing. Check the port (`lsof -ti tcp:<port>`), confirm the pid's cwd, then `kill` it.
