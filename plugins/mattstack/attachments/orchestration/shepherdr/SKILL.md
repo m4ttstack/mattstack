@@ -231,7 +231,7 @@ Decompose into independent jobs. Good decomposition:
 - Each job has a clear deliverable and can run without another job's output. Sequential work (B needs A) spawns B after A's report event arrives.
 - Cap ~6 agents per batch.
 
-Write each brief to the scratchpad, one file per job, using the two-copy assembly above.
+Write each brief to the scratchpad, one file per job, with rt herd brief as above.
 
 **Single-job case:** if decomposition yields exactly one job, push back: tell the user "this is probably not the right skill for this" and do the work yourself, here in the main pane. Never spawn a single pane -- one agent behind a relay is pure overhead. Still create the worktree (`rt worktree provision --repo <repo> --branch <job> --disposal job`) so the work stays isolated from the user's checkout. The delegator rules above don't apply -- work hands-on as normal. A bound domain part may name the one legitimate single-worker exception; apply it.
 
