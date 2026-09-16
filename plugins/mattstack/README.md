@@ -192,10 +192,6 @@ binding or a pack's compile, never directly.
 
 - **mattstack:ci-forge-gitlab** -- GitLab implementation of the watch-ci
   stage's `forge` slot: pipeline tree-walking, job listing, triage refs.
-- **mattstack:gitlab-mr-threads** -- positioned diff comments and thread
-  replies through `glab api` (JSON `position` bodies, `DiffNote`
-  verification). An include body: the compiler inlines it into `review` and
-  into any pack fill that carries `{{include:gitlab-mr-threads}}`.
 - **checkout** -- get a local worktree for someone else's branch, given a
   branch name, an MR/PR link or number, or a ticket id, without starting
   work on it.

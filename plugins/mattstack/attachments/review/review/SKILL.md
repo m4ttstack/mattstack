@@ -156,4 +156,9 @@ message still ends with the target's link (the close HARD-GATE below).
 
 {{include:review-posting}}
 
-{{include:gitlab-mr-threads}}
+Posting mechanics: a positioned inline comment is the `mr_comment_inline`
+tool and a thread reply is `mr_reply_thread`; the daemon verifies
+DiffNote placement and, on the silent general-note degrade, retries ONCE
+with fresh diff_refs (deleting the stray notes; it cannot fix a position
+GitLab rejects outright), so never hand-build a `glab api` position
+payload.
