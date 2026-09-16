@@ -55,6 +55,10 @@ rt runs run-start <flags for the work type> --pack-dirs "$PACK_DIRS" [--ticket <
 export RT_RUN_DB=<runDb from the response>
 ```
 
+When the run carries a ticket, update its tracker now as the opening act:
+set it In Progress and ensure it is assigned to the operating user (for
+Linear, `save_issue` with state In Progress and assignee `me`).
+
 Back-fill any spawn-time decision made before the DB existed (account
 selection per `account-pool@1`): `rt runs decision record
 --contract account-pool@1 --scope run --selection '<JSON>' --decided-by
