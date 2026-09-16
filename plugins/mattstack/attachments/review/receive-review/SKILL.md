@@ -214,7 +214,7 @@ the gate itself:
   reading each `answers` key other than `code-changes`, unwrapping a
   `{value, note}` object to its `value`, and splitting at the first `:`;
   `thread-<n>` is a container, nothing keys on it.
-- In-pane form (gate-protocol's Attended step 1): the form tool takes at
+- In-pane form (gate-protocol's presentation: "form" branch): the form tool takes at
   most four questions per call, so ask the thread questions in order, up
   to four per call, until every thread is asked. Then one last call:
   `code-changes`, only when some thread answered `fix:` (otherwise submit
