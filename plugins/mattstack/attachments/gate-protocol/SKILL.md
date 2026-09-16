@@ -55,7 +55,9 @@ the raw primitive underneath; a gated verb never needs it directly.
 **`presentation: "form"`.** Present the native in-pane structured form;
 it is this gate's registry face (where the launch-injected
 AskUserQuestion hook is active, an open gate matching the pane's LAUNCH
-subject is what lets the form through). Render each
+subject is what lets the form through, and so is the pane's own
+worktree carrying its own open run: gate, RT-164's shipped behavior).
+Render each
 option's `label` when it has one; submit the chosen option's `value`
 verbatim: `rt gate answer <id> --answers '<json>' --by pane` (or the
 `gate_answer` tool). When the gate carries more questions than one form
