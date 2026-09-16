@@ -431,12 +431,15 @@ redirected stage's produces): `field set <key> -`. Every reader treats it as
 absent: `field get` returning `-` reads as not set, and the orchestrator's
 completeness check is "non-null and not `-`".
 
-Outside a run (`RT_RUN_DB` unset), the two `rt runs` lines are skipped and
-the form alone is the gate -- for an ATTENDED invocation. A SPAWNED pane
-with no run never presents that form: nobody is watching it and no gate
-row reaches any surface, so it ends the path with one error line instead
-(see the forge parts' dirty-tree, conflict, push, and clarify gates for
-the exact wording).
+When no run resolves (`RT_RUN_DB` unset, no run started by this session,
+and no running run in this worktree -- the same chain `rt runs` verbs use
+below), the two `rt runs` lines are skipped and the form alone is the gate
+-- for an ATTENDED invocation. A SPAWNED pane with no resolved run never
+presents that form: nobody is watching it and no gate row reaches any
+surface, so it ends the path with one error line instead (see the forge
+parts' dirty-tree, conflict, push, and clarify gates for the exact
+wording). A resolved run always gets the `rt runs` lines and its gate
+integration, whether or not `RT_RUN_DB` itself is set.
 
 A verb that inherited a run (invoked from inside a stage) uses
 `run.current_stage` as its `--stage`, writes no `stage-done` and no
@@ -458,7 +461,9 @@ sentence, end the turn; under a run also record `hold:<stage>:<attempt>`
 and `rt runs field set hold "<their words>" --stage <stage>`; outside a run
 nothing is recorded.
 
-Each tool call is a fresh shell. Keep `RT_RUN_DB` in the run's prose (the
-`runDb` from `run-start`) and prefix every `rt runs` command with
-`RT_RUN_DB=<path>`; `export` and `unset` remain the contract's markers for
-the run's start and end, not a persistence mechanism.
+Each tool call is a fresh shell, but `rt runs` verbs resolve your run
+automatically: env `RT_RUN_DB` first, else the run this session started,
+else the newest running run in this worktree; ambiguity errors loudly.
+`export` and `unset` remain the contract's markers for the run's start and
+end, not a persistence mechanism -- export `RT_RUN_DB` only to drive a
+different run than yours.
