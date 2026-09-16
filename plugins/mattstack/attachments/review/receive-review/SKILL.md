@@ -193,14 +193,18 @@ the gate itself:
   order, plus one code-changes question. A thread question's id is
   `thread-<n>` by 1-based position, its label the thread's `file:line`,
   its options that thread's verb triple with the thread id VERBATIM in the
-  value and the bare verb in the label:
+  value and the bare verb in the label. The triple's member matching step
+  3's recommended action for that thread carries `"recommended": true` --
+  this is how the recommendation reaches the gate, replacing prose; rt-client
+  normalization renders it as the label's "(Recommended)" suffix and
+  capitalizes the bare verb, so labels stay lowercase here:
 
   ```json
   [
     {"id": "thread-1", "label": "<file>:<line>", "multi": false,
-     "options": [{"value": "reply:<threadId>", "label": "reply"}, {"value": "fix:<threadId>", "label": "fix"}, {"value": "skip:<threadId>", "label": "skip"}]},
+     "options": [{"value": "reply:<threadId>", "label": "reply"}, {"value": "fix:<threadId>", "label": "fix", "recommended": true}, {"value": "skip:<threadId>", "label": "skip"}]},
     {"id": "thread-2", "label": "<file>:<line>", "multi": false,
-     "options": ["... the next thread's triple, its own id verbatim; one such question per thread"]},
+     "options": ["... the next thread's triple, its own id verbatim; one such question per thread; recommended: true on whichever of reply/fix/skip step 3 picked"]},
     {"id": "code-changes", "label": "Approve the proposed code changes?", "multi": false,
      "options": ["approve", "revise", "skip"]}
   ]
