@@ -158,8 +158,8 @@ Every brief is assembled by the verb, never composed:
 
 ```bash
 rt herd brief --job <name> \
-  --template <this skill's dir>/references/job-template.md \
-  --strategy <strategy> --strategies <this skill's dir>/parts/strategy/references/strategies.md \
+  --template "${CLAUDE_SKILL_DIR}/references/job-template.md" \
+  --strategy <strategy> --strategies "${CLAUDE_SKILL_DIR}/parts/strategy/references/strategies.md" \
   --fill <slot>=<value> ... \
   --out <brief path>
 ```
@@ -303,8 +303,9 @@ action: the `herd_gates` tool, or `rt herd gates --json` in bash (both
 default to `HERD_ID` or the single active herd, so there is no id to
 look up first; name the herd only when more than one is active). Present
 every open gate it returns, up to 4 in one AskUserQuestion call: each
-option's `label` when it has one (else the option text), the job's
-recommendation first, never reordered. Record the choice with
+option's `label` when it has one (else the option text) as the option
+text, its `description` when the gate carries one as that option's
+description, the job's recommendation first, never reordered. Record the choice with
 
 ```bash
 rt gate answer <gate-id> --answers '<json>' --by shepherd

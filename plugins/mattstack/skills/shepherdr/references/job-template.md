@@ -46,7 +46,7 @@ initiative outside that path: it makes this pane unreachable from every
 channel at once, not only from the shepherd, and a form with no backing
 gate can sit unanswered indefinitely because nothing else knows it
 exists. Every question this brief asks you to raise goes through `rt herd
-ask` below, or through `rt gate open` inside a pipeline run -- both open
+ask` below, or through `rt gate ask` inside a pipeline run -- both open
 the backing gate before anything appears on screen.
 
 ## Asking the user a question

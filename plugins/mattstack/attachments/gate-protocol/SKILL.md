@@ -39,9 +39,12 @@ without a separate cleanup step.
 
 `--context` is a VERBATIM QUOTE of the material the decision is about
 (the task summary from the brief, the plan section under decision, the
-failing check output), never a freshly composed summary. An oversized
-context is omitted server-side, never an error; do not measure or trim it
-yourself. Emit labeled options (`{"value": "...", "label": "..."}`)
+failing check output), never a freshly composed summary. A human-owned,
+non-exempt gate REFUSES (exit 1) on empty or whitespace-only context --
+give it real material or omit the flag, never blank it. An oversized
+context (over 8192 bytes) is dropped loudly, not silently: the response
+carries `contextOmitted: true` and one line lands on stderr; do not
+measure or trim it yourself. Emit labeled options (`{"value": "...", "label": "..."}`)
 whenever a site's option values are not already human-readable; the
 registry stores every option in that object form. Labels cap at 200
 UTF-8 bytes and an oversized label REJECTS the open: middle-truncate a
@@ -50,6 +53,23 @@ daemon's, by one rule no caller computes; the nudge and origin ride the
 same call, so there is nothing to stamp by hand. `rt gate open` remains
 the raw primitive underneath; a gated verb never needs it directly.
 
+## Context placement
+
+Three fields carry explanatory text, each a different scope -- pick by
+what the text is background for, never by habit:
+
+- Gate-level `--context` (above): background shared by every question in
+  this open -- the task summary, the plan section under decision, the
+  failing check output.
+- A question's own `context` field: setup specific to that one question,
+  when the gate opens more than one and they need different framing.
+- An option's `description` field: the one-liner rationale for that
+  choice -- why, not what (the `label` already says what).
+
+```json
+{"value": "redirect:implement", "label": "Redirect to implement", "description": "the failing check points at code, not the plan"}
+```
+
 ## Acting on the response
 
 **`presentation: "form"`.** Present the native in-pane structured form;
@@ -57,8 +77,9 @@ it is this gate's registry face (where the launch-injected
 AskUserQuestion hook is active, an open gate matching the pane's LAUNCH
 subject is what lets the form through, and so is the pane's own
 worktree carrying its own open run: gate). Render each
-option's `label` when it has one; submit the chosen option's `value`
-verbatim: `rt gate answer <id> --answers '<json>' --by pane` (or the
+option's `label` when it has one and its `description` when it has one
+(the AskUserQuestion option's own description field); submit the chosen
+option's `value` verbatim: `rt gate answer <id> --answers '<json>' --by pane` (or the
 `gate_answer` tool). When the gate carries more questions than one form
 call fits, chunk the forms but submit exactly ONE answer after the last
 chunk; a CAS rejection at that point discards every chunk's answer

@@ -37,17 +37,13 @@ Check these before anything mutates, and report before touching history:
   kind `clarify` and these questions: **I committed them, retry** /
   **Abort**; **Hold**, recorded after with `rt runs decision record
   --contract gate@1 --scope clarify --selection
-  '{"tree":"retry|abort"}' --decided-by <the answer's by>`. With no run:
-  a human invocation presents the same form in-pane only. A SPAWNED pane
-  (the launch instruction said a surface spawned this pane -- the same
-  signal `run-start --spawned-by` is taken from; a board wrapper
-  invocation counts as spawned per se) never presents a form here:
-  nobody is watching the pane and no gate row reaches any surface. End
-  this path instead with one error line the spawning surface can read
-  (its own status or report channel when it has one, stderr otherwise)
-  and stop. Never `git stash` and proceed: moving someone's uncommitted
-  work is not this skill's call. The STOP table under the push gate
-  binds this form too.
+  '{"tree":"retry|abort"}' --decided-by <the answer's by>`.
+
+{{include:spawned-no-run-guard}}
+
+Never `git stash` and proceed: moving someone's uncommitted work is not
+this skill's call. The STOP table under the push gate binds this form
+too.
 - **Upstream set.** `git -C <worktree> status -sb` prints the branch line
   first; no `...origin/<branch>` tracking ref there means no upstream --
   stop and report, there's nothing to rebase onto.
@@ -140,15 +136,10 @@ gate:
 - When `RT_RUN_DB` is set, run gate-protocol's Runs integration with kind
   `conflict:rebase-worktree:<attempt>` and these questions: **Leave the
   rebase in progress for me** (recommended) / **Abort the rebase**
-  (`git rebase --abort`); **Iterate here**; **Hold**. With no run: a
-  human invocation presents the same form in-pane only. A SPAWNED pane
-  (the launch instruction said a surface spawned this pane -- the same
-  signal `run-start --spawned-by` is taken from; a board wrapper
-  invocation counts as spawned per se) never presents a form here:
-  nobody is watching the pane and no gate row reaches any surface. End
-  this path instead with one error line the spawning surface can read
-  (its own status or report channel when it has one, stderr otherwise)
-  and stop.
+  (`git rebase --abort`); **Iterate here**; **Hold**.
+
+{{include:spawned-no-run-guard}}
+
 - When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope conflict:rebase-worktree:<attempt> --selection '{"next":"leave|abort|iterate|hold","note":"<their words or null>"}' --decided-by <the answer's by>`.
 
 Never resolve the conflict yourself, `git add` the files, or run `git
@@ -175,14 +166,10 @@ new head line and let it gate the batch. Otherwise:
 - When `RT_RUN_DB` is set, run gate-protocol's Runs integration with kind
   `push` and these questions: **Push with force-with-lease now** / **Leave
   it unpushed** (recommended when the branch has an open MR others may
-  have pulled); **Iterate here**; **Hold**. With no run: a human
-  invocation presents the same form in-pane only. A SPAWNED pane (the
-  launch instruction said a surface spawned this pane -- the same signal
-  `run-start --spawned-by` is taken from; a board wrapper invocation
-  counts as spawned per se) never presents a form here: nobody is
-  watching the pane and no gate row reaches any surface. End this path
-  instead with one error line the spawning surface can read (its own
-  status or report channel when it has one, stderr otherwise) and stop.
+  have pulled); **Iterate here**; **Hold**.
+
+{{include:spawned-no-run-guard}}
+
 - When `RT_RUN_DB` is set: `rt runs decision record --contract gate@1 --scope push --selection '{"push":true|false,"next":"proceed|iterate|hold","note":"<their words or null>"}' --decided-by <the answer's by>`.
 
 Never push unasked.

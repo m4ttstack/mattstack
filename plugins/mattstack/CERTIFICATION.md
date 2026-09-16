@@ -17,8 +17,9 @@ The written purity rule and per-skill certification checklist for this repo
 
 ## Certification checklist (per skill)
 
-- [ ] `tests/certify.sh <skill-dir>` exits 0 (purity greps, frontmatter
-      grammar, depth cap, vendored-resolver identity, stage declaration).
+- [ ] `tests/certify.sh <skill-dir>` exits 0 (purity greps, no-ticket-id
+      ban, frontmatter grammar, depth cap, vendored-resolver identity,
+      stage declaration).
 - [ ] desc-test selection micro-test: all scenarios in
       `tests/desc-test-scenarios.json` pass before AND after any
       description edit (`bun run tests/desc-test.ts`).
