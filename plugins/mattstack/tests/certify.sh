@@ -44,9 +44,12 @@ EMDASH=$(printf '\342\200\224'); ENDASH=$(printf '\342\200\223')
 HITS=$(grep -rn "$EMDASH\|$ENDASH" "$DIR" 2>/dev/null | grep -v '^[^:]*/\.git/' || true)
 if [ -z "$HITS" ]; then ok no-em-dashes; else fail no-em-dashes "$HITS"; fi
 
-# Ticket ids (RT-123, SKILLS-45) are process citations, not skill content;
-# they belong in commit history and Linear, never in shipped prose or code.
-HITS=$(grep -rnE '\b(RT|SKILLS)-[0-9]+\b' "$DIR" 2>/dev/null | grep -v '^[^:]*/\.git/' || true)
+# Ticket ids (RT-123, SKILLS-45, BOARD-10, MAT-375) are process citations,
+# not skill content; they belong in commit history and Linear, never in
+# shipped prose or code. CV- ids are the employer's own and stay allowed:
+# this ban is about OUR internal ticket systems leaking into content that
+# ships to a customer's employer-visible surface (SKILLS-73), not theirs.
+HITS=$(grep -rnE '\b(RT|SKILLS|BOARD|MAT)-[0-9]+\b' "$DIR" 2>/dev/null | grep -v '^[^:]*/\.git/' || true)
 if [ -z "$HITS" ]; then ok no-ticket-ids; else fail no-ticket-ids "$HITS"; fi
 
 if [ "$(sed -n 1p "$DIR/SKILL.md")" = "---" ]; then ok fm-open; else fail fm-open "line 1 of SKILL.md is not ---"; fi

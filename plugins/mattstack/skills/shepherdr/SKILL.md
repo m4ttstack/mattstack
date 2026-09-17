@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.17.14 + mattstack:model-tiering@0.17.14 + mattstack:execution-strategy@0.17.14 + mattstack:cswap-accounts@0.17.14"
+  compiled: "mattstack@0.17.15 + mattstack:model-tiering@0.17.15 + mattstack:execution-strategy@0.17.15 + mattstack:cswap-accounts@0.17.15"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.17.14 path=attachments/orchestration/shepherdr/SKILL.md lines=15-517 -->
+<!-- part: step source=mattstack:shepherdr version=0.17.15 path=attachments/orchestration/shepherdr/SKILL.md lines=15-528 -->
 
 # shepherdr
 
@@ -64,7 +64,7 @@ If work arrives unscoped and the user wants it scoped before fan-out, brainstorm
 
 ## Tiering
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.17.14 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.17.15 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -178,7 +178,7 @@ this skill is the generic framework they override.
 
 ## Strategy
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.17.14 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.17.15 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -312,7 +312,7 @@ below the floor is wrong.
 
 ## Accounts
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.17.14 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.17.15 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -675,13 +675,24 @@ open; that nag means this step was skipped, and the answer is the same
 command.
 
 **A job parked at a trust modal.** The watchdog notifies you when a worker
-is stuck at a folder-trust dialog it could not clear itself. This is the
-one exception to "about to send a pane a keystroke -- stop" below: clear
-it by driving the pane one key at a time, never a batched sequence: peek
-the screen, send one arrow key, peek again to confirm the cursor actually
-moved before sending Enter. A batched send can land keys the dialog was
-not ready for and leave the pane in a worse state than the one you found
-it in.
+is stuck at a folder-trust dialog it could not clear itself, but the
+notification names the job, not what is actually on screen: peek the pane
+first, and drive keys only when it genuinely shows the folder-trust dialog
+(the "do you trust the files in this folder?" prompt), never on any other
+blocked reading. Also never for a job in a directory someone passed in by
+hand (a non-provisioned `--dir` tree): the daemon deliberately declines to
+trust that tree on the human's behalf, and the same restriction is yours.
+Check `rt herd status --json`'s job `tree` field -- non-null means the
+daemon provisioned it, null means `--dir` was passed. If the field is
+missing or you cannot tell, treat it as non-provisioned and do not drive
+keys. If you spawned this job yourself with `--dir`, that alone settles it
+regardless of what `tree` reads: a respawn under the same job name can
+carry forward a stale provisioned `tree` from before. When both hold, this is the one exception to "about to send a pane a
+keystroke -- stop" below: clear it by driving the pane one key at a time,
+never a batched sequence: peek the screen, send one arrow key, peek again
+to confirm the cursor actually moved before sending Enter. A batched send
+can land keys the dialog was not ready for and leave the pane in a worse
+state than the one you found it in.
 
 **Domain hook -- after the report.** Unbound: integration as above. A
 bound domain part may define what follows an approved report -- telling
@@ -743,7 +754,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 
 ## wrap-up form contract
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.17.14 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.17.15 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
