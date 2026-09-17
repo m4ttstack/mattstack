@@ -223,10 +223,11 @@ the gate itself:
   to four per call, until every thread is asked. Then one last call:
   `code-changes`, only when some thread answered `fix:` (otherwise submit
   its sentinel `skip` unasked, the same hide rule the board and console
-  cards apply), plus a pane-only **Continue** / **Iterate here** / **Hold**
-  question. That pane-only question never reaches the registry, and
-  Iterate / Hold are never extra options on a thread or code-changes
-  question: a fourth and fifth option there would push it over the cap.
+  cards apply), plus a pane-only `next` question of **Continue** /
+  **Iterate here** / **Hold**. That pane-only question never reaches the
+  registry, and Iterate / Hold are never extra options on a thread or
+  code-changes question: a fourth and fifth option there would push it
+  over the cap.
   Continue: submit exactly ONE `rt gate answer` after that last call,
   carrying every thread answer plus `code-changes`, never one per chunk.
 - `fix:<threadId>` implies that thread's reply; `skip:<threadId>` means
@@ -261,12 +262,14 @@ itself:
 
 - `rt runs field set gate respond-post --stage <stage>`.
 - Run gate-protocol's Runs integration with kind `respond-post` and these
-  questions:
+  questions, each its own question (never fold one list into another -- a
+  question over 4 options sends the whole gate to the wait queue):
 
   ```json
   [
     {"id": "replies", "label": "Post which replies?", "multi": true, "options": ["<threadId> per drafted reply"]},
-    {"id": "disposition", "label": "Disposition", "multi": false, "options": ["resolve-addressed", "leave-open"]}
+    {"id": "disposition", "label": "Disposition", "multi": false, "options": ["resolve-addressed", "leave-open"]},
+    {"id": "next", "label": "Next", "multi": false, "options": ["proceed", "iterate", "hold"]}
   ]
   ```
 
@@ -275,8 +278,12 @@ itself:
   drops silently, and let the developer deselect -- e.g. post the `valid`
   "Fixed" replies and the `pushback` reasons now, hold a
   `needs-clarification` thread to ask the reviewer synchronously first.
-  Plus **Iterate here**; **Hold**. A paragraph that lists the categories and
-  waits is not this gate.
+  Over 4 drafted replies, `replies` splits into `replies-1`, `replies-2`,
+  ... of up to 4 options each, in order, whose answers read as one union.
+  `next` carries the navigation verbs -- **Proceed** (recommended) /
+  **Iterate here** / **Hold** -- and never folds into `replies` or
+  `disposition`. A paragraph that lists the categories and waits is not
+  this gate.
 </HARD-GATE>
 
 Post thread replies **only** for the selected `replies`; the rest stay

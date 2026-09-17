@@ -106,11 +106,15 @@ is the `ci` gate below.
 - `rt runs field set gate ci:watch-ci:<attempt> --stage watch-ci`
 - One sentence: the verdict and the one-line triage per blocking failure.
 - Run gate-protocol's Runs integration with kind `ci:watch-ci:<attempt>`
-  and these questions: **Fix and re-push** (recommended for a REAL
-  failure in your change) / **Retry the job** (for a flake the report did
-  not already retry) / **Hand back** (leave it red for the human) /
-  **Abandon the run**; **Iterate here**; **Go back to `<stage>`**;
-  **Hold**.
+  and these questions, each its own question (never fold one list into
+  another -- a question over 4 options sends the whole gate to the wait
+  queue):
+  - `action`: **Fix and re-push** (recommended for a REAL failure in
+    your change) / **Retry the job** (for a flake the report did not
+    already retry) / **Hand back** (leave it red for the human) /
+    **Abandon the run**
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Go back to
+    `<stage>`** / **Hold**
 - `rt runs decision record --contract gate@1 --scope ci:watch-ci:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Fix: write no `ci`; hand control back to the orchestrator with one
   sentence naming the answer, and it redirects to `implement` with the
@@ -125,9 +129,16 @@ is the `ci` gate below.
 - One sentence: CI is green for the MR's head; `evidence` is set (or is
   `-`).
 - Run gate-protocol's Runs integration with kind `mark-ready` and these
-  questions: **Mark ready now** (recommended when `evidence` is set and
-  not `-`) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`**
-  (one option per earlier stage row); **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `ready`: **Mark ready now** (recommended when `evidence` is set and
+    not `-`) / **Keep it draft**
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Go back** /
+    **Hold**
+  - `to`, only when **Go back** is answered and more than one earlier
+    stage row exists: one option per earlier stage, split `to-1`,
+    `to-2`, ... over 4; with exactly one candidate stage label it **Go
+    back to `<stage>`** in `next` and skip this question
 - `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Go back: hand control back to the orchestrator with one sentence naming
   the answer; it runs `## Redirect`.

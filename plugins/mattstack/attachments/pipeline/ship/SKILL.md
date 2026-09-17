@@ -119,9 +119,16 @@ draft: gate `mark-ready`.
 - `rt runs field set gate mark-ready --stage ship`.
 - One sentence: CI is green; evidence is attached (or is not).
 - Run gate-protocol's Runs integration with kind `mark-ready` and these
-  questions: **Mark ready now** (recommended when `ci` is green and evidence
-  is set) / **Keep it draft**; **Iterate here**; **Go back to `<stage>`**
-  (one option per earlier stage row when `snapshot` shows any); **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `ready`: **Mark ready now** (recommended when `ci` is green and
+    evidence is set) / **Keep it draft**
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Go back** /
+    **Hold**
+  - `to`, only when **Go back** is answered and `snapshot` shows more
+    than one earlier stage row: one option per earlier stage, split
+    `to-1`, `to-2`, ... over 4; with exactly one candidate stage label
+    it **Go back to `<stage>`** in `next` and skip this question
 - `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`.
 - Go back (inherited run only): hand control back to the caller with one
   sentence naming the answer.

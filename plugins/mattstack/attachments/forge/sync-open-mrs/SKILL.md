@@ -83,9 +83,14 @@ once for the whole batch, never per branch:
 
 - `rt runs field set gate sweep --stage sync-open-mrs`.
 - Run gate-protocol's Runs integration with kind `sweep` and these
-  questions: a multi-select of the branches to rebase, in order, all
-  pre-selected (deselecting skips one); **Iterate here** (their text
-  reorders or excludes); **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `branches`: a multi-select of the branches to rebase, in order, all
+    pre-selected (deselecting skips one); over 4 branches it splits into
+    `branches-1`, `branches-2`, ... of up to 4 options each, in order,
+    whose answers read as one union
+  - `next`: **Proceed** (recommended) / **Iterate here** (their text
+    reorders or excludes) / **Hold**
 - `rt runs decision record --contract gate@1 --scope sweep --selection '{"branches":[...]}' --decided-by <the answer's by>`.
 
 Nothing is touched before the answer.
@@ -112,9 +117,14 @@ those unasked, never one-by-one as each rebase completes:
 
 - `rt runs field set gate push --stage sync-open-mrs`.
 - Run gate-protocol's Runs integration with kind `push` and these
-  questions: a multi-select of the clean, still-unpushed branches to `git
-  push --force-with-lease`, all pre-selected; **Watch CI after pushing** (yes /
-  no); **Iterate here**; **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `branches`: a multi-select of the clean, still-unpushed branches to
+    `git push --force-with-lease`, all pre-selected; over 4 branches it
+    splits into `branches-1`, `branches-2`, ... of up to 4 options each,
+    in order, whose answers read as one union
+  - `watch_ci`: **Watch CI after pushing** (yes / no)
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 - `rt runs decision record --contract gate@1 --scope push --selection '{"branches":[...],"watch_ci":true|false}' --decided-by <the answer's by>`.
 
 Push the selected branches, then, when asked, follow the pack's compiled

@@ -113,16 +113,23 @@ any level with no findings.
 Decision intake: when the caller hands this step a decided selection (a
 board wrapper, or any @2 caller, handing `{tiers, outcome}` down through the
 fill -- tiers naming the severity levels, outcome naming the disposition),
-use it and ask nothing. Otherwise (a direct terminal run) ask ONE combined
-question with the runtime's structured-question tool: tiers multi-select
-over the levels present (every level with findings pre-selected),
-disposition single-select (Comment pre-selected; the offered set is
-forge-conditional -- Request changes only where the target forge's CLI
-supports it, `gh` does, `glab` does not; verify before offering, don't
-assume from memory), plus **Iterate here** (their text changes the draft;
-re-present it and ask again) and **Hold**. The old two-gate protocol --
-`post-severity` then `post-disposition` as two sequential structured
-questions -- retires: nothing here presents two gates in a row.
+use it and ask nothing. Otherwise (a direct terminal run) ask ONE gate with
+the runtime's structured-question tool, these questions, each its own
+question (never fold one list into another -- a question over 4 options
+sends the whole gate to the wait queue):
+
+- `tiers`: a multi-select over the levels present, every level with
+  findings pre-selected
+- `disposition`: single-select, Comment pre-selected; the offered set is
+  forge-conditional -- Request changes only where the target forge's CLI
+  supports it, `gh` does, `glab` does not; verify before offering, don't
+  assume from memory
+- `next`: **Proceed** (recommended) / **Iterate here** (their text changes
+  the draft; re-present it and ask again) / **Hold**
+
+The old two-gate protocol -- `post-severity` then `post-disposition` as
+two sequential structured questions -- retires: nothing here presents two
+gates in a row.
 
 When this step asks its own question, bracket it the way every gate does:
 `rt runs field set gate post --stage <stage>` before the question. Skip
