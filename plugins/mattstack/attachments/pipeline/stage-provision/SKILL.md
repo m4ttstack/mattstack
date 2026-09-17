@@ -68,10 +68,15 @@ title too generic for a slug, a classification the domain tracks):
 - `rt runs field set gate provision --stage provision`
 - One sentence: what was found (the tree, the missing ticket, the title).
 - Run gate-protocol's Runs integration with kind `provision` and these
-  questions: on `branch-attached`, **Resume in `<tree>`** (recommended) /
-  **Fresh tree**; on a missing ticket, **Create one** / **I will recheck
-  the id**; on a generic title, the slug as their text; the domain's own
-  questions as it words them; then **Iterate here** and **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `resume_in`, only on `branch-attached`: **Resume in `<tree>`**
+    (recommended) / **Fresh tree**
+  - `ticket`, only on a missing ticket: **Create one** / **I will
+    recheck the id**
+  - `slug`, only on a generic title: the slug as their text
+  - the domain's own questions, each its own, as it words them
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 - `rt runs decision record --contract gate@1 --scope provision --selection '{"resume_in":"<tree or null>","ticket":"create|recheck|null","slug":"<text or null>","domain":{<answers>}}' --decided-by <the answer's by>`
 - Resume: `EnterWorktree` to that tree and write `branch` and `worktree`
   from it. Fresh: provision under a new title. Hold: record

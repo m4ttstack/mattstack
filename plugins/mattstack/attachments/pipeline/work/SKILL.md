@@ -87,10 +87,17 @@ A stage failure is a gate, not a report. Gate `<stage>-failed:<attempt>`
 - One sentence: the stage, the reason `stage-fail` recorded, and the
   detail path if there is one.
 - Run gate-protocol's Runs integration with kind `<stage>-failed:<attempt>`
-  and these questions: **Retry the stage** (recommended when the reason
-  names something you can fix) / **Go back to `<stage>`** (one option per
-  earlier stage row) / **Iterate here** (their text is what to change
-  first) / **Hold** / **Abandon the run**.
+  and these questions, each its own question (never fold one list into
+  another -- a question over 4 options sends the whole gate to the wait
+  queue):
+  - `action`: **Retry the stage** (recommended when the reason names
+    something you can fix) / **Abandon the run**
+  - `next`: **Proceed** (recommended) / **Iterate here** (their text is
+    what to change first) / **Go back** / **Hold**
+  - `to`, only when **Go back** is answered and more than one earlier
+    stage row exists: one option per earlier stage, split `to-1`,
+    `to-2`, ... over 4; with exactly one candidate stage label it **Go
+    back to `<stage>`** in `next` and skip this question
 - `rt runs decision record --contract gate@1 --scope <stage>-failed:<attempt> --selection '{"next":"retry|redirect|iterate|hold|abandon","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Retry: a fresh `stage-start` for the stage (a new attempt) and re-enter
   it. Go back: `## Redirect`. Iterate: `## Redirect` to the same stage
@@ -161,9 +168,15 @@ The run stays `running` until the human answers the close gate; a green
 - One sentence: the MR link and its state (draft, or ready as decided at
   the `mark-ready` gate) and the `ci` verdict.
 - Run gate-protocol's Runs integration with kind `close` and these
-  questions: **Done** (recommended when `ci` is green and the MR is ready)
-  / **Iterate here** (their text is the change request) / **Go back to
-  `<stage>`** (one option per stage row in `snapshot`) / **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `next`: **Done** (recommended when `ci` is green and the MR is
+    ready) / **Iterate here** (their text is the change request) / **Go
+    back** / **Hold**
+  - `to`, only when **Go back** is answered and `snapshot` shows more
+    than one stage row: one option per stage, split `to-1`, `to-2`, ...
+    over 4; with exactly one candidate stage label it **Go back to
+    `<stage>`** in `next` and skip this question
 - `rt runs decision record --contract gate@1 --scope close --selection '{"next":"done|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Done: `rt runs run-status --status done`, then `unset RT_RUN_DB`.
   Iterate: `## Redirect` to `implement` (or the stage their note names)

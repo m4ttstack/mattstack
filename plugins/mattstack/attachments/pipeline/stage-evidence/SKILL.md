@@ -46,9 +46,12 @@ or the data source is anything other than the local default:
 - `rt runs field set gate evidence --stage evidence`
 - One sentence: what the plan asks for and what is unknown.
 - Run gate-protocol's Runs integration with kind `evidence` and these
-  questions: the domain's intake questions as it words them; the data
-  source when it is not local (**Proceed with `<source>`** / **Switch to
-  local**); then **Iterate here** and **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - the domain's intake questions, each its own, as it words them
+  - `source`, only when the data source is not local: **Proceed with
+    `<source>`** / **Switch to local**
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 - `rt runs decision record --contract gate@1 --scope evidence --selection '{"intake":{<answers>},"source":"<as confirmed>"}' --decided-by <the answer's by>`
 
 ## Domain rules
@@ -69,9 +72,16 @@ already exists for the branch (the ship stage normally attaches):
 - `rt runs field set gate evidence-attach --stage evidence`
 - One sentence: what was captured and where it sits.
 - Run gate-protocol's Runs integration with kind `evidence-attach` and
-  these questions: the proposed annotations as a multi-select, all
-  pre-selected; **Hand back the markdown** (recommended; the ship stage
-  attaches) / **Attach to the MR now**; **Iterate here**; **Hold**.
+  these questions, each its own question (never fold one list into
+  another -- a question over 4 options sends the whole gate to the wait
+  queue):
+  - `annotations`: the proposed annotations as a multi-select, all
+    pre-selected; over 4 it splits into `annotations-1`,
+    `annotations-2`, ... of up to 4 options each, in order, whose
+    answers read as one union
+  - `attach`: **Hand back the markdown** (recommended; the ship stage
+    attaches) / **Attach to the MR now**
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 - `rt runs decision record --contract gate@1 --scope evidence-attach --selection '{"annotations":[...],"attach":"now|handback"}' --decided-by <the answer's by>`
 
 Hold at either gate: record `hold:evidence:<attempt>`, `rt runs field set

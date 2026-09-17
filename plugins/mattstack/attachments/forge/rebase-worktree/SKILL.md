@@ -134,9 +134,12 @@ gate:
 
 - When `RT_RUN_DB` is set: `rt runs field set gate conflict:rebase-worktree:<attempt> --stage <run.current_stage>`.
 - When `RT_RUN_DB` is set, run gate-protocol's Runs integration with kind
-  `conflict:rebase-worktree:<attempt>` and these questions: **Leave the
-  rebase in progress for me** (recommended) / **Abort the rebase**
-  (`git rebase --abort`); **Iterate here**; **Hold**.
+  `conflict:rebase-worktree:<attempt>` and these questions, each its own
+  question (never fold one list into another -- a question over 4 options
+  sends the whole gate to the wait queue):
+  - `conflict`: **Leave the rebase in progress for me** (recommended) /
+    **Abort the rebase** (`git rebase --abort`)
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 
 {{include:spawned-no-run-guard}}
 
@@ -164,9 +167,12 @@ new head line and let it gate the batch. Otherwise:
 - The sentence is the old head -> new head line above; nothing else
   before the form.
 - When `RT_RUN_DB` is set, run gate-protocol's Runs integration with kind
-  `push` and these questions: **Push with force-with-lease now** / **Leave
-  it unpushed** (recommended when the branch has an open MR others may
-  have pulled); **Iterate here**; **Hold**.
+  `push` and these questions, each its own question (never fold one list
+  into another -- a question over 4 options sends the whole gate to the
+  wait queue):
+  - `push`: **Push with force-with-lease now** / **Leave it unpushed**
+    (recommended when the branch has an open MR others may have pulled)
+  - `next`: **Proceed** / **Iterate here** / **Hold**
 
 {{include:spawned-no-run-guard}}
 
