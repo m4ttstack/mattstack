@@ -76,10 +76,14 @@ Then gate `ship`, before anything is pushed:
   @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
   tree is dirty (`git status --porcelain`).
 - Run gate-protocol's Runs integration with kind `ship` and these
-  questions: on a dirty tree, **Commit the changes** / **Stash them** /
-  **Abort**; **Push and open as draft** (recommended) / **Push and open
-  ready**; every question the domain rules below declare for this gate;
-  **Iterate here**; **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `dirty`, only on a dirty tree: **Commit the changes** / **Stash
+    them** / **Abort**
+  - `open_as`: **Push and open as draft** (recommended) / **Push and
+    open ready**
+  - every question the domain rules below declare for this gate
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 - `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>}}' --decided-by <the answer's by>`.
 - Abort or Hold: nothing is pushed. Abort, when `## Run` started this run:
   `rt runs stage-done --stage ship`, `rt runs run-status --status

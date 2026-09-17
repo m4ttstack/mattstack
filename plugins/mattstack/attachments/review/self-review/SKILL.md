@@ -151,9 +151,12 @@ is the close:
 - `rt runs field set gate self-review --stage <stage>` (`self-review` for an
   own run, `run.current_stage` when inherited).
 - Run gate-protocol's Runs integration with kind `self-review` and these
-  questions: **Fix the blocking findings now** (recommended when any
-  Critical or Important exists) / **Fix the minors too** / **Ship as is**;
-  **Iterate here**; **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `fix`: **Fix the blocking findings now** (recommended when any
+    Critical or Important exists) / **Fix the minors too** / **Ship as
+    is**
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 - `rt runs decision record --contract gate@1 --scope self-review --selection '{"fix":"blocking|all|none","note":"<their words or null>"}' --decided-by <the answer's by>`.
 - Fix: one finding at a time, test-first, verify each; then the flow that
   called this verb continues (ship, or the next task). Ship as is: hand

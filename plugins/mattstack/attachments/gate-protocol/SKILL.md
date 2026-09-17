@@ -48,9 +48,17 @@ measure or trim it yourself. Emit labeled options (`{"value": "...", "label": ".
 whenever a site's option values are not already human-readable; the
 registry stores every option in that object form. Labels cap at 200
 UTF-8 bytes and an oversized label REJECTS the open: middle-truncate a
-long path, never alter the value. Presentation is the
-daemon's, by one rule no caller computes; the nudge and origin ride the
-same call, so there is nothing to stamp by hand. `rt gate open` remains
+long path, never alter the value. A question holds at most 4 options:
+that is the native form's hard per-question limit, and the daemon
+presents the in-pane form only when EVERY question fits it, so one
+5-option question sends the whole gate to the background wait queue.
+Structure for it: the navigation verbs a site lists (Iterate here, Go
+back to a stage, Hold, Abandon) are their own `next` question, never
+extra options folded into a decision question; and a selection list
+larger than 4 splits into `<id>-1`, `<id>-2`, ... questions of up to 4
+options each, in order, whose answers read as one union. Presentation
+is the daemon's, by one rule no caller computes; the nudge and origin
+ride the same call, so there is nothing to stamp by hand. `rt gate open` remains
 the raw primitive underneath; a gated verb never needs it directly.
 
 ## Context placement
