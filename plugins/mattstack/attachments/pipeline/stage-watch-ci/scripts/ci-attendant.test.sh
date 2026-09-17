@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for ci-attendant.sh (BOARD-10 lease helper). Run directly:
+# Tests for ci-attendant.sh (the one-CI-attendant-per-MR lease helper). Run directly:
 #   ./ci-attendant.test.sh
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"

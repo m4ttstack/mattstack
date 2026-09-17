@@ -1,5 +1,5 @@
 #!/bin/bash
-# ci-attendant.sh -- BOARD-10: the one-CI-attendant-per-MR lease, watch-ci side.
+# ci-attendant.sh -- the one-CI-attendant-per-MR lease, watch-ci side.
 #
 # One JSON file per MR under ~/.mattstack/ci-attendants/ (override:
 # MATTSTACK_ATTENDANTS_DIR). The mr-board triage/doctor honors the same files

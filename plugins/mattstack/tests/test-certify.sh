@@ -13,6 +13,7 @@ trap 'rm -rf "$WORK"' EXIT
 # Banned tokens, assembled so this file greps clean.
 T_DOMAIN=$(printf '%s%s' 'ass' 'ured')
 T_NAME=$(printf '%s%s' 'Ma' 'tt')
+T_CV=$(printf '%s%s' 'CV' '-10')
 
 check() { # $1=name $2=want-exit $3=needle expected in output ('' = none)
   if [ "$STATUS" -ne "$2" ]; then
@@ -87,6 +88,29 @@ mkdir -p "$WORK/skillsticket"
 printf -- '---\nname: fake:skillsticket\ndescription: "Use when testing ticket ids."\n---\nsee SKILLS-45 for context\n' > "$WORK/skillsticket/SKILL.md"
 OUT=$("$CERTIFY" "$WORK/skillsticket"); STATUS=$?
 check skills_ticket 1 'FAIL no-ticket-ids'
+
+# BOARD-<digits> ticket id in body fails no-ticket-ids: an employer-visible
+# pack can ship this prefix too, which the RT-/SKILLS- only ban never caught
+mkdir -p "$WORK/boardticket"
+printf -- '---\nname: fake:boardticket\ndescription: "Use when testing ticket ids."\n---\nsee BOARD-10 for context\n' > "$WORK/boardticket/SKILL.md"
+OUT=$("$CERTIFY" "$WORK/boardticket"); STATUS=$?
+check board_ticket 1 'FAIL no-ticket-ids'
+
+# MAT-<digits> ticket id in body fails no-ticket-ids
+mkdir -p "$WORK/matticket"
+printf -- '---\nname: fake:matticket\ndescription: "Use when testing ticket ids."\n---\nsee MAT-375 for context\n' > "$WORK/matticket/SKILL.md"
+OUT=$("$CERTIFY" "$WORK/matticket"); STATUS=$?
+check mat_ticket 1 'FAIL no-ticket-ids'
+
+# CV-<digits> is the employer's own prefix and stays allowed by
+# no-ticket-ids specifically; --domain mode isolates that from
+# purity-domain's separate (and correct) ban on the bare cv- fragment
+# anywhere in this repo's own source. Without this fixture, widening the
+# no-ticket-ids alternation to include CV would not fail any test.
+mkdir -p "$WORK/cvticket"
+printf -- '---\nname: fake:cvticket\ndescription: "Use when testing ticket ids."\n---\nsee %s for context\n' "$T_CV" > "$WORK/cvticket/SKILL.md"
+OUT=$("$CERTIFY" "$WORK/cvticket" --domain); STATUS=$?
+check cv_ticket_allowed 0 'ok   no-ticket-ids'
 
 # a ticket id on a line that also contains the literal substring /.git/
 # still fails no-ticket-ids: the .git filter must anchor to the grep -rn
