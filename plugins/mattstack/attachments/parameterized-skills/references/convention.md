@@ -51,7 +51,7 @@ metadata:
   - `<major>` is an integer contract major. Contract versions ride the
     shipping plugin's semver: a release that breaks a contract bumps the
     plugin major and the contract major together. There are no per-skill
-    versions (deferred decision record: MAT-248).
+    versions (decision deferred, recorded 2026-08).
   - The prose after ` -- ` is the human half of the contract: what the
     inner skill must actually provide. The machine checks only the
     `<contract>@<major>` token.
@@ -72,7 +72,7 @@ metadata:
 - Fulfillment is **trust-but-declare** (v1): the resolver checks that the
   bound skill declares the exact `<contract>@<major>` token the slot
   demands. Nothing probes the skill's actual behavior; probe-invocation
-  harnesses are v2 (MAT-246).
+  harnesses are v2 (decided 2026-08).
 
 ## Enforcement lives in the script or nowhere
 
