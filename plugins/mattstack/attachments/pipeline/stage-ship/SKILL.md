@@ -35,11 +35,16 @@ Contracts v2 and v3 (authoritative text: the parameterized-skills skill's conven
   @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
   tree is dirty.
 - Run gate-protocol's Runs integration with kind `ship` and these
-  questions: on a dirty tree, **Commit the changes** / **Stash them** /
-  **Abort**; **Push and open as draft** (recommended) / **Push and open
-  ready**; every question the domain rules below declare for this gate
-  (a ticket mismatch, an MR already open); **Iterate here**; **Go back to
-  `<stage>`**; **Hold**.
+  questions, each its own question (never fold one list into another --
+  a question over 4 options sends the whole gate to the wait queue):
+  - `dirty`, only on a dirty tree: **Commit the changes** / **Stash
+    them** / **Abort**
+  - `open_as`: **Push and open as draft** (recommended) / **Push and
+    open ready**
+  - every question the domain rules below declare for this gate (a
+    ticket mismatch, an MR already open)
+  - `next`: **Proceed** (recommended) / **Iterate here** / **Go back to
+    `<stage>`** / **Hold**
 - `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Go back: hand control back to the orchestrator with one sentence naming
   the answer; it runs `## Redirect`.
