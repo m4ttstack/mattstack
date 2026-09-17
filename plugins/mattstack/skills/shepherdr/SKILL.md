@@ -9,7 +9,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.17.14 path=attachments/orchestration/shepherdr/SKILL.md lines=15-496 -->
+<!-- part: step source=mattstack:shepherdr version=0.17.14 path=attachments/orchestration/shepherdr/SKILL.md lines=15-517 -->
 
 # shepherdr
 
@@ -661,6 +661,27 @@ to record. When all jobs are done, **integration is its own job**: spawn an
 agent whose brief is to merge/cherry-pick the job branches, run full
 verification, and report. Its brief carries the repo's shipping
 conventions. You never merge, fix failures, or push with your own hands.
+
+**Closing the lane is yours.** Nothing closes a done job's pane but you.
+When the lane's merge is confirmed (the integration job's report, or the
+domain hook's own ship step) and its ticket flipped, run
+`rt herd close <job> --herd <id>` in the same breath: it retires the row
+and closes the pane as part of processing that completion, not as a later
+chore. A report is a claim, not a merge: before closing, spot-check it
+against the repo itself (`gh pr view --json state,mergeCommit`, or the sha
+on `origin/main`), never on the report alone. Past `herd.watchdog.nagMins`
+(default 30) the watchdog nags you about a done job whose pane is still
+open; that nag means this step was skipped, and the answer is the same
+command.
+
+**A job parked at a trust modal.** The watchdog notifies you when a worker
+is stuck at a folder-trust dialog it could not clear itself. This is the
+one exception to "about to send a pane a keystroke -- stop" below: clear
+it by driving the pane one key at a time, never a batched sequence: peek
+the screen, send one arrow key, peek again to confirm the cursor actually
+moved before sending Enter. A batched send can land keys the dialog was
+not ready for and leave the pane in a worse state than the one you found
+it in.
 
 **Domain hook -- after the report.** Unbound: integration as above. A
 bound domain part may define what follows an approved report -- telling
