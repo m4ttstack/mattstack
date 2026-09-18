@@ -110,11 +110,14 @@ pub fn origin_status(pane: Option<&str>, buddies: &[rt::Buddy]) -> OriginStatus 
 
 /// The popover header's whole content. An offline buddy row still identifies
 /// the pane, which is why the handle survives a sign-out while `signed_in`
-/// does not.
+/// does not. A pane is required: the object a pane-less call would build is
+/// byte-identical to a real signed-out pane's, so the caller could not tell
+/// the two apart.
 pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::Status, String> {
+    let pane = pane.ok_or_else(|| "pane is required".to_string())?;
     let buddies = rt::buddies(r)?;
-    let matched = pane.and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)));
-    let base = origin_status(pane, &buddies);
+    let matched = buddies.iter().find(|b| b.pane.as_deref() == Some(pane));
+    let base = origin_status(Some(pane), &buddies);
     let signed_in = base.status.as_deref().is_some_and(|s| s != "offline");
     let rooms = match (signed_in, matched.and_then(|b| b.session_id.as_deref())) {
         (true, Some(session)) => {
@@ -654,6 +657,18 @@ mod tests {
         assert_eq!(s.state, "not signed in");
         assert!(!s.signed_in);
         assert!(s.rooms.is_empty());
+    }
+
+    /// A status with no pane describes nobody, and reads exactly like a real
+    /// signed-out pane. The sign verbs already refuse it in these words.
+    #[test]
+    fn status_json_without_a_pane_is_refused_before_rt_is_touched() {
+        let r = FakeRunner::sequence(&[]);
+        assert_eq!(status_json(&r, None).unwrap_err(), "pane is required");
+        assert!(
+            r.calls.lock().unwrap().is_empty(),
+            "a refused status must not spend an rt call"
+        );
     }
 
     /// An offline buddy row still identifies the pane, and must not be read as

@@ -90,6 +90,8 @@ enum Cmd {
     },
     /// Print the chat status of a pane. JSON only.
     Status {
+        /// The pane to report on, falling back to `HERDR_PANE_ID`. One or the
+        /// other is required.
         #[arg(long)]
         pane: Option<String>,
         /// Accepted for symmetry with the other verbs. This one has no other
