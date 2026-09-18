@@ -20,6 +20,37 @@ Built in Rust with ratatui, themed to match herdr.
 - **Jump**: from a chat mention to that agent's pane.
 - **Open viewer**: hand off to the web viewer for reading and composing.
 
+## Headless use
+
+Every action also runs without a terminal. Pass `--json` and the command
+prints one JSON object on stdout and draws nothing:
+
+```bash
+herdr-chat status --json --pane w1:p1
+herdr-chat peek --json
+herdr-chat targets --json
+herdr-chat quick-send --json --to '#rt' --body 'schema v5 is mine'
+herdr-chat broadcast --json --panes w1:p1,w2:p7 --body 'pausing releases'
+herdr-chat sign-in --json --pane w1:p1
+herdr-chat sign-out --json --pane w1:p1
+herdr-chat jump --json --handle scout
+herdr-chat open-viewer --json
+```
+
+`status`, `targets` and `jump` have no other mode, so `--json` is optional
+there and changes nothing.
+
+Three rules hold across every verb. `--json` never prompts and never falls
+back to the TUI, so a missing required flag is an error. A failure prints
+`{"error":"..."}` and exits non-zero. And two verbs deliberately stop short
+of acting: `jump` answers where a handle is and moves no focus, and
+`open-viewer --json` returns the URL rather than opening it, so the caller
+decides both.
+
+The sign verbs answer with the same object as `status`, because rt's own sign
+replies carry no state and the next question after signing is always what the
+header now reads.
+
 ## Requirements
 
 herdr-chat is a client of the [mattstack](https://github.com/m4ttstack)
