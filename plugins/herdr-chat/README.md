@@ -22,8 +22,9 @@ Built in Rust with ratatui, themed to match herdr.
 
 ## Headless use
 
-Every action also runs without a terminal. Pass `--json` and the command
-prints one JSON object on stdout and draws nothing:
+Every feature except the launcher also runs without a terminal: the launcher is
+a menu over the others, and a menu is the caller's to draw. Pass `--json` and
+the command prints one JSON object on stdout and draws nothing:
 
 ```bash
 herdr-chat status --json --pane w1:p1
@@ -42,14 +43,75 @@ there and changes nothing.
 
 Three rules hold across every verb. `--json` never prompts and never falls
 back to the TUI, so a missing required flag is an error. A failure prints
-`{"error":"..."}` and exits non-zero. And two verbs deliberately stop short
-of acting: `jump` answers where a handle is and moves no focus, and
+`{"error":"..."}` on stdout and exits non-zero. And two verbs deliberately stop
+short of acting: `jump` answers where a handle is and moves no focus, and
 `open-viewer --json` returns the URL rather than opening it, so the caller
 decides both.
 
 The sign verbs answer with the same object as `status`, because rt's own sign
 replies carry no state and the next question after signing is always what the
 header now reads.
+
+### The wire shapes
+
+One row per verb, keys in the order they are printed. This table is the
+contract a second front end reads, so a name here is not changed without
+breaking it.
+
+| Verb | Input | Keys it prints |
+| --- | --- | --- |
+| `status` | `--pane <id>`, else `HERDR_PANE_ID`; required | `handle`, `state`, `pane`, `signedIn`, `rooms` |
+| `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same five, read back after the sign |
+| `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same five |
+| `peek` | none | `buddies`, `rooms` |
+| `targets` | none | `rooms`, `people` |
+| `quick-send` | `--to '#room'` or `--to '@handle'`, `--body <text>` | `ok`, `to` |
+| `broadcast` | `--panes <id,id>`, `--body <text>` | `ok`, `results` |
+| `jump` | `--handle <handle>` | `paneId`, `workspace`, `handle` |
+| `open-viewer` | `--room <room>`, optional | `url` |
+
+The nested rows: a `peek` buddy is `handle`, `paneId`, `status`, `repo`,
+`branch`, `title`, `unread`, `mentions`, and a `peek` room is `room`, `unread`,
+`mentions`; a `broadcast` result is `paneId`, `ok`, `delivered`, `error`.
+
+`targets` prints prefixed strings (`#room` under `rooms`, `@handle` under
+`people`) and `quick-send --to` takes one back. A bare name is refused rather
+than guessed at between a room and a person.
+
+Absent values are `null`, never a missing key: `handle` and `pane` on a
+`status`, a peek buddy's `paneId` / `repo` / `branch` / `title`, and a
+broadcast result's `error`.
+
+### What `ok` does and does not tell you
+
+`quick-send`'s `ok` is always `true`. It is not a discriminator: a send that
+failed arrives as the error envelope and a non-zero exit, never as `ok:false`.
+
+`broadcast`'s `ok` is a real one, `false` as soon as any pane refused. Each
+result also carries `delivered`, rt's own word for that pane: `accepted`,
+`queued` or `refused`. Only `refused` is a failure, because a queued message
+is one rt has taken responsibility for.
+
+Broadcast's two failures differ in exit code, and a caller has to tell them
+apart. Every pane refusing exits **0** with `ok:false` and a result per pane,
+because the fan-out ran and each pane has an answer. An empty `--panes` exits
+**1** with the error envelope, because nothing was sent and there is no result
+to report.
+
+### `--pane` means two different things
+
+It takes a value on some verbs and is a boolean on others. The split stands:
+herdr's plugin manifest invokes the boolean entrypoints by name, so renaming
+one breaks every installed copy of the plugin.
+
+- **`status`, `sign-in`, `sign-out`**: `--pane <id>` is the pane to act on.
+- **`broadcast`, `peek`, `quick-send`, `launcher`**: `--pane` is a boolean, the
+  popup entrypoint that runs the TUI in the pane herdr just opened. A headless
+  caller never passes it.
+
+The flags only the `--json` path reads (`--panes` and `--body` on `broadcast`,
+`--to` and `--body` on `quick-send`) are refused without `--json` rather than
+dropped into a TUI run that would ignore them.
 
 ## Requirements
 
