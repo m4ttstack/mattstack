@@ -81,6 +81,22 @@ pub fn fan_out(r: &dyn Runner, panes: &[String], message: &str) -> Vec<rt::SendR
         .collect()
 }
 
+/// The same fan-out the TUI runs, reported per pane. Both guards run before
+/// anything is sent.
+pub fn fan_out_json(
+    r: &dyn Runner,
+    panes: &[String],
+    message: &str,
+) -> Result<crate::json::Broadcast, String> {
+    if panes.is_empty() {
+        return Err("at least one pane is required".to_string());
+    }
+    if message.trim().is_empty() {
+        return Err("body is required".to_string());
+    }
+    Ok(crate::json::broadcast_from(&fan_out(r, panes, message)))
+}
+
 /// The one-line delivery tally, e.g. `broadcast to 5 . 3 accepted . 2 queued . 0 refused`.
 pub fn summary(results: &[rt::SendResult]) -> String {
     let count = |kind: &str| results.iter().filter(|r| r.delivered == kind).count();
@@ -466,6 +482,50 @@ mod tests {
         assert_eq!(recs[1].pane_id, "w1:p9");
         assert_eq!(recs[1].handle, None);
         assert_eq!(recs[1].delivered, "refused");
+    }
+
+    fn result(pane: &str, delivered: &str, reason: Option<&str>) -> rt::SendResult {
+        rt::SendResult {
+            pane_id: pane.to_string(),
+            delivered: delivered.to_string(),
+            reason: reason.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_partial_broadcast_is_not_ok_and_names_the_pane_that_refused_it() {
+        let out = crate::json::broadcast_from(&[
+            result("w1:p1", "accepted", None),
+            result("w2:p7", "refused", Some("not signed in")),
+        ]);
+        assert!(!out.ok, "two panes, one refused, is not a success");
+        assert_eq!(out.results.len(), 2);
+        assert!(out.results[0].ok);
+        assert!(!out.results[1].ok);
+        assert_eq!(out.results[1].error.as_deref(), Some("not signed in"));
+    }
+
+    /// rt answers a send with `accepted`, `queued` or `refused`, and only
+    /// `refused` is a failure. A queued send is one rt has taken
+    /// responsibility for, and calling it failed sends the user chasing a
+    /// message that did arrive.
+    #[test]
+    fn a_queued_send_counts_as_delivered() {
+        let out = crate::json::broadcast_from(&[result("w1:p1", "queued", None)]);
+        assert!(out.ok);
+        assert!(out.results[0].ok);
+        assert_eq!(out.results[0].delivered, "queued");
+    }
+
+    #[test]
+    fn a_refusal_with_no_reason_still_says_something() {
+        let out = crate::json::broadcast_from(&[result("w1:p1", "refused", None)]);
+        assert_eq!(out.results[0].error.as_deref(), Some("refused"));
+    }
+
+    #[test]
+    fn a_broadcast_to_no_panes_is_not_a_silent_success() {
+        assert!(!crate::json::broadcast_from(&[]).ok);
     }
 
     fn chat_pane(id: &str, handle: Option<&str>) -> rt::ChatPane {

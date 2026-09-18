@@ -38,6 +38,13 @@ enum Cmd {
     Broadcast {
         #[arg(long)]
         pane: bool,
+        #[arg(long)]
+        json: bool,
+        /// Comma-separated pane ids.
+        #[arg(long, value_delimiter = ',')]
+        panes: Vec<String>,
+        #[arg(long)]
+        body: Option<String>,
     },
     /// Peek: online buddies + unread rooms as a launcher. The workspace action
     /// opens the popup; `--pane` is the popup entrypoint that runs the TUI.
@@ -135,7 +142,25 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::FAILURE
             }
         },
-        Cmd::Broadcast { pane } => {
+        Cmd::Broadcast {
+            pane,
+            json,
+            panes,
+            body,
+        } => {
+            if json {
+                return match body
+                    .ok_or_else(|| "--body is required with --json".to_string())
+                    .and_then(|body| cmd::broadcast::fan_out_json(&runner, &panes, &body))
+                    .and_then(|b| json::emit(&b))
+                {
+                    Ok(()) => std::process::ExitCode::SUCCESS,
+                    Err(e) => {
+                        json::fail(&e);
+                        std::process::ExitCode::FAILURE
+                    }
+                };
+            }
             let result = if pane {
                 cmd::broadcast::run(&runner)
             } else {

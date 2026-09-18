@@ -135,6 +135,49 @@ pub struct Sent {
     pub to: String,
 }
 
+/// `delivered` is rt's own word, carried through unchanged: `ok` is the
+/// question most callers ask, but "accepted" and "queued" are a real
+/// difference and only rt gets to name it.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BroadcastResult {
+    pub pane_id: String,
+    pub ok: bool,
+    pub delivered: String,
+    pub error: Option<String>,
+}
+
+/// `ok` is every pane taking the message, and an empty fan-out is not ok: a
+/// broadcast that reached nobody is a failure the caller has to be able to see.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Broadcast {
+    pub ok: bool,
+    pub results: Vec<BroadcastResult>,
+}
+
+pub fn broadcast_from(results: &[crate::rt::SendResult]) -> Broadcast {
+    let mapped: Vec<BroadcastResult> = results
+        .iter()
+        .map(|r| {
+            let ok = r.delivered != "refused";
+            BroadcastResult {
+                pane_id: r.pane_id.clone(),
+                ok,
+                delivered: r.delivered.clone(),
+                error: if ok {
+                    None
+                } else {
+                    r.reason.clone().or_else(|| Some(r.delivered.clone()))
+                },
+            }
+        })
+        .collect();
+    Broadcast {
+        ok: !mapped.is_empty() && mapped.iter().all(|r| r.ok),
+        results: mapped,
+    }
+}
+
 /// Prints `value` as one line on stdout.
 pub fn emit<T: Serialize>(value: &T) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| e.to_string())?;
@@ -184,6 +227,21 @@ mod tests {
         assert_eq!(
             out,
             r#"{"handle":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+        );
+    }
+
+    #[test]
+    fn broadcast_result_serializes_pane_id_as_camel_case() {
+        let out = serde_json::to_string(&BroadcastResult {
+            pane_id: "w1:p1".to_string(),
+            ok: true,
+            delivered: "accepted".to_string(),
+            error: None,
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"paneId":"w1:p1","ok":true,"delivered":"accepted","error":null}"#
         );
     }
 
