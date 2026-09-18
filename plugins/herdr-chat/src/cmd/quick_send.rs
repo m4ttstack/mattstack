@@ -80,13 +80,15 @@ fn targets(
     out
 }
 
-/// The same list the TUI picks from, flattened to the two prefixed namespaces.
-/// Gathers what `run` gathers, so a target offered here is one the TUI would
-/// have offered too.
+/// The same list the TUI picks from, flattened to the two prefixed namespaces,
+/// over the same three rt calls. Where `run` tolerates a call that answers
+/// nothing and offers what it has, this propagates: an empty list is a real
+/// answer, and a caller with no terminal to look at has nothing else to tell
+/// it apart from an rt that is down.
 pub fn targets_json(r: &dyn Runner) -> Result<crate::json::Targets, String> {
-    let rooms = rt::rooms(r).unwrap_or_default();
-    let buddies = rt::buddies(r).unwrap_or_default();
-    let panes = rt::pane_list(r).unwrap_or_default();
+    let rooms = rt::rooms(r)?;
+    let buddies = rt::buddies(r)?;
+    let panes = rt::pane_list(r)?;
     let details = rt::agent_details(&panes);
     let targets: Vec<Target> = targets(rooms, buddies, &details)
         .into_iter()
@@ -301,6 +303,20 @@ mod tests {
         argv: Vec<String>,
     }
 
+    /// A [`Runner`] standing in for an rt that is not running: every call
+    /// exits non-zero with the message rt itself would print.
+    struct DeadRt;
+
+    impl Runner for DeadRt {
+        fn run(&self, _argv: &[&str], _env: &[(&str, Option<&str>)]) -> std::io::Result<Output> {
+            Ok(Output {
+                status: 1,
+                stdout: String::new(),
+                stderr: "rt: daemon not running".to_string(),
+            })
+        }
+    }
+
     /// `capture` replays one fixed body forever; `sequence` serves the given
     /// bodies in order, one per call, and lets a test assert how many calls
     /// were made. `Mutex` because `Runner: Send + Sync` forces
@@ -428,6 +444,14 @@ mod tests {
                 Target::Dm("fred".to_string()),
             ]
         );
+    }
+
+    /// An empty target list is a real answer: no rooms, no buddies. A caller
+    /// reading only the JSON has no second cue to tell that apart from an rt
+    /// it could not reach.
+    #[test]
+    fn targets_json_propagates_a_dead_rt_rather_than_answering_empty() {
+        assert_eq!(targets_json(&DeadRt).unwrap_err(), "rt: daemon not running");
     }
 
     #[test]

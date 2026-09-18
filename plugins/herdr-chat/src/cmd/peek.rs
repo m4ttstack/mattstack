@@ -144,12 +144,14 @@ pub fn open(r: &dyn Runner) -> Result<(), String> {
     herdr::open_popup(r, "peek-ui")
 }
 
-/// The same rows the TUI draws, as data. Gathers exactly what `run` gathers,
-/// so the two front ends cannot disagree about what is unread.
+/// The same rows the TUI draws, as data, over the same three rt calls. Where
+/// `run` tolerates a call that answers nothing and draws what it has, this
+/// propagates: an empty peek is a real answer, and a caller with no terminal
+/// to look at has nothing else to tell it apart from an rt that is down.
 pub fn rows_json(r: &dyn Runner) -> Result<crate::json::Peek, String> {
-    let buddies = rt::buddies(r).unwrap_or_default();
-    let rooms = rt::rooms(r).unwrap_or_default();
-    let panes = rt::pane_list(r).unwrap_or_default();
+    let buddies = rt::buddies(r)?;
+    let rooms = rt::rooms(r)?;
+    let panes = rt::pane_list(r)?;
     let details = rt::agent_details(&panes);
     let rows = rows(buddies, rooms, &details);
     Ok(crate::json::peek_from_rows(&rows, &panes))
@@ -373,6 +375,21 @@ fn footer(theme: &AppTheme, selected: Option<&Row>) -> Paragraph<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::run::Output;
+
+    /// A [`Runner`] standing in for an rt that is not running: every call
+    /// exits non-zero with the message rt itself would print.
+    struct DeadRt;
+
+    impl Runner for DeadRt {
+        fn run(&self, _argv: &[&str], _env: &[(&str, Option<&str>)]) -> std::io::Result<Output> {
+            Ok(Output {
+                status: 1,
+                stdout: String::new(),
+                stderr: "rt: daemon not running".to_string(),
+            })
+        }
+    }
 
     fn buddy(handle: &str, status: &str) -> rt::Buddy {
         rt::Buddy {
@@ -573,6 +590,14 @@ mod tests {
         let out = crate::json::peek_from_rows(&[buddy_row("ghost")], &[]);
         assert_eq!(out.buddies.len(), 1);
         assert_eq!(out.buddies[0].pane_id, None);
+    }
+
+    /// An empty peek is a real answer: nobody online, nothing unread. A caller
+    /// reading only the JSON has no second cue to tell that apart from an rt
+    /// it could not reach.
+    #[test]
+    fn rows_json_propagates_a_dead_rt_rather_than_answering_empty() {
+        assert_eq!(rows_json(&DeadRt).unwrap_err(), "rt: daemon not running");
     }
 
     #[test]
