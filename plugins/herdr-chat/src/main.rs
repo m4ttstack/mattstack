@@ -32,6 +32,8 @@ enum Cmd {
     OpenViewer {
         #[arg(long)]
         room: Option<String>,
+        #[arg(long)]
+        json: bool,
     },
     /// Broadcast a message to picked panes. The workspace action opens the
     /// popup; `--pane` is the popup entrypoint that runs the TUI.
@@ -144,13 +146,26 @@ fn sign_dispatch(
 fn main() -> std::process::ExitCode {
     let runner = run::RealRunner;
     match Cli::parse().cmd {
-        Cmd::OpenViewer { room } => match cmd::open_viewer::run(&runner, room.as_deref()) {
-            Ok(_) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("open-viewer: {e}");
-                std::process::ExitCode::FAILURE
+        Cmd::OpenViewer { room, json } => {
+            if json {
+                return match cmd::open_viewer::url_for(&runner, room.as_deref())
+                    .and_then(|v| json::emit(&v))
+                {
+                    Ok(()) => std::process::ExitCode::SUCCESS,
+                    Err(e) => {
+                        json::fail(&e);
+                        std::process::ExitCode::FAILURE
+                    }
+                };
             }
-        },
+            match cmd::open_viewer::run(&runner, room.as_deref()) {
+                Ok(_) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("open-viewer: {e}");
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
         Cmd::Broadcast {
             pane,
             json,

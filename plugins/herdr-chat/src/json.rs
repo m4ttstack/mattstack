@@ -188,6 +188,12 @@ pub struct Jump {
     pub handle: String,
 }
 
+/// The chat viewer URL, deep-linked to a room when the caller asked for one.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Viewer {
+    pub url: String,
+}
+
 /// Prints `value` as one line on stdout.
 pub fn emit<T: Serialize>(value: &T) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| e.to_string())?;
