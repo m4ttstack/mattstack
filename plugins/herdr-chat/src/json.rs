@@ -92,6 +92,40 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPa
     Peek { buddies, rooms }
 }
 
+/// What a caller may send to. The prefixes are the wire form: `#room` and
+/// `@handle` are one namespace a caller passes straight back as `--to`, where
+/// a bare name would be ambiguous between a room and a person.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Targets {
+    pub rooms: Vec<String>,
+    pub people: Vec<String>,
+}
+
+pub fn targets_from(targets: &[crate::cmd::quick_send::Target]) -> Targets {
+    let mut rooms = Vec::new();
+    let mut people = Vec::new();
+    for t in targets {
+        match t {
+            crate::cmd::quick_send::Target::Room(r) => rooms.push(format!("#{r}")),
+            crate::cmd::quick_send::Target::Dm(h) => people.push(format!("@{h}")),
+        }
+    }
+    Targets { rooms, people }
+}
+
+/// The inverse of [`targets_from`]'s prefixes.
+pub fn parse_target(s: &str) -> Option<crate::cmd::quick_send::Target> {
+    let rest = &s.get(1..)?;
+    if rest.is_empty() {
+        return None;
+    }
+    match s.as_bytes().first()? {
+        b'#' => Some(crate::cmd::quick_send::Target::Room(rest.to_string())),
+        b'@' => Some(crate::cmd::quick_send::Target::Dm(rest.to_string())),
+        _ => None,
+    }
+}
+
 /// Prints `value` as one line on stdout.
 pub fn emit<T: Serialize>(value: &T) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| e.to_string())?;

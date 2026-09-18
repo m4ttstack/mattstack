@@ -65,6 +65,21 @@ fn targets(
     out
 }
 
+/// The same list the TUI picks from, flattened to the two prefixed namespaces.
+/// Gathers what `run` gathers, so a target offered here is one the TUI would
+/// have offered too.
+pub fn targets_json(r: &dyn Runner) -> Result<crate::json::Targets, String> {
+    let rooms = rt::rooms(r).unwrap_or_default();
+    let buddies = rt::buddies(r).unwrap_or_default();
+    let panes = rt::pane_list(r).unwrap_or_default();
+    let details = rt::agent_details(&panes);
+    let targets: Vec<Target> = targets(rooms, buddies, &details)
+        .into_iter()
+        .map(|row| row.target)
+        .collect();
+    Ok(crate::json::targets_from(&targets))
+}
+
 /// The workspace action: open the quick-send popup. A popup process carries
 /// no `HERDR_PANE_ID`, so the send never needs the self-target scrub.
 pub fn open(r: &dyn Runner) -> Result<(), String> {
@@ -347,5 +362,38 @@ mod tests {
                 Target::Dm("fred".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn targets_json_lists_rooms_with_their_hash_and_people_with_their_at() {
+        let t = crate::json::targets_from(&[
+            Target::Room("rt".to_string()),
+            Target::Dm("scout".to_string()),
+        ]);
+        assert_eq!(t.rooms, vec!["#rt".to_string()]);
+        assert_eq!(t.people, vec!["@scout".to_string()]);
+    }
+
+    #[test]
+    fn a_target_string_round_trips_back_to_the_target_it_names() {
+        assert_eq!(
+            crate::json::parse_target("#rt"),
+            Some(Target::Room("rt".to_string()))
+        );
+        assert_eq!(
+            crate::json::parse_target("@scout"),
+            Some(Target::Dm("scout".to_string()))
+        );
+    }
+
+    /// The caller was handed prefixed names and is expected to return one. A
+    /// bare name is refused rather than guessed, because guessing picks
+    /// between a room and a person with no way to be sure.
+    #[test]
+    fn an_unprefixed_or_empty_target_is_refused() {
+        assert_eq!(crate::json::parse_target("rt"), None);
+        assert_eq!(crate::json::parse_target("#"), None);
+        assert_eq!(crate::json::parse_target("@"), None);
+        assert_eq!(crate::json::parse_target(""), None);
     }
 }

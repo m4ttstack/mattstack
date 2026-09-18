@@ -82,6 +82,13 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Print what quick-send can send to. JSON only.
+    Targets {
+        /// Accepted for symmetry with the other verbs. This one has no other
+        /// mode, so it changes nothing.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// `--pane` wins over the environment: a caller outside herdr has no
@@ -193,6 +200,15 @@ fn main() -> std::process::ExitCode {
             let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
             match cmd::launcher::status_json(&runner, pane.as_deref()).and_then(|s| json::emit(&s))
             {
+                Ok(()) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    json::fail(&e);
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+        Cmd::Targets { json: _ } => {
+            match cmd::quick_send::targets_json(&runner).and_then(|t| json::emit(&t)) {
                 Ok(()) => std::process::ExitCode::SUCCESS,
                 Err(e) => {
                     json::fail(&e);
