@@ -44,6 +44,8 @@ enum Cmd {
     Peek {
         #[arg(long)]
         pane: bool,
+        #[arg(long)]
+        json: bool,
     },
     /// Quick-send: one line to a room or a buddy DM. The workspace action
     /// opens the popup; `--pane` is the popup entrypoint that runs the TUI.
@@ -134,7 +136,16 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Cmd::Peek { pane } => {
+        Cmd::Peek { pane, json } => {
+            if json {
+                return match cmd::peek::rows_json(&runner).and_then(|p| json::emit(&p)) {
+                    Ok(()) => std::process::ExitCode::SUCCESS,
+                    Err(e) => {
+                        json::fail(&e);
+                        std::process::ExitCode::FAILURE
+                    }
+                };
+            }
             let result = if pane {
                 cmd::peek::run(&runner)
             } else {

@@ -20,6 +20,78 @@ pub struct Status {
     pub rooms: Vec<String>,
 }
 
+/// A buddy row as a consumer reads it. The identity is required, because a row
+/// that cannot name who it is about is not a row anyone can act on; the pane id
+/// is not, because a buddy can be signed in with no pane in the roster.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PeekBuddy {
+    pub handle: String,
+    pub pane_id: Option<String>,
+    pub status: String,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub title: Option<String>,
+    pub unread: u32,
+    pub mentions: u32,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct PeekRoom {
+    pub room: String,
+    pub unread: u32,
+    pub mentions: u32,
+}
+
+/// Two lists rather than the TUI's one flat list: a drawing surface wants them
+/// interleaved by attention, and a caller that renders its own sections wants
+/// them apart. Order within each list is `rows`' own ordering, preserved.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Peek {
+    pub buddies: Vec<PeekBuddy>,
+    pub rooms: Vec<PeekRoom>,
+}
+
+pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPane]) -> Peek {
+    let pane_for = |handle: &str| -> Option<String> {
+        panes
+            .iter()
+            .find(|p| p.presence.as_ref().is_some_and(|pr| pr.handle == handle))
+            .map(|p| p.pane_id.clone())
+    };
+    let mut buddies = Vec::new();
+    let mut rooms = Vec::new();
+    for row in rows {
+        match row.kind {
+            crate::cmd::peek::RowKind::Buddy => {
+                if let Some(handle) = row.handle.clone() {
+                    let pane_id = pane_for(&handle);
+                    buddies.push(PeekBuddy {
+                        handle,
+                        pane_id,
+                        status: row.status.clone().unwrap_or_else(|| "unknown".to_string()),
+                        repo: row.repo.clone(),
+                        branch: row.branch.clone(),
+                        title: row.title.clone(),
+                        unread: row.unread,
+                        mentions: row.mentions,
+                    });
+                }
+            }
+            crate::cmd::peek::RowKind::Room => {
+                if let Some(room) = row.room.clone() {
+                    rooms.push(PeekRoom {
+                        room,
+                        unread: row.unread,
+                        mentions: row.mentions,
+                    });
+                }
+            }
+        }
+    }
+    Peek { buddies, rooms }
+}
+
 /// Prints `value` as one line on stdout.
 pub fn emit<T: Serialize>(value: &T) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| e.to_string())?;
@@ -70,5 +142,21 @@ mod tests {
             out,
             r#"{"handle":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
         );
+    }
+
+    #[test]
+    fn peek_buddy_serializes_pane_id_as_camel_case() {
+        let out = serde_json::to_string(&PeekBuddy {
+            handle: "kay".to_string(),
+            pane_id: Some("w1:p1".to_string()),
+            status: "live".to_string(),
+            repo: None,
+            branch: None,
+            title: None,
+            unread: 0,
+            mentions: 0,
+        })
+        .unwrap();
+        assert!(out.contains(r#""paneId":"w1:p1""#), "got {out}");
     }
 }

@@ -144,6 +144,17 @@ pub fn open(r: &dyn Runner) -> Result<(), String> {
     herdr::open_popup(r, "peek-ui")
 }
 
+/// The same rows the TUI draws, as data. Gathers exactly what `run` gathers,
+/// so the two front ends cannot disagree about what is unread.
+pub fn rows_json(r: &dyn Runner) -> Result<crate::json::Peek, String> {
+    let buddies = rt::buddies(r).unwrap_or_default();
+    let rooms = rt::rooms(r).unwrap_or_default();
+    let panes = rt::pane_list(r).unwrap_or_default();
+    let details = rt::agent_details(&panes);
+    let rows = rows(buddies, rooms, &details);
+    Ok(crate::json::peek_from_rows(&rows, &panes))
+}
+
 /// The popup entrypoint: build the launcher, run it, then dispatch the one
 /// chosen action after the popup has torn down.
 pub fn run(r: &dyn Runner) -> Result<(), String> {
@@ -493,5 +504,92 @@ mod tests {
         let ids: Vec<&str> = out.iter().map(|r| r.handle.as_deref().unwrap()).collect();
         // live before idle; alphabetical within a status.
         assert_eq!(ids, vec!["amy", "bob", "zoe"]);
+    }
+
+    fn buddy_row(handle: &str) -> Row {
+        Row {
+            kind: RowKind::Buddy,
+            handle: Some(handle.to_string()),
+            status: Some("live".to_string()),
+            repo: Some("flock".to_string()),
+            branch: Some("phase-0".to_string()),
+            title: None,
+            room: None,
+            unread: 0,
+            mentions: 0,
+        }
+    }
+
+    #[test]
+    fn rows_json_splits_the_flat_row_list_into_buddies_and_rooms() {
+        let rows = vec![
+            Row {
+                kind: RowKind::Room,
+                handle: None,
+                status: None,
+                repo: None,
+                branch: None,
+                title: None,
+                room: Some("rt".to_string()),
+                unread: 3,
+                mentions: 1,
+            },
+            buddy_row("kay"),
+        ];
+        let out = crate::json::peek_from_rows(&rows, &[]);
+        assert_eq!(out.rooms.len(), 1);
+        assert_eq!(out.rooms[0].room, "rt");
+        assert_eq!(out.rooms[0].unread, 3);
+        assert_eq!(out.buddies.len(), 1);
+        assert_eq!(out.buddies[0].handle, "kay");
+        assert_eq!(out.buddies[0].branch.as_deref(), Some("phase-0"));
+    }
+
+    /// A buddy row cannot be jumped to without the pane it is signed in on,
+    /// and the row itself does not carry one: it comes from the roster.
+    #[test]
+    fn a_buddy_carries_the_pane_it_is_signed_in_on() {
+        let panes = vec![rt::ChatPane {
+            pane_id: "w1:p1".to_string(),
+            workspace: "flock".to_string(),
+            title: None,
+            cwd: None,
+            repo: None,
+            branch: None,
+            agent_status: "idle".to_string(),
+            session_id: None,
+            presence: Some(rt::Presence {
+                handle: "kay".to_string(),
+                status: "live".to_string(),
+                rooms: Vec::new(),
+            }),
+        }];
+        let out = crate::json::peek_from_rows(&[buddy_row("kay")], &panes);
+        assert_eq!(out.buddies[0].pane_id.as_deref(), Some("w1:p1"));
+    }
+
+    #[test]
+    fn a_buddy_on_no_pane_is_still_listed_with_no_pane_id() {
+        let out = crate::json::peek_from_rows(&[buddy_row("ghost")], &[]);
+        assert_eq!(out.buddies.len(), 1);
+        assert_eq!(out.buddies[0].pane_id, None);
+    }
+
+    #[test]
+    fn a_row_missing_its_identity_field_is_dropped_rather_than_named_empty() {
+        let rows = vec![Row {
+            kind: RowKind::Buddy,
+            handle: None,
+            status: None,
+            repo: None,
+            branch: None,
+            title: None,
+            room: None,
+            unread: 0,
+            mentions: 0,
+        }];
+        let out = crate::json::peek_from_rows(&rows, &[]);
+        assert!(out.buddies.is_empty());
+        assert!(out.rooms.is_empty());
     }
 }
