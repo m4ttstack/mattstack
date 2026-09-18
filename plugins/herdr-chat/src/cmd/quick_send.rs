@@ -379,6 +379,11 @@ mod tests {
     fn an_unprefixed_target_is_refused_rather_than_guessed() {
         let r = FakeRunner::sequence(&[]);
         assert!(send_json(&r, "rt", "hello").is_err());
+        assert_eq!(
+            r.call_count(),
+            0,
+            "nothing may be sent for an unprefixed target"
+        );
     }
 
     /// rt would accept an empty line, and an empty line in a room is noise
@@ -458,9 +463,8 @@ mod tests {
         assert_eq!(crate::json::parse_target(""), None);
     }
 
-    /// A first byte that is not `#` or `@` is refused by the `_` arm below,
-    /// but a multi-byte character reaches that arm only if the byte-1 slice
-    /// ahead of it does not itself panic on a non-char boundary.
+    /// `s.get(1..)?` returns `None` before the match ever runs, since a
+    /// multi-byte first character puts byte index 1 outside a char boundary.
     #[test]
     fn a_multi_byte_first_character_is_refused_rather_than_crashing() {
         assert_eq!(crate::json::parse_target("\u{df}"), None);
