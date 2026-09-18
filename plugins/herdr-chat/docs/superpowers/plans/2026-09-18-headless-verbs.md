@@ -57,7 +57,7 @@ Read once, relied on by every task. Each was verified against rt's own source.
 | --- | --- |
 | `rt chat buddies --json` | `{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1","rooms":[]}]}` |
 | `rt chat rooms --json` (and the per-session form) | `{"ok":true,"rooms":[{"room":"rt","unread":3,"mentions":1,"kind":null}]}` |
-| `rt chat pane-list --json` | `{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","title":null,"cwd":null,"repo":"flock","branch":"phase-0","agentStatus":"idle","sessionId":"s-kay","presence":{"handle":"kay","status":"live","rooms":[]}}]}` |
+| `rt pane list --json` (not a `chat` verb; see `src/rt.rs:181`) | `{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","title":null,"cwd":null,"repo":"flock","branch":"phase-0","agentStatus":"idle","sessionId":"s-kay","presence":{"handle":"kay","status":"live","rooms":[]}}]}` |
 | `rt chat sign-in --pane <id> --json` | `{"ok":true,"handle":"kay","room":"rt"}` |
 | `rt chat sign-out --pane <id> --json` | `{"ok":true}` |
 | a pane send | `{"ok":true,"paneId":"w1:p2","delivered":"accepted"}`, where `delivered` is `accepted`, `queued`, or `refused` |
@@ -1028,6 +1028,12 @@ pub fn send_json(_r: &dyn Runner, _to: &str, _body: &str) -> Result<crate::json:
 
 - [ ] **Step 2: Write the failing tests**
 
+This module's test runner is `FakeRunner::capture`, which answers every call
+with one fixed body and counts nothing. Replace it with the sequence runner from
+`src/cmd/jump.rs`'s test module, which serves canned stdout per call in order
+and exposes `call_count`, and pass each existing test's body as a one-element
+sequence so its meaning does not change.
+
 ```rust
     #[test]
     fn send_json_posts_to_the_room_it_was_given_and_echoes_the_target() {
@@ -1409,11 +1415,13 @@ In `src/json.rs`'s `mod tests`:
 In `src/cmd/jump.rs`'s `mod tests`:
 
 ```rust
-    const ONE_PANE: &str = r#"{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","agentStatus":"idle","presence":{"handle":"kay","status":"live"}}]}"#;
+    /// Named apart from this module's existing `ONE_PANE`, which is herdr's
+    /// snapshot shape rather than rt's roster.
+    const RT_ONE_PANE: &str = r#"{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","agentStatus":"idle","presence":{"handle":"kay","status":"live"}}]}"#;
 
     #[test]
     fn locate_answers_with_the_pane_that_handle_is_signed_in_on() {
-        let r = FakeRunner::sequence(&[ONE_PANE]);
+        let r = FakeRunner::sequence(&[RT_ONE_PANE]);
         let j = locate(&r, "kay").unwrap();
         assert_eq!(j.pane_id, "w1:p1");
         assert_eq!(j.workspace, "flock");
@@ -1429,7 +1437,7 @@ In `src/cmd/jump.rs`'s `mod tests`:
 
     #[test]
     fn locate_never_moves_focus() {
-        let r = FakeRunner::sequence(&[ONE_PANE]);
+        let r = FakeRunner::sequence(&[RT_ONE_PANE]);
         locate(&r, "kay").unwrap();
         assert_eq!(
             r.call_count(),
