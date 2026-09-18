@@ -178,6 +178,16 @@ pub fn broadcast_from(results: &[crate::rt::SendResult]) -> Broadcast {
     }
 }
 
+/// Where a handle is, so the caller can go there itself. Deliberately not a
+/// focus: flock moves its own focus, and two clients moving it fight.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Jump {
+    pub pane_id: String,
+    pub workspace: String,
+    pub handle: String,
+}
+
 /// Prints `value` as one line on stdout.
 pub fn emit<T: Serialize>(value: &T) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| e.to_string())?;
@@ -242,6 +252,20 @@ mod tests {
         assert_eq!(
             out,
             r#"{"paneId":"w1:p1","ok":true,"delivered":"accepted","error":null}"#
+        );
+    }
+
+    #[test]
+    fn jump_serializes_pane_id_as_camel_case() {
+        let out = serde_json::to_string(&Jump {
+            pane_id: "w1:p1".to_string(),
+            workspace: "flock".to_string(),
+            handle: "kay".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"paneId":"w1:p1","workspace":"flock","handle":"kay"}"#
         );
     }
 

@@ -102,6 +102,15 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Print where a handle's pane is. JSON only, and moves no focus.
+    Jump {
+        #[arg(long)]
+        handle: String,
+        /// Accepted for symmetry with the other verbs. This one has no other
+        /// mode, so it changes nothing.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// `--pane` wins over the environment: a caller outside herdr has no
@@ -259,6 +268,15 @@ fn main() -> std::process::ExitCode {
         }
         Cmd::Targets { json: _ } => {
             match cmd::quick_send::targets_json(&runner).and_then(|t| json::emit(&t)) {
+                Ok(()) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    json::fail(&e);
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+        Cmd::Jump { handle, json: _ } => {
+            match cmd::jump::locate(&runner, &handle).and_then(|j| json::emit(&j)) {
                 Ok(()) => std::process::ExitCode::SUCCESS,
                 Err(e) => {
                     json::fail(&e);

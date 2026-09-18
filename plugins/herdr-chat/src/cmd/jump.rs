@@ -21,6 +21,21 @@ pub fn jump_to(r: &dyn Runner, handle: &str, panes: &[rt::ChatPane]) -> Result<b
     herdr::focus_pane(r, &pane.pane_id)
 }
 
+/// The pane `handle` is signed in on. Errs rather than answering an empty
+/// object, so a caller cannot mistake "nobody by that name" for "found it".
+pub fn locate(r: &dyn Runner, handle: &str) -> Result<crate::json::Jump, String> {
+    let panes = rt::pane_list(r)?;
+    let pane = panes
+        .iter()
+        .find(|p| p.presence.as_ref().is_some_and(|pr| pr.handle == handle))
+        .ok_or_else(|| format!("no pane is signed in as {handle:?}"))?;
+    Ok(crate::json::Jump {
+        pane_id: pane.pane_id.clone(),
+        workspace: pane.workspace.clone(),
+        handle: handle.to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,5 +122,36 @@ mod tests {
         let r = FakeRunner::sequence(&[NO_PANES]);
         assert!(!jump_to(&r, "zed", &panes).unwrap());
         assert_eq!(r.call_count(), 1);
+    }
+
+    /// Named apart from this module's existing `ONE_PANE`, which is herdr's
+    /// snapshot shape rather than rt's roster.
+    const RT_ONE_PANE: &str = r#"{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","agentStatus":"idle","presence":{"handle":"kay","status":"live"}}]}"#;
+
+    #[test]
+    fn locate_answers_with_the_pane_that_handle_is_signed_in_on() {
+        let r = FakeRunner::sequence(&[RT_ONE_PANE]);
+        let j = locate(&r, "kay").unwrap();
+        assert_eq!(j.pane_id, "w1:p1");
+        assert_eq!(j.workspace, "flock");
+        assert_eq!(j.handle, "kay");
+    }
+
+    /// An empty answer would be mistaken for "found it, at no pane".
+    #[test]
+    fn locate_is_an_error_for_a_handle_on_no_pane() {
+        let r = FakeRunner::sequence(&[r#"{"ok":true,"panes":[]}"#]);
+        assert!(locate(&r, "ghost").is_err());
+    }
+
+    #[test]
+    fn locate_never_moves_focus() {
+        let r = FakeRunner::sequence(&[RT_ONE_PANE]);
+        locate(&r, "kay").unwrap();
+        assert_eq!(
+            r.call_count(),
+            1,
+            "a second call here is a focus this verb must not perform"
+        );
     }
 }
