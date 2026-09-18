@@ -33,11 +33,16 @@ pub fn send(r: &dyn Runner, target: Target, line: &str) -> Result<(), String> {
     }
 }
 
-/// Sends `body` to the prefixed `to`. Both guards run before the send, so a
-/// refused call has changed nothing.
+/// Sends `body` to the prefixed `to`. Every guard runs before the send, so a
+/// refused call has changed nothing. An absent `to` is told apart from a
+/// malformed one: the caller who left the flag off and the caller who spelled
+/// its value wrong have different things to fix.
 pub fn send_json(r: &dyn Runner, to: &str, body: &str) -> Result<crate::json::Sent, String> {
     if body.trim().is_empty() {
         return Err("body is required".to_string());
+    }
+    if to.trim().is_empty() {
+        return Err("to is required".to_string());
     }
     let target = crate::json::parse_target(to)
         .ok_or_else(|| format!("target must be #room or @handle, got {to:?}"))?;
@@ -395,12 +400,24 @@ mod tests {
     #[test]
     fn an_unprefixed_target_is_refused_rather_than_guessed() {
         let r = FakeRunner::sequence(&[]);
-        assert!(send_json(&r, "rt", "hello").is_err());
+        assert_eq!(
+            send_json(&r, "rt", "hello").unwrap_err(),
+            r#"target must be #room or @handle, got "rt""#
+        );
         assert_eq!(
             r.call_count(),
             0,
             "nothing may be sent for an unprefixed target"
         );
+    }
+
+    /// A caller who left the flag off is told the flag is missing, not that
+    /// the empty string it never passed is the wrong shape.
+    #[test]
+    fn an_absent_target_is_refused_as_a_missing_flag() {
+        let r = FakeRunner::sequence(&[]);
+        assert_eq!(send_json(&r, "", "hello").unwrap_err(), "to is required");
+        assert_eq!(r.call_count(), 0, "nothing may be sent with no target");
     }
 
     /// rt would accept an empty line, and an empty line in a room is noise
