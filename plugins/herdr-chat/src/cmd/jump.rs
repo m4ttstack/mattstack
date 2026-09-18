@@ -1,7 +1,9 @@
-//! `jump`: focus a buddy's local pane. This is a peek row action, not its own
-//! subcommand ... the handle comes from the row the user picked in the popup.
-//! The map is handle -> pane id (via the pane list's `presence.handle`) ->
-//! [`herdr::focus_pane`].
+//! `jump`: the pane a buddy is signed in on, found by the pane list's
+//! `presence.handle`. Two entry points over that one map, and they differ in
+//! what they do with the answer: [`jump_to`] focuses the pane through
+//! [`herdr::focus_pane`], and is the peek row action the popup dispatches;
+//! [`locate`] is the `jump` subcommand, and answers with the pane while moving
+//! nothing, because the caller driving it focuses panes itself.
 
 use crate::herdr;
 use crate::rt;

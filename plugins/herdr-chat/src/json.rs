@@ -1,6 +1,8 @@
-//! The wire shapes every `--json` verb prints, and the two ways to print.
+//! The wire shapes every `--json` verb prints, the mappers that build them out
+//! of this crate's own types ([`peek_from_rows`], [`targets_from`],
+//! [`parse_target`], [`broadcast_from`]), and the two ways to print.
 //!
-//! These are declared here rather than derived on `rt.rs`'s types because
+//! The shapes are declared here rather than derived on `rt.rs`'s types because
 //! `rt.rs` mirrors whatever rt prints today, while this file is a promise to
 //! another repo: a field renamed here breaks a consumer that cannot be
 //! recompiled with this crate.
@@ -52,6 +54,8 @@ pub struct Peek {
     pub rooms: Vec<PeekRoom>,
 }
 
+/// A handle resolves to the first pane in `panes` carrying it, as it does in
+/// [`crate::rt::agent_details`].
 pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPane]) -> Peek {
     let pane_for = |handle: &str| -> Option<String> {
         panes
@@ -115,7 +119,7 @@ pub fn targets_from(targets: &[crate::cmd::quick_send::Target]) -> Targets {
 
 /// The inverse of [`targets_from`]'s prefixes.
 pub fn parse_target(s: &str) -> Option<crate::cmd::quick_send::Target> {
-    let rest = &s.get(1..)?;
+    let rest = s.get(1..)?;
     if rest.is_empty() {
         return None;
     }
