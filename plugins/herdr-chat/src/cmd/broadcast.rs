@@ -377,8 +377,9 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
-    /// Fake [`Runner`] that serves a canned stdout per call, in order. `Mutex`
-    /// because `Runner: Send + Sync` forces `run(&self, ...)`.
+    /// Fake [`Runner`] that serves a canned stdout per call, in order, and
+    /// panics once drained rather than answering empty. `Mutex` because
+    /// `Runner: Send + Sync` forces `run(&self, ...)`.
     struct FakeRunner {
         bodies: Mutex<VecDeque<String>>,
         calls: Mutex<usize>,
@@ -405,7 +406,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .pop_front()
-                .expect("sequence exhausted: unexpected extra send");
+                .expect("sequence exhausted: unexpected extra call");
             Ok(Output {
                 status: 0,
                 stdout: body,
