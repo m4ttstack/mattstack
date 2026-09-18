@@ -58,9 +58,19 @@ enum Cmd {
         pane: bool,
     },
     /// Sign in to chat.
-    SignIn,
+    SignIn {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        pane: Option<String>,
+    },
     /// Sign out of chat.
-    SignOut,
+    SignOut {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        pane: Option<String>,
+    },
     /// Print the chat status of a pane. JSON only.
     Status {
         #[arg(long)]
@@ -70,6 +80,34 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+}
+
+/// `--pane` wins over the environment: a caller outside herdr has no
+/// `HERDR_PANE_ID` to inherit, and a caller inside one may mean a pane other
+/// than the one it happens to be running in.
+fn sign_dispatch(
+    runner: &run::RealRunner,
+    which: cmd::sign::Sign,
+    json: bool,
+    pane: Option<String>,
+) -> std::process::ExitCode {
+    let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
+    if !json {
+        return match cmd::sign::run_with(runner, which, pane.as_deref()) {
+            Ok(_) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("sign: {e}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    match cmd::sign::run_json(runner, which, pane.as_deref()).and_then(|s| json::emit(&s)) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            json::fail(&e);
+            std::process::ExitCode::FAILURE
+        }
+    }
 }
 
 fn main() -> std::process::ExitCode {
@@ -138,24 +176,8 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Cmd::SignIn => match cmd::sign::run(&runner) {
-            Ok(_) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("sign-in: {e}");
-                std::process::ExitCode::FAILURE
-            }
-        },
-        Cmd::SignOut => match cmd::sign::run_with(
-            &runner,
-            cmd::sign::Sign::Out,
-            std::env::var("HERDR_PANE_ID").ok().as_deref(),
-        ) {
-            Ok(_) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("sign-out: {e}");
-                std::process::ExitCode::FAILURE
-            }
-        },
+        Cmd::SignIn { json, pane } => sign_dispatch(&runner, cmd::sign::Sign::In, json, pane),
+        Cmd::SignOut { json, pane } => sign_dispatch(&runner, cmd::sign::Sign::Out, json, pane),
         Cmd::Status { pane, json: _ } => {
             let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
             match cmd::launcher::status_json(&runner, pane.as_deref()).and_then(|s| json::emit(&s))
