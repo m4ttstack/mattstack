@@ -6,10 +6,10 @@
 prints one JSON object, so a second front end can drive it without a terminal.
 
 **Architecture:** the decisions already live in pub functions (`peek::rows`,
-`quick_send::send`, `broadcast::fan_out`, `sign::run_with`, `jump::jump_to`,
+`quick_send::send`, `broadcast::fan_out`, `sign::run_with`,
 `launcher::origin_status`); only the TUI calls them today. This adds a `json`
 module holding the wire shapes and one emit helper, then a `--json` path per
-subcommand that calls the same functions and prints instead of drawing. No TUI
+subcommand that calls those same functions and prints instead of drawing. No TUI
 behaviour changes.
 
 **Tech Stack:** Rust, clap 4 (derive), serde + serde_json 1, ratatui 0.30
@@ -29,10 +29,18 @@ plan implements its "The headless surface" section only).
 - Success prints the object. Failure prints `{"error":"<message>"}` and exits
   non-zero. The spec's table lists success shapes; the error envelope is this
   plan's.
-- Field names are the contract with another repo. They are `camelCase` and are
-  asserted verbatim in tests.
+- **Every test fixture is a shape rt actually sends.** A fixture is a claim
+  about another program, and an invented one makes a test that passes against
+  broken code. The real shapes are recorded per task, read from
+  `repo-tools/commands/chat.ts` and from `src/rt.rs`'s typed wrappers.
+- Field names are the contract with another repo. Every shape whose Rust field
+  name differs from its wire name gets a test asserting the serialized string
+  verbatim.
 - Every subprocess goes through the `Runner` seam. No test spawns a process, and
   none contacts `rt`, `herdr`, or `deck`.
+- **Each task adds its wire shape and a compiling stub before its test.** A test
+  naming a type that does not exist yet fails to compile, and a compile error is
+  not a red: it proves nothing about the rule under test.
 - No em dashes or en dashes anywhere, including comments and commit messages.
 - Comments state constraints the code cannot show. No narration, and never a
   reference to a task number, review, or plan.
@@ -41,18 +49,40 @@ plan implements its "The headless surface" section only).
 
 ---
 
+## The rt shapes this plan depends on
+
+Read once, relied on by every task. Each was verified against rt's own source.
+
+| Call | What rt prints |
+| --- | --- |
+| `rt chat buddies --json` | `{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1","rooms":[]}]}` |
+| `rt chat rooms --json` (and the per-session form) | `{"ok":true,"rooms":[{"room":"rt","unread":3,"mentions":1,"kind":null}]}` |
+| `rt chat pane-list --json` | `{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","title":null,"cwd":null,"repo":"flock","branch":"phase-0","agentStatus":"idle","sessionId":"s-kay","presence":{"handle":"kay","status":"live","rooms":[]}}]}` |
+| `rt chat sign-in --pane <id> --json` | `{"ok":true,"handle":"kay","room":"rt"}` |
+| `rt chat sign-out --pane <id> --json` | `{"ok":true}` |
+| a pane send | `{"ok":true,"paneId":"w1:p2","delivered":"accepted"}`, where `delivered` is `accepted`, `queued`, or `refused` |
+
+Two consequences worth stating before anyone writes code:
+
+- **Neither sign reply carries a state or a room list.** `sign-in` says which
+  handle it took and which room it joined; `sign-out` says nothing at all. A
+  sign verb that wants to report the resulting header has to go and read it.
+- **A pane row has no tab id, and its `workspace` is a name, not an id.** The
+  spec's `jump` and `peek` shapes were renegotiated to match, and say why.
+
+---
+
 ## File Structure
 
-- **Create `src/json.rs`**: every wire shape (`Serialize` only) plus `emit`.
-  The shapes are declared here rather than derived on `rt.rs` types on purpose:
-  `rt.rs` mirrors what rt happens to print today, and this file is a promise to
-  another repo. One file so the whole contract is readable at once.
-- **Modify `src/main.rs`**: a `--json` flag on each existing subcommand, three
-  new json-only subcommands (`status`, `targets`, `jump`), and dispatch.
-- **Modify `src/cmd/peek.rs`, `quick_send.rs`, `broadcast.rs`, `jump.rs`,
-  `sign.rs`, `open_viewer.rs`**: one headless entry point each, beside the
-  existing `run`/`open`. No existing function changes signature.
-- **Modify `src/main.rs`'s `mod` list**: add `mod json;`.
+- **Create `src/json.rs`**: every wire shape (`Serialize` only) plus `emit` and
+  `fail`. The shapes are declared here rather than derived on `rt.rs` types on
+  purpose: `rt.rs` mirrors what rt happens to print today, and this file is a
+  promise to another repo. One file so the whole contract is readable at once.
+- **Modify `src/main.rs`**: `mod json;`, a `--json` flag on every subcommand,
+  three new JSON-only subcommands (`status`, `targets`, `jump`), and dispatch.
+- **Modify `src/cmd/launcher.rs`, `sign.rs`, `peek.rs`, `quick_send.rs`,
+  `broadcast.rs`, `jump.rs`, `open_viewer.rs`**: one headless entry point each,
+  beside the existing `run`/`open`. No existing function changes signature.
 
 Each task's tests live in that task's own file, in the `#[cfg(test)] mod tests`
 block already there, using that module's existing `FakeRunner` pattern.
@@ -62,88 +92,29 @@ everything with `cargo test`.
 
 ---
 
-### Task 1: The JSON module, proven on sign-in and sign-out
+### Task 1: The JSON module and `status --json`
 
-Sign is the smallest verb and is already headless: `sign::run_with(runner,
-which, pane)` returns `Result<String, String>`. It is the right place to
-establish the envelope, the emit helper, and the `--json` flag shape that the
-seven tasks after this copy.
+Status comes first because the sign verbs answer with it, and because it is
+where the envelope, the emit helper and the flag shape are established for the
+eight tasks after it.
 
 **Files:**
 - Create: `src/json.rs`
-- Modify: `src/main.rs` (add `mod json;`, `--json` on `SignIn`/`SignOut`, dispatch)
-- Modify: `src/cmd/sign.rs` (add `run_json`)
+- Modify: `src/main.rs` (add `mod json;`, add the `Status` subcommand)
+- Modify: `src/cmd/launcher.rs` (add `status_json`)
 
 **Interfaces:**
-- Consumes: `sign::run_with(&dyn Runner, Sign, Option<&str>) -> Result<String, String>`
+- Consumes: `launcher::origin_status(Option<&str>, &[rt::Buddy]) -> OriginStatus`,
+  `launcher::room_tokens(&[rt::Room]) -> Vec<String>`,
+  `rt::buddies(&dyn Runner) -> Result<Vec<rt::Buddy>, String>`,
+  `rt::rooms_for_session(&dyn Runner, &str) -> Result<Vec<rt::Room>, String>`
 - Produces:
-  - `json::emit<T: serde::Serialize>(value: &T) -> Result<(), String>` prints one line
-  - `json::fail(message: &str)` prints `{"error":"..."}`
-  - `json::SignStatus { handle: Option<String>, state: String }`
-  - `cmd::sign::run_json(&dyn Runner, Sign, Option<&str>) -> Result<json::SignStatus, String>`
+  - `json::emit<T: serde::Serialize>(&T) -> Result<(), String>`
+  - `json::fail(&str)`
+  - `json::Status { handle: Option<String>, state: String, pane: Option<String>, signed_in: bool, rooms: Vec<String> }`, serialized `camelCase`
+  - `cmd::launcher::status_json(&dyn Runner, Option<&str>) -> Result<json::Status, String>`
 
-- [ ] **Step 1: Write the failing test**
-
-Append to `src/cmd/sign.rs`'s `mod tests`:
-
-```rust
-    #[test]
-    fn sign_in_json_reports_the_handle_and_state_it_signed_in_as() {
-        let r = FakeRunner::capture(r#"{"handle":"kay","status":"live"}"#);
-        let out = run_json(&r, Sign::In, Some("w1:p1")).unwrap();
-        assert_eq!(out.handle.as_deref(), Some("kay"));
-        assert_eq!(out.state, "live");
-    }
-
-    #[test]
-    fn sign_json_without_a_pane_is_an_error_not_a_prompt() {
-        let r = FakeRunner::capture("{}");
-        assert!(run_json(&r, Sign::In, None).is_err());
-    }
-```
-
-That `FakeRunner::capture` ignores its argument and always answers with a fixed
-body, so first change its `run` to serve the body it was given:
-
-```rust
-    struct FakeRunner {
-        calls: Mutex<Vec<Call>>,
-        body: String,
-    }
-
-    impl FakeRunner {
-        fn capture(body: &str) -> Self {
-            FakeRunner {
-                calls: Mutex::new(Vec::new()),
-                body: body.to_string(),
-            }
-        }
-```
-
-and in its `Runner::run`, replace the hardcoded `stdout` with `self.body.clone()`.
-The four existing sign tests pass the body they already expect, so they keep
-passing unchanged.
-
-- [ ] **Step 2: Run the test and watch it fail**
-
-Run: `cargo test --lib cmd::sign`
-Expected: FAIL with `cannot find function 'run_json' in this scope`. That is a
-compile failure, so make it a real one by adding the stub first:
-
-```rust
-pub fn run_json(
-    _runner: &dyn Runner,
-    _which: Sign,
-    _pane: Option<&str>,
-) -> Result<crate::json::SignStatus, String> {
-    Ok(crate::json::SignStatus { handle: None, state: String::new() })
-}
-```
-
-Run it again. Expected: FAIL on `assert_eq!(out.handle.as_deref(), Some("kay"))`,
-left `None`, right `Some("kay")`.
-
-- [ ] **Step 3: Write `src/json.rs`**
+- [ ] **Step 1: Create `src/json.rs` with the shape and a stub, and register the module**
 
 ```rust
 //! The wire shapes every `--json` verb prints, and the two ways to print.
@@ -155,11 +126,17 @@ left `None`, right `Some("kay")`.
 
 use serde::Serialize;
 
-/// The chat identity a pane is signed in as, and what rt calls its state.
+/// What a pane is on chat right now. `state` keeps rt's own vocabulary rather
+/// than a rendered phrase, so the caller decides how to say it; the one word
+/// this adds is "not signed in", which rt has no row for.
 #[derive(Debug, Serialize, PartialEq, Eq)]
-pub struct SignStatus {
+#[serde(rename_all = "camelCase")]
+pub struct Status {
     pub handle: Option<String>,
     pub state: String,
+    pub pane: Option<String>,
+    pub signed_in: bool,
+    pub rooms: Vec<String>,
 }
 
 /// Prints `value` as one line on stdout.
@@ -175,72 +152,325 @@ pub fn fail(message: &str) {
     let body = serde_json::json!({ "error": message });
     println!("{body}");
 }
+```
 
+Add `mod json;` to `src/main.rs`'s module list, beside `mod rt;`.
+
+Then add the stub in `src/cmd/launcher.rs`, so the next step's test compiles:
+
+```rust
+pub fn status_json(
+    _r: &dyn Runner,
+    _pane: Option<&str>,
+) -> Result<crate::json::Status, String> {
+    Ok(crate::json::Status {
+        handle: None,
+        state: String::new(),
+        pane: None,
+        signed_in: false,
+        rooms: Vec::new(),
+    })
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+Append to `src/json.rs`:
+
+```rust
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// `signedIn` is the one field here whose Rust name differs from its wire
+    /// name, and the consumer reads the wire name.
     #[test]
-    fn sign_status_carries_camel_case_field_names() {
-        let out = serde_json::to_string(&SignStatus {
+    fn status_serializes_signed_in_as_camel_case() {
+        let out = serde_json::to_string(&Status {
             handle: Some("kay".to_string()),
             state: "live".to_string(),
+            pane: Some("w1:p1".to_string()),
+            signed_in: true,
+            rooms: vec!["#rt".to_string()],
         })
         .unwrap();
-        assert_eq!(out, r#"{"handle":"kay","state":"live"}"#);
+        assert_eq!(
+            out,
+            r#"{"handle":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"#
+        );
     }
 
     #[test]
     fn a_missing_handle_is_null_rather_than_absent() {
-        let out = serde_json::to_string(&SignStatus {
+        let out = serde_json::to_string(&Status {
             handle: None,
-            state: "signed out".to_string(),
+            state: "not signed in".to_string(),
+            pane: None,
+            signed_in: false,
+            rooms: Vec::new(),
         })
         .unwrap();
-        assert_eq!(out, r#"{"handle":null,"state":"signed out"}"#);
+        assert_eq!(
+            out,
+            r#"{"handle":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+        );
     }
 }
 ```
 
-- [ ] **Step 4: Implement `run_json`**
-
-Replace the stub in `src/cmd/sign.rs`:
+Append to `src/cmd/launcher.rs`'s `mod tests`. If that module's tests have no
+`FakeRunner::sequence`, copy the one in `src/cmd/jump.rs`'s test module
+verbatim: it serves canned stdout per call, in order, and counts calls.
 
 ```rust
-/// The headless form of [`run_with`]. rt answers a sign call with the row it
-/// wrote, so the handle and state come back from the same call that made them
-/// rather than from a second lookup that could disagree.
-pub fn run_json(
-    runner: &dyn Runner,
-    which: Sign,
-    pane: Option<&str>,
-) -> Result<crate::json::SignStatus, String> {
-    let body = run_with(runner, which, pane)?;
-    let parsed: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("rt answered with non-JSON: {e}"))?;
-    Ok(crate::json::SignStatus {
-        handle: parsed
-            .get("handle")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        state: parsed
-            .get("status")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string(),
+    #[test]
+    fn status_json_names_the_pane_identity_and_lists_its_rooms() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#,
+            r#"{"ok":true,"rooms":[{"room":"rt","unread":0},{"room":"dm-1","kind":"dm"}]}"#,
+        ]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert_eq!(s.handle.as_deref(), Some("kay"));
+        assert_eq!(s.state, "live");
+        assert_eq!(s.pane.as_deref(), Some("w1:p1"));
+        assert!(s.signed_in);
+        assert_eq!(s.rooms, vec!["#rt".to_string(), "dm".to_string()]);
+    }
+
+    #[test]
+    fn status_json_for_an_unmatched_pane_is_signed_out_with_no_rooms() {
+        let r = FakeRunner::sequence(&[r#"{"ok":true,"buddies":[]}"#]);
+        let s = status_json(&r, Some("w9:p9")).unwrap();
+        assert_eq!(s.handle, None);
+        assert_eq!(s.state, "not signed in");
+        assert!(!s.signed_in);
+        assert!(s.rooms.is_empty());
+    }
+
+    /// An offline buddy row still identifies the pane, and must not be read as
+    /// signed in: rt keeps the row after a sign-out.
+    #[test]
+    fn an_offline_buddy_row_is_not_signed_in() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"buddies":[{"handle":"kay","status":"offline","pane":"w1:p1"}]}"#,
+        ]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert_eq!(s.handle.as_deref(), Some("kay"));
+        assert!(!s.signed_in);
+        assert!(s.rooms.is_empty(), "an offline row has no rooms to list");
+    }
+```
+
+- [ ] **Step 3: Run the tests and watch them fail**
+
+Run: `cargo test --lib cmd::launcher json`
+Expected: the two `json` tests PASS (the shape is already right), and the three
+launcher tests FAIL on assertions, the first on
+`assert_eq!(s.handle.as_deref(), Some("kay"))` with left `None`.
+
+- [ ] **Step 4: Implement**
+
+Replace the stub in `src/cmd/launcher.rs`:
+
+```rust
+/// The popover header's whole content. An offline buddy row still identifies
+/// the pane, which is why the handle survives a sign-out while `signed_in`
+/// does not.
+pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::Status, String> {
+    let buddies = rt::buddies(r)?;
+    let matched = pane.and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)));
+    let base = origin_status(pane, &buddies);
+    let signed_in = base.status.as_deref().is_some_and(|s| s != "offline");
+    let rooms = match (signed_in, matched.and_then(|b| b.session_id.as_deref())) {
+        (true, Some(session)) => room_tokens(&rt::rooms_for_session(r, session).unwrap_or_default()),
+        _ => Vec::new(),
+    };
+    Ok(crate::json::Status {
+        handle: base.handle,
+        state: base.status.unwrap_or_else(|| "not signed in".to_string()),
+        pane: base.pane,
+        signed_in,
+        rooms,
     })
 }
 ```
 
 - [ ] **Step 5: Run the tests**
 
-Run: `cargo test --lib cmd::sign json`
-Expected: PASS, including the four sign tests that existed before.
+Run: `cargo test --lib cmd::launcher json`
+Expected: PASS.
 
-- [ ] **Step 6: Wire the flag and dispatch**
+- [ ] **Step 6: Prove one test can fail**
 
-In `src/main.rs`, add `mod json;` beside the other `mod` lines, then change the
-two sign variants:
+Change `s != "offline"` to `true`, run `cargo test --lib cmd::launcher`, and
+watch `an_offline_buddy_row_is_not_signed_in` go red. Restore it.
+
+- [ ] **Step 7: Wire the subcommand**
+
+In `src/main.rs`'s `Cmd`:
+
+```rust
+    /// Print the chat status of a pane. JSON only.
+    Status {
+        #[arg(long)]
+        pane: Option<String>,
+        /// Accepted for symmetry with the other verbs. This one has no other
+        /// mode, so it changes nothing.
+        #[arg(long)]
+        json: bool,
+    },
+```
+
+and its arm:
+
+```rust
+        Cmd::Status { pane, json: _ } => {
+            let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
+            match cmd::launcher::status_json(&runner, pane.as_deref()).and_then(|s| json::emit(&s)) {
+                Ok(()) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    json::fail(&e);
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/json.rs src/main.rs src/cmd/launcher.rs
+git commit -m "status: a pane's chat identity, without drawing it"
+```
+
+---
+
+### Task 2: `sign-in --json` and `sign-out --json`
+
+**Files:**
+- Modify: `src/cmd/sign.rs` (add `run_json`)
+- Modify: `src/main.rs` (`--json` and `--pane` on `SignIn`/`SignOut`)
+
+**Interfaces:**
+- Consumes: `sign::run_with(&dyn Runner, Sign, Option<&str>) -> Result<String, String>`,
+  `launcher::status_json(&dyn Runner, Option<&str>) -> Result<json::Status, String>`
+- Produces: `cmd::sign::run_json(&dyn Runner, Sign, Option<&str>) -> Result<json::Status, String>`
+
+**Why it returns a status rather than rt's own reply:** rt answers `sign-in`
+with `{"ok":true,"handle":"kay","room":"rt"}` and `sign-out` with `{"ok":true}`.
+Neither says what the header should now read, and the caller's next question
+after signing is always exactly that. Reading the status in the same call costs
+one rt round trip and removes a race where the caller reads a header the sign
+has not landed in yet.
+
+- [ ] **Step 1: Add the stub**
+
+In `src/cmd/sign.rs`:
+
+```rust
+pub fn run_json(
+    _runner: &dyn Runner,
+    _which: Sign,
+    _pane: Option<&str>,
+) -> Result<crate::json::Status, String> {
+    Ok(crate::json::Status {
+        handle: None,
+        state: String::new(),
+        pane: None,
+        signed_in: false,
+        rooms: Vec::new(),
+    })
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+This module's `FakeRunner::capture` answers every call with one fixed body,
+which cannot serve a sign followed by a status read. Replace it with the
+sequence runner from `src/cmd/jump.rs`'s test module, and update the four
+existing sign tests to pass their body as a one-element sequence. Those four
+still assert the same argv and the same env scrub, so their meaning does not
+change.
+
+```rust
+    #[test]
+    fn sign_in_json_answers_with_the_header_the_pane_now_has() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"handle":"kay","room":"rt"}"#,
+            r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#,
+            r#"{"ok":true,"rooms":[{"room":"rt","unread":0}]}"#,
+        ]);
+        let s = run_json(&r, Sign::In, Some("w1:p1")).unwrap();
+        assert_eq!(s.handle.as_deref(), Some("kay"));
+        assert!(s.signed_in);
+        assert_eq!(s.rooms, vec!["#rt".to_string()]);
+    }
+
+    /// rt answers a sign-out with a bare `{"ok":true}`. Reading the header
+    /// afterwards is the only way to report the state that leaves behind.
+    #[test]
+    fn sign_out_json_answers_with_the_signed_out_header() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true}"#,
+            r#"{"ok":true,"buddies":[{"handle":"kay","status":"offline","pane":"w1:p1"}]}"#,
+        ]);
+        let s = run_json(&r, Sign::Out, Some("w1:p1")).unwrap();
+        assert!(!s.signed_in);
+        assert!(s.rooms.is_empty());
+    }
+
+    #[test]
+    fn sign_json_without_a_pane_is_an_error_not_a_prompt() {
+        let r = FakeRunner::sequence(&[]);
+        assert!(run_json(&r, Sign::In, None).is_err());
+    }
+
+    /// The sign has to happen before the header is read, or the header
+    /// describes the state the call was meant to change.
+    #[test]
+    fn the_sign_runs_before_the_status_read() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"handle":"kay","room":"rt"}"#,
+            r#"{"ok":true,"buddies":[]}"#,
+        ]);
+        run_json(&r, Sign::In, Some("w1:p1")).unwrap();
+        let first = r.argv_at(0);
+        assert_eq!(first[1..4], ["chat", "sign-in", "--pane"]);
+    }
+```
+
+`argv_at(n)` returns the nth recorded argv; add it to the sequence runner
+beside `call_count` if it is not already there, recording each `argv` the way
+`src/cmd/sign.rs`'s current `Call` struct does.
+
+- [ ] **Step 3: Run the tests and watch them fail**
+
+Run: `cargo test --lib cmd::sign`
+Expected: FAIL on `assert_eq!(s.handle.as_deref(), Some("kay"))`, left `None`.
+
+- [ ] **Step 4: Implement**
+
+```rust
+/// Signs, then reports the header that sign produced. rt's own sign replies
+/// carry no state (`sign-in` names a handle and a room, `sign-out` says
+/// nothing), so the state comes from reading the roster afterwards.
+pub fn run_json(
+    runner: &dyn Runner,
+    which: Sign,
+    pane: Option<&str>,
+) -> Result<crate::json::Status, String> {
+    let pane = pane.ok_or_else(|| "pane is required".to_string())?;
+    run_with(runner, which, Some(pane))?;
+    crate::cmd::launcher::status_json(runner, Some(pane))
+}
+```
+
+- [ ] **Step 5: Run the tests**
+
+Run: `cargo test --lib cmd::sign`
+Expected: PASS, including the four original sign tests.
+
+- [ ] **Step 6: Wire the flags**
 
 ```rust
     /// Sign in to chat.
@@ -258,8 +488,6 @@ two sign variants:
         pane: Option<String>,
     },
 ```
-
-and their dispatch arms:
 
 ```rust
         Cmd::SignIn { json, pane } => sign_dispatch(&runner, cmd::sign::Sign::In, json, pane),
@@ -298,179 +526,11 @@ fn sign_dispatch(
 }
 ```
 
-- [ ] **Step 7: Confirm the whole suite still passes**
-
-Run: `cargo test`
-Expected: PASS, with no existing test modified except `FakeRunner::capture`.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add src/json.rs src/main.rs src/cmd/sign.rs
-git commit -m "json: a verb prints one object, and sign is the first"
-```
-
----
-
-### Task 2: `status --json`
-
-The popover's header: who this pane is on chat, what state it is in, and which
-rooms it carries. `launcher::origin_status` already computes it from the buddy
-roster, and `launcher::room_tokens` already renders the room list.
-
-**Files:**
-- Modify: `src/json.rs` (add `Status`)
-- Modify: `src/cmd/launcher.rs` (add `status_json`)
-- Modify: `src/main.rs` (add the `Status` subcommand)
-
-**Interfaces:**
-- Consumes: `launcher::origin_status(Option<&str>, &[rt::Buddy]) -> OriginStatus`,
-  `launcher::room_tokens(&[rt::Room]) -> Vec<String>`, `rt::buddies`,
-  `rt::rooms_for_session`
-- Produces:
-  - `json::Status { handle: Option<String>, state: String, pane: Option<String>, signedIn: bool, rooms: Vec<String> }`
-  - `cmd::launcher::status_json(&dyn Runner, Option<&str>) -> Result<json::Status, String>`
-
-- [ ] **Step 1: Write the failing test**
-
-Append to `src/cmd/launcher.rs`'s `mod tests`. It needs a runner that answers
-each rt call in order; the module's tests already build buddies with a `buddy`
-helper, so reuse it for the expected identity:
-
-```rust
-    #[test]
-    fn status_json_names_the_pane_identity_and_marks_it_signed_in() {
-        let r = FakeRunner::sequence(&[
-            r#"{"ok":true,"panes":[{"handle":"kay","status":"live","pane":"w1:p1","sessionId":"s-kay"}]}"#,
-            r#"{"ok":true,"rooms":[{"room":"rt","unread":0},{"room":"dm-1","kind":"dm"}]}"#,
-        ]);
-        let s = status_json(&r, Some("w1:p1")).unwrap();
-        assert_eq!(s.handle.as_deref(), Some("kay"));
-        assert_eq!(s.state, "live");
-        assert_eq!(s.pane.as_deref(), Some("w1:p1"));
-        assert!(s.signed_in);
-        assert_eq!(s.rooms, vec!["#rt".to_string(), "dm".to_string()]);
-    }
-
-    #[test]
-    fn status_json_for_an_unmatched_pane_is_signed_out_with_no_rooms() {
-        let r = FakeRunner::sequence(&[r#"{"ok":true,"panes":[]}"#]);
-        let s = status_json(&r, Some("w9:p9")).unwrap();
-        assert_eq!(s.handle, None);
-        assert_eq!(s.state, "not signed in");
-        assert!(!s.signed_in);
-        assert!(s.rooms.is_empty());
-    }
-```
-
-If `FakeRunner::sequence` is not already in this module's tests, copy the one in
-`src/cmd/jump.rs`'s test module verbatim, which serves canned stdout per call in
-order.
-
-- [ ] **Step 2: Run the test and watch it fail**
-
-Add the stub so the failure is an assertion rather than a compile error:
-
-```rust
-pub fn status_json(
-    _r: &dyn Runner,
-    _pane: Option<&str>,
-) -> Result<crate::json::Status, String> {
-    Ok(crate::json::Status {
-        handle: None,
-        state: String::new(),
-        pane: None,
-        signed_in: false,
-        rooms: Vec::new(),
-    })
-}
-```
-
-Run: `cargo test --lib cmd::launcher`
-Expected: FAIL on `assert_eq!(s.handle.as_deref(), Some("kay"))`, left `None`.
-
-- [ ] **Step 3: Add the shape**
-
-In `src/json.rs`:
-
-```rust
-/// What a pane is on chat right now: the identity, rt's own word for its
-/// state, and the rooms that identity carries.
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Status {
-    pub handle: Option<String>,
-    pub state: String,
-    pub pane: Option<String>,
-    pub signed_in: bool,
-    pub rooms: Vec<String>,
-}
-```
-
-- [ ] **Step 4: Implement**
-
-Replace the stub in `src/cmd/launcher.rs`:
-
-```rust
-/// The popover header's whole content. `state` keeps rt's own vocabulary
-/// rather than a rendered phrase, so the caller decides how to say it; the one
-/// word this adds is "not signed in", which rt has no row for.
-pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::Status, String> {
-    let buddies = rt::buddies(r)?;
-    let matched = pane.and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)));
-    let base = origin_status(pane, &buddies);
-    let signed_in = base.status.as_deref().is_some_and(|s| s != "offline");
-    let rooms = match (signed_in, matched.and_then(|b| b.session_id.as_deref())) {
-        (true, Some(session)) => room_tokens(&rt::rooms_for_session(r, session).unwrap_or_default()),
-        _ => Vec::new(),
-    };
-    Ok(crate::json::Status {
-        handle: base.handle,
-        state: base.status.unwrap_or_else(|| "not signed in".to_string()),
-        pane: base.pane,
-        signed_in,
-        rooms,
-    })
-}
-```
-
-- [ ] **Step 5: Run the tests**
-
-Run: `cargo test --lib cmd::launcher`
-Expected: PASS.
-
-- [ ] **Step 6: Wire the subcommand**
-
-In `src/main.rs`'s `Cmd`:
-
-```rust
-    /// Print the chat status of a pane. JSON only.
-    Status {
-        #[arg(long)]
-        pane: Option<String>,
-    },
-```
-
-and its arm:
-
-```rust
-        Cmd::Status { pane } => {
-            let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
-            match cmd::launcher::status_json(&runner, pane.as_deref()).and_then(|s| json::emit(&s)) {
-                Ok(()) => std::process::ExitCode::SUCCESS,
-                Err(e) => {
-                    json::fail(&e);
-                    std::process::ExitCode::FAILURE
-                }
-            }
-        }
-```
-
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/json.rs src/main.rs src/cmd/launcher.rs
-git commit -m "status: a pane's chat identity, without drawing it"
+git add src/main.rs src/cmd/sign.rs
+git commit -m "sign: answer with the header the pane now has"
 ```
 
 ---
@@ -478,100 +538,40 @@ git commit -m "status: a pane's chat identity, without drawing it"
 ### Task 3: `peek --json`
 
 **Files:**
-- Modify: `src/json.rs` (add `Peek`, `PeekBuddy`, `PeekRoom`)
+- Modify: `src/json.rs` (add `Peek`, `PeekBuddy`, `PeekRoom`, `peek_from_rows`)
 - Modify: `src/cmd/peek.rs` (add `rows_json`)
 - Modify: `src/main.rs` (`--json` on `Peek`)
 
 **Interfaces:**
-- Consumes: `peek::rows(...) -> Vec<Row>` with `Row { kind, handle, status, repo, branch, title, room, unread, mentions }`
+- Consumes: `peek::rows(Vec<rt::Buddy>, Vec<rt::Room>, &HashMap<String, rt::AgentDetail>) -> Vec<Row>`
+  where `Row { kind, handle, status, repo, branch, title, room, unread, mentions }`,
+  and `rt::pane_list` for the pane id each buddy is signed in on
 - Produces:
-  - `json::Peek { buddies: Vec<PeekBuddy>, rooms: Vec<PeekRoom> }`
-  - `json::PeekBuddy { handle: String, status: String, repo: Option<String>, branch: Option<String>, title: Option<String>, unread: u32, mentions: u32 }`
+  - `json::PeekBuddy { handle: String, pane_id: Option<String>, status: String, repo: Option<String>, branch: Option<String>, title: Option<String>, unread: u32, mentions: u32 }`, serialized `camelCase`
   - `json::PeekRoom { room: String, unread: u32, mentions: u32 }`
+  - `json::Peek { buddies: Vec<PeekBuddy>, rooms: Vec<PeekRoom> }`
+  - `json::peek_from_rows(&[peek::Row], &[rt::ChatPane]) -> Peek`
   - `cmd::peek::rows_json(&dyn Runner) -> Result<json::Peek, String>`
 
-- [ ] **Step 1: Write the failing test**
+**Why a `paneId` and no workspace or tab id:** a buddy row is only useful if the
+caller can go to that agent, and rt's pane roster gives a pane id and a
+workspace *name*, with nothing about tabs. flock renders the whole layout, so it
+maps a pane id to its workspace and tab from the model it already holds. The
+spec's table was amended to match, with the reason recorded there.
 
-Append to `src/cmd/peek.rs`'s `mod tests`:
-
-```rust
-    #[test]
-    fn rows_json_splits_the_flat_row_list_into_buddies_and_rooms() {
-        let rows = vec![
-            Row {
-                kind: RowKind::Room,
-                handle: None,
-                status: None,
-                repo: None,
-                branch: None,
-                title: None,
-                room: Some("rt".to_string()),
-                unread: 3,
-                mentions: 1,
-            },
-            Row {
-                kind: RowKind::Buddy,
-                handle: Some("kay".to_string()),
-                status: Some("live".to_string()),
-                repo: Some("flock".to_string()),
-                branch: Some("phase-0".to_string()),
-                title: None,
-                room: None,
-                unread: 0,
-                mentions: 0,
-            },
-        ];
-        let out = crate::json::peek_from_rows(&rows);
-        assert_eq!(out.rooms.len(), 1);
-        assert_eq!(out.rooms[0].room, "rt");
-        assert_eq!(out.rooms[0].unread, 3);
-        assert_eq!(out.buddies.len(), 1);
-        assert_eq!(out.buddies[0].handle, "kay");
-        assert_eq!(out.buddies[0].branch.as_deref(), Some("phase-0"));
-    }
-
-    #[test]
-    fn a_row_missing_its_identity_field_is_dropped_rather_than_named_empty() {
-        let rows = vec![Row {
-            kind: RowKind::Buddy,
-            handle: None,
-            status: None,
-            repo: None,
-            branch: None,
-            title: None,
-            room: None,
-            unread: 0,
-            mentions: 0,
-        }];
-        let out = crate::json::peek_from_rows(&rows);
-        assert!(out.buddies.is_empty());
-        assert!(out.rooms.is_empty());
-    }
-```
-
-- [ ] **Step 2: Run the test and watch it fail**
-
-Add stubs in `src/json.rs` so the failure is an assertion:
-
-```rust
-pub fn peek_from_rows(_rows: &[crate::cmd::peek::Row]) -> Peek {
-    Peek { buddies: Vec::new(), rooms: Vec::new() }
-}
-```
-
-Run: `cargo test --lib cmd::peek`
-Expected: FAIL on `assert_eq!(out.rooms.len(), 1)`, left `0`.
-
-- [ ] **Step 3: Add the shapes and the mapping**
+- [ ] **Step 1: Add the shapes and a stub**
 
 In `src/json.rs`:
 
 ```rust
-/// A buddy row as a consumer reads it: the identity is required, because a row
-/// that cannot name who it is about is not a row anyone can act on.
+/// A buddy row as a consumer reads it. The identity is required, because a row
+/// that cannot name who it is about is not a row anyone can act on; the pane id
+/// is not, because a buddy can be signed in with no pane in the roster.
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct PeekBuddy {
     pub handle: String,
+    pub pane_id: Option<String>,
     pub status: String,
     pub repo: Option<String>,
     pub branch: Option<String>,
@@ -596,15 +596,162 @@ pub struct Peek {
     pub rooms: Vec<PeekRoom>,
 }
 
-pub fn peek_from_rows(rows: &[crate::cmd::peek::Row]) -> Peek {
+pub fn peek_from_rows(
+    _rows: &[crate::cmd::peek::Row],
+    _panes: &[crate::rt::ChatPane],
+) -> Peek {
+    Peek { buddies: Vec::new(), rooms: Vec::new() }
+}
+```
+
+`RowKind` needs `Clone, Copy` if it does not already derive them; add them to
+its existing derive list.
+
+- [ ] **Step 2: Write the failing tests**
+
+Append to `src/json.rs`'s `mod tests`:
+
+```rust
+    #[test]
+    fn peek_buddy_serializes_pane_id_as_camel_case() {
+        let out = serde_json::to_string(&PeekBuddy {
+            handle: "kay".to_string(),
+            pane_id: Some("w1:p1".to_string()),
+            status: "live".to_string(),
+            repo: None,
+            branch: None,
+            title: None,
+            unread: 0,
+            mentions: 0,
+        })
+        .unwrap();
+        assert!(out.contains(r#""paneId":"w1:p1""#), "got {out}");
+    }
+```
+
+Append to `src/cmd/peek.rs`'s `mod tests`:
+
+```rust
+    fn buddy_row(handle: &str) -> Row {
+        Row {
+            kind: RowKind::Buddy,
+            handle: Some(handle.to_string()),
+            status: Some("live".to_string()),
+            repo: Some("flock".to_string()),
+            branch: Some("phase-0".to_string()),
+            title: None,
+            room: None,
+            unread: 0,
+            mentions: 0,
+        }
+    }
+
+    #[test]
+    fn rows_json_splits_the_flat_row_list_into_buddies_and_rooms() {
+        let rows = vec![
+            Row {
+                kind: RowKind::Room,
+                handle: None,
+                status: None,
+                repo: None,
+                branch: None,
+                title: None,
+                room: Some("rt".to_string()),
+                unread: 3,
+                mentions: 1,
+            },
+            buddy_row("kay"),
+        ];
+        let out = crate::json::peek_from_rows(&rows, &[]);
+        assert_eq!(out.rooms.len(), 1);
+        assert_eq!(out.rooms[0].room, "rt");
+        assert_eq!(out.rooms[0].unread, 3);
+        assert_eq!(out.buddies.len(), 1);
+        assert_eq!(out.buddies[0].handle, "kay");
+        assert_eq!(out.buddies[0].branch.as_deref(), Some("phase-0"));
+    }
+
+    /// A buddy row cannot be jumped to without the pane it is signed in on,
+    /// and the row itself does not carry one: it comes from the roster.
+    #[test]
+    fn a_buddy_carries_the_pane_it_is_signed_in_on() {
+        let panes = vec![rt::ChatPane {
+            pane_id: "w1:p1".to_string(),
+            workspace: "flock".to_string(),
+            title: None,
+            cwd: None,
+            repo: None,
+            branch: None,
+            agent_status: "idle".to_string(),
+            session_id: None,
+            presence: Some(rt::Presence {
+                handle: "kay".to_string(),
+                status: "live".to_string(),
+                rooms: Vec::new(),
+            }),
+        }];
+        let out = crate::json::peek_from_rows(&[buddy_row("kay")], &panes);
+        assert_eq!(out.buddies[0].pane_id.as_deref(), Some("w1:p1"));
+    }
+
+    #[test]
+    fn a_buddy_on_no_pane_is_still_listed_with_no_pane_id() {
+        let out = crate::json::peek_from_rows(&[buddy_row("ghost")], &[]);
+        assert_eq!(out.buddies.len(), 1);
+        assert_eq!(out.buddies[0].pane_id, None);
+    }
+
+    #[test]
+    fn a_row_missing_its_identity_field_is_dropped_rather_than_named_empty() {
+        let rows = vec![Row {
+            kind: RowKind::Buddy,
+            handle: None,
+            status: None,
+            repo: None,
+            branch: None,
+            title: None,
+            room: None,
+            unread: 0,
+            mentions: 0,
+        }];
+        let out = crate::json::peek_from_rows(&rows, &[]);
+        assert!(out.buddies.is_empty());
+        assert!(out.rooms.is_empty());
+    }
+```
+
+`rt::ChatPane` and `rt::Presence` need `pub` fields (they already are) and may
+need a `Clone`/construction path; they are plain structs, so building one
+literally as above works as long as every field is listed.
+
+- [ ] **Step 3: Run the tests and watch them fail**
+
+Run: `cargo test --lib cmd::peek json`
+Expected: FAIL on `assert_eq!(out.rooms.len(), 1)`, left `0`.
+
+- [ ] **Step 4: Implement the mapping**
+
+```rust
+pub fn peek_from_rows(
+    rows: &[crate::cmd::peek::Row],
+    panes: &[crate::rt::ChatPane],
+) -> Peek {
+    let pane_for = |handle: &str| -> Option<String> {
+        panes
+            .iter()
+            .find(|p| p.presence.as_ref().is_some_and(|pr| pr.handle == handle))
+            .map(|p| p.pane_id.clone())
+    };
     let mut buddies = Vec::new();
     let mut rooms = Vec::new();
     for row in rows {
         match row.kind {
             crate::cmd::peek::RowKind::Buddy => {
                 if let Some(handle) = row.handle.clone() {
+                    let pane_id = pane_for(&handle);
                     buddies.push(PeekBuddy {
                         handle,
+                        pane_id,
                         status: row.status.clone().unwrap_or_else(|| "unknown".to_string()),
                         repo: row.repo.clone(),
                         branch: row.branch.clone(),
@@ -625,17 +772,14 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row]) -> Peek {
 }
 ```
 
-`RowKind` needs `Clone, Copy` if it does not already derive them; add them to
-its existing derive list rather than matching on a reference.
-
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests**
 
 Run: `cargo test --lib cmd::peek json`
 Expected: PASS.
 
-- [ ] **Step 5: Add the runner-level entry point**
+- [ ] **Step 6: Add the runner-level entry point**
 
-In `src/cmd/peek.rs`, beside `run`:
+In `src/cmd/peek.rs`:
 
 ```rust
 /// The same rows the TUI draws, as data. Gathers exactly what `run` gathers,
@@ -645,60 +789,83 @@ pub fn rows_json(r: &dyn Runner) -> Result<crate::json::Peek, String> {
     let rooms = rt::rooms(r).unwrap_or_default();
     let panes = rt::pane_list(r).unwrap_or_default();
     let details = rt::agent_details(&panes);
-    Ok(crate::json::peek_from_rows(&rows(buddies, rooms, &details)))
+    let rows = rows(buddies, rooms, &details);
+    Ok(crate::json::peek_from_rows(&rows, &panes))
 }
 ```
 
-`rows` takes `(Vec<rt::Buddy>, Vec<rt::Room>, &HashMap<String, rt::AgentDetail>)`
-and no runner, which is why the gathering is repeated here rather than shared:
-`run` does the same four calls at `src/cmd/peek.rs:149`. The
-`unwrap_or_default` calls match `run`'s, so an rt that answers nothing gives an
-empty peek rather than an error, exactly as the TUI already behaves.
+The `unwrap_or_default` calls match `run`'s at `src/cmd/peek.rs:149`, so an rt
+that answers nothing gives an empty peek rather than an error, exactly as the
+TUI already behaves.
 
-- [ ] **Step 6: Wire the flag**
+- [ ] **Step 7: Wire the flag**
 
-In `src/main.rs`, add `#[arg(long)] json: bool` to the `Peek` variant, and in
-its arm, before the existing `pane` branch:
+Add `#[arg(long)] json: bool` to the `Peek` variant, and in its arm, first:
 
 ```rust
-        Cmd::Peek { pane, json } => {
             if json {
-                return match cmd::peek::rows_json(&runner).and_then(|p| crate::json::emit(&p)) {
+                return match cmd::peek::rows_json(&runner).and_then(|p| json::emit(&p)) {
                     Ok(()) => std::process::ExitCode::SUCCESS,
                     Err(e) => {
-                        crate::json::fail(&e);
+                        json::fail(&e);
                         std::process::ExitCode::FAILURE
                     }
                 };
             }
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/json.rs src/main.rs src/cmd/peek.rs
-git commit -m "peek: the rows as data, buddies and rooms apart"
+git commit -m "peek: the rows as data, each buddy with its pane"
 ```
 
 ---
 
 ### Task 4: `targets --json`
 
-The pickable list quick-send offers: rooms first, then buddies as DMs.
-
 **Files:**
-- Modify: `src/json.rs` (add `Targets`)
-- Modify: `src/cmd/quick_send.rs` (add `targets_json`)
+- Modify: `src/json.rs` (add `Targets`, `targets_from`, `parse_target`)
+- Modify: `src/cmd/quick_send.rs` (add `targets_json`, make `Target` pub)
 - Modify: `src/main.rs` (add the `Targets` subcommand)
 
 **Interfaces:**
-- Consumes: `quick_send::targets(...) -> Vec<TargetRow>` (private today; make it
-  `pub(crate)` rather than changing its shape)
+- Consumes: `quick_send::targets(Vec<rt::Room>, Vec<rt::Buddy>, &HashMap<String, rt::AgentDetail>) -> Vec<TargetRow>`,
+  whose target field is named `target`
 - Produces:
   - `json::Targets { rooms: Vec<String>, people: Vec<String> }`
+  - `json::targets_from(&[quick_send::Target]) -> Targets`
+  - `json::parse_target(&str) -> Option<quick_send::Target>`
   - `cmd::quick_send::targets_json(&dyn Runner) -> Result<json::Targets, String>`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the shape and stubs**
+
+In `src/json.rs`:
+
+```rust
+/// What a caller may send to. The prefixes are the wire form: `#room` and
+/// `@handle` are one namespace a caller passes straight back as `--to`, where
+/// a bare name would be ambiguous between a room and a person.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Targets {
+    pub rooms: Vec<String>,
+    pub people: Vec<String>,
+}
+
+pub fn targets_from(_targets: &[crate::cmd::quick_send::Target]) -> Targets {
+    Targets { rooms: Vec::new(), people: Vec::new() }
+}
+
+pub fn parse_target(_s: &str) -> Option<crate::cmd::quick_send::Target> {
+    None
+}
+```
+
+In `src/cmd/quick_send.rs`, make `Target` public and give it the derives these
+tests need: `#[derive(Debug, Clone, PartialEq, Eq)] pub enum Target`.
+
+- [ ] **Step 2: Write the failing tests**
 
 Append to `src/cmd/quick_send.rs`'s `mod tests`:
 
@@ -723,33 +890,28 @@ Append to `src/cmd/quick_send.rs`'s `mod tests`:
             crate::json::parse_target("@scout"),
             Some(Target::Dm("scout".to_string()))
         );
+    }
+
+    /// The caller was handed prefixed names and is expected to return one. A
+    /// bare name is refused rather than guessed, because guessing picks
+    /// between a room and a person with no way to be sure.
+    #[test]
+    fn an_unprefixed_or_empty_target_is_refused() {
         assert_eq!(crate::json::parse_target("rt"), None);
+        assert_eq!(crate::json::parse_target("#"), None);
+        assert_eq!(crate::json::parse_target("@"), None);
+        assert_eq!(crate::json::parse_target(""), None);
     }
 ```
 
-`Target` needs `Debug, Clone, PartialEq, Eq` for these assertions; add them to
-its derive list.
+- [ ] **Step 3: Run the tests and watch them fail**
 
-- [ ] **Step 2: Run the test and watch it fail**
-
-Stub both functions in `src/json.rs` returning empty/`None`, then run
-`cargo test --lib cmd::quick_send`.
+Run: `cargo test --lib cmd::quick_send`
 Expected: FAIL on `assert_eq!(t.rooms, vec!["#rt".to_string()])`, left `[]`.
 
-- [ ] **Step 3: Implement**
-
-In `src/json.rs`:
+- [ ] **Step 4: Implement**
 
 ```rust
-/// What a caller may send to. The prefixes are the wire form: `#room` and
-/// `@handle` are one namespace a caller can pass straight back as `--to`,
-/// where a bare name would be ambiguous between a room and a person.
-#[derive(Debug, Serialize, PartialEq, Eq)]
-pub struct Targets {
-    pub rooms: Vec<String>,
-    pub people: Vec<String>,
-}
-
 pub fn targets_from(targets: &[crate::cmd::quick_send::Target]) -> Targets {
     let mut rooms = Vec::new();
     let mut people = Vec::new();
@@ -762,23 +924,21 @@ pub fn targets_from(targets: &[crate::cmd::quick_send::Target]) -> Targets {
     Targets { rooms, people }
 }
 
-/// The inverse of [`targets_from`]'s prefixes. An unprefixed string is not
-/// guessed at: the caller was handed prefixed names and is expected to return
-/// one of them.
+/// The inverse of [`targets_from`]'s prefixes.
 pub fn parse_target(s: &str) -> Option<crate::cmd::quick_send::Target> {
-    match s.split_at_checked(1) {
-        Some(("#", rest)) if !rest.is_empty() => {
-            Some(crate::cmd::quick_send::Target::Room(rest.to_string()))
-        }
-        Some(("@", rest)) if !rest.is_empty() => {
-            Some(crate::cmd::quick_send::Target::Dm(rest.to_string()))
-        }
+    let rest = &s.get(1..)?;
+    if rest.is_empty() {
+        return None;
+    }
+    match s.as_bytes().first()? {
+        b'#' => Some(crate::cmd::quick_send::Target::Room(rest.to_string())),
+        b'@' => Some(crate::cmd::quick_send::Target::Dm(rest.to_string())),
         _ => None,
     }
 }
 ```
 
-In `src/cmd/quick_send.rs` add:
+And in `src/cmd/quick_send.rs`:
 
 ```rust
 /// The same list the TUI picks from, flattened to the two prefixed namespaces.
@@ -797,30 +957,27 @@ pub fn targets_json(r: &dyn Runner) -> Result<crate::json::Targets, String> {
 }
 ```
 
-`targets` is `fn targets(Vec<rt::Room>, Vec<rt::Buddy>, &HashMap<String, rt::AgentDetail>) -> Vec<TargetRow>`
-and `TargetRow`'s target field is named `target`. Both `targets` and `TargetRow`
-are private to the module, and this new function is in that module, so neither
-visibility changes. `Target` must become `pub` if it is not already, since
-`json::targets_from` names it.
+`targets` and `TargetRow` stay private: this function is in their module.
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests**
 
 Run: `cargo test --lib cmd::quick_send json`
 Expected: PASS.
 
-- [ ] **Step 5: Wire the subcommand**
-
-In `src/main.rs`'s `Cmd`:
+- [ ] **Step 6: Wire the subcommand**
 
 ```rust
     /// Print what quick-send can send to. JSON only.
-    Targets,
+    Targets {
+        /// Accepted for symmetry with the other verbs. This one has no other
+        /// mode, so it changes nothing.
+        #[arg(long)]
+        json: bool,
+    },
 ```
 
-and its arm:
-
 ```rust
-        Cmd::Targets => {
+        Cmd::Targets { json: _ } => {
             match cmd::quick_send::targets_json(&runner).and_then(|t| json::emit(&t)) {
                 Ok(()) => std::process::ExitCode::SUCCESS,
                 Err(e) => {
@@ -831,7 +988,7 @@ and its arm:
         }
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/json.rs src/main.rs src/cmd/quick_send.rs
@@ -848,50 +1005,12 @@ git commit -m "targets: rooms and people in one prefixed namespace"
 - Modify: `src/main.rs` (`--json`, `--to`, `--body` on `QuickSend`)
 
 **Interfaces:**
-- Consumes: `quick_send::send(&dyn Runner, Target, &str) -> Result<(), String>`,
-  `json::parse_target`
+- Consumes: `quick_send::send(&dyn Runner, Target, &str) -> Result<(), String>`, `json::parse_target`
 - Produces:
   - `json::Sent { ok: bool, to: String }`
   - `cmd::quick_send::send_json(&dyn Runner, &str, &str) -> Result<json::Sent, String>`
 
-- [ ] **Step 1: Write the failing test**
-
-Append to `src/cmd/quick_send.rs`'s `mod tests`:
-
-```rust
-    #[test]
-    fn send_json_posts_to_the_room_it_was_given_and_echoes_the_target() {
-        let r = FakeRunner::capture("{}");
-        let out = send_json(&r, "#rt", "schema v5 is mine").unwrap();
-        assert!(out.ok);
-        assert_eq!(out.to, "#rt");
-    }
-
-    #[test]
-    fn an_unprefixed_target_is_refused_rather_than_guessed() {
-        let r = FakeRunner::capture("{}");
-        assert!(send_json(&r, "rt", "hello").is_err());
-    }
-
-    #[test]
-    fn an_empty_body_is_refused_before_anything_is_sent() {
-        let r = FakeRunner::capture("{}");
-        assert!(send_json(&r, "#rt", "").is_err());
-    }
-```
-
-If this module's tests have no `FakeRunner::capture`, copy the one from
-`src/cmd/sign.rs`'s test module as amended in Task 1.
-
-- [ ] **Step 2: Run the test and watch it fail**
-
-Stub `send_json` returning `Ok(Sent { ok: false, to: String::new() })`, then run
-`cargo test --lib cmd::quick_send`.
-Expected: FAIL on `assert!(out.ok)`.
-
-- [ ] **Step 3: Implement**
-
-In `src/json.rs`:
+- [ ] **Step 1: Add the shape and stub**
 
 ```rust
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -901,12 +1020,49 @@ pub struct Sent {
 }
 ```
 
-In `src/cmd/quick_send.rs`:
+```rust
+pub fn send_json(_r: &dyn Runner, _to: &str, _body: &str) -> Result<crate::json::Sent, String> {
+    Ok(crate::json::Sent { ok: false, to: String::new() })
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
 
 ```rust
-/// Sends `body` to the prefixed `to`. An empty body is refused here rather
-/// than sent: rt would accept it, and an empty line in a room is noise nobody
-/// meant to make.
+    #[test]
+    fn send_json_posts_to_the_room_it_was_given_and_echoes_the_target() {
+        let r = FakeRunner::sequence(&[r#"{"ok":true}"#]);
+        let out = send_json(&r, "#rt", "schema v5 is mine").unwrap();
+        assert!(out.ok);
+        assert_eq!(out.to, "#rt");
+    }
+
+    #[test]
+    fn an_unprefixed_target_is_refused_rather_than_guessed() {
+        let r = FakeRunner::sequence(&[]);
+        assert!(send_json(&r, "rt", "hello").is_err());
+    }
+
+    /// rt would accept an empty line, and an empty line in a room is noise
+    /// nobody meant to make.
+    #[test]
+    fn an_empty_body_is_refused_before_anything_is_sent() {
+        let r = FakeRunner::sequence(&[]);
+        assert!(send_json(&r, "#rt", "   ").is_err());
+        assert_eq!(r.call_count(), 0, "nothing may be sent for an empty body");
+    }
+```
+
+- [ ] **Step 3: Run the tests and watch them fail**
+
+Run: `cargo test --lib cmd::quick_send`
+Expected: FAIL on `assert!(out.ok)`.
+
+- [ ] **Step 4: Implement**
+
+```rust
+/// Sends `body` to the prefixed `to`. Both guards run before the send, so a
+/// refused call has changed nothing.
 pub fn send_json(r: &dyn Runner, to: &str, body: &str) -> Result<crate::json::Sent, String> {
     if body.trim().is_empty() {
         return Err("body is required".to_string());
@@ -918,14 +1074,12 @@ pub fn send_json(r: &dyn Runner, to: &str, body: &str) -> Result<crate::json::Se
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests**
 
 Run: `cargo test --lib cmd::quick_send`
 Expected: PASS.
 
-- [ ] **Step 5: Wire the flags**
-
-In `src/main.rs`, the `QuickSend` variant becomes:
+- [ ] **Step 6: Wire the flags**
 
 ```rust
     QuickSend {
@@ -940,27 +1094,26 @@ In `src/main.rs`, the `QuickSend` variant becomes:
     },
 ```
 
-and its arm gains, first:
+In its arm, first:
 
 ```rust
             if json {
-                let missing = "--to and --body are required with --json";
                 return match to
                     .zip(body)
-                    .ok_or_else(|| missing.to_string())
+                    .ok_or_else(|| "--to and --body are required with --json".to_string())
                     .and_then(|(to, body)| cmd::quick_send::send_json(&runner, &to, &body))
-                    .and_then(|s| crate::json::emit(&s))
+                    .and_then(|s| json::emit(&s))
                 {
                     Ok(()) => std::process::ExitCode::SUCCESS,
                     Err(e) => {
-                        crate::json::fail(&e);
+                        json::fail(&e);
                         std::process::ExitCode::FAILURE
                     }
                 };
             }
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/json.rs src/main.rs src/cmd/quick_send.rs
@@ -972,86 +1125,20 @@ git commit -m "quick-send: one line to a named target, no picker"
 ### Task 6: `broadcast --json`
 
 **Files:**
-- Modify: `src/json.rs` (add `Broadcast`, `BroadcastResult`)
+- Modify: `src/json.rs` (add `Broadcast`, `BroadcastResult`, `broadcast_from`)
 - Modify: `src/cmd/broadcast.rs` (add `fan_out_json`)
 - Modify: `src/main.rs` (`--json`, `--panes`, `--body` on `Broadcast`)
 
 **Interfaces:**
 - Consumes: `broadcast::fan_out(&dyn Runner, &[String], &str) -> Vec<rt::SendResult>`
-  where `SendResult { pane_id: String, delivered: String, reason: Option<String> }`
+  where `SendResult { pane_id, delivered, reason }`
 - Produces:
-  - `json::BroadcastResult { paneId: String, ok: bool, error: Option<String> }`
+  - `json::BroadcastResult { pane_id: String, ok: bool, delivered: String, error: Option<String> }`, serialized `camelCase`
   - `json::Broadcast { ok: bool, results: Vec<BroadcastResult> }`
+  - `json::broadcast_from(&[rt::SendResult]) -> Broadcast`
   - `cmd::broadcast::fan_out_json(&dyn Runner, &[String], &str) -> Result<json::Broadcast, String>`
 
-- [ ] **Step 1: Write the failing test**
-
-Append to `src/cmd/broadcast.rs`'s `mod tests`:
-
-```rust
-    #[test]
-    fn a_partial_broadcast_is_not_ok_and_names_the_pane_that_refused_it() {
-        let results = vec![
-            rt::SendResult {
-                pane_id: "w1:p1".to_string(),
-                delivered: "accepted".to_string(),
-                reason: None,
-            },
-            rt::SendResult {
-                pane_id: "w2:p7".to_string(),
-                delivered: "refused".to_string(),
-                reason: Some("not signed in".to_string()),
-            },
-        ];
-        let out = crate::json::broadcast_from(&results);
-        assert!(!out.ok, "two panes, one refused, is not a success");
-        assert_eq!(out.results.len(), 2);
-        assert!(out.results[0].ok);
-        assert!(!out.results[1].ok);
-        assert_eq!(out.results[1].error.as_deref(), Some("not signed in"));
-    }
-
-    /// `queued` is a send rt has taken responsibility for, not a failure. A
-    /// broadcast to a pane whose agent is busy queues, and reporting that as
-    /// refused would send the user chasing a message that did arrive.
-    #[test]
-    fn a_queued_send_counts_as_delivered() {
-        let results = vec![rt::SendResult {
-            pane_id: "w1:p1".to_string(),
-            delivered: "queued".to_string(),
-            reason: None,
-        }];
-        let out = crate::json::broadcast_from(&results);
-        assert!(out.ok);
-        assert!(out.results[0].ok);
-        assert_eq!(out.results[0].delivered, "queued");
-    }
-
-    #[test]
-    fn every_pane_accepting_is_ok() {
-        let results = vec![rt::SendResult {
-            pane_id: "w1:p1".to_string(),
-            delivered: "accepted".to_string(),
-            reason: None,
-        }];
-        assert!(crate::json::broadcast_from(&results).ok);
-    }
-
-    #[test]
-    fn a_broadcast_to_no_panes_is_not_a_silent_success() {
-        assert!(!crate::json::broadcast_from(&[]).ok);
-    }
-```
-
-- [ ] **Step 2: Run the test and watch it fail**
-
-Stub `broadcast_from` returning `Broadcast { ok: true, results: Vec::new() }`,
-then run `cargo test --lib cmd::broadcast`.
-Expected: FAIL on `assert!(!out.ok, ...)`.
-
-- [ ] **Step 3: Implement**
-
-In `src/json.rs`:
+- [ ] **Step 1: Add the shapes and stub**
 
 ```rust
 /// `delivered` is rt's own word, carried through unchanged: `ok` is the
@@ -1066,14 +1153,96 @@ pub struct BroadcastResult {
     pub error: Option<String>,
 }
 
-/// `ok` is every pane accepting, and an empty fan-out is not ok: a broadcast
-/// that reached nobody is a failure the caller has to be able to see.
+/// `ok` is every pane taking the message, and an empty fan-out is not ok: a
+/// broadcast that reached nobody is a failure the caller has to be able to see.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Broadcast {
     pub ok: bool,
     pub results: Vec<BroadcastResult>,
 }
 
+pub fn broadcast_from(_results: &[crate::rt::SendResult]) -> Broadcast {
+    Broadcast { ok: true, results: Vec::new() }
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+In `src/json.rs`'s `mod tests`:
+
+```rust
+    #[test]
+    fn broadcast_result_serializes_pane_id_as_camel_case() {
+        let out = serde_json::to_string(&BroadcastResult {
+            pane_id: "w1:p1".to_string(),
+            ok: true,
+            delivered: "accepted".to_string(),
+            error: None,
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"paneId":"w1:p1","ok":true,"delivered":"accepted","error":null}"#
+        );
+    }
+```
+
+In `src/cmd/broadcast.rs`'s `mod tests`:
+
+```rust
+    fn result(pane: &str, delivered: &str, reason: Option<&str>) -> rt::SendResult {
+        rt::SendResult {
+            pane_id: pane.to_string(),
+            delivered: delivered.to_string(),
+            reason: reason.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_partial_broadcast_is_not_ok_and_names_the_pane_that_refused_it() {
+        let out = crate::json::broadcast_from(&[
+            result("w1:p1", "accepted", None),
+            result("w2:p7", "refused", Some("not signed in")),
+        ]);
+        assert!(!out.ok, "two panes, one refused, is not a success");
+        assert_eq!(out.results.len(), 2);
+        assert!(out.results[0].ok);
+        assert!(!out.results[1].ok);
+        assert_eq!(out.results[1].error.as_deref(), Some("not signed in"));
+    }
+
+    /// rt answers a send with `accepted`, `queued` or `refused`, and only
+    /// `refused` is a failure. A queued send is one rt has taken
+    /// responsibility for, and calling it failed sends the user chasing a
+    /// message that did arrive.
+    #[test]
+    fn a_queued_send_counts_as_delivered() {
+        let out = crate::json::broadcast_from(&[result("w1:p1", "queued", None)]);
+        assert!(out.ok);
+        assert!(out.results[0].ok);
+        assert_eq!(out.results[0].delivered, "queued");
+    }
+
+    #[test]
+    fn a_refusal_with_no_reason_still_says_something() {
+        let out = crate::json::broadcast_from(&[result("w1:p1", "refused", None)]);
+        assert_eq!(out.results[0].error.as_deref(), Some("refused"));
+    }
+
+    #[test]
+    fn a_broadcast_to_no_panes_is_not_a_silent_success() {
+        assert!(!crate::json::broadcast_from(&[]).ok);
+    }
+```
+
+- [ ] **Step 3: Run the tests and watch them fail**
+
+Run: `cargo test --lib cmd::broadcast json`
+Expected: FAIL on `assert!(!out.ok, "two panes, one refused, is not a success")`.
+
+- [ ] **Step 4: Implement**
+
+```rust
 pub fn broadcast_from(results: &[crate::rt::SendResult]) -> Broadcast {
     let mapped: Vec<BroadcastResult> = results
         .iter()
@@ -1083,7 +1252,11 @@ pub fn broadcast_from(results: &[crate::rt::SendResult]) -> Broadcast {
                 pane_id: r.pane_id.clone(),
                 ok,
                 delivered: r.delivered.clone(),
-                error: if ok { None } else { r.reason.clone().or_else(|| Some(r.delivered.clone())) },
+                error: if ok {
+                    None
+                } else {
+                    r.reason.clone().or_else(|| Some(r.delivered.clone()))
+                },
             }
         })
         .collect();
@@ -1091,17 +1264,14 @@ pub fn broadcast_from(results: &[crate::rt::SendResult]) -> Broadcast {
 }
 ```
 
-rt answers a send with one of three words, which `broadcast::summary` at
-`src/cmd/broadcast.rs:85` already counts: `accepted`, `queued`, `refused`. Only
-`refused` is a failure, so the test is `!= "refused"` rather than
-`== "accepted"`: a queued send is one rt has taken responsibility for, and
-calling it a failure would send the user chasing a message that did arrive.
+The three delivery words are the ones `broadcast::summary` at
+`src/cmd/broadcast.rs:85` already counts.
 
 In `src/cmd/broadcast.rs`:
 
 ```rust
-/// The same fan-out the TUI runs, reported per pane. An empty pane list is
-/// refused before anything is sent.
+/// The same fan-out the TUI runs, reported per pane. Both guards run before
+/// anything is sent.
 pub fn fan_out_json(
     r: &dyn Runner,
     panes: &[String],
@@ -1117,14 +1287,18 @@ pub fn fan_out_json(
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests**
 
 Run: `cargo test --lib cmd::broadcast json`
 Expected: PASS.
 
-- [ ] **Step 5: Wire the flags**
+- [ ] **Step 6: Prove one test can fail**
 
-In `src/main.rs`, the `Broadcast` variant becomes:
+Change `r.delivered != "refused"` to `r.delivered == "accepted"`, run
+`cargo test --lib cmd::broadcast`, and watch `a_queued_send_counts_as_delivered`
+go red. Restore it.
+
+- [ ] **Step 7: Wire the flags**
 
 ```rust
     Broadcast {
@@ -1140,29 +1314,29 @@ In `src/main.rs`, the `Broadcast` variant becomes:
     },
 ```
 
-and its arm gains, first:
+In its arm, first:
 
 ```rust
             if json {
                 return match body
                     .ok_or_else(|| "--body is required with --json".to_string())
                     .and_then(|body| cmd::broadcast::fan_out_json(&runner, &panes, &body))
-                    .and_then(|b| crate::json::emit(&b))
+                    .and_then(|b| json::emit(&b))
                 {
                     Ok(()) => std::process::ExitCode::SUCCESS,
                     Err(e) => {
-                        crate::json::fail(&e);
+                        json::fail(&e);
                         std::process::ExitCode::FAILURE
                     }
                 };
             }
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/json.rs src/main.rs src/cmd/broadcast.rs
-git commit -m "broadcast: a result per pane, and partial is not ok"
+git commit -m "broadcast: a result per pane, and only refused is a failure"
 ```
 
 ---
@@ -1178,53 +1352,17 @@ finding it: flock focuses panes itself, and two things moving focus fight.
 - Modify: `src/main.rs` (add the `Jump` subcommand)
 
 **Interfaces:**
-- Consumes: `rt::pane_list(&dyn Runner) -> Result<Vec<rt::ChatPane>, String>`,
-  `rt::ChatPane { pane_id, workspace, title, cwd, repo, branch, agent_status, session_id, presence }`
+- Consumes: `rt::pane_list(&dyn Runner) -> Result<Vec<rt::ChatPane>, String>`
 - Produces:
-  - `json::Jump { paneId: String, workspace: String, handle: String }`
+  - `json::Jump { pane_id: String, workspace: String, handle: String }`, serialized `camelCase`
   - `cmd::jump::locate(&dyn Runner, &str) -> Result<json::Jump, String>`
 
-- [ ] **Step 1: Write the failing test**
+**Why no workspace or tab id:** rt's pane row carries a workspace *name* and
+nothing about tabs. flock maps a pane id to its workspace and tab from the
+layout it already renders, so asking this binary to resolve them would mean a
+herdr round trip for something the caller already knows.
 
-Append to `src/cmd/jump.rs`'s `mod tests`:
-
-```rust
-    #[test]
-    fn locate_answers_with_the_pane_that_handle_is_signed_in_on() {
-        let r = FakeRunner::sequence(&[
-            r#"{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","agentStatus":"idle","presence":{"handle":"kay","status":"live"}}]}"#,
-        ]);
-        let j = locate(&r, "kay").unwrap();
-        assert_eq!(j.pane_id, "w1:p1");
-        assert_eq!(j.workspace, "flock");
-        assert_eq!(j.handle, "kay");
-    }
-
-    #[test]
-    fn locate_is_an_error_for_a_handle_on_no_pane() {
-        let r = FakeRunner::sequence(&[r#"{"ok":true,"panes":[]}"#]);
-        assert!(locate(&r, "ghost").is_err());
-    }
-
-    #[test]
-    fn locate_never_moves_focus() {
-        let r = FakeRunner::sequence(&[
-            r#"{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","agentStatus":"idle","presence":{"handle":"kay","status":"live"}}]}"#,
-        ]);
-        locate(&r, "kay").unwrap();
-        assert_eq!(r.call_count(), 1, "a second call here is a focus this verb must not perform");
-    }
-```
-
-- [ ] **Step 2: Run the test and watch it fail**
-
-Stub `locate` returning `Ok(Jump { pane_id: String::new(), workspace: String::new(), handle: String::new() })`,
-then run `cargo test --lib cmd::jump`.
-Expected: FAIL on `assert_eq!(j.pane_id, "w1:p1")`, left `""`.
-
-- [ ] **Step 3: Implement**
-
-In `src/json.rs`:
+- [ ] **Step 1: Add the shape and stub**
 
 ```rust
 /// Where a handle is, so the caller can go there itself. Deliberately not a
@@ -1238,7 +1376,75 @@ pub struct Jump {
 }
 ```
 
-In `src/cmd/jump.rs`:
+```rust
+pub fn locate(_r: &dyn Runner, _handle: &str) -> Result<crate::json::Jump, String> {
+    Ok(crate::json::Jump {
+        pane_id: String::new(),
+        workspace: String::new(),
+        handle: String::new(),
+    })
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+In `src/json.rs`'s `mod tests`:
+
+```rust
+    #[test]
+    fn jump_serializes_pane_id_as_camel_case() {
+        let out = serde_json::to_string(&Jump {
+            pane_id: "w1:p1".to_string(),
+            workspace: "flock".to_string(),
+            handle: "kay".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"paneId":"w1:p1","workspace":"flock","handle":"kay"}"#
+        );
+    }
+```
+
+In `src/cmd/jump.rs`'s `mod tests`:
+
+```rust
+    const ONE_PANE: &str = r#"{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","agentStatus":"idle","presence":{"handle":"kay","status":"live"}}]}"#;
+
+    #[test]
+    fn locate_answers_with_the_pane_that_handle_is_signed_in_on() {
+        let r = FakeRunner::sequence(&[ONE_PANE]);
+        let j = locate(&r, "kay").unwrap();
+        assert_eq!(j.pane_id, "w1:p1");
+        assert_eq!(j.workspace, "flock");
+        assert_eq!(j.handle, "kay");
+    }
+
+    /// An empty answer would be mistaken for "found it, at no pane".
+    #[test]
+    fn locate_is_an_error_for_a_handle_on_no_pane() {
+        let r = FakeRunner::sequence(&[r#"{"ok":true,"panes":[]}"#]);
+        assert!(locate(&r, "ghost").is_err());
+    }
+
+    #[test]
+    fn locate_never_moves_focus() {
+        let r = FakeRunner::sequence(&[ONE_PANE]);
+        locate(&r, "kay").unwrap();
+        assert_eq!(
+            r.call_count(),
+            1,
+            "a second call here is a focus this verb must not perform"
+        );
+    }
+```
+
+- [ ] **Step 3: Run the tests and watch them fail**
+
+Run: `cargo test --lib cmd::jump json`
+Expected: FAIL on `assert_eq!(j.pane_id, "w1:p1")`, left `""`.
+
+- [ ] **Step 4: Implement**
 
 ```rust
 /// The pane `handle` is signed in on. Errs rather than answering an empty
@@ -1257,36 +1463,38 @@ pub fn locate(r: &dyn Runner, handle: &str) -> Result<crate::json::Jump, String>
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests**
 
-Run: `cargo test --lib cmd::jump`
+Run: `cargo test --lib cmd::jump json`
 Expected: PASS, including the existing `jump_to` tests, which are untouched.
 
-- [ ] **Step 5: Wire the subcommand**
-
-In `src/main.rs`'s `Cmd`:
+- [ ] **Step 6: Wire the subcommand**
 
 ```rust
     /// Print where a handle's pane is. JSON only, and moves no focus.
     Jump {
         #[arg(long)]
         handle: String,
+        /// Accepted for symmetry with the other verbs. This one has no other
+        /// mode, so it changes nothing.
+        #[arg(long)]
+        json: bool,
     },
 ```
 
-and its arm:
-
 ```rust
-        Cmd::Jump { handle } => match cmd::jump::locate(&runner, &handle).and_then(|j| json::emit(&j)) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                json::fail(&e);
-                std::process::ExitCode::FAILURE
+        Cmd::Jump { handle, json: _ } => {
+            match cmd::jump::locate(&runner, &handle).and_then(|j| json::emit(&j)) {
+                Ok(()) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    json::fail(&e);
+                    std::process::ExitCode::FAILURE
+                }
             }
-        },
+        }
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/json.rs src/main.rs src/cmd/jump.rs
@@ -1299,7 +1507,7 @@ git commit -m "jump: answer where a handle is, and move nothing"
 
 **Files:**
 - Modify: `src/json.rs` (add `Viewer`)
-- Modify: `src/cmd/open_viewer.rs` (add `url_for`)
+- Modify: `src/cmd/open_viewer.rs` (add `url_for`, and make `run` call it)
 - Modify: `src/main.rs` (`--json` on `OpenViewer`)
 
 **Interfaces:**
@@ -1308,7 +1516,22 @@ git commit -m "jump: answer where a handle is, and move nothing"
   - `json::Viewer { url: String }`
   - `cmd::open_viewer::url_for(&dyn Runner, Option<&str>) -> Result<json::Viewer, String>`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the shape and stub**
+
+```rust
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Viewer {
+    pub url: String,
+}
+```
+
+```rust
+pub fn url_for(_runner: &dyn Runner, _room: Option<&str>) -> Result<crate::json::Viewer, String> {
+    Ok(crate::json::Viewer { url: String::new() })
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
 
 Append to `src/cmd/open_viewer.rs`'s `mod tests`:
 
@@ -1319,7 +1542,11 @@ Append to `src/cmd/open_viewer.rs`'s `mod tests`:
         let v = url_for(&r, None).unwrap();
         assert_eq!(v.url, "https://chat.mattstack");
         assert!(
-            r.calls.lock().unwrap().iter().all(|c| c.first().map(String::as_str) != Some("open")),
+            r.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|c| c.first().map(String::as_str) != Some("open")),
             "resolving a URL must not open it"
         );
     }
@@ -1327,29 +1554,19 @@ Append to `src/cmd/open_viewer.rs`'s `mod tests`:
     #[test]
     fn url_for_appends_the_room_suffix() {
         let r = FakeRunner::new();
-        assert_eq!(url_for(&r, Some("build")).unwrap().url, "https://chat.mattstack/r/build");
+        assert_eq!(
+            url_for(&r, Some("build")).unwrap().url,
+            "https://chat.mattstack/r/build"
+        );
     }
 ```
 
-- [ ] **Step 2: Run the test and watch it fail**
+- [ ] **Step 3: Run the tests and watch them fail**
 
-Stub `url_for` returning `Ok(Viewer { url: String::new() })`, then run
-`cargo test --lib cmd::open_viewer`.
+Run: `cargo test --lib cmd::open_viewer`
 Expected: FAIL on `assert_eq!(v.url, "https://chat.mattstack")`, left `""`.
 
-- [ ] **Step 3: Implement**
-
-In `src/json.rs`:
-
-```rust
-#[derive(Debug, Serialize, PartialEq, Eq)]
-pub struct Viewer {
-    pub url: String,
-}
-```
-
-In `src/cmd/open_viewer.rs`, extract the URL building that `run` does inline so
-both paths share it:
+- [ ] **Step 4: Implement, and route `run` through it**
 
 ```rust
 /// The viewer URL, deep-linked to `room` when one is given. Resolving is all
@@ -1363,11 +1580,7 @@ pub fn url_for(runner: &dyn Runner, room: Option<&str>) -> Result<crate::json::V
     };
     Ok(crate::json::Viewer { url })
 }
-```
 
-and change `run` to call it, so the two cannot drift:
-
-```rust
 pub fn run(runner: &dyn Runner, room: Option<&str>) -> Result<(), String> {
     let url = url_for(runner, room)?.url;
     match runner.run(&["open", url.as_str()], &[]) {
@@ -1378,25 +1591,24 @@ pub fn run(runner: &dyn Runner, room: Option<&str>) -> Result<(), String> {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+`run` calls `url_for` so the two paths cannot build different URLs.
+
+- [ ] **Step 5: Run the tests**
 
 Run: `cargo test --lib cmd::open_viewer`
 Expected: PASS, including the two existing tests that assert `open` is called.
 
-- [ ] **Step 5: Wire the flag**
-
-In `src/main.rs`, the `OpenViewer` variant gains `#[arg(long)] json: bool`, and
-its arm becomes:
+- [ ] **Step 6: Wire the flag**
 
 ```rust
         Cmd::OpenViewer { room, json } => {
             if json {
                 return match cmd::open_viewer::url_for(&runner, room.as_deref())
-                    .and_then(|v| crate::json::emit(&v))
+                    .and_then(|v| json::emit(&v))
                 {
                     Ok(()) => std::process::ExitCode::SUCCESS,
                     Err(e) => {
-                        crate::json::fail(&e);
+                        json::fail(&e);
                         std::process::ExitCode::FAILURE
                     }
                 };
@@ -1411,7 +1623,9 @@ its arm becomes:
         }
 ```
 
-- [ ] **Step 6: Run everything and commit**
+with `#[arg(long)] json: bool` added to the `OpenViewer` variant.
+
+- [ ] **Step 7: Run everything and commit**
 
 Run: `cargo test`
 Expected: PASS, whole suite.
@@ -1430,33 +1644,39 @@ The contract now has a second consumer that cannot read this crate's source.
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Add a section**
+- [ ] **Step 1: Add a section under `## Features`**
 
-Under `## Features`, add:
-
-```markdown
+````markdown
 ## Headless use
 
-Every action also runs without a terminal. Pass `--json` (or use the
-JSON-only verbs `status`, `targets`, `jump`) and the command prints one JSON
-object on stdout and draws nothing:
+Every action also runs without a terminal. Pass `--json` and the command
+prints one JSON object on stdout and draws nothing:
 
 ```bash
 herdr-chat status --json --pane w1:p1
 herdr-chat peek --json
-herdr-chat targets
+herdr-chat targets --json
 herdr-chat quick-send --json --to '#rt' --body 'schema v5 is mine'
 herdr-chat broadcast --json --panes w1:p1,w2:p7 --body 'pausing releases'
 herdr-chat sign-in --json --pane w1:p1
-herdr-chat jump --handle scout
+herdr-chat jump --json --handle scout
 herdr-chat open-viewer --json
 ```
 
-`--json` never prompts and never falls back to the TUI: a missing required
-flag is an error. A failure prints `{"error":"..."}` and exits non-zero.
-`jump` answers where a handle is and moves no focus, and `open-viewer --json`
-returns the URL rather than opening it, so the caller decides both.
-```
+`status`, `targets` and `jump` have no other mode, so `--json` is optional
+there and changes nothing.
+
+Three rules hold across every verb. `--json` never prompts and never falls
+back to the TUI, so a missing required flag is an error. A failure prints
+`{"error":"..."}` and exits non-zero. And two verbs deliberately stop short
+of acting: `jump` answers where a handle is and moves no focus, and
+`open-viewer --json` returns the URL rather than opening it, so the caller
+decides both.
+
+The sign verbs answer with the same object as `status`, because rt's own sign
+replies carry no state and the next question after signing is always what the
+header now reads.
+````
 
 - [ ] **Step 2: Commit**
 
