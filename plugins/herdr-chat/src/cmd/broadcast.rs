@@ -381,18 +381,25 @@ mod tests {
     /// because `Runner: Send + Sync` forces `run(&self, ...)`.
     struct FakeRunner {
         bodies: Mutex<VecDeque<String>>,
+        calls: Mutex<usize>,
     }
 
     impl FakeRunner {
         fn sequence(bodies: &[&str]) -> Self {
             FakeRunner {
                 bodies: Mutex::new(bodies.iter().map(|s| s.to_string()).collect()),
+                calls: Mutex::new(0),
             }
+        }
+
+        fn call_count(&self) -> usize {
+            *self.calls.lock().unwrap()
         }
     }
 
     impl Runner for FakeRunner {
         fn run(&self, _argv: &[&str], _env: &[(&str, Option<&str>)]) -> std::io::Result<Output> {
+            *self.calls.lock().unwrap() += 1;
             let body = self
                 .bodies
                 .lock()
@@ -482,6 +489,30 @@ mod tests {
         assert_eq!(recs[1].pane_id, "w1:p9");
         assert_eq!(recs[1].handle, None);
         assert_eq!(recs[1].delivered, "refused");
+    }
+
+    #[test]
+    fn fan_out_json_refuses_an_empty_pane_list_before_anything_is_sent() {
+        let r = FakeRunner::sequence(&[]);
+        assert!(fan_out_json(&r, &[], "hi").is_err());
+        assert_eq!(r.call_count(), 0, "nothing may be sent with no panes");
+    }
+
+    #[test]
+    fn fan_out_json_refuses_an_empty_body_before_anything_is_sent() {
+        let r = FakeRunner::sequence(&[]);
+        assert!(fan_out_json(&r, &["w1:p1".to_string()], "   ").is_err());
+        assert_eq!(r.call_count(), 0, "nothing may be sent for an empty body");
+    }
+
+    #[test]
+    fn fan_out_json_wraps_the_fan_out_result() {
+        let r = FakeRunner::sequence(&[r#"{"paneId":"w1:p1","delivered":"accepted"}"#]);
+        let out = fan_out_json(&r, &["w1:p1".to_string()], "standup in 5").unwrap();
+        assert!(out.ok);
+        assert_eq!(out.results.len(), 1);
+        assert_eq!(out.results[0].pane_id, "w1:p1");
+        assert!(out.results[0].ok);
     }
 
     fn result(pane: &str, delivered: &str, reason: Option<&str>) -> rt::SendResult {
