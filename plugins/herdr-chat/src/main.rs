@@ -108,8 +108,10 @@ enum Cmd {
     },
     /// Print where a handle's pane is. JSON only, and moves no focus.
     Jump {
+        /// The chat handle to locate. Required, and refused in the same error
+        /// envelope as every other missing flag.
         #[arg(long)]
-        handle: String,
+        handle: Option<String>,
         /// Accepted for symmetry with the other verbs. This one has no other
         /// mode, so it changes nothing.
         #[arg(long)]
@@ -293,7 +295,11 @@ fn main() -> std::process::ExitCode {
             }
         }
         Cmd::Jump { handle, json: _ } => {
-            match cmd::jump::locate(&runner, &handle).and_then(|j| json::emit(&j)) {
+            match handle
+                .ok_or_else(|| "handle is required".to_string())
+                .and_then(|handle| cmd::jump::locate(&runner, &handle))
+                .and_then(|j| json::emit(&j))
+            {
                 Ok(()) => std::process::ExitCode::SUCCESS,
                 Err(e) => {
                     json::fail(&e);
@@ -301,5 +307,18 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A required positional would put clap's usage text on stderr under an
+    /// exit code of its own, where every other verb refuses a missing flag
+    /// with the error envelope on stdout.
+    #[test]
+    fn jump_leaves_a_missing_handle_to_its_dispatch_arm() {
+        assert!(Cli::try_parse_from(["herdr-chat", "jump", "--json"]).is_ok());
     }
 }
