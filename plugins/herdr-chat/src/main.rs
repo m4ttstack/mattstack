@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 mod deck;
 mod herdr;
+mod json;
 mod rt;
 mod run;
 mod state;
@@ -60,6 +61,15 @@ enum Cmd {
     SignIn,
     /// Sign out of chat.
     SignOut,
+    /// Print the chat status of a pane. JSON only.
+    Status {
+        #[arg(long)]
+        pane: Option<String>,
+        /// Accepted for symmetry with the other verbs. This one has no other
+        /// mode, so it changes nothing.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -146,5 +156,16 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::FAILURE
             }
         },
+        Cmd::Status { pane, json: _ } => {
+            let pane = pane.or_else(|| std::env::var("HERDR_PANE_ID").ok());
+            match cmd::launcher::status_json(&runner, pane.as_deref()).and_then(|s| json::emit(&s))
+            {
+                Ok(()) => std::process::ExitCode::SUCCESS,
+                Err(e) => {
+                    json::fail(&e);
+                    std::process::ExitCode::FAILURE
+                }
+            }
+        }
     }
 }

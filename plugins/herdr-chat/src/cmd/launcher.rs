@@ -108,6 +108,29 @@ pub fn origin_status(pane: Option<&str>, buddies: &[rt::Buddy]) -> OriginStatus 
     }
 }
 
+/// The popover header's whole content. An offline buddy row still identifies
+/// the pane, which is why the handle survives a sign-out while `signed_in`
+/// does not.
+pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::Status, String> {
+    let buddies = rt::buddies(r)?;
+    let matched = pane.and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)));
+    let base = origin_status(pane, &buddies);
+    let signed_in = base.status.as_deref().is_some_and(|s| s != "offline");
+    let rooms = match (signed_in, matched.and_then(|b| b.session_id.as_deref())) {
+        (true, Some(session)) => {
+            room_tokens(&rt::rooms_for_session(r, session).unwrap_or_default())
+        }
+        _ => Vec::new(),
+    };
+    Ok(crate::json::Status {
+        handle: base.handle,
+        state: base.status.unwrap_or_else(|| "not signed in".to_string()),
+        pane: base.pane,
+        signed_in,
+        rooms,
+    })
+}
+
 /// Room display tokens: `#name` per channel, every DM collapsed into one
 /// `dm` token (participant lists are the viewer's business, not a header's).
 pub fn room_tokens(rooms: &[rt::Room]) -> Vec<String> {
@@ -413,18 +436,31 @@ fn footer(theme: &AppTheme, mode: &Mode) -> Paragraph<'static> {
 mod tests {
     use super::*;
     use crate::run::Output;
+    use std::collections::VecDeque;
     use std::sync::Mutex;
 
-    /// Fake [`Runner`] that records every argv and serves one canned stdout.
+    /// Fake [`Runner`] that records every argv. `capture` replays one body on
+    /// every call; `sequence` serves the given bodies in order, one per call,
+    /// so a test can assert what the second call to `run` was handed.
     struct FakeRunner {
-        body: String,
+        bodies: Mutex<VecDeque<String>>,
+        fallback: Option<String>,
         calls: Mutex<Vec<Vec<String>>>,
     }
 
     impl FakeRunner {
         fn capture(body: &str) -> Self {
             FakeRunner {
-                body: body.to_string(),
+                bodies: Mutex::new(VecDeque::new()),
+                fallback: Some(body.to_string()),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn sequence(bodies: &[&str]) -> Self {
+            FakeRunner {
+                bodies: Mutex::new(bodies.iter().map(|s| s.to_string()).collect()),
+                fallback: None,
                 calls: Mutex::new(Vec::new()),
             }
         }
@@ -445,9 +481,16 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(argv.iter().map(|s| s.to_string()).collect());
+            let body = self
+                .bodies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .or_else(|| self.fallback.clone())
+                .unwrap_or_default();
             Ok(Output {
                 status: 0,
-                stdout: self.body.clone(),
+                stdout: body,
                 stderr: String::new(),
             })
         }
@@ -587,5 +630,42 @@ mod tests {
             sign_result_text(Item::SignIn, r#"{"ok":true,"handle":"kai"}"#),
             "signed in as kai"
         );
+    }
+
+    #[test]
+    fn status_json_names_the_pane_identity_and_lists_its_rooms() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#,
+            r#"{"ok":true,"rooms":[{"room":"rt","unread":0},{"room":"dm-1","kind":"dm"}]}"#,
+        ]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert_eq!(s.handle.as_deref(), Some("kay"));
+        assert_eq!(s.state, "live");
+        assert_eq!(s.pane.as_deref(), Some("w1:p1"));
+        assert!(s.signed_in);
+        assert_eq!(s.rooms, vec!["#rt".to_string(), "dm".to_string()]);
+    }
+
+    #[test]
+    fn status_json_for_an_unmatched_pane_is_signed_out_with_no_rooms() {
+        let r = FakeRunner::sequence(&[r#"{"ok":true,"buddies":[]}"#]);
+        let s = status_json(&r, Some("w9:p9")).unwrap();
+        assert_eq!(s.handle, None);
+        assert_eq!(s.state, "not signed in");
+        assert!(!s.signed_in);
+        assert!(s.rooms.is_empty());
+    }
+
+    /// An offline buddy row still identifies the pane, and must not be read as
+    /// signed in: rt keeps the row after a sign-out.
+    #[test]
+    fn an_offline_buddy_row_is_not_signed_in() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"buddies":[{"handle":"kay","status":"offline","pane":"w1:p1"}]}"#,
+        ]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert_eq!(s.handle.as_deref(), Some("kay"));
+        assert!(!s.signed_in);
+        assert!(s.rooms.is_empty(), "an offline row has no rooms to list");
     }
 }
