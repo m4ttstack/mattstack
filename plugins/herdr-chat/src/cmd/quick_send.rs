@@ -318,9 +318,10 @@ mod tests {
     }
 
     /// `capture` replays one fixed body forever; `sequence` serves the given
-    /// bodies in order, one per call, and lets a test assert how many calls
-    /// were made. `Mutex` because `Runner: Send + Sync` forces
-    /// `run(&self, ...)` to use interior mutability.
+    /// bodies in order, one per call, lets a test assert how many calls were
+    /// made, and panics once drained rather than answering empty. `Mutex`
+    /// because `Runner: Send + Sync` forces `run(&self, ...)` to use interior
+    /// mutability.
     struct FakeRunner {
         bodies: Mutex<VecDeque<String>>,
         fallback: Option<String>,
@@ -364,7 +365,7 @@ mod tests {
                 .unwrap()
                 .pop_front()
                 .or_else(|| self.fallback.clone())
-                .unwrap_or_default();
+                .expect("sequence exhausted: unexpected extra call");
             Ok(Output {
                 status: 0,
                 stdout: body,

@@ -42,7 +42,7 @@ mod tests {
 
     /// `capture` replays one fixed body forever; `sequence` serves the given
     /// bodies in order, one per call, for a run that reads state back after
-    /// acting on it.
+    /// acting on it, and panics once drained rather than answering empty.
     struct FakeRunner {
         bodies: Mutex<VecDeque<String>>,
         fallback: Option<String>,
@@ -95,7 +95,7 @@ mod tests {
                 .unwrap()
                 .pop_front()
                 .or_else(|| self.fallback.clone())
-                .unwrap_or_default();
+                .expect("sequence exhausted: unexpected extra call");
             Ok(Output {
                 status: 0,
                 stdout: body,

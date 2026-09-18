@@ -44,7 +44,9 @@ mod tests {
     use std::sync::Mutex;
 
     /// Fake [`Runner`] that serves canned stdout per call, in order, and counts
-    /// how many times it was called. `Mutex` because `Runner: Send + Sync`.
+    /// how many times it was called. A drained sequence panics rather than
+    /// answering empty, so an unexpected extra call fails its test. `Mutex`
+    /// because `Runner: Send + Sync`.
     struct FakeRunner {
         bodies: Mutex<VecDeque<String>>,
         calls: Mutex<usize>,
@@ -65,7 +67,12 @@ mod tests {
     impl Runner for FakeRunner {
         fn run(&self, _argv: &[&str], _env: &[(&str, Option<&str>)]) -> std::io::Result<Output> {
             *self.calls.lock().unwrap() += 1;
-            let body = self.bodies.lock().unwrap().pop_front().unwrap_or_default();
+            let body = self
+                .bodies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("sequence exhausted: unexpected extra call");
             Ok(Output {
                 status: 0,
                 stdout: body,
