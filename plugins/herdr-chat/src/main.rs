@@ -119,6 +119,24 @@ enum Cmd {
     },
 }
 
+/// The refusal for flags only the `--json` path reads. Without `--json` the
+/// verb runs its TUI, which never looks at them, so a caller that forgot the
+/// flag would get a terminal it has nowhere to draw and a message nobody sent.
+fn json_only_flags(json: bool, given: &[(&str, bool)]) -> Option<String> {
+    if json {
+        return None;
+    }
+    let names: Vec<&str> = given
+        .iter()
+        .filter(|(_, present)| *present)
+        .map(|(name, _)| *name)
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    Some(format!("--json is required to use {}", names.join(" and ")))
+}
+
 /// `--pane` wins over the environment: a caller outside herdr has no
 /// `HERDR_PANE_ID` to inherit, and a caller inside one may mean a pane other
 /// than the one it happens to be running in.
@@ -176,11 +194,20 @@ fn main() -> std::process::ExitCode {
             panes,
             body,
         } => {
+            if let Some(e) = json_only_flags(
+                json,
+                &[("--panes", !panes.is_empty()), ("--body", body.is_some())],
+            ) {
+                eprintln!("broadcast: {e}");
+                return std::process::ExitCode::FAILURE;
+            }
             if json {
-                return match body
-                    .ok_or_else(|| "--body is required with --json".to_string())
-                    .and_then(|body| cmd::broadcast::fan_out_json(&runner, &panes, &body))
-                    .and_then(|b| json::emit(&b))
+                return match cmd::broadcast::fan_out_json(
+                    &runner,
+                    &panes,
+                    body.as_deref().unwrap_or_default(),
+                )
+                .and_then(|b| json::emit(&b))
                 {
                     Ok(()) => std::process::ExitCode::SUCCESS,
                     Err(e) => {
@@ -231,12 +258,19 @@ fn main() -> std::process::ExitCode {
             to,
             body,
         } => {
+            if let Some(e) =
+                json_only_flags(json, &[("--to", to.is_some()), ("--body", body.is_some())])
+            {
+                eprintln!("quick-send: {e}");
+                return std::process::ExitCode::FAILURE;
+            }
             if json {
-                return match to
-                    .zip(body)
-                    .ok_or_else(|| "--to and --body are required with --json".to_string())
-                    .and_then(|(to, body)| cmd::quick_send::send_json(&runner, &to, &body))
-                    .and_then(|s| json::emit(&s))
+                return match cmd::quick_send::send_json(
+                    &runner,
+                    to.as_deref().unwrap_or_default(),
+                    body.as_deref().unwrap_or_default(),
+                )
+                .and_then(|s| json::emit(&s))
                 {
                     Ok(()) => std::process::ExitCode::SUCCESS,
                     Err(e) => {
@@ -320,5 +354,23 @@ mod tests {
     #[test]
     fn jump_leaves_a_missing_handle_to_its_dispatch_arm() {
         assert!(Cli::try_parse_from(["herdr-chat", "jump", "--json"]).is_ok());
+    }
+
+    #[test]
+    fn a_json_only_flag_passed_without_json_names_what_is_missing() {
+        assert_eq!(
+            json_only_flags(false, &[("--panes", true), ("--body", false)]).as_deref(),
+            Some("--json is required to use --panes")
+        );
+        assert_eq!(
+            json_only_flags(false, &[("--to", true), ("--body", true)]).as_deref(),
+            Some("--json is required to use --to and --body")
+        );
+    }
+
+    #[test]
+    fn a_plain_tui_run_and_a_json_run_both_pass_the_flag_guard() {
+        assert!(json_only_flags(false, &[("--panes", false), ("--body", false)]).is_none());
+        assert!(json_only_flags(true, &[("--panes", true), ("--body", true)]).is_none());
     }
 }
