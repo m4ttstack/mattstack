@@ -29,6 +29,10 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 - `src/rt.rs`: the only place rt's `--json` wire shapes live. `pane_send`
   (broadcast/inject), `pane_list` / `buddies` / `rooms`, and `agent_details`
   (index the pane roster by handle for the row context).
+- `src/json.rs`: the other direction of the wire. Every shape a `--json` verb
+  prints, the mappers that build them out of this crate's own types, and
+  `emit`/`fail`. A field name here is a contract with a front end that cannot
+  be recompiled with this crate; the README's table is its written form.
 - `src/herdr.rs`: `herdr api snapshot` plus focus (locate a pane, focus its
   workspace/tab, `pane zoom`), and `open_popup`.
 - `src/deck.rs`: the viewer URL via `deck url chat`, falling back to
@@ -98,6 +102,13 @@ in-context, so nothing here types into a pane except broadcast, which stays
 deliberate. Newest capability: the launcher popup (`launcher` action, bound
 to prefix+C), one menu over every feature and quick action on lowercase
 letters, with sign results shown in-popup.
+Newer still: the headless surface. Every capability except the launcher takes
+`--json`, prints one object on stdout and draws nothing, and three JSON-only
+verbs (`status`, `targets`, `jump`) were added for a second front end to drive
+the plugin without a terminal. The shapes live in `src/json.rs` and are tabled
+in the README; two verbs stop short of acting on purpose, `jump` locating a
+pane without focusing it and `open-viewer --json` returning the URL without
+opening it, because the caller owns both.
 One open, non-blocking item: peek and quick-send render a single rich line,
 where the picker is a fuller two-line entry (repo · branch · cwd on line 2);
 match them if the extra depth is wanted.
