@@ -52,6 +52,12 @@ enum Cmd {
     QuickSend {
         #[arg(long)]
         pane: bool,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long)]
+        body: Option<String>,
     },
     /// One launcher popup over every capability. The pane action stashes the
     /// focused pane and opens the popup; `--pane` is the popup entrypoint.
@@ -166,7 +172,26 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
-        Cmd::QuickSend { pane } => {
+        Cmd::QuickSend {
+            pane,
+            json,
+            to,
+            body,
+        } => {
+            if json {
+                return match to
+                    .zip(body)
+                    .ok_or_else(|| "--to and --body are required with --json".to_string())
+                    .and_then(|(to, body)| cmd::quick_send::send_json(&runner, &to, &body))
+                    .and_then(|s| json::emit(&s))
+                {
+                    Ok(()) => std::process::ExitCode::SUCCESS,
+                    Err(e) => {
+                        json::fail(&e);
+                        std::process::ExitCode::FAILURE
+                    }
+                };
+            }
             let result = if pane {
                 cmd::quick_send::run(&runner)
             } else {

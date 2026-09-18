@@ -33,6 +33,21 @@ pub fn send(r: &dyn Runner, target: Target, line: &str) -> Result<(), String> {
     }
 }
 
+/// Sends `body` to the prefixed `to`. Both guards run before the send, so a
+/// refused call has changed nothing.
+pub fn send_json(r: &dyn Runner, to: &str, body: &str) -> Result<crate::json::Sent, String> {
+    if body.trim().is_empty() {
+        return Err("body is required".to_string());
+    }
+    let target = crate::json::parse_target(to)
+        .ok_or_else(|| format!("target must be #room or @handle, got {to:?}"))?;
+    send(r, target, body)?;
+    Ok(crate::json::Sent {
+        ok: true,
+        to: to.to_string(),
+    })
+}
+
 /// A pickable target plus, for a DM, the buddy's repo/branch/task detail so the
 /// row can show what that agent is doing. Rooms carry no such detail.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,6 +293,7 @@ fn footer_line(theme: &AppTheme) -> Paragraph<'static> {
 mod tests {
     use super::*;
     use crate::run::Output;
+    use std::collections::VecDeque;
     use std::sync::Mutex;
 
     #[derive(Clone)]
@@ -285,24 +301,39 @@ mod tests {
         argv: Vec<String>,
     }
 
-    /// Fake [`Runner`] that records every argv and returns a fixed status-0
-    /// body. `Mutex` because `Runner: Send + Sync` forces `run(&self, ...)`
-    /// to use interior mutability.
+    /// `capture` replays one fixed body forever; `sequence` serves the given
+    /// bodies in order, one per call, and lets a test assert how many calls
+    /// were made. `Mutex` because `Runner: Send + Sync` forces
+    /// `run(&self, ...)` to use interior mutability.
     struct FakeRunner {
-        body: String,
+        bodies: Mutex<VecDeque<String>>,
+        fallback: Option<String>,
         calls: Mutex<Vec<Call>>,
     }
 
     impl FakeRunner {
         fn capture(body: &str) -> Self {
             FakeRunner {
-                body: body.to_string(),
+                bodies: Mutex::new(VecDeque::new()),
+                fallback: Some(body.to_string()),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn sequence(bodies: &[&str]) -> Self {
+            FakeRunner {
+                bodies: Mutex::new(bodies.iter().map(|s| s.to_string()).collect()),
+                fallback: None,
                 calls: Mutex::new(Vec::new()),
             }
         }
 
         fn calls(&self) -> Vec<Call> {
             self.calls.lock().unwrap().clone()
+        }
+
+        fn call_count(&self) -> usize {
+            self.calls.lock().unwrap().len()
         }
     }
 
@@ -311,9 +342,16 @@ mod tests {
             self.calls.lock().unwrap().push(Call {
                 argv: argv.iter().map(|s| s.to_string()).collect(),
             });
+            let body = self
+                .bodies
+                .lock()
+                .unwrap()
+                .pop_front()
+                .or_else(|| self.fallback.clone())
+                .unwrap_or_default();
             Ok(Output {
                 status: 0,
-                stdout: self.body.clone(),
+                stdout: body,
                 stderr: String::new(),
             })
         }
@@ -327,6 +365,29 @@ mod tests {
         let calls = r.calls();
         assert_eq!(calls[0].argv, vec!["rt", "chat", "post", "build", "on it"]);
         assert_eq!(calls[1].argv, vec!["rt", "chat", "dm", "fred", "ping"]);
+    }
+
+    #[test]
+    fn send_json_posts_to_the_room_it_was_given_and_echoes_the_target() {
+        let r = FakeRunner::sequence(&[r#"{"ok":true}"#]);
+        let out = send_json(&r, "#rt", "schema v5 is mine").unwrap();
+        assert!(out.ok);
+        assert_eq!(out.to, "#rt");
+    }
+
+    #[test]
+    fn an_unprefixed_target_is_refused_rather_than_guessed() {
+        let r = FakeRunner::sequence(&[]);
+        assert!(send_json(&r, "rt", "hello").is_err());
+    }
+
+    /// rt would accept an empty line, and an empty line in a room is noise
+    /// nobody meant to make.
+    #[test]
+    fn an_empty_body_is_refused_before_anything_is_sent() {
+        let r = FakeRunner::sequence(&[]);
+        assert!(send_json(&r, "#rt", "   ").is_err());
+        assert_eq!(r.call_count(), 0, "nothing may be sent for an empty body");
     }
 
     #[test]

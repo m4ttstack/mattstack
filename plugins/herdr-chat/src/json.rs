@@ -126,6 +126,15 @@ pub fn parse_target(s: &str) -> Option<crate::cmd::quick_send::Target> {
     }
 }
 
+/// What a send did. `to` echoes the caller's own prefixed string back, so a
+/// caller that fired several sends in a row can match replies to requests
+/// without keeping its own side table.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct Sent {
+    pub ok: bool,
+    pub to: String,
+}
+
 /// Prints `value` as one line on stdout.
 pub fn emit<T: Serialize>(value: &T) -> Result<(), String> {
     let line = serde_json::to_string(value).map_err(|e| e.to_string())?;
