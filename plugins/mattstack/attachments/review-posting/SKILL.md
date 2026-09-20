@@ -1,11 +1,12 @@
 ---
 name: review-posting
 description: >-
-  Use when a decided review selection ({levels, disposition}) plus a review
-  draft are ready to post to an MR/PR -- posting inline threads for the
-  selected levels, composing the summary, executing the chosen disposition,
-  and closing out. Not for producing the review, and not for deciding what
-  posts -- the caller decides; this part only executes.
+  Use when a decided review selection ({findings, disposition}, or the
+  legacy {levels, disposition}) plus a review draft are ready to post to an
+  MR/PR -- posting inline threads for the selected findings, composing the
+  summary, executing the chosen disposition, and closing out. Not for
+  producing the review, and not for deciding what posts -- the caller
+  decides; this part only executes.
 ---
 
 # Review posting (execution only)
@@ -13,22 +14,33 @@ description: >-
 Turning a decided review selection into what lands on the MR/PR: which
 findings get a thread, what disposition closes it, how the summary reads,
 how the close ends. This part owns execution. The decision -- which
-severity levels post and what disposition closes the review -- belongs to
-the caller.
+findings post and what disposition closes the review -- belongs to the
+caller.
 
 ## Caller inputs
 
-- A decided selection: `{levels: [...], disposition: "comment" | "approve"
-  | "request_changes"}`. `levels` names the severity buckets to post
-  (whichever of Critical / Important / Minor the draft carries); `disposition`
-  names the one the caller already chose. Arriving without both is a caller
-  bug -- see the guard below.
+- A decided selection: `{findings: [ids], disposition: "comment" |
+  "approve" | "request_changes"}`. `findings` names ids from the report
+  json, and each selected entry's `file`, `line`, `title` and `fix` feed
+  the inline-thread mechanics directly -- never re-parsed out of the
+  draft's prose. A selected id with no matching json entry stops and says
+  so, never mapped to a neighbouring finding. A selected entry with no
+  `file` anchor (its `fileLabel` says why) posts into the summary comment
+  instead of an inline thread. `disposition` names the one the caller
+  already chose, in that lowercase vocabulary. Legacy `{levels: [...],
+  disposition: ...}` stays accepted unchanged and posts whole tiers
+  (whichever of Critical / Important / Minor the draft carries), for
+  callers not yet migrated. Arriving with neither shape, or without a
+  disposition, is a caller bug -- see the guard below.
 - The draft, in the review flow's Strengths / Issues shape: Strengths /
   Issues (Critical / Important / Minor, each `file:line`) / Assessment
   (yes | no | with fixes), when it is in context -- take it as given, never
   re-derive or re-judge a finding here. When the draft is not in context
-  (the parked-resume case), read it from the written report file instead;
-  the report's fixed severity buckets are enough to execute from.
+  (the parked-resume case), read the written report file AND its json
+  sibling; the json's findings are what you execute from, ids and anchors
+  alike, and the markdown carries the human-facing wording. With no json
+  sibling (a report written before this contract), the report's fixed
+  severity buckets are enough to execute the legacy form from.
 - A postable target: an MR/PR whose posting mechanics -- anchoring an inline
   comment to a line, verifying it landed, composing the summary body -- the
   caller owns. This part decides how to execute, not what posts or where.
@@ -39,28 +51,33 @@ the caller.
 
 ## Guard: never asks
 
-This part never asks a question. Arriving without a decided `{levels,
-disposition}` is a caller bug: stop and say so in one line, never improvise
-a severity or disposition question to cover the gap. Deciding what posts is
-one layer up, not here.
+This part never asks a question. Arriving without a decided selection --
+neither `{findings, disposition}` nor the legacy `{levels, disposition}`,
+which a resumed board path may spell `{tiers, disposition}` and which is
+accepted the same either way -- is a caller bug: stop and say so in one
+line, never improvise a severity or disposition question to cover the
+gap. A payload carrying finding ids is the contract, not a bug. Deciding
+what posts is one layer up, not here.
 
 ## No side door
 
-Post inline threads only for the selected levels. A deselected or unraised
-finding drops entirely: not into the summary, not into a footnote, not
-through any other channel.
+Post inline threads only for the selected findings -- on the legacy form,
+every finding in the selected levels. A deselected or unraised finding
+drops entirely: not into the summary, not into a footnote, not through any
+other channel.
 
 ## Summary comment
 
-Posting mechanics are inline threads for the selected levels plus ONE
+Posting mechanics are inline threads for the selected findings plus ONE
 summary comment -- identical mechanics regardless of which disposition was
 chosen. The summary carries Strengths and the Assessment, and its issue
-list is scoped to the levels actually posted: a deselected Minor does not
-resurface in the summary either.
+list is scoped to what was actually selected: a deselected Minor does not
+resurface in the summary either. A selected finding with no `file` anchor
+lives in that issue list, and only there.
 
-Empty selection (`levels` is empty): no inline threads, post only the
-summary. Under Approve with nothing selected: skip the issue list and just
-approve with a brief note.
+Empty selection (`findings`, or legacy `levels`, is empty): no inline
+threads, post only the summary. Under Approve with nothing selected: skip
+the issue list and just approve with a brief note.
 
 ## Posting mechanics by disposition
 
@@ -104,6 +121,8 @@ left as a bare id or number. Required every time, on every disposition.
 | Thought | Reality |
 |---|---|
 | "No selection arrived, I'll ask which levels to post" | Never improvise a question here. Arriving without a decided selection is a caller bug: stop and say so. |
+| "It handed me finding ids, but the contract says levels" | Both shapes are the contract. Ids post exactly those findings; levels post whole tiers. Only a payload carrying neither is a caller bug. |
+| "This selected finding has no `file`, I'll anchor it to the nearest line" | Never invent an anchor. A selected entry with no `file` goes in the summary comment. |
 | "I'll fold the deselected Minors into the summary note" | No side door. A deselected finding drops entirely; it does not move to a different channel. |
 | "No approval landed, but I'll still say 'nothing blocking'" | Tacit approval. Strip the all-clear language unless the disposition actually approves. |
 | "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge CLI. |
@@ -114,10 +133,11 @@ left as a bare id or number. Required every time, on every disposition.
 
 | Signal | Action |
 |---|---|
-| Decided `{levels, disposition}` + draft (or report) + target in hand | Post per the sections above. |
+| Decided `{findings, disposition}`, or legacy `{levels, disposition}`, + draft (parked: the report file AND its json sibling) + target in hand | Post per the sections above. |
 | No decided selection arrived | Stop; name it a caller bug. Never ask a question here. |
-| Posting inline threads | Selected levels only; deselected findings drop, no side door. |
-| Posting the summary | One comment, scoped to the levels actually posted. |
+| Posting inline threads | Selected findings only (legacy: whole selected levels); deselected findings drop, no side door. |
+| A selected finding carries no `file` anchor | It rides in the summary comment; never invent a line for it. |
+| Posting the summary | One comment, scoped to what was selected; an unanchorable selected finding lives here. |
 | Disposition is Approve | Post the findings first, then approve. |
 | Disposition is Request changes on a CLI that lacks it | Blocking-framed Comment, said explicitly. |
 | Disposition carries no approval | Strip all-clear language from the summary; state the decision is deferred or withheld. |
