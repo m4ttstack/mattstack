@@ -107,19 +107,23 @@ pack binds them; apply its triage lines and addendum exactly as it directs.
 ## 3. Deliver
 
 Present the draft, then state the severity levels present in one structured
-line -- for example "Findings: Critical (2), Important (1)." -- skipping
-any level with no findings.
+line -- for example "Findings: Critical (2), Important (1); 3 findings." --
+skipping any level with no findings. The counts are the draft's own,
+before any selection narrows what posts.
 
 Decision intake: when the caller hands this step a decided selection (a
-board wrapper, or any @2 caller, handing `{tiers, outcome}` down through the
-fill -- tiers naming the severity levels, outcome naming the disposition),
-use it and ask nothing. Otherwise (a direct terminal run) ask ONE gate with
-the runtime's structured-question tool, these questions, each its own
-question (never fold one list into another -- a question over 4 options
-sends the whole gate to the wait queue):
+board wrapper, or any @2 caller, handing `{findings, outcome}` down through
+the fill -- findings naming the finding ids from the report json, outcome
+naming the disposition; an unmigrated caller hands the legacy `{tiers,
+outcome}` instead, tiers naming severity levels), use it and ask nothing.
+Otherwise (a direct terminal run) ask ONE gate with the runtime's
+structured-question tool, these questions, each its own question (never
+fold one list into another -- a question over 4 options sends the whole
+gate to the wait queue):
 
 - `tiers`: a multi-select over the levels present, every level with
-  findings pre-selected
+  findings pre-selected -- a terminal run has no per-finding UI, so this
+  question stays tier-shaped and its answer becomes ids below
 - `disposition`: single-select, Comment pre-selected; the offered set is
   forge-conditional -- Request changes only where the target forge's CLI
   supports it, `gh` does, `glab` does not; verify before offering, don't
@@ -137,15 +141,26 @@ that write when the caller already handed the decision -- nothing is
 pending in that case.
 
 Execute posting per review-posting (below), handing it the decided
-selection as `{levels: <tiers>, disposition: <outcome>}`. Then, when an
-rt-runs run is active, record the decision at execution time, after
-posting: `rt runs decision record --contract gate@1 --scope post
---selection '{"levels":[...],"disposition":"..."}' --decided-by <decider>`,
-where `<decider>` names the surface that actually answered -- `board`,
-`console`, `pane`, or `shepherd`. Use the decider the caller names alongside
-its handed selection; when this step asked its own question, `<decider>` is
-`pane`. This replaces the old `post-severity` + `post-disposition` record
-pair with one record at scope `post`.
+selection as `{findings: <ids>, disposition: <outcome>}`, where `<outcome>`
+is the answered label carried in posting's vocabulary -- Comment, Approve
+and Request changes travel as `comment`, `approve` and `request_changes` in
+every payload, the hand-off and the record alike. A terminal run's
+`tiers` answer becomes those ids first: take every finding whose `tier` the
+answer named from the report json, in report order. A caller that hands a
+tier-shaped selection (an unmigrated wrapper), or a `tiers` answer with no
+report json to map through, passes to posting as legacy `{levels: <tiers>,
+disposition: <outcome>}`, which posting accepts unchanged; the record below
+then carries that same legacy selection.
+
+Then, when an rt-runs run is active, record the decision at execution time,
+after posting: `rt runs decision record --contract gate@1 --scope post
+--selection '{"findings":["f1","f3"],"disposition":"comment"}'
+--decided-by <decider>`, where `<decider>` names the surface that
+actually answered -- `board`, `console`, `pane`, or `shepherd`. Use the
+decider the caller names alongside its handed selection; when this step
+asked its own question, `<decider>` is `pane`. This replaces the old
+`post-severity` + `post-disposition` record pair with one record at
+scope `post`.
 
 Post using the forge's thread mechanics: on GitHub use `gh pr review` / `gh
 pr comment`; on GitLab follow the thread mechanics below.

@@ -175,9 +175,10 @@ one-off with no slots.
 - **mattstack:receive-review** -- process the feedback on your own MR/PR
   with technical rigor instead of performative agreement (`criteria` +
   `reply-rules` slots).
-- **mattstack:review-posting** -- the two-gate posting protocol: which
-  findings land, which replies say enough, before anything reaches the
-  MR/PR.
+- **mattstack:review-posting** -- executes a decided `{findings | levels,
+  disposition}` selection against the MR/PR: inline threads for what was
+  selected, one summary comment, then the disposition; it never decides
+  what posts.
 - **mattstack:subagent-review-loop** -- adversarial review loop for a spec
   or plan document before implementation: one reviewer subagent (model via
   `mattstack:model-tiering` unless the operator names one), fix and
