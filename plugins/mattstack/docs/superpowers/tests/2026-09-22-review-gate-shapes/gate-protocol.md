@@ -8,9 +8,12 @@ after the `thread@1` / `replies@1` join bullet, and a Size-bullet sentence
 for trimming `findings@1` entries (`evidence` then `fix`, whole fields
 only).
 
-Method: single-shot tool-less reps, `claude --model sonnet
---allowedTools "" --append-system-prompt <system-file> -p <scenario-file>`,
-run in a fresh empty directory per rep, 5 reps per side, run in parallel.
+Method: single-shot tool-less reps, `claude --model sonnet --tools ""
+--strict-mcp-config --append-system-prompt <system-file> -p
+<scenario-file>`, run in a fresh empty directory per rep, 5 reps per side,
+run in parallel. Verified tool-less by direct probe before scoring: a rep
+asked to write a marker file printed a narrated tool call but the file
+never appeared on disk, confirming no tools were actually bound.
 Scenario: a review verb opening a review-post gate for a PR, readiness
 with-fixes, one reasoning line, two findings (one Critical with a file and
 no line, one Minor with a file:line), both riding one multi-select
@@ -26,30 +29,35 @@ the real `path:line` anchor for each.
 RED (system file = the section before this edit): 0/5 PASS.
 
 - Rep 1 borrowed `post@1` for the gate object: `{"gate-ctx": "post@1",
-  "reviewer": "code-review", "replies": 2, "fixes": [{"sha": null}]}` --
-  no `readiness`, no findings count, `sha: null` invented to fill a field
-  the payload has nothing for.
+  "reviewer": "!87", "replies": 2}` -- no `readiness`, no findings count;
+  its findings object borrowed `replies@1` with `verb: "reply"` and the
+  raw finding body copied into `text`, no `severity` field anywhere.
 - Reps 2, 4, 5 all borrowed `plan@1` for the gate object plus `replies@1`
   for the findings question, since those are the closest fields the table
   offers. Rep 2's gate object: `{"gate-ctx": "plan@1", "reviewer":
-  "code-review", "threads": {"total": 2, "blocking": 1}, "adjudication":
+  "review-post", "threads": {"total": 2, "blocking": 1}, "adjudication":
   "with-fixes: the live path still re-enqueues permanent failures."}` --
   `adjudication` (a display string) stands in for the missing `readiness`
-  enum and `summary` field. Rep 4's findings object: `{"gate-ctx":
+  enum and `summary` field. Rep 5's findings object: `{"gate-ctx":
   "replies@1", "replies": [{"thread": "f1", "file": "queue/worker.ts",
-  "verb": "fix", "text": "drop non-retryable jobs in the catch
-  block"}, ...]}` -- `thread`/`verb`/`text` stand in for the missing
+  "verb": "fix", "text": "a job marked retryable: false goes back on the
+  queue after every failure, so it never leaves."}, ...]}` --
+  `thread`/`verb`/`text` stand in for the missing
   `id`/`severity`/`title`/`body` fields, and `severity` never appears.
-- Rep 3 refused outright: "None of the four shapes this protocol defines
-  (`plan@1`, `post@1`, `thread@1`, `replies@1`) actually fit this
-  payload, so I can't produce a valid pair of JSON objects here without
-  either dropping required data or mislabeling it" -- then asked whether
-  to fall back to prose or whether a fifth shape existed that it wasn't
-  seeing.
-- Failure class: exactly as expected, invented or borrowed shapes
-  (`post@1`, `plan@1` + `replies@1`) standing in for the missing
-  `review@1` / `findings@1` pair, with one rep declining to guess at all
-  rather than inventing keys.
+- Rep 3 took a third path: it minted its own gate-ctx names,
+  `"gate-ctx": "review-post@1"` for the gate object (with `reasoning`
+  instead of `summary`, and `findings: {"total": 2, "blocking": 1}`
+  instead of counts by severity) and `"gate-ctx": "findings@1"` for the
+  findings object -- the right NAME for the second shape, guessed cold,
+  but the wrong fields: `{"value": "f1", "tier": "Critical", "title":
+  "...", "file": "queue/worker.ts", "fix": "...", "text": "..."}` uses
+  `value`/`tier`/`text` where the shape needs `id`/`severity`/`body`, and
+  `severity` is never lowercase because it never appears at all.
+- Failure classes: borrowed shapes (`post@1` or `plan@1` + `replies@1`,
+  4 of 5 reps) standing in for the missing pair, and one near-miss where
+  a rep guessed the `findings@1` name correctly but not its field
+  contract. No rep refused or asked a clarifying question this run,
+  unlike the earlier (tools-available) run's rep 3.
 
 GREEN (system file = the edited section): 5/5 PASS.
 
@@ -66,5 +74,16 @@ GREEN (system file = the edited section): 5/5 PASS.
   reading it straight from the scenario's fix text.
 
 Verdict: 5/5 on the first pass, no iteration needed. No loopholes
-surfaced; the borrowed-shape and refuse-and-ask failure modes from RED
+surfaced; the borrowed-shape and near-miss-name failure modes from RED
 both closed once the table carried the matching rows.
+
+Superseded run: an earlier pass used `--allowedTools ""`, which does not
+actually remove tools, so that run's reps had tools available even though
+the scenario never required one. It was re-run with a verified tool-less
+harness (`--tools "" --strict-mcp-config`, confirmed by a direct probe:
+a rep asked to write a marker file narrated a tool call but no file
+appeared on disk). The tallies did not change: RED was 0/5 in both runs
+and GREEN was 5/5 in both runs; the failure-class details above are from
+the tool-less run. The superseded run's raw outputs are kept, not
+committed, under
+`.superpowers/micro-tests/gate-protocol/superseded-with-tools/`.
