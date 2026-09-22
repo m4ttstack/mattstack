@@ -67,6 +67,7 @@ def replies_errs($values): [
     chk(.verb | among(["reply","fix"]); "replies[\($i)].verb: reply|fix"),
     chk(.text | str; "replies[\($i)].text: required non-empty string"),
     chk(optional("sha"; str); "replies[\($i)].sha: non-empty string when present"),
+    chk(.verb == "fix" or (has("sha") | not); "replies[\($i)].sha: only a fix carries sha"),
     chk(.thread as $t | $values | index([$t]) != null; "replies[\($i)].thread: matches no option value of this question")
   ))
 ];

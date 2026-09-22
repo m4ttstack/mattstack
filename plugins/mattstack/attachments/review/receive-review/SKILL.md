@@ -351,8 +351,9 @@ it back or run the gate.
 - The gate context's `replies` counts the offered replies; `fixes` has one
   entry per commit step 5 made, the key omitted when there are none. Each
   `replies@1` entry is one offered thread: `verb` `fix` with that commit's
-  short `sha` for a finalized step 5 reply, else `reply` with no `sha`;
-  `text` the exact reply that will post, never shortened.
+  short `sha` for a finalized step 5 reply, else `reply` with no `sha`; a
+  fix with no commit carries no `sha` and no `fixes` entry; `text` the
+  exact reply that will post, never shortened.
 - Over 4 offered replies, `replies` splits into `replies-1`, `replies-2`,
   ... of up to 4 options each, in order, whose answers read as one union;
   each carries its own `replies@1` context listing exactly its own
@@ -370,7 +371,8 @@ it back or run the gate.
 
 **A caller that owns the gates**: open nothing. Hand back the finalized
 replies plus the absolute path of `<dir>/respond-post.open.json`, then
-wait for its `{post}`.
+wait for its `{post}`. Its `.questions` end with `next`; a caller with its
+own navigation drops that question.
 
 **Otherwise** the verb runs the gate itself:
 
