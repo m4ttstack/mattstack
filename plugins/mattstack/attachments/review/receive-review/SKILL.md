@@ -183,31 +183,88 @@ half alone (a board wrapper hands it after its own first gate, `{post}`
 following later before posting) or a combined `{plan, post}` object from a
 caller that collected both up front -- use `plan` and ask nothing here: its
 per-question answers, keyed by question id with verbatim option strings,
-are the decision. Use the decider the
-caller names alongside it. Otherwise (a direct terminal run) the verb runs
-the gate itself:
+are the decision. Use the decider the caller names alongside it. Every
+other path builds the open first.
+
+### Build the open
+
+The gate carries structured context (gate-protocol's Structured context),
+built from step 3's buckets. Make one scratch directory (`mktemp -d`) and
+write its path out literally from then on: each tool call is a fresh
+shell. Write `<dir>/respond-plan.source.json`:
+
+```json
+{"context": {"gate-ctx": "plan@1", "reviewer": "<primary reviewer>",
+             "threads": {"total": 2, "blocking": 1},
+             "adjudication": "<tally> · fresh-context adjudicated"},
+ "questions": [
+   {"id": "thread-1", "label": "<file>:<line>", "multi": false,
+    "context": {"gate-ctx": "thread@1", "author": "<reviewer>", "severity": "<severity>",
+                "claim": {"summary": "<the ask>", "points": ["<one specific>"]},
+                "verdict": {"call": "<verdict word>", "note": "<its reason>"},
+                "reply": {"kind": "<kind>", "text": "<drafted reply>"}},
+    "options": [{"value": "reply:<threadId>", "label": "reply", "description": "reply only; no code change"},
+                {"value": "fix:<threadId>", "label": "fix", "recommended": true, "description": "<the planned change and where>"},
+                {"value": "skip:<threadId>", "label": "skip", "description": "no reply, no code change"}]},
+   {"id": "thread-2", "...": "the next thread in the same shape, its own id verbatim"},
+   {"id": "code-changes", "label": "Approve the proposed code changes?", "multi": false,
+    "options": ["approve", "revise", "skip"]}
+ ]}
+```
+
+ONE single-select question per unresolved thread, in verdict-table order,
+plus `code-changes`. A thread question's id is `thread-<n>` by 1-based
+position, its label the thread's `file:line`, its options that thread's
+verb triple with the thread id VERBATIM in the value and the bare verb in
+the label. The triple's member matching step 3's recommended action
+carries `"recommended": true` -- this is how the recommendation reaches
+the gate; rt-client normalization renders it as the label's
+"(Recommended)" suffix and capitalizes the bare verb, so labels stay
+lowercase here.
+
+| Field | Filled from |
+|---|---|
+| `reviewer` | one name: the author with the most unresolved threads, ties to the first to appear; any other reviewer shows on their own threads' `author` |
+| `threads` | `total`: the thread-question count; `blocking`: how many threads carry severity `blocking` |
+| `adjudication` | `all valid` when every verdict is `valid`, else `<count> <verdict>` per verdict word in first-appearance order, comma-joined; then ` · fresh-context adjudicated` |
+| `round` | only when the caller supplies it; otherwise omit the key |
+| `author` | the author of the thread's opening note |
+| `severity` | the reviewer's own words, never the verdict: an explicit softener (nit, optional, non-blocking, minor, suggestion) is `non-blocking`; a question that asks for no change is `question`; a thread with no ask (a summary, an FYI) is `none`; any other change request is `blocking` |
+| `claim` | `summary`: the reviewer's ask in one or two sentences, their wording where it fits; `points`: their supporting specifics, one per string, the key omitted when there are none |
+| `verdict` | `call`: the adjudicator's verdict word verbatim; `note`: its one-line reason (the warranted change, the pushback reason, or the question to ask) |
+| `reply` | by step 3's recommended action: `reply` is `verbatim` with the drafted reply as `text`; `fix` is `direction` with the drafted reply (it finalizes in step 5); `skip` is `{"kind": "none"}` |
+| `fix` option `description` | the planned change and where, from the adjudicator's `valid` entry; a thread with no such entry gets `implement the reviewer's ask as written` |
+
+Fit it:
+
+```bash
+sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" fit < <dir>/respond-plan.source.json > <dir>/respond-plan.open.json
+```
+
+Exit 1 prints one line per contract problem, naming the question and the
+field: fix the source and rerun. The output file IS the open: its
+`.context` and `.questions` go to the gate verbatim, fitted to the shared
+budget (points and notes trimmed, or every context prose when nothing
+else fits; `"fits": false` means even the prose is over, and the daemon
+will drop contexts loudly). Never hand-edit it, and never shorten a reply
+to make an open fit.
+
+### Hand back or run the gate
+
+**A caller that owns the gates** (it delegated the adjudication to this
+verb and presents the gates itself; a board wrapper does, and says so when
+it delegates): open nothing. Hand back the verdict table plus the absolute
+path of `<dir>/respond-plan.open.json`; the caller opens its gate from
+that file's `.questions` and `.context`, then hands `{plan}` back.
+
+**Otherwise** (a direct terminal run) the verb runs the gate itself:
 
 - `rt runs field set gate respond-plan --stage <stage>`.
-- Run gate-protocol's Runs integration with kind `respond-plan` and these
-  questions: ONE single-select per unresolved thread, in verdict-table
-  order, plus one code-changes question. A thread question's id is
-  `thread-<n>` by 1-based position, its label the thread's `file:line`,
-  its options that thread's verb triple with the thread id VERBATIM in the
-  value and the bare verb in the label. The triple's member matching step
-  3's recommended action for that thread carries `"recommended": true` --
-  this is how the recommendation reaches the gate, replacing prose; rt-client
-  normalization renders it as the label's "(Recommended)" suffix and
-  capitalizes the bare verb, so labels stay lowercase here:
+- Run gate-protocol's Runs integration with kind `respond-plan`, the open
+  read from the file:
 
-  ```json
-  [
-    {"id": "thread-1", "label": "<file>:<line>", "multi": false,
-     "options": [{"value": "reply:<threadId>", "label": "reply"}, {"value": "fix:<threadId>", "label": "fix", "recommended": true}, {"value": "skip:<threadId>", "label": "skip"}]},
-    {"id": "thread-2", "label": "<file>:<line>", "multi": false,
-     "options": ["... the next thread's triple, its own id verbatim; one such question per thread; recommended: true on whichever of reply/fix/skip step 3 picked"]},
-    {"id": "code-changes", "label": "Approve the proposed code changes?", "multi": false,
-     "options": ["approve", "revise", "skip"]}
-  ]
+  ```bash
+  rt gate ask --questions "$(jq -c .questions <dir>/respond-plan.open.json)" --kind respond-plan --context "$(jq -r .context <dir>/respond-plan.open.json)"
   ```
 
   One question per thread keeps every question at three options, under
@@ -218,9 +275,15 @@ the gate itself:
   reading each `answers` key other than `code-changes`, unwrapping a
   `{value, note}` object to its `value`, and splitting at the first `:`;
   `thread-<n>` is a container, nothing keys on it.
-- In-pane form (gate-protocol's presentation: "form" branch): the form tool takes at
-  most four questions per call, so ask the thread questions in order, up
-  to four per call, until every thread is asked. Then one last call:
+- In-pane form (gate-protocol's presentation: "form" branch): the form
+  never shows the JSON. `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh"
+  prose < <dir>/respond-plan.source.json` prints the same open with every
+  context as prose: show its `.context` as one line in the pane before
+  the first form call, and make each thread question's form text its
+  `label`, a newline, its prose `context`, then `Reply, fix, or skip?`,
+  under the header `Thread <n>`. The form tool takes at most four
+  questions per call, so ask the thread questions in order, up to four
+  per call, until every thread is asked. Then one last call:
   `code-changes`, only when some thread answered `fix:` (otherwise submit
   its sentinel `skip` unasked, the same hide rule the board and console
   cards apply), plus a pane-only `next` question of **Continue** /
