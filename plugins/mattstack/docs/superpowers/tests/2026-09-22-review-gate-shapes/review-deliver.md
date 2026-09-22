@@ -122,3 +122,100 @@ structural gap RED exposed: every rep across both scenarios now routes
 through `review-source.sh` and `gate-ctx.sh fit` rather than hand-building
 a gate, and the direct/caller branches now diverge exactly on whether a
 gate opens, matching the pass criteria for each.
+
+Superseded run: an earlier pass fed the reps a literal "file not found"
+error string instead of the compiled verb, from a path-construction bug
+in the harness script, not the engine text. It was caught before scoring
+(the outputs argued generic posting-is-a-state-changing-action reasoning
+with no mention of the review verb's actual mechanics) and discarded; the
+tallies above are from the corrected re-run, and the superseded run's
+outputs were not kept anywhere.
+
+## `"fits": false` on the direct path (fix wave item 1)
+
+Scope: `attachments/review/review/SKILL.md`, "Build the open" paragraph
+(one sentence added after "...fitted to the shared budget.", mirroring
+`receive-review/SKILL.md`'s `"fits": false` sentence in the review
+engine's own voice: the direct path still opens the file verbatim and
+the daemon drops contexts loudly, while a caller that owns the gates has
+no daemon to do that for it, so it drops whole question contexts largest
+first itself and says so in the hand-back).
+
+One new scenario, committed beside this record as
+`scenarios/review-deliver-fits.md`: the same setup and report json as
+`scenarios/review-deliver-direct.md`, except the fitted open file's
+`fits` field came back `false`; it asks what the agent does next and
+what it tells the human.
+
+Method: same as above (single-shot, tool-less reps, `claude --model
+sonnet --tools "" --strict-mcp-config --append-system-prompt
+<system-file> -p <scenario-file>`, 5 reps run in parallel per batch).
+System file: the neutral compiled `review` verb, read-only, no team
+fills; the RED capture predates this sentence, the GREEN capture
+postdates it.
+
+### Pass criteria
+
+All must hold: opens the gate with the fitted file's `.context` and
+`.questions` verbatim via `rt gate ask ... --kind review-post` (no
+hand-edit, no self-authored trim, no re-run of `gate-ctx.sh prose` as a
+substitute); states or otherwise makes clear that `fits: false` means
+even the prose is over the shared budget and that the daemon is what
+drops contexts, loudly, on this direct path.
+
+### RED (system file = the sentence before this edit)
+
+0/5 PASS.
+
+- Two reps stopped short of opening the gate at all, treating
+  `fits: false` as an undocumented, unrecoverable state and asking the
+  human how to proceed instead. Excerpt: "the rule is explicit: never
+  hand-edit the open, never shorten a body myself to make it fit. So I
+  don't improvise a truncation or re-run the scripts with altered
+  input... I stopped short of opening the gate rather than guess."
+- Three reps invented a self-authored recovery not licensed by the text:
+  re-running `gate-ctx.sh prose` on the source file themselves and
+  opening that instead of the fitted structured file, reasoning from the
+  gate-protocol size rule's "prose contexts for the whole gate" language
+  (which describes `gate-ctx.sh`'s own internal fallback, not something
+  the agent does by hand). Excerpt: "the documented fallback is 'prose
+  contexts for the whole gate, never a half-structured one.' So the next
+  step is: `sh gate-ctx.sh prose < .../review-post.source.json` ... and
+  open the gate with that flattened prose context instead."
+- Failure class: both are the same gap, the text before the edit never
+  says what `fits: false` means or what to do about it, so reps either
+  stall or fabricate a recovery the scripts already perform internally.
+
+### GREEN (system file = the edited sentence)
+
+5/5 PASS. First pass, no iteration needed.
+
+All five reps open the gate with the fitted file passed through as-is
+(`rt gate ask --questions "$(jq -c .questions .../review-post.open.json)"
+--kind review-post --context "$(jq -r .context
+.../review-post.open.json)"`), name that the daemon does the dropping on
+this direct path, and several volunteer, unprompted, that a caller
+owning the gates would have to do that trimming itself since no daemon
+sits in its path. Excerpt: "`fits: false` on the direct path does not
+mean I hand-edit or drop findings myself. That manual trimming is only
+the caller-owned-gates path's job. On the direct path I still open the
+file verbatim and let the daemon do the dropping, loudly, when I
+actually submit the gate."
+
+### Regression check
+
+Re-ran `scenarios/review-deliver-direct.md`, 5 reps, against the edited
+verb: 5/5 PASS against the original direct pass criteria (extras file
+with `target` `!87`, `outcome` first option `comment (recommended)`,
+second `approve`, no `request_changes`; a `next` question; both scripts
+run in order; opens with `rt gate ask ... --kind review-post`; no
+hand-built finding options; no bare AskUserQuestion before the gate
+opens). The one-sentence addition did not change any direct-path rep's
+behavior on the original scenario.
+
+### Verdict
+
+5/5 GREEN on the new scenario, first pass, no iteration needed; 5/5 on
+the unchanged direct scenario, confirming no regression. Raw outputs:
+`.superpowers/micro-tests/review-deliver-fits/{red,green,regression-direct}/rep-{1..5}.txt`
+(not committed).
