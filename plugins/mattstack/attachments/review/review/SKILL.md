@@ -116,51 +116,108 @@ board wrapper, or any @2 caller, handing `{findings, outcome}` down through
 the fill -- findings naming the finding ids from the report json, outcome
 naming the disposition; an unmigrated caller hands the legacy `{tiers,
 outcome}` instead, tiers naming severity levels), use it and ask nothing.
-Otherwise (a direct terminal run) ask ONE gate with the runtime's
-structured-question tool, these questions, each its own question (never
-fold one list into another -- a question over 4 options sends the whole
-gate to the wait queue):
+Use the decider the caller names alongside it. Every other path builds the
+open first.
 
-- `tiers`: a multi-select over the levels present, every level with
-  findings pre-selected -- a terminal run has no per-finding UI, so this
-  question stays tier-shaped and its answer becomes ids below
-- `disposition`: single-select, Comment pre-selected; the offered set is
-  forge-conditional -- Request changes only where the target forge's CLI
-  supports it, `gh` does, `glab` does not; verify before offering, don't
-  assume from memory
-- `next`: **Proceed** (recommended) / **Iterate here** (their text changes
-  the draft; re-present it and ask again) / **Hold**
+### Build the open
 
-The old two-gate protocol -- `post-severity` then `post-disposition` as
-two sequential structured questions -- retires: nothing here presents two
-gates in a row.
+The posting gate carries structured context (gate-protocol's Structured
+context), built from the report json. Make one scratch directory
+(`mktemp -d`) and write its path out literally from then on: each tool
+call is a fresh shell. Write `<dir>/review-post.extras.json`:
 
-When this step asks its own question, bracket it the way every gate does:
-`rt runs field set gate post --stage <stage>` before the question. Skip
-that write when the caller already handed the decision -- nothing is
-pending in that case.
+```json
+{"target": "!87", "reviewer": "<the reviewer the caller names>", "round": 2,
+ "questions": [
+   {"id": "outcome", "label": "Verdict on !87: <readiness clause>", "multi": false,
+    "options": [{"value": "comment", "label": "comment (recommended)", "description": "<what picking it does for this review>"},
+                {"value": "approve", "label": "approve", "description": "<what picking it does for this review>"}]},
+   {"id": "next", "label": "Next", "multi": false,
+    "options": [{"value": "proceed", "label": "proceed (recommended)"}, "iterate", "hold"]}
+ ]}
+```
+
+| Field | Filled from |
+|---|---|
+| `target` | the MR/PR reference as its forge writes it: `!<iid>` or `#<number>` |
+| `reviewer`, `round` | only when the caller supplies them; otherwise omit the key |
+| `outcome` label | `Verdict on <target>: ` plus a clause composed from the json's `summary`, never either field verbatim: readiness `yes` reads "ready to merge"; `with-fixes` or `no` reads "not ready" or "ready once <the gist of the reasoning>" |
+| `outcome` options | `comment` and `approve`, each described by what picking it does for this review. `request_changes` joins them only when this verb runs the gate itself and the forge CLI supports it (`gh` does, `glab` does not; verify, don't assume). The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment` |
+| `next` | only when this verb runs the gate itself; a caller that owns the gates navigates on its own, so omit the question |
+
+Build it, then fit it:
+
+```bash
+sh "${CLAUDE_SKILL_DIR}/scripts/review-source.sh" <report json> <dir>/review-post.extras.json > <dir>/review-post.source.json
+sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" fit < <dir>/review-post.source.json > <dir>/review-post.open.json
+```
+
+`review-source.sh` turns every finding into a `findings-<n>` option (tier
+order, four per question) whose label and description are the recipe
+older board renderers parse, and gives each question its findings in
+full as context. Exit 1 from either script names the field to fix: in the
+extras, or in the report json where it drifted from the draft. The output
+file IS the open: its `.context` and `.questions` go to the gate
+verbatim, fitted to the shared budget. A report json from before version
+2 carries no bodies, so fit opens it as prose on its own; that is
+correct, not an error. Never hand-edit the open, and never shorten a body
+to make it fit.
+
+No report json at all (a terminal run with no report path) leaves nothing
+to build from: the gate is the legacy set below.
+
+### Hand back or run the gate
+
+**A caller that owns the gates** (a board wrapper; it says so when it
+delegates): open nothing. Hand back the severity line and the absolute
+paths of `<dir>/review-post.open.json` (its source sits beside it as
+`review-post.source.json`) and of the `gate-ctx.sh` that fitted it, then
+wait for its `{findings, outcome}`.
+
+**Otherwise** (a direct terminal run) this verb runs the gate:
+
+- `rt runs field set gate post --stage <stage>`, where `<stage>` is
+  `review` for an own run and `run.current_stage` when inherited.
+- Run gate-protocol's Runs integration with kind `review-post`, the
+  registry kind every review surface routes on (the run field and the
+  decision record keep scope `post`), the open read from the file:
+
+  ```bash
+  rt gate ask --questions "$(jq -c .questions <dir>/review-post.open.json)" --kind review-post --context "$(jq -r .context <dir>/review-post.open.json)"
+  ```
+
+- In-pane form (gate-protocol's presentation: "form" branch): the form
+  never shows the JSON. Run
+  `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose < <dir>/review-post.source.json`,
+  show its `.context` in the pane before the first form call, and make
+  each `findings-<n>` question's form text its label, a newline, then its
+  prose `context`; options keep the gate's labels and descriptions. Ask
+  in gate order, up to four questions per call, then submit exactly ONE
+  `rt gate answer` carrying every question.
+- No report json: the same bracket and `rt gate ask --kind review-post`,
+  with `--context` the severity line verbatim and three questions:
+  `tiers` (multi-select over the levels present, each pre-selected), then
+  `outcome` and `next` exactly as in the extras above.
+- `next`: **Proceed** executes posting; **Iterate here** takes their text
+  as changes to the draft, re-presents it, and opens a NEW gate; **Hold**
+  stops with nothing posted.
 
 Execute posting per review-posting (below), handing it the decided
-selection as `{findings: <ids>, disposition: <outcome>}`, where `<outcome>`
-is the answered label carried in posting's vocabulary -- Comment, Approve
-and Request changes travel as `comment`, `approve` and `request_changes` in
-every payload, the hand-off and the record alike. A terminal run's
-`tiers` answer becomes those ids first: take every finding whose `tier` the
-answer named from the report json, in report order. A caller that hands a
-tier-shaped selection (an unmigrated wrapper), or a `tiers` answer with no
-report json to map through, passes to posting as legacy `{levels: <tiers>,
-disposition: <outcome>}`, which posting accepts unchanged; the record below
-then carries that same legacy selection.
+selection as `{findings: <ids>, disposition: <outcome>}`: `<ids>` is the
+union of every `findings-<n>` answer (unwrap a `{value, note}` object to
+its value), empty when the gate carried none, and `<outcome>` the answered
+value, already in posting's vocabulary (`comment`, `approve`,
+`request_changes`). A caller that hands a tier-shaped selection (an
+unmigrated wrapper), or a `tiers` answer, passes to posting as legacy
+`{levels: <tiers>, disposition: <outcome>}`, which posting accepts
+unchanged; the record below then carries that same legacy selection.
 
 Then, when an rt-runs run is active, record the decision at execution time,
 after posting: `rt runs decision record --contract gate@1 --scope post
 --selection '{"findings":["f1","f3"],"disposition":"comment"}'
 --decided-by <decider>`, where `<decider>` names the surface that
-actually answered -- `board`, `console`, `pane`, or `shepherd`. Use the
-decider the caller names alongside its handed selection; when this step
-asked its own question, `<decider>` is `pane`. This replaces the old
-`post-severity` + `post-disposition` record pair with one record at
-scope `post`.
+actually answered -- `board`, `console`, `pane`, or `shepherd`: the
+caller's named decider on intake, else the gate answer's `by`.
 
 Post using the forge's thread mechanics: on GitHub use `gh pr review` / `gh
 pr comment`; on GitLab follow the thread mechanics below.
@@ -171,6 +228,10 @@ posts.
 Close, only when `## Run` started this run: `rt runs stage-done --stage
 review`, `rt runs run-status --status done`, `unset RT_RUN_DB`. The final
 message still ends with the target's link (the close HARD-GATE below).
+
+## Gate protocol
+
+{{include:gate-protocol}}
 
 ## Wrap-up form contract
 
