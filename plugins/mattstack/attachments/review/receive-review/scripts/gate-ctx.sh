@@ -33,6 +33,7 @@ def str: type == "string" and length > 0;
 def int: type == "number" and . == floor and . >= 0;
 def optional($k; f): (has($k) | not) or (.[$k] | f);
 def among($xs): . as $v | $xs | index([$v]) != null;
+def entries($k): if (.[$k] | type) == "array" then .[$k] else [] end;
 
 def plan_errs: [
   chk(.reviewer | str; "reviewer: required non-empty string"),
@@ -63,7 +64,7 @@ def thread_errs: [
 ];
 def replies_errs($values): [
   chk(.replies | type == "array" and length > 0; "replies: required non-empty array"),
-  ((.replies // []) | to_entries[] | .key as $i | .value | (
+  (entries("replies") | to_entries[] | .key as $i | .value | (
     chk(.thread | str; "replies[\($i)].thread: required non-empty string"),
     chk(.file | str; "replies[\($i)].file: required non-empty string"),
     chk(.verb | among(["reply","fix"]); "replies[\($i)].verb: reply|fix"),
@@ -79,11 +80,10 @@ def review_errs: [
   chk(.findings | type == "object"; "findings: required object"),
   (("critical","important","minor") as $s | chk(.findings | optional($s; int); "findings.\($s): integer when present")),
   chk(optional("reviewer"; str); "reviewer: non-empty string when present"),
-  chk(optional("round"; int); "round: integer when present"),
+  chk(optional("round"; type == "number" and . == floor and . >= 1); "round: integer of at least 1 when present"),
   chk(optional("re_review"; type == "boolean"); "re_review: boolean when present"),
   chk(optional("prior"; type == "object" and (.addressed | int) and (.still_open | int)); "prior: {addressed, still_open} integers when present")
 ];
-def entries($k): if (.[$k] | type) == "array" then .[$k] else [] end;
 def findings_errs($values): [
   chk(.findings | type == "array" and length > 0; "findings: required non-empty array"),
   (entries("findings") | to_entries[] | .key as $i | .value | (
@@ -188,7 +188,7 @@ def trim_entries($f; $limit):
     | .trimmed += ["\(.questions[$c.i].id):\(.questions[$c.i].context.findings[$c.j].id):\($f)"]
     | .questions[$c.i].context.findings[$c.j] |= del(.[$f]));
 def structurable: (.context["gate-ctx"]? != "review@1")
-  or all(.questions[] | select(.id | tostring | startswith("findings-")); has("context"));
+  or all(.questions[] | select(.id | tostring | startswith("findings-")); .context["gate-ctx"]? == "findings@1");
 
 def render($mode; $flatten):
   {mode: $mode, trimmed: (.trimmed // [])}
