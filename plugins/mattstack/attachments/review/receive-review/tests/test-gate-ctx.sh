@@ -32,6 +32,7 @@ check "options untouched" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.questions[].options] == [$s[0].questions[].options]')"
 check "bytes is the shared-budget total" true \
   "$(printf '%s' "$OUT" | jq '.bytes == ((.context | utf8bytelength) + ([.questions[] | .context // empty | utf8bytelength] | add))')"
+check "structured open fits" true "$(printf '%s' "$OUT" | jq .fits)"
 
 run "$POST" fit
 check "post fit is structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
@@ -63,6 +64,15 @@ check "prose fallback flattens the gate context" "Responding to renee's review" 
   "$(printf '%s' "$OUT" | jq -r '.context | split(" · ")[0]')"
 check "prose fallback keeps every reply text whole" true \
   "$(printf '%s' "$OUT" | jq --slurpfile s "$PLAN" '[.questions[0,1].context] as $p | [$s[0].questions[0,1].context.reply.text] | to_entries | all(.value as $t | $p[.key] | contains($t))')"
+check "prose fallback flattens the trimmed source when the full prose is over" '["thread-1:points","thread-2:note","thread-1:note"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
+check "prose fallback fits" true "$(printf '%s' "$OUT" | jq '.fits and .bytes < 700')"
+
+M=$(mutate 'del(.questions[0].context.claim.points)' "$PLAN"); run "$M" fit --limit 700; rm -f "$M"
+check "untrimmed prose wins when it fits" '[]|true' "$(printf '%s' "$OUT" | jq -r '(.trimmed | tojson) + "|" + (.questions[0].context | test("confirmed against the checkout") | tostring)')"
+
+run "$PLAN" fit --limit 300
+check "an open no prose can fit still exits 0" 0 "$RC"
+check "and reports that it does not fit" false "$(printf '%s' "$OUT" | jq .fits)"
 
 # --- prose flattening: exact text ---
 run "$PLAN" prose
