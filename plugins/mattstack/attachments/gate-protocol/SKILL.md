@@ -37,14 +37,18 @@ not your own. Opening on a subject that already carries an open gate of
 the same kind supersedes the old one, so a relaunch after a crash is safe
 without a separate cleanup step.
 
-`--context` is a VERBATIM QUOTE of the material the decision is about
-(the task summary from the brief, the plan section under decision, the
-failing check output), never a freshly composed summary. A human-owned,
-non-exempt gate REFUSES (exit 1) on empty or whitespace-only context --
-give it real material or omit the flag, never blank it. An oversized
-context (over 8192 bytes) is dropped loudly, not silently: the response
-carries `contextOmitted: true` and one line lands on stderr; do not
-measure or trim it yourself. Emit labeled options (`{"value": "...", "label": "..."}`)
+A prose `--context` is a VERBATIM QUOTE of the material the decision is
+about (the task summary from the brief, the plan section under decision,
+the failing check output), never a freshly composed summary; a structured
+one carries its shape's fields instead (Structured context below). A
+human-owned, non-exempt gate REFUSES (exit 1) on empty or
+whitespace-only context -- give it real material or omit the flag, never
+blank it. The gate context and every question's `context` share one
+8192-byte UTF-8 budget; over it, the daemon drops the question contexts,
+and the gate context too when it alone is over, loudly, not silently:
+the response carries `contextOmitted: true` and one line lands on stderr.
+Do not measure or trim a prose context yourself; a structured open
+pre-flights instead. Emit labeled options (`{"value": "...", "label": "..."}`)
 whenever a site's option values are not already human-readable; the
 registry stores every option in that object form. Labels cap at 200
 UTF-8 bytes and an oversized label REJECTS the open: middle-truncate a
@@ -77,6 +81,43 @@ what the text is background for, never by habit:
 ```json
 {"value": "redirect:implement", "label": "Redirect to implement", "description": "the failing check points at code, not the plan"}
 ```
+
+## Structured context (gate-ctx@1)
+
+A context string may carry a JSON object instead of prose, for surfaces
+that render it as cards. It is structured when it parses as an object
+whose `"gate-ctx"` key names a known shape; anything else takes the prose
+path. The key is both the discriminant and the version:
+
+| Shape | Carried by | Required | Optional |
+|---|---|---|---|
+| `plan@1` | gate `--context` | `reviewer`, `threads.total` | `round`, `threads.blocking` (absent reads 0), `adjudication` (display string) |
+| `post@1` | gate `--context` | `reviewer`, `replies` (count) | `round`, `fixes` (`[{"sha": ...}]`) |
+| `thread@1` | a thread question's `context` | `author`, `severity`, `claim.summary`, `verdict.call`, `reply.kind`, `reply.text` unless `reply.kind` is `none` | `claim.points` (strings), `verdict.note` |
+| `replies@1` | a replies question's `context` | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
+
+- Enums: `severity` is `blocking | non-blocking | question | none`;
+  `verdict.call` is `valid | valid-low-value | pushback |
+  needs-clarification | no-ask`; `reply.kind` is `verbatim` (the exact
+  text that will post), `direction` (intent only), or `none` (nothing
+  posts); `verb` is `reply | fix`, and `sha` rides only a `fix`.
+- A `thread@1` question's `label` is the thread's `file:line`, and its
+  ordinal is its position among the gate's `thread-*` questions. The
+  planned fix is not in the context: it is the `fix` option's
+  `description`. A `replies@1` entry joins its checkbox option by
+  `thread` == option value, so list exactly that question's options.
+- Unknown keys are ignored, and a new field never bumps the version; a
+  changed meaning or type does. A missing or wrong-typed required field
+  fails the WHOLE context, which then shows as raw JSON through the prose
+  path: validate before opening, and omit an optional key rather than
+  writing `null`.
+- Size: pre-flight the whole open against the shared budget above,
+  measuring the serialized strings. Over it, drop `claim.points` from the
+  longest thread first, then `verdict.note` the same way; never trim
+  `reply.text`, the reply is the thing being approved. Still over: prose
+  contexts for the whole gate, never a half-structured one.
+- The in-pane form never shows the JSON: flatten each context to prose
+  for the form's question text.
 
 ## Acting on the response
 
