@@ -100,6 +100,7 @@ M=$(mutate '.findings[1].id = "f1"' "$V2"); reject "duplicate id" "$M" "$X" "fin
 M=$(mutate '.findings[0].disposition = "open"' "$V2"); reject "disposition outside the enum" "$M" "$X" "findings file: findings[0].disposition: new|still-open|addressed-check"; rm -f "$M"
 M=$(mutate '.summary.readiness = "with fixes"' "$V2"); reject "spaced readiness" "$M" "$X" "findings file: summary.readiness: yes|no|with-fixes"; rm -f "$M"
 M=$(mutate 'del(.target)' "$X"); reject "extras without a target" "$V2" "$M" "extras: target: required non-empty string"; rm -f "$M"
+M=$(mutate '.round = 0' "$X"); reject "round below 1" "$V2" "$M" "extras: round: integer of at least 1 when present"; rm -f "$M"
 M=$(mutate '.questions += [{"id": "findings-9", "options": []}]' "$X"); reject "extras naming a findings question" "$V2" "$M" "extras: questions: findings-* ids are built from the findings file"; rm -f "$M"
 
 BAD=$(mktemp); printf 'not json' > "$BAD"; run "$BAD" "$X"; rm -f "$BAD"

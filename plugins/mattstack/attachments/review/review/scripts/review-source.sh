@@ -52,7 +52,7 @@ def file_errs: [
 def extras_errs: [
   chk(.target | str; "target: required non-empty string"),
   chk(optional("reviewer"; str); "reviewer: non-empty string when present"),
-  chk(optional("round"; int); "round: integer when present"),
+  chk(optional("round"; type == "number" and . == floor and . >= 1); "round: integer of at least 1 when present"),
   chk(.questions | type == "array" and length > 0 and all(.[]; type == "object" and (.id | str)); "questions: required non-empty array of questions with an id"),
   chk(all(.questions[]; .id | startswith("findings-") | not); "questions: findings-* ids are built from the findings file")
 ];

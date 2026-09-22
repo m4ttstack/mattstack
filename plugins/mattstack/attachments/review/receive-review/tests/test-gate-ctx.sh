@@ -139,6 +139,9 @@ check "the legacy open carries no question contexts" '[false,false,false]' "$(pr
 M=$(mutate 'del(.questions[1].context)' "$REVIEW"); run "$M" fit; rm -f "$M"
 check "one findings question without a context sends the whole gate prose" prose "$(printf '%s' "$OUT" | jq -r .mode)"
 
+M=$(mutate '.questions[0].context = {"gate-ctx": "thread@1", "author": "renee", "severity": "non-blocking", "claim": {"summary": "clean enough."}, "verdict": {"call": "valid"}, "reply": {"kind": "none"}}' "$REVIEW"); run "$M" fit; rm -f "$M"
+check "a findings-* question carrying a thread@1 context (not findings@1) fits as prose" prose "$(printf '%s' "$OUT" | jq -r .mode)"
+
 run "$REVIEW" prose
 check "prose review block" "Review by renee · round 2 · re-review · prior: 3 addressed, 1 still open
 Ready to merge: with-fixes -- the retry guard holds on the parity path only; the live path still re-enqueues.
@@ -175,12 +178,14 @@ reject "points as a string" '.questions[0].context.claim.points = "one"' "$PLAN"
 reject "reply entry joins no option" '.questions[0].context.replies[0].thread = "TX"' "$POST" "replies: replies[0].thread: matches no option value of this question"
 reject "post without a replies count" 'del(.context.replies)' "$POST" "gate: replies: required integer"
 reject "sha on a reply entry" '.questions[0].context.replies[1].sha = "x"' "$POST" "replies: replies[1].sha: only a fix carries sha"
+reject "replies not an array" '.questions[0].context.replies = "T1"' "$POST" "replies: replies: required non-empty array"
 reject "missing readiness" 'del(.context.readiness)' "$REVIEW" "gate: readiness: yes|no|with-fixes"
 reject "spaced readiness" '.context.readiness = "with fixes"' "$REVIEW" "gate: readiness: yes|no|with-fixes"
 reject "missing summary" 'del(.context.summary)' "$REVIEW" "gate: summary: required non-empty string"
 reject "a count as a string" '.context.findings.minor = "3"' "$REVIEW" "gate: findings.minor: integer when present"
 reject "prior missing still_open" '.context.prior = {"addressed": 3}' "$REVIEW" "gate: prior: {addressed, still_open} integers when present"
 reject "re_review as a string" '.context.re_review = "yes"' "$REVIEW" "gate: re_review: boolean when present"
+reject "round below 1" '.context.round = 0' "$REVIEW" "gate: round: integer of at least 1 when present"
 reject "entry without a body" 'del(.questions[0].context.findings[1].body)' "$REVIEW" "findings-1: findings[1].body: required non-empty string"
 reject "report-cased severity" '.questions[0].context.findings[0].severity = "Critical"' "$REVIEW" "findings-1: findings[0].severity: critical|important|minor"
 reject "disposition outside the enum" '.questions[0].context.findings[2].disposition = "open"' "$REVIEW" "findings-1: findings[2].disposition: new|still-open|addressed-check"
