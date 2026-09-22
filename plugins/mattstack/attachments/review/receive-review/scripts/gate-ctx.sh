@@ -4,8 +4,9 @@
 #   gate-ctx.sh prose < source.json
 # source.json: {"context": <gate-level object>, "questions": [<question,
 # its "context" an object when it has one>]}.
-# stdout: {"mode","bytes","trimmed","context","questions"}, every context
+# stdout: {"mode","bytes","fits","trimmed","context","questions"}, every context
 # already a string, ready for --context and each question's context field.
+# "fits": false means even the smallest prose is over the limit.
 # Exit 0 = ok. Exit 1 = contract violation (one line per problem on
 # stderr). Exit 2 = usage.
 set -u
@@ -138,8 +139,11 @@ def main($mode; $limit):
   else . as $src
     | (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)) as $fitted
     | if ($fitted | ctx_bytes) < $limit then $fitted | render("structured"; false)
-      else $src | render("prose"; true) end
-  end;
+      else ($src | render("prose"; true)) as $full
+        | if $full.bytes < $limit then $full else $fitted | render("prose"; true) end
+      end
+  end
+  | .fits = (.bytes < $limit);
 JQ
 )
 
