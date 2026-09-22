@@ -75,17 +75,6 @@ run "$PLAN" fit --limit 300
 check "an open no prose can fit still exits 0" 0 "$RC"
 check "and reports that it does not fit" false "$(printf '%s' "$OUT" | jq .fits)"
 
-# --- review-post: review@1 gate, findings@1 per findings-* question ---
-run "$REVIEW" fit
-check "review fit is structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
-check "review contexts round-trip" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '((.context | fromjson) == $s[0].context) and ([.questions[] | .context // null | if . then fromjson else . end] == [$s[0].questions[] | .context // null])')"
-check "review options untouched" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '[.questions[].options] == [$s[0].questions[].options]')"
-
-M=$(mutate 'del(.questions[0].context.findings[2].disposition, .questions[0].context.findings[3].fix) | .context = {"gate-ctx": "review@1", "readiness": "yes", "summary": "clean enough.", "findings": {}}' "$REVIEW"); run "$M" fit; rm -f "$M"
-check "optional review and entry fields may all be absent" 0 "$RC"
-
 # --- prose flattening: exact text ---
 run "$PLAN" prose
 check "prose gate line" "Responding to renee's review · round 1 · 2 threads, 1 blocking · 1 valid, 1 pushback · fresh-context adjudicated" \
@@ -112,6 +101,62 @@ queue/README.md:12 REPLY: the wait is a fixed 30s delay (queue/retry.ts:14), so 
 M=$(mutate '.context.fixes = [{"sha": "a1"}, {"sha": "b2"}, {"sha": "c3"}]' "$POST"); run "$M" prose; rm -f "$M"
 check "three or more fixes collapse" "Posting replies to renee's review · round 1 · 2 replies · 3 fixes pushed" \
   "$(printf '%s' "$OUT" | jq -r .context)"
+
+# --- review-post: review@1 gate, findings@1 per findings-* question ---
+run "$REVIEW" fit
+check "review fit is structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
+check "review contexts round-trip" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '((.context | fromjson) == $s[0].context) and ([.questions[] | .context // null | if . then fromjson else . end] == [$s[0].questions[] | .context // null])')"
+check "review options untouched" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '[.questions[].options] == [$s[0].questions[].options]')"
+FULL=$(printf '%s' "$OUT" | jq .bytes)
+
+M=$(mutate 'del(.questions[0].context.findings[2].disposition, .questions[0].context.findings[3].fix) | .context = {"gate-ctx": "review@1", "readiness": "yes", "summary": "clean enough.", "findings": {}}' "$REVIEW"); run "$M" fit; rm -f "$M"
+check "optional review and entry fields may all be absent" 0 "$RC"
+
+# evidence goes largest first, across every findings-* question, then fix the same way
+run "$REVIEW" fit --limit "$FULL"
+check "trim drops the largest evidence first" '["findings-1:f2:evidence"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
+NOEV=$(jq 'del(.questions[].context.findings?[]?.evidence)' "$REVIEW" | sh "$GC" fit | jq .bytes)
+run "$REVIEW" fit --limit $((NOEV + 1))
+check "every evidence goes, largest first, before any fix" '["findings-1:f2:evidence","findings-2:f5:evidence","findings-1:f4:evidence"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
+run "$REVIEW" fit --limit "$NOEV"
+check "then the largest fix" '["findings-1:f2:evidence","findings-2:f5:evidence","findings-1:f4:evidence","findings-1:f3:fix"]' "$(printf '%s' "$OUT" | jq -c .trimmed)"
+B=$(printf '%s' "$OUT" | jq .bytes); run "$REVIEW" fit --limit "$B"
+check "equal fixes go in position order" '"findings-1:f4:fix"' "$(printf '%s' "$OUT" | jq -c '.trimmed[4]')"
+check "trimmed entries keep title, file and body" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '[.questions[0,1].context | fromjson | .findings[] | {title, file, body}] == [$s[0].questions[0,1].context.findings[] | {title, file, body}]')"
+
+MIN=$(jq 'del(.questions[].context.findings?[]?.evidence, .questions[].context.findings?[]?.fix)' "$REVIEW" | sh "$GC" fit | jq .bytes)
+run "$REVIEW" fit --limit "$MIN"
+check "a review that cannot fit structured goes prose for the whole gate" 'prose|true' "$(printf '%s' "$OUT" | jq -r '"\(.mode)|\(.fits)"')"
+check "prose keeps every body whole" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$REVIEW" '(.questions[0].context + .questions[1].context) as $p | [$s[0].questions[0,1].context.findings[].body] | all(. as $b | $p | contains($b))')"
+
+M=$(mutate '(.questions[] | select(.id | startswith("findings-"))) |= del(.context)' "$REVIEW"); run "$M" fit; rm -f "$M"
+check "findings questions without contexts (a legacy findings file) fit as prose" 'prose|[]|true' "$(printf '%s' "$OUT" | jq -r '"\(.mode)|\(.trimmed | tojson)|\(.fits)"')"
+check "the legacy open carries no question contexts" '[false,false,false]' "$(printf '%s' "$OUT" | jq -c '[.questions[] | has("context")]')"
+M=$(mutate 'del(.questions[1].context)' "$REVIEW"); run "$M" fit; rm -f "$M"
+check "one findings question without a context sends the whole gate prose" prose "$(printf '%s' "$OUT" | jq -r .mode)"
+
+run "$REVIEW" prose
+check "prose review block" "Review by renee · round 2 · re-review · prior: 3 addressed, 1 still open
+Ready to merge: with-fixes -- the retry guard holds on the parity path only; the live path still re-enqueues.
+Critical (1), Important (1), Minor (3)" "$(printf '%s' "$OUT" | jq -r .context)"
+check "prose findings block" "[MINOR] test over-specifies the ordering (queue/enqueue.test.ts:132) · new
+asserts exact call order where the contract only promises the set.
+Fix: assert set membership
+
+[MINOR] README still says delay · addressed-check
+the README describes a fixed delay; the queue now backs off exponentially.
+Fix: say backoff in the README and name the base interval and the cap it grows to" \
+  "$(printf '%s' "$OUT" | jq -r '.questions[0].context | split("\n\n")[2:] | join("\n\n")')"
+check "prose evidence keeps its lines" "Evidence: FAIL queue/enqueue.test.ts > live path drops permanent failures
+  expected enqueue calls: 0
+  received enqueue calls: 1" "$(printf '%s' "$OUT" | jq -r '.questions[0].context | split("\n\n")[1] | split("\n")[3:] | join("\n")')"
+M=$(mutate '.context = {"gate-ctx": "review@1", "readiness": "yes", "summary": "no issues found.", "findings": {}} | .questions = [.questions[2]]' "$REVIEW"); run "$M" prose; rm -f "$M"
+check "a clean review's prose" "Ready to merge: yes -- no issues found.
+No findings" "$(printf '%s' "$OUT" | jq -r .context)"
 
 # --- contract violations: exit 1, one stderr line per problem ---
 reject() { # name jq-filter fixture expected-stderr

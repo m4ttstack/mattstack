@@ -6,7 +6,9 @@
 # its "context" an object when it has one>]}.
 # stdout: {"mode","bytes","fits","trimmed","context","questions"}, every context
 # already a string, ready for --context and each question's context field.
-# "fits": false means even the smallest prose is over the limit.
+# "fits": false means even the smallest prose is over the limit. A review@1
+# gate fits structured only when every findings-* question carries a
+# findings@1 context; otherwise (a legacy findings file) it fits as prose.
 # Exit 0 = ok. Exit 1 = contract violation (one line per problem on
 # stderr). Exit 2 = usage.
 set -u
@@ -122,6 +124,7 @@ def errors:
 
 def sev: {"blocking":"BLOCKING","non-blocking":"NON-BLOCKING","question":"QUESTION","none":"NO ASK"}[.];
 def plural($n; $one; $many): if $n == 1 then "\($n) \($one)" else "\($n) \($many)" end;
+def tier: {"critical":"Critical","important":"Important","minor":"Minor"}[.];
 def prose:
   if .["gate-ctx"] == "plan@1" then
     ["Responding to \(.reviewer)'s review",
@@ -134,6 +137,24 @@ def prose:
      plural(.replies; "reply"; "replies"),
      (if (.fixes // []) | length >= 3 then "\(.fixes | length) fixes pushed"
       else (.fixes // [])[] | "fix pushed \(.sha)" end)] | join(" · ")
+  elif .["gate-ctx"] == "review@1" then
+    ([(if has("reviewer") then "Review by \(.reviewer)" else empty end),
+      (if has("round") then "round \(.round)" else empty end),
+      (if .re_review == true then "re-review" else empty end),
+      (if has("prior") then "prior: \(.prior.addressed) addressed, \(.prior.still_open) still open" else empty end)]
+     | if length > 0 then [join(" · ")] else [] end)
+    + ["Ready to merge: \(.readiness) -- \(.summary)",
+       (.findings as $f | [("critical","important","minor") | select(($f[.] // 0) > 0) | "\(tier) (\($f[.]))"]
+        | if length > 0 then join(", ") else "No findings" end)]
+    | join("\n")
+  elif .["gate-ctx"] == "findings@1" then
+    [.findings[]
+     | ["[\(.severity | ascii_upcase)] \(.title)" + (if has("file") then " (\(.file))" else "" end)
+          + (if has("disposition") then " · \(.disposition)" else "" end),
+        .body]
+       + (if has("fix") then ["Fix: \(.fix)"] else [] end)
+       + (if has("evidence") then ["Evidence: \(.evidence)"] else [] end)
+     | join("\n")] | join("\n\n")
   elif .["gate-ctx"] == "thread@1" then
     (["[\(.severity | sev)] \(.author): \(.claim.summary)"]
      + [(.claim.points // [])[] | "- \(.)"]
@@ -157,6 +178,17 @@ def trim($f; $limit):
     (candidates($f) | sort_by(-.b, .i) | first.i) as $i
     | .questions[$i].context |= drop_field($f)
     | .trimmed += ["\(.questions[$i].id):\($f)"]);
+def entry_candidates($f): [.questions | to_entries[] | .key as $i
+  | select(.value.context["gate-ctx"]? == "findings@1")
+  | .value.context.findings | to_entries[] | select(.value | has($f))
+  | {i: $i, j: .key, b: (.value[$f] | tojson | utf8bytelength)}];
+def trim_entries($f; $limit):
+  until(ctx_bytes < $limit or (entry_candidates($f) | length == 0);
+    (entry_candidates($f) | sort_by(-.b, .i, .j) | first) as $c
+    | .trimmed += ["\(.questions[$c.i].id):\(.questions[$c.i].context.findings[$c.j].id):\($f)"]
+    | .questions[$c.i].context.findings[$c.j] |= del(.[$f]));
+def structurable: (.context["gate-ctx"]? != "review@1")
+  or all(.questions[] | select(.id | tostring | startswith("findings-")); has("context"));
 
 def render($mode; $flatten):
   {mode: $mode, trimmed: (.trimmed // [])}
@@ -166,9 +198,10 @@ def render($mode; $flatten):
       + ([.questions[] | select(has("context")) | .context | utf8bytelength] | add // 0));
 
 def main($mode; $limit):
-  if $mode == "prose" then render("prose"; true)
+  if $mode == "prose" or (structurable | not) then render("prose"; true)
   else . as $src
-    | (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)) as $fitted
+    | (.trimmed = [] | trim("points"; $limit) | trim("note"; $limit)
+        | trim_entries("evidence"; $limit) | trim_entries("fix"; $limit)) as $fitted
     | if ($fitted | ctx_bytes) < $limit then $fitted | render("structured"; false)
       else ($src | render("prose"; true)) as $full
         | if $full.bytes < $limit then $full else $fitted | render("prose"; true) end
