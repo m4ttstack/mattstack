@@ -1,0 +1,27 @@
+{"context": {"gate-ctx": "plan@1", "reviewer": "renee", "round": 1,
+             "threads": {"total": 2, "blocking": 1},
+             "adjudication": "1 valid, 1 pushback · fresh-context adjudicated"},
+ "questions": [
+  {"id": "thread-1", "label": "queue/enqueue.ts:88", "multi": false,
+   "context": {"gate-ctx": "thread@1", "author": "renee", "severity": "blocking",
+     "claim": {"summary": "the retry queue re-enqueues a job that already failed permanently.",
+               "points": ["permanent failures carry retryable: false, but enqueue() never reads it",
+                          "violates the queue-contract doc; the other three callers all check it"]},
+     "verdict": {"call": "valid", "note": "confirmed against the checkout"},
+     "reply": {"kind": "direction", "text": "enqueue() now drops non-retryable jobs; added the missing check and a test."}},
+   "options": [
+     {"value": "reply:T1", "label": "reply", "description": "reply only; no code change"},
+     {"value": "fix:T1", "label": "fix", "recommended": true, "description": "enqueue() checks retryable before re-enqueueing (queue/enqueue.ts:88); add a unit test for a permanent failure"},
+     {"value": "skip:T1", "label": "skip", "description": "no reply, no code change"}]},
+  {"id": "thread-2", "label": "queue/README.md:12", "multi": false,
+   "context": {"gate-ctx": "thread@1", "author": "renee", "severity": "non-blocking",
+     "claim": {"summary": "nit: the README should call this a backoff, not a delay."},
+     "verdict": {"call": "pushback", "note": "the doc describes a fixed delay; there is no backoff in the code"},
+     "reply": {"kind": "verbatim", "text": "the wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay; backoff would describe behavior the code does not have."}},
+   "options": [
+     {"value": "reply:T2", "label": "reply", "recommended": true, "description": "reply only; no code change"},
+     {"value": "fix:T2", "label": "fix", "description": "implement the reviewer's ask as written"},
+     {"value": "skip:T2", "label": "skip", "description": "no reply, no code change"}]},
+  {"id": "code-changes", "label": "Approve the proposed code changes?", "multi": false,
+   "options": ["approve", "revise", "skip"]}
+ ]}

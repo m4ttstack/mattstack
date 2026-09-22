@@ -1,0 +1,15 @@
+{"context": {"gate-ctx": "post@1", "reviewer": "renee", "round": 1, "replies": 2,
+             "fixes": [{"sha": "ab12cd3"}]},
+ "questions": [
+  {"id": "replies", "label": "Post which replies?", "multi": true,
+   "context": {"gate-ctx": "replies@1", "replies": [
+     {"thread": "T1", "file": "queue/enqueue.ts:88", "verb": "fix", "sha": "ab12cd3",
+      "text": "Fixed -- queue/enqueue.ts:88 / enqueue() now drops non-retryable jobs; added the check and a test."},
+     {"thread": "T2", "file": "queue/README.md:12", "verb": "reply",
+      "text": "the wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay."}]},
+   "options": [
+     {"value": "T1", "label": "queue/enqueue.ts:88", "description": "Fixed -- queue/enqueue.ts:88 / enqueue() now drops non-retryable jobs; added the check and a test."},
+     {"value": "T2", "label": "queue/README.md:12", "description": "the wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay."}]},
+  {"id": "disposition", "label": "Disposition", "multi": false,
+   "options": ["resolve-addressed", "leave-open"]}
+ ]}
