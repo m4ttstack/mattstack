@@ -276,8 +276,9 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
   `{value, note}` object to its `value`, and splitting at the first `:`;
   `thread-<n>` is a container, nothing keys on it.
 - In-pane form (gate-protocol's presentation: "form" branch): the form
-  never shows the JSON. `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh"
-  prose < <dir>/respond-plan.source.json` prints the same open with every
+  never shows the JSON. Running
+  `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose < <dir>/respond-plan.source.json`
+  prints the same open with every
   context as prose: show its `.context` as one line in the pane before
   the first form call, and make each thread question's form text its
   `label`, a newline, its prose `context`, then `Reply, fix, or skip?`,
@@ -320,33 +321,75 @@ never reach this offer.
 
 <HARD-GATE>
 Decision intake: when the caller's `{plan, post}` object already carries
-`post`, use it and ask nothing here. Otherwise the verb runs the gate
-itself:
+`post`, use it and ask nothing here. Otherwise build the open, then hand
+it back or run the gate.
 
-- `rt runs field set gate respond-post --stage <stage>`.
-- Run gate-protocol's Runs integration with kind `respond-post` and these
-  questions, each its own question (never fold one list into another -- a
-  question over 4 options sends the whole gate to the wait queue):
+**Build the open** in step 4's scratch directory, as
+`<dir>/respond-post.source.json`:
 
-  ```json
-  [
-    {"id": "replies", "label": "Post which replies?", "multi": true, "options": ["<threadId> per drafted reply"]},
-    {"id": "disposition", "label": "Disposition", "multi": false, "options": ["resolve-addressed", "leave-open"]},
-    {"id": "next", "label": "Next", "multi": false, "options": ["proceed", "iterate", "hold"]}
-  ]
-  ```
+```json
+{"context": {"gate-ctx": "post@1", "reviewer": "<as in step 4>", "replies": 2,
+             "fixes": [{"sha": "<short sha>"}]},
+ "questions": [
+   {"id": "replies", "label": "Post which replies?", "multi": true,
+    "context": {"gate-ctx": "replies@1", "replies": [
+      {"thread": "<threadId>", "file": "<file>:<line>", "verb": "fix", "sha": "<short sha>", "text": "<the exact reply that will post>"},
+      {"thread": "<threadId>", "file": "<file>:<line>", "verb": "reply", "text": "<the exact reply that will post>"}]},
+    "options": [{"value": "<threadId>", "label": "<file>:<line>", "description": "<first line of that reply>"}]},
+   {"id": "disposition", "label": "Disposition", "multi": false,
+    "options": ["resolve-addressed", "leave-open"]}
+ ]}
+```
 
-  Offer only threads with a drafted reply (`reply:<threadId>` or a
+- Offer only threads with a drafted reply (`reply:<threadId>` or a
   finalized `fix:<threadId>` from step 5); pre-select every one so nothing
   drops silently, and let the developer deselect -- e.g. post the `valid`
   "Fixed" replies and the `pushback` reasons now, hold a
   `needs-clarification` thread to ask the reviewer synchronously first.
-  Over 4 drafted replies, `replies` splits into `replies-1`, `replies-2`,
-  ... of up to 4 options each, in order, whose answers read as one union.
+- The gate context's `replies` counts the offered replies; `fixes` has one
+  entry per commit step 5 made, the key omitted when there are none. Each
+  `replies@1` entry is one offered thread: `verb` `fix` with that commit's
+  short `sha` for a finalized step 5 reply, else `reply` with no `sha`;
+  `text` the exact reply that will post, never shortened.
+- Over 4 offered replies, `replies` splits into `replies-1`, `replies-2`,
+  ... of up to 4 options each, in order, whose answers read as one union;
+  each carries its own `replies@1` context listing exactly its own
+  options. Never fold one list into another: a question over 4 options
+  sends the whole gate to the wait queue.
+- Fit it:
+
+  ```bash
+  sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" fit < <dir>/respond-post.source.json > <dir>/respond-post.open.json
+  ```
+
+  Exit 1 names the question and field to fix. Nothing here is trimmable
+  (a reply is never shortened), so an open over the budget goes all
+  prose.
+
+**A caller that owns the gates**: open nothing. Hand back the finalized
+replies plus the absolute path of `<dir>/respond-post.open.json`, then
+wait for its `{post}`.
+
+**Otherwise** the verb runs the gate itself:
+
+- `rt runs field set gate respond-post --stage <stage>`.
+- Run gate-protocol's Runs integration with kind `respond-post`, adding
+  the navigation question to the open's questions:
+
+  ```bash
+  rt gate ask --questions "$(jq -c '.questions + [{"id": "next", "label": "Next", "multi": false, "options": ["proceed", "iterate", "hold"]}]' <dir>/respond-post.open.json)" --kind respond-post --context "$(jq -r .context <dir>/respond-post.open.json)"
+  ```
+
   `next` carries the navigation verbs -- **Proceed** (recommended) /
   **Iterate here** / **Hold** -- and never folds into `replies` or
   `disposition`. A paragraph that lists the categories and waits is not
   this gate.
+- In-pane form: run
+  `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose < <dir>/respond-post.source.json`.
+  Show its `.context` as one line before the form; each reply option's
+  description is that thread's line from the prose `replies` context
+  (`<file> FIX · <sha>: <text>`), so the whole reply shows at its
+  checkbox. The JSON never reaches the form.
 </HARD-GATE>
 
 Post thread replies **only** for the selected `replies`; the rest stay
@@ -392,7 +435,8 @@ so.
 | Criteria bound | Its addendum travels with that dispatch, placeholders filled. |
 | Verdicts in hand | Verdict table + drafted replies, one block (step 3); reply-rules voice, no performative openers. |
 | Caller hands `{plan, post}` | Use it, ask nothing; decided-by is the caller's named decider. |
-| No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (replies + disposition), in order. |
+| No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (replies + disposition), in order; a caller that owns the gates gets each open handed back instead. |
+| Opening either gate | Source file, `gate-ctx.sh fit`, then its open verbatim: handed back to a caller that owns the gates, else `rt gate ask`. |
 | `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
 | `respond-post` answered | Post the selected `replies`; `resolve-addressed` resolves them, `leave-open` doesn't; never approve. |
 
