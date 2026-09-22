@@ -117,6 +117,7 @@ reject "null optional" '.context.round = null' "$PLAN" "gate: round: integer whe
 reject "points as a string" '.questions[0].context.claim.points = "one"' "$PLAN" "thread-1: claim.points: array of strings when present"
 reject "reply entry joins no option" '.questions[0].context.replies[0].thread = "TX"' "$POST" "replies: replies[0].thread: matches no option value of this question"
 reject "post without a replies count" 'del(.context.replies)' "$POST" "gate: replies: required integer"
+reject "sha on a reply entry" '.questions[0].context.replies[1].sha = "x"' "$POST" "replies: replies[1].sha: only a fix carries sha"
 
 BAD=$(mktemp); printf 'not json' > "$BAD"; run "$BAD" fit; rm -f "$BAD"
 check "non-JSON stdin exits 1" 1 "$RC"
