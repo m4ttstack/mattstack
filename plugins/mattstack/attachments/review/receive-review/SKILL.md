@@ -337,7 +337,9 @@ it back or run the gate.
       {"thread": "<threadId>", "file": "<file>:<line>", "verb": "reply", "text": "<the exact reply that will post>"}]},
     "options": [{"value": "<threadId>", "label": "<file>:<line>", "description": "<first line of that reply>"}]},
    {"id": "disposition", "label": "Disposition", "multi": false,
-    "options": ["resolve-addressed", "leave-open"]}
+    "options": ["resolve-addressed", "leave-open"]},
+   {"id": "next", "label": "Next", "multi": false,
+    "options": [{"value": "proceed", "label": "proceed", "recommended": true}, "iterate", "hold"]}
  ]}
 ```
 
@@ -373,11 +375,11 @@ wait for its `{post}`.
 **Otherwise** the verb runs the gate itself:
 
 - `rt runs field set gate respond-post --stage <stage>`.
-- Run gate-protocol's Runs integration with kind `respond-post`, adding
-  the navigation question to the open's questions:
+- Run gate-protocol's Runs integration with kind `respond-post`, the open
+  read from the file:
 
   ```bash
-  rt gate ask --questions "$(jq -c '.questions + [{"id": "next", "label": "Next", "multi": false, "options": ["proceed", "iterate", "hold"]}]' <dir>/respond-post.open.json)" --kind respond-post --context "$(jq -r .context <dir>/respond-post.open.json)"
+  rt gate ask --questions "$(jq -c .questions <dir>/respond-post.open.json)" --kind respond-post --context "$(jq -r .context <dir>/respond-post.open.json)"
   ```
 
   `next` carries the navigation verbs -- **Proceed** (recommended) /
