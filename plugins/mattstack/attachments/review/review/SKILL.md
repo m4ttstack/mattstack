@@ -158,10 +158,14 @@ older board renderers parse, and gives each question its findings in
 full as context. Exit 1 from either script names the field to fix: in the
 extras, or in the report json where it drifted from the draft. The output
 file IS the open: its `.context` and `.questions` go to the gate
-verbatim, fitted to the shared budget. A report json from before version
-2 carries no bodies, so fit opens it as prose on its own; that is
-correct, not an error. Never hand-edit the open, and never shorten a body
-to make it fit.
+verbatim, fitted to the shared budget. `"fits": false` means even the
+prose is over the shared budget; the direct path still opens the file
+verbatim and the daemon drops contexts loudly, while a caller that owns
+the gates gets no daemon to do that for it, so drop whole question
+contexts largest first itself and say so in the hand-back. A report json
+from before version 2 carries no bodies, so fit opens it as prose on its
+own; that is correct, not an error. Never hand-edit the open, and never
+shorten a body to make it fit.
 
 No report json at all (a terminal run with no report path) leaves nothing
 to build from: the gate is the legacy set below.
