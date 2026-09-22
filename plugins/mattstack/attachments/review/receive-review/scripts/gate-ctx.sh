@@ -71,23 +71,53 @@ def replies_errs($values): [
     chk(.thread as $t | $values | index([$t]) != null; "replies[\($i)].thread: matches no option value of this question")
   ))
 ];
+def review_errs: [
+  chk(.readiness | among(["yes","no","with-fixes"]); "readiness: yes|no|with-fixes"),
+  chk(.summary | str; "summary: required non-empty string"),
+  chk(.findings | type == "object"; "findings: required object"),
+  (("critical","important","minor") as $s | chk(.findings | optional($s; int); "findings.\($s): integer when present")),
+  chk(optional("reviewer"; str); "reviewer: non-empty string when present"),
+  chk(optional("round"; int); "round: integer when present"),
+  chk(optional("re_review"; type == "boolean"); "re_review: boolean when present"),
+  chk(optional("prior"; type == "object" and (.addressed | int) and (.still_open | int)); "prior: {addressed, still_open} integers when present")
+];
+def entries($k): if (.[$k] | type) == "array" then .[$k] else [] end;
+def findings_errs($values): [
+  chk(.findings | type == "array" and length > 0; "findings: required non-empty array"),
+  (entries("findings") | to_entries[] | .key as $i | .value | (
+    chk(.id | str; "findings[\($i)].id: required non-empty string"),
+    chk(.severity | among(["critical","important","minor"]); "findings[\($i)].severity: critical|important|minor"),
+    chk(.title | str; "findings[\($i)].title: required non-empty string"),
+    chk(.body | str; "findings[\($i)].body: required non-empty string"),
+    chk(optional("file"; str); "findings[\($i)].file: non-empty string when present"),
+    chk(optional("fix"; str); "findings[\($i)].fix: non-empty string when present"),
+    chk(optional("evidence"; str); "findings[\($i)].evidence: non-empty string when present"),
+    chk(optional("disposition"; among(["new","still-open","addressed-check"])); "findings[\($i)].disposition: new|still-open|addressed-check"),
+    chk(.id as $id | $values | index([$id]) != null; "findings[\($i)].id: matches no option value of this question")
+  )),
+  ([entries("findings")[] | .id?] as $ids
+    | ($values[] | select(. as $v | $ids | index([$v]) == null) | "option \(.): no findings entry carries its value"),
+      ($ids | group_by(.) | map(select(length > 1) | .[0])[] | "findings: id \(.) appears more than once"))
+];
 def shape_errs($where; $allowed; $values):
   if type != "object" then ["\($where): context must be an object"]
   elif (.["gate-ctx"] | among($allowed)) | not then ["\($where): gate-ctx must be one of \($allowed | join(", "))"]
   else (
     if .["gate-ctx"] == "plan@1" then plan_errs
     elif .["gate-ctx"] == "post@1" then post_errs
+    elif .["gate-ctx"] == "review@1" then review_errs
     elif .["gate-ctx"] == "thread@1" then thread_errs
-    else replies_errs($values) end
+    elif .["gate-ctx"] == "replies@1" then replies_errs($values)
+    else findings_errs($values) end
   ) | map("\($where): \(.)") end;
 def option_values: [.options[]? | if type == "object" then .value else . end];
 
 def errors:
   if (.questions | type) != "array" then ["questions: required array"]
   else
-    (if has("context") then .context | shape_errs("gate"; ["plan@1","post@1"]; []) else [] end)
+    (if has("context") then .context | shape_errs("gate"; ["plan@1","post@1","review@1"]; []) else [] end)
     + [.questions[] | select(has("context")) | option_values as $v | .id as $id
-        | .context | shape_errs("\($id)"; ["thread@1","replies@1"]; $v)[]]
+        | .context | shape_errs("\($id)"; ["thread@1","replies@1","findings@1"]; $v)[]]
   end;
 
 def sev: {"blocking":"BLOCKING","non-blocking":"NON-BLOCKING","question":"QUESTION","none":"NO ASK"}[.];
