@@ -95,17 +95,31 @@ path. The key is both the discriminant and the version:
 | `post@1` | gate `--context` | `reviewer`, `replies` (count) | `round`, `fixes` (`[{"sha": ...}]`) |
 | `thread@1` | a thread question's `context` | `author`, `severity`, `claim.summary`, `verdict.call`, `reply.kind`, `reply.text` unless `reply.kind` is `none` | `claim.points` (strings), `verdict.note` |
 | `replies@1` | a replies question's `context` | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
+| `review@1` | a review-post gate's `--context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
+| `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition` per entry |
 
 - Enums: `severity` is `blocking | non-blocking | question | none`;
   `verdict.call` is `valid | valid-low-value | pushback |
   needs-clarification | no-ask`; `reply.kind` is `verbatim` (the exact
   text that will post), `direction` (intent only), or `none` (nothing
   posts); `verb` is `reply | fix`, and `sha` rides only a `fix`.
+  `readiness` is `yes | no | with-fixes`, hyphenated; a `findings@1`
+  entry's `severity` is `critical | important | minor` and its
+  `disposition` (re-review only) is `new | still-open | addressed-check`;
+  a severity with no findings may omit its count, and absent reads 0.
 - A `thread@1` question's `label` is the thread's `file:line`, and its
   ordinal is its position among the gate's `thread-*` questions. The
   planned fix is not in the context: it is the `fix` option's
   `description`. A `replies@1` entry joins its checkbox option by
   `thread` == option value, so list exactly that question's options.
+- A `findings@1` entry joins its option ONE TO ONE: `id` == the option's
+  `value`, every option with exactly one entry and every entry with one
+  option; a mismatch either way sends the whole gate to the generic
+  view. The options keep the degraded recipe older renderers parse:
+  label `[Tier] title`, description `anchor · fix · kind:<word>`. `file`
+  is a real `path:line` anchor, never the label of an unanchored
+  finding. A `review@1` gate is structured only when EVERY `findings-*`
+  question carries a `findings@1` context; otherwise it opens as prose.
 - Unknown keys are ignored, and a new field never bumps the version; a
   changed meaning or type does. A missing or wrong-typed required field
   fails the WHOLE context, which then shows as raw JSON through the prose
@@ -114,7 +128,10 @@ path. The key is both the discriminant and the version:
 - Size: pre-flight the whole open against the shared budget above,
   measuring the serialized strings. Over it, drop `claim.points` from the
   longest thread first, then `verdict.note` the same way; never trim
-  `reply.text`, the reply is the thing being approved. Still over: prose
+  `reply.text`, the reply is the thing being approved.
+  In a `findings@1` open, drop `evidence` from the entry where it is
+  largest first, then `fix` the same way, whole fields only; never
+  `title`, `file`, or `body`. Still over: prose
   contexts for the whole gate, never a half-structured one.
 - The in-pane form never shows the JSON: flatten each context to prose
   for the form's question text.
