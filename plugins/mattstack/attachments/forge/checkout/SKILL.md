@@ -33,8 +33,9 @@ Detect what was given and resolve it to one remote branch:
 
 If resolution is ambiguous or turns up nothing, gate `clarify`: one
 sentence naming the candidates, then, under a run, run gate-protocol's
-Runs integration with kind `clarify` and these questions: one option per
-candidate, their text, and **Hold** (`rt runs field set gate clarify
+Runs integration with kind `clarify` and these questions: `branch`, one
+option per candidate or their text, and `next`: **Proceed** (recommended)
+/ **Hold** (`rt runs field set gate clarify
 --stage <run.current_stage>` before and `rt runs decision record --contract
 gate@1 --scope clarify --selection '{"branch":"<picked>"}' --decided-by
 <the answer's by>` after).
