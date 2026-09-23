@@ -14,7 +14,7 @@ metadata:
 Short, friendly, and plain, like talking to a teammate across a desk. Load
 this before the first draft and write in it from the first word.
 
-<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.18.0 path=attachments/writing-style-floor/SKILL.md lines=6-53 -->
+<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.18.0 path=attachments/writing-style-floor/SKILL.md lines=6-55 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
@@ -58,8 +58,10 @@ The preset sets the voice; these set the floor.
   change should exist at all is the author's and PM's call.
 - **Code out of prose.** Code you suggest the author write, even a one-line
   expression, goes in a fenced block on its own line after the ask. Inline
-  backticks are only for names that already exist: `userId`, `cache.ts:42`.
+  backticks are for names: ones that exist (`userId`, `cache.ts:42`) and a
+  single proposed name or type (`pageCursor`).
 - **Exact locations.** `file.ts:123`, never "around line 120".
+- **One finding per comment**, anchored to the line it is about.
 - **A one-line review summary.** A verdict plus a pointer to the inline
   notes. It never recaps a finding, lists strengths, or reports what you ran.
   A finding with no line to anchor to is its own top-level comment.

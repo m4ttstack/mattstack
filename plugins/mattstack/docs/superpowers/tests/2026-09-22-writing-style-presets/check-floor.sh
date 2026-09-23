@@ -2,6 +2,7 @@
 # check-floor.sh <outputs-dir> -- mechanical floor violations in preset outputs.
 set -u
 DIR=${1:?usage: check-floor.sh <outputs-dir>}
+[ -d "$DIR" ] || { echo "no such dir: $DIR"; exit 2; }
 HITS=0
 report() { echo "$1"; HITS=1; }
 

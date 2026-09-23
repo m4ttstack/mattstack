@@ -5,9 +5,11 @@ this voice. Otherwise use the shape below.
 
 ## Length
 
-About 150 to 250 words. Past 300, cut.
+Up to 250 words, as short as the change allows. Past 300, cut.
 
 ## Shape
+
+The first line is the PR title; it goes in the title field, not the description.
 
 ```markdown
 <ticket key>: <Title in sentence case>
