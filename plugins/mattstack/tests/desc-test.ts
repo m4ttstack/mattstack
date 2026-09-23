@@ -18,7 +18,12 @@ import { join, resolve } from "node:path";
 
 export interface Scenario {
   task: string;
-  expect: string;
+  /** null means the roster must yield no match: the model should answer NONE. */
+  expect: string | null;
+}
+
+export function expectedPick(s: Scenario): string {
+  return s.expect ?? "NONE";
 }
 
 export function parseFrontmatter(
@@ -90,11 +95,17 @@ export function scoreRuns(
   return { correct, total: picks.length, pass: correct === picks.length };
 }
 
-async function pickOnce(roster: string, task: string, model: string): Promise<string> {
-  const prompt =
+export function buildPrompt(roster: string, task: string): string {
+  return (
     `You are choosing which skill to invoke for a task, based only on this ` +
     `roster of skill names + descriptions. Use no tools.\n\n${roster}\n` +
-    `Task: "${task}"\n\nReply with exactly one skill name from the roster and nothing else.`;
+    `Task: "${task}"\n\nReply with exactly one skill name from the roster, or NONE if no ` +
+    `skill in the roster applies, and nothing else.`
+  );
+}
+
+async function pickOnce(roster: string, task: string, model: string): Promise<string> {
+  const prompt = buildPrompt(roster, task);
   const proc = Bun.spawn(["claude", "-p", prompt, "--model", model], {
     stdout: "pipe",
     stderr: "pipe",
@@ -128,14 +139,15 @@ if (import.meta.main) {
     const picks = await Promise.all(
       Array.from({ length: reps }, () => pickOnce(roster, s.task, model)),
     );
-    const score = scoreRuns(picks, s.expect);
+    const expected = expectedPick(s);
+    const score = scoreRuns(picks, expected);
     if (!score.pass) failed++;
     const detail = score.pass
       ? ""
       : `  picks: ${picks.map((p) => p.trim()).join(", ")}`;
     console.log(
       `${score.pass ? "PASS" : "FAIL"} ${score.correct}/${score.total}  ` +
-        `${s.expect}  <- "${s.task}"${detail}`,
+        `${expected}  <- "${s.task}"${detail}`,
     );
   }
   if (failed > 0) {
