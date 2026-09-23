@@ -567,7 +567,7 @@ paths:
 | control: resume-plan-dropped without the line | 0/5 | | Every rep writes both rows `gate-1: reply` and posts both drafts, with no gate 2. Every rep notes it cannot see whether the open dropped contexts and assumes it did not. This is I1's unseen post. |
 | resume-plan-dropped | 5/5 | 5/5 | A guard on the reading side: the old engine already read the self-describing line. GREEN: both `override`, `"overrides":["T1","T2"]` with `--decided-by board`, both offered, the open path handed back, nothing posts. Reps 2 and 4 restyle the redraft (backticks), which an override allows. |
 | resume-snapshot-plain-only | 0/5 | 5/5 | RED: every rep rebuilds T2's reply, posts it from gate 1 with T1, and closes the run; each adds a caveat that the wording "may differ slightly" and posts anyway ("I'm posting it anyway because Renee needs the replies before the release cut"). GREEN: T2 offered alone, T1 held for proceed, nothing posts; every rep answers "just post" by name ("does not cover words you haven't seen"). |
-| control: plain-only first draft | 1/5 | | No rep posted an unseen reply, but only rep 2 took the decided path. Rep 1 held T2 behind a wrap-up form, rep 4 opened an improvised `clarify` gate, and reps 3 and 5 offered T2 at gate 2 but posted T1 at once. Four handlings in five reps: the text did not bind. |
+| control: plain-only first draft (same pressure, no substance sentence) | 1/5 | | No rep posted an unseen reply, but only rep 2 took the decided path. Rep 1 held T2 behind a wrap-up form, rep 4 opened an improvised `clarify` gate, and reps 3 and 5 offered T2 at gate 2 but posted T1 at once. Four handlings in five reps: the text did not bind. |
 | resume-snapshot-plain-reply | 5/5 | 5/5 | A guard: with an override already offered, every RED rep also offered T3 at gate 2 and held T1, but reps 1 and 5 called it a departure from the rule ("my one departure from the usual 'a reply row is never offered' rule"). No GREEN rep does. |
 
 Regressions on the committed engine:
@@ -578,6 +578,26 @@ Regressions on the committed engine:
 | resume-skipped-reply | 5/5 | T3 posts nothing; record T1 only; close. Rep 1 cites the absence of the line as part of why T2 posts. |
 | post-resume | 9/10 | In the first five, rep 1 wrote "So `thread-1` is T1 and `thread-2` is T4" (a positional join) before recording T4 both `false` for the right reason ("no answer value names it"); its forge actions and record are right. Reps 6 to 10 were re-run and all refuse the positional join. A control on fix round 3's engine was 5/5. This round does not touch step 6's recording text. |
 | plan-override-dropped | 5/5 | Both `override`, `"overrides":["T1","T2"]`, both offered, nothing posts, no re-ask. |
+
+### Text round (re-review)
+
+- **Snapshot sentence.** It now reads "A `reply` thread with no `texts`
+  entry has no recoverable gate 1 draft there, so count it as an override
+  (`gate-1: override`): redraft it and offer it at gate 2 beside the other
+  overrides, never posting it from gate 1, however closely the redraft
+  follows the lost one." Every list that names overrides then covers the
+  thread unchanged: step 6's offer rule and its no-offer rule, the
+  `resolve` and `reply@1` rows, the record's rule for an offered thread no
+  answer names, the red flag and the quick reference.
+- **Write the line.** "into step 3's saved report" now reads "into step
+  3's saved report (when there is one)", as Report rows says.
+
+Re-run on that text, 5 reps each:
+
+| Scenario | Result | Notes |
+|---|---|---|
+| resume-snapshot-plain-only | 5/5 | T2 alone at gate 2 (`replies` 1, `verb` `reply`, resolve unrecommended), T1 waits for proceed, nothing posts, no re-ask. Every rep now calls T2 an override ("Without a recoverable gate 1 draft, it counts as `gate-1: override`"). |
+| resume-snapshot-plain-reply | 5/5 | T2 and T3 at gate 2 (`replies` 2), T1 waits, no re-ask. Every rep calls T3 an override ("It counts as an override even though `overrides` omits it"). |
 
 ## Noise outside this change
 
@@ -619,3 +639,5 @@ Regressions on the committed engine:
   already 5/5). A snapshot-only Resume offers a `reply` thread with no
   `texts` entry at gate 2 (pressure case 0/5 -> 5/5). Regressions are 5/5
   except post-resume at 9/10, one reasoning slip unrelated to this edit.
+  A re-review text round names that thread an override outright; both
+  snapshot scenarios re-ran 5/5 on it.
