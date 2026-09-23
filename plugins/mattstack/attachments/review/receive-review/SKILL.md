@@ -180,7 +180,7 @@ Reply rules section below**: follow it. On top of either branch, these hold:
 The verb adjudicates; it never decides what gets fixed or posted. Decision
 intake: when the caller hands this step decided answers -- the `{plan}`
 half alone (a board wrapper hands it after its own first gate, `{post}`
-following later when step 6 offers a fixed thread) or a combined `{plan, post}` object from a
+following later when step 6 offers a thread) or a combined `{plan, post}` object from a
 caller that collected both up front -- use `plan` and ask nothing here: its
 per-question answers, keyed by question id with verbatim option strings,
 are the decision. Use the decider the caller names alongside it. Every
@@ -295,8 +295,8 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
   Continue: submit exactly ONE `rt gate answer` after that last call,
   carrying every thread answer plus `code-changes`, never one per chunk.
   The pane's answer never carries `text`: a replacement reply the human
-  types in the form's free-text field rides as `note`, and the drafted
-  reply stands.
+  types in the form's free-text field rides as `note`, which makes a
+  `reply:` thread an override (Report rows below).
 - `fix:<threadId>` implies that thread's reply; `skip:<threadId>` means
   neither.
 - `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{"<threadId>":"reply|fix|skip","...":"one entry per thread, keyed by the id read out of its answer value"},"texts":{"<threadId>":"<the answer's text>"},"code-changes":"approve|revise|skip"}' --decided-by <the answer's by>`.
@@ -306,15 +306,33 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
 **Edited replies.** A `reply:<threadId>` answer may be an object whose
 `text` is the reply to post for that thread, in place of the drafted
 `reply.text`: `{"value": "reply:<threadId>", "text": "<edited reply>"}`.
-Write it over the draft in that thread's row of step 3's report (the
-saved report file too, when there is one), so every later posting, a
-resumed pane's included, reads the edited reply from the report. `text`
-on a `fix:` or `skip:` answer changes nothing.
+A `reply:` answer that carries `text` posts that text, whether or not it
+also carries a note, because the human wrote the exact words. `text` on a
+`fix:` or `skip:` answer changes nothing.
+
+**Report rows.** Once gate 1 is answered, rewrite each thread's row of
+step 3's report (the saved report file too, when there is one) in this
+shape, in verdict-table order:
+
+```text
+- <threadId> · <file>:<line> · <verdict>, recommended <action> · gate-1: <reply|fix|skip|override> · reply: "<text>"
+```
+
+| Field | Filled from |
+|---|---|
+| `gate-1` | the verb the developer answered, never step 3's recommendation: `reply`, `fix` or `skip`, except that a `reply:` is `override` when its answer carries no `text` and either its gate 1 reply was not verbatim (the card showed a `direction` or no reply) or the answer carries a `note` |
+| `reply` | the answer's `text` when it has one, else step 3's draft, else `none`; step 5 rewrites a fixed row's reply and step 6 an override's |
+
+Every later posting, a resumed pane's included, reads these rows, never
+step 3's recommendation: a `gate-1: reply` row posts its row's reply from
+gate 1; an `override` row, and a `fix` row step 5 finalized, are offered
+at gate 2; a `skip` row, and a `fix` row under `code-changes: skip`, post
+nothing.
 
 `code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
 their note -- never revised in this session, the bias HARD-GATE still
 applies. `code-changes: skip` (the no-fix sentinel) implements nothing:
-straight to step 6, where the `reply:` threads post. A thread answered
+straight to step 6. A thread answered
 `fix:` under `skip` stays unimplemented and has no finalized reply, so
 step 6 neither offers nor posts it.
 
@@ -324,27 +342,30 @@ Nothing is implemented until `respond-plan` approves it -- not under cover
 of "in a follow-up commit," not while drafting. On `code-changes: approve`,
 implement the `fix:<threadId>` threads one at a time, verifying each with
 the project's tests and checks before the next. Finalize each fixed reply
-to "Fixed -- `file:line` / what changed". Domain ship-time gates still
+to "Fixed -- `file:line` / what changed" and write it over the draft in
+the thread's report row, with ` · sha: <short sha>` before its `reply`
+field. Domain ship-time gates still
 apply to these fixes; this skill never checks their box.
 
 ## 6. Decide and post: respond-post (Gate `respond-post`)
 
-This gate asks only about fixed threads. A thread is offered here only
-when a fix finalized its reply in step 5: a `fix:<threadId>` thread under
-`code-changes: approve`. A `reply:<threadId>` thread is never offered:
-gate 1 already approved its exact reply, so it posts that reply (the
-respond-plan answer's `text` when it carried one, else the drafted
-`reply.text`; step 3's report holds whichever applies) and is never
-resolved. `skip:<threadId>` threads post nothing.
+This gate offers exactly the replies the developer has not yet seen word
+for word: every `gate-1: override` row, and every `gate-1: fix` row whose
+reply step 5 finalized (step 4's Report rows). An override has no
+postable reply yet: redraft it now, per step 3's reply rules as a reply
+with no code change and folding in its answer's note when it has one,
+and write it into its row. A `gate-1: reply` row is never offered: it
+posts its row's reply and is never resolved. A `skip` row, and a `fix`
+row step 5 never finalized, post nothing.
 
-- **No thread offered** (no `fix:` thread, or every `fix:` held out
-  under `code-changes: skip`): post the reply-only threads now. There is
-  no respond-post gate and no respond-post record: open nothing, record
-  nothing for this scope (the respond-plan record covers those
-  replies), and close. A caller that owns the gates gets no open file
-  back, only that nothing is offered and which replies posted.
-- **Threads offered:** the reply-only threads wait, and post after this
-  gate together with its picks (the act paragraph below).
+- **No thread offered** (no finalized fix and no override): post the
+  `gate-1: reply` rows now. There is no respond-post gate and no
+  respond-post record: open nothing, record nothing for this scope (the
+  respond-plan record covers those replies), and close. A caller that
+  owns the gates gets no open file back, only that nothing is offered
+  and which replies posted.
+- **Threads offered:** the `gate-1: reply` rows wait, and post once this
+  gate proceeds (the act paragraph below).
 
 <HARD-GATE>
 Decision intake: when the caller's `{plan, post}` object already carries
@@ -362,14 +383,14 @@ it back or run the gate.
     "context": {"gate-ctx": "reply@1", "thread": "<threadId>", "file": "<file>:<line>", "verb": "fix", "sha": "<short sha>", "text": "<the exact finalized reply>"},
     "options": [{"value": "post:<threadId>", "label": "post", "recommended": true, "description": "post this reply to the thread"},
                 {"value": "resolve:<threadId>", "label": "resolve", "recommended": true, "description": "resolve the thread"}]},
-   {"id": "thread-2", "...": "the next fixed thread in the same shape, its own id verbatim"},
+   {"id": "thread-2", "...": "the next offered thread, its own id verbatim: a fix in this shape, or an override with verb reply, no sha, resolve not recommended"},
    {"id": "next", "label": "Next", "multi": false,
     "options": [{"value": "proceed", "label": "proceed", "recommended": true}, "iterate", "hold"]}
  ]}
 ```
 
 ONE multi-select question per offered thread, in verdict-table order,
-plus `next`; a `reply:<threadId>` thread never gets one. Its question's
+plus `next`; a `gate-1: reply` row never gets one. Its question's
 id is `thread-<n>` by 1-based position among the offered threads, its
 label the thread's `file:line`, and its options exactly
 `post:<threadId>` and `resolve:<threadId>`, thread id VERBATIM, bare
@@ -378,8 +399,8 @@ verb as the label.
 | Field | Filled from |
 |---|---|
 | `post` option | `"recommended": true` on every thread, so nothing drops silently |
-| `resolve` option | `"recommended": true` on every thread: each offered reply reports a fix |
-| `reply@1` context | that one thread: `verb` `fix`, with its commit's short `sha` (a fix with no commit carries no `sha`); `text` the exact finalized reply, never shortened |
+| `resolve` option | `"recommended": true` only on a fixed thread; an override stays open for the reviewer unless the developer ticks it |
+| `reply@1` context | that one thread: `verb` `fix` with its commit's short `sha` for a fixed thread (a fix with no commit carries no `sha`), `verb` `reply` with no `sha` for an override; `text` the exact reply from its row, never shortened |
 | gate `replies` | the offered-thread count |
 | gate `fixes` | one entry per commit step 5 made, the key omitted when there are none |
 
@@ -397,10 +418,11 @@ question keeps every thread under the form cap, whatever the count.
   (a reply is never shortened), so an open over the budget goes all
   prose.
 
-**A caller that owns the gates**: open nothing. Hand back the finalized
+**A caller that owns the gates**: open nothing. Hand back the offered
 replies plus the absolute path of `<dir>/respond-post.open.json`, then
 wait for its `{post}`. Its `.questions` end with `next`; a caller with its
-own navigation drops that question.
+own navigation drops that question. Once you have acted on its `{post}`,
+hand back which replies posted, as the no-offer path does.
 
 **Otherwise** the verb runs the gate itself:
 
@@ -419,7 +441,7 @@ own navigation drops that question.
   `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose < <dir>/respond-post.source.json`.
   Show its `.context` as one line before the form; each thread
   question's form text is its `label`, a newline, its prose context
-  (`<file> FIX · <sha>: <text>`), then `Post,
+  (`<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`), then `Post,
   resolve, both, or neither?`, under the header `Thread <n>`, as a
   multi-select. Ask the thread questions in order, up to four per call,
   then `next` in one last call, and submit exactly ONE `rt gate answer`
@@ -437,12 +459,14 @@ the answer's `text` when it carries one and the `reply@1` context's `text`
 otherwise (`text` on a thread with no `post:` posts nothing);
 `resolve:<threadId>` resolves the thread, after its reply when both are
 picked and on its own when only resolve is, where the forge distinguishes
-resolve from reply; an empty array leaves the thread untouched. Then post
-every reply-only thread's gate 1 reply from the report, unresolved: this
-gate's answer never names those threads, and they post whatever it
-picked. When the open does offer one (a gate opened before this rule),
-that thread's answer decides it instead, an empty array included, and no
-reply posts twice. Nothing
+resolve from reply; an empty array leaves the thread untouched. Then, once
+this gate proceeds (its `next` answer is `proceed`, or a caller handed
+`post`, which carries no `next`), post every `gate-1: reply` row,
+its row's reply, unresolved: this gate never offers those threads, so
+they post whatever it picked for its own threads. On `hold` or `iterate`
+they wait. When the open offers such a thread, or an answer value names
+it (an open in the retired shape), that thread's answer decides it
+instead, an empty array included, and no reply posts twice. Nothing
 else posts, through any channel. Never a top-level note, never approve the
 change: that stays the developer's, however settled a thread looks once
 its reply is written. Posting mechanics belong to the forge CLI and the
@@ -461,12 +485,12 @@ when that answer also carries `resolve:`, `"resolve":false` when it does
 not. A reply posted from the `reply@1` context never adds `text`. An
 entry whose thread's answer carries a note adds it as `note`:
 `{"post":true,"resolve":false,"note":"<the note>"}`. Every offered
-thread gets an entry, and only offered threads: a reply-only thread's
-reply rides the respond-plan record. An answer's values name its thread; an empty
+thread gets an entry, and only offered threads: a `gate-1: reply`
+row's reply rides the respond-plan record. An answer's values name its thread; an empty
 array names none, so take that thread from the question's options in the
 open, or, when the open is not at hand (a caller handed `post` to a
-fresh pane), record every offered thread (a report row whose reply a
-fix finalized) that no answer value names as both `false`. Never map a
+fresh pane), record every offered thread (a `gate-1: override` row, or
+a `gate-1: fix` row step 5 finalized) that no answer value names as both `false`. Never map a
 `thread-<n>` key to a thread by its position.
 
 Close, only when `## Run` started this run: after every reply has posted
@@ -485,9 +509,12 @@ so.
 | "I'll open with 'Good call' / 'You're right'" | Performative. State the technical content; no agreement, no thanks. |
 | "I'll process the resolved / bot threads too" | Unresolved human threads only. |
 | "I'll ask both gate questions, the caller already handed `{plan, post}`" | Decision intake first: a caller-handed object answers `respond-plan` and `respond-post` -- ask nothing. |
-| "I'll post the replies since they look right" | Post only what an answer picked: a gate 1 `reply:` thread, or a gate 2 thread whose answer carries `post:`; resolve only those carrying `resolve:`; never approve for the developer. |
-| "I'll offer the reply-only threads at `respond-post` too, for a last look" | Gate 1 already approved that exact reply. `respond-post` offers only threads a fix finalized; reply-only threads post from gate 1. |
-| "Gate 2's answer doesn't name the reply-only thread, so it stays unposted" | Gate 1 decided it. It posts after gate 2, whatever gate 2 picked. |
+| "I'll post the replies since they look right" | Post only what an answer picked: a `gate-1: reply` row, or an offered thread whose answer carries `post:`; resolve only those carrying `resolve:`; never approve for the developer. |
+| "I'll offer the reply-only threads at `respond-post` too, for a last look" | The developer already saw that exact reply. `respond-post` offers only the replies they have not seen word for word: fixed threads and `reply:` overrides with no `text`. |
+| "Gate 2's answer doesn't name the reply-only thread, so it stays unposted" | Gate 1 decided it. It posts once gate 2 proceeds, whatever gate 2 picked for its own threads, unless the open offered it or an answer value names it. |
+| "They answered `reply:`, so the drafted reply posts now" | Only a reply they saw word for word posts from gate 1. A `reply:` with no `text` whose card showed a direction or no reply, or whose answer carries a note, is an override: redrafted and offered at `respond-post`. |
+| "It's only a note, so the verbatim draft still posts" | A note on a `reply:` may change the reply, and in the pane form it is the only place a typed replacement can go. Redraft with it and offer the thread at `respond-post`. |
+| "Step 3 recommended a reply here, so it posts" | Posting reads each report row's `gate-1` field, never the recommendation. A `gate-1: skip` row posts nothing. |
 | "The plan record has no slot for the edited reply" | It goes in `texts` beside `threads`, and over the draft in the report's row for that thread. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `respond-plan`'s `code-changes: approve`, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
@@ -502,11 +529,12 @@ so.
 | Criteria bound | Its addendum travels with that dispatch, placeholders filled. |
 | Verdicts in hand | Verdict table + drafted replies, one block (step 3); reply-rules voice, no performative openers. |
 | Caller hands `{plan, post}` | Use it, ask nothing; decided-by is the caller's named decider. |
-| No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (a post/resolve pair per fixed thread) only when step 5 finalized a fix, in order; a caller that owns the gates gets each open handed back instead. |
+| No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (a post/resolve pair per offered thread) only when a report row is a finalized fix or an override, in order; a caller that owns the gates gets each open handed back instead. |
 | Opening either gate | Source file, `gate-ctx.sh fit`, then its open verbatim: handed back to a caller that owns the gates, else `rt gate ask`. |
-| `respond-plan` answered `reply:` | Its gate 1 reply posts (the answer's `text` when edited, recorded under `texts` and written into the report), never resolved: at once with no fixed thread, after `respond-post` otherwise. |
+| `respond-plan` answered | Rewrite every report row with its `gate-1` field and any edited reply (step 4's Report rows); posting reads only these rows. |
+| `respond-plan` answered `reply:` | The answer's `text` (recorded under `texts`), or a `verbatim` card with no note: `gate-1: reply`, posts from gate 1, never resolved, at once with no offered thread, once `respond-post` proceeds otherwise (never on `revise`). No `text`, and a card that showed a direction or no reply, or a note: `gate-1: override`, redrafted and offered at `respond-post`. |
 | `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
-| `respond-post` answered | Per fixed thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; then the reply-only threads post; never approve. |
+| `respond-post` answered | Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; on proceed, the `gate-1: reply` rows post; never approve. |
 
 ## Gate protocol
 
