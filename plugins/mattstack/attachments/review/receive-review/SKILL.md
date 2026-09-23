@@ -299,9 +299,11 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
   `reply:` thread an override (Report rows below).
 - `fix:<threadId>` implies that thread's reply; `skip:<threadId>` means
   neither.
-- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{"<threadId>":"reply|fix|skip","...":"one entry per thread, keyed by the id read out of its answer value"},"texts":{"<threadId>":"<the answer's text>"},"code-changes":"approve|revise|skip"}' --decided-by <the answer's by>`.
+- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{"<threadId>":"reply|fix|skip","...":"one entry per thread, keyed by the id read out of its answer value"},"texts":{"<threadId>":"<the answer's text>"},"overrides":["<threadId>"],"code-changes":"approve|revise|skip"}' --decided-by <the answer's by>`.
   `threads` values stay the bare verbs. `texts` holds one entry per
-  `reply:` answer that carries `text`; omit the key when none does.
+  `reply:` answer that carries `text`; `overrides` lists every
+  `gate-1: override` thread (Report rows below); omit either key when it
+  would be empty.
 
 **Edited replies.** A `reply:<threadId>` answer may be an object whose
 `text` is the reply to post for that thread, in place of the drafted
@@ -320,14 +322,17 @@ shape, in verdict-table order:
 
 | Field | Filled from |
 |---|---|
-| `gate-1` | the verb the developer answered, never step 3's recommendation: `reply`, `fix` or `skip`, except that a `reply:` is `override` when its answer carries no `text` and either its gate 1 reply was not verbatim (the card showed a `direction` or no reply) or the answer carries a `note` |
+| `gate-1` | the verb the developer answered, never step 3's recommendation: `reply`, `fix` or `skip`, except that a `reply:` is `override` when its answer carries no `text` and any one of these holds, whoever answered: its gate 1 reply was not verbatim (the card showed a `direction` or no reply); the answer carries a `note`; or its question context never reached the gate (dropped for the size budget, a `"fits": false` open, or an open that reported `contextOmitted`), so its draft was never shown |
 | `reply` | the answer's `text` when it has one, else step 3's draft, else `none`; step 5 rewrites a fixed row's reply and step 6 an override's |
 
 Every later posting, a resumed pane's included, reads these rows, never
 step 3's recommendation: a `gate-1: reply` row posts its row's reply from
 gate 1; an `override` row, and a `fix` row step 5 finalized, are offered
 at gate 2; a `skip` row, and a `fix` row under `code-changes: skip`, post
-nothing.
+nothing. A `## Run` Resume with only the snapshot at hand reads the
+respond-plan record instead: `threads` gives each verb, `texts` the
+edited replies, and `overrides` the threads offered at gate 2, so it
+never posts a draft an override was meant to replace.
 
 `code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
 their note -- never revised in this session, the bias HARD-GATE still
@@ -351,10 +356,10 @@ apply to these fixes; this skill never checks their box.
 
 This gate offers exactly the replies the developer has not yet seen word
 for word: every `gate-1: override` row, and every `gate-1: fix` row whose
-reply step 5 finalized (step 4's Report rows). An override has no
-postable reply yet: redraft it now, per step 3's reply rules as a reply
-with no code change and folding in its answer's note when it has one,
-and write it into its row. A `gate-1: reply` row is never offered: it
+reply step 5 finalized (step 4's Report rows). An override's reply
+was never seen word for word: redraft it now, per step 3's reply rules
+as a reply with no code change and folding in its answer's note when it
+has one, and write it into its row. A `gate-1: reply` row is never offered: it
 posts its row's reply and is never resolved. A `skip` row, and a `fix`
 row step 5 never finalized, post nothing.
 
@@ -465,7 +470,7 @@ this gate proceeds (its `next` answer is `proceed`, or a caller handed
 its row's reply, unresolved: this gate never offers those threads, so
 they post whatever it picked for its own threads. On `hold` or `iterate`
 they wait. When the open offers such a thread, or an answer value names
-it (an open in the retired shape), that thread's answer decides it
+it (an open built before this rule), that thread's answer decides it
 instead, an empty array included, and no reply posts twice. Nothing
 else posts, through any channel. Never a top-level note, never approve the
 change: that stays the developer's, however settled a thread looks once
@@ -512,10 +517,11 @@ so.
 | "I'll post the replies since they look right" | Post only what an answer picked: a `gate-1: reply` row, or an offered thread whose answer carries `post:`; resolve only those carrying `resolve:`; never approve for the developer. |
 | "I'll offer the reply-only threads at `respond-post` too, for a last look" | The developer already saw that exact reply. `respond-post` offers only the replies they have not seen word for word: fixed threads and `reply:` overrides with no `text`. |
 | "Gate 2's answer doesn't name the reply-only thread, so it stays unposted" | Gate 1 decided it. It posts once gate 2 proceeds, whatever gate 2 picked for its own threads, unless the open offered it or an answer value names it. |
-| "They answered `reply:`, so the drafted reply posts now" | Only a reply they saw word for word posts from gate 1. A `reply:` with no `text` whose card showed a direction or no reply, or whose answer carries a note, is an override: redrafted and offered at `respond-post`. |
+| "They answered `reply:`, so the drafted reply posts now" | Only a reply they saw word for word posts from gate 1. A `reply:` with no `text` is an override when its card showed a direction or no reply, its answer carries a note, or its question context never reached the gate: redrafted and offered at `respond-post`. |
+| "The pane showed the prose, so a dropped context does not matter" | The rule holds whoever answered. A `reply:` with no `text` on a thread whose question context never reached the gate is an override. |
 | "It's only a note, so the verbatim draft still posts" | A note on a `reply:` may change the reply, and in the pane form it is the only place a typed replacement can go. Redraft with it and offer the thread at `respond-post`. |
 | "Step 3 recommended a reply here, so it posts" | Posting reads each report row's `gate-1` field, never the recommendation. A `gate-1: skip` row posts nothing. |
-| "The plan record has no slot for the edited reply" | It goes in `texts` beside `threads`, and over the draft in the report's row for that thread. |
+| "The plan record has no slot for the edited reply" | It goes in `texts` beside `threads`, and over the draft in the report's row for that thread. Overrides go in `overrides`. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `respond-plan`'s `code-changes: approve`, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
 | "I'll present the table and ask about fixes and posting in the same breath" | `respond-plan` and `respond-post` are two gates, in order. Prose that asks both at once is neither. |
@@ -532,7 +538,7 @@ so.
 | No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (a post/resolve pair per offered thread) only when a report row is a finalized fix or an override, in order; a caller that owns the gates gets each open handed back instead. |
 | Opening either gate | Source file, `gate-ctx.sh fit`, then its open verbatim: handed back to a caller that owns the gates, else `rt gate ask`. |
 | `respond-plan` answered | Rewrite every report row with its `gate-1` field and any edited reply (step 4's Report rows); posting reads only these rows. |
-| `respond-plan` answered `reply:` | The answer's `text` (recorded under `texts`), or a `verbatim` card with no note: `gate-1: reply`, posts from gate 1, never resolved, at once with no offered thread, once `respond-post` proceeds otherwise (never on `revise`). No `text`, and a card that showed a direction or no reply, or a note: `gate-1: override`, redrafted and offered at `respond-post`. |
+| `respond-plan` answered `reply:` | Override when the answer has no `text` and any one of: a card that was not verbatim, a note, or a question context that never reached the gate. An override is `gate-1: override`, listed under `overrides`, redrafted and offered at `respond-post`. Any other `reply:` is `gate-1: reply` (the answer's `text` under `texts`, else the verbatim draft): it posts from gate 1, never resolved, at once with no offered thread, once `respond-post` proceeds otherwise, never on `revise`. |
 | `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
 | `respond-post` answered | Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; on proceed, the `gate-1: reply` rows post; never approve. |
 
