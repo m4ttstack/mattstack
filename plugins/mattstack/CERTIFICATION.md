@@ -96,4 +96,9 @@ The written purity rule and per-skill certification checklist for this repo
 | 2026-09-22 | mattstack:writing-style-conversational | pure | pass | 11/11 existing; no scenario, lookup-gated | new preset and the resolver's fallback; GREEN 3 reps ok floor, every plan check holds; certify exit 0 on engine and compiled |
 | 2026-09-22 | mattstack:writing-style-structured | pure | pass | 11/11 existing; no scenario, lookup-gated | new preset; GREEN 3 reps ok floor, every plan check holds; certify exit 0 on engine and compiled |
 
+| 2026-09-23 | mattstack:writing-style-floor | pure | pass | n/a (hidden, include-reached) | coderabbit review fix: evidence-as-output scoped to review comments and replies; a PR description's verification section keeps reporting test counts, not logs, per each preset's own rule; certify re-run exit 0 |
+| 2026-09-23 | mattstack:writing-style-sparse | pure | pass | 12/12 existing; no scenario, lookup-gated | coderabbit review fix: pr-description ticket prefix made conditional on the repo using one; the credit example reordered to lead with the change, not praise; certify re-run exit 0 on engine and compiled |
+| 2026-09-23 | mattstack:writing-style-conversational | pure | pass | 12/12 existing; no scenario, lookup-gated | coderabbit review fix: pr-description ticket prefix made conditional on the repo using one; the credit example reordered to lead with the change, not praise; certify re-run exit 0 on engine and compiled |
+| 2026-09-23 | mattstack:writing-style-structured | pure | pass | 12/12 existing; no scenario, lookup-gated | coderabbit review fix: pr-description ticket prefix made conditional on the repo using one; certify re-run exit 0 on engine and compiled |
+
 (Ledger rows are appended by the orchestrating session as each lane lands -- lanes themselves never edit this file.)

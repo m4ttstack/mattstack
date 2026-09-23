@@ -15,7 +15,7 @@ Clear and scannable, for teams that like formal write-ups. Every point is
 labelled so a reader can triage without reading the whole thing. Load this
 before the first draft and write in it from the first word.
 
-<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.18.0 path=attachments/writing-style-floor/SKILL.md lines=6-55 -->
+<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.18.0 path=attachments/writing-style-floor/SKILL.md lines=6-59 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
@@ -48,13 +48,17 @@ The preset sets the voice; these set the floor.
 - **One reason, one ask.** Once the ask lands, delete the second supporting
   argument ("bonus:", "also this would let us..."). Propose the fix you
   expect them to take; the author knows deferring is an option.
-- **Evidence as output.** If you ran or reproduced something, paste what it
-  returned in a code block instead of a sentence describing it:
+- **Evidence as output.** Reproducing something for a review comment or
+  reply: paste what it returned in a code block instead of a sentence
+  describing it:
 
   ```
   base a1b2c3d -> 2 rows: "Item 1", "Item 2"
   head e4f5a6b -> 1 row:  "Item 1"
   ```
+
+  A PR description's verification section reports test counts, not logs,
+  per the preset's own instructions; this rule does not reach it.
 - **Stay on the diff.** Comment on the code in front of you. Whether the
   change should exist at all is the author's and PM's call.
 - **Code out of prose.** Code you suggest the author write, even a one-line
