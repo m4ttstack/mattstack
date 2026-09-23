@@ -223,9 +223,9 @@ A surface that lets the human replace text the gate offered (an edited
 reply) sends it as `text` on the same object, beside any note:
 `{"value": <verbatim value or array>, "text": "<replacement>"}`. The
 in-pane form never sends `text`; a replacement for offered text that the
-human types in the form's free-text field rides as a note. The note never
-replaces anything; `text` replaces only what the verb's own act step
-names.
+human types in the form's free-text field rides as a note. What a note or
+`text` changes is each verb's own act step's call; the protocol swaps
+neither in for offered text by itself.
 
 ## Runs integration
 
