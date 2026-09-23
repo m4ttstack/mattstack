@@ -131,9 +131,9 @@ Compressed, same finding and ask:
 **issue (non-blocking):** if `fetchCart()` rejects here the price is still the cached one, so checkout shows the old total... the same bug this fixes. fine as fail-closed, but can we say that in a comment (or retry once)? right now it reads as harmless.
 ```
 
-A brief, specific credit is fine folded into the worry, never as the
-opener: `**thought (non-blocking):** the version's pinned now, nice catch.
-only worry: nothing tests the fallback...`. A bare compliment is not.
+A brief, specific credit is fine folded in after the worry, never as the
+opener: `**thought (non-blocking):** only worry here: nothing tests the
+fallback. the version's pinned now, nice catch.`. A bare compliment is not.
 
 ## Review summary
 

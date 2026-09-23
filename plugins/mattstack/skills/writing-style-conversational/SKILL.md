@@ -74,9 +74,9 @@ The preset sets the voice; these set the floor.
 
 - **Sentence case** everywhere, with contractions.
 - **Short paragraphs** of one to three sentences. Plain words over jargon.
-- **Warm, not effusive.** A short, specific credit is fine folded into the
-  point, never as the opener ("The version's pinned now, nice catch. One
-  worry: nothing tests the fallback."). A bare compliment is not.
+- **Warm, not effusive.** A short, specific credit is fine folded in after
+  the concern, never as the opener ("One worry: nothing tests the fallback.
+  The version's pinned now, nice catch."). A bare compliment is not.
 - **Hedge honestly**, inside the sentence: "I think this drops the last page."
 - **Light formatting.** The bold label and code are fine in comments; skip
   headings and lists there.
