@@ -38,7 +38,11 @@ option per candidate or their text, and `next`: **Proceed** (recommended)
 / **Hold** (`rt runs field set gate clarify
 --stage <run.current_stage>` before and `rt runs decision record --contract
 gate@1 --scope clarify --selection '{"branch":"<picked>"}' --decided-by
-<the answer's by>` after).
+<the answer's by>` after). Hold: record `hold:<run.current_stage>:<attempt>`
+(`rt runs decision record --contract gate@1 --scope
+hold:<run.current_stage>:<attempt> --selection '{"reason":"<their words>"}'
+--decided-by <the answer's by>`), `rt runs field set hold "<their words>"
+--stage <run.current_stage>`, end the turn.
 
 {{include:spawned-no-run-guard}}
 
