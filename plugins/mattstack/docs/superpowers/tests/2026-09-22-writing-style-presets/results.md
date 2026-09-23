@@ -85,7 +85,8 @@ holds. One rep separated top-level comments with `---` rules.
 
 ## Sparse, final (examples no longer mirror the fixtures; three reps)
 
-Floor: ok in all three. The committed `outputs/sparse/` is r1.
+Floor: ok in all three. These reps are superseded as committed outputs by
+the post-fix run (last section).
 
 | Fixture | Words (r1 / r2 / r3) | Observation |
 | --- | --- | --- |
@@ -101,23 +102,27 @@ fenced block where the reference kept a short key inline.
 
 ## Conversational (three reps)
 
-Floor: ok in all three. The committed `outputs/conversational/` is r1.
+Floor: ok in all three. These reps are superseded as committed outputs by
+the post-fix run (last section).
 
 | Fixture | Words (r1 / r2 / r3) | Observation |
 | --- | --- | --- |
-| 1-review | 103 / 143 / 100 | sentence case; bold labels; repro as an output block; ask as a friendly question with the fix fenced; missing tests its own comment; one-line summary that points at the blocker ("One blocker inline (the cache key), otherwise looks good to me."). r2 split the eviction fix into a second inline finding with a fenced function |
+| 1-review | 103 / 143 / 100 | sentence case; bold labels; repro as an output block; ask as a friendly question with the fix fenced; missing tests its own comment; one-line summary that points at the blocker (r3: "One blocker inline (the cache key), otherwise looks good to me."). r2 split the eviction fix into a second inline finding with a fenced function |
 | 2-replies | 30 / 30 / 32 | `Good call, switched to Record<Status, string>.`; gentle disagreement with the reason, no thanks |
 | 3a-pr | 129 / 138 / 127 | sentence-case ticket title, three-sentence framing that says where to start, What changed and Testing, follow-up as a sentence under What changed; a little under the companion's 150 |
 | 3b-pr-with-template | 159 / 180 / 161 | Summary, Checklist, Verification kept in all three |
 | 4-commit | 38 / 35 / 36 | `ABC-481: Key the settings cache on tenant and user` (sentence case, 49 chars) plus a two-sentence why |
 
-Two reps restate "unique only within a tenant" as "only repeat within a
-tenant", a content slip the style does not cause. Every plan check holds;
-no REFACTOR.
+r1 and r3 invert the fixture's fact: they say user ids "only repeat within
+(or per) a tenant" where the fixture says they are unique within one; r1
+carries it in four of five files. Only r2 states it correctly. The runs do
+not show the style causing the slip, and they do not rule it out. Every
+plan check holds; no REFACTOR.
 
 ## Structured (three reps)
 
-Floor: ok in all three. The committed `outputs/structured/` is r1.
+Floor: ok in all three. These reps are superseded as committed outputs by
+the post-fix run (last section).
 
 | Fixture | Words (r1 / r2 / r3) | Observation |
 | --- | --- | --- |
@@ -135,3 +140,23 @@ A roster of every compiled skill's name and description, the task "Draft
 my review comments for PR #212 in acme/storefront and post them.", and
 NONE allowed: 10 of 10 picks (5 haiku, 5 sonnet) were NONE, each citing the
 lookup gate. No preset loads unless the lookup names it.
+
+## After the final-review fixes (two reps per preset)
+
+The fixes: one finding per comment and a single proposed name or type may
+stay inline (floor); the PR title goes in the title field; conversational
+and structured lengths become ceilings. The committed `outputs/<preset>/`
+for all three presets is f1 from this run.
+
+| Preset | Floor | 1-review | 2-replies | 3a-pr | 3b-pr | 4-commit |
+| --- | --- | --- | --- | --- | --- | --- |
+| sparse | ok / ok | 94 / 89 | 35 / 31 | 105 / 107 | 135 / 141 | 31 / 32 |
+| conversational | ok / ok | 104 / 103 | 30 / 30 | 112 / 116 | 146 / 146 | 33 / 30 |
+| structured | ok / ok | 102 / 93 | 26 / 24 | 117 / 115 | 141 / 139 | 39 / 35 |
+
+Every earlier check holds in all six: labels, repro as an output block,
+the fix fenced, one finding per comment, missing tests its own comment,
+one-line summary, template sections kept in 3b. All six state the tenant
+fact correctly ("unique within a tenant" or "repeat across tenants").
+Each PR output still opens with the title line, because the fixture asks
+for one file holding everything posted.
