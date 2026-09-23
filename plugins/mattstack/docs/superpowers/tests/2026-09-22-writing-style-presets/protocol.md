@@ -27,6 +27,6 @@ Prompt, verbatim, with `<STYLE>` replaced per run:
 
 `<REFERENCE_SKILL_DIR>` is the operator's own style skill; the controller supplies the path at dispatch and never commits it.
 
-After a run: `sh docs/superpowers/tests/2026-09-22-writing-style-presets/check-floor.sh outputs/<run>`
+After a run: `sh docs/superpowers/tests/2026-09-22-writing-style-presets/check-floor.sh docs/superpowers/tests/2026-09-22-writing-style-presets/outputs/<run>`
 and record the result, word counts per file (`wc -w`), and observations in
 `results.md`. The controller, not the subagent, compares runs.

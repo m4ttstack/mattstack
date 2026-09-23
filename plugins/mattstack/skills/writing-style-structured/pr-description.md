@@ -9,7 +9,8 @@ Up to 300 words, as short as the change allows. Past 350, cut.
 
 ## Shape
 
-The first line is the PR title; it goes in the title field, not the description.
+The first line is the PR title; it goes in the title field, not the
+description. Prefix it with the ticket key only when the repo uses one.
 
 ```markdown
 <ticket key>: <Title in sentence case>
