@@ -1,5 +1,5 @@
 #!/bin/sh
-# open-gate.sh -- open a respond gate from a domain skill's fitted open file.
+# open-gate.sh -- open a board gate from a domain skill's fitted open file.
 #   open-gate.sh <status-bin> <state> <kind> <open-file>
 # The open file is gate-ctx.sh `fit` output: {"context": <string>,
 # "questions": [...]} with every context already a string. Opens it through
