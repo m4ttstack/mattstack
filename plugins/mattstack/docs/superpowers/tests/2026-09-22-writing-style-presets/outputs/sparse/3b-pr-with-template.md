@@ -1,19 +1,23 @@
+ABC-481: cache per-user settings per tenant
+
 ## Summary
 
-ABC-481: cache per-user settings
+Adds a settings cache keyed on `(tenantId, userId)` so two tenants with the same user id stop reading each other's settings.
 
-adds a per-user settings cache and clears it on write.
+**Cache** `src/settings/cache.ts`
 
-**Cache** (`src/settings/`)
+- Adds a per-user settings cache keyed on `(tenantId, userId)`.
+- Adds `clearSettings(tenantId, userId)` to evict one entry.
 
-- `cache.ts`: per-user cache keyed on `(tenantId, userId)`; `clearSettings(tenantId, userId)` evicts one entry.
-- `load.ts`: `loadSettings` throws `SettingsNotFound` instead of returning `undefined`.
+**Load** `src/settings/load.ts`
 
-**API**
+- `loadSettings` throws `SettingsNotFound` instead of returning `undefined`.
 
-- `api/settings.ts`: PATCH handler calls `clearSettings` after a write.
+**API** `src/api/settings.ts`
 
-**Callers**
+- Calls `clearSettings` after a PATCH write.
+
+**Also**
 
 - Renames `getUserPrefs` to `getSettings` in three callers.
 
@@ -22,11 +26,11 @@ adds a per-user settings cache and clears it on write.
 - Cache size limit: ABC-490.
 
 ## Checklist
-- [x] Behind a feature flag, or N/A with a reason: N/A, no user-facing change
+- [x] Behind a feature flag, or N/A with a reason: N/A, bug fix with no new surface
 - [x] Tests added or updated
 
 ## Verification
 
-9 new tests in `cache.test.ts`, settings suite 142/142 green; by hand, t2's u7 shows t2's theme after t1's u7 loads first.
+Loading t1's u7 then t2's u7 shows t2's theme on the settings page; 9 new tests in `cache.test.ts`, settings suite 142/142 green.
 
 - https://preview-481.storefront.example.com
