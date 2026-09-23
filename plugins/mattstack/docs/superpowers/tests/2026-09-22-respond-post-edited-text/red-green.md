@@ -297,3 +297,12 @@ No rep skipped the close or rewrote `--`.
   draft otherwise, and the pane never sends `text`.
 - The record carries `text` only when the answer supplied it, its
   `resolve` follows the answer, and a note rides its thread's entry.
+
+## Premise update (2026-09-23)
+
+`scenarios/post-act-edited.md`, `scenarios/post-act-edited-postonly.md`
+and `scenarios/post-pane-typed.md` were updated when respond-post stopped
+offering reply-only threads: their reply-only threads are now fixed
+threads, with the answers unchanged. The tallies above belong to the earlier text, which
+git history keeps. See
+`../2026-09-23-respond-post-fixed-only/red-green.md`.
