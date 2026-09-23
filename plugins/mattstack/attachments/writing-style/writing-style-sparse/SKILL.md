@@ -53,7 +53,8 @@ in order (a superset; most use two or three):
 5. **Concession, only when real.** Never as a politeness move.
 
 A non-blocking `thought` or `question` is two short paragraphs at most. A
-process ask (a missing test, missing evidence) is one or two casual lines:
+process ask (a missing test, missing evidence) is one or two casual lines
+that lead with the approval if there is one and ask as a favor:
 
 ```
 **suggestion:** changes look good. would you mind adding a test for the two-tenant case? 👌
