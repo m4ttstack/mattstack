@@ -148,8 +148,9 @@ subject is what lets the form through, and so is the pane's own
 worktree carrying its own open run: gate). Render each
 option's `label` when it has one and its `description` when it has one
 (the AskUserQuestion option's own description field); submit the chosen
-option's `value` verbatim: `rt gate answer <id> --answers '<json>' --by pane` (or the
-`gate_answer` tool). When the gate carries more questions than one form
+option's `value` verbatim, in one object keyed by question id:
+`rt gate answer <id> --answers '{"<question id>": "<value>" | ["<value>", ...] | {"value": ..., "note": "..."}}' --by pane`
+(or the `gate_answer` tool). When the gate carries more questions than one form
 call fits, chunk the forms but submit exactly ONE answer after the last
 chunk; a CAS rejection at that point discards every chunk's answer
 together.
