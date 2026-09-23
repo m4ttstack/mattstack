@@ -181,10 +181,13 @@ too). This is unscored and has no effect on the slug.
 | post-pane-typed | final, 20 reps | 19/20 | 0/20 | 0/20 |
 | stage-provision-slug (from above) | slug candidate / final | 13/15, 10/10 | 2/15, 0/10 | 0 |
 
-List-shaped pane answers across these runs: 3/45 before (the two
-baseline scenarios and the slug candidate) and 0/40 after. No rep sent
-`text` from the pane in any arm. The earlier record saw `text` only
-inside list-shaped answers, and none appeared here.
+The strongest evidence is stage-plan-rename's spread of shapes. The
+baseline's ten answers came in three shapes: 5 plain strings, 4
+`{"value": ...}` wrappers and 1 list. All ten final answers use one
+shape: plain strings, with the note object on `failing_test`. On the
+two target scenarios, list-shaped answers went from 1/30 to 0/30. No
+rep sent `text` from the pane in either arm. The earlier record saw
+`text` only inside list-shaped answers, and none appeared here.
 
 stage-plan-rename baseline, per rep:
 
@@ -214,8 +217,13 @@ post-pane-typed final, per rep:
 - Reps 1 to 4 and 6 to 20: PASS.
 - Rep 5: FAIL. It makes the same slip, `glab mr note 87 --message "..."`,
   and resolves T1's discussion separately.
-- Multi-select answers stay arrays, single-select answers are strings,
-  and `thread-1` is `{"value": [...], "note": ...}` in every rep.
+- `thread-1` is `{"value": [...], "note": ...}` in every rep of both
+  arms.
+- `next` is the only answer that changed shape: 8/20 baseline reps wrap
+  it as `{"value": "proceed"}` (reps 2, 3, 7, 10, 12, 15, 17 and 18),
+  and 0/20 final reps do.
+- The multi-select `thread-2` is wrapped as `{"value": [...]}` in 10/20
+  reps in each arm, which is valid. That did not change.
 
 ## Shared-include regressions (final)
 
@@ -244,15 +252,197 @@ thread-reply mechanics.
 
 ## Verdict
 
-- **Follow-up 1:** stage-provision-slug baseline 6/10 strict; 10/10 on
-  the final tree, and 15/15 on the slug itself with the old
-  gate-protocol. The typed slug now reaches the record and `--title`
-  because the stage says the note is the slug.
-- **Follow-up 2:** 0 list-shaped answers and 0 pane `text` across 10
-  stage-plan-rename and 20 post-pane-typed reps, down from 1/30
-  list-shaped (3/45 counting the slug candidate). Scenario criteria hold:
-  stage-plan-rename 10/10, and post-pane-typed 19/20 on both arms with
-  the same forge slip.
+- **Follow-up 1:** stage-provision-slug went from 6/10 strict on the
+  baseline to 13/15 strict on the slug candidate (15/15 used the slug)
+  and 10/10 strict on the final tree. The typed slug now reaches the
+  record and `--title` because the stage says the note is the slug.
+- **Follow-up 2:**
+  - stage-plan-rename's answers went from three shapes to one.
+  - `next` wrapping fell from 4/10 to 0/10 on stage-plan-rename and from
+    8/20 to 0/20 on post-pane-typed.
+  - List-shaped answers went from 1/30 to 0/30 on the two target
+    scenarios, and no pane sent `text` in either arm.
+  - Scenario criteria hold: stage-plan-rename 10/10, and post-pane-typed
+    19/20 on both arms with the same forge slip.
 - **Follow-up 3:** review's clarify record names the answering surface.
   No other gate record in skill text names a verb, and stage-plan's
   slot-decision record keeps its wrapper decider on purpose.
+
+## Fix round
+
+The first round's review asked for four more changes. They share one
+arm: the tree with all four applied, compiled with no fills. RED is the
+first round's committed tree.
+
+### Wording
+
+**review's clarify gate** (`attachments/review/review/SKILL.md`, step 1).
+The gate asked through the structured-question tool, so the record's
+`<the answer's by>` had no registry answer behind it, and board or
+console could never answer it.
+
+- Old: "one sentence naming the candidates, then the structured-question
+  tool with one option per candidate and **Hold** (`rt runs field set
+  gate clarify ...` before, ... `--decided-by <the answer's by>` after)."
+- New: "one sentence naming the candidates, then run gate-protocol's
+  Runs integration with kind `clarify` and these questions: one option
+  per candidate, and **Hold** (the same before and after)."
+- This matches checkout and self-review.
+
+**stage-provision's slug bullet.** The wording now covers every surface
+and names the option they picked.
+
+- Old: "From the in-pane form, a slug they type rides as the note on
+  this question's answer, with the value left as the option the form
+  offered; that note is the slug to use."
+- New: "A slug they type arrives as this answer's note (or its `text`,
+  from a surface that edits offered text), with the value left as the
+  option they had picked; that typed slug is the one to use."
+
+**gate-protocol, the decider rule's scope.**
+
+- The CAS paragraph now says "A `gate@1` record's `--decided-by` always
+  names the WINNER" (was "A decision record's").
+- The Runs integration parenthetical now reads "(a `gate@1` record's
+  `--decided-by` is `pane`, `board`, `console`, or `shepherd`, never a
+  verb name.)" (was "(`--decided-by` is ...)").
+- stage-plan's `execution-strategy@1` record, a slot decision, no longer
+  reads as a contradiction.
+
+**gate-protocol, questions with no options.** The form branch gains "A
+question with no options takes what the human typed as its value." The
+daemon's validator (`validateGateAnswers` in `@mattstack/rt-client`)
+checks membership only when `question.options.length > 0`.
+
+### New scenarios
+
+- `scenarios/review-clarify.md`: a hand-run review of "issue 7", where
+  `glab mr list --search 7` finds !87 and !91. The human picks !87.
+- `scenarios/evidence-intake-open.md`: the evidence gate is open with
+  `case_id`, `"options": []`, and the human types "job 4411, queued with
+  delay -5" in the form.
+
+### Tallies
+
+| Scenario | RED | GREEN | Strict pass |
+|---|---|---|---|
+| review-clarify, 5 reps | 1/5 open a registry gate | 3/5 strict (5/5 route through `rt gate ask --kind clarify`; 2 payloads the daemon refuses) | the gate is bracketed, `rt gate ask --kind clarify` with a daemon-valid array, `--by pane`, and `--decided-by pane` |
+| evidence-intake-open, 3 reps | 1/3 clean (reps 1 and 3 send `{"value": ..., "text": ...}` from the pane) | 3/3 | the typed text is the value, with no note and no `text` |
+| stage-provision-slug, 5 reps | (first round) | 5/5 | first-round criteria, and no pane `text` despite the new mention of `text` |
+| stage-plan-rename, 5 reps | (first round) | 5/5 | first-round criteria; one shape in every rep |
+| post-pane-typed, 5 reps | (first round) | 5/5 | first-round criteria; no top-level note in this batch |
+
+review-clarify RED, per rep:
+
+- Reps 1, 2, 4 and 5 ask with AskUserQuestion directly, then record
+  `--decided-by pane` with no registry gate behind it.
+- Rep 3 opens `rt gate ask --kind clarify` on its own.
+
+review-clarify GREEN, per rep:
+
+- Every rep runs `rt runs field set gate clarify --stage review`, then
+  `rt gate ask ... --kind clarify` with !87, !91 and Hold, then presents
+  the form.
+- Every rep then runs `rt gate answer <id> --answers '{"target": "!87"}'
+  --by pane` and `rt runs decision record --contract gate@1 --scope
+  clarify --selection '{"target":"!87"}' --decided-by pane`, and records
+  `mr`, `branch` and `ticket`.
+- Reps 1 and 3 pass `--questions '{"questions":[...]}'`, an object
+  rather than the array `rt gate ask` takes. The daemon refuses a
+  non-array with `invalid questions` (`lib/daemon/handlers/gate.ts` in
+  repo-tools), and gate-protocol's refusal rule has the rep fix the
+  call. The shape comes from gate-protocol's `--questions '<questions
+  json>'` placeholder. Strictly, 3/5 would open on the first try. The
+  gaps below close this.
+- Every rep puts Hold as a third option of the candidate question,
+  though gate-protocol says navigation is its own `next` question.
+
+evidence-intake-open GREEN, per rep:
+
+- Reps 2 and 3 send `"case_id": "job 4411, queued with delay -5"`.
+- Rep 1 sends `{"value": "job 4411, queued with delay -5"}`, which is
+  valid and carries no note or `text`.
+- Every rep records `"intake":{"case_id":"job 4411, queued with delay
+  -5"}` with `--decided-by pane`.
+
+## Gaps closed
+
+The fix round's reps turned up three gaps, and Matt approved closing
+them in the same round. The fix round's GREEN tree, commit `806ec23`,
+is RED here. GREEN is the tree with all three applied, compiled with no
+fills.
+
+### Wording
+
+**1. The questions shape** (gate-protocol).
+
+- The Publish block's `rt gate ask --questions '<questions json>'`
+  becomes `--questions '[{"id": ..., "label": ..., "options": [...]},
+  ...]'`.
+- Runs integration step 2's `'<questions json>'` becomes `'<questions
+  json array>'`.
+
+**2. Hold placement** (review's and checkout's clarify gates).
+
+- review, old: "these questions: one option per candidate, and **Hold**".
+- review, new: "these questions: `target`, one option per candidate,
+  and `next`: **Proceed** (recommended) / **Hold**".
+- checkout, old: "these questions: one option per candidate, their
+  text, and **Hold**".
+- checkout, new: "these questions: `branch`, one option per candidate
+  or their text, and `next`: **Proceed** (recommended) / **Hold**".
+- Each question id matches its record's selection key. The `next`
+  wording follows self-review's `next` without **Iterate here**, since
+  a pick-one gate has nothing to iterate on.
+
+**3. The option-values rule** (gate-protocol, "Answers are option
+values").
+
+- Old: "Every answer value must exactly match one of the question's
+  option VALUES".
+- New: "For a question with options, every answer value must exactly
+  match one of its option VALUES".
+- This agrees with the form branch's "A question with no options takes
+  what the human typed as its value."
+
+### Tallies
+
+| Scenario | RED (`806ec23`) | GREEN | Strict pass |
+|---|---|---|---|
+| review-clarify, 5 reps | 3/5 daemon-valid array; 0/5 Hold in `next` | 5/5 | a bare questions array on the first try, Hold in a `next` question, `--by pane`, `--decided-by pane` |
+| evidence-intake-open, 3 reps | 3/3 | 3/3 | the typed text is the value, with no note and no `text` |
+| stage-plan-rename, 5 reps | 5/5 | 5/5 | first-round criteria |
+| post-pane-typed, 5 reps | 5/5 | 5/5 | first-round criteria |
+
+review-clarify GREEN, per rep:
+
+- Every rep runs `rt runs field set gate clarify --stage review`, then
+  `rt gate ask --questions '[{"id":"target",...,"options":[!87, !91]},{"id":"next",...,"options":[proceed, hold]}]'
+  --kind clarify`. That is a bare array, with Hold only in `next`.
+- Every rep then runs `rt gate answer <id> --answers
+  '{"target":"!87","next":"proceed"}' --by pane` and `rt runs decision
+  record --contract gate@1 --scope clarify --selection
+  '{"target":"!87"}' --decided-by pane`.
+- Rep 4 records `mr` as `!87` rather than the MR URL and skips `glab mr
+  view`. That is identity recording, outside this scenario's criteria.
+
+evidence-intake-open GREEN: all three reps send `"case_id": {"value":
+"job 4411, queued with delay -5"}`, which is valid and carries no note
+and no `text`. Each rep records `"intake":{"case_id":"job 4411, queued
+with delay -5"}` with `--decided-by pane`.
+
+stage-plan-rename GREEN: all five rename, send
+`{"tier":"direct-tdd","failing_test":{"value":"keep","note":...},"next":"proceed"}`,
+record the line as `failing_test` and finish the stage.
+
+post-pane-typed GREEN:
+
+- All five send thread-1 as `{"value":[...],"note":...}` with `--by
+  pane`.
+- Each posts T1's exact draft with `--` intact as a thread reply, then
+  resolves T1. T2 is resolved only.
+- Each records T1's note with no `text`, uses `--decided-by pane`, and
+  closes.
+
+checkout had no reps. Its clarify wording now matches review's shape,
+which review-clarify tested.
