@@ -82,3 +82,19 @@ Floor: ok in all three. 1-review 73 / 79 / 77 words; 3a 86 / 102 / 98
 (70% to 84% of the reference). The fix lands in a fenced block in all
 three, the repro stays an output block in all three, and every other row
 holds. One rep separated top-level comments with `---` rules.
+
+## Sparse, final (examples no longer mirror the fixtures; three reps)
+
+Floor: ok in all three. The committed `outputs/sparse/` is r1.
+
+| Fixture | Words (r1 / r2 / r3) | Observation |
+| --- | --- | --- |
+| 1-review | 74 / 97 / 84 | `**issue:**`, `**nitpick:**`, `**suggestion:**` as in the reference; lowercase; repro as an output block and the fix in a fenced block in all three; missing tests its own comment; summary `Left one blocker inline.` The process ask drops the approval lead, correctly, since there is a blocker |
+| 2-replies | 30 / 27 / 28 | `good call.` on the concession; disagreement softened ("for now", "i think") with one reason; worded independently, no longer copied from an example |
+| 3a-pr | 105 / 102 / 94 | 77% to 86% of the reference; ticket title, one framing sentence, bold groups, Also, Follow-up, one verification sentence with the t2/u7 case |
+| 3b-pr-with-template | 135 / 132 / 125 | Summary, Checklist, Verification kept in all three |
+| 4-commit | 32 / 30 / 31 | `ABC-481: key settings cache on tenant and user` (46 chars) in all three; two lowercase body lines |
+
+Verdict: sparse lands on the reference's labels, length and shape. It is
+stricter than the reference on one point by design: the fix goes in a
+fenced block where the reference kept a short key inline.
