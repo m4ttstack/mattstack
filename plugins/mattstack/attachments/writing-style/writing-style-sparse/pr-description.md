@@ -9,6 +9,8 @@ in this voice. Otherwise use the shape below.
 
 ## Shape
 
+The first line is the PR title; it goes in the title field, not the description.
+
 ```markdown
 <ticket key>: <lowercase title>
 
