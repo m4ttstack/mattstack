@@ -99,9 +99,21 @@ RED, per rep:
 - Rep 10: PASS. It renames.
 
 Control, per rep: all five rename, send the line as the pane answer's
-note, record it as `failing_test` and finish the stage. Reps 3 and 5
-submit the answers as a list of `{value, note}` objects with no question
-ids. That shape is unscored here and not touched by this change.
+note, record it as `failing_test` and finish the stage.
+
+Answer shape is unscored in every arm, and this change does not touch
+it. Some reps submit `rt gate answer` as a list rather than an object
+keyed by question id:
+
+- RED reps 5 and 7, and GREEN reps 1, 2, 3 and 9, send a list of
+  `{"id": ..., "value": ...}` objects;
+- control reps 3 and 5 send a list of `{value, note}` objects with no
+  question ids.
+
+A literal reading of the criterion ("the `failing_test` answer's
+`note`") finds no `failing_test` answer in those two control reps, and
+would score the control 3/5. Both reps still rename and record the new
+line, so the conclusion is unchanged.
 
 GREEN, per rep (reps 1 to 5 first batch, 6 to 10 second):
 
@@ -158,9 +170,9 @@ moment of reading the note.
 | Control (0.17.23) | 5/10 | each pass switches the answer's value to `other` and uses the note as the slug; each miss keeps `suggested` because the pick never moved |
 | GREEN (committed) | 4/10 | each pass keeps `suggested` and reads the note as the slug, on the act-step rule; the misses keep `fix-delay` |
 
-The typed slug crossed the note channel 0/10 times on 0.17.24, and this
-change brings that back to about the control level. The control itself
-is a coin flip. stage-provision's own question ("the slug as their
+The typed slug crossed the note channel 0/10 times on 0.17.24. This
+change brings that back to about the control level, and no further: the
+slug still loses 6/10 on GREEN. The control itself is a coin flip. stage-provision's own question ("the slug as their
 text") does not say that a pane note carries that text, and a
 still-selected suggestion reads as a pick. One GREEN miss (rep 8) says
 so: "I have no domain rule here telling me to treat a note on this
@@ -171,11 +183,14 @@ never `text`.
 ## Verdict
 
 - stage-plan's rename: RED 3/10 strict, with 6/10 keeping the old line
-  on "the note never replaces anything". Control 5/5; GREEN 9/10 strict,
-  and 10/10 renamed.
+  on "the note never replaces anything". Control 5/5 (3/5 on a literal
+  reading of the answer-shape criterion); GREEN 9/10 strict, and 10/10
+  renamed.
 - receive-review keeps its pane rule on its own: post-pane-typed and
   post-act-edited stay 5/5 strict.
 - stage-provision's typed slug: RED 0/10, control 5/10, GREEN 4/10. The
-  regression is gone. What remains is stage-provision's own wording.
+  shared sentence no longer overrides a verb whose own steps take the
+  note as its text. The slug is back to its control level but still
+  loses 6/10, which is stage-provision's own wording to fix.
 - The one stage-plan GREEN miss is the pane sending `text`. RED shows
   the same slip (1/10), so this change did not cause it.
