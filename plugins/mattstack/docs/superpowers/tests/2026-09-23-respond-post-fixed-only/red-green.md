@@ -1,25 +1,38 @@
 # RED/GREEN: respond-post asks only about fixed threads
 
-Scope: `attachments/review/receive-review/SKILL.md`.
+Scope: `attachments/review/receive-review/SKILL.md`. The final rule,
+after two fix rounds:
 
-- **Step 4:** a `reply:` answer may be an object whose `text` is the reply
-  to post. The respond-plan record carries it in a sibling `texts` map,
-  and `threads` keeps its string values. The edit is written over the
-  draft in that thread's row of step 3's report. The pane's gate 1
-  answer never carries `text`.
-- **Step 6:** a thread is offered only when a fix finalized its reply in
-  step 5. A reply-only thread posts its gate 1 reply, unresolved:
-  - with no offered thread, right away, with no respond-post gate and no
-    respond-post record;
-  - with offered threads, after gate 2, together with its picks.
-- **Also in step 6:** the respond-post record covers offered threads
-  only. A gate opened before this rule that still offers a reply-only
-  thread decides that thread, an empty array included, and no reply
-  posts twice.
+- **Step 4, answers.** A `reply:` answer may carry `text`: the reply to
+  post, whether or not a note rides with it. The pane's gate 1 answer
+  never carries `text`; a typed replacement rides as `note`.
+- **Step 4, report rows.** Once gate 1 is answered, every thread's row of
+  step 3's report is rewritten as
+  `- <threadId> · <file>:<line> · <verdict>, recommended <action> · gate-1: <reply|fix|skip|override> · reply: "<text>"`,
+  with the answer's `text` over the draft. Step 5 adds
+  ` · sha: <short sha>` to a fixed row. All posting, a resume included,
+  reads `gate-1`, never step 3's recommendation.
+- **Overrides.** A `reply:` answer with no `text` is `gate-1: override`
+  when any one of these holds, whoever answered:
+  - its card was not verbatim;
+  - it carries a note;
+  - its question context never reached the gate.
+
+  An override is redrafted (folding in the note) and offered at gate 2.
+- **Step 4, record.** `threads` keeps bare verbs, `texts` holds the edited
+  replies and `overrides` lists the override threads, each omitted when
+  empty. A `## Run` Resume from the snapshot alone reads them.
+- **Step 6, offer.** Gate 2 offers exactly the replies the developer has
+  not seen word for word: overrides and finalized fixes. `gate-1: reply`
+  rows post unresolved: at once, with no gate 2 and no respond-post
+  record, when nothing is offered; otherwise once gate 2 proceeds, never
+  on hold, iterate or revise.
+- **Step 6, record and legacy.** The respond-post record covers offered
+  threads only. An open built before this rule that still offers or names
+  a reply-only thread decides it, an empty array included, and no reply
+  posts twice. The caller-owned path hands back which replies posted.
 - **Tables:** the red-flag and quick-reference rows match.
-- **Fix round 1 (review):** report rows carry a `gate-1` field that all
-  posting reads. A `reply:` the developer has not seen word for word is
-  an override, offered at gate 2. See its section below.
+- **History:** the first commit, then Fix round 1 and Fix round 2 below.
 
 ## Scenarios
 
@@ -314,6 +327,78 @@ and the record. Every flagged or unusual rep was then read by hand.
 | post-build | 5/5 | T1 alone, `replies` 1, no forge call before the answer. |
 | legacy-post-act | 5/5 | T4 untouched. Every rep adds a conditional: T3 posts only if its row says `gate-1: reply`. |
 
+## Fix round 2 (re-review)
+
+The scoped re-review confirmed Fix round 1. This round follows the spec
+at 260597c9 ("Flow", "Report rows" and "Records").
+
+### Engine changes
+
+- **Third override trigger.** The `gate-1` rule now reads: "a `reply:` is
+  `override` when its answer carries no `text` and any one of these
+  holds, whoever answered: its gate 1 reply was not verbatim (the card
+  showed a `direction` or no reply); the answer carries a `note`; or its
+  question context never reached the gate (dropped for the size budget, a
+  `"fits": false` open, or an open that reported `contextOmitted`), so its
+  draft was never shown". The red flags and the quick reference match. A
+  new red flag, "The pane showed the prose, so a dropped context does not
+  matter", holds the rule whoever answered.
+- **`overrides` in the respond-plan record.** The selection gains
+  `"overrides":["<threadId>"]`, omitted when empty. The Report rows
+  paragraph adds: "A `## Run` Resume with only the snapshot at hand reads
+  the respond-plan record instead: `threads` gives each verb, `texts` the
+  edited replies, and `overrides` the threads offered at gate 2, so it
+  never posts a draft an override was meant to replace."
+- **Nits.**
+  - "(an open in the retired shape)" now reads "(an open built before this
+    rule)", so it no longer collides with the retired `replies` shape.
+  - The quick-reference `reply:` row now reads one way: "Override when the
+    answer has no `text` and any one of: a card that was not verbatim, a
+    note, or a question context that never reached the gate."
+  - This record's top summary states the final rule.
+- **Step 6 wording.** "An override has no postable reply yet" now reads
+  "An override's reply was never seen word for word". A dropped-context
+  override does have a draft; it was just never shown.
+
+### Scenario added
+
+- `scenarios/plan-override-dropped.md`: plan-replies-only's threads, both
+  with verbatim cards. The respond-plan `rt gate ask` response reports
+  `"contextOmitted":true`, and stderr says "gate context over budget:
+  dropped question context thread-2". The board answers `reply:T1` and
+  `reply:T2`, both with no `text`, and `code-changes: skip`.
+- Pass criteria:
+  - rows are T1 `reply` and T2 `override`;
+  - the record carries `"overrides":["T2"]` and no `texts`;
+  - T2 is offered alone at gate 2 (`verb` `reply`, no `sha`, resolve not
+    recommended, `replies` 1);
+  - nothing posts, and T1 waits for proceed.
+- Its first draft said "thread-2's card showed only its label". That
+  handed the conclusion to the model, so it was cut before scoring and
+  the scenario now gives only the daemon's facts. Both versions are in
+  git history (e8c7e78, 9d01786).
+
+### RED (Fix round 1's engine, cd23963)
+
+plan-override-dropped: 0/5 strict. Every rep already routed T2 to gate 2
+and posted nothing, reading the dropped context as a card with no reply
+("card showed no reply, so `gate-1: override`"). Every rep failed only
+the record, because Fix round 1's record has no `overrides` key. The same
+held on the first draft. So the new trigger makes explicit behavior the
+old rule already reached, and the failing part is the new field.
+
+### GREEN (the committed engine)
+
+| Scenario | Result | Notes |
+|---|---|---|
+| plan-override-dropped | 5/5 | Rows T1 `reply` and T2 `override`, `"overrides":["T2"]`, T2 offered alone with resolve unrecommended, nothing posts. Each rep reasons "stderr names only thread-2 as dropped". |
+| plan-override-note | 5/5 | Now also `"overrides":["T1"]`. `note` with `--by pane`, `--decided-by pane`, no `texts`, T1 redrafted from the note and offered alone, nothing posts. |
+| plan-replies-only | 5/5 | Rows `reply`/`reply`, `texts` T1, no `overrides` key, no gate 2, exact bodies (reps 1, 4 and 5 read by hand), close. |
+| resume-skipped-reply | 5/5 | T3 posts nothing; record T1 only; close. |
+| post-none | 5/5 | Every `rt gate ask` mention is a negation (rep 3 lists it under "Not run"). No file, no respond-post record, close. |
+| post-pane-typed | 5/5 | The typed text rides as `note` with `--by pane`, T1's exact draft posts and resolves, T2 resolves only, T1's entry carries the note, close. |
+| post-act-edited-postonly | 5/5 | T1 posts the `text` unresolved, T2 resolves only ("ignored edit" neither posted nor recorded), T4 posts its draft, close. |
+
 ## Noise outside this change
 
 - Several reps name a conditional `waiting-gate` clear, a doorbell
@@ -338,3 +423,7 @@ and the record. Every flagged or unusual rep was then read by hand.
   gate 1 once gate 2 proceeds, or at once when nothing is offered.
 - Posting, a resume included, reads each report row's `gate-1` field,
   never step 3's recommendation.
+- Fix round 2: a dropped question context is the third override
+  trigger, and `overrides` joins the respond-plan record. The new
+  scenario fails 0/5 on the old engine, only on the record, and passes
+  5/5 now. Every re-run scenario is 5/5.
