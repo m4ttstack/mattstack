@@ -216,10 +216,11 @@ and the tool do not.
 
 ## Answers are option values
 
-Every answer value must exactly match one of the question's option VALUES
-(multi = array, every element checked); the daemon compares values only,
-never labels, and rejects anything else at record time. Never an index or
-a paraphrase. Nuance rides the per-answer note form:
+For a question with options, every answer value must exactly match one of
+its option VALUES (multi = array, every element checked); the daemon
+compares values only, never labels, and rejects anything else at record
+time. Never an index or a paraphrase. Nuance rides the per-answer note
+form:
 `{"value": <verbatim value or array>, "note": "<free text>"}`.
 A surface that lets the human replace text the gate offered (an edited
 reply) sends it as `text` on the same object, beside any note:
