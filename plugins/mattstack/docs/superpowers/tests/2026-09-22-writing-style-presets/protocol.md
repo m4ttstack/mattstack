@@ -1,8 +1,16 @@
 # Run protocol
 
-One run = one fresh subagent (general-purpose, most capable model tier, no
-conversation context) that drafts all five fixtures and writes one file per
-fixture to `outputs/<run>/<fixture-file-name>`.
+One run = one fresh `claude -p` session on the most capable model, in clean
+mode, from the repo root, that drafts all five fixtures and writes one file
+per fixture to `outputs/<run>/<fixture-file-name>`:
+
+    claude -p "<prompt>" --model <most capable model> --setting-sources "" \
+      --disable-slash-commands --strict-mcp-config \
+      --tools Read,Write,Glob --permission-mode acceptEdits
+
+Add `--add-dir <REFERENCE_SKILL_DIR>` for the reference run. Clean mode keeps
+the operator's own instructions, installed skills, and MCP servers out of
+every run, so a run sees only the prompt and the files it names.
 
 Prompt, verbatim, with `<STYLE>` replaced per run:
 
