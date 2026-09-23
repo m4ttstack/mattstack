@@ -4,8 +4,6 @@ description: "Use when a gate would present its form in-pane with no run backing
 disable-model-invocation: true
 ---
 
-# Spawned, no-run guard
-
 With no run: a human invocation presents the same form in-pane only. A
 SPAWNED pane (the launch instruction said a surface spawned this pane --
 the same signal `run-start --spawned-by` is taken from; a board wrapper
