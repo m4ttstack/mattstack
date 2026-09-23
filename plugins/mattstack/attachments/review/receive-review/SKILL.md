@@ -275,6 +275,11 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
   reading each `answers` key other than `code-changes`, unwrapping a
   `{value, note, text}` object to its `value`, and splitting at the first `:`;
   `thread-<n>` is a container, nothing keys on it.
+- Over budget (the fit printed `"fits": false`, or the ask reported
+  `contextOmitted`): right after the ask and before waiting on any
+  answer, write one line, `gate-1-context: dropped`, into step 3's saved
+  report. A resumed pane has no other way to know those cards never
+  showed their drafts (A dropped context, below).
 - In-pane form (gate-protocol's presentation: "form" branch): the form
   never shows the JSON. Running
   `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose < <dir>/respond-plan.source.json`
@@ -322,14 +327,17 @@ shape, in verdict-table order:
 
 | Field | Filled from |
 |---|---|
-| `gate-1` | the verb the developer answered, never step 3's recommendation: `reply`, `fix` or `skip`, except that a `reply:` is `override` when its answer carries no `text` and any one of these holds, whoever answered: its gate 1 reply was not verbatim (the card showed a `direction` or no reply); the answer carries a `note`; or its question context never reached the gate, so its draft may never have been shown: you dropped it for the size budget, or the open was whole-open over budget (a `"fits": false` open, or one that reported `contextOmitted`), which counts every thread's context as dropped |
+| `gate-1` | the verb the developer answered, never step 3's recommendation: `reply`, `fix` or `skip`, except that a `reply:` is `override` when its answer carries no `text` and any one of these holds, whoever answered: its gate 1 reply was not verbatim (the card showed a `direction` or no reply); the answer carries a `note`; or its question context never reached the gate, so its draft may never have been shown: you dropped it for the size budget, or the open was whole-open over budget (a `"fits": false` open, one that reported `contextOmitted`, or a report carrying the line `gate-1-context: dropped`), which counts every thread's context as dropped |
 | `reply` | the answer's `text` when it has one, else step 3's draft, else `none`; step 5 rewrites a fixed row's reply and step 6 an override's |
 
 **A dropped context.** When the respond-plan open reports `contextOmitted`,
 its stderr ends "shorten and re-ask": do neither. Never shorten a reply
 and never re-ask to fit. Keep the gate as opened, take its answers as
 given, and count every thread's context as dropped, so every `reply:`
-answer with no `text` is an override.
+answer with no `text` is an override. On any resume, a caller-handed
+`{plan}` in a fresh pane included, a report carrying the line
+`gate-1-context: dropped` means the same, whoever opened the gate: a
+caller that owns the gates writes that line into its own report.
 
 Every later posting, a resumed pane's included, reads these rows, never
 step 3's recommendation: a `gate-1: reply` row posts its row's reply from
@@ -339,7 +347,10 @@ nothing. A `## Run` Resume with only the snapshot at hand reads the
 respond-plan record instead: `threads` gives each verb, `texts` the
 edited replies, and `overrides` the reply overrides, offered at gate 2
 beside any finalized fix, so it never posts a draft an override was
-meant to replace.
+meant to replace. A `reply` thread with no `texts` entry has no
+recoverable gate 1 draft there: redraft it and offer it at gate 2
+beside the overrides, never posting it from gate 1, however closely
+the redraft follows the lost one.
 
 `code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
 their note -- never revised in this session, the bias HARD-GATE still
@@ -527,6 +538,8 @@ so.
 | "They answered `reply:`, so the drafted reply posts now" | Only a reply they saw word for word posts from gate 1. A `reply:` with no `text` is an override when its card showed a direction or no reply, its answer carries a note, or its question context never reached the gate: redrafted and offered at `respond-post`. |
 | "The pane showed the prose, so a dropped context does not matter" | The rule holds whoever answered. A `reply:` with no `text` on a thread whose question context never reached the gate is an override. |
 | "The stderr says shorten and re-ask, so I'll trim the replies and open it again" | Never shorten a reply and never re-ask to fit. Take the answers as given; every `reply:` with no `text` is an override. |
+| "I know the contexts were dropped; I'll apply that when the answer comes" | A pane that dies takes that knowledge with it. Write `gate-1-context: dropped` into the saved report right after the open. |
+| "The draft is gone, but I know what it said, so I'll rebuild it and post it from gate 1" | A rebuilt reply is words the developer never saw. From the snapshot alone, a `reply` thread with no `texts` entry is redrafted and offered at `respond-post`. |
 | "It's only a note, so the verbatim draft still posts" | A note on a `reply:` may change the reply, and in the pane form it is the only place a typed replacement can go. Redraft with it and offer the thread at `respond-post`. |
 | "Step 3 recommended a reply here, so it posts" | Posting reads each report row's `gate-1` field, never the recommendation. A `gate-1: skip` row posts nothing. |
 | "The plan record has no slot for the edited reply" | It goes in `texts` beside `threads`, and over the draft in the report's row for that thread. Overrides go in `overrides`. |
