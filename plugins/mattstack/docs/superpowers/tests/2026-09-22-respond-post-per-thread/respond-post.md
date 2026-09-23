@@ -72,13 +72,37 @@ Build: 5/5 PASS. Act: 5/5 PASS. First pass, no iteration.
 - Act: every rep acts per thread as RED did and now records
   `{"threads":{"T1":{"post":true,"resolve":true},"T2":{"post":false,"resolve":true},"T4":{"post":false,"resolve":false}}}`,
   T4 keyed from its question's option values despite the empty answer.
-- One slip outside the criteria: act rep 4 wrote `--decided-by board`
-  where the answer's `by` was `board-ui`. That wording is unchanged by
-  this edit and all five RED reps carried `board-ui`, so it is recorded
-  as noise, not a regression.
+- The act scenario first named its decider `board-ui`, a surface that
+  does not exist; the board answers as `board`, which act rep 4 wrote.
+  The scenario now says `board` (see the fix wave below).
+
+## Review fix wave
+
+An opus review of the branch found the validator accepting a `reply@1`
+question that is not `multi`, a thread offered by two questions, and
+whitespace-only strings the board rejects; step 6 not unwrapping a
+`{value, note}` answer, not reading a retired `{replies, disposition}`
+post, and closing "after the selected replies are posted"; and the
+per-thread record having no source for an empty answer's thread once the
+open is not at hand. The validator now rejects all three (126/126 script
+tests); step 6 unwraps the note (recorded, never an edit to the approved
+reply), reads the retired shape, closes after acting on every thread, and
+records every offered thread no answer names as both `false`, never
+mapping `thread-<n>` by position.
+
+A third scenario, `scenarios/post-resume.md`, is a caller-handed `post`
+in a fresh pane with no open at hand and a skipped thread ahead of the
+empty answer's thread in the report. RED (the engine before this wave):
+5/5 already recorded T4 correctly, joining `thread-3` to the third offered
+thread by position; the new rule reaches the same record without the
+positional join. GREEN (after the wave), all three scenarios re-run with
+the act scenario's decider corrected to `board`: build 5/5 (rep 1 read by
+hand, its fenced blocks defeated the scorer), act 5/5, resume 5/5, every
+record `{"threads":{"T1":{"post":true,"resolve":true},"T2":{"post":false,"resolve":true},"T4":{"post":false,"resolve":false}}}`
+with `--decided-by board`.
 
 ## Verdict
 
-5/5 on both scenarios. The build recipe replaces the blanket
+5/5 on every scenario. The build recipe replaces the blanket
 disposition with a post/resolve pair per thread, resolve defaulting on
 for fixes only, and the record now names each thread's outcome.

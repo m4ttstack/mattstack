@@ -404,25 +404,32 @@ own navigation drops that question.
   form.
 </HARD-GATE>
 
-Act per thread, reading each `thread-<n>` answer's values split at the
-first `:` into the verb and the thread id: `post:<threadId>` posts that
-thread's reply; `resolve:<threadId>` resolves the thread, after its reply
+Act per thread, reading each `thread-<n>` answer (a `{value, note}`
+object unwraps to its `value`; the note rides the decision record and never
+edits the approved reply) and splitting each value at the first `:` into
+the verb and the thread id: `post:<threadId>` posts that thread's reply; `resolve:<threadId>` resolves the thread, after its reply
 when both are picked and on its own when only resolve is, where the forge
 distinguishes resolve from reply; an empty array leaves the thread
 untouched. Nothing else posts, through any channel. Never a top-level
 note, never approve the change: that stays the developer's, however
 settled a thread looks once its reply is written. Posting mechanics
-belong to the forge CLI and the adapter.
+belong to the forge CLI and the adapter. A caller-handed `post` in the
+retired shape (a `replies` list of bare thread ids plus `disposition`)
+posts the listed replies, resolves them only on `resolve-addressed`, and
+records that selection unchanged.
 
 At execution time, after acting: `rt runs decision record --contract
 gate@1 --scope respond-post --selection
 '{"threads":{"<threadId>":{"post":true,"resolve":false},"...":"one entry per offered thread"}}'
---decided-by <the answer's by>`. Key each entry by the thread id in that
-question's option values, so a thread answered with an empty array still
-gets its entry, both `false`.
+--decided-by <the answer's by>`. Every offered thread gets an entry. An
+answer's values name its thread; an empty array names none, so take that
+thread from the question's options in the open, or, when the open is not
+at hand (a caller handed `post` to a fresh pane), record every offered
+thread (a report row with a finalized reply) that no answer value names as
+both `false`. Never map a `thread-<n>` key to a thread by its position.
 
-Close, only when `## Run` started this run: after the selected replies are
-posted, `rt runs stage-done --stage receive-review`, `rt runs
+Close, only when `## Run` started this run: after acting on every thread
+and recording the decision, `rt runs stage-done --stage receive-review`, `rt runs
 run-status --status done`, `unset RT_RUN_DB`. Zero unresolved human
 threads (step 1) closes the same way, right after the sentence that says
 so.
