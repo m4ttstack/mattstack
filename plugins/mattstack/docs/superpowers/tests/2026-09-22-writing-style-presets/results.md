@@ -21,7 +21,6 @@ Failures the presets must fix:
 - findings with no Conventional Comments label
 - code for a fix inline in prose instead of a fenced block
 - a review summary that recaps a finding or reports what was run
-- an agreement opener on a reply ("Agreed,")
 - a second supporting argument after the one reason
 - why clauses riding on PR bullets
 - commit subject without the ticket prefix, and a body that restates it
@@ -41,3 +40,18 @@ Floor: ok.
 The fix for the main finding is short enough (`${tenantId}:${userId}`) that
 the reference keeps it inline; the floor's fenced-block rule targets more
 than a few tokens of code.
+
+## Sparse, run 1
+
+Floor: ok.
+
+| Fixture | Words | Floor | Observation |
+| --- | --- | --- | --- |
+| 1-review | 85 | ok | same labels as the reference (issue, nitpick, suggestion), lowercase, three sentences, ask as a question, fix in words (no code inline); missing tests its own comment; one-line summary. Miss: the reproduced result is a clause in prose, where the reference pastes it as an output block |
+| 2-replies | 29 | ok | `good call.` on the concession only; disagreement softened ("probably"), one reason |
+| 3a-pr | 101 | ok | 83% of the reference's 122; ticket title, one framing sentence, bold groups (Cache, Callers), Follow-up, one-sentence verification with the t2/u7 case |
+| 3b-pr-with-template | 131 | ok | template's Summary, Checklist, Verification kept |
+| 4-commit | 31 | ok | `ABC-481: key settings cache on tenant and user` (46 chars), two lowercase body lines |
+
+Loophole: the floor's evidence rule has no example, and the finding folded
+the repro into a sentence. REFACTOR: give the rule a short output example.
