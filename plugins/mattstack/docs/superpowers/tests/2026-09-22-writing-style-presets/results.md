@@ -75,3 +75,10 @@ already exist.
 Fixture 2 and fixture 1's test ask overlap the preset's own reply and
 process-ask examples (as they overlap the reference skill's), so those two
 rows measure example-following more than generalization.
+
+## Sparse, after fencing suggested code (three reps)
+
+Floor: ok in all three. 1-review 73 / 79 / 77 words; 3a 86 / 102 / 98
+(70% to 84% of the reference). The fix lands in a fenced block in all
+three, the repro stays an output block in all three, and every other row
+holds. One rep separated top-level comments with `---` rules.
