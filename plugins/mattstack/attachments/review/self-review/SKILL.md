@@ -111,9 +111,9 @@ When the run is yours, record the branch per Run identity above: `branch`
   <stage>` before, `rt runs decision record --contract gate@1 --scope clarify
   --selection '{"source":"<picked>"}' --decided-by <the answer's by>` after):
   one sentence, then run gate-protocol's Runs integration with kind
-  `clarify` and these questions: the candidate sources (the task as stated,
-  a linked doc, their text, and **Hold**) rather than reviewing against
-  nothing.
+  `clarify` and these questions: `source`, the candidate sources (the task
+  as stated, a linked doc, or their text), and `next`: **Proceed**
+  (recommended) / **Hold**, rather than reviewing against nothing.
 
 ## 2. Delegate to the review engine
 
