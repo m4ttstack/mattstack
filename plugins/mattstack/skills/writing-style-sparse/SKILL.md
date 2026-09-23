@@ -57,9 +57,9 @@ The preset sets the voice; these set the floor.
   ```
 - **Stay on the diff.** Comment on the code in front of you. Whether the
   change should exist at all is the author's and PM's call.
-- **Code out of prose.** More than a few tokens of code (an expression, a
-  suggested function) goes in a fenced block on its own line. Inline
-  backticks are for names: `userId`, `cache.ts:42`.
+- **Code out of prose.** Code you suggest the author write, even a one-line
+  expression, goes in a fenced block on its own line after the ask. Inline
+  backticks are only for names that already exist: `userId`, `cache.ts:42`.
 - **Exact locations.** `file.ts:123`, never "around line 120".
 - **A one-line review summary.** A verdict plus a pointer to the inline
   notes. It never recaps a finding, lists strengths, or reports what you ran.
