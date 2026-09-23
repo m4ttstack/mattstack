@@ -2,10 +2,9 @@ You are at step 6, Decide and post, of this receive-review run on https://gitlab
 
 A caller that owns the gates resumed you in a fresh pane after its respond-post gate was answered. You did not build that gate's open in this session and its files are not at hand. The caller hands you its report, /tmp/st/report.md, whose rows are:
 - T1 · queue/enqueue.ts:88 · valid, recommended fix · gate 1: fix · posts at: gate 2 · sha: ab12cd3 · reply: "Fixed -- queue/enqueue.ts:88 / enqueue() now drops non-retryable jobs; added the check and a test."
-- T3 · lib/log.ts:40 · pushback, recommended skip · gate 1: skip · posts at: never · reply: none
-- T2 · queue/README.md:12 · pushback, recommended reply · gate 1: reply · posts at: gate 1 · reply: "The wait is a fixed 30s delay (queue/retry.ts:14), not a backoff, so the README keeps delay."
-- T4 · queue/worker.ts:20 · valid, recommended fix · gate 1: fix · posts at: gate 2 · sha: c9d0e12 · reply: "Fixed -- queue/worker.ts:20 / the worker now skips paused jobs; added a test."
+- T3 · queue/worker.ts:20 · needs-clarification, recommended reply · gate 1: skip · posts at: never · reply: "Which caller do you mean: the cron path or the API path?"
+- T2 · queue/README.md:12 · pushback, recommended reply · gate 1: reply · posts at: gate 1 · reply: "The wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay."
 
-and the decision, {post: {"thread-1": ["post:T1", "resolve:T1"], "thread-2": []}, by: "board"}.
+and the decision, {post: {"thread-1": ["post:T1", "resolve:T1"]}, by: "board"}.
 
 Tools are unavailable in this test. List, in order, every action you would take on the forge (post a reply, resolve a thread, anything else) and every command you would run, from now until the run closes.
