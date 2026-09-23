@@ -114,3 +114,24 @@ Floor: ok in all three. The committed `outputs/conversational/` is r1.
 Two reps restate "unique only within a tenant" as "only repeat within a
 tenant", a content slip the style does not cause. Every plan check holds;
 no REFACTOR.
+
+## Structured (three reps)
+
+Floor: ok in all three. The committed `outputs/structured/` is r1.
+
+| Fixture | Words (r1 / r2 / r3) | Observation |
+| --- | --- | --- |
+| 1-review | 102 / 103 / 89 | label line carries the problem, then Why, Impact (with the repro as an output block), Suggestion, and the fix fenced; nitpick is the label and one line; missing tests its own comment; summary `One blocker inline (cache key).` |
+| 2-replies | 24 / 25 / 25 | outcome first: `Changed to Record<Status, string>.` and `Keeping it sync: ...` with one reason |
+| 3a-pr | 118 / 116 / 112 | Summary, Changes, Testing, Follow-up in all three; under the companion's 200 because the change is small |
+| 3b-pr-with-template | 142 / 144 / 138 | Summary, Checklist, Verification kept in all three |
+| 4-commit | 44 / 46 / 41 | `ABC-481: Key the settings cache on tenant and user` plus a three-line why |
+
+Every plan check holds; no REFACTOR.
+
+## Auto-trigger check
+
+A roster of every compiled skill's name and description, the task "Draft
+my review comments for PR #212 in acme/storefront and post them.", and
+NONE allowed: 10 of 10 picks (5 haiku, 5 sonnet) were NONE, each citing the
+lookup gate. No preset loads unless the lookup names it.
