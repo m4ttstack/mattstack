@@ -94,7 +94,8 @@ path. The key is both the discriminant and the version:
 | `plan@1` | gate `--context` | `reviewer`, `threads.total` | `round`, `threads.blocking` (absent reads 0), `adjudication` (display string) |
 | `post@1` | gate `--context` | `reviewer`, `replies` (count) | `round`, `fixes` (`[{"sha": ...}]`) |
 | `thread@1` | a thread question's `context` | `author`, `severity`, `claim.summary`, `verdict.call`, `reply.kind`, `reply.text` unless `reply.kind` is `none` | `claim.points` (strings), `verdict.note` |
-| `replies@1` | a replies question's `context` | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
+| `reply@1` | a respond-post thread question's `context` | `thread`, `file`, `verb`, `text` | `sha` |
+| `replies@1` | a replies question's `context` (the retired respond-post shape; renderers still read gates opened with it) | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
 | `review@1` | a review-post gate's `--context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
 | `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition` per entry |
 
@@ -110,8 +111,10 @@ path. The key is both the discriminant and the version:
 - A `thread@1` question's `label` is the thread's `file:line`, and its
   ordinal is its position among the gate's `thread-*` questions. The
   planned fix is not in the context: it is the `fix` option's
-  `description`. A `replies@1` entry joins its checkbox option by
-  `thread` == option value, so list exactly that question's options.
+  `description`. A `reply@1` question is `multi`, with exactly two
+  options, `post:<thread>` and `resolve:<thread>`, picked independently;
+  its `label` is the thread's `file:line`. A `replies@1` entry joins its
+  checkbox option by `thread` == option value.
 - A `findings@1` entry joins its option ONE TO ONE: `id` == the option's
   `value`, every option with exactly one entry and every entry with one
   option; a mismatch either way sends the whole gate to the generic

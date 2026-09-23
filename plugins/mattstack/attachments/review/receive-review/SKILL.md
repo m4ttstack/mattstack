@@ -331,34 +331,39 @@ it back or run the gate.
 {"context": {"gate-ctx": "post@1", "reviewer": "<as in step 4>", "replies": 2,
              "fixes": [{"sha": "<short sha>"}]},
  "questions": [
-   {"id": "replies", "label": "Post which replies?", "multi": true,
-    "context": {"gate-ctx": "replies@1", "replies": [
-      {"thread": "<threadId>", "file": "<file>:<line>", "verb": "fix", "sha": "<short sha>", "text": "<the exact reply that will post>"},
-      {"thread": "<threadId>", "file": "<file>:<line>", "verb": "reply", "text": "<the exact reply that will post>"}]},
-    "options": [{"value": "<threadId>", "label": "<file>:<line>", "description": "<first line of that reply>"}]},
-   {"id": "disposition", "label": "Disposition", "multi": false,
-    "options": ["resolve-addressed", "leave-open"]},
+   {"id": "thread-1", "label": "<file>:<line>", "multi": true,
+    "context": {"gate-ctx": "reply@1", "thread": "<threadId>", "file": "<file>:<line>", "verb": "fix", "sha": "<short sha>", "text": "<the exact reply that will post>"},
+    "options": [{"value": "post:<threadId>", "label": "post", "recommended": true, "description": "post this reply to the thread"},
+                {"value": "resolve:<threadId>", "label": "resolve", "recommended": true, "description": "resolve the thread"}]},
+   {"id": "thread-2", "label": "<file>:<line>", "multi": true,
+    "context": {"gate-ctx": "reply@1", "thread": "<threadId>", "file": "<file>:<line>", "verb": "reply", "text": "<the exact reply that will post>"},
+    "options": [{"value": "post:<threadId>", "label": "post", "recommended": true, "description": "post this reply to the thread"},
+                {"value": "resolve:<threadId>", "label": "resolve", "description": "resolve the thread"}]},
    {"id": "next", "label": "Next", "multi": false,
     "options": [{"value": "proceed", "label": "proceed", "recommended": true}, "iterate", "hold"]}
  ]}
 ```
 
-- Offer only threads with a drafted reply (`reply:<threadId>` or a
-  finalized `fix:<threadId>` from step 5); pre-select every one so nothing
-  drops silently, and let the developer deselect -- e.g. post the `valid`
-  "Fixed" replies and the `pushback` reasons now, hold a
-  `needs-clarification` thread to ask the reviewer synchronously first.
-- The gate context's `replies` counts the offered replies; `fixes` has one
-  entry per commit step 5 made, the key omitted when there are none. Each
-  `replies@1` entry is one offered thread: `verb` `fix` with that commit's
-  short `sha` for a finalized step 5 reply, else `reply` with no `sha`; a
-  fix with no commit carries no `sha` and no `fixes` entry; `text` the
-  exact reply that will post, never shortened.
-- Over 4 offered replies, `replies` splits into `replies-1`, `replies-2`,
-  ... of up to 4 options each, in order, whose answers read as one union;
-  each carries its own `replies@1` context listing exactly its own
-  options. Never fold one list into another: a question over 4 options
-  sends the whole gate to the wait queue.
+ONE multi-select question per offered thread, in verdict-table order,
+plus `next`. A thread is offered when it has a drafted reply: a
+`reply:<threadId>`, or a `fix:<threadId>` finalized in step 5. Its
+question's id is `thread-<n>` by 1-based position among the offered
+threads, its label the thread's `file:line`, and its options exactly
+`post:<threadId>` and `resolve:<threadId>`, thread id VERBATIM, bare
+verb as the label.
+
+| Field | Filled from |
+|---|---|
+| `post` option | `"recommended": true` on every thread, so nothing drops silently |
+| `resolve` option | `"recommended": true` only when the thread's `verb` is `fix`; a reply-only thread (a pushback, a clarifying question) stays open for the reviewer unless the developer ticks it |
+| `reply@1` context | that one thread: `verb` `fix` with its commit's short `sha` for a reply finalized in step 5, else `reply` with no `sha`; a fix with no commit carries no `sha`; `text` the exact reply that will post, never shortened |
+| gate `replies` | the offered-thread count |
+| gate `fixes` | one entry per commit step 5 made, the key omitted when there are none |
+
+Post and resolve are independent picks: both, post only, resolve
+without replying, or neither (an explicit empty array). Two options per
+question keeps every thread under the form cap, whatever the count.
+
 - Fit it:
 
   ```bash
@@ -385,29 +390,36 @@ own navigation drops that question.
   ```
 
   `next` carries the navigation verbs -- **Proceed** (recommended) /
-  **Iterate here** / **Hold** -- and never folds into `replies` or
-  `disposition`. A paragraph that lists the categories and waits is not
-  this gate.
+  **Iterate here** / **Hold** -- and never folds into a thread question.
+  A paragraph that lists the replies and waits is not this gate.
 - In-pane form: run
   `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose < <dir>/respond-post.source.json`.
-  Show its `.context` as one line before the form; each reply option's
-  description is that thread's line from the prose `replies` context
-  (`<file> FIX · <sha>: <text>`), so the whole reply shows at its
-  checkbox. The JSON never reaches the form.
+  Show its `.context` as one line before the form; each thread
+  question's form text is its `label`, a newline, its prose context
+  (`<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`), then `Post,
+  resolve, both, or neither?`, under the header `Thread <n>`, as a
+  multi-select. Ask the thread questions in order, up to four per call,
+  then `next` in one last call, and submit exactly ONE `rt gate answer`
+  carrying every thread answer plus `next`. The JSON never reaches the
+  form.
 </HARD-GATE>
 
-Post thread replies **only** for the selected `replies`; the rest stay
-unanswered, through any channel. Never a top-level note, never approve the
-change: that stays the developer's, however settled a thread looks once its
-reply is written. `disposition` governs the developer's call on the posted
-threads: `resolve-addressed` resolves each one just replied to, where the
-forge distinguishes resolve from reply; `leave-open` posts without
-resolving. Posting mechanics belong to the forge CLI and the adapter.
+Act per thread, reading each `thread-<n>` answer's values split at the
+first `:` into the verb and the thread id: `post:<threadId>` posts that
+thread's reply; `resolve:<threadId>` resolves the thread, after its reply
+when both are picked and on its own when only resolve is, where the forge
+distinguishes resolve from reply; an empty array leaves the thread
+untouched. Nothing else posts, through any channel. Never a top-level
+note, never approve the change: that stays the developer's, however
+settled a thread looks once its reply is written. Posting mechanics
+belong to the forge CLI and the adapter.
 
-At execution time, after posting: `rt runs decision record --contract
+At execution time, after acting: `rt runs decision record --contract
 gate@1 --scope respond-post --selection
-'{"replies":[...],"disposition":"resolve-addressed|leave-open"}'
---decided-by <the answer's by>`.
+'{"threads":{"<threadId>":{"post":true,"resolve":false},"...":"one entry per offered thread"}}'
+--decided-by <the answer's by>`. Key each entry by the thread id in that
+question's option values, so a thread answered with an empty array still
+gets its entry, both `false`.
 
 Close, only when `## Run` started this run: after the selected replies are
 posted, `rt runs stage-done --stage receive-review`, `rt runs
@@ -425,7 +437,7 @@ so.
 | "I'll open with 'Good call' / 'You're right'" | Performative. State the technical content; no agreement, no thanks. |
 | "I'll process the resolved / bot threads too" | Unresolved human threads only. |
 | "I'll ask both gate questions, the caller already handed `{plan, post}`" | Decision intake first: a caller-handed object answers `respond-plan` and `respond-post` -- ask nothing. |
-| "I'll post the replies since they look right" | Post only what `respond-post` selected; resolve only when `disposition` says so, never approve for the developer. |
+| "I'll post the replies since they look right" | Post only the threads whose answer carries `post:`, resolve only those carrying `resolve:`; never approve for the developer. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `respond-plan`'s `code-changes: approve`, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
 | "I'll present the table and ask about fixes and posting in the same breath" | `respond-plan` and `respond-post` are two gates, in order. Prose that asks both at once is neither. |
@@ -439,10 +451,10 @@ so.
 | Criteria bound | Its addendum travels with that dispatch, placeholders filled. |
 | Verdicts in hand | Verdict table + drafted replies, one block (step 3); reply-rules voice, no performative openers. |
 | Caller hands `{plan, post}` | Use it, ask nothing; decided-by is the caller's named decider. |
-| No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (replies + disposition), in order; a caller that owns the gates gets each open handed back instead. |
+| No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (a post/resolve pair per thread), in order; a caller that owns the gates gets each open handed back instead. |
 | Opening either gate | Source file, `gate-ctx.sh fit`, then its open verbatim: handed back to a caller that owns the gates, else `rt gate ask`. |
 | `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
-| `respond-post` answered | Post the selected `replies`; `resolve-addressed` resolves them, `leave-open` doesn't; never approve. |
+| `respond-post` answered | Per thread: `post:` posts its reply, `resolve:` resolves it, either or both; never approve. |
 
 ## Gate protocol
 
