@@ -1,21 +1,17 @@
-ABC-481: cache settings per tenant and user
+ABC-481: cache per-user settings
 
-caches settings per user so repeat reads skip the loader. keyed on tenant and user, since user ids are only unique within a tenant.
+adds a per-user settings cache and clears it on write.
 
-**Cache** `src/settings/cache.ts`
+**Cache** (`src/settings/`)
 
-- Adds a settings cache keyed on `(tenantId, userId)`.
-- Adds `clearSettings(tenantId, userId)` to evict one entry.
+- `cache.ts`: per-user cache keyed on `(tenantId, userId)`; `clearSettings(tenantId, userId)` evicts one entry.
+- `load.ts`: `loadSettings` throws `SettingsNotFound` instead of returning `undefined`.
 
-**Loader** `src/settings/load.ts`
+**API**
 
-- `loadSettings` throws `SettingsNotFound` instead of returning `undefined`.
+- `api/settings.ts`: PATCH handler calls `clearSettings` after a write.
 
-**API** `src/api/settings.ts`
-
-- PATCH handler calls `clearSettings` after a write.
-
-**Also**
+**Callers**
 
 - Renames `getUserPrefs` to `getSettings` in three callers.
 
@@ -23,6 +19,6 @@ caches settings per user so repeat reads skip the loader. keyed on tenant and us
 
 - Cache size limit: ABC-490.
 
-9 new tests in `cache.test.ts`; settings suite 142/142 green. by hand, t2's u7 shows t2's theme after t1's u7 loads first.
+9 new tests in `cache.test.ts`, settings suite 142/142 green; by hand, t2's u7 shows t2's theme after t1's u7 loads first.
 
 - https://preview-481.storefront.example.com
