@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildRoster, parseFrontmatter, scoreRuns } from "./desc-test";
+import { buildPrompt, buildRoster, expectedPick, parseFrontmatter, scoreRuns } from "./desc-test";
 
 describe("parseFrontmatter", () => {
   test("reads single-line name and description", () => {
@@ -50,6 +50,22 @@ describe("buildRoster", () => {
     );
     const roster = buildRoster(root);
     expect(roster).toContain("fake:verb");
+  });
+});
+
+describe("expectedPick", () => {
+  test("a null expect resolves to NONE", () => {
+    expect(expectedPick({ task: "x", expect: null })).toBe("NONE");
+  });
+  test("a string expect passes through unchanged", () => {
+    expect(expectedPick({ task: "x", expect: "shepherdr" })).toBe("shepherdr");
+  });
+});
+
+describe("buildPrompt", () => {
+  test("offers NONE as a valid answer alongside the roster names", () => {
+    const prompt = buildPrompt("- **foo**: bar\n", "some task");
+    expect(prompt).toContain("NONE");
   });
 });
 
