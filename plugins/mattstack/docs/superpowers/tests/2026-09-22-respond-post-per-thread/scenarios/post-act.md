@@ -20,7 +20,7 @@ You opened the respond-post gate from this source file, /tmp/rr/respond-post.sou
    "options": [{"value": "proceed", "label": "proceed", "recommended": true}, "iterate", "hold"]}
  ]}
 
-The gate was answered by board-ui with:
+The gate was answered by board with:
 {"thread-1": ["post:T1", "resolve:T1"], "thread-2": ["resolve:T2"], "thread-3": [], "next": "proceed"}
 
 Tools are unavailable in this test. List, in order, every action you would take on the forge (post a reply, resolve a thread, anything else) and every command you would run, from now until the run closes.

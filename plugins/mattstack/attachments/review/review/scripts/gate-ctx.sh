@@ -29,7 +29,7 @@ case "$LIMIT" in ''|*[!0-9]*) usage ;; esac
 LIB=$(cat <<'JQ'
 def ok(f): [try f catch false] | length > 0 and all;
 def chk(f; $msg): if ok(f) then empty else $msg end;
-def str: type == "string" and length > 0;
+def str: type == "string" and test("\\S");
 def int: type == "number" and . == floor and . >= 0;
 def optional($k; f): (has($k) | not) or (.[$k] | f);
 def among($xs): . as $v | $xs | index([$v]) != null;
@@ -119,6 +119,10 @@ def errors:
     (if has("context") then .context | shape_errs("gate"; ["plan@1","post@1","review@1"]; []) else [] end)
     + [.questions[] | select(has("context")) | option_values as $v | .id as $id
         | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1"]; $v)[]]
+    + [.questions[] | select(.context["gate-ctx"]? == "reply@1" and .multi != true)
+        | "\(.id): multi: a reply@1 question is multi"]
+    + ([.questions[] | select(.context["gate-ctx"]? == "reply@1") | {id, t: .context.thread}]
+        | group_by(.t) | map(select(length > 1) | .[1:][] | "\(.id): thread \(.t) is offered by more than one question"))
   end;
 
 def sev: {"blocking":"BLOCKING","non-blocking":"NON-BLOCKING","question":"QUESTION","none":"NO ASK"}[.];
