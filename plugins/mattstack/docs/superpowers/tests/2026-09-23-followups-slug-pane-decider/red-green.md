@@ -367,7 +367,7 @@ evidence-intake-open GREEN, per rep:
 
 ## Gaps closed
 
-The fix round's reps turned up three gaps, and Matt approved closing
+The fix round's reps turned up three gaps, and the operator approved closing
 them in the same round. The fix round's GREEN tree, commit `806ec23`,
 is RED here. GREEN is the tree with all three applied, compiled with no
 fills.
@@ -486,3 +486,59 @@ It is scored strictly on:
 - Reps in both arms disagree over which offered text is "the task as
   stated" (the human's request or the earlier statement). That comes
   from the scenario's wording, not from the gate.
+
+### Hold at the clarify gates
+
+Moving Hold into its own `next` question left the clarify gates of
+review, checkout and self-review saying nothing about what Hold does. The
+clarify selections do not carry `next`, so a Hold left a clarify record
+that read as a decided target, with no trace of the hold.
+
+Each gate now gains one Hold line in stage-provision's shape ("Hold:
+record `hold:provision:<attempt>`, `rt runs field set hold "<their
+words>" --stage provision`, end the turn"). It also spells out the
+record as `rt runs decision record --contract gate@1 --scope
+hold:<stage>:<attempt> --selection '{"reason":"<their words>"}'
+--decided-by <the answer's by>`, the form `work`'s Hold section and the
+parameterized-skills convention use. checkout's line uses
+`<run.current_stage>`, as its clarify gate already does.
+
+The probe is `scenarios/review-clarify-hold.md`: the human leaves the
+pick on !87 but answers Hold with a reason. It is scored strictly on:
+
+- the `hold:review:<attempt>` decision record;
+- `rt runs field set hold "<their words>" --stage review`;
+- ending the turn with no close, no target identity and no step 2.
+
+| Arm | Hold decision record | `hold` field | Stops | Strict |
+|---|---|---|---|---|
+| RED (`39a38b1`), 3 reps | 0/3 | 1/3 | 1/3 | 0/3 |
+| Stage-provision's shorthand exactly ("record `hold:<stage>:<attempt>`"), 3 reps | 0/3 | 3/3 | 3/3 | 0/3 |
+| Committed (the record spelled out), 3 reps | 3/3 | 3/3 | 3/3 | 3/3 |
+
+RED, per rep:
+
+- Reps 1 and 2 record `clarify` with `{"target":"!87"}`, set `mr`,
+  `branch` and `ticket`, then close the run as `abandoned`.
+- Rep 3 records the clarify target, sets `hold` and stops, with no
+  hold decision.
+
+The shorthand arm, per rep:
+
+- All three set `hold` and stop.
+- All three read "record `hold:review:1`" as `rt runs field set gate
+  hold:review:1`, not as a decision record. Pipeline stages run with
+  `work`'s Hold section in context, which spells out the record.
+  Standalone verbs have no such context, so the committed line names the
+  command.
+
+Committed, per rep:
+
+- All three write `rt runs decision record --contract gate@1 --scope
+  hold:review:1 --selection '{"reason":"..."}' --decided-by pane`, set
+  `hold`, and end the turn with no close and no identity.
+- All three also skip the clarify target record on Hold. No record
+  claims a decided target.
+
+checkout and self-review carry the same line with their own stage
+placeholder. Only review's gate had reps.
