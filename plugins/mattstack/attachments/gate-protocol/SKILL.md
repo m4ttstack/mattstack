@@ -18,7 +18,7 @@ opening ceremony (subject resolution, presentation, nudge, origin, the
 context size cap):
 
 ```bash
-rt gate ask --questions '<questions json>' --kind <scope> [--context <text>] [--subject <s>]
+rt gate ask --questions '[{"id": ..., "label": ..., "options": [...]}, ...]' --kind <scope> [--context <text>] [--subject <s>]
 ```
 
 or, tool-native, the `gate_ask` MCP tool with the same `questions` /
@@ -236,7 +236,7 @@ lets the presentation pick the branch:
 
 1. Bracket the run record: `rt runs field set gate <scope> --stage
    <stage>`.
-2. Publish: `rt gate ask --questions '<questions json>' --kind <scope>
+2. Publish: `rt gate ask --questions '<questions json array>' --kind <scope>
    --context '<verbatim quote of the material -- per-site substitution
    point>'`. Include `--context` only when the site has material to
    quote; omit the flag entirely otherwise, never an empty string. No
