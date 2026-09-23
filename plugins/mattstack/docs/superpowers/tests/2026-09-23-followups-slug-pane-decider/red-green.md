@@ -446,3 +446,43 @@ post-pane-typed GREEN:
 
 checkout had no reps. Its clarify wording now matches review's shape,
 which review-clarify tested.
+
+### self-review's clarify gate
+
+The same Hold fix, applied to self-review's clarify gate for
+consistency.
+
+- Old: "these questions: the candidate sources (the task as stated, a
+  linked doc, their text, and **Hold**)".
+- New: "these questions: `source`, the candidate sources (the task as
+  stated, a linked doc, or their text), and `next`: **Proceed**
+  (recommended) / **Hold**".
+- The question id `source` matches the record's selection key.
+
+The probe is `scenarios/self-review-clarify.md`: a hand-run self-review
+on a branch with no ticket, where the human picks the task as stated.
+It is scored strictly on:
+
+- `rt gate ask --kind clarify` with a bare array;
+- a `source` question with Hold in a separate `next` question;
+- `--by pane`;
+- `--decided-by pane`.
+
+| Arm | Hold in `next` | Strict |
+|---|---|---|
+| RED (`b8bd2dd`), 3 reps | 0/3 | 0/3 |
+| RED again, 3 reps (a run meant for GREEN that compiled before the edit applied) | 0/3 | 0/3 |
+| GREEN, 3 reps | 3/3 | 3/3 |
+
+- Every RED rep puts Hold as the fourth option of the `source` question.
+  They are otherwise right: a bare array, `--kind clarify`, `--by pane`
+  and `--decided-by pane`.
+- Every GREEN rep opens `source` and `next` (proceed / hold) as separate
+  questions, answers `{"source": ..., "next": "proceed"}` with `--by
+  pane`, and records `--decided-by pane`.
+- GREEN rep 2 also puts `"next":"proceed"` in the record's selection,
+  beside `source`. The skill's selection is `{"source":"<picked>"}`, so
+  the extra key is noted but not scored.
+- Reps in both arms disagree over which offered text is "the task as
+  stated" (the human's request or the earlier statement). That comes
+  from the scenario's wording, not from the gate.
