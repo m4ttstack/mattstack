@@ -599,6 +599,75 @@ Re-run on that text, 5 reps each:
 | resume-snapshot-plain-only | 5/5 | T2 alone at gate 2 (`replies` 1, `verb` `reply`, resolve unrecommended), T1 waits for proceed, nothing posts, no re-ask. Every rep now calls T2 an override ("Without a recoverable gate 1 draft, it counts as `gate-1: override`"). |
 | resume-snapshot-plain-reply | 5/5 | T2 and T3 at gate 2 (`replies` 2), T1 waits, no re-ask. Every rep calls T3 an override ("It counts as an override even though `overrides` omits it"). |
 
+## Fix round 5 (CodeRabbit on skills#10)
+
+Two findings:
+
+- **A note lost on a snapshot resume.** The respond-plan record kept no
+  note, so a snapshot-only Resume redrafted a note override without the
+  developer's note.
+- **A handed `post` read too late.** With a caller-handed `{plan, post}`
+  and nothing offered, the "No thread offered" bullet posted the
+  `gate-1: reply` rows before the decision intake read the handed `post`.
+  A retired-shape `post` that left a reply out (an empty `replies` list
+  included) could not hold it.
+
+### Engine changes
+
+- **`notes` in the record.** The respond-plan selection gains
+  `"notes":{"<threadId>":"<the answer's note>"}`, one entry per
+  `gate-1: override` thread whose answer carried a note, omitted when
+  empty. The snapshot sentence reads `notes` as the note to fold into an
+  override's redraft. The red flag and the quick reference name `notes`.
+- **The no-offer path splits in two.** With no caller-handed `post`, the
+  `gate-1: reply` rows post now, as before. With one (in `{plan, post}`
+  or on its own), that `post` decides first: no `gate-1: reply` row posts
+  before it is read, and its selection is recorded in the act paragraph,
+  a retired-shape `post` unchanged.
+- **Retired shape.** The act paragraph adds: that shape offered every
+  thread with a reply, so it decides each `gate-1: reply` row too; one it
+  lists posts once, and one it omits (an empty list included) posts
+  nothing.
+- **Quick reference.** The `{plan, post}` row adds that the handed `post`
+  decides before any `gate-1: reply` row posts.
+- The first commit (39ba045) said the no-offer bullet records the `post`
+  "as the act paragraph below says". One GREEN rep then recorded a
+  retired-shape `post` in the per-thread shape, so ec4389d adds "a
+  retired-shape `post` unchanged".
+
+### Scenarios
+
+- `scenarios/plan-override-note.md` (changed criteria): the record now
+  also carries `"notes":{"T1":"<the typed text>"}`.
+- `scenarios/resume-snapshot-note-override.md` (new):
+  `resume-snapshot-overrides.md` with `"notes":{"T2":...}`. Pass: T2 is
+  redrafted with the note folded in (the dequeue path), offered alone
+  (`replies` 1, resolve unrecommended), T1 waits for proceed, nothing
+  posts.
+- `scenarios/plan-post-retired-empty.md` (new, the finding's case): a
+  handed `{"plan": {"thread-1": "reply:T1", "code-changes": "skip"},
+  "post": {"replies": [], "disposition": "leave-open"}}`, T1's card
+  verbatim. Pass: T1's row `gate-1: reply`; T1 not posted and nothing
+  resolved; the respond-plan record; the respond-post record
+  `{"replies":[],"disposition":"leave-open"}` unchanged; close.
+- `scenarios/resume-post-retired-empty.md` (new): the same retired
+  `post` handed on its own to a fresh pane, as the board:respond
+  wrapper's domain-path resume would. Same pass.
+
+### Results (strict, 5 reps each)
+
+| Scenario | RED (c029f29) | GREEN | Notes |
+|---|---|---|---|
+| plan-override-note (the `notes` criterion) | 0/5 | 9/10 (39ba045) | RED: every record is `{"threads":...,"overrides":["T1"],"code-changes":"skip"}` with no note. GREEN: in the first five, rep 5 skipped the `rt gate answer` and dropped `code-changes` from its record; five more reps all pass. |
+| resume-snapshot-note-override | 5/5 | 5/5 (39ba045) | A guard on the reading side: the old engine already folded a self-describing `notes` entry into the redraft. The failing half is the writer. |
+| plan-post-retired-empty | 0/5 | 5/5 (39ba045), 5/5 (ec4389d) | RED: every rep posts T1 and sets the handed `post` aside because nothing was offered (four call it "moot"). GREEN: T1 not posted, both records, the retired selection unchanged. |
+| resume-post-retired-empty | 5/5 | 4/5 (39ba045), 5/5 (ec4389d) | A guard: with `post` handed alone, the old engine already let the retired shape decide T1. On 39ba045, rep 5 recorded `{"threads":{"T1":{"post":false,"resolve":false}}}`; ec4389d names the unchanged record. |
+
+Regressions on ec4389d, 5 reps each: plan-replies-only 5/5 (no handed
+`post`, so T1's text and T2's draft post at once with no gate 2), post-none
+5/5, resume-skipped-reply 5/5, post-resume 5/5 (no positional join) and
+resume-snapshot-overrides 5/5.
+
 ## Noise outside this change
 
 - Several reps name a conditional `waiting-gate` clear, a doorbell
@@ -641,3 +710,7 @@ Re-run on that text, 5 reps each:
   except post-resume at 9/10, one reasoning slip unrelated to this edit.
   A re-review text round names that thread an override outright; both
   snapshot scenarios re-ran 5/5 on it.
+- Fix round 5: the respond-plan record keeps an override's note in
+  `notes` (writer 0/5 -> 9/10; the reader was already 5/5), and a handed
+  `post` decides before the no-offer path posts anything (the finding's
+  case 0/5 -> 5/5). Regressions are 5/5.
