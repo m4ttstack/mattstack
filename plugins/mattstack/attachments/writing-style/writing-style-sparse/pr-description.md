@@ -40,7 +40,7 @@ in this voice. Otherwise use the shape below.
 
 ## Group labels
 
-Named after what they group (`Cache`, `API`, `Callers`), never "Code
+Named after what they group (`Parser`, `API`, `Docs`), never "Code
 changes". Two to four groups; one group needs no label.
 
 ## Also and Follow-up
@@ -51,7 +51,7 @@ ticket covers is one line naming it.
 ## Verification
 
 One sentence with a specific case and the observable result. Test counts,
-not logs: "9 new tests; settings suite 142/142 green."
+not logs: "4 new tests; list suite 88/88 green."
 
 ## Don't
 
@@ -64,9 +64,9 @@ not logs: "9 new tests; settings suite 142/142 green."
 ## Anti-patterns
 
 - A framing paragraph that walks every file. Cut to what and why.
-- A compound bullet: "Adds `cache.ts`, which keys on tenant and user and
-  evicts on write (so the PATCH path stays fresh) and also renames...". Cut
-  to "`cache.ts`: per-user cache keyed on tenant and user."
+- A compound bullet: "Adds `paginate.ts`, which rounds the page count up and
+  clamps the offset (so the last page renders) and also renames...". Cut
+  to "`paginate.ts`: page count rounds up."
 - A follow-up bullet that restates what its ticket already says.
 
 ## Minimal variant

@@ -97,10 +97,10 @@ and the fix asked as a light question. The inline anchor already says where
 you are, so don't re-walk the path. The beats a substantive finding may take,
 in order (a superset; most use two or three):
 
-1. **Claim, hedged.** `i think this leaks across tenants.`
+1. **Claim, hedged.** `i think this drops the last partial page.`
 2. **Mechanism**, cited as `file.ts:line`. When it is a condition or two,
    fold it into the claim instead of its own paragraph.
-3. **Impact.** `both t1 and t2 have a u7 in seed data, so it's reachable.`
+3. **Impact.** `any list with a remainder hits it, so it's reachable.`
    Often folds into the claim.
 4. **Suggestion, as a question.** Code goes in a fenced block.
 5. **Concession, only when real.** Never as a politeness move.
@@ -110,7 +110,7 @@ process ask (a missing test, missing evidence) is one or two casual lines
 that lead with the approval if there is one and ask as a favor:
 
 ```
-**suggestion:** changes look good. would you mind adding a test for the two-tenant case? 👌
+**suggestion:** changes look good. would you mind adding a test for the empty-list case? 👌
 ```
 
 Over-built:
@@ -146,7 +146,7 @@ blank-line paragraphs.
 
 - `good call. changed to Record<Status, string>.`
 - `honestly not sure. good one to keep an eye on though.`
-- `i don't think async buys us anything yet. nothing loads labels from the api, and it'd ripple through six sync callers.`
+- `i don't think we need a lock here. the job runs on one worker, and a lock adds a round trip per write.`
 - `👍`
 
 ## PR descriptions
@@ -157,5 +157,5 @@ length target, the structure, and the anti-patterns.
 ## Commit messages
 
 - Subject: lowercase, imperative, under 72 characters, prefixed with the
-  ticket key when the repo uses them (`ABC-123: key settings cache on tenant`).
+  ticket key when the repo uses them (`ABC-123: round page count up`).
 - Body, optional: one or two lowercase lines on why, wrapped at 72.
