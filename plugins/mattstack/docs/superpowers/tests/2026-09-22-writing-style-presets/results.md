@@ -109,7 +109,7 @@ the post-fix run (last section).
 | --- | --- | --- |
 | 1-review | 103 / 143 / 100 | sentence case; bold labels; repro as an output block; ask as a friendly question with the fix fenced; missing tests its own comment; one-line summary that points at the blocker (r3: "One blocker inline (the cache key), otherwise looks good to me."). r2 split the eviction fix into a second inline finding with a fenced function |
 | 2-replies | 30 / 30 / 32 | `Good call, switched to Record<Status, string>.`; gentle disagreement with the reason, no thanks |
-| 3a-pr | 129 / 138 / 127 | sentence-case ticket title, three-sentence framing that says where to start, What changed and Testing, follow-up as a sentence under What changed; a little under the companion's 150 |
+| 3a-pr | 129 / 138 / 127 | sentence-case ticket title, three-sentence framing that says where to start, What changed and Testing, follow-up as a sentence under What changed; under the 150-word floor the companion had then (now a 250-word ceiling) |
 | 3b-pr-with-template | 159 / 180 / 161 | Summary, Checklist, Verification kept in all three |
 | 4-commit | 38 / 35 / 36 | `ABC-481: Key the settings cache on tenant and user` (sentence case, 49 chars) plus a two-sentence why |
 
@@ -128,7 +128,7 @@ the post-fix run (last section).
 | --- | --- | --- |
 | 1-review | 102 / 103 / 89 | label line carries the problem, then Why, Impact (with the repro as an output block), Suggestion, and the fix fenced; nitpick is the label and one line; missing tests its own comment; summary `One blocker inline (cache key).` |
 | 2-replies | 24 / 25 / 25 | outcome first: `Changed to Record<Status, string>.` and `Keeping it sync: ...` with one reason |
-| 3a-pr | 118 / 116 / 112 | Summary, Changes, Testing, Follow-up in all three; under the companion's 200 because the change is small |
+| 3a-pr | 118 / 116 / 112 | Summary, Changes, Testing, Follow-up in all three; under the 200-word floor the companion had then (now a 300-word ceiling) |
 | 3b-pr-with-template | 142 / 144 / 138 | Summary, Checklist, Verification kept in all three |
 | 4-commit | 44 / 46 / 41 | `ABC-481: Key the settings cache on tenant and user` plus a three-line why |
 
@@ -154,9 +154,12 @@ for all three presets is f1 from this run.
 | conversational | ok / ok | 104 / 103 | 30 / 30 | 112 / 116 | 146 / 146 | 33 / 30 |
 | structured | ok / ok | 102 / 93 | 26 / 24 | 117 / 115 | 141 / 139 | 39 / 35 |
 
-Every earlier check holds in all six: labels, repro as an output block,
-the fix fenced, one finding per comment, missing tests its own comment,
-one-line summary, template sections kept in 3b. All six state the tenant
+Labels, repro as an output block, the fix fenced, missing tests as its own
+finding, one-line summary, and 3b's template sections hold in all six. Two
+misses in the committed f1 outputs: the conversational review runs its last
+three comments together with no boundary marker (sparse uses `---`,
+structured names each block), and the sparse disagreement adds a trailing
+clause after its one reason ("easy to flip when something does."). All six state the tenant
 fact correctly ("unique within a tenant" or "repeat across tenants").
 Each PR output still opens with the title line, because the fixture asks
 for one file holding everything posted.
