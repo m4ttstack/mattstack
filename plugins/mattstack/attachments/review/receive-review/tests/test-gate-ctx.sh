@@ -37,8 +37,8 @@ check "structured open fits" true "$(printf '%s' "$OUT" | jq .fits)"
 
 run "$POST" fit
 check "post fit is structured" structured "$(printf '%s' "$OUT" | jq -r .mode)"
-check "replies context round-trips" true \
-  "$(printf '%s' "$OUT" | jq --slurpfile s "$POST" '(.questions[0].context | fromjson) == $s[0].questions[0].context')"
+check "reply contexts round-trip" true \
+  "$(printf '%s' "$OUT" | jq --slurpfile s "$POST" '[.questions[0,1].context | fromjson] == [$s[0].questions[0,1].context]')"
 
 M=$(mutate '.questions[0].context.extra = {"x": 1} | .context.future = "later"' "$PLAN"); run "$M" fit; rm -f "$M"
 check "unknown keys pass through" '{"x":1}|later' \
@@ -94,9 +94,10 @@ check "prose leaves context-free questions alone" false "$(printf '%s' "$OUT" | 
 run "$POST" prose
 check "prose post line" "Posting replies to renee's review · round 1 · 2 replies · fix pushed ab12cd3" \
   "$(printf '%s' "$OUT" | jq -r .context)"
-check "prose replies block" "queue/enqueue.ts:88 FIX · ab12cd3: Fixed -- queue/enqueue.ts:88 / enqueue() now drops non-retryable jobs; added the check and a test.
-queue/README.md:12 REPLY: the wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay." \
+check "prose fix reply line" "queue/enqueue.ts:88 FIX · ab12cd3: Fixed -- queue/enqueue.ts:88 / enqueue() now drops non-retryable jobs; added the check and a test." \
   "$(printf '%s' "$OUT" | jq -r '.questions[0].context')"
+check "prose reply line" "queue/README.md:12 REPLY: the wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay." \
+  "$(printf '%s' "$OUT" | jq -r '.questions[1].context')"
 
 M=$(mutate '.context.fixes = [{"sha": "a1"}, {"sha": "b2"}, {"sha": "c3"}]' "$POST"); run "$M" prose; rm -f "$M"
 check "three or more fixes collapse" "Posting replies to renee's review · round 1 · 2 replies · 3 fixes pushed" \
@@ -172,13 +173,20 @@ reject "severity outside the enum" '.questions[0].context.severity = "major"' "$
 reject "verbatim reply without text" '.questions[1].context.reply = {"kind": "verbatim"}' "$PLAN" "thread-2: reply.text: required unless reply.kind is none"
 reject "retired verdict word" '.questions[1].context.verdict.call = "invalid"' "$PLAN" "thread-2: verdict.call: valid|valid-low-value|pushback|needs-clarification|no-ask"
 reject "question shape at gate level" '.context["gate-ctx"] = "thread@1"' "$PLAN" "gate: gate-ctx must be one of plan@1, post@1, review@1"
-reject "unknown version" '.questions[0].context["gate-ctx"] = "thread@2"' "$PLAN" "thread-1: gate-ctx must be one of thread@1, replies@1, findings@1"
+reject "unknown version" '.questions[0].context["gate-ctx"] = "thread@2"' "$PLAN" "thread-1: gate-ctx must be one of thread@1, reply@1, findings@1"
 reject "null optional" '.context.round = null' "$PLAN" "gate: round: integer when present"
 reject "points as a string" '.questions[0].context.claim.points = "one"' "$PLAN" "thread-1: claim.points: array of strings when present"
-reject "reply entry joins no option" '.questions[0].context.replies[0].thread = "TX"' "$POST" "replies: replies[0].thread: matches no option value of this question"
+reject "reply joins no option" '.questions[0].context.thread = "TX"' "$POST" "thread-1: options: exactly post:TX and resolve:TX"
+reject "a third option on a reply" '.questions[1].options += ["skip:T2"]' "$POST" "thread-2: options: exactly post:T2 and resolve:T2"
 reject "post without a replies count" 'del(.context.replies)' "$POST" "gate: replies: required integer"
-reject "sha on a reply entry" '.questions[0].context.replies[1].sha = "x"' "$POST" "replies: replies[1].sha: only a fix carries sha"
-reject "replies not an array" '.questions[0].context.replies = "T1"' "$POST" "replies: replies: required non-empty array"
+reject "sha on a plain reply" '.questions[1].context.sha = "x"' "$POST" "thread-2: sha: only a fix carries sha"
+reject "a reply without text" 'del(.questions[0].context.text)' "$POST" "thread-1: text: required non-empty string"
+reject "verb outside the enum" '.questions[1].context.verb = "skip"' "$POST" "thread-2: verb: reply|fix"
+reject "a reply question that is not multi" '.questions[0].multi = false' "$POST" "thread-1: multi: a reply@1 question is multi"
+reject "a reply question with no multi" 'del(.questions[1].multi)' "$POST" "thread-2: multi: a reply@1 question is multi"
+reject "a thread offered twice" '.questions[1].context.thread = "T1" | .questions[1].context.verb = "reply" | .questions[1].options = ["post:T1", "resolve:T1"]' "$POST" "thread-2: thread T1 is offered by more than one question"
+reject "whitespace-only reply text" '.questions[0].context.text = "   "' "$POST" "thread-1: text: required non-empty string"
+reject "the retired replies shape" '.questions[0].context = {"gate-ctx": "replies@1", "replies": []}' "$POST" "thread-1: gate-ctx must be one of thread@1, reply@1, findings@1"
 reject "missing readiness" 'del(.context.readiness)' "$REVIEW" "gate: readiness: yes|no|with-fixes"
 reject "spaced readiness" '.context.readiness = "with fixes"' "$REVIEW" "gate: readiness: yes|no|with-fixes"
 reject "missing summary" 'del(.context.summary)' "$REVIEW" "gate: summary: required non-empty string"
@@ -194,7 +202,7 @@ reject "an option with no entry" '.questions[0].options += [{"value": "f7", "lab
 reject "an entry with no option" '.questions[1].context.findings += [.questions[1].context.findings[0] | .id = "f8"]' "$REVIEW" "findings-2: findings[1].id: matches no option value of this question"
 reject "a duplicated entry id" '.questions[0].context.findings[3].id = "f1" | .questions[0].options[3].value = "f1"' "$REVIEW" "findings-1: findings: id f1 appears more than once"
 reject "findings shape at gate level" '.context["gate-ctx"] = "findings@1"' "$REVIEW" "gate: gate-ctx must be one of plan@1, post@1, review@1"
-reject "review shape on a question" '.questions[0].context["gate-ctx"] = "review@1"' "$REVIEW" "findings-1: gate-ctx must be one of thread@1, replies@1, findings@1"
+reject "review shape on a question" '.questions[0].context["gate-ctx"] = "review@1"' "$REVIEW" "findings-1: gate-ctx must be one of thread@1, reply@1, findings@1"
 
 BAD=$(mktemp); printf 'not json' > "$BAD"; run "$BAD" fit; rm -f "$BAD"
 check "non-JSON stdin exits 1" 1 "$RC"
