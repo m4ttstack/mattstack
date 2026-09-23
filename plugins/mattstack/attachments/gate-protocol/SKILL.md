@@ -150,7 +150,8 @@ option's `label` when it has one and its `description` when it has one
 (the AskUserQuestion option's own description field); submit the chosen
 option's `value` verbatim, in one object keyed by question id:
 `rt gate answer <id> --answers '{"<question id>": "<value>" | ["<value>", ...] | {"value": ..., "note": "..."}}' --by pane`
-(or the `gate_answer` tool). When the gate carries more questions than one form
+(or the `gate_answer` tool). A question with no options takes what the
+human typed as its value. When the gate carries more questions than one form
 call fits, chunk the forms but submit exactly ONE answer after the last
 chunk; a CAS rejection at that point discards every chunk's answer
 together.
@@ -189,7 +190,7 @@ the same `rt gate answer ... --by pane`.
 If the answer CAS reports an earlier answer, discard your form's answer,
 say in the pane in one line which answer won and from where, and proceed
 on the recorded one; the rejection payload carries it, no second read
-needed. A decision record's `--decided-by` always names the WINNER, never
+needed. A `gate@1` record's `--decided-by` always names the WINNER, never
 `pane` when a different surface won.
 
 Answered externally while a form still sits open: the daemon queues the
@@ -250,8 +251,8 @@ lets the presentation pick the branch:
      --selection '<json>' --decided-by <row.answer.by>
    ```
 
-   (`--decided-by` is `pane`, `board`, `console`, or `shepherd`, never a
-   verb name.)
+   (a `gate@1` record's `--decided-by` is `pane`, `board`, `console`, or
+   `shepherd`, never a verb name.)
 
 ## Daemon down (either mode)
 
