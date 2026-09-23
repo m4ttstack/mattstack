@@ -68,12 +68,17 @@ run-status --status done` (or `abandoned` when the gate said so), then
 From the conversation: an MR/PR URL, a bare !iid or #number, a ticket id,
 or a branch name. Resolve to one MR/PR via the forge CLI
 (`glab mr view <ref>` or `gh pr view <ref>`); ambiguity is gate `clarify`:
-one sentence naming the candidates, then the structured-question tool
-with one option per candidate and **Hold** (`rt runs field set gate clarify --stage
+one sentence naming the candidates, then run gate-protocol's Runs
+integration with kind `clarify` and these questions: `target`, one
+option per candidate, and `next`: **Proceed** (recommended) / **Hold**
+(`rt runs field set gate clarify --stage
 <stage>` before, where `<stage>` is `review` for an own run and
 `run.current_stage` when inherited, and `rt runs decision record --contract gate@1 --scope
-clarify --selection '{"target":"<picked>"}' --decided-by review` after).
-Never a guess.
+clarify --selection '{"target":"<picked>"}' --decided-by <the answer's by>` after).
+Hold: record `hold:<stage>:<attempt>` (`rt runs decision record --contract
+gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their words>"}'
+--decided-by <the answer's by>`), `rt runs field set hold "<their words>"
+--stage <stage>`, end the turn. Never a guess.
 
 When the run is yours, record the resolved target per Run identity above:
 `mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id the
