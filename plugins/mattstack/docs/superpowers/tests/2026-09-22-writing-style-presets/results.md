@@ -98,3 +98,19 @@ Floor: ok in all three. The committed `outputs/sparse/` is r1.
 Verdict: sparse lands on the reference's labels, length and shape. It is
 stricter than the reference on one point by design: the fix goes in a
 fenced block where the reference kept a short key inline.
+
+## Conversational (three reps)
+
+Floor: ok in all three. The committed `outputs/conversational/` is r1.
+
+| Fixture | Words (r1 / r2 / r3) | Observation |
+| --- | --- | --- |
+| 1-review | 103 / 143 / 100 | sentence case; bold labels; repro as an output block; ask as a friendly question with the fix fenced; missing tests its own comment; one-line summary that points at the blocker ("One blocker inline (the cache key), otherwise looks good to me."). r2 split the eviction fix into a second inline finding with a fenced function |
+| 2-replies | 30 / 30 / 32 | `Good call, switched to Record<Status, string>.`; gentle disagreement with the reason, no thanks |
+| 3a-pr | 129 / 138 / 127 | sentence-case ticket title, three-sentence framing that says where to start, What changed and Testing, follow-up as a sentence under What changed; a little under the companion's 150 |
+| 3b-pr-with-template | 159 / 180 / 161 | Summary, Checklist, Verification kept in all three |
+| 4-commit | 38 / 35 / 36 | `ABC-481: Key the settings cache on tenant and user` (sentence case, 49 chars) plus a two-sentence why |
+
+Two reps restate "unique only within a tenant" as "only repeat within a
+tenant", a content slip the style does not cause. Every plan check holds;
+no REFACTOR.
