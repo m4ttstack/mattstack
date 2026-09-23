@@ -317,7 +317,11 @@ apply to these fixes; this skill never checks their box.
 ## 6. Decide and post: respond-post (Gate `respond-post`)
 
 The drafted replies are bucketed from step 3; `skip:<threadId>` threads
-never reach this offer.
+never reach this offer. When no thread is offered (every thread `skip:`,
+or every `fix:` held out under `code-changes: skip`), there is no
+respond-post gate: open nothing, post nothing, record nothing for this
+scope, and close; a caller that owns the gates gets no open file back,
+only that nothing is offered.
 
 <HARD-GATE>
 Decision intake: when the caller's `{plan, post}` object already carries
@@ -414,8 +418,9 @@ resolve from reply; an empty array leaves the thread untouched. Nothing else pos
 note, never approve the change: that stays the developer's, however
 settled a thread looks once its reply is written. Posting mechanics
 belong to the forge CLI and the adapter. A caller-handed `post` in the
-retired shape (a `replies` list of bare thread ids plus `disposition`)
-posts the listed replies, resolves them only on `resolve-addressed`, and
+retired shape (a `replies` list, or its `replies-1`, `replies-2`, ...
+chunks read as one union, of bare thread ids plus `disposition`) posts
+the listed replies, resolves them only on `resolve-addressed`, and
 records that selection unchanged.
 
 At execution time, after acting: `rt runs decision record --contract

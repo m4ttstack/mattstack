@@ -101,6 +101,19 @@ hand, its fenced blocks defeated the scorer), act 5/5, resume 5/5, every
 record `{"threads":{"T1":{"post":true,"resolve":true},"T2":{"post":false,"resolve":true},"T4":{"post":false,"resolve":false}}}`
 with `--decided-by board`.
 
+## No thread offered (board review fix wave)
+
+An opus review of the paired board PR found step 6 silent on a run where
+no thread is offered (every thread `skip:`, or every `fix:` held out
+under `code-changes: skip`). `scenarios/post-none.md` is that run, both
+threads skipped. RED (the engine before this sentence): 0/5, every rep
+built a respond-post source holding only `next`, fitted it and opened
+it with `rt gate ask`, then waited on a Proceed / Iterate / Hold form.
+GREEN (step 6 now says there is no respond-post gate in that case, and
+the retired-shape sentence reads `replies-*` chunks as one union): 5/5
+open nothing, record nothing for the scope, and close; the build
+scenario re-run alongside stays 5/5 (rep 3 read by hand).
+
 ## Verdict
 
 5/5 on every scenario. The build recipe replaces the blanket
