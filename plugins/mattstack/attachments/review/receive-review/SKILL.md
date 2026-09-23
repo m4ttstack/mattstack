@@ -166,10 +166,8 @@ Reply rules section below**: follow it. On top of either branch, these hold:
   performative and carries none: "Good call", "You're right", "Great catch",
   "Nice find", "Thanks" -- and every variant, "Confirmed, thanks." included.
   Open on what the code does or what changes.
-- **Voice.** Drafting starts by loading the operator's writing-style skill
-  when one is available: that load is step one, and each reply is composed in
-  that voice from the first word, never a second-pass edit. Absent one, a
-  neutral, concise voice.
+
+{{include:writing-style-lookup}}
 
 ## Reply rules
 

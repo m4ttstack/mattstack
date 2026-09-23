@@ -246,6 +246,8 @@ message still ends with the target's link (the close HARD-GATE below).
 
 {{include:wrap-up-form}}
 
+{{include:writing-style-lookup}}
+
 {{include:review-posting}}
 
 Posting mechanics: a positioned inline comment is the `mr_comment_inline`

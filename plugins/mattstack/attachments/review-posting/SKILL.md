@@ -98,16 +98,6 @@ Either leave the merge decision to the author or say plainly that approval
 is being withheld pending the noted items. Only an approving disposition may
 carry an unqualified all-clear.
 
-## Writing style
-
-Composing comment text -- inline threads and the summary alike -- starts by
-loading the operator's writing-style skill as step one of drafting. The
-operator declares it in `~/.mattstack/user/skills/preferences.md` under
-`## Writing style`, which names the skill to load. Every comment is composed
-in that voice from the first word; a second-pass edit applied to an
-already-drafted comment never lands as true. When that file declares no
-writing-style skill, use a neutral, concise voice.
-
 ## Close HARD-GATE
 
 <HARD-GATE>
