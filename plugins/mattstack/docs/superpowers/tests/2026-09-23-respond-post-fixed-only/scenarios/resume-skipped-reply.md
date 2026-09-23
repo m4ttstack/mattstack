@@ -1,9 +1,9 @@
 You are at step 6, Decide and post, of this receive-review run on https://gitlab.example.com/acme/queue/-/merge_requests/87 (!87). The reviewer is renee, round 1. You already started this run (RT_RUN_DB is set; your stage is receive-review).
 
 A caller that owns the gates resumed you in a fresh pane after its respond-post gate was answered. You did not build that gate's open in this session and its files are not at hand. The caller hands you its report, /tmp/st/report.md, whose rows are:
-- T1 · queue/enqueue.ts:88 · valid, recommended fix · gate 1: fix · posts at: gate 2 · sha: ab12cd3 · reply: "Fixed -- queue/enqueue.ts:88 / enqueue() now drops non-retryable jobs; added the check and a test."
-- T3 · queue/worker.ts:20 · needs-clarification, recommended reply · gate 1: skip · posts at: never · reply: "Which caller do you mean: the cron path or the API path?"
-- T2 · queue/README.md:12 · pushback, recommended reply · gate 1: reply · posts at: gate 1 · reply: "The wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay."
+- T1 · queue/enqueue.ts:88 · valid, recommended fix · gate-1: fix · sha: ab12cd3 · reply: "Fixed -- queue/enqueue.ts:88 / enqueue() now drops non-retryable jobs; added the check and a test."
+- T3 · queue/worker.ts:20 · needs-clarification, recommended reply · gate-1: skip · reply: "Which caller do you mean: the cron path or the API path?"
+- T2 · queue/README.md:12 · pushback, recommended reply · gate-1: reply · reply: "The wait is a fixed 30s delay (queue/retry.ts:14), so the README keeps delay."
 
 and the decision, {post: {"thread-1": ["post:T1", "resolve:T1"]}, by: "board"}.
 
