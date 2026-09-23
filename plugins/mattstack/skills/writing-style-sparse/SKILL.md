@@ -7,7 +7,7 @@ metadata:
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:writing-style-sparse version=0.17.21 path=attachments/writing-style/writing-style-sparse/SKILL.md lines=7-107 -->
+<!-- part: step source=mattstack:writing-style-sparse version=0.17.21 path=attachments/writing-style/writing-style-sparse/SKILL.md lines=7-108 -->
 
 # Sparse
 
@@ -15,7 +15,7 @@ Terse and conversational. The reader is a colleague who can follow a chain
 from one sentence. Load this before the first draft and write in it from the
 first word; it is not a pass applied to a finished draft.
 
-<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.17.21 path=attachments/writing-style-floor/SKILL.md lines=6-48 -->
+<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.17.21 path=attachments/writing-style-floor/SKILL.md lines=6-53 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
@@ -48,8 +48,13 @@ The preset sets the voice; these set the floor.
 - **One reason, one ask.** Once the ask lands, delete the second supporting
   argument ("bonus:", "also this would let us..."). Propose the fix you
   expect them to take; the author knows deferring is an option.
-- **Evidence as output.** If you ran something, paste the result in a code
-  block rather than describing it.
+- **Evidence as output.** If you ran or reproduced something, paste what it
+  returned in a code block instead of a sentence describing it:
+
+  ```
+  base a1b2c3d -> 2 rows: "Item 1", "Item 2"
+  head e4f5a6b -> 1 row:  "Item 1"
+  ```
 - **Stay on the diff.** Comment on the code in front of you. Whether the
   change should exist at all is the author's and PM's call.
 - **Code out of prose.** More than a few tokens of code (an expression, a
@@ -101,7 +106,8 @@ in order (a superset; most use two or three):
 5. **Concession, only when real.** Never as a politeness move.
 
 A non-blocking `thought` or `question` is two short paragraphs at most. A
-process ask (a missing test, missing evidence) is one or two casual lines:
+process ask (a missing test, missing evidence) is one or two casual lines
+that lead with the approval if there is one and ask as a favor:
 
 ```
 **suggestion:** changes look good. would you mind adding a test for the two-tenant case? 👌
