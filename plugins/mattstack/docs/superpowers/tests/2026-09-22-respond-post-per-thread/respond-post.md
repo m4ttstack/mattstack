@@ -119,3 +119,10 @@ scenario re-run alongside stays 5/5 (rep 3 read by hand).
 5/5 on every scenario. The build recipe replaces the blanket
 disposition with a post/resolve pair per thread, resolve defaulting on
 for fixes only, and the record now names each thread's outcome.
+
+## Premise update (2026-09-23)
+
+`scenarios/post-act.md` and `scenarios/post-resume.md` were updated when
+respond-post stopped offering reply-only threads. The tallies above
+belong to the earlier text, which git history keeps. See
+`../2026-09-23-respond-post-fixed-only/red-green.md`.
