@@ -407,10 +407,10 @@ own navigation drops that question.
 Act per thread, reading each `thread-<n>` answer (a `{value, note}`
 object unwraps to its `value`; the note rides the decision record and never
 edits the approved reply) and splitting each value at the first `:` into
-the verb and the thread id: `post:<threadId>` posts that thread's reply; `resolve:<threadId>` resolves the thread, after its reply
-when both are picked and on its own when only resolve is, where the forge
-distinguishes resolve from reply; an empty array leaves the thread
-untouched. Nothing else posts, through any channel. Never a top-level
+the verb and the thread id: `post:<threadId>` posts that thread's reply;
+`resolve:<threadId>` resolves the thread, after its reply when both are
+picked and on its own when only resolve is, where the forge distinguishes
+resolve from reply; an empty array leaves the thread untouched. Nothing else posts, through any channel. Never a top-level
 note, never approve the change: that stays the developer's, however
 settled a thread looks once its reply is written. Posting mechanics
 belong to the forge CLI and the adapter. A caller-handed `post` in the
