@@ -278,7 +278,7 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
 - Over budget (the fit printed `"fits": false`, or the ask reported
   `contextOmitted`): right after the ask and before waiting on any
   answer, write one line, `gate-1-context: dropped`, into step 3's saved
-  report. A resumed pane has no other way to know those cards never
+  report (when there is one). A resumed pane has no other way to know those cards never
   showed their drafts (A dropped context, below).
 - In-pane form (gate-protocol's presentation: "form" branch): the form
   never shows the JSON. Running
@@ -348,9 +348,10 @@ respond-plan record instead: `threads` gives each verb, `texts` the
 edited replies, and `overrides` the reply overrides, offered at gate 2
 beside any finalized fix, so it never posts a draft an override was
 meant to replace. A `reply` thread with no `texts` entry has no
-recoverable gate 1 draft there: redraft it and offer it at gate 2
-beside the overrides, never posting it from gate 1, however closely
-the redraft follows the lost one.
+recoverable gate 1 draft there, so count it as an override
+(`gate-1: override`): redraft it and offer it at gate 2 beside the
+other overrides, never posting it from gate 1, however closely the
+redraft follows the lost one.
 
 `code-changes: revise` re-adjudicates: back to step 2, a fresh dispatch with
 their note -- never revised in this session, the bias HARD-GATE still
