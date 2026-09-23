@@ -434,13 +434,15 @@ gate@1 --scope respond-post --selection
 thread's answer was an object with `text` and `post:`, and then it is the
 answer's: `{"post":true,"resolve":true,"text":"<the answer's text>"}`
 when that answer also carries `resolve:`, `"resolve":false` when it does
-not. A reply posted from the `reply@1` context records `{post, resolve}`
-alone. Every offered thread gets an entry. An answer's values name its
-thread; an empty array names none, so take that thread from the
-question's options in the open, or, when the open is not at hand (a
-caller handed `post` to a fresh pane), record every offered thread (a
-report row with a finalized reply) that no answer value names as both
-`false`. Never map a `thread-<n>` key to a thread by its position.
+not. A reply posted from the `reply@1` context never adds `text`. An
+entry whose thread's answer carries a note adds it as `note`:
+`{"post":true,"resolve":false,"note":"<the note>"}`. Every offered
+thread gets an entry. An answer's values name its thread; an empty
+array names none, so take that thread from the question's options in the
+open, or, when the open is not at hand (a caller handed `post` to a
+fresh pane), record every offered thread (a report row with a finalized
+reply) that no answer value names as both `false`. Never map a
+`thread-<n>` key to a thread by its position.
 
 Close, only when `## Run` started this run: after acting on every thread
 and recording the decision, `rt runs stage-done --stage receive-review`, `rt runs

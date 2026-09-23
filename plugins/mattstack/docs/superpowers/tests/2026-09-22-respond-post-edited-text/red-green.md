@@ -6,13 +6,15 @@ post":
 - the act paragraph: an answer object's `text` replaces the `reply@1`
   draft for a `post:` thread;
 - the decision record paragraph: an entry carries `text` only for such a
-  thread, and its `resolve` follows the answer;
+  thread, and its `resolve` follows the answer; a thread whose answer
+  carries a note records it in that thread's entry as `note`;
 - the in-pane form bullet: the pane's answer never carries `text`;
 - the `reply@1` fill: the context's `text` is the drafted reply.
 
 `attachments/gate-protocol/SKILL.md`, "## Answers are option values",
-names `text` beside `note` on the answer object and says the in-pane
-form is not a surface that sends it.
+names `text` beside `note` on the answer object. It also says the in-pane
+form never sends `text`: a replacement for offered text typed in the
+form's free-text field rides as a note.
 
 Scenarios committed beside this record, all on the invented MR !87
 (reviewer renee):
@@ -71,8 +73,9 @@ Per scenario:
   `{"post":true,"resolve":false}`.
 - **post-pane-typed:** the pane's `rt gate answer` carries the typed text
   as `note`, never `text`, with `--by pane`. T1 posts its DRAFT exactly
-  and resolves. T2 resolves only. The record has no `text` and
-  `--decided-by pane`.
+  and resolves. T2 resolves only. The record uses `--decided-by pane` and
+  has no `text` anywhere. From fix round 2 on, T1's entry must also carry
+  the typed text as `note`.
 - **Regressions:** the four scenarios in
   `../2026-09-22-respond-post-per-thread/scenarios/`, scored by that
   record's criteria plus the close. For act and resume, no answer
@@ -166,7 +169,7 @@ Regressions:
   - every record was correct.
 - none 5/5.
 
-## Fix round
+## Fix round 1
 
 ### RED (system file = the first commit's engine)
 
@@ -200,12 +203,13 @@ answer does not.
 
 The first clause went in the in-pane form bullet only ("an edit typed in
 a free-text field is a note"). It scored 1/5: reps still followed
-gate-protocol's surface sentence. Adding "The in-pane form is not such a
-surface: what a human types in its free-text field is a note." to
-gate-protocol, and "a full replacement reply included" to the pane
-clause, scored 5/5.
+gate-protocol's surface sentence. Two edits landing together scored 5/5:
+gate-protocol gained "The in-pane form is not such a surface: what a
+human types in its free-text field is a note.", and the pane clause
+gained "a full replacement reply included". Fix round 2 rescoped the
+gate-protocol sentence.
 
-### GREEN (the committed engine), strict
+### GREEN (fix round 1's engine), strict
 
 - **post-act-edited-postonly 10/10:**
   - T1 posts the `text` exactly and does not resolve;
@@ -220,13 +224,49 @@ clause, scored 5/5.
   - T1 posts its exact draft and resolves; T2 resolves only;
   - no record has `text`, and every rep uses `--decided-by pane` and
     closes;
-  - reps 2, 4 and 5 also copied the `note` into T1's record entry. This
-    is not scored, because step 6 says the note rides the record.
+  - reps 2, 4 and 5 also copied the `note` into T1's record entry; reps 1
+    and 3 left it out. This was unscored in fix round 1. Under fix round
+    2's ruling it scores 3/5, which is fix round 2's RED.
 - **post-build 5/5:** every source uses exact reply texts, is fitted, is
   opened with `rt gate ask --kind respond-post`, and waits for the
   answer.
 - **post-act 5/5** and **post-resume 5/5:** exact texts, correct records,
   every rep closes.
+
+## Fix round 2
+
+Two changes:
+
+- **Scoped pane sentence.** In gate-protocol, "The in-pane form is not
+  such a surface: what a human types in its free-text field is a note."
+  became "The in-pane form never sends `text`; a replacement for offered
+  text that the human types in the form's free-text field rides as a
+  note." The old wording, inlined into every verb that includes
+  gate-protocol, also covered stage-evidence's open-ended intake
+  question, where the typed text is the answer itself. The new sentence
+  covers only a replacement for offered text.
+- **Note per thread.** "A reply posted from the `reply@1` context records
+  `{post, resolve}` alone." became "A reply posted from the `reply@1`
+  context never adds `text`. An entry whose thread's answer carries a
+  note adds it as `note`: `{"post":true,"resolve":false,"note":"<the
+  note>"}`."
+
+RED is fix round 1's pane result under the new criterion: 3/5 carried
+the note in T1's entry, and 2/5 left it out.
+
+GREEN (the committed engine), strict, every rep read by hand:
+
+| Scenario | Result | Notes |
+|---|---|---|
+| post-pane-typed | 5/5 | T1's entry is `{"post":true,"resolve":true,"note":"Fixed in ab12cd3: ..."}` with no `text`. Every `rt gate answer` carries the typed text as `note` with `--by pane`, the exact draft posts, and every rep closes. |
+| post-act-edited | 5/5 | Unchanged: T1 `text` exact with `resolve:true`, T2 and T4 without `text`. Rep 3 first clears `waiting-gate`, which is harmless. |
+| post-none | 5/5 | Opens nothing, writes no file, records nothing for the scope, closes. |
+| post-act | 5/5 | Guard for the changed sentence: no entry gains `text` or `note`. |
+| post-resume | 5/5 | Same guard as post-act. |
+| post-act-edited-postonly | 5/5 | T2's `"text": "ignored edit"` is neither posted nor recorded as `text` or `note`. |
+| post-build | 5/5 | Exact drafted texts in every `reply@1`, then fit, `rt gate ask --kind respond-post`, and wait. |
+
+No rep skipped the close or rewrote `--`.
 
 ## Noise outside this change
 
@@ -243,15 +283,17 @@ clause, scored 5/5.
     resume, so 1/15.
   - After the edit: 3 in the first commit's 40 act and resume reps
     (round 1 act rep 4, round 2 act rep 3, round 3 resume rep 6).
-  - None in the fix round's 30 act and resume reps.
+  - None in the fix rounds' 40 act and resume reps.
 
 ## Verdict
 
 - post-act-edited: RED 0/5; first commit 4/5 strict (one close miss that
-  also appears in the control); committed engine 5/5.
-- The committed engine is 5/5 or better on every scenario, read strictly:
-  build, act, resume, edited, post-only (10/10) and pane.
+  also appears in the control); 5/5 on the committed engine.
+- Strict results on the committed engine: 5/5 on every scenario (build,
+  none, act, resume, post-act-edited, post-only and pane).
+- Post-only also passed its 10-rep wording test on fix round 1's engine.
+  Fix round 2 did not touch the `resolve` clause.
 - The act step posts an answer's `text` for a `post:` thread and the
   draft otherwise, and the pane never sends `text`.
-- The record carries `text` only when the answer supplied it, and its
-  `resolve` follows the answer.
+- The record carries `text` only when the answer supplied it, its
+  `resolve` follows the answer, and a note rides its thread's entry.
