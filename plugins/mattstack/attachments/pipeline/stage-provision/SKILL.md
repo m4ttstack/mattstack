@@ -74,7 +74,10 @@ title too generic for a slug, a classification the domain tracks):
     (recommended) / **Fresh tree**
   - `ticket`, only on a missing ticket: **Create one** / **I will
     recheck the id**
-  - `slug`, only on a generic title: the slug as their text
+  - `slug`, only on a generic title: the slug as their text. From the
+    in-pane form, a slug they type rides as the note on this question's
+    answer, with the value left as the option the form offered; that note
+    is the slug to use.
   - the domain's own questions, each its own, as it words them
   - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
 - `rt runs decision record --contract gate@1 --scope provision --selection '{"resume_in":"<tree or null>","ticket":"create|recheck|null","slug":"<text or null>","domain":{<answers>}}' --decided-by <the answer's by>`
