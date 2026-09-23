@@ -42,5 +42,9 @@
   {
     "task": "Check in before you continue; what is left and what should I decide",
     "expect": "wrap-up"
+  },
+  {
+    "task": "Draft my review comments for PR #212 in acme/storefront and post them.",
+    "expect": null
   }
 ]
