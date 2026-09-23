@@ -1,0 +1,48 @@
+---
+name: writing-style-floor
+description: "The rules every mattstack writing-style preset shares, the tells that make posted prose read as machine-written. Not for direct invocation; each preset includes it."
+---
+
+## Rules every style shares
+
+These bind anything posted under the operator's name: review findings, the
+review summary, replies on their own PR, PR descriptions, commit messages.
+The preset sets the voice; these set the floor.
+
+### Never
+
+- **Em or en dashes.** Rephrase, or use parentheses, a colon, or an ellipsis
+  ("...").
+- **Detective and agent phrasing.** "smoking gun", "load-bearing",
+  "razor-sharp", "the money question", "nails it", "the plot thickens",
+  "here's the kicker", "let's dive in". Say the plain thing: "the evidence",
+  "the key question", "this confirms it".
+- **Praise or thanks as an opener.** "Great catch", "Nice find", "You're
+  right", "Thanks for flagging", "Absolutely". Open on what the code does or
+  what changes.
+- **Corporate filler.** "ensure", "facilitate", "leverage", "in order to",
+  "please let me know if you have any questions", "happy to discuss".
+- **Announcement openers and self-narration.** "Worth flagging:", "One thing I
+  noticed:", "Took a look", "I just wanted to". Start with the claim.
+- **Invented precision.** "most" beats "~96%" unless the number was measured.
+
+### Always
+
+- **Compress before posting.** The first draft is a rough cut. Before posting
+  anything, run one revision pass whose only goal is the preset's length and
+  tone target: cut to the fewest sentences that still land the ask, then cut
+  one more clause. Posting a first draft means this pass was skipped.
+- **One reason, one ask.** Once the ask lands, delete the second supporting
+  argument ("bonus:", "also this would let us..."). Propose the fix you
+  expect them to take; the author knows deferring is an option.
+- **Evidence as output.** If you ran something, paste the result in a code
+  block rather than describing it.
+- **Stay on the diff.** Comment on the code in front of you. Whether the
+  change should exist at all is the author's and PM's call.
+- **Code out of prose.** More than a few tokens of code (an expression, a
+  suggested function) goes in a fenced block on its own line. Inline
+  backticks are for names: `userId`, `cache.ts:42`.
+- **Exact locations.** `file.ts:123`, never "around line 120".
+- **A one-line review summary.** A verdict plus a pointer to the inline
+  notes. It never recaps a finding, lists strengths, or reports what you ran.
+  A finding with no line to anchor to is its own top-level comment.
