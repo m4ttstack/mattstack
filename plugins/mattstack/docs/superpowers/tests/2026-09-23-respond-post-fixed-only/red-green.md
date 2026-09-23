@@ -27,21 +27,28 @@ after the fix rounds below:
   after the open, so a resume, a caller-handed `{plan}` in a fresh pane
   included, can read it.
 - **Step 4, record.** `threads` keeps bare verbs, `texts` holds the edited
-  replies and `overrides` lists the override threads, each omitted when
-  empty. A `## Run` Resume from the snapshot alone reads them, and offers
-  a `reply` thread with no `texts` entry at gate 2 beside the overrides,
-  since its gate 1 draft is gone.
+  replies, `overrides` lists the override threads and `notes` holds each
+  override's note, each omitted when empty. A `## Run` Resume from the
+  snapshot alone reads them, folds a note into its override's redraft, and
+  counts a `reply` thread with no `texts` entry as an override offered at
+  gate 2, since its gate 1 draft is gone.
 - **Step 6, offer.** Gate 2 offers exactly the replies the developer has
   not seen word for word: overrides and finalized fixes. `gate-1: reply`
-  rows post unresolved: at once, with no gate 2 and no respond-post
-  record, when nothing is offered; otherwise once gate 2 proceeds, never
-  on hold, iterate or revise.
+  rows post unresolved (a retired-shape `post` aside, below): at once, with no gate 2 and no respond-post
+  record, when nothing is offered and no caller handed a `post`;
+  otherwise once gate 2 proceeds, never on hold, iterate or revise. A
+  caller-handed `post` (in `{plan, post}` or alone) decides first, even
+  with nothing offered.
 - **Step 6, record and legacy.** The respond-post record covers offered
   threads only. An open built before this rule that still offers or names
   a reply-only thread decides it, an empty array included, and no reply
-  posts twice. The caller-owned path hands back which replies posted.
+  posts twice. A retired-shape `post` decides every `gate-1: reply` row
+  fully, as that older gate did: a listed row posts once and is resolved
+  only on `resolve-addressed`, and an omitted row (an empty list
+  included) posts nothing; its selection is recorded unchanged. The
+  caller-owned path hands back which replies posted.
 - **Tables:** the red-flag and quick-reference rows match.
-- **History:** the first commit, then Fix rounds 1, 2, 3 and 4 below.
+- **History:** the first commit, then Fix rounds 1 to 5 below.
 
 ## Scenarios
 
@@ -668,6 +675,31 @@ Regressions on ec4389d, 5 reps each: plan-replies-only 5/5 (no handed
 5/5, resume-skipped-reply 5/5, post-resume 5/5 (no positional join) and
 resume-snapshot-overrides 5/5.
 
+### Stand-in review text round (469d71d)
+
+- **Retired shape resolves too.** "A `gate-1: reply` row ... is never
+  resolved" (step 6) and the quick-reference `reply:` row gain "except as
+  a retired-shape `post` decides it". The retired-shape sentence now reads
+  that the shape decides each `gate-1: reply` row "fully, as that older
+  gate did: one it lists posts once and is resolved only on
+  `resolve-addressed`, and one it omits (an empty list included) posts
+  nothing".
+- **Quick reference.** A `gate-1: reply` posts at once only "with no
+  offered thread and no caller-handed `post`", matching the `{plan,
+  post}` row.
+- Two over-long lines from earlier rounds re-wrapped.
+
+New scenario, `scenarios/plan-post-retired-listed.md`:
+plan-post-retired-empty with `"post": {"replies": ["T1"], "disposition":
+"resolve-addressed"}`. Pass: T1 posted once and resolved, both records,
+the retired selection recorded unchanged, close.
+
+| Scenario | RED (ec4389d) | GREEN (469d71d) | Notes |
+|---|---|---|---|
+| plan-post-retired-listed | 5/5 | 5/5 | A guard: the retired-shape sentence already said "resolves them only on `resolve-addressed`". The edit removes the contradiction with "never resolved"; it changes no observed behavior. |
+| plan-post-retired-empty | | 5/5 | T1 not posted; retired selection unchanged. |
+| plan-replies-only | | 5/5 | No handed `post`: both replies post at once, no gate 2. |
+
 ## Noise outside this change
 
 - Several reps name a conditional `waiting-gate` clear, a doorbell
@@ -713,4 +745,6 @@ resume-snapshot-overrides 5/5.
 - Fix round 5: the respond-plan record keeps an override's note in
   `notes` (writer 0/5 -> 9/10; the reader was already 5/5), and a handed
   `post` decides before the no-offer path posts anything (the finding's
-  case 0/5 -> 5/5). Regressions are 5/5.
+  case 0/5 -> 5/5). Regressions are 5/5. A stand-in review text round
+  lets a retired-shape `post` resolve a listed `gate-1: reply` row on
+  `resolve-addressed` (a guard at 5/5 before and after).
