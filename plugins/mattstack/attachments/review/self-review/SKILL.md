@@ -113,7 +113,11 @@ When the run is yours, record the branch per Run identity above: `branch`
   one sentence, then run gate-protocol's Runs integration with kind
   `clarify` and these questions: `source`, the candidate sources (the task
   as stated, a linked doc, or their text), and `next`: **Proceed**
-  (recommended) / **Hold**, rather than reviewing against nothing.
+  (recommended) / **Hold**, rather than reviewing against nothing. Hold:
+  record `hold:<stage>:<attempt>` (`rt runs decision record --contract
+  gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their
+  words>"}' --decided-by <the answer's by>`), `rt runs field set hold
+  "<their words>" --stage <stage>`, end the turn.
 
 ## 2. Delegate to the review engine
 

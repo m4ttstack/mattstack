@@ -75,7 +75,10 @@ option per candidate, and `next`: **Proceed** (recommended) / **Hold**
 <stage>` before, where `<stage>` is `review` for an own run and
 `run.current_stage` when inherited, and `rt runs decision record --contract gate@1 --scope
 clarify --selection '{"target":"<picked>"}' --decided-by <the answer's by>` after).
-Never a guess.
+Hold: record `hold:<stage>:<attempt>` (`rt runs decision record --contract
+gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their words>"}'
+--decided-by <the answer's by>`), `rt runs field set hold "<their words>"
+--stage <stage>`, end the turn. Never a guess.
 
 When the run is yours, record the resolved target per Run identity above:
 `mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id the
