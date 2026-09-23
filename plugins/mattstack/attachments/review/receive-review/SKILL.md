@@ -392,8 +392,9 @@ row step 5 never finalized, post nothing.
   that nothing is offered and which replies posted.
 - **No thread offered, but the caller handed a `post`** (in a
   `{plan, post}` object, or on its own): that `post` decides first. Post
-  no `gate-1: reply` row before reading it; act on it and record it as
-  the act paragraph below says.
+  no `gate-1: reply` row before reading it; act on it as the act
+  paragraph below says, and record its selection there, a retired-shape
+  `post` unchanged.
 - **Threads offered:** the `gate-1: reply` rows wait, and post once this
   gate proceeds (the act paragraph below).
 
