@@ -55,3 +55,23 @@ Floor: ok.
 
 Loophole: the floor's evidence rule has no example, and the finding folded
 the repro into a sentence. REFACTOR: give the rule a short output example.
+
+## Sparse, after the evidence example (three reps)
+
+Floor: ok in all three.
+
+| Fixture | Words (r1 / r2 / r3) | Observation |
+| --- | --- | --- |
+| 1-review | 72 / 76 / 74 | repro pasted as an output block in all three; same labels and one-line summary. Miss in r2 and r3: the fix `${tenantId}:${userId}` inline in the ask |
+| 2-replies | 29 / 29 / 29 | stable: `good call.` then a hedged one-reason disagreement |
+| 3a-pr | 108 / 92 / 111 | 75% to 91% of the reference; same shape |
+| 3b-pr-with-template | 131 / 116 / 141 | template sections kept in all three |
+| 4-commit | 31 / 32 / 28 | `ABC-481:` lowercase subject in all three |
+
+Loophole: "more than a few tokens of code" let a one-line key slip inline.
+REFACTOR: suggested code is always fenced; backticks only for names that
+already exist.
+
+Fixture 2 and fixture 1's test ask overlap the preset's own reply and
+process-ask examples (as they overlap the reference skill's), so those two
+rows measure example-following more than generalization.
