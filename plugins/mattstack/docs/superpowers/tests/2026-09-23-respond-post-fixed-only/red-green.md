@@ -16,9 +16,13 @@ after two fix rounds:
   when any one of these holds, whoever answered:
   - its card was not verbatim;
   - it carries a note;
-  - its question context never reached the gate.
+  - its question context never reached the gate. A whole-open signal (a
+    `"fits": false` open, or `contextOmitted`) counts every thread's
+    context as dropped.
 
   An override is redrafted (folding in the note) and offered at gate 2.
+  After `contextOmitted`, the verb never shortens a reply and never
+  re-asks; it takes the answers as given.
 - **Step 4, record.** `threads` keeps bare verbs, `texts` holds the edited
   replies and `overrides` lists the override threads, each omitted when
   empty. A `## Run` Resume from the snapshot alone reads them.
@@ -32,7 +36,7 @@ after two fix rounds:
   a reply-only thread decides it, an empty array included, and no reply
   posts twice. The caller-owned path hands back which replies posted.
 - **Tables:** the red-flag and quick-reference rows match.
-- **History:** the first commit, then Fix round 1 and Fix round 2 below.
+- **History:** the first commit, then Fix rounds 1, 2 and 3 below.
 
 ## Scenarios
 
@@ -378,6 +382,11 @@ at 260597c9 ("Flow", "Report rows" and "Records").
   the scenario now gives only the daemon's facts. Both versions are in
   git history (e8c7e78, 9d01786).
 
+Correction (Fix round 3): that stderr line was made up. The daemon strips
+every question context at once and prints one fixed line that names no
+thread. Fix round 3 rewrote the scenario, so the tallies below belong to
+the retired version (9d01786).
+
 ### RED (Fix round 1's engine, cd23963)
 
 plan-override-dropped: 0/5 strict. Every rep already routed T2 to gate 2
@@ -398,6 +407,84 @@ old rule already reached, and the failing part is the new field.
 | post-none | 5/5 | Every `rt gate ask` mention is a negation (rep 3 lists it under "Not run"). No file, no respond-post record, close. |
 | post-pane-typed | 5/5 | The typed text rides as `note` with `--by pane`, T1's exact draft posts and resolves, T2 resolves only, T1's entry carries the note, close. |
 | post-act-edited-postonly | 5/5 | T1 posts the `text` unresolved, T2 resolves only ("ignored edit" neither posted nor recorded), T4 posts its draft, close. |
+
+## Fix round 3 (re-review)
+
+The re-review found that Fix round 2's dropped scenario rested on a
+daemon behavior that does not exist:
+
+- over budget, `withoutQuestionContexts` strips every question context
+  (rt `lib/daemon/handlers/gate.ts`);
+- `rt gate ask` prints one fixed stderr line that names no thread
+  (`commands/gate.ts`).
+
+Under the made-up per-thread line, every GREEN rep posted T1's draft
+from gate 1, but in a real run that draft never reached the gate either.
+
+### Engine changes
+
+- **Whole-open signal.** The `gate-1` rule now reads: "or its question
+  context never reached the gate, so its draft may never have been
+  shown: you dropped it for the size budget, or the open was whole-open
+  over budget (a `"fits": false` open, or one that reported
+  `contextOmitted`), which counts every thread's context as dropped".
+  This matches the board:respond wrapper ("then count every question's
+  context as dropped"). "May never have been shown" also holds in the
+  pane, where the prose form showed it.
+- **After `contextOmitted`.** A new paragraph, **A dropped context**:
+  "When the respond-plan open reports `contextOmitted`, its stderr ends
+  "shorten and re-ask": do neither. Never shorten a reply and never
+  re-ask to fit. Keep the gate as opened, take its answers as given, and
+  count every thread's context as dropped, so every `reply:` answer with
+  no `text` is an override." A red-flag row covers "The stderr says
+  shorten and re-ask, so I'll trim the replies and open it again".
+- **Snapshot sentence.** "`overrides` the threads offered at gate 2" now
+  reads "`overrides` the reply overrides, offered at gate 2 beside any
+  finalized fix".
+- **Ledger.** The first commit's row is restored byte-identical, and each
+  fix round has its own row after it.
+
+### Scenarios
+
+- `scenarios/plan-override-dropped.md` (rewritten): plan-replies-only's
+  threads. The source is stated as abridged, with its contexts about
+  9,400 bytes as prose, so the fit printed `"fits": false`. `rt gate ask`
+  returned `"contextOmitted":true` and the real stderr line, verbatim:
+  "rt gate: context omitted: gate context plus question contexts exceeded
+  the shared 8192-byte budget; question contexts were dropped, and the
+  gate context too if it was over on its own; shorten and re-ask". The
+  board answered `reply:T1` and `reply:T2`, neither with `text`. Pass
+  criteria:
+  - both rows are `override`;
+  - the record carries `"overrides":["T1","T2"]` and no `texts`;
+  - both are offered at gate 2 (`replies` 2, `verb` `reply`, resolve
+    unrecommended);
+  - nothing posts at gate 1;
+  - no reply is shortened and respond-plan is not re-asked.
+- `scenarios/plan-dropped-at-ask.md` (new): the same ask, answered with
+  `presentation: form` in an attended pane before any answer arrives.
+  This is where "shorten and re-ask" actually pushes. Pass: no re-fit to
+  shorten, no second `rt gate ask --kind respond-plan`, and the form
+  proceeds.
+- `scenarios/resume-snapshot-overrides.md` (new): a hand-launched Resume
+  in a fresh pane with only the snapshot. The respond-plan record is
+  `{"threads":{"T1":"reply","T2":"reply"},"texts":{"T1":...},"overrides":["T2"],"code-changes":"skip"}`,
+  with no respond-post decision, and step 3's T2 draft is quoted. Pass:
+  - T2's draft is never posted outside gate 2;
+  - T2 is offered at a respond-post gate (`verb` `reply`, resolve
+    unrecommended);
+  - T1's text waits for proceed;
+  - respond-plan is not re-asked.
+
+### Results (strict, 5 reps each)
+
+| Scenario | RED (fix round 2's engine, 4694ba2) | GREEN (committed) | Notes |
+|---|---|---|---|
+| plan-override-dropped | 5/5 | 5/5 | The real stderr says question contexts plural were dropped, so the old engine already counted both. Every rep on both engines: both `override`, `"overrides":["T1","T2"]`, both offered, nothing posted, no shortening, no re-ask. The whole-open wording is a clarification that matches the wrapper, not a behavior fix. |
+| plan-dropped-at-ask | 5/5 | 5/5 | No rep re-fits, shortens or re-asks. The old engine reasons from "never shorten a reply to make an open fit"; the new one quotes the new paragraph ("the skill says to do neither"). |
+| resume-snapshot-overrides | 5/5 | 5/5 | Fix round 2 already added the snapshot sentence. Every rep offers T2 at gate 2 and holds T1 for proceed. Three GREEN reps note on their own that the snapshot does not keep an answer's note. |
+| plan-override-note | | 5/5 | `"overrides":["T1"]`, `note` with `--by pane`, redraft from the note, nothing posts. |
+| plan-replies-only | | 5/5 | Rows `reply`/`reply`, `texts` T1, no `overrides` key, exact bodies, close. |
 
 ## Noise outside this change
 
@@ -427,3 +514,9 @@ old rule already reached, and the failing part is the new field.
   trigger, and `overrides` joins the respond-plan record. The new
   scenario fails 0/5 on the old engine, only on the record, and passes
   5/5 now. Every re-run scenario is 5/5.
+- Fix round 3: a whole-open signal counts every thread's context as
+  dropped, and the verb never shortens or re-asks after `contextOmitted`.
+  The rewritten dropped scenario, the at-ask case and the snapshot-only
+  Resume are 5/5 on both engines: the change makes explicit what the old
+  engine already reached from the real stderr. plan-override-note and
+  plan-replies-only are 5/5.
