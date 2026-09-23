@@ -29,7 +29,7 @@ case "$LIMIT" in ''|*[!0-9]*) usage ;; esac
 LIB=$(cat <<'JQ'
 def ok(f): [try f catch false] | length > 0 and all;
 def chk(f; $msg): if ok(f) then empty else $msg end;
-def str: type == "string" and length > 0;
+def str: type == "string" and test("\\S");
 def int: type == "number" and . == floor and . >= 0;
 def optional($k; f): (has($k) | not) or (.[$k] | f);
 def among($xs): . as $v | $xs | index([$v]) != null;
@@ -62,17 +62,16 @@ def thread_errs: [
   chk(.reply.kind | among(["verbatim","direction","none"]); "reply.kind: verbatim|direction|none"),
   chk(.reply.kind == "none" or (.reply.text | str); "reply.text: required unless reply.kind is none")
 ];
-def replies_errs($values): [
-  chk(.replies | type == "array" and length > 0; "replies: required non-empty array"),
-  (entries("replies") | to_entries[] | .key as $i | .value | (
-    chk(.thread | str; "replies[\($i)].thread: required non-empty string"),
-    chk(.file | str; "replies[\($i)].file: required non-empty string"),
-    chk(.verb | among(["reply","fix"]); "replies[\($i)].verb: reply|fix"),
-    chk(.text | str; "replies[\($i)].text: required non-empty string"),
-    chk(optional("sha"; str); "replies[\($i)].sha: non-empty string when present"),
-    chk(.verb == "fix" or (has("sha") | not); "replies[\($i)].sha: only a fix carries sha"),
-    chk(.thread as $t | $values | index([$t]) != null; "replies[\($i)].thread: matches no option value of this question")
-  ))
+def reply_errs($values): [
+  chk(.thread | str; "thread: required non-empty string"),
+  chk(.file | str; "file: required non-empty string"),
+  chk(.verb | among(["reply","fix"]); "verb: reply|fix"),
+  chk(.text | str; "text: required non-empty string"),
+  chk(optional("sha"; str); "sha: non-empty string when present"),
+  chk(.verb == "fix" or (has("sha") | not); "sha: only a fix carries sha"),
+  (if .thread | str then .thread as $t
+     | chk(($values | sort) == ["post:\($t)", "resolve:\($t)"]; "options: exactly post:\($t) and resolve:\($t)")
+   else empty end)
 ];
 def review_errs: [
   chk(.readiness | among(["yes","no","with-fixes"]); "readiness: yes|no|with-fixes"),
@@ -109,7 +108,7 @@ def shape_errs($where; $allowed; $values):
     elif .["gate-ctx"] == "post@1" then post_errs
     elif .["gate-ctx"] == "review@1" then review_errs
     elif .["gate-ctx"] == "thread@1" then thread_errs
-    elif .["gate-ctx"] == "replies@1" then replies_errs($values)
+    elif .["gate-ctx"] == "reply@1" then reply_errs($values)
     else findings_errs($values) end
   ) | map("\($where): \(.)") end;
 def option_values: [.options[]? | if type == "object" then .value else . end];
@@ -119,7 +118,11 @@ def errors:
   else
     (if has("context") then .context | shape_errs("gate"; ["plan@1","post@1","review@1"]; []) else [] end)
     + [.questions[] | select(has("context")) | option_values as $v | .id as $id
-        | .context | shape_errs("\($id)"; ["thread@1","replies@1","findings@1"]; $v)[]]
+        | .context | shape_errs("\($id)"; ["thread@1","reply@1","findings@1"]; $v)[]]
+    + [.questions[] | select(.context["gate-ctx"]? == "reply@1" and .multi != true)
+        | "\(.id): multi: a reply@1 question is multi"]
+    + ([.questions[] | select(.context["gate-ctx"]? == "reply@1") | {id, t: .context.thread}]
+        | group_by(.t) | map(select(length > 1) | .[1:][] | "\(.id): thread \(.t) is offered by more than one question"))
   end;
 
 def sev: {"blocking":"BLOCKING","non-blocking":"NON-BLOCKING","question":"QUESTION","none":"NO ASK"}[.];
@@ -163,7 +166,7 @@ def prose:
         elif .reply.kind == "direction" then ["Reply direction: \(.reply.text)"]
         else [] end)) | join("\n")
   else
-    [.replies[] | "\(.file) " + (if .verb == "fix" then "FIX" + (if has("sha") then " · \(.sha)" else "" end) else "REPLY" end) + ": \(.text)"] | join("\n")
+    "\(.file) " + (if .verb == "fix" then "FIX" + (if has("sha") then " · \(.sha)" else "" end) else "REPLY" end) + ": \(.text)"
   end;
 
 def ctx_bytes: (if has("context") then .context | tojson | utf8bytelength else 0 end)
