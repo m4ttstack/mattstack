@@ -47,6 +47,18 @@ automatically (env RT_RUN_DB first, else the run this session started,
 else the newest running run in this worktree; ambiguity errors loudly).
 Export RT_RUN_DB only to drive a different run than yours.
 
+**Posted already.** On any resume, a caller replaying a parked gate's
+answer into a fresh pane or the snapshot alone, read each thread on the
+forge (its full note chain, step 1's fetch) before its reply posts or a
+re-asked `respond-post` offers it. A thread that already carries this
+run's reply, a note whose text is the reply due to post or any note by
+the account this run posts as dated after the run's `started_at`, is
+posted: the close no longer waits on it, an offered thread's respond-post
+entry reads `post: true` (a `gate-1: reply` row gets no entry, as ever),
+it is never offered at a re-asked gate, and it is never posted again,
+whatever the snapshot or the report says of it. Only a thread with no
+such note posts or is offered.
+
 Fresh. The flags for this verb, rendered by the compiler:
 
 {{run-start.flags:receive-review}}
@@ -505,23 +517,34 @@ A resume that finds `"held"` in that record treats every other offered
 thread as already acted on, acts only on the held threads once steps 1
 and 2 succeed, then records again without `"held"`.
 
-Act per thread, reading each `thread-<n>` answer (a `{value, note, text}`
-object unwraps to its `value`; the note rides the decision record and never
-edits the reply) and splitting each value at the first `:` into the verb
-and the thread id: `post:<threadId>` posts that thread's reply, which is
-the answer's `text` when it carries one and the `reply@1` context's `text`
-otherwise (`text` on a thread with no `post:` posts nothing);
-`resolve:<threadId>` resolves the thread, after its reply when both are
-picked and on its own when only resolve is, where the forge distinguishes
-resolve from reply; an empty array leaves the thread untouched. Then, once
-this gate proceeds (its `next` answer is `proceed`, or a caller handed
-`post`, which carries no `next`), post every `gate-1: reply` row,
-its row's reply, unresolved: this gate never offers those threads, so
-they post whatever it picked for its own threads. On `hold` or `iterate`
-they wait. When the open offers such a thread, or an answer value names
-it (an open built before this rule), that thread's answer decides it
-instead, an empty array included, and no reply posts twice. Nothing
-else posts, through any channel. Never a top-level note, never approve the
+Act only once this gate proceeds: its `next` answer is `proceed`, or a
+caller handed `post`, which carries no `next`. A `hold` or `iterate`
+answer decides nothing, whatever its thread picks say: nothing pushes,
+no reply posts, no thread resolves, and no respond-post decision is
+recorded, so every offered thread stays pending in the record and the
+`gate-1: reply` rows keep waiting. The ask that follows, once the hold
+lifts or the iteration is applied, is a NEW gate (gate-protocol's Closed
+gates, Hold / Iterate), its open rebuilt from the report rows minus
+every thread already posted: one whose respond-post record entry has
+`post: true`, or one the forge shows carrying this run's reply (Posted
+already, under `## Run`). A thread that has posted is never offered
+twice.
+
+On proceed, act per thread, reading each `thread-<n>` answer (a `{value,
+note, text}` object unwraps to its `value`; the note rides the decision
+record and never edits the reply) and splitting each value at the first
+`:` into the verb and the thread id: `post:<threadId>` posts that
+thread's reply, which is the answer's `text` when it carries one and the
+`reply@1` context's `text` otherwise (`text` on a thread with no `post:`
+posts nothing); `resolve:<threadId>` resolves the thread, after its reply
+when both are picked and on its own when only resolve is, where the forge
+distinguishes resolve from reply; an empty array leaves the thread
+untouched. Then post every `gate-1: reply` row, its row's reply,
+unresolved: this gate never offers those threads, so they post whatever
+it picked for its own threads. When the open offers such a thread, or an
+answer value names it (an open built before this rule), that thread's
+answer decides it instead, an empty array included, and no reply posts
+twice. Nothing else posts, through any channel. Never a top-level note, never approve the
 change: that stays the developer's, however settled a thread looks once
 its reply is written. Posting mechanics belong to the forge CLI and the
 adapter. A caller-handed `post` in the retired shape (a `replies` list, or
@@ -583,6 +606,8 @@ so.
 | "The gate approved posting, not a push, so the Fixed reply goes up (or I ask first)" | "Fixed" with nothing on the remote is false. The proceed authorizes the push: check the branch and `@{push}`, push first, and a mismatch or failed push holds every picked `gate-1: fix` row. |
 | "A plain `git push` pushes the MR" | It pushes whatever branch is checked out, to its own destination, and any configured push refspec or mirror refs with it. Check both against the MR's source branch, then push that one branch: `git push origin <source branch>`. |
 | "The fix is held, so I'll record respond-post once it posts" | A resume from the snapshot would re-offer the replies that already posted. Record now, with the fix threads under `"held"`. |
+| "They ticked post before choosing Iterate (or Hold), so those picks act now" | Only `proceed` acts. On `hold` or `iterate` nothing pushes, posts, resolves or records, whatever the picks; every offered thread stays pending, and the re-ask is a new gate over the threads not yet posted. |
+| "The snapshot has no respond-post record, so nothing has posted yet" | A pane can post and die before it records. On a resume, read each thread on the forge before its reply posts or a re-asked gate offers it: one carrying this run's reply (the same text, or a note by this run's account since `started_at`) is posted, counted as posted, never posted or offered again. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `respond-plan`'s `code-changes: approve`, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
 | "I'll present the table and ask about fixes and posting in the same breath" | `respond-plan` and `respond-post` are two gates, in order. Prose that asks both at once is neither. |
@@ -601,7 +626,7 @@ so.
 | `respond-plan` answered | Rewrite every report row with its `gate-1` field and any edited reply (step 4's Report rows); posting reads only these rows. |
 | `respond-plan` answered `reply:` | Override when the answer has no `text` and any one of: a card that was not verbatim, a note, or a question context that never reached the gate. An override is `gate-1: override`, listed under `overrides` (its note, when it has one, under `notes`), redrafted and offered at `respond-post`. Any other `reply:` is `gate-1: reply` (the answer's `text` under `texts`, else the verbatim draft): it posts from gate 1, never resolved except as a retired-shape `post` decides it, at once with no offered thread and no caller-handed `post`, once `respond-post` proceeds otherwise, never on `revise`. |
 | `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
-| `respond-post` answered | When a `gate-1: fix` row posts or resolves: check the branch and `@{push}`, then push that one branch first (`git push origin <source branch>`); a mismatch or failed push holds those rows under `"held"` in the record. Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; on proceed, the `gate-1: reply` rows post; never approve. |
+| `respond-post` answered | `hold` or `iterate`: nothing pushes, posts, resolves or records, whatever the picks; every offered thread stays pending, and the re-ask is a new gate over the threads not yet posted. `proceed` (or a caller-handed `post`): when a `gate-1: fix` row posts or resolves, check the branch and `@{push}`, then push that one branch first (`git push origin <source branch>`); a mismatch or failed push holds those rows under `"held"` in the record. Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; then the `gate-1: reply` rows post; never approve. |
 
 ## Gate protocol
 
