@@ -42,9 +42,11 @@ pick up.
 
 ## What's inside
 
-Only four skills are directly invocable once the plugin is installed:
-`mattstack:shepherdr`, `mattstack:subagent-review-loop`,
-`mattstack:editing-skills`, and `mattstack:getting-current-time` (see
+Only a handful of skills are directly invocable once the plugin is
+installed: `mattstack:shepherdr`, `mattstack:subagent-review-loop`,
+`mattstack:editing-skills`, `mattstack:creating-a-pack`,
+`mattstack:extending-a-pack`, `mattstack:getting-current-time`,
+`mattstack:wrap-up`, and the three writing-style presets (see
 [Usage](#usage)). Everything else below is an engine: it is not on any slash
 menu, and it becomes runnable only once a team's own pack compiles it into a
 verb with `rt skills compile`. That split is deliberate; see
@@ -113,9 +115,9 @@ compile-native: its `tiering`, `strategy`, `accounts`, and `domain` slots
 are `{{slot}}` placeholders the compiler fills, so the runtime resolver now
 serves only runtime-native wrappers.
 
-A domain team starts its own pack from `templates/domain-pack`: skills that
-fulfill the stage contracts, a bindings manifest, and the certification
-habit, all generalized from the first shipped pack.
+A domain team gets its pack from `rt skills init` (the `creating-a-pack`
+skill walks through it) and grows it with `extending-a-pack`; both are
+public doors of this plugin.
 
 ### Pipeline
 
@@ -282,8 +284,9 @@ can review and migrate that state with
 
 ## Usage
 
-Once the plugin is installed, four skills are on the slash menu (or trigger
-on the phrasing in their own description):
+Once the plugin is installed, the public doors listed under [What's
+inside](#whats-inside) are on the slash menu (or trigger on the phrasing in
+their own description). Two examples:
 
 ```
 $ claude
@@ -308,12 +311,13 @@ see [Configuration](#configuration).
 
 ## Configuration
 
-A domain team does not fork this repo. It starts its own pack from
-`templates/domain-pack`: skills that fulfill the stage contracts (the
-`plan-domain@1`, `provision-domain@1`, `ship-domain@1`, and similar
-contracts each pipeline stage exposes), a `.mattstack/skills.jsonc` bindings
-manifest naming which installed skill fills each slot, and the
-certification habit described below.
+A domain team does not fork this repo. It runs `rt skills init` in its repo
+(the `creating-a-pack` skill walks through it), which scaffolds a pack in
+the team's zone: a `work` verb compiled from the engines here with every
+domain slot unbound, so the generic pipeline runs on day one. Rules are
+added later as fills, one slot at a time, through the `extending-a-pack`
+skill; each fill is a small skill declaring `metadata.provides` and bound
+with `rt skills bind`.
 
 The bindings manifest schema lives at
 `plugin/schemas/skills-manifest.schema.json`, with a worked explanation in
