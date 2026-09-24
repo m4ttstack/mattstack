@@ -151,3 +151,20 @@ T1 is the `gate-1: fix` row at ab12cd3 throughout; T3 is a
 | push-wrong-branch | 5/5 | No push, T1 held, T2 posted, the mismatch quoted, `"held":["T1"]`, run open. |
 | push-fails-override | 5/5 | Converged: the same record in every rep. Rep 5: "a fresh pane reads `held: ["T1"]` from the record and treats T3 as already posted, so it never posts it twice." |
 | push-fails | 5/5 | The `"held":["T1"]` record in every rep, the error verbatim, T2 posted, run open. |
+
+## Explicit refspec round
+
+A bare `git push` follows any configured push refspec or mirror remote,
+so it can publish other local refs that the `@{push}` check never looks
+at. Step 2 now pushes the verified branch alone: `git push origin <source
+branch>`, never a bare `git push`. The "A plain `git push` pushes the MR"
+red flag and the `respond-post answered` quick reference row name the
+same command.
+
+Pass criterion for push-before-fixed, added: the push is `git push origin
+renee/queue-retry`, never a bare `git push`.
+
+| Wording | Result | Notes |
+|---|---|---|
+| main (the committed engine above) | 0/5 | The review round's GREEN reps of push-before-fixed, re-scored: every rep runs a bare `git push` after the two checks. The engine on main is unchanged since then, so these reps stand as the RED. |
+| explicit refspec | 5/5 | Every rep runs both checks, then `git push origin renee/queue-retry`, before T1's reply; T1 posts and resolves, T2 posts unresolved, the record holds T1 only, the run closes. Rep 3: "naming the branch explicitly (never a bare `git push`, never forced)". |

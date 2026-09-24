@@ -490,8 +490,10 @@ proceeds, or a caller hands `post`, and before acting on those rows:
    rev-parse --abbrev-ref @{push}` must print that branch on its remote
    (`origin/<source branch>`). Any other output, an error included, is a
    failed push; never switch branches to make it match.
-2. Push with a plain `git push`, so every commit step 5 made is on the
-   MR. That proceed is the authorization: ask nothing more.
+2. Push that one branch explicitly, `git push origin <source branch>`
+   (the branch step 1 verified), never a bare `git push`, which can
+   publish other refs under a configured push refspec or a mirror
+   remote. That proceed is the authorization: ask nothing more.
 
 A failed push (a target mismatch or a push error) holds those rows: post
 and resolve none of them, report the mismatch or the error verbatim (in
@@ -579,7 +581,7 @@ so.
 | "Step 3 recommended a reply here, so it posts" | Posting reads each report row's `gate-1` field, never the recommendation. A `gate-1: skip` row posts nothing. |
 | "The plan record has no slot for the edited reply" | It goes in `texts` beside `threads`, and over the draft in the report's row for that thread. Overrides go in `overrides`, and an override's note in `notes`. |
 | "The gate approved posting, not a push, so the Fixed reply goes up (or I ask first)" | "Fixed" with nothing on the remote is false. The proceed authorizes the push: check the branch and `@{push}`, push first, and a mismatch or failed push holds every picked `gate-1: fix` row. |
-| "A plain `git push` pushes the MR" | It pushes whatever branch is checked out, to its own destination. Check both against the MR's source branch first. |
+| "A plain `git push` pushes the MR" | It pushes whatever branch is checked out, to its own destination, and any configured push refspec or mirror refs with it. Check both against the MR's source branch, then push that one branch: `git push origin <source branch>`. |
 | "The fix is held, so I'll record respond-post once it posts" | A resume from the snapshot would re-offer the replies that already posted. Record now, with the fix threads under `"held"`. |
 | "This one is clearly right, I'll add the guard in a follow-up commit" | Implementation follows `respond-plan`'s `code-changes: approve`, not a line in the draft. |
 | "It's wrong, but I need the reviewer to point me at it" | Then it is `needs-clarification`, not `pushback`. |
@@ -599,7 +601,7 @@ so.
 | `respond-plan` answered | Rewrite every report row with its `gate-1` field and any edited reply (step 4's Report rows); posting reads only these rows. |
 | `respond-plan` answered `reply:` | Override when the answer has no `text` and any one of: a card that was not verbatim, a note, or a question context that never reached the gate. An override is `gate-1: override`, listed under `overrides` (its note, when it has one, under `notes`), redrafted and offered at `respond-post`. Any other `reply:` is `gate-1: reply` (the answer's `text` under `texts`, else the verbatim draft): it posts from gate 1, never resolved except as a retired-shape `post` decides it, at once with no offered thread and no caller-handed `post`, once `respond-post` proceeds otherwise, never on `revise`. |
 | `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
-| `respond-post` answered | When a `gate-1: fix` row posts or resolves: check the branch and `@{push}`, then push first; a mismatch or failed push holds those rows under `"held"` in the record. Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; on proceed, the `gate-1: reply` rows post; never approve. |
+| `respond-post` answered | When a `gate-1: fix` row posts or resolves: check the branch and `@{push}`, then push that one branch first (`git push origin <source branch>`); a mismatch or failed push holds those rows under `"held"` in the record. Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; on proceed, the `gate-1: reply` rows post; never approve. |
 
 ## Gate protocol
 
