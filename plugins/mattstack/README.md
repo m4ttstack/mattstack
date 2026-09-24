@@ -34,11 +34,30 @@ pick up.
   - [Forge](#forge)
   - [Browser](#browser)
 - [Installation](#installation)
+- [Getting started: your team's pack](#getting-started-your-teams-pack)
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Getting started: your team's pack
+
+Two skills are the front door for teams. Nothing else here needs to be read
+first.
+
+- **`mattstack:creating-a-pack`** puts the pipeline on a repo that has no
+  pack yet. Say "we want the work pipeline on this repo" in the repo and it
+  runs `rt skills init`, proves the result with a real run, and asks whether
+  the team has rules to add. A pack starts with zero rules and still runs
+  every stage.
+- **`mattstack:extending-a-pack`** teaches an existing pack one thing at a
+  time: a rule a stage should follow, a new verb, a reworded description.
+  Say what should change ("make ship run lint before it opens an MR") and it
+  sorts the ask, writes the rule test-first, binds it, and publishes.
+
+The step-by-step version, with what each command writes, is
+[docs/your-first-pack.md](docs/your-first-pack.md).
 
 ## What's inside
 
@@ -286,7 +305,32 @@ can review and migrate that state with
 
 Once the plugin is installed, the public doors listed under [What's
 inside](#whats-inside) are on the slash menu (or trigger on the phrasing in
-their own description). Two examples:
+their own description).
+
+**Get a pack.** In a repo with no pack yet:
+
+```
+$ claude
+> we want the mattstack work pipeline on this repo, our team is acme
+```
+
+`mattstack:creating-a-pack` runs `rt skills init`, has you restart and run
+`/acme:work <ticket>` once, and asks whether any team rules are already
+written down. See [Getting started](#getting-started-your-teams-pack) and
+[docs/your-first-pack.md](docs/your-first-pack.md).
+
+**Add to a pack.** In a repo whose pack exists:
+
+```
+$ claude
+> make ship run bun run lint before it opens an MR on this repo
+```
+
+`mattstack:extending-a-pack` sorts the ask (a context skill, a fill on one
+stage, a new verb, or a reworded one), writes it test-first, binds it, and
+hands the publish to `mattstack:editing-skills`. One ask per round.
+
+**The other doors:**
 
 ```
 $ claude
