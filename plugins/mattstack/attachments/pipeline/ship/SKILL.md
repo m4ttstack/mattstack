@@ -99,13 +99,15 @@ When nothing is inlined above, follow the generic path below.
 
 **Domain rules above:** follow them for the shipping flow.
 
-**Generic path:** the forge CLI is read from the origin remote (`git
-remote get-url origin`): a GitLab host means `glab`, a GitHub host means
-`gh`, anything else is a `clarify` gate. Push with `git push -u origin
-<branch>`, then create the MR/PR against the repo's default branch (`glab
-mr create --fill --draft` or `gh pr create --fill --draft`; drop the draft
-flag when the gate said ready), title from the branch's commits. Print the
-URL.
+**Generic path:** the forge is read from the origin remote (`git remote
+get-url origin`): a GitLab host means rt's MR tools (`mr_create`,
+`mr_ready`), a GitHub host means `gh`, anything else is a `clarify` gate.
+Push with `git push -u origin <branch>`, then create the MR/PR against the
+repo's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`,
+minus `origin/`): on GitLab the `mr_create` tool (`draft: false` only when
+the gate said ready; write the title from the branch's commits), on GitHub
+`gh pr create --fill --draft` (drop the draft flag when the gate said
+ready). Print the URL.
 
 Either path, when the run is yours: record `mr` (the created MR/PR URL)
 per Run identity above.
@@ -132,8 +134,8 @@ draft: gate `mark-ready`.
 - `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`.
 - Go back (inherited run only): hand control back to the caller with one
   sentence naming the answer.
-- Yes: `glab mr update <iid> --ready` or `gh pr ready <number>` per the
-  forge-host rule above.
+- Yes: the `mr_ready` tool on GitLab, `gh pr ready <number>` on GitHub,
+  per the forge-host rule above.
 
 Close, only when `## Run` started this run: after the mark-ready answer is
 acted on (or the gate said keep it draft), or on the generic path after the

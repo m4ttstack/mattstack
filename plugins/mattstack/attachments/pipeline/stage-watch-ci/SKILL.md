@@ -98,8 +98,9 @@ was pushed, then the `ci` gate.
 **Neither bound:** poll the forge CLI (`gh pr checks <mr> --watch` or
 `glab ci status --live`) until the pipeline settles. Green: the
 mark-ready gate below. Red: read the failing job log, classify REAL (the
-change broke it) vs INFRA/flake (unrelated, retry once); any REAL failure
-is the `ci` gate below.
+change broke it) vs INFRA/flake (unrelated, retry once: on GitLab the
+`mr_retry` tool with the failed job's id as `jobId`); any REAL failure is
+the `ci` gate below.
 
 ## Gate `ci` (red, timeout, or no pipeline)
 
@@ -143,8 +144,8 @@ is the `ci` gate below.
 - Go back: hand control back to the orchestrator with one sentence naming
   the answer; it runs `## Redirect`.
 - Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
-  `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
-  anything else is a `clarify` gate).
+  the `mr_ready` tool, GitHub means `gh pr ready <number>`, anything else
+  is a `clarify` gate).
 
 Finish by writing `ci` (`green`, or `red: <one-line triage>` when the
 human handed it back). The exit-2 and exit-4 paths write no `ci` until

@@ -546,7 +546,9 @@ answer value names it (an open built before this rule), that thread's
 answer decides it instead, an empty array included, and no reply posts
 twice. Nothing else posts, through any channel. Never a top-level note, never approve the
 change: that stays the developer's, however settled a thread looks once
-its reply is written. Posting mechanics belong to the forge CLI and the
+its reply is written. On GitLab a reply posts with the `mr_reply_thread`
+tool and a resolve is `mr_resolve_thread`, after its reply when both are
+picked; on other forges posting mechanics belong to the forge CLI and the
 adapter. A caller-handed `post` in the retired shape (a `replies` list, or
 its `replies-1`, `replies-2`, ... chunks read as one union, of bare thread
 ids plus `disposition`) posts the listed replies, resolves them only on
