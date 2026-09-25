@@ -147,7 +147,7 @@ call is a fresh shell. Write `<dir>/review-post.extras.json`:
 | `target` | the MR/PR reference as its forge writes it: `!<iid>` or `#<number>` |
 | `reviewer`, `round` | only when the caller supplies them; otherwise omit the key |
 | `outcome` label | `Verdict on <target>: ` plus a clause composed from the json's `summary`, never either field verbatim: readiness `yes` reads "ready to merge"; `with-fixes` or `no` reads "not ready" or "ready once <the gist of the reasoning>" |
-| `outcome` options | `comment` and `approve`, each described by what picking it does for this review. `request_changes` joins them only when this verb runs the gate itself and the forge CLI supports it (`gh` does, `glab` does not; verify, don't assume). The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment` |
+| `outcome` options | `comment` and `approve`, each described by what picking it does for this review. `request_changes` joins them only when this verb runs the gate itself and the target is on GitHub (`gh pr review --request-changes`); rt's GitLab MR tools have no Request changes. The recommendation goes FIRST, its label ending ` (recommended)`: `approve` when readiness is `yes`, else `comment` |
 | `next` | only when this verb runs the gate itself; a caller that owns the gates navigates on its own, so omit the question |
 
 Build it, then fit it:
