@@ -81,11 +81,11 @@ the issue list and just approve with a brief note.
 
 ## Posting mechanics by disposition
 
-Comment and Approve execute everywhere. Request changes executes only where
-the target forge's CLI supports it (`gh` does, `glab` does not); there,
-frame the blocking findings as blocking inside a Comment instead of silently
-downgrading the recommendation -- say the CLI can't carry Request changes,
-don't just post a plain Comment as if nothing changed.
+Comment and Approve execute everywhere. Request changes executes only on
+GitHub (`gh pr review --request-changes`); rt's GitLab MR tools have no
+Request changes. Where it is unavailable, post a blocking-framed Comment:
+the summary's Assessment names the findings that block the merge and says
+approval is withheld until they are fixed.
 
 On Approve: post the findings first, then approve.
 
@@ -117,7 +117,7 @@ left as a bare id or number. Required every time, on every disposition.
 | "I'll fold the deselected Minors into the summary note" | No side door. A deselected finding drops entirely; it does not move to a different channel. |
 | "No approval landed, but I'll still say 'nothing blocking'" | Tacit approval. Strip the all-clear language unless the disposition actually approves. |
 | "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge (a posting tool's `mrUrl`, or the forge CLI). |
-| "`glab` can't do Request changes, I'll just post a plain Comment" | Frame the blocking findings as blocking inside the Comment; don't silently downgrade the recommendation. |
+| "GitLab has no Request changes here, I'll just post a plain Comment" | Post a blocking-framed Comment: its Assessment names what blocks the merge and says approval is withheld. |
 | "The selection looked stale, I'll re-ask to be sure" | Not this part's call. A decided selection is trusted as handed; re-deciding belongs to the caller, not the executor. |
 
 ## Quick reference
@@ -130,6 +130,6 @@ left as a bare id or number. Required every time, on every disposition.
 | A selected finding carries no `file` anchor | It rides in the summary comment; never invent a line for it. |
 | Posting the summary | One comment, scoped to what was selected; an unanchorable selected finding lives here. |
 | Disposition is Approve | Post the findings first, then approve. |
-| Disposition is Request changes on a CLI that lacks it | Blocking-framed Comment, said explicitly. |
+| Disposition is Request changes on a forge without it (GitLab) | Blocking-framed Comment: the Assessment names what blocks the merge and says approval is withheld. |
 | Disposition carries no approval | Strip all-clear language from the summary; state the decision is deferred or withheld. |
 | About to close | Markdown link to the real URL, read from the forge (a posting tool's `mrUrl`, or the forge CLI) -- every time. |
