@@ -141,8 +141,9 @@ was pushed, then the `ci` gate.
 **Neither section above has content:** poll the forge CLI (`gh pr checks
 <mr> --watch` or `glab ci status --live`) until the pipeline settles.
 Green: done. Red: read the failing job log, classify REAL (the change
-broke it) vs INFRA/flake (unrelated, retry once); any REAL failure is the
-`ci` gate below.
+broke it) vs INFRA/flake (unrelated, retry once: on GitLab the `mr_retry`
+tool with the failed job's id as `jobId`); any REAL failure is the `ci`
+gate below.
 
 ## Verdict
 
@@ -163,8 +164,8 @@ run, `mr` is set, and the MR is a draft, gate `mark-ready`:
     it **Go back to `<stage>`** in `next` and skip this question
 - `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
 - Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
-  `glab mr update <iid> --ready`, GitHub means `gh pr ready <number>`,
-  anything else is a `clarify` gate).
+  the `mr_ready` tool, GitHub means `gh pr ready <number>`, anything else
+  is a `clarify` gate).
 
 Then the close below (own run only; on green with no `mark-ready` gate,
 close right after the verdict). Any other outcome is gate `ci`:

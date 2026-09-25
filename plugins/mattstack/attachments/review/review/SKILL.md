@@ -250,9 +250,13 @@ message still ends with the target's link (the close HARD-GATE below).
 
 {{include:review-posting}}
 
-Posting mechanics: a positioned inline comment is the `mr_comment_inline`
-tool and a thread reply is `mr_reply_thread`; the daemon verifies
-DiffNote placement and, on the silent general-note degrade, retries ONCE
-with fresh diff_refs (deleting the stray notes; it cannot fix a position
-GitLab rejects outright), so never hand-build a `glab api` position
-payload.
+Posting mechanics on GitLab: a positioned inline comment is the
+`mr_comment_inline` tool, a thread reply is `mr_reply_thread`, the summary
+is ONE `mr_comment`, and the Approve disposition is `mr_approve` once the
+findings have posted. The summary posts resolvable (the default) when its
+issue list carries a selected finding with no `file` anchor, and with
+`resolvable: false` when it carries none. The daemon verifies DiffNote
+placement and, on the silent general-note degrade, retries ONCE with fresh
+diff_refs (deleting the stray notes; it cannot fix a position GitLab
+rejects outright), so never hand-build a `glab api` position payload.
+`mr_comment` returns `mrUrl`, the link the close needs.

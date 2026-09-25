@@ -53,11 +53,11 @@ Contracts v2 and v3 (authoritative text: the parameterized-skills skill's conven
 
 ## Forge-host rule
 
-The forge CLI is read from the origin remote, never assumed: `git remote
-get-url origin`. A GitLab host means `glab` (`glab mr create`, `glab mr
-update <iid> --ready`); a GitHub host means `gh` (`gh pr create`, `gh pr
-ready <number>`); anything else is a `clarify` gate (which CLI?) rather than
-a guess.
+The forge is read from the origin remote, never assumed: `git remote
+get-url origin`. A GitLab host means rt's MR tools (`mr_create`,
+`mr_ready`); a GitHub host means `gh` (`gh pr create`, `gh pr ready
+<number>`); anything else is a `clarify` gate (which forge?) rather than a
+guess.
 
 ## Domain rules
 
@@ -66,7 +66,7 @@ a guess.
 When nothing is inlined above, follow the generic path below.
 
 Unbound (generic fallback): push the branch (`git push -u origin
-<branch>`), then open the MR/PR with the CLI the forge-host rule names,
+<branch>`), then open the MR/PR the way the forge-host rule names,
 as draft unless the gate said ready, title from the ticket or first commit
 subject, body linking the ticket and the `evidence` field's entries. Never
 force-push; never push a branch whose tests you have not seen pass in this
