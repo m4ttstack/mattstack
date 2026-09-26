@@ -45,8 +45,8 @@ over anything remembered or written here.
   branch}`) and enter its result's `path` with `EnterWorktree` in path mode,
   which always prompts. Disposal stays rt's either way; `ExitWorktree` never
   removes an rt tree.
-- Pass explicit args. A kept-on-Bash form also takes `--json`; for `rt_verb`
-  put `"--json"` inside `args` where the verb takes it. Omitted args open
+- Pass explicit args. A kept-on-Bash form also takes `--json`; `rt_verb`
+  adds `--json` itself, so leave it out of `args`. Omitted args open
   interactive pickers in a TTY and exit with usage otherwise.
 - `rt_verb {args: ["worktree", "list", "--json"]}` is ground truth for what
   exists and where. Tree kinds: `main`, `claimed`, `on-deck`, `unmanaged`.
@@ -55,9 +55,11 @@ over anything remembered or written here.
   branch ... that is what the background step is already fixing, in that same
   directory. A hand-rolled `pnpm install` races it. Before the first command
   that needs dependencies (tests, typecheck, a dev server), call
-  `rt_verb {args: ["worktree", "await-ready", "<tree>"]}`: it joins the
-  running step, returns when it settles, and reports a degraded tree rather
-  than hanging. Use it instead of polling list.
+  `rt_verb {args: ["worktree", "await-ready", "<tree>"], cwd: "<the tree's
+  path>"}`: pass `cwd` because the server's own cwd is fixed at session
+  start and won't resolve the right repo otherwise. It joins the running
+  step, returns when it settles, and reports a degraded tree rather than
+  hanging. Use it instead of polling list.
 - If provision or list reports team `ready` steps held pending approval, a
   human must run `rt worktree ready-approve <repo>`; surface it to Matt
   rather than working around it.

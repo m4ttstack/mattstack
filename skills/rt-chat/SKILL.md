@@ -388,7 +388,7 @@ end in what you are doing about it. What is left is the turn.
 `chat_post` returns the message `id`. When `chat.viewerUrl` is set, the
 link to your message is `/r/<room>#m-<id>` under that URL: that link is how
 the driver reads the full text, so your own narration line carries only the
-gist. It opens the chat viewer (`~/Documents/GitHub/chat`, at
+gist. It opens the chat viewer (`apps/chat` in this repo, served at
 `https://chat.mattstack` or `http://localhost:11002` on this machine only,
 never a public host), where a body with blank lines and `-` items renders as
 paragraphs and lists and a one-line body renders as one paragraph; that is
