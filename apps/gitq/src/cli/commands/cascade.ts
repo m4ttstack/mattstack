@@ -120,10 +120,12 @@ export async function abortCommand(ctx: CliContext): Promise<number> {
   // Abort where the rebase actually lives: the pause's worktree when set
   // (detached flow), else the pause's recorded launch tree (native pauses:
   // reconcile phase, reparent's cascade), else the leased slot itself when
-  // no pause file survived. Never ctx.repoRoot: that is the user's own
-  // checkout, not a tree gitq leased. Only abort when a rebase is actually
-  // in progress there, so a missing or already-resolved rebase still clears
-  // the pause and releases the lease instead of throwing.
+  // no pause file survived. Never fall back to ctx.repoRoot: unlike the
+  // recorded launch tree above, that is whatever tree the user happened to
+  // invoke `gitq abort` from, not a tree gitq leased or paused in. Only
+  // abort when a rebase is actually in progress in the resolved tree, so a
+  // missing or already-resolved rebase still clears the pause and releases
+  // the lease instead of throwing.
   const rebaseTree = pause?.pauseInfo.worktreePath ?? pause?.pauseInfo.treePath ?? lease.slotPath;
   if (GitShell.isRebaseInProgress(rebaseTree)) {
     await RebaseEngine.abortCascade(ctx.repoRoot, rebaseTree);

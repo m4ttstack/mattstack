@@ -8,10 +8,13 @@ import { createSandboxRepoWithRemote, addNamedWorktree } from './helpers.ts';
 
 const GITQ_ROOT = join(import.meta.dir, '..', '..');
 const cleanups: string[] = [];
-let configDir: string;
+let configDir: string | undefined;
 
 afterEach(async () => {
   while (cleanups.length > 0) await rm(cleanups.pop()!, { recursive: true, force: true });
+  // Reset so the next test creates (and registers) its own config dir,
+  // rather than reusing this one's now-deleted path.
+  configDir = undefined;
 });
 
 function gitq(cwd: string, ...args: string[]): { code: number; stdout: string } {

@@ -10,8 +10,9 @@ export function isLocalRequest(req: Request): boolean {
 
 /** `isLocalRequest` trusts only Host, which a cross-origin `no-cors` request
     can still reach: a browser sends Host for the actual target, not the page
-    that issued the request. A same-origin fetch never sets Origin at all, so
-    a missing header is fine; a present one must name a local host. */
+    that issued the request. A browser sends Origin on every POST, same-origin
+    included, so a present Origin must name a local host; a missing one means
+    a non-browser client (curl, the CLI) and is allowed. */
 export function isAllowedOrigin(origin: string | null): boolean {
   if (origin === null) return true;
   let hostname: string;

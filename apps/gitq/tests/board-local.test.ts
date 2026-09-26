@@ -21,7 +21,7 @@ describe('isLocalRequest', () => {
 });
 
 describe('isAllowedOrigin', () => {
-  test('no Origin header is allowed (same-origin fetches never set one)', () => {
+  test('no Origin header is allowed (a non-browser client, e.g. curl or the CLI)', () => {
     expect(isAllowedOrigin(null)).toBe(true);
   });
 
