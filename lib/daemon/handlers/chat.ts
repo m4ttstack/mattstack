@@ -62,6 +62,7 @@ import { repoForCwd, branchForCwd } from "../../repo-for-cwd.ts";
 import { deriveRoomForCwdAsync } from "../../chat-room.ts";
 import { runCapture } from "../../subprocess.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
+import { deleteChatSession } from "../../chat-session.ts";
 import type { Commands } from "../../../packages/rt-client/src/commands.ts";
 import type { CommandResult } from "./types.ts";
 
@@ -1209,6 +1210,7 @@ export function createChatHandlers(opts: {
         sessionId = resolved.sessionId;
       }
       if (!sessionId) return { ok: false, error: "chat: sign-out requires a sessionId or --pane" };
+      deleteChatSession(sessionId);
       if (!presenceForSession(sessionId, db)) return { ok: true, data: { sessionId } };
       signOut(sessionId, undefined, db);
       return { ok: true, data: { sessionId } };
