@@ -12,17 +12,11 @@
  */
 
 import { daemonQuery } from "../lib/daemon-client.ts";
+import { parseDuration } from "../lib/duration.ts";
+export { parseDuration };
 
 const DAEMON_WAIT_MS = 240_000;          // daemon clamps to this too
 const IPC_TIMEOUT_MS = DAEMON_WAIT_MS + 10_000; // client abort must outlive the daemon cap
-
-export function parseDuration(s: string): number | null {
-  const m = /^(\d+)(ms|s|m|h)?$/.exec(s.trim());
-  if (!m) return null;
-  const n = parseInt(m[1]!, 10);
-  const unit = m[2] ?? "s";
-  return n * (unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60_000 : 3_600_000);
-}
 
 export function nextWaitMs(deadline: number | null, now: number): number {
   if (deadline == null) return DAEMON_WAIT_MS;

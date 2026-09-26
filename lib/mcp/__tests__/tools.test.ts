@@ -8,7 +8,7 @@ import type { GateQuestion } from "../../../packages/rt-client/src/commands.ts";
 import { REPO_INDEX_NS } from "../../repo-index.ts";
 import { closeStateDb, setKvValue } from "../../state/index.ts";
 
-const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_comment_inline","mr_comment","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone"];
+const NAMES = ["gate_answer","gate_ask","gate_list","chat_post","chat_dm","chat_ack","chat_claim","chat_release","mr_reply_thread","mr_comment_inline","mr_comment","mr_create","mr_update","mr_upload","mr_approve","mr_resolve_thread","mr_ready","mr_retry","mr_rebase","mr_map","herd_gates","herd_ask","herd_answer","herd_report","rt_verb","run_start","run_stage","run_field_set","run_field_get","run_decision","run_status","run_snapshot","run_list","mr_view","mr_list","mr_for_branch","mr_threads","mr_pipeline","mr_job_trace","mr_merge","git_push","git_pull","git_rebase","branch_sync","worktree_provision","worktree_dispose","worktree_stop_holders","herd_start","herd_spawn","herd_brief","herd_close","herd_status","herd_list","herd_attend","herd_wrap_up","herd_resume","herd_milestone","chat_read","chat_mark","chat_rooms","chat_who","chat_buddies","chat_join","chat_leave","chat_away","chat_back","chat_sign_in","chat_sign_out","chat_archive","chat_invite"];
 
 // Captured before any mock.module call, per the repo's convention (see
 // lib/__tests__/repo-locate-dispatch.test.ts): mock.module mutates the live
@@ -29,6 +29,18 @@ const realRtCommand = realTransport.rtCommand;
 const ID = "remote:gitlab.com%2Facme%2Facme-dev";
 
 describe("mcpTools", () => {
+  test("the existing chat tools point unsigned sessions at chat_sign_in", async () => {
+    for (const name of ["chat_post", "chat_dm", "chat_ack", "chat_claim", "chat_release"]) {
+      const tool = mcpTools().find((t) => t.name === name)!;
+      expect(tool.description, name).toContain("chat_sign_in");
+      expect(tool.description, name).not.toContain("in bash first");
+    }
+    const tool = mcpTools().find((t) => t.name === "chat_ack")!;
+    const res = await tool.handler({ id: 1 }, {} as NodeJS.ProcessEnv);
+    expect(res.error).toContain("chat_sign_in");
+    expect(res.error).toContain("rt chat sign-in");
+  });
+
   test("roster matches the published tool names", () => {
     expect(mcpTools().map((t) => t.name).sort()).toEqual([...NAMES].sort());
   });
@@ -1285,5 +1297,22 @@ describe("mcpTools", () => {
       expect(withRemove.ok).toBe(false);
       expect(calls).toEqual([]);
     });
+  });
+});
+
+describe("chat helpers", () => {
+  test("requireChatHandle reads only the env session's file", async () => {
+    const { requireChatHandle } = await import("../shared.ts");
+    const seen: Array<string | undefined> = [];
+    const read = (id: string | undefined) => { seen.push(id); return id === "s1" ? { sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 } : null; };
+    expect(requireChatHandle({ CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv, read)).toEqual({ handle: "ann" });
+    expect("error" in requireChatHandle({} as NodeJS.ProcessEnv, read)).toBe(true);
+    expect(seen).toEqual(["s1", undefined]);
+  });
+
+  test("checkChatName matches the daemon's name rule", async () => {
+    const { checkChatName } = await import("../shared.ts");
+    expect(checkChatName("room", "build-1.x_y")).toBeUndefined();
+    for (const bad of ["Build", "a b", "", "a/b", 7]) expect(checkChatName("room", bad), String(bad)).toContain('"room"');
   });
 });

@@ -6,6 +6,7 @@
  */
 import { herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
+import { readChatSession, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
 
 export interface McpToolDef {
@@ -126,4 +127,24 @@ export async function resolveSoleHerd(): Promise<{ herd: string } | { error: str
   if (herds.length === 0) return { error: "no herds are active (rt herd list shows the herds)" };
   if (herds.length === 1) return { herd: herds[0]!.id };
   return { error: "more than one herd is active (rt herd list shows the herds)" };
+}
+
+export const SIGN_IN_HINT = "no signed-in chat session for this session; call chat_sign_in first, or, if this session was /cleared, run `rt chat sign-in` and the other chat verbs in Bash";
+
+/** No derived-handle fallback: a tool call with no session file is a hard error, unlike the CLI's resolveHandle. */
+export function requireChatHandle(
+  env: NodeJS.ProcessEnv,
+  read: (id: string | undefined) => ChatSession | null = readChatSession,
+): { handle: string } | { error: string } {
+  const session = read(env.CLAUDE_CODE_SESSION_ID);
+  if (!session) return { error: SIGN_IN_HINT };
+  return { handle: session.handle };
+}
+
+/** Mirrors isValidChatName (lib/state/chat-store.ts), which lib/mcp does not import. */
+export const CHAT_NAME = /^[a-z0-9._-]+$/;
+
+export function checkChatName(field: string, value: unknown): string | undefined {
+  if (typeof value === "string" && CHAT_NAME.test(value)) return undefined;
+  return `"${field}" must be a chat name (lowercase letters, digits, . _ -)`;
 }
