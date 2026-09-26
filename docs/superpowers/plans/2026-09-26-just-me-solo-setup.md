@@ -1751,12 +1751,12 @@ git commit -m "tray: light and dark screenshots of the Just me screens"
       ;;
 ```
 
-`assert-installed.sh` has no `$SCENARIO`; it parses its own flags. Add `SOLO=0` and `--solo) SOLO=1; shift;;` to its `while` loop, `export SERVED_SOLO=$SOLO` before `assert_served_apps` is called, and under `[ "$SOLO" = 1 ]` next to the existing rt-side asserts:
+`assert-installed.sh` has no `$SCENARIO`; it parses its own flags. Add `SOLO=0` and `--solo) SOLO=1; shift;;` to its `while` loop, and under `[ "$SOLO" = 1 ]` next to the existing rt-side asserts:
 
 ```bash
-  if rt setup status --json | "$JQ" -e '[.groups[].rows[].id | select(startswith("access.") or startswith("team."))] | length == 0' >/dev/null; then ok "solo: no access or team rows"; else bad "solo: access or team rows present"; fi
-  if rt team status --json | "$JQ" -e '.mode == "solo"' >/dev/null; then ok "solo: team status reports mode solo"; else bad "solo: team status did not report mode solo"; fi
-  if rt apps list --json | "$JQ" -e '[.apps[] | select(.requiresTeam) | .enabled] | all(. == false)' >/dev/null; then ok "solo: every team-only app is off"; else bad "solo: a team-only app is on"; fi
+  if rt setup status --json | tail -1 | "$JQ" -e '[.groups[].rows[].id | select(startswith("access.") or startswith("team."))] | length == 0' >/dev/null; then ok "solo: no access or team rows"; else bad "solo: access or team rows present"; fi
+  if rt team status --json | tail -1 | "$JQ" -e '.mode == "solo"' >/dev/null; then ok "solo: team status reports mode solo"; else bad "solo: team status did not report mode solo"; fi
+  if rt apps list --json | tail -1 | "$JQ" -e '[.apps[] | select(.requiresTeam) | .enabled] | all(. == false)' >/dev/null; then ok "solo: every team-only app is off"; else bad "solo: a team-only app is on"; fi
 ```
 
 `served-apps.sh`: `served_snapshot` also fetches `http://127.0.0.1:$port/api/v1/apps` into `$dir/apps.json` (`null` when unreachable, the same way `status.json` is written), and `assert_served_apps` passes `--slurpfile apps "$dir/apps.json"` to jq. `served-verdict.jq` today demands every deps.lock serve app be rt-managed, healthy, routed, loaded and running; on a solo run board and boxscore are none of those by design, and `/api/v1/status` will carry the new `enabled` field only after Task 5. Teach the verdict the disabled case: bind `($apps[0].apps // []) as $adm`, and inside the per-app branch, before the `$row == null` check, add
