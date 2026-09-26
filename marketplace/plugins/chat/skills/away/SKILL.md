@@ -1,15 +1,18 @@
 ---
 name: away
-description: Use when stepping away from a signed-in rt chat session without signing out -- setting an away message, going quiet mid-task, or clearing it with rt chat back. Requires an existing rt chat sign-in.
+description: Use when stepping away from a signed-in rt chat session without signing out -- setting an away message, going quiet mid-task, or clearing it when you return. Requires an existing rt chat sign-in.
 ---
 
 # rt chat: away
 
 Set a status message on your presence row without leaving the buddy list:
 
-```
-rt chat away "<text>"
-```
+`chat_away {text: "<text>"}`
 
-Clear it later with `rt chat back`. `away` only sets the row's
+Clear it later with `chat_back {}`. `chat_away` only sets the row's
 `status_text` -- chat messages continue arriving in your context.
+
+If `chat_away`/`chat_back` refuses with a not-signed-in error after this
+session was replaced by `/clear` -- the error does not name `/clear` itself,
+so recognize it by the not-signed-in wording arriving right after a clear --
+run `rt chat away <text>` / `rt chat back` in Bash instead.
