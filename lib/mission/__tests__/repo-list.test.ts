@@ -9,36 +9,35 @@ function known(path: string, over: Partial<KnownRepo> = {}): KnownRepo {
 
 const ids: Record<string, string> = { "/r/a": "gh:me/a", "/r/b": "gh:me/b", "/r/reg": "gh:me/reg", "/r/cur": "path:/r/cur" };
 const deps = (rows: KnownRepo[]) => ({ readCached: () => rows, identityOf: (root: string) => ids[root] ?? `path:${root}` });
-const NOT_CURRENT = { identity: "gh:me/reg", path: "/r/reg", registered: true };
 
 describe("loadUnregisteredRepos", () => {
   test("keeps only unregistered, present rows, with read-only identities", () => {
     const rows = [known("/r/a"), known("/r/reg", { registered: true }), known("/r/gone", { missing: true })];
-    expect(loadUnregisteredRepos(deps(rows), new Set(["gh:me/reg"]), NOT_CURRENT)).toEqual([{ identity: "gh:me/a", path: "/r/a" }]);
+    expect(loadUnregisteredRepos(deps(rows), new Set(["gh:me/reg"]), [])).toEqual([{ identity: "gh:me/a", path: "/r/a" }]);
   });
 
   test("registered wins: a scanned row whose identity has a status row is dropped", () => {
     const rows = [known("/r/a"), known("/r/b")];
-    expect(loadUnregisteredRepos(deps(rows), new Set(["gh:me/b"]), NOT_CURRENT).map((r) => r.identity)).toEqual(["gh:me/a"]);
+    expect(loadUnregisteredRepos(deps(rows), new Set(["gh:me/b"]), []).map((r) => r.identity)).toEqual(["gh:me/a"]);
   });
 
   test("an identityOf that throws skips that row", () => {
     const d = { readCached: () => [known("/r/a"), known("/r/bad")], identityOf: (root: string) => { if (root === "/r/bad") throw new Error("x"); return ids[root]!; } };
-    expect(loadUnregisteredRepos(d, new Set(), NOT_CURRENT).map((r) => r.path)).toEqual(["/r/a"]);
+    expect(loadUnregisteredRepos(d, new Set(), []).map((r) => r.path)).toEqual(["/r/a"]);
   });
 
   test("dedupes two paths that resolve to one identity (first wins)", () => {
     const d = { readCached: () => [known("/r/a"), known("/r/a-copy")], identityOf: () => "gh:me/a" };
-    expect(loadUnregisteredRepos(d, new Set(), NOT_CURRENT)).toEqual([{ identity: "gh:me/a", path: "/r/a" }]);
+    expect(loadUnregisteredRepos(d, new Set(), [])).toEqual([{ identity: "gh:me/a", path: "/r/a" }]);
   });
 
-  test("an unregistered current repo is always present, even when the cache predates it", () => {
-    const got = loadUnregisteredRepos(deps([known("/r/a")]), new Set(), { identity: "path:/r/cur", path: "/r/cur", registered: false });
+  test("a repo opened this session is always present, even when the cache predates it", () => {
+    const got = loadUnregisteredRepos(deps([known("/r/a")]), new Set(), [{ identity: "path:/r/cur", path: "/r/cur" }]);
     expect(got).toContainEqual({ identity: "path:/r/cur", path: "/r/cur" });
   });
 
-  test("a registered current repo is not added", () => {
-    const got = loadUnregisteredRepos(deps([]), new Set(), { identity: "gh:me/reg", path: "/r/reg", registered: true });
+  test("registered wins over a repo opened this session", () => {
+    const got = loadUnregisteredRepos(deps([]), new Set(["gh:me/reg"]), [{ identity: "gh:me/reg", path: "/r/reg" }]);
     expect(got).toEqual([]);
   });
 });

@@ -3623,6 +3623,35 @@ describe("unregistered repos", () => {
     expect(row.badge.ahead).toBe(2);
   });
 
+  test("an unmanaged repo opened from outside the cache stays listed and switchable after switching away", async () => {
+    const timers: (() => void)[] = [];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: (id) => id === "repo-tools",
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, { repo: "path:/elsewhere", worktree: "/elsewhere" }).run();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "repo-tools" } });
+    await flushMicrotasks();
+    timers.at(-1)!();
+    await flushMicrotasks();
+    const listed = session.pushed.at(-1) as MissionModel;
+    expect(listed.current.repo).toBe("repo-tools");
+    expect(listed.repos.map((r) => r.id)).toContain("path:/elsewhere");
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "path:/elsewhere" } });
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("path:/elsewhere");
+    expect(last.current.worktree).toBe("/elsewhere");
+  });
+
   test("an unmanaged repo lists worktrees from git alone", async () => {
     const queried: string[] = [];
     const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);

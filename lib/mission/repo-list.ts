@@ -14,7 +14,7 @@ export interface RepoListDeps {
 export function loadUnregisteredRepos(
   deps: RepoListDeps,
   registeredIdentities: Set<string>,
-  current: { identity: string; path: string; registered: boolean },
+  opened: UnregisteredRepo[],
 ): UnregisteredRepo[] {
   const seen = new Set<string>();
   const out: UnregisteredRepo[] = [];
@@ -35,7 +35,7 @@ export function loadUnregisteredRepos(
     }
     add(identity, path);
   }
-  if (!current.registered) add(current.identity, current.path);
+  for (const repo of opened) add(repo.identity, repo.path);
   return out;
 }
 

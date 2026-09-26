@@ -334,6 +334,8 @@ export class MissionDriver {
   private readonly scannedIdentities = new Map<string, string>();
   private indicatorBadges = new Map<string, GitWorktreeBadge>();
   private unmanaged = false;
+  /** Identity -> path of every unmanaged repo opened this session; the scan cache may never list one opened from an arbitrary cwd. */
+  private readonly opened = new Map<string, string>();
   private readonly updater: IndicatorUpdater;
   private readonly stopIndicators = new AbortController();
 
@@ -390,8 +392,12 @@ export class MissionDriver {
     this.unregistered = loadUnregisteredRepos(
       { readCached: this.deps.readRepoCache, identityOf: (path) => this.identityOfScanned(path) },
       new Set(this.rows.map((r) => r.repo)),
-      { identity: this.state.currentRepo, path: this.state.currentWorktree, registered: !this.unmanaged },
+      [...this.opened].map(([identity, path]) => ({ identity, path })),
     );
+  }
+
+  private noteOpened(): void {
+    if (this.unmanaged) this.opened.set(this.state.currentRepo, this.state.currentWorktree);
   }
 
   private repoRows(): RepoStatusRow[] {
@@ -412,6 +418,7 @@ export class MissionDriver {
   async run(): Promise<void> {
     this.resolveEditor();
     this.unmanaged = !this.deps.isRegistered(this.state.currentRepo);
+    this.noteOpened();
     await this.refresh();
     if (this.unmanaged) this.unregistered = [{ identity: this.state.currentRepo, path: this.state.currentWorktree }];
     this.rememberRepo();
@@ -1351,6 +1358,7 @@ export class MissionDriver {
     this.state.currentRepo = payload.repo;
     this.unmanaged = !this.deps.isRegistered(payload.repo);
     this.setCurrentWorktree(target, false);
+    this.noteOpened();
     this.state.selections = new Map();
     await this.refresh();
     this.rememberRepo();
