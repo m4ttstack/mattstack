@@ -36,7 +36,7 @@ export async function createSandboxRepo(): Promise<SandboxRepo> {
   const git: GitHelper = (...args: string[]) =>
     execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim();
 
-  git('init');
+  git('init', '-b', 'main');
   git('config', 'user.email', 'test@gitq.dev');
   git('config', 'user.name', 'GitQ Test');
 

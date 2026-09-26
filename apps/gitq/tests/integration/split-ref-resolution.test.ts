@@ -164,9 +164,25 @@ describe('GitShell.resolveRef against real git', () => {
     expect(await GitShell.resolveRef(repo.dir, blobCollision.prefix)).toEqual({ kind: 'unknown' });
   });
 
-  test('disambiguate returns nothing for a prefix under four digits', async () => {
+  test('disambiguate matches what git itself resolves for a prefix under four digits', async () => {
     const { GitShell } = await import('../../src/core/git-shell.ts');
-    expect(await GitShell.disambiguate(repo.dir, commitCollision.prefix.slice(0, 3))).toEqual([]);
+    const shortPrefix = commitCollision.prefix.slice(0, 3);
+
+    // Whether git refuses a sub-four-digit prefix is version dependent (git
+    // 2.54 resolves it); read what THIS git actually does rather than
+    // assuming refusal.
+    let rawMatches: string[];
+    try {
+      rawMatches = repo.git('rev-parse', `--disambiguate=${shortPrefix}`).split('\n').filter(Boolean);
+    } catch {
+      rawMatches = [];
+    }
+    const expected = rawMatches.filter((sha) => {
+      const type = repo.git('cat-file', '-t', sha);
+      return type === 'commit' || type === 'tag';
+    });
+
+    expect(await GitShell.disambiguate(repo.dir, shortPrefix)).toEqual(expected);
   });
 });
 
