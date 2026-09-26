@@ -73,8 +73,9 @@ condition is spelled once).
 | access | empty: no `access.team-repo`, no `access.forge`, no `access.switchboard` |
 | tools | `tool.fast-browser` and `tool.fast-browser-extension` become `required: false` with the existing "works without this" note; `team.marketplace` and `team.sync` absent; `tool.plugins` installs the `mattstack:*` marketplace, which is already what a team of one gets; `repos.root` stays required; every rt-health row unchanged |
 
-Steps whose `applies()` is false on solo report a skip with the detail
-`no team (Just me)`: `team.create` and `team.join`. Every other step stays,
+Steps whose `applies()` is false on solo are left out of the run, the way
+the apply engine already expresses "not this install": `team.create` and
+`team.join`. Every other step stays,
 including `home.init` (local), `plugins.install`, `deck.managed`,
 `services.*`, `claude.permissions`, `herdr.integration`, `snapshot.push`
 (the home snapshot commits locally and the daemon handler already treats a
