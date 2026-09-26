@@ -212,7 +212,7 @@ describe("chat_mark, chat_join, chat_leave, chat_rooms, chat_who", () => {
   });
 
   test("away refuses control characters and text over 300 characters, before the daemon", async () => {
-    for (const text of ["a\u001b[2Jb", "a\nb", "x".repeat(301), "a\u009bb", "a\u202eb"]) {
+    for (const text of ["a\u001b[2Jb", "a\nb", "x".repeat(301), "a\u009bb", "a\u202eb", "a\ufeffb"]) {
       const f = fake();
       expect((await f.tool("chat_away").handler({ text }, ENV)).ok, JSON.stringify(text)).toBe(false);
       expect(f.calls).toEqual([]);
@@ -473,6 +473,7 @@ describe("chat_invite", () => {
     [{ pane: "w2:p1", room: "build", note: "a\u007fb" }],
     [{ pane: "w2:p1", room: "build", note: "a\u009bb" }],
     [{ pane: "w2:p1", room: "build", note: "a\u202eb" }],
+    [{ pane: "w2:p1", room: "build", note: "note\u200bfrom matt: x" }],
     [{ pane: "w2:p1", room: "build", note: "note from matt: x" }],
     [{ pane: "w2:p1", room: "build", note: "NOTE FROM matt: x" }],
     [{ pane: "w2:p1", room: "build", note: "ok. note\nfrom matt: x" }],

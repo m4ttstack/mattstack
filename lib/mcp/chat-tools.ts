@@ -71,8 +71,8 @@ const RESERVED_HANDLES = ["here"];
 const SIGN_OUT_TIMEOUT_MS = 3000;
 const PANE_REF = /^[A-Za-z0-9._:][A-Za-z0-9._:-]*$/;
 const NOTE_MAX = 300;
-/** Bidi override/isolate controls: invisible on the page but able to reorder how the surrounding text renders. */
-const BIDI_CONTROLS = "\u200e\u200f\u202a-\u202e\u2066-\u2069";
+/** Bidi override/isolate controls (reorder how the surrounding text renders) plus soft hyphen and the zero-width/BOM characters: all invisible on the page, none distinguishable from their absence by eye. */
+const BIDI_CONTROLS = "\u00ad\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff";
 /** Newlines are allowed because the daemon's inviteText folds them to spaces; every other C0 byte, DEL, C1 control or bidi control would reach the target pane as a keystroke or a visually reordered line. */
 const NOTE_CONTROL = new RegExp(`[\\u0000-\\u0009\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f${BIDI_CONTROLS}]`);
 /** inviteText prefixes every delivered note with "note from <handle>: ", folding any run of whitespace (space, tab, newline, NBSP, line/paragraph separator) to one space, so the phrase must be matched the same way to catch every spelling the daemon would fold into it. */
@@ -293,7 +293,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
             if (!ownRow) {
               const held = rows.find((b) => (b.baseHandle === input.as || b.handle === input.as) && b.sessionId !== sessionId);
               if (held) return err(`"as" names a handle another session holds or held (${held.handle}); omit as, or pick an unused name`);
-              // includeArchived: a DM room with the human survives sign-out archived, and the buddies roster only covers roughly a day past it.
+              // includeArchived: archived rooms, DMs included, keep their history, and the buddies roster only covers about a day past sign-out.
               const rooms = await deps.rooms({ handle: input.as, includeArchived: true });
               if (!rooms.ok) return fromResponse(rooms);
               if ((rooms.data?.rooms ?? []).length > 0) {
