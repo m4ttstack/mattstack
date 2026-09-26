@@ -1,0 +1,43 @@
+---
+title: gitq abort
+sidebar_label: abort
+---
+
+# gitq abort
+
+Aborts the in-progress rebase behind a paused cascade and releases its lease.
+
+## Usage
+
+```bash
+gitq abort [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which parked cascade to abort, when more than one stack is parked. Resolved the same way as [`gitq continue`](/reference/cascade/continue). |
+
+## Behavior
+
+- Finds the parked lease exactly as `continue` does (`findParkedLease`, `src/cli/slots.ts:99-110`), and fails the same way when nothing or too much is parked: `nothing to continue (no parked cascade)` (the message says "continue" even though you ran `abort`), or `multiple parked cascades; pass --stack to pick one`.
+- Aborts the rebase wherever the pause file says it lives (`pauseInfo.worktreePath ?? pauseInfo.treePath`), clears the pause file, detaches the work slot's HEAD, and releases the lease (`src/cli/commands/cascade.ts:104-124`).
+- **Unlike `continue`, it does not require the pause file to exist.** If it is missing entirely, `abort` still resolves a tree to abort in, falling back to the repo root, and completes the same cleanup regardless.
+- Prints `aborted` and exits `0` on success.
+- **Never exits `2`.** Exit `2` has exactly one source in the codebase, `finishCascade` (`src/cli/commands/cascade.ts:45`), and only `sync`, `continue`, and reparent's follow-up cascade route through it. `abort` never calls `finishCascade`.
+- **Never writes an operation-log entry.** A paused cascade was never logged either, so there is nothing for `gitq undo` to give back for the branch that was mid-rebase; the branches the cascade already finished before it paused stay exactly where they were rebased to.
+- Under `--json`, emits `{ state: "aborted" }`, always, whether or not a pause file existed. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: aborted.
+- `1`: nothing parked, multiple parked without `--stack`, or an unexpected failure (for example `git rebase --abort` itself finding no rebase in progress in the resolved tree).
+
+See [Exit codes](/reference/exit-codes) for why `2` is not on this list.
+
+## See also
+
+- [The pause protocol](/concepts/pause-protocol#bailing-out): what `abort` does and does not undo.
+- [Recover from a mistake](/guides/recover#stuck-mid-cascade): a real run of `sync` pausing, then `abort` clearing it.
+- [`gitq continue`](/reference/cascade/continue), [`gitq sync`](/reference/cascade/sync).

@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "types": [
+      "node",
+      "bun-types"
+    ]
+  },
+  "include": [
+    "src",
+    "bin",
+    "tests",
+    "scripts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

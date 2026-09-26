@@ -1,0 +1,34 @@
+---
+title: gitq stacks
+sidebar_label: stacks
+---
+
+# gitq stacks
+
+Lists every stack this repo tracks, and each one's branch chain from root to tip.
+
+## Usage
+
+```bash
+gitq stacks
+```
+
+## Behavior
+
+Loads the store and prints one line per tracked stack: `<stackName> (root <rootBranch>): <branch> -> <branch> -> ...` (`src/cli/commands/stacks.ts:9-13`). A stack with no nodes yet prints `empty` for the chain. A repo with no tracked stacks prints `no stacks`.
+
+- **The chain is printed in the order nodes are stored, not topological order.** A `reparent` moves a node without reordering the underlying list, so after enough surgery the printed order can put a branch before its own parent (`src/cli/commands/stacks.ts:12`). Use `gitq diagnose --json` when you need the real parent/child edges.
+- This is the store's view, not git's. It says nothing about whether a branch is up to date or still exists in git; see [`gitq diagnose`](/reference/read-only/diagnose) for that.
+- Takes no flags beyond the global ones. Under `--json`, the document is `{ stacks, worktrees }`: the full `Stack[]` from the store, plus a `worktrees` array describing every worktree of the repo and which lease (if any) it holds. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: always, once the store loads. `stacks` has no refusal of its own.
+
+See [Exit codes](/reference/exit-codes) for the general contract, including the uncaught-error case every command shares.
+
+## See also
+
+- [Reading the tree](/getting-started/reading-the-tree): `stacks` in context, with a real run.
+- [The stack tree](/concepts/stack-tree): what a node stores and what the tree does and doesn't guarantee about ordering.
+- [`gitq diagnose`](/reference/read-only/diagnose), [`gitq track`](/reference/tracking/track).

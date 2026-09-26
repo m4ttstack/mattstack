@@ -1,0 +1,53 @@
+---
+title: gitq reset
+sidebar_label: reset
+---
+
+# gitq reset
+
+Hard-resets a local branch to match its remote-tracking ref, `origin/<branch>`.
+
+## Usage
+
+```bash
+gitq reset <branch> [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack `<branch>` belongs to. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+
+## Behavior
+
+Guarded by the stack lease, then one up-front refusal before any ref moves (`src/cli/commands/surgery.ts:264-271`):
+
+- `<branch>` checked out in **any other worktree**, dirty or not: the same rule `rename` uses (`refuseIfCheckedOutElsewhere`), refusing with `branch "<branch>" is checked out in slot "<name>" (<path>); run this from that worktree or free the branch first`.
+- A **`gitq-N` work slot** holding the branch refuses through that same guard, with advice that suits one of gitq's own slots instead: `branch "<branch>" is checked out in work slot "<name>" (<path>); gitq leaves its slots detached, so free that slot first`. gitq never parks a slot on a branch itself, so this state only arises from a human `git checkout` inside one. It used to be a `reset`-local check, because `findSlotForBranch` skipped work slots and a parked slot was invisible to both this refusal and `finalizeBranchRef`'s slot policy: the command exited `0` and left that slot's tree and index stale under a ref that had moved. The lookup sees them now (`src/core/worktrees.ts:42-57`), so every surgery command is covered, not just this one.
+
+`resetToRemote` (`src/core/branch-reset.ts:23-56`) then:
+
+1. **Requires `<branch>` to be a node of the picked stack.** A branch the stack doesn't track refuses with `branch "<branch>" is not tracked in stack "<id>"; nothing was reset`, before the clean-tree check and before any git-level move (`src/core/branch-reset.ts:28-33`). The same condition is re-checked by the `lastKnownHead` update at the end; running it first is what keeps the ref where it was when this fails.
+2. **Requires a clean launch worktree.** `assertCleanTree` runs next; a dirty tree refuses with `Working tree has uncommitted changes. Commit or stash first.` and nothing moves (`src/core/branch-reset.ts:35`, `src/core/git-guards.ts:7-11`).
+3. **Does not fetch.** It reads `origin/<branch>` exactly as your remote-tracking ref already stands (`src/core/branch-reset.ts:37-38`). If that ref is stale, run `git fetch` first or you reset to old data.
+4. Compare-and-swaps `refs/heads/<branch>` to that sha through `finalizeBranchRef`, the same ref move [`gitq split --at`](/reference/surgery/split) uses. No checkout happens. If `<branch>` has no local ref at all, it is created directly at the remote head instead.
+
+Only after that does it update the stack tree's `lastKnownHead` (`src/core/branch-reset.ts:51-53`).
+
+**Your checkout never moves**, in line with the rest of surgery. The ref is rewritten in place, so standing on `feat-a` and running `gitq reset feat-b` leaves you on `feat-a`. A non-work worktree already sitting on `<branch>` (the launch worktree included) gets `finalizeBranchRef`'s slot policy: clean and exactly on the old head, it stays on the branch and is reset to the new head; dirty, mid-rebase, or drifted, the whole command refuses and the ref does not move. Work slots never reach that policy, because the CLI guard above has already refused. The only command in surgery that leaves you on a different branch than it found you on is [`gitq fold`](/reference/surgery/fold), which has to, because it deletes the branch you may be standing on.
+
+**Never written to the operation log at all.** Unlike `split`, `fold`, and `rename`, which are logged but excluded from `REVERSIBLE_OPERATIONS`, `reset` is never wrapped in `withOperationLog` in the first place (`src/cli/commands/surgery.ts:255-279`). `gitq undo` has nothing to give back after a `reset`, ever; whatever the branch pointed at before is gone unless you noted the sha yourself.
+
+## Exit codes
+
+- `0`: reset to `origin/<branch>` succeeded.
+- `1`: a dirty launch worktree, `<branch>` checked out elsewhere (non-work worktree or `gitq-N` work slot), `<branch>` not a node of the picked stack, `origin/<branch>` not resolving, or a lease held. In every one of those the branch ref is left where it was.
+
+Never exits `2`. See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Recover from a mistake](/guides/recover#a-branch-diverged-from-origin): a real reset, and why `undo` can't help afterward.
+- [Restructure a stack](/guides/restructure-a-stack#reset): the refusal rules in context with the rest of surgery.
+- [`gitq rename`](/reference/surgery/rename): the same checked-out-elsewhere refusal.
