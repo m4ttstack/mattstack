@@ -270,3 +270,75 @@ describe("chat_sign_out", () => {
     expect(f.calls).toEqual([]);
   });
 });
+
+describe("chat_archive", () => {
+  test("a member archives; reopen clears it", async () => {
+    const f = fake();
+    expect(await f.tool("chat_archive").handler({ room: "build" }, ENV)).toEqual({ ok: true, body: { room: "build", archivedAt: 5 } });
+    await f.tool("chat_archive").handler({ room: "build", reopen: true }, ENV);
+    expect(f.calls.filter((c) => c.fn === "archive").map((c) => c.a)).toEqual([
+      { room: "build", handle: "ann", archived: true },
+      { room: "build", handle: "ann", archived: false },
+    ]);
+  });
+
+  test("a non-member is refused before the archive call", async () => {
+    const f = fake({ who: { members: [{ room: "build", handle: "bob" }] } });
+    const r = await f.tool("chat_archive").handler({ room: "build" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("not a member");
+    expect(f.calls.map((c) => c.fn)).toEqual(["who"]);
+  });
+
+  test("unsigned, a bad room and a non-boolean reopen are refused", async () => {
+    expect((await fake({ signedIn: false }).tool("chat_archive").handler({ room: "build" }, ENV)).ok).toBe(false);
+    for (const input of [{ room: "Bad" }, { room: "build", reopen: "yes" }]) {
+      const f = fake();
+      expect((await f.tool("chat_archive").handler(input, ENV)).ok, JSON.stringify(input)).toBe(false);
+      expect(f.calls).toEqual([]);
+    }
+  });
+});
+
+describe("chat_invite", () => {
+  test("sends the session handle as from and the server's pane as callerPane", async () => {
+    const f = fake();
+    const r = await f.tool("chat_invite").handler({ pane: "w2:p1", room: "build", note: "you own the vite side" }, ENV);
+    expect(r).toEqual({ ok: true, body: { delivered: "accepted", paneId: "w2:p1" } });
+    expect(f.calls[0]!.a).toEqual({ paneId: "w2:p1", room: "build", from: "ann", note: "you own the vite side", callerPane: "w1:p2" });
+  });
+
+  test("a note with a newline is allowed (the daemon folds it)", async () => {
+    const f = fake();
+    expect((await f.tool("chat_invite").handler({ pane: "w2:p1", room: "build", note: "line one\nline two" }, ENV)).ok).toBe(true);
+  });
+
+  test("refuses an unsigned session instead of speaking as the human", async () => {
+    const f = fake({ signedIn: false });
+    const r = await f.tool("chat_invite").handler({ pane: "w2:p1", room: "build" }, ENV);
+    expect(r.error).toBe(SIGN_IN_HINT);
+    expect(f.calls).toEqual([]);
+  });
+
+  test.each([
+    [{ pane: "w2:p1", room: "build", note: "hi\u001b[2J" }],
+    [{ pane: "w2:p1", room: "build", note: "stop\u0003" }],
+    [{ pane: "w2:p1", room: "build", note: "a\tb" }],
+    [{ pane: "w2:p1", room: "build", note: "a\u007fb" }],
+    [{ pane: "w2:p1", room: "build", note: "x".repeat(301) }],
+    [{ pane: "-w2", room: "build" }],
+    [{ pane: "w2 p1", room: "build" }],
+    [{ pane: "w2:p1", room: "Bad" }],
+    [{ room: "build" }],
+    [{ pane: "w2:p1" }],
+  ])("refuses %j with no daemon call", async (input) => {
+    const f = fake();
+    expect((await f.tool("chat_invite").handler(input, ENV)).ok).toBe(false);
+    expect(f.calls).toEqual([]);
+  });
+
+  test("a bg pane ref passes the shape check", async () => {
+    const f = fake();
+    expect((await f.tool("chat_invite").handler({ pane: "bg:w2:p1", room: "build" }, ENV)).ok).toBe(true);
+  });
+});

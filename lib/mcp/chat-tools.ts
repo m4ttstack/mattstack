@@ -68,6 +68,10 @@ const REPLACED = "this session was replaced (/clear) or has ended, so chat_sign_
 /** The reserved mention every human post carries (chat:post adds it for the human handle). */
 const RESERVED_HANDLES = ["here"];
 const SIGN_OUT_TIMEOUT_MS = 3000;
+const PANE_REF = /^[A-Za-z0-9._:][A-Za-z0-9._:-]*$/;
+const NOTE_MAX = 300;
+/** Newlines are allowed because the daemon's inviteText folds them to spaces; every other C0 byte or DEL would reach the target pane as a keystroke. */
+const NOTE_CONTROL = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/;
 
 function flagValueError(name: string, v: unknown): string | undefined {
   if (v === undefined) return undefined;
@@ -271,6 +275,45 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         // Local cleanup runs whatever the daemon said, as the CLI's sign-out does: a stranded file keeps resolving to a dead handle.
         deps.deleteSession(sessionId);
         return ok(res.ok ? {} : { daemonError: res.error ?? "sign-out failed" });
+      },
+    },
+    {
+      name: "chat_archive",
+      description: "Archive a chat room this session's handle belongs to (hidden from every member's room list until someone posts into it), or reopen it with reopen: true.",
+      inputSchema: { type: "object", properties: { ...ROOM_PROP, reopen: { type: "boolean" } }, required: ["room"], additionalProperties: false },
+      async handler(input, env) {
+        const id = handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = checkChatName("room", input.room) ?? checkOptional(input, [{ name: "reopen", type: "boolean" }]);
+        if (bad) return err(bad);
+        const room = input.room as string;
+        // The daemon checks no membership, and archiving hides the room from everyone in it.
+        const who = await deps.who({ room });
+        if (!who.ok) return fromResponse(who);
+        if (!(who.data?.members ?? []).some((m) => m.handle === id.handle)) return err(`${id.handle} is not a member of #${room}; only a member may archive or reopen it`);
+        const res = await deps.archive({ room, handle: id.handle, archived: input.reopen !== true });
+        return res.ok ? ok({ room: res.data?.room ?? room, archivedAt: res.data?.archivedAt ?? null }) : fromResponse(res);
+      },
+    },
+    {
+      name: "chat_invite",
+      description: "Invite another herdr pane into a chat room: types /chat:join <room> (with an optional one-line note from this session's handle) into that pane. pane is a herdr pane id or ref; note is at most 300 characters with no control characters.",
+      inputSchema: { type: "object", properties: { pane: { type: "string" }, ...ROOM_PROP, note: { type: "string" } }, required: ["pane", "room"], additionalProperties: false },
+      async handler(input, env) {
+        const id = handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = checkRequired(input, [{ name: "pane", type: "string" }]) ?? checkChatName("room", input.room) ?? checkOptional(input, [{ name: "note", type: "string" }]);
+        if (bad) return err(bad);
+        if (!PANE_REF.test(input.pane as string)) return err('"pane" must be a herdr pane id or ref (letters, digits, . _ : -, not starting with -)');
+        if (typeof input.note === "string") {
+          if (NOTE_CONTROL.test(input.note)) return err('"note" must not contain control characters');
+          if (input.note.length > NOTE_MAX) return err(`"note" must be at most ${NOTE_MAX} characters`);
+        }
+        const payload: Commands["chat:invite"]["payload"] = { paneId: input.pane as string, room: input.room as string, from: id.handle };
+        if (typeof input.note === "string") payload.note = input.note;
+        const callerPane = selfPaneRef(env);
+        if (callerPane) payload.callerPane = callerPane;
+        return fromResponse(await deps.invite(payload));
       },
     },
   ];
