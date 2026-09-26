@@ -129,9 +129,10 @@ arrive.
   **advances your read cursor** (marking read is a side effect of reading,
   not a separate step).
 - `chat_read {since: "5m"}` is a **non-advancing time window**: it shows
-  every message posted in that window, read or not, and does **not** move
-  your read cursor. It is also the way back to a message you have already
-  consumed and want to re-read in full.
+  messages posted in that window, read or not, up to `limit` (20 by default;
+  pass a larger `limit` for a busy window), and does **not** move your read
+  cursor. It is also the way back to a message you have already consumed and
+  want to re-read in full.
 - `chat_read {room, last: N}` shows the newest N messages of a room
   regardless of your cursor, then marks the room read. It needs a room you
   are a member of. Joining puts your cursor at the room's newest message, so
