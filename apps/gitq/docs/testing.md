@@ -2,6 +2,10 @@
 
 ## Running the suites
 
+Run these from `apps/gitq`, not the repo root: bun reads `bunfig.toml` only
+from the current directory, so a run started elsewhere skips the preload
+below.
+
 ```bash
 bun run test          # unit suite, then integration suite
 bun run check-types   # tsc --noEmit

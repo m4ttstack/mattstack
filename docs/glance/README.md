@@ -11,8 +11,8 @@ instead of polling for it.
 Part of [mattstack](https://m4tthew.dev/mattstack). Siblings in the estate
 include [rt](https://github.com/m4ttstack/rt) (a developer CLI),
 [gitq](../../apps/gitq) (in this same repo, a stacked-branch engine),
-[board](https://github.com/m4ttstack/board) (a team MR dashboard),
-[deck](https://github.com/m4ttstack/deck), [fast-browser](https://github.com/m4ttstack/fast-browser),
+[board](../../apps/board) (in this same repo, a team MR dashboard),
+[deck](../../apps/deck) (in this same repo), [fast-browser](https://github.com/m4ttstack/fast-browser),
 [herdr-chat](https://github.com/m4ttstack/herdr-chat), [skills](https://github.com/m4ttstack/skills),
 and [mattstack-marketplace](https://github.com/m4ttstack/mattstack-marketplace),
 built alongside [herdr](https://github.com/herdrdev/herdr) itself.
@@ -20,7 +20,7 @@ built alongside [herdr](https://github.com/herdrdev/herdr) itself.
 ## Who uses it
 
 [rt](https://github.com/m4ttstack/rt), [gitq](../../apps/gitq) (in this same repo),
-and [board](https://github.com/m4ttstack/board) all read and write merge
+and [board](../../apps/board) (in this same repo) all read and write merge
 requests through this layer, which is why the same review state shows up in a
 CLI, a board, and an editor extension without three integrations drifting
 apart.

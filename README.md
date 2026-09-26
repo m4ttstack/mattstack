@@ -12,9 +12,9 @@ Full documentation lives at **[rt.cool](https://rt.cool)**.
 
 rt is the command line piece of mattstack, a small estate of tools that share
 its daemon and settings: [gitq](apps/gitq) (in this same repo) for stacked
-branches, [board](https://github.com/m4ttstack/board) for reviewing merge
+branches, [board](apps/board) (in this same repo) for reviewing merge
 requests, [glance](packages/glance) (in this same repo) for one GitHub and
-GitLab client, [deck](https://github.com/m4ttstack/deck) for local app hosting,
+GitLab client, [deck](apps/deck) (in this same repo) for local app hosting,
 [fast-browser](https://github.com/m4ttstack/fast-browser) for driving Chrome,
 [skills](https://github.com/m4ttstack/skills) and the
 [marketplace](https://github.com/m4ttstack/mattstack-marketplace) that installs
@@ -263,7 +263,7 @@ rt update                 # ask mattstack.app to check for an update
 rt uninstall              # reverse setup: services, links, plugins
 ```
 
-The [`board`](https://github.com/m4ttstack/board) app is where merge requests
+The [`board`](apps/board) app is where merge requests
 get reviewed; rt keeps the data it needs warm but no longer renders a dashboard
 of its own.
 

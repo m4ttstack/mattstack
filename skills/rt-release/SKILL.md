@@ -36,9 +36,9 @@ that catalog actually changed — an unchanged one is a no-op that pushes nothin
 This supersedes the local `.claude/commands/release.md` command; that file can be
 left as-is or reduced to a pointer here.
 
-## Fast path: one served-app fix
+## Fast path: one fast-path app fix
 
-When the diff since the last tag touches only served-app directories
+When the diff since the last tag touches only fast-path app directories
 (`apps/board`, `apps/boxscore`, `apps/chat`, `apps/console`, `apps/gitq`),
 `RELEASE_NOTES.md` and `website/`, the release is one verb, `rt release app
 <name>` (bare `rt release app` on a terminal picks the app; from source,
