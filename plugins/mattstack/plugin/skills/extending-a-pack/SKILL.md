@@ -22,22 +22,30 @@ The output of one round, in this order, each part required:
 
 ## 1. Sort the ask
 
+Skills verbs go through `rt_verb {args: [...]}`: `--pack <pack>` sits in
+`args`, and the call never carries a `cwd`. `--pack-dir <dir>` rides in
+`args` for `check` only; compiling a checkout's or worktree's sources is
+the bare Bash `rt skills compile --pack <pack> --pack-dir <dir>`, because
+`rt_verb` refuses that flag on compile. `rt skills composition` and
+`rt skills packs` refuse `rt_verb` (not agent-safe); run them as plain
+Bash, and only as a one-time lookup, not a per-round call.
+
 | the ask is about | goes to |
 | --- | --- |
 | a rule that holds even outside a pipeline (branch names, forbidden ops, where things live) | `skills/context/SKILL.md`, a hand-authored public skill |
 | something one stage or verb should do differently | a fill bound to that stage's `domain` slot (or the review cluster's `criteria` / `reply-rules`) |
-| a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` plus `rt skills surface set <verb> --public` |
+| a new door: `ship`, `review`, `watch-ci`, `self-review`, `receive-review`, `shepherdr` | a roster entry in `pack/stubs.jsonc` plus `rt_verb {args: ["skills", "surface", "set", "<verb>", "--public", "--pack", "<pack>"]}` |
 | the wording of an existing verb | its `description` in `pack/stubs.jsonc` |
 
 `slots.md` beside this file maps asks to slots and contracts.
-`rt skills composition --pack <pack>` is the live list; use it when the
-table and the pack disagree.
+`rt skills composition --pack <pack>` (Bash, one-time) is the live list; use
+it when the table and the pack disagree.
 
 ## 2. Write it (context or fill)
 
 Paths: `<zone>/mattstack/packs/<pack>/skills/context/SKILL.md` for context,
 `<zone>/mattstack/packs/<pack>/attachments/<fill>/SKILL.md` for a fill.
-`rt skills packs` prints the pack dir.
+`rt skills packs` (Bash, one-time) prints the pack dir.
 
 A fill has this frontmatter and nothing else in it:
 
@@ -65,11 +73,13 @@ carries only what the team adds.
 
 ## 3. Bind, certify, check
 
-```bash
-rt skills bind <stage-or-verb> <slot> <pack>:<fill>     # validates provides, writes the per-repo manifest AND pack/skills.jsonc, recompiles
-sh <mattstack-skills>/tests/certify.sh <fill dir> --domain
-rt skills check --pack <pack>
-```
+Call `rt_verb {args: ["skills", "bind", "<stage-or-verb>", "<slot>", "<pack>:<fill>", "--pack", "<pack>"]}`:
+it validates `provides`, writes the per-repo manifest AND `pack/skills.jsonc`,
+and recompiles. Then run `sh <mattstack-skills>/tests/certify.sh <fill dir> --domain`,
+then call `rt_verb {args: ["skills", "check", "--pack", "<pack>"]}`.
+A check that comes back `failed (exit 1)` is drift, with only the tail
+of its output; run the bare Bash `rt skills check --pack <pack>` to read
+what moved.
 
 The write into `pack/skills.jsonc` is what reaches teammates; the per-repo
 manifest is regenerated on every materialize. Confirm the fragment carries
@@ -83,10 +93,11 @@ add it to `pack/surface.jsonc`'s `public` list.
 
 GREEN, now that the pack compiles with the rule. The running session still
 loads the pack from the installed cache, so GREEN starts a session that
-loads the pack source instead:
+loads the pack source instead, in the worktree, where the pack's verbs come
+from its source, not the cache:
 
 ```bash
-claude --plugin-dir <pack dir>     # in the worktree; the pack's verbs come from its source, not the cache
+claude --plugin-dir <pack dir>
 ```
 
 In it, re-run the same stage or verb on the same task with the same stop
@@ -96,16 +107,16 @@ run has happened.
 ## 4. Doors and wording
 
 Add a roster entry with the engine name and a trigger-only description in
-the team's words, then `rt skills surface set <verb> --public` and
-`rt skills compile --pack <pack>`. Rewording is the same edit without the
+the team's words, then call `rt_verb {args: ["skills", "surface", "set", "<verb>", "--public", "--pack", "<pack>"]}`
+and `rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}`. Rewording is the same edit without the
 surface step. A `shepherdr` door also needs its two required slots bound
 (`tiering` to `mattstack:model-tiering`, `strategy` to
 `mattstack:execution-strategy`) before it compiles.
 
 ## 5. Publish
 
-Hand to `mattstack:editing-skills`: bump, commit, push, `rt skills sync`,
-restart. The daemon's team snapshot may commit the zone first; that is
+Hand to `mattstack:editing-skills`: bump, commit, push,
+`rt_verb {args: ["skills", "sync", "--pack", "<pack>"]}`, restart. The daemon's team snapshot may commit the zone first; that is
 fine, the bump and push still go through editing-skills.
 
 ## Red flags
@@ -118,6 +129,6 @@ fine, the bump and push still go through editing-skills.
   the next materialize; the fragment is the source.
 - A fill body that restates the engine: the fill carries only what the team
   adds.
-- Binding before the fill exists: `rt skills bind` refuses; write first.
+- Binding before the fill exists: `rt_verb {args: ["skills", "bind", ...]}` refuses; write first.
 - "The next real run is the first live test": that is the RED and GREEN
   pass skipped; run them.

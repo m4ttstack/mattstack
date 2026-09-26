@@ -12,6 +12,7 @@ names must be a path inside this repo.
 |---|---|---|
 | `plugin/skills/getting-current-time/inject-time.sh` | `UserPromptSubmit` + `PostToolUse` | stamps context with local time, zone, and UTC; the `PostToolUse` pass is throttled to once per 5 minutes so long turns re-stamp without spamming |
 | `hooks/pipeline-gate-stop.sh` | `Stop` | when this session's pipeline run is still `running` and not held, blocks the turn from ending in prose (exit 2) and hands the agent the four exits: continue, open the decision as a form, hold, or close; fails open on every error |
+| `hooks/relocation-announce.sh` | `PreToolUse` on `EnterWorktree` | hands the hook's stdin to `rt worktree announce-relocation` so the daemon can accept this pane's relocation dialog; fails open on every error |
 
 **`herdr-doorbell.sh` is hand-installed** by symlink into
 `~/.claude/hooks/`. herdr installs its own managed hook there and tells you to
