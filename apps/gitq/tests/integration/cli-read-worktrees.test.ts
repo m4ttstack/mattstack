@@ -15,7 +15,10 @@ afterEach(async () => {
 });
 
 function gitq(cwd: string, ...args: string[]): { code: number; stdout: string } {
-  configDir ??= realpathSync(mkdtempSync(join(tmpdir(), 'gitq-read-')));
+  if (!configDir) {
+    configDir = realpathSync(mkdtempSync(join(tmpdir(), 'gitq-read-')));
+    cleanups.push(configDir);
+  }
   try {
     const stdout = execFileSync('bun', ['bin/gitq', '-C', cwd, ...args, '--json'], {
       cwd: GITQ_ROOT,

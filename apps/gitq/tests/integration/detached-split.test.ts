@@ -86,6 +86,7 @@ describe('ref-only tail split', () => {
     const { repo, stack } = await splitScenario();
     repo.git('checkout', 'main');
     const slotPath = await addNamedWorktree(repo, 'x-slot', 'feature-x');
+    cleanups.push(slotPath);
     const splitAt = repo.git('rev-parse', 'feature-x~1');
 
     const result = await BranchSplitter.tailSplit(repo.dir, stack, 'feature-x', 'feature-x-tail', splitAt);

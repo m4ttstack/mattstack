@@ -134,6 +134,7 @@ describe('detached fold', () => {
     const { repo, stack, workDir } = await foldScenario();
     repo.git('checkout', 'main');
     const slotPath = await addNamedWorktree(repo, 'b-slot', 'feature-b');
+    cleanups.push(slotPath);
 
     await foldBranch(repo.dir, stack, 'feature-b', workDir);
 
@@ -147,6 +148,7 @@ describe('detached fold', () => {
     const { repo, stack, workDir } = await foldScenario();
     repo.git('checkout', 'main');
     const slotPath = await addNamedWorktree(repo, 'b-slot', 'feature-b');
+    cleanups.push(slotPath);
     await writeFile(join(slotPath, 'wip.txt'), 'wip\n', 'utf-8');
     const heads = { a: repo.git('rev-parse', 'feature-a'), b: repo.git('rev-parse', 'feature-b') };
 
@@ -160,6 +162,7 @@ describe('detached fold', () => {
     const { repo, stack, workDir } = await foldScenario();
     repo.git('checkout', 'main');
     const slotPath = await addNamedWorktree(repo, 'a-slot', 'feature-a');
+    cleanups.push(slotPath);
 
     await foldBranch(repo.dir, stack, 'feature-b', workDir);
 
@@ -172,6 +175,7 @@ describe('detached fold', () => {
     const { repo, stack, workDir } = await foldScenario();
     repo.git('checkout', 'feature-a');
     const slotPath = await addNamedWorktree(repo, 'b-slot', 'feature-b');
+    cleanups.push(slotPath);
 
     await foldBranch(repo.dir, stack, 'feature-b', workDir);
 

@@ -121,6 +121,7 @@ describe('detached reparent', () => {
   test('moved branch checked out in a clean slot auto-fixes', async () => {
     const { repo, stack, workDir } = await reparentScenario();
     const slotPath = await addNamedWorktree(repo, 'c-slot', 'feature-c');
+    cleanups.push(slotPath);
 
     await reparentBranch(repo.dir, stack, 'feature-c', 'feature-a', workDir);
 

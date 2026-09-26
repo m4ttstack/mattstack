@@ -157,6 +157,7 @@ describe('detached absorb restack', () => {
   test('restacked child checked out in a clean slot auto-fixes', async () => {
     const { repo, stack, workDir } = await absorbScenario();
     const slotPath = await addNamedWorktree(repo, 'b-slot', 'feature-b');
+    cleanups.push(slotPath);
     repo.git('checkout', 'feature-a');
     await writeFile(join(repo.dir, 'a.txt'), 'a v2\n', 'utf-8');
 

@@ -1,9 +1,9 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { loadConfig } from './config.ts';
-import { isLocalRequest } from './local.ts';
+import { isAllowedOrigin, isLocalRequest } from './local.ts';
 import { SnapshotCache } from './cache.ts';
-import { collectAllRepos, parseActionBody } from './data.ts';
+import { collectAllRepos, isTrackedStack, parseActionBody } from './data.ts';
 import type { BoardRepo } from './data.ts';
 import { IS_COMPILED } from '../core/app-root.ts';
 import { getClientAssets } from './client-assets.ts';
@@ -81,6 +81,10 @@ const server = Bun.serve({
       case '/action': {
         if (req.method !== 'POST') return new Response('method not allowed', { status: 405 });
         if (!isLocalRequest(req)) return new Response('forbidden', { status: 403 });
+        if (!isAllowedOrigin(req.headers.get('origin'))) return new Response('forbidden', { status: 403 });
+        if (!req.headers.get('content-type')?.startsWith('application/json')) {
+          return new Response('expected application/json', { status: 415 });
+        }
         let body: unknown;
         try {
           body = await req.json();
@@ -93,6 +97,9 @@ const server = Bun.serve({
             'expected { repoPath: <configured repo path>, stack: string, action: sync|publish|absorb|restructure }',
             { status: 400 },
           );
+        }
+        if (!(await isTrackedStack(parsed.repoPath, parsed.stack))) {
+          return new Response('stack is not tracked in that repo', { status: 400 });
         }
         const statePath = jobFilePath(parsed.repoPath, parsed.stack, parsed.action);
         // Dedup: a live job for this triple re-focuses its tab instead of

@@ -84,6 +84,6 @@ describe('persistence', () => {
     await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, '{invalid json!!!', 'utf-8');
 
-    expect(loadStore(repoPath)).rejects.toThrow();
+    await expect(loadStore(repoPath)).rejects.toThrow();
   });
 });

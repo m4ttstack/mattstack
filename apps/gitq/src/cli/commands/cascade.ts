@@ -119,9 +119,15 @@ export async function abortCommand(ctx: CliContext): Promise<number> {
   const pause = await readPause(pauseDir);
   // Abort where the rebase actually lives: the pause's worktree when set
   // (detached flow), else the pause's recorded launch tree (native pauses:
-  // reconcile phase, reparent's cascade). Falls back to cwd only for legacy
-  // pauses that predate both fields.
-  await RebaseEngine.abortCascade(ctx.repoRoot, pause?.pauseInfo.worktreePath ?? pause?.pauseInfo.treePath);
+  // reconcile phase, reparent's cascade), else the leased slot itself when
+  // no pause file survived. Never ctx.repoRoot: that is the user's own
+  // checkout, not a tree gitq leased. Only abort when a rebase is actually
+  // in progress there, so a missing or already-resolved rebase still clears
+  // the pause and releases the lease instead of throwing.
+  const rebaseTree = pause?.pauseInfo.worktreePath ?? pause?.pauseInfo.treePath ?? lease.slotPath;
+  if (GitShell.isRebaseInProgress(rebaseTree)) {
+    await RebaseEngine.abortCascade(ctx.repoRoot, rebaseTree);
+  }
   await clearPause(pauseDir);
   await GitShell.detachAt(lease.slotPath, 'HEAD').catch(() => {});
   await releaseLease(ctx.commonDir, lease.stackId);

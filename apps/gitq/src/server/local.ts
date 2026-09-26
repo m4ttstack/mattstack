@@ -7,3 +7,18 @@ export function isLocalRequest(req: Request): boolean {
   const hostname = host.split(':')[0]!.toLowerCase();
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.localhost');
 }
+
+/** `isLocalRequest` trusts only Host, which a cross-origin `no-cors` request
+    can still reach: a browser sends Host for the actual target, not the page
+    that issued the request. A same-origin fetch never sets Origin at all, so
+    a missing header is fine; a present one must name a local host. */
+export function isAllowedOrigin(origin: string | null): boolean {
+  if (origin === null) return true;
+  let hostname: string;
+  try {
+    hostname = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.localhost');
+}

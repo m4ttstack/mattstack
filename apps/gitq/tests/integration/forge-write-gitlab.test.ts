@@ -112,7 +112,7 @@ describe.skipIf(!GITLAB_TOKEN || !GITLAB_PROJECT_PATH)('GitLab forge write cycle
     const b1Node = StackManager.findNode(result.updatedStack, b1)!;
     expect(b1Node.status).toBe('synced');
     expect(b1Node.mrIid).toBe(result.results[0]!.mrIid ?? null);
-    expect(b1Node.mrUrl).toContain('gitlab.com');
+    expect(b1Node.mrUrl).toContain(new URL(GITLAB_BASE_URL).host);
   });
 
   test('syncStack picks up the MRs we created', async () => {

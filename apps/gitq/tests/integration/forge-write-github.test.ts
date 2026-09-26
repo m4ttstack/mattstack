@@ -164,7 +164,7 @@ describe.skipIf(!GITHUB_TOKEN || !GITHUB_REPO)('GitHub forge write cycle', () =>
     const b1Node = StackManager.findNode(result.updatedStack, b1)!;
     expect(b1Node.status).toBe('synced');
     expect(b1Node.mrIid).toBe(result.results[0]!.mrIid ?? null);
-    expect(b1Node.mrUrl).toContain('github.com');
+    expect(b1Node.mrUrl).toContain(new URL(GITHUB_BASE_URL).host);
 
     // The stack shape has to reach GitHub, not just the local tree: b2's PR
     // targets b1, which is the whole point of publishing in topological order.
@@ -176,6 +176,8 @@ describe.skipIf(!GITHUB_TOKEN || !GITHUB_REPO)('GitHub forge write cycle', () =>
   test('syncStack picks up the PRs we created', async () => {
     // The first test that reads through the involvement search, so the first
     // that has to let it catch up. Later tests inherit the settled index.
+    // waitForInvolvementIndex can poll up to its own 90s timeout, past the
+    // suite's 30s default, so this test needs a longer one of its own.
     await waitForInvolvementIndex([b1, b2]);
 
     let stack = StackManager.createStack('gh-sync-test', 'main');
@@ -192,7 +194,7 @@ describe.skipIf(!GITHUB_TOKEN || !GITHUB_REPO)('GitHub forge write cycle', () =>
     const b2Node = StackManager.findNode(result.updatedStack, b2);
     expect(b2Node).toBeDefined();
     expect(b2Node!.mrIid).toBeGreaterThan(0);
-  });
+  }, 120_000);
 
   test('reconcile detects drift when local tree disagrees with forge', async () => {
     let stack = StackManager.createStack('gh-drift-test', 'main');
