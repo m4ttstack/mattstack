@@ -208,7 +208,9 @@ export const GitShell = {
 
   /**
    * List every commit whose sha starts with `prefix`. Empty for non-hex input,
-   * or for a prefix under the four digits `--disambiguate` insists on.
+   * or when the installed git refuses the prefix outright; the minimum prefix
+   * length `--disambiguate` accepts before refusing is git-version dependent
+   * (some versions insist on four hex digits, others resolve shorter ones).
    *
    * Blobs and trees are dropped: a prefix shared only with them is not an
    * ambiguous commit, and "use more characters" would be advice the caller
