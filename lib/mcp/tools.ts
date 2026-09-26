@@ -19,6 +19,7 @@ import { repoLabel } from "../repo-label.ts";
 import { reverseLookupByName } from "../repo-name-lookup.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { explainError } from "../explain-error.ts";
+import { chatToolDefs } from "./chat-tools.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
@@ -758,5 +759,6 @@ export function mcpTools(): McpToolDef[] {
     ...gitToolDefs(realGitToolDeps),
     ...worktreeToolDefs(),
     ...herdToolDefs(),
+    ...chatToolDefs(),
   ];
 }

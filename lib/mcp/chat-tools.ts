@@ -1,0 +1,220 @@
+/**
+ * The chat tools beyond post/dm/ack/claim/release (those stay in tools.ts).
+ * Every tool acts only as this session: the handle comes from this
+ * session's file and the session id from the server's environment, never
+ * from input. No import of commands/chat.ts (TUI-adjacent).
+ */
+import {
+  chatArchive, chatAway, chatBack, chatBuddies, chatInvite, chatJoin, chatLeave, chatMark, chatMessages,
+  chatRead, chatRooms, chatSignOut, chatWho, getSetting,
+} from "../../packages/rt-client/src/index.ts";
+import type { Commands } from "../../packages/rt-client/src/index.ts";
+import { existsSync, statSync } from "fs";
+import { isAbsolute } from "path";
+import { deleteChatSession, readChatSession, type ChatSession } from "../chat-session.ts";
+import { inboxAlive, resolveInbox } from "../claude-registry.ts";
+import { parseDuration } from "../duration.ts";
+import { selfPaneRef } from "../self-pane.ts";
+import { spawnRtJson, type RtVerbResult } from "./rt-verb.ts";
+import { checkChatName, checkOptional, checkRequired, err, fromResponse, ok, requireChatHandle, type McpToolDef } from "./shared.ts";
+
+export interface ChatToolDeps {
+  read: typeof chatRead; messages: typeof chatMessages; mark: typeof chatMark; rooms: typeof chatRooms;
+  who: typeof chatWho; buddies: typeof chatBuddies; join: typeof chatJoin; leave: typeof chatLeave;
+  away: typeof chatAway; back: typeof chatBack;
+  signOut: typeof chatSignOut; archive: typeof chatArchive; invite: typeof chatInvite;
+  session: (id: string | undefined) => ChatSession | null;
+  deleteSession: (id: string) => void;
+  spawnRt: (path: string[], rest: string[], opts: { cwd?: string; timeoutMs?: number }) => Promise<RtVerbResult>;
+  isDir: (path: string) => boolean;
+  serverCwd: () => string | undefined;
+  humanHandle: () => string | undefined;
+  sessionAlive: (id: string) => boolean;
+  now: () => number;
+}
+
+export const realChatToolDeps: ChatToolDeps = {
+  read: chatRead, messages: chatMessages, mark: chatMark, rooms: chatRooms, who: chatWho, buddies: chatBuddies,
+  join: chatJoin, leave: chatLeave, away: chatAway, back: chatBack, signOut: chatSignOut, archive: chatArchive, invite: chatInvite,
+  session: readChatSession,
+  deleteSession: deleteChatSession,
+  spawnRt: (path, rest, opts) => spawnRtJson(path, rest, opts),
+  isDir: (p) => existsSync(p) && statSync(p).isDirectory(),
+  serverCwd: () => {
+    try {
+      return process.cwd();
+    } catch {
+      return undefined;
+    }
+  },
+  humanHandle: () => {
+    try {
+      const v = getSetting<string>("chat.humanHandle").value;
+      return typeof v === "string" && v ? v : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  sessionAlive: (id) => {
+    const binding = resolveInbox(id);
+    return binding !== null && inboxAlive(binding);
+  },
+  now: () => Date.now(),
+};
+
+const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; this tool runs inside a Claude Code session";
+const ROOM_PROP = { room: { type: "string", description: "Room name (lowercase letters, digits, . _ -)." } };
+
+function checkPositiveInt(input: Record<string, unknown>, name: string): string | undefined {
+  const v = input[name];
+  if (v === undefined) return undefined;
+  if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) return `"${name}" must be a positive integer`;
+  return undefined;
+}
+
+function checkCwd(input: Record<string, unknown>, isDir: (p: string) => boolean): string | undefined {
+  const v = input.cwd;
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || !isAbsolute(v) || !isDir(v)) return '"cwd" must be an absolute path to an existing directory';
+  return undefined;
+}
+
+export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[] {
+  const handleOf = (env: NodeJS.ProcessEnv) => requireChatHandle(env, deps.session);
+  return [
+    {
+      name: "chat_read",
+      description: "Read unread chat messages as this session's handle (every room, or one), advancing this handle's read cursor. since (30s, 5m, 500ms, bare seconds) peeks without advancing; last returns a room's newest N regardless of the cursor, then marks it read.",
+      inputSchema: { type: "object", properties: { ...ROOM_PROP, limit: { type: "number" }, since: { type: "string" }, last: { type: "number" } }, additionalProperties: false },
+      async handler(input, env) {
+        const id = handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = checkOptional(input, [{ name: "room", type: "string" }, { name: "since", type: "string" }]) ?? checkPositiveInt(input, "limit") ?? checkPositiveInt(input, "last")
+          ?? (input.room !== undefined ? checkChatName("room", input.room) : undefined);
+        if (bad) return err(bad);
+        const room = input.room as string | undefined;
+        if (input.last !== undefined) {
+          if (input.since !== undefined) return err("last and since are mutually exclusive");
+          if (!room) return err("last needs a room");
+          const page = await deps.messages({ room, limit: input.last as number });
+          if (!page.ok) return fromResponse(page);
+          const marked = await deps.mark({ handle: id.handle, room });
+          if (!marked.ok) return fromResponse(marked);
+          return ok({ rooms: [{ room, messages: page.data?.messages ?? [] }] });
+        }
+        let sinceMs: number | undefined;
+        if (typeof input.since === "string") {
+          const ms = parseDuration(input.since);
+          if (ms == null) return err(`"since" is not a duration (use 30s, 5m, 500ms, or bare seconds): ${JSON.stringify(input.since)}`);
+          sinceMs = deps.now() - ms;
+        }
+        const payload: Commands["chat:read"]["payload"] = { handle: id.handle, limit: (input.limit as number | undefined) ?? 20 };
+        if (room) payload.room = room;
+        if (sinceMs !== undefined) payload.sinceMs = sinceMs;
+        const res = await deps.read(payload);
+        return res.ok ? ok({ rooms: res.data?.rooms ?? [] }) : fromResponse(res);
+      },
+    },
+    {
+      name: "chat_mark",
+      description: "Mark chat messages read for this session's handle: every open room, one room, or one room up to a message id (upto).",
+      inputSchema: { type: "object", properties: { ...ROOM_PROP, upto: { type: "number" } }, additionalProperties: false },
+      async handler(input, env) {
+        const id = handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = (input.room !== undefined ? checkChatName("room", input.room) : undefined) ?? checkPositiveInt(input, "upto");
+        if (bad) return err(bad);
+        if (input.upto !== undefined && input.room === undefined) return err("upto needs a room");
+        const payload: Commands["chat:mark"]["payload"] = { handle: id.handle };
+        if (typeof input.room === "string") payload.room = input.room;
+        if (typeof input.upto === "number") payload.upto = input.upto;
+        return fromResponse(await deps.mark(payload));
+      },
+    },
+    {
+      name: "chat_rooms",
+      description: "List the chat rooms this session's handle belongs to, with unread counts.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler(_input, env) {
+        const id = handleOf(env);
+        if ("error" in id) return err(id.error);
+        return fromResponse(await deps.rooms({ handle: id.handle }));
+      },
+    },
+    {
+      name: "chat_who",
+      description: "List a chat room's members with their presence status.",
+      inputSchema: { type: "object", properties: { ...ROOM_PROP }, required: ["room"], additionalProperties: false },
+      async handler(input) {
+        const bad = checkChatName("room", input.room);
+        if (bad) return err(bad);
+        const res = await deps.who({ room: input.room as string });
+        return res.ok ? ok({ rooms: [{ room: input.room, members: res.data?.members ?? [] }] }) : fromResponse(res);
+      },
+    },
+    {
+      name: "chat_buddies",
+      description: "List every chat handle on this machine with its presence status (live, idle, away, offline).",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler() {
+        return fromResponse(await deps.buddies());
+      },
+    },
+    {
+      name: "chat_join",
+      description: "Join a chat room as this session's handle. wakeOn (mention, all, none) sets when a message is delivered; cwd is the checkout this session works in (the server's own directory is fixed at session start).",
+      inputSchema: { type: "object", properties: { ...ROOM_PROP, wakeOn: { type: "string", enum: ["mention", "all", "none"] }, cwd: { type: "string" } }, required: ["room"], additionalProperties: false },
+      async handler(input, env) {
+        const id = handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = checkChatName("room", input.room) ?? checkCwd(input, deps.isDir);
+        if (bad) return err(bad);
+        if (input.wakeOn !== undefined && input.wakeOn !== "mention" && input.wakeOn !== "all" && input.wakeOn !== "none") return err('"wakeOn" must be mention, all or none');
+        const room = input.room as string;
+        const payload: Commands["chat:join"]["payload"] = { room, handle: id.handle };
+        if (input.wakeOn !== undefined) payload.wakeOn = input.wakeOn as "mention" | "all" | "none";
+        const cwd = (input.cwd as string | undefined) ?? deps.serverCwd();
+        if (cwd) payload.cwd = cwd;
+        const pane = selfPaneRef(env);
+        if (pane) payload.pane = pane;
+        const res = await deps.join(payload);
+        return res.ok ? ok({ room, ...res.data }) : fromResponse(res);
+      },
+    },
+    {
+      name: "chat_leave",
+      description: "Leave a chat room as this session's handle.",
+      inputSchema: { type: "object", properties: { ...ROOM_PROP }, required: ["room"], additionalProperties: false },
+      async handler(input, env) {
+        const id = handleOf(env);
+        if ("error" in id) return err(id.error);
+        const bad = checkChatName("room", input.room);
+        if (bad) return err(bad);
+        return fromResponse(await deps.leave({ room: input.room as string, handle: id.handle }));
+      },
+    },
+    {
+      name: "chat_away",
+      description: "Set an away message on this session's chat presence without signing out; chat_back clears it.",
+      inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
+      async handler(input, env) {
+        const sessionId = env.CLAUDE_CODE_SESSION_ID;
+        if (!sessionId) return err(NO_SESSION);
+        const bad = checkRequired(input, [{ name: "text", type: "string" }]);
+        if (bad) return err(bad);
+        if ((input.text as string).trim() === "") return err('"text" must not be empty');
+        return fromResponse(await deps.away({ sessionId, text: input.text as string }));
+      },
+    },
+    {
+      name: "chat_back",
+      description: "Clear this session's chat away message.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler(_input, env) {
+        const sessionId = env.CLAUDE_CODE_SESSION_ID;
+        if (!sessionId) return err(NO_SESSION);
+        return fromResponse(await deps.back({ sessionId }));
+      },
+    },
+  ];
+}
