@@ -21,7 +21,7 @@ let dirs: string[] = [];
 beforeEach(() => { dirs = []; });
 afterEach(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
-  for (const s of ["sess-w1", "sess-w2"]) deleteChatSession(s);
+  for (const s of ["sess-w1", "sess-w2", "sess-shep", "sess-shep-2", "sess-shep-3"]) deleteChatSession(s);
 });
 
 export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { registerBudgetMs?: number; settleMs?: number; stepMs?: number } = {}) {
@@ -307,6 +307,14 @@ describe("herd:resume / status / close", () => {
     if (!res.ok) throw new Error(res.error);
     return { ...hx, herd: res.data.herd, room: res.data.room };
   }
+
+  test("start and resume write the shepherd's chat session file", async () => {
+    const { h, herd } = await started();
+    expect(readChatSession("sess-shep")).toMatchObject({ handle: "shepherd", baseHandle: "shepherd" });
+    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    if (!res.ok) throw new Error(res.error);
+    expect(readChatSession("sess-shep-2")).toMatchObject({ handle: "shepherd", baseHandle: "shepherd" });
+  });
 
   test("resume re-subscribes with the new session and returns gates, unread, status", async () => {
     const { h, store, gateStore, herd } = await started();
@@ -975,12 +983,20 @@ describe("herd:spawn", () => {
     expect(readChatSession("sess-w1")).toMatchObject({ sessionId: "sess-w1", handle: "job-a", baseHandle: "job-a" });
   });
 
-  test("an existing session file is left alone", async () => {
-    writeChatSession({ sessionId: "sess-w1", handle: "custom", baseHandle: "custom", signedInAt: 1, room: "r" });
+  test("an existing file naming the same handle is kept, room and all", async () => {
+    writeChatSession({ sessionId: "sess-w1", handle: "job-a", baseHandle: "job-a", signedInAt: 1, room: "r" });
     const { h, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
     if (!res.ok) throw new Error(res.error);
-    expect(readChatSession("sess-w1")).toMatchObject({ handle: "custom", room: "r" });
+    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a", room: "r", signedInAt: 1 });
+  });
+
+  test("a stale file naming another handle is rewritten to the signed-in handle, keeping its room", async () => {
+    writeChatSession({ sessionId: "sess-w1", handle: "old-2", baseHandle: "old", signedInAt: 1, room: "r" });
+    const { h, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
+    if (!res.ok) throw new Error(res.error);
+    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a", baseHandle: "job-a", room: "r" });
   });
 
   test("--dir skips provisioning; a respawn closes the old pane first and reuses the stored job.md", async () => {

@@ -73,10 +73,14 @@ export const HERD_OPTION_LABEL_MAX = 60;
 
 /** The chat_* MCP tools resolve identity only from the session file, which
     only the CLI's sign-in writes; a session the daemon signed in has no file
-    unless it is written here. An existing file is the CLI's and is kept. */
+    unless it is written here. A file already naming this handle is kept (it
+    may carry the CLI's room and cwd); one naming another handle is stale and
+    would make every chat_* call act as a handle the session no longer owns. */
 function recordChatSession(log: Logger, sessionId: string, handle: string, baseHandle: string): void {
   try {
-    if (!readChatSession(sessionId)) writeChatSession({ sessionId, handle, baseHandle, signedInAt: Date.now() });
+    const existing = readChatSession(sessionId);
+    if (existing?.handle === handle) return;
+    writeChatSession({ ...existing, sessionId, handle, baseHandle, signedInAt: Date.now() });
   } catch (err) {
     log.warn({ err, sessionId }, "herd: could not write the chat session file; chat_* tools will not resolve this session");
   }
