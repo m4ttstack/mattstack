@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.17.15 + mattstack:model-tiering@0.17.15 + mattstack:execution-strategy@0.17.15 + mattstack:cswap-accounts@0.17.15"
+  compiled: "mattstack@0.21.2 + mattstack:model-tiering@0.21.2 + mattstack:execution-strategy@0.21.2 + mattstack:cswap-accounts@0.21.2"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.17.15 path=attachments/orchestration/shepherdr/SKILL.md lines=15-528 -->
+<!-- part: step source=mattstack:shepherdr version=0.21.2 path=attachments/orchestration/shepherdr/SKILL.md lines=15-533 -->
 
 # shepherdr
 
@@ -64,7 +64,7 @@ If work arrives unscoped and the user wants it scoped before fan-out, brainstorm
 
 ## Tiering
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.17.15 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.21.2 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -178,7 +178,7 @@ this skill is the generic framework they override.
 
 ## Strategy
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.17.15 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.21.2 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -312,7 +312,7 @@ below the floor is wrong.
 
 ## Accounts
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.17.15 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.21.2 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -564,7 +564,12 @@ look up first; name the herd only when more than one is active). Present
 every open gate it returns, up to 4 in one AskUserQuestion call: each
 option's `label` when it has one (else the option text) as the option
 text, its `description` when the gate carries one as that option's
-description, the job's recommendation first, never reordered. Record the choice with
+description, the job's recommendation first, never reordered. A herd
+question gate (`kind: question`, subject `herd:<id>/<job>`) is presented
+as: one sentence of your own naming the job and what it needs decided,
+then the form, whose question text is the gate question's `label`. Any
+other gate (a milestone, a pipeline-run or review gate) is presented with
+its full context. Record the choice with
 
 ```bash
 rt gate answer <gate-id> --answers '<json>' --by shepherd
@@ -754,7 +759,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 
 ## wrap-up form contract
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.17.15 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.21.2 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
@@ -788,7 +793,7 @@ next call after the answers return, never into the context sentence.
 - About to read a pane "to see how it's going"? Stop. The gates and the room will tell you.
 - About to read a spec "just to check it"? Stop. Doorbell the user or spawn a reviewer.
 - About to fix a test or merge a branch yourself? Stop. That is an integration job.
-- About to summarize an agent's question in your own words? Stop. Relay verbatim.
+- About to reword, merge or reorder an agent's options? Stop. Options and their values are relayed exactly; only a herd question's context is yours to condense.
 - Spawn command without `--model`? The worker launches on the default model, which silently defeats tiering.
 - Spawning Opus for a fully-specified execution job? That's overspending. Sonnet handles mechanical work.
 - About to ask the account question before models are chosen? Stop. Some providers budget per-model pools separately; model-blind headroom is misleading.

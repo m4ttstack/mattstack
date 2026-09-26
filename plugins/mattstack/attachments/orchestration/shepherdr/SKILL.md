@@ -305,7 +305,12 @@ look up first; name the herd only when more than one is active). Present
 every open gate it returns, up to 4 in one AskUserQuestion call: each
 option's `label` when it has one (else the option text) as the option
 text, its `description` when the gate carries one as that option's
-description, the job's recommendation first, never reordered. Record the choice with
+description, the job's recommendation first, never reordered. A herd
+question gate (`kind: question`, subject `herd:<id>/<job>`) is presented
+as: one sentence of your own naming the job and what it needs decided,
+then the form, whose question text is the gate question's `label`. Any
+other gate (a milestone, a pipeline-run or review gate) is presented with
+its full context. Record the choice with
 
 ```bash
 rt gate answer <gate-id> --answers '<json>' --by shepherd
@@ -502,7 +507,7 @@ work merges, what a disposal refusal means) -- follow it over item 4.
 - About to read a pane "to see how it's going"? Stop. The gates and the room will tell you.
 - About to read a spec "just to check it"? Stop. Doorbell the user or spawn a reviewer.
 - About to fix a test or merge a branch yourself? Stop. That is an integration job.
-- About to summarize an agent's question in your own words? Stop. Relay verbatim.
+- About to reword, merge or reorder an agent's options? Stop. Options and their values are relayed exactly; only a herd question's context is yours to condense.
 - Spawn command without `--model`? The worker launches on the default model, which silently defeats tiering.
 - Spawning Opus for a fully-specified execution job? That's overspending. Sonnet handles mechanical work.
 - About to ask the account question before models are chosen? Stop. Some providers budget per-model pools separately; model-blind headroom is misleading.
