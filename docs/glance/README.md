@@ -29,8 +29,8 @@ apart.
 
 | Package | Description |
 | --- | --- |
-| [`@mattstack/glance`](packages/glance) | Provider-agnostic client: types, REST/GraphQL, ActionCable subscriptions, dashboard helpers. Runs on Node (>=21) or Bun. |
-| [`@mattstack/glance-react`](packages/glance-react) | React components and hooks for rendering merge request state: cards, rows, reviewer status, pipeline badges. |
+| [`@mattstack/glance`](../../packages/glance) | Provider-agnostic client: types, REST/GraphQL, ActionCable subscriptions, dashboard helpers. Runs on Node (>=21) or Bun. |
+| [`@mattstack/glance-react`](../../packages/glance-react) | React components and hooks for rendering merge request state: cards, rows, reviewer status, pipeline badges. |
 
 Both are published on npm and installable directly; this repo is where they
 are built from, not a wrapper around something published elsewhere.

@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/m4ttstack/apps.git",
+    "url": "git+https://github.com/m4ttstack/rt.git",
     "directory": "packages/server"
   },
   "files": [
