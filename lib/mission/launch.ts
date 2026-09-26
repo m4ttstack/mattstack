@@ -1,8 +1,4 @@
-/**
- * `rt glitter`'s read-only start-repo resolution: the cwd repo, else the
- * last-opened repo (state.db kv), else a repo picker. Never registers a
- * repo (no data dir, no index row) -- see `identityForRootReadOnly`.
- */
+// Never registers a repo: identity comes only from identityForRootReadOnly.
 import { getKvValue, setKvValue } from "../state/kv-blob.ts";
 
 export const LAST_REPO_NS = "glitter";
