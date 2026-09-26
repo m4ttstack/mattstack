@@ -81,8 +81,8 @@ see the layout yourself without wiring up a real GitLab project, copy
 ## Installation
 
 ```sh
-git clone https://github.com/m4ttstack/apps.git
-cd apps                       # the workspace root, not this app's own dir
+git clone https://github.com/m4ttstack/rt.git
+cd rt                         # the workspace root, not this app's own dir
 bun install                   # workspace install: packages/*, apps/*
 cd apps/board
 ```
