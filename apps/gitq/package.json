@@ -59,7 +59,7 @@
     "node": ">=20"
   },
   "files": [
-    "dist",
+    "dist/gitq.js",
     "bin/gitq.mjs",
     "README.md",
     "LICENSE"

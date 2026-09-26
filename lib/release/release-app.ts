@@ -224,7 +224,7 @@ interface Ctx {
 }
 
 async function qualify(seams: ReleaseAppSeams, name: string): Promise<Ctx> {
-  if (!keepsFastPath(name)) throw new StepFailure("qualify", `${name} is not a served-only app; use the full release process`, null);
+  if (!keepsFastPath(name)) throw new StepFailure("qualify", `${name} does not keep the fast path; use the full release process`, null);
   const { headSha } = await refreshMain(seams);
   const lastTag = newestReleaseTag(await remoteTags(seams));
   const structural = await resolvePhase(seams, headSha, lastTag);
