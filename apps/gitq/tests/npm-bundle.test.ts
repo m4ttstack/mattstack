@@ -19,7 +19,7 @@ function bareSpecifiers(js: string): string[] {
     const m = line.trimStart().match(/^import\b.*\bfrom\s+["']([^"']+)["']/);
     if (m) specs.add(m[1]);
   }
-  for (const pattern of [/\bimport\(\s*["']([^"']+)["']\s*\)/g, /\b__?require\(\s*["']([^"']+)["']\s*\)/g]) {
+  for (const pattern of [/\bimport\(\s*["']([^"']+)["']\s*\)/g, /\b(?:__)?require\(\s*["']([^"']+)["']\s*\)/g]) {
     for (const m of js.matchAll(pattern)) specs.add(m[1]);
   }
   return [...specs].filter((s) => !s.startsWith('.') && !s.startsWith('/'));
@@ -42,9 +42,11 @@ describe('npm bundle', () => {
       if (builtinModules.includes(bare)) return false;
       return !(spec in pkg.dependencies);
     });
-    // @mattstack/rt-client and @mattstack/settings-kit are dev dependencies
-    // only: the bundle inlines them, so either one showing up here as a bare
-    // specifier would mean it stopped being inlined.
+    // @mattstack/rt-client is a dev dependency, inlined into the bundle, so
+    // it showing up here as a bare specifier would mean it stopped being
+    // inlined. @mattstack/settings-kit is not declared in gitq's
+    // package.json at all: it arrives, if at all, transitively through
+    // rt-client, and needs the same inlining.
     expect(unresolved).toEqual([]);
     for (const name of Object.keys(pkg.dependencies)) expect(pkg.dependencies[name]).not.toMatch(/^(file|link):/);
     // bin/gitq.mjs is the entry point that actually calls main(); dist/gitq.js
