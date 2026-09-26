@@ -31,7 +31,7 @@ import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
   err, fromResponse, HERD_ENV_ERROR, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok,
   REPO_NAME_RULE, REPO_TARGET_PROPS, requireChatHandle, requireJobEnv, requireWorkerEnv,
-  resolveSoleHerd, SIGN_IN_HINT, withLandingHint,
+  resolveSoleHerd, withLandingHint,
   type McpToolDef, type ToolResult,
 } from "./shared.ts";
 

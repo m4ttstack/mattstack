@@ -28,7 +28,8 @@ export interface ChatToolDeps {
   spawnRt: (path: string[], rest: string[], opts: { cwd?: string; timeoutMs?: number }) => Promise<RtVerbResult>;
   isDir: (path: string) => boolean;
   serverCwd: () => string | undefined;
-  humanHandle: () => string | undefined;
+  /** null means the setting could not be read at all, distinct from unset (undefined): only null blocks "as". */
+  humanHandle: () => string | undefined | null;
   sessionAlive: (id: string) => boolean;
   now: () => number;
 }
@@ -52,7 +53,7 @@ export const realChatToolDeps: ChatToolDeps = {
       const v = getSetting<string>("chat.humanHandle").value;
       return typeof v === "string" && v ? v : undefined;
     } catch {
-      return undefined;
+      return null;
     }
   },
   sessionAlive: (id) => {
@@ -64,7 +65,7 @@ export const realChatToolDeps: ChatToolDeps = {
 
 const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; this tool runs inside a Claude Code session";
 const ROOM_PROP = { room: { type: "string", description: "Room name (lowercase letters, digits, . _ -)." } };
-const REPLACED = "this session was replaced (/clear) or has ended, so chat_sign_in would sign in a session nothing receives for; run `rt chat sign-in` in Bash";
+const REPLACED = "this session cannot be reached (replaced by /clear, ended, or not in Claude Code's session registry), so chat_sign_in would sign in a session nothing receives for; run `rt chat sign-in` in Bash";
 /** The reserved mention every human post carries (chat:post adds it for the human handle). */
 const RESERVED_HANDLES = ["here"];
 const SIGN_OUT_TIMEOUT_MS = 3000;
@@ -72,6 +73,9 @@ const PANE_REF = /^[A-Za-z0-9._:][A-Za-z0-9._:-]*$/;
 const NOTE_MAX = 300;
 /** Newlines are allowed because the daemon's inviteText folds them to spaces; every other C0 byte or DEL would reach the target pane as a keystroke. */
 const NOTE_CONTROL = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/;
+const AWAY_MAX = 300;
+/** Away text is one line: no exception for newline or tab here, unlike NOTE_CONTROL. */
+const AWAY_CONTROL = /[\u0000-\u001f\u007f]/;
 
 function flagValueError(name: string, v: unknown): string | undefined {
   if (v === undefined) return undefined;
@@ -111,6 +115,10 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (input.last !== undefined) {
           if (input.since !== undefined) return err("last and since are mutually exclusive");
           if (!room) return err("last needs a room");
+          // chat:messages checks no membership, so last could otherwise read any room including other agents' DMs.
+          const who = await deps.who({ room });
+          if (!who.ok) return fromResponse(who);
+          if (!(who.data?.members ?? []).some((m) => m.handle === id.handle)) return err(`${id.handle} is not a member of #${room}; join it first`);
           const page = await deps.messages({ room, limit: input.last as number });
           if (!page.ok) return fromResponse(page);
           const marked = await deps.mark({ handle: id.handle, room });
@@ -217,8 +225,11 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (!sessionId) return err(NO_SESSION);
         const bad = checkRequired(input, [{ name: "text", type: "string" }]);
         if (bad) return err(bad);
-        if ((input.text as string).trim() === "") return err('"text" must not be empty');
-        return fromResponse(await deps.away({ sessionId, text: input.text as string }));
+        const text = input.text as string;
+        if (text.trim() === "") return err('"text" must not be empty');
+        if (AWAY_CONTROL.test(text)) return err('"text" must not contain control characters');
+        if (text.length > AWAY_MAX) return err(`"text" must be at most ${AWAY_MAX} characters`);
+        return fromResponse(await deps.away({ sessionId, text }));
       },
     },
     {
@@ -249,8 +260,12 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
           ?? checkCwd(input, deps.isDir);
         if (bad) return err(bad);
         if (input.room !== undefined && input.noRoom === true) return err("room and noRoom are mutually exclusive");
-        if (typeof input.as === "string" && (input.as === deps.humanHandle() || RESERVED_HANDLES.includes(input.as))) {
-          return err(`"as" may not be ${JSON.stringify(input.as)}: that handle speaks for the human`);
+        if (typeof input.as === "string") {
+          const human = deps.humanHandle();
+          if (human === null) return err('"as" is refused: the human\'s chat handle could not be read');
+          if (input.as === human || RESERVED_HANDLES.includes(input.as)) {
+            return err(`"as" may not be ${JSON.stringify(input.as)}: that handle speaks for the human`);
+          }
         }
         if (!deps.sessionAlive(sessionId)) return err(REPLACED);
         const rest = ["--session", sessionId];
@@ -260,8 +275,12 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (typeof input.status === "string") rest.push("--status", input.status);
         const r = await deps.spawnRt(["chat", "sign-in"], rest, typeof input.cwd === "string" ? { cwd: input.cwd } : {});
         if (!r.ok) return err(r.error);
-        const body = r.body as { handle?: unknown; room?: unknown };
-        return ok({ handle: body.handle, room: body.room ?? null });
+        const body = r.body;
+        if (body === null || typeof body !== "object" || typeof (body as { handle?: unknown }).handle !== "string") {
+          return err("rt chat sign-in returned no handle");
+        }
+        const { handle, room } = body as { handle: string; room?: unknown };
+        return ok({ handle, room: room ?? null });
       },
     },
     {
@@ -297,7 +316,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
     },
     {
       name: "chat_invite",
-      description: "Invite another herdr pane into a chat room: types /chat:join <room> (with an optional one-line note from this session's handle) into that pane. pane is a herdr pane id or ref; note is at most 300 characters with no control characters.",
+      description: "Invite another herdr pane into a chat room: types /chat:join <room> (with an optional one-line note from this session's handle) into that pane. pane is a herdr pane id or ref; note is at most 300 characters; newlines become spaces and other control characters are refused.",
       inputSchema: { type: "object", properties: { pane: { type: "string" }, ...ROOM_PROP, note: { type: "string" } }, required: ["pane", "room"], additionalProperties: false },
       async handler(input, env) {
         const id = handleOf(env);

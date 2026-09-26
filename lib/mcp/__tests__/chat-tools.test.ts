@@ -7,7 +7,7 @@ const ENV = { CLAUDE_CODE_SESSION_ID: "s1", HERDR_PANE_ID: "w1:p2" } as NodeJS.P
 
 type Call = { fn: string; a: any; o?: any };
 
-function fake(opts: { signedIn?: boolean; fail?: string; who?: unknown; alive?: boolean; human?: string; spawn?: unknown; dirs?: string[] } = {}) {
+function fake(opts: { signedIn?: boolean; fail?: string; who?: unknown; whoFail?: string; alive?: boolean; human?: string | null; spawn?: unknown; dirs?: string[] } = {}) {
   const calls: Call[] = [];
   const rec = (fn: string, data: unknown = {}) => (async (a?: unknown, o?: unknown) => {
     calls.push({ fn, a, o });
@@ -18,7 +18,9 @@ function fake(opts: { signedIn?: boolean; fail?: string; who?: unknown; alive?: 
     messages: rec("messages", { messages: [{ id: 9 }] }),
     mark: rec("mark"),
     rooms: rec("rooms", { rooms: [] }),
-    who: rec("who", opts.who ?? { members: [{ room: "build", handle: "ann" }] }),
+    who: opts.whoFail
+      ? ((async (a?: unknown, o?: unknown) => { calls.push({ fn: "who", a, o }); return { ok: false, error: opts.whoFail }; }) as any)
+      : rec("who", opts.who ?? { members: [{ room: "build", handle: "ann" }] }),
     buddies: (async (o?: unknown) => { calls.push({ fn: "buddies", a: undefined, o }); return { ok: true, data: { buddies: [] } }; }) as any,
     join: rec("join", { handle: "ann", memberCount: 2, unread: 0 }),
     leave: rec("leave"),
@@ -32,7 +34,7 @@ function fake(opts: { signedIn?: boolean; fail?: string; who?: unknown; alive?: 
     spawnRt: async (path, rest, o) => { calls.push({ fn: "spawnRt", a: { path, rest }, o }); return (opts.spawn as any) ?? { ok: true, body: { ok: true, handle: "ann", room: "rt" } }; },
     isDir: (p) => (opts.dirs ?? ["/work"]).includes(p),
     serverCwd: () => "/server",
-    humanHandle: () => opts.human ?? "pat",
+    humanHandle: () => (opts.human === undefined ? "pat" : opts.human),
     sessionAlive: () => opts.alive ?? true,
     now: () => 1_000_000,
   };
@@ -107,7 +109,27 @@ describe("chat_read", () => {
     const f = fake();
     const r = await f.tool("chat_read").handler({ room: "build", last: 3 }, ENV);
     expect(r).toEqual({ ok: true, body: { rooms: [{ room: "build", messages: [{ id: 9 }] }] } });
-    expect(f.calls.map((c) => [c.fn, c.a])).toEqual([["messages", { room: "build", limit: 3 }], ["mark", { handle: "ann", room: "build" }]]);
+    expect(f.calls.map((c) => [c.fn, c.a])).toEqual([
+      ["who", { room: "build" }],
+      ["messages", { room: "build", limit: 3 }],
+      ["mark", { handle: "ann", room: "build" }],
+    ]);
+  });
+
+  test("last is refused for a non-member with no messages or mark call", async () => {
+    const f = fake({ who: { members: [{ room: "build", handle: "bob" }] } });
+    const r = await f.tool("chat_read").handler({ room: "build", last: 3 }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("not a member");
+    expect(f.calls.map((c) => c.fn)).toEqual(["who"]);
+  });
+
+  test("last fails closed when who errors, with no messages or mark call", async () => {
+    const f = fake({ whoFail: "rt daemon unreachable" });
+    const r = await f.tool("chat_read").handler({ room: "build", last: 3 }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("rt daemon unreachable");
+    expect(f.calls.map((c) => c.fn)).toEqual(["who"]);
   });
 
   test("a bad room name is refused", async () => {
@@ -174,6 +196,16 @@ describe("chat_mark, chat_join, chat_leave, chat_rooms, chat_who", () => {
       expect(f.calls).toEqual([]);
     }
   });
+
+  test("away refuses control characters and text over 300 characters, before the daemon", async () => {
+    for (const text of ["a\u001b[2Jb", "a\nb", "x".repeat(301)]) {
+      const f = fake();
+      expect((await f.tool("chat_away").handler({ text }, ENV)).ok, JSON.stringify(text)).toBe(false);
+      expect(f.calls).toEqual([]);
+    }
+    const g = fake();
+    expect((await g.tool("chat_away").handler({ text: "x".repeat(300) }, ENV)).ok).toBe(true);
+  });
 });
 
 describe("chat_sign_in", () => {
@@ -225,6 +257,16 @@ describe("chat_sign_in", () => {
     expect((await f.tool("chat_sign_in").handler({ as: "pat" }, ENV)).ok).toBe(true);
   });
 
+  test("an unreadable human handle refuses as, but a plain sign-in still spawns", async () => {
+    const f = fake({ human: null });
+    const withAs = await f.tool("chat_sign_in").handler({ as: "ann" }, ENV);
+    expect(withAs.ok).toBe(false);
+    expect(f.calls).toEqual([]);
+    const plain = await f.tool("chat_sign_in").handler({}, ENV);
+    expect(plain.ok).toBe(true);
+    expect(f.calls.length).toBe(1);
+  });
+
   test("a replaced or dead session is refused with the Bash pointer and no spawn", async () => {
     const f = fake({ alive: false });
     const r = await f.tool("chat_sign_in").handler({}, ENV);
@@ -243,6 +285,15 @@ describe("chat_sign_in", () => {
     const f = fake({ spawn: { ok: false, error: "rt daemon unreachable" } });
     const r = await f.tool("chat_sign_in").handler({}, ENV);
     expect(r).toEqual({ ok: false, body: undefined, error: "rt daemon unreachable" });
+  });
+
+  test.each([
+    [{ ok: true, body: null }],
+    [{ ok: true, body: { ok: true } }],
+  ])("a malformed CLI body is refused, not thrown", async (spawn) => {
+    const f = fake({ spawn });
+    const r = await f.tool("chat_sign_in").handler({}, ENV);
+    expect(r.ok).toBe(false);
   });
 });
 
@@ -287,6 +338,14 @@ describe("chat_archive", () => {
     const r = await f.tool("chat_archive").handler({ room: "build" }, ENV);
     expect(r.ok).toBe(false);
     expect(r.error).toContain("not a member");
+    expect(f.calls.map((c) => c.fn)).toEqual(["who"]);
+  });
+
+  test("fails closed when who errors, with no archive call", async () => {
+    const f = fake({ whoFail: "rt daemon unreachable" });
+    const r = await f.tool("chat_archive").handler({ room: "build" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("rt daemon unreachable");
     expect(f.calls.map((c) => c.fn)).toEqual(["who"]);
   });
 
