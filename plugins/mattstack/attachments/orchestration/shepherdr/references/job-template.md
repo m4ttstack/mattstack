@@ -52,9 +52,12 @@ the backing gate before anything appears on screen.
 ## Asking the user a question
 Run exactly:
 
-    rt herd ask --questions '[{"id":"q1","label":"<one sentence>","multi":false,"options":["<your recommendation>","<alternative>","<alternative>"]}]' --context "<what you are doing and what led here; enough that the user can answer from this alone without opening your pane>"
+    rt herd ask --questions '[{"id":"q1","label":"<the decision, under 12 words>","multi":false,"options":[{"value":"<your recommendation, in full>","label":"<2 to 6 words>","description":"<one sentence: what this choice does>"},{"value":"<alternative, in full>","label":"<2 to 6 words>","description":"<one sentence>"},{"value":"<alternative, in full>","label":"<2 to 6 words>","description":"<one sentence>"}]}]' --context "<two or three sentences: what you were doing and why it needs a decision>"
 
-then END YOUR TURN with no further action. The answer arrives as a message
+then END YOUR TURN with no further action. The user reads only each
+option's `label` and `description`, on a small form; `value` is what comes
+back to you verbatim, so it carries the full wording. rt refuses a label
+over 60 characters. The answer arrives as a message
 in your context, naming the surface that recorded it: `[gate] <id> answered
 by <surface>; re-read the registry and proceed on the recorded answer.` The
 daemon never sends this push to the surface that recorded the answer. When it
@@ -63,8 +66,8 @@ and continue on what it prints,
 including any `note` the user added. Never choose an option yourself; an
 answer that did not arrive through `rt herd answer` does not exist. Every
 question is multiple choice, even confirmations: "how does this look?"
-becomes options "Approve, proceed", "Approve with changes (describe)",
-"Walk me through <section> first". The first option is always your
+becomes options labelled "Approve, proceed", "Approve with changes
+(describe)", "Walk me through <section> first". The first option is always your
 recommendation. Your reply opens with the command itself: `rt herd ask`,
 its `--questions` JSON filled in, its `--context` filled in, exactly as
 written above, and nothing before it -- not a sentence about whether it

@@ -2,12 +2,12 @@
 name: "writing-style-structured"
 description: "Use only when the mattstack writing-style lookup names mattstack:writing-style-structured. The voice for review comments, replies, PR descriptions and commit messages posted under the operator's name: labelled lines and short bullets for teams that prefer formal write-ups."
 metadata:
-  compiled: "mattstack@0.18.0"
+  compiled: "mattstack@0.21.2"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:writing-style-structured version=0.18.0 path=attachments/writing-style/writing-style-structured/SKILL.md lines=7-67 -->
+<!-- part: step source=mattstack:writing-style-structured version=0.21.2 path=attachments/writing-style/writing-style-structured/SKILL.md lines=7-67 -->
 
 # Structured
 
@@ -15,7 +15,7 @@ Clear and scannable, for teams that like formal write-ups. Every point is
 labelled so a reader can triage without reading the whole thing. Load this
 before the first draft and write in it from the first word.
 
-<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.18.0 path=attachments/writing-style-floor/SKILL.md lines=6-59 -->
+<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.21.2 path=attachments/writing-style-floor/SKILL.md lines=6-59 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the
