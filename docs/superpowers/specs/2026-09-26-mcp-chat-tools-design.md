@@ -138,7 +138,9 @@ In-process over `chatRead`, `chatMessages` and `chatMark`, with the CLI's
 rules: `limit` positive (default 20), `since` in the CLI's duration syntax
 (`30s`, `5m`, `500ms`, bare seconds) as a non-advancing peek, `last` a
 positive integer that needs a room and excludes `since`. A plain read
-advances only the caller's own cursor, as the CLI does.
+advances only the caller's own cursor, as the CLI does. `last` requires
+this handle to be a member of the room, since `chat:messages` itself
+checks no membership.
 
 `since` is parsed with the CLI's own `parseDuration`, so the grammar
 cannot drift. `lib/mcp` may import only `commands/runs-write.ts` from
@@ -165,7 +167,9 @@ anyway:
   it. The daemon checks no membership, so the tool adds one: it reads
   `chat:who <room>` (which answers for an archived room by name, so
   `reopen` works too) and refuses unless the caller's handle is a
-  member. The CLI keeps its current behavior.
+  member. The CLI keeps its current behavior. A session can join a room
+  and then archive it, so the check stops a non-member, not a determined
+  caller; archiving is reversible and ends at the next post.
 - `chat_invite` types `/chat:join <room>` (plus `note from <handle>:
   <note>`) into the target pane. The daemon collapses newlines in the
   note, refuses panes it cannot deliver to, and reports
