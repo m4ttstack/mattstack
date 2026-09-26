@@ -75,8 +75,8 @@ const NOTE_MAX = 300;
 const BIDI_CONTROLS = "\u200e\u200f\u202a-\u202e\u2066-\u2069";
 /** Newlines are allowed because the daemon's inviteText folds them to spaces; every other C0 byte, DEL, C1 control or bidi control would reach the target pane as a keystroke or a visually reordered line. */
 const NOTE_CONTROL = new RegExp(`[\\u0000-\\u0009\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f${BIDI_CONTROLS}]`);
-/** inviteText prefixes every delivered note with "note from <handle>: ", so a note containing that phrase could spoof a second attribution line. */
-const NOTE_FROM = /note from/i;
+/** inviteText prefixes every delivered note with "note from <handle>: ", folding any run of whitespace (space, tab, newline, NBSP, line/paragraph separator) to one space, so the phrase must be matched the same way to catch every spelling the daemon would fold into it. */
+const NOTE_FROM = /note\s+from/i;
 const AWAY_MAX = 300;
 /** Away text is one line: no exception for newline or tab here, unlike NOTE_CONTROL. */
 const AWAY_CONTROL = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${BIDI_CONTROLS}]`);
@@ -285,14 +285,20 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
           if (own?.baseHandle !== input.as) {
             const buddies = await deps.buddies();
             if (!buddies.ok) return fromResponse(buddies);
-            const held = (buddies.data?.buddies ?? []).find(
-              (b) => (b.baseHandle === input.as || b.handle === input.as) && b.sessionId !== sessionId,
-            );
-            if (held) return err(`"as" names a handle another session holds or held (${held.handle}); omit as, or pick an unused name`);
-            const rooms = await deps.rooms({ handle: input.as });
-            if (!rooms.ok) return fromResponse(rooms);
-            if ((rooms.data?.rooms ?? []).length > 0) {
-              return err('"as" names a handle that still has room memberships; omit as, or pick an unused name');
+            const rows = buddies.data?.buddies ?? [];
+            // Sign-out keeps the presence row under this same session id (no
+            // session file survives it), so the roster alone must also grant
+            // the own-seat exemption the session file gives above.
+            const ownRow = rows.some((b) => b.sessionId === sessionId && b.baseHandle === input.as);
+            if (!ownRow) {
+              const held = rows.find((b) => (b.baseHandle === input.as || b.handle === input.as) && b.sessionId !== sessionId);
+              if (held) return err(`"as" names a handle another session holds or held (${held.handle}); omit as, or pick an unused name`);
+              // includeArchived: a DM room with the human survives sign-out archived, and the buddies roster only covers roughly a day past it.
+              const rooms = await deps.rooms({ handle: input.as, includeArchived: true });
+              if (!rooms.ok) return fromResponse(rooms);
+              if ((rooms.data?.rooms ?? []).length > 0) {
+                return err('"as" names a handle that still has room memberships; omit as, or pick an unused name');
+              }
             }
           }
         }

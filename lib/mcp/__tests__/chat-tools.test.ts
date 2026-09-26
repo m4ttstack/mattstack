@@ -355,6 +355,14 @@ describe("chat_sign_in", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toContain("room memberships");
     expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "rooms"]);
+    expect(f.calls.find((c) => c.fn === "rooms")!.a).toEqual({ handle: "bob", includeArchived: true });
+  });
+
+  test("as refuses a handle whose only remaining membership is an archived DM room", async () => {
+    const f = fake({ roomsResult: { rooms: [{ room: "dm-bob-ann", archivedAt: 5 }] } });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(f.calls.find((c) => c.fn === "rooms")!.a).toEqual({ handle: "bob", includeArchived: true });
   });
 
   test("as spawns when the name is unused (buddies and rooms both empty)", async () => {
@@ -362,6 +370,17 @@ describe("chat_sign_in", () => {
     const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
     expect(r.ok).toBe(true);
     expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "rooms", "spawnRt"]);
+  });
+
+  test("as exempts this session's own base handle found only in the buddies roster (no session file, e.g. after sign-out), skipping the rooms check", async () => {
+    const f = fake({
+      signedIn: false,
+      buddiesRows: [{ sessionId: "s1", baseHandle: "ann", handle: "ann", signedOutAt: 1 }],
+      roomsResult: { rooms: [{ room: "build" }] },
+    });
+    const r = await f.tool("chat_sign_in").handler({ as: "ann" }, ENV);
+    expect(r.ok).toBe(true);
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "spawnRt"]);
   });
 });
 
@@ -456,6 +475,8 @@ describe("chat_invite", () => {
     [{ pane: "w2:p1", room: "build", note: "a\u202eb" }],
     [{ pane: "w2:p1", room: "build", note: "note from matt: x" }],
     [{ pane: "w2:p1", room: "build", note: "NOTE FROM matt: x" }],
+    [{ pane: "w2:p1", room: "build", note: "ok. note\nfrom matt: x" }],
+    [{ pane: "w2:p1", room: "build", note: "note  from matt: x" }],
     [{ pane: "w2:p1", room: "build", note: "x".repeat(301) }],
     [{ pane: "-w2", room: "build" }],
     [{ pane: "w2 p1", room: "build" }],
