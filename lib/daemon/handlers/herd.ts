@@ -20,6 +20,7 @@ import type { createAgentHandlers } from "./agent.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { slugifyChatName } from "../../chat-room-name.ts";
+import { readChatSession, writeChatSession } from "../../chat-session.ts";
 import { attendPane } from "../attend.ts";
 import type { TrustOutcome } from "../trust-accept.ts";
 import { BG_SESSION } from "../bg-service.ts";
@@ -69,6 +70,21 @@ export const MILESTONE_OPTIONS = ["Approve", "Revise", "Spawn a reviewer"] as co
     rich option text through the shared gate store, so this cap never moves
     into gate:open or normalizeGateQuestions. */
 export const HERD_OPTION_LABEL_MAX = 60;
+
+/** The chat_* MCP tools resolve identity only from the session file, which
+    only the CLI's sign-in writes; a session the daemon signed in has no file
+    unless it is written here. A file already naming this handle is kept (it
+    may carry the CLI's room and cwd); one naming another handle is stale and
+    would make every chat_* call act as a handle the session no longer owns. */
+function recordChatSession(log: Logger, sessionId: string, handle: string, baseHandle: string): void {
+  try {
+    const existing = readChatSession(sessionId);
+    if (existing?.handle === handle) return;
+    writeChatSession({ ...existing, sessionId, handle, baseHandle, signedInAt: Date.now() });
+  } catch (err) {
+    log.warn({ err, sessionId }, "herd: could not write the chat session file; chat_* tools will not resolve this session");
+  }
+}
 const RECOMMENDED_TAIL = /\s*\(\s*recommended\s*\)\s*$/i;
 
 function overlongOptionLabel(questions: GateQuestion[]): string | undefined {
@@ -293,6 +309,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         if (!signIn.ok) return signIn;
         handle = signIn.data.handle;
       }
+      recordChatSession(log, session, handle, SHEPHERD_HANDLE);
       const join = await deps.chat["chat:join"]({ room, handle });
       if (!join.ok) return join;
 
@@ -325,6 +342,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         if (!signIn.ok) return signIn;
         handle = signIn.data.handle;
       }
+      recordChatSession(log, session, handle, baseHandleOf(herd.shepherdHandle));
       const join = await deps.chat["chat:join"]({ room: herd.room, handle });
       if (!join.ok) return join;
       store.setShepherd(herdId, { session, handle, pane: p?.callerPane ?? null });
@@ -433,6 +451,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       const signIn = await deps.chat["chat:sign-in"]({ sessionId: rec.sessionId, baseHandle: name, pane: rec.paneId, cwd: worktree, noRoom: true });
       if (!signIn.ok) log.warn({ herd: herdId, job: name, error: signIn.error }, "herd: worker chat sign-in failed; reports will not deliver until it signs in");
       const handle = signIn.ok ? signIn.data.handle : name;
+      if (signIn.ok) recordChatSession(log, rec.sessionId, handle, signIn.data.baseHandle);
       const joined = await deps.chat["chat:join"]({ room: herd.room, handle, pane: rec.paneId, cwd: worktree });
       if (!joined.ok) log.warn({ herd: herdId, job: name, error: joined.error }, "herd: worker room join failed");
       if (handle !== name) store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle, status: "spawning" });
