@@ -21,7 +21,7 @@ import { setConfigDir } from '../../src/core/config-paths.ts';
 import { saveStore, resolveRepoIdentity } from '../../src/core/persistence.ts';
 import { OperationLog } from '../../src/core/operation-log.ts';
 import { StackManager } from '../../src/core/stack-manager.ts';
-import { listLeases } from '../../src/core/leases.ts';
+import { acquireLease, listLeases, parkLease } from '../../src/core/leases.ts';
 import type { Stack } from '../../src/core/types.ts';
 
 const BIN = join(import.meta.dir, '../../bin/gitq');
@@ -418,6 +418,66 @@ describe('gitq CLI', () => {
     expect(status.trim()).toBe('');
     const slotStatus = execFileSync('git', ['status', '--porcelain'], { cwd: workDir }).toString();
     expect(slotStatus.trim()).toBe('');
+  });
+
+  test('abort with a parked lease but no pause file releases the lease without touching the launch tree', async () => {
+    const { repo, configDir, stack } = await makeRepoWithStack(1);
+    const commonDir = await resolveRepoIdentity(repo.dir);
+
+    // A lease with no pause file at all, and no rebase in progress anywhere:
+    // the "escape hatch" case where the conflict this lease was parked for
+    // was already resolved (or never happened).
+    const slotPath = await addNamedWorktree(repo, 'slot');
+    dirsToClean.push(slotPath);
+    const acquired = await acquireLease(commonDir, { slotPath, stackId: stack.id, action: 'sync' });
+    expect(acquired.ok).toBe(true);
+    await parkLease(commonDir, stack.id);
+
+    const abort = await runCli(['abort', '--json', '--stack', stack.stackName], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+    expect(JSON.parse(abort.stdout)).toEqual({ state: 'aborted' });
+
+    const leases = await listLeases(commonDir);
+    expect(leases.find((l) => l.stackId === stack.id)).toBeUndefined();
+
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir }).toString();
+    expect(status.trim()).toBe('');
+  });
+
+  test('abort never runs git rebase --abort in the launch tree, only in the leased slot', async () => {
+    const { repo, configDir, stack } = await makeRepoWithStack(1);
+    const commonDir = await resolveRepoIdentity(repo.dir);
+
+    // An unrelated rebase, conflicted mid-flight, in the user's own checkout
+    // (the launch tree) -- nothing to do with the tracked stack below.
+    repo.git('checkout', '-b', 'unrelated');
+    await commit(repo.dir, repo.git, 'shared.txt', 'unrelated change\n', 'unrelated: edit shared.txt');
+    repo.git('checkout', 'main');
+    await commit(repo.dir, repo.git, 'shared.txt', 'main change\n', 'main: edit shared.txt');
+    repo.git('checkout', 'unrelated');
+    try {
+      repo.git('rebase', 'main');
+    } catch {
+      // expected: conflicts on shared.txt
+    }
+    expect(rebaseInProgress(repo.dir)).toBe(true);
+
+    // A parked lease for the tracked stack, in a different slot with no
+    // pause file and no rebase of its own.
+    const slotPath = await addNamedWorktree(repo, 'slot');
+    dirsToClean.push(slotPath);
+    await acquireLease(commonDir, { slotPath, stackId: stack.id, action: 'sync' });
+    await parkLease(commonDir, stack.id);
+
+    const abort = await runCli(['abort', '--json', '--stack', stack.stackName], repo.dir, configDir);
+    expect(abort.exitCode).toBe(0);
+    expect(JSON.parse(abort.stdout)).toEqual({ state: 'aborted' });
+
+    // the unrelated rebase in the launch tree is untouched.
+    expect(rebaseInProgress(repo.dir)).toBe(true);
+
+    const leases = await listLeases(commonDir);
+    expect(leases.find((l) => l.stackId === stack.id)).toBeUndefined();
   });
 
   test('sync refuses when the stack already holds a lease', async () => {

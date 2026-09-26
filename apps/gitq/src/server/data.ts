@@ -183,6 +183,13 @@ export function parseActionBody(
   return { repoPath, stack, action: action as JobAction };
 }
 
+/** Whether `stack` is a stack this repo actually tracks, so `/action` cannot
+    be pointed at an arbitrary name that happens to look like one. */
+export async function isTrackedStack(repoPath: string, stack: string): Promise<boolean> {
+  const store = await loadStore(repoPath);
+  return store.stacks.some((s) => s.stackName === stack);
+}
+
 function toBoardMr(pr: PullRequest): BoardMr {
   return {
     iid: pr.iid,

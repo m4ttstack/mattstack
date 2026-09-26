@@ -9,7 +9,7 @@
  * Build with DOCS_BASE_URL=/ so the site's asset paths match being served at
  * the root of its own domain rather than under the GitHub Pages /gitq/ prefix.
  */
-import { join, normalize } from 'node:path';
+import { join, normalize, sep } from 'node:path';
 
 const BUILD_DIR = join(import.meta.dir, 'build');
 const port = Number(process.env.PORT) || 11009;
@@ -29,8 +29,16 @@ Bun.serve({
 
     // Reject traversal before touching the filesystem: normalize resolves any
     // ".." segments, so anything still escaping BUILD_DIR is not ours to serve.
-    const target = normalize(join(BUILD_DIR, decodeURIComponent(pathname)));
-    if (!target.startsWith(BUILD_DIR)) {
+    // Malformed percent-encoding throws in decodeURIComponent; a plain prefix
+    // check would also accept a sibling directory like BUILD_DIR + "-x".
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(pathname);
+    } catch {
+      return new Response('not found', { status: 404 });
+    }
+    const target = normalize(join(BUILD_DIR, decoded));
+    if (target !== BUILD_DIR && !target.startsWith(BUILD_DIR + sep)) {
       return new Response('not found', { status: 404 });
     }
 

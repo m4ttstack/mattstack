@@ -72,7 +72,7 @@ async function mergedParentScenario(childFile: string, conflicting: boolean): Pr
   git('fetch', 'origin');
 
   // pooled shape: a named human slot plus a gitq work slot
-  await addNamedWorktree(repo, 'human');
+  cleanups.push(await addNamedWorktree(repo, 'human'));
   const poolParent = dirname(dir);
   const workDir = join(poolParent, `${dir.split('/').pop()}-pool-gitq-1`);
   // a plain detached worktree named like a work slot is fine for engine tests
@@ -149,6 +149,7 @@ describe('detached reconciliation', () => {
   test('child checked out in a clean human slot auto-fixes instead of refusing', async () => {
     const { repo, stack, workDir } = await mergedParentScenario('b.txt', false);
     const slotPath = await addNamedWorktree(repo, 'child-slot', 'feature-b');
+    cleanups.push(slotPath);
 
     const res = await RebaseEngine.syncLocalStack(repo.dir, stack, workDir);
 

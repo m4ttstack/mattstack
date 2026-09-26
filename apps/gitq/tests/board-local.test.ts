@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { isLocalRequest } from '../src/server/local.ts';
+import { isAllowedOrigin, isLocalRequest } from '../src/server/local.ts';
 
 function reqWithHost(host: string | null): Request {
   const headers = new Headers();
@@ -17,5 +17,25 @@ describe('isLocalRequest', () => {
   test('a public tunnel host and a missing host are not local', () => {
     expect(isLocalRequest(reqWithHost('gitq.m4tthew.dev'))).toBe(false);
     expect(isLocalRequest(reqWithHost(null))).toBe(false);
+  });
+});
+
+describe('isAllowedOrigin', () => {
+  test('no Origin header is allowed (same-origin fetches never set one)', () => {
+    expect(isAllowedOrigin(null)).toBe(true);
+  });
+
+  test('a local Origin is allowed', () => {
+    expect(isAllowedOrigin('http://localhost:7940')).toBe(true);
+    expect(isAllowedOrigin('http://127.0.0.1:7940')).toBe(true);
+    expect(isAllowedOrigin('http://gitq.localhost')).toBe(true);
+  });
+
+  test('a foreign Origin is rejected', () => {
+    expect(isAllowedOrigin('https://evil.example')).toBe(false);
+  });
+
+  test('a malformed Origin is rejected rather than thrown', () => {
+    expect(isAllowedOrigin('not a url')).toBe(false);
   });
 });

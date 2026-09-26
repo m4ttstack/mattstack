@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   fetchMrsByBranch,
+  isTrackedStack,
   parseActionBody,
   resolveRepoForge,
   resolveRtRepo,
@@ -11,6 +12,7 @@ import {
   shapeStack,
 } from '../src/server/data.ts';
 import type { BoardMr } from '../src/server/data.ts';
+import { saveStore } from '../src/core/persistence.ts';
 import type { ForgeProviderContext } from '../src/cli/provider.ts';
 import type { Stack, StackNode, StackStore } from '../src/core/types.ts';
 import type { ForgeOverrides } from '../src/core/forges.ts';
@@ -512,5 +514,29 @@ describe('resolveRtRepo', () => {
     const path = reposJsonWith({ 'acme-web': '/Users/matt/Documents/GitHub/acme/web' });
     expect(resolveRtRepo('/somewhere/else', path)).toBeNull();
     expect(resolveRtRepo('/anything', join(tmpdir(), 'gitq-rt-repos-does-not-exist.json'))).toBeNull();
+  });
+});
+
+describe('isTrackedStack', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    dirs.length = 0;
+  });
+
+  test('true for a stackName the repo tracks, false otherwise', async () => {
+    const repoPath = mkdtempSync(join(tmpdir(), 'gitq-tracked-stack-test-'));
+    dirs.push(repoPath);
+    await saveStore(repoPath, { repoPath, remoteUrl: '', stacks: [STACK] });
+
+    expect(await isTrackedStack(repoPath, 'mystack')).toBe(true);
+    expect(await isTrackedStack(repoPath, 'not-a-real-stack')).toBe(false);
+  });
+
+  test('false for a repo with no tracked stacks at all', async () => {
+    const repoPath = mkdtempSync(join(tmpdir(), 'gitq-tracked-stack-test-'));
+    dirs.push(repoPath);
+
+    expect(await isTrackedStack(repoPath, 'mystack')).toBe(false);
   });
 });
