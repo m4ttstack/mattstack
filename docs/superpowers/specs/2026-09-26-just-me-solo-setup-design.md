@@ -33,6 +33,10 @@ These were ratified in forms and are not open:
 7. **Spec now, execute after monorepo Stage C merges** (gitq into
    `apps/gitq`), so the deck registry and deps.lock work never fights the
    monorepo branch.
+8. **Deck's own board shows an off app as off, and offers no switch.**
+   The only place an app is turned on or off is mattstack.app
+   Settings > Apps (and the `rt apps` verbs behind it). Ratified after the
+   review loop, when the board page came up.
 
 ## What "solo" is
 
@@ -108,6 +112,11 @@ launcher catalog the tray window reads) omits disabled apps. `/api/v1/apps`
 (the admin list) includes them with `enabled` and `requiresTeam` visible.
 `PATCH /api/v1/apps/<name>` accepts `{ enabled: boolean }` for
 mattstack-owned rows; user apps are out of scope.
+
+**Deck's board.** The page at deck.mattstack keeps every mattstack row,
+including an off one: it renders a muted `off` badge whose tooltip points at
+mattstack.app Settings > Apps, hides the restart and command buttons, and
+leaves the row out of the "N of M healthy" count. It carries no switch.
 
 **Default.** rt's `deck.managed` step, which already reaches deck's API,
 applies the mode default: on solo, every app with `requiresTeam: true` is

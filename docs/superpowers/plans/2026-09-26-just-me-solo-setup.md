@@ -20,6 +20,7 @@
 - `requiresTeam` is declared in `mattstack.deck.json` only (board and boxscore declare `true`); deck parses it; rt reads it from deck's API, never from the bundle.
 - The `deck.managed` step PATCHes `enabled` only for apps with `requiresTeam: true`, and only at Install or upgrade. Nothing else overwrites a user's toggle.
 - Copy, verbatim: card title `Just me`; card body `rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings.`; forge note `Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.` (the spec's wording); Fast Browser solo note `Works without this; only the browser skills need it.` (new: the spec points at "the existing works-without-this note", but the only note the row carries today is `FASTBROWSER_SETUP_NOTE`, which says Install creates the runtime, not that the tool is optional); apps caption `Needs a team. Create or join one under Team to use this.`; team status text `rt team status: no team (Just me)`.
+- The only user-facing switch for an app is mattstack.app Settings > Apps (backed by `rt apps enable|disable`). Deck's own board shows an off app as off and offers no switch.
 - The `deck.managed` default runs only when `ctx.intent !== null`: a first run (solo, create, join, restore) and both upgrade entries write an intent, and a completed apply clears it, so a bare `rt setup apply` on an installed machine leaves every toggle alone.
 - Execution order: Part A (deck) lands after monorepo Stage C merges; Part B (rt) may start now on this branch and merges after Part A; Part C (tray) after B; Part D after C.
 - Every new rt command module goes into `lib/module-registry.ts` as a thunk; every visible leaf with a required positional declares `omitBehavior`; `bun run picker:check` must pass.
@@ -465,6 +466,103 @@ Expected: clean typecheck, PASS.
 ```bash
 git add apps/deck/src/api
 git commit -m "deck: enabled and requiresTeam on the admin API, enabled PATCH"
+```
+
+### Task 5b: deck's own board shows an off app as off, with no switch
+
+**Files:**
+- Modify: `apps/deck/src/api/status.ts` (`up`/`total`)
+- Modify: `apps/deck/core/board/logic.ts` (`StatusRow`), `apps/deck/core/board/AppsTable.tsx` (`HealthCell`, `healthTone`, `healthTip`, `RestartCell`, `CommandsCell`)
+- Create: `apps/deck/test/fixture/status-off.json`
+- Test: `apps/deck/src/api/status.test.ts`, `apps/deck/test/dom/board.spec.ts`
+
+**Interfaces:**
+- Consumes: `StatusRow.enabled` from Task 5.
+- Produces: `up` and `total` count only rows with `enabled !== false`; an off row renders a muted `off` badge in the health column, a muted leading dot, no restart button and no command buttons; the tooltip on the badge reads `Turned off. Turn it on in mattstack.app, Settings > Apps.` Nothing on deck's board turns an app on or off; that lives in mattstack.app Settings > Apps (ruling 8 in the spec).
+
+- [ ] **Step 1: Write the failing tests**
+
+`status.test.ts`:
+
+```ts
+test('a disabled app is left out of the healthy count', async () => {
+  putRecord({ name: 'myapp', managedBy: 'rt', port: 19999, kind: 'service', enabled: false, createdAt: '2026-08-10T00:00:00Z' });
+  const status = await buildStatus(opts);
+  expect(status.total).toBe(0);
+  expect(status.up).toBe(0);
+  expect(status.apps.find(a => a.name === 'myapp')?.enabled).toBe(false);
+});
+```
+
+`test/fixture/status-off.json`: copy `status.json`, set `ledger`'s `enabled` to `false` (leave its `health` as the fixture has it, unreachable), add `"enabled": true` to the other three rows, and set the top-level `up` to 3 and `total` to 3.
+
+`board.spec.ts`:
+
+```ts
+test('an off app: muted off badge with the settings hint, no restart, no commands, and the count skips it', async () => {
+  await withBoard(async page => {
+    const ledger = rowFor(page, 'ledger');
+    const badge = ledger.locator('[data-part="badge"]', { hasText: 'off' });
+    expect(await badge.count()).toBe(1);
+    expect(await ledger.locator('button[aria-label^="restart"]').count()).toBe(0);
+    expect(await ledger.locator('[data-part="command-button"]').count()).toBe(0);
+    const fraction = page.locator('.board-subline .t-ok', { hasText: 'healthy' });
+    expect(await fraction.textContent()).toBe('3/3 healthy');
+    expect(consoleErrors(page)).toEqual([]);
+  }, { fixture: 'status-off.json' });
+});
+```
+
+(Read `CommandsCell` for the attribute its buttons carry and use that selector instead of `data-part="command-button"` if it differs.)
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `cd apps/deck && bun test src/api/status.test.ts && bun run test:dom -- test/dom/board.spec.ts`
+Expected: FAIL (count includes the row; no `off` badge; restart button present; fraction reads 3/4 in bad tone).
+
+- [ ] **Step 3: Implement**
+
+`status.ts`, in the returned object: replace the `up`/`total` lines with
+
+```ts
+    up: appRows.filter(r => r.enabled && r.health?.ok).length,
+    total: appRows.filter(r => r.enabled).length,
+```
+
+(`appRows` is the array the function already builds and returns as `apps`; if `health` lives beside it in a parallel array rather than on the row, filter by index over both.)
+
+`logic.ts`: add `enabled?: boolean;` and `requiresTeam?: boolean;` to `StatusRow` (optional, so the existing fixtures without them still parse).
+
+`AppsTable.tsx`:
+- `healthTone`: first line `if (row.enabled === false) return 'muted';` and widen its return type to include `'muted'`; if the leading-dot component's intent union does not accept `muted`, render no dot for an off row instead.
+- `healthTip`: `if (row.enabled === false) return 'off';`
+- `HealthCell`, before the `restarting` branch:
+
+```tsx
+  if (row.enabled === false) {
+    return (
+      <Tooltip tip="Turned off. Turn it on in mattstack.app, Settings > Apps.">
+        <Badge intent="muted">off</Badge>
+      </Tooltip>
+    );
+  }
+```
+
+- `RestartCell`: `if (row.enabled === false || !(data.canRestart && row.service)) return null;`
+- `CommandsCell`: return null when `row.enabled === false`, before anything else renders.
+
+Rebuild the generated board (`cd apps/deck && bun run build:board`) so `core/generated/board.js` carries the change.
+
+- [ ] **Step 4: Run to verify they pass, plus the deck suites**
+
+Run: `cd apps/deck && bunx tsc --noEmit && bun test src && bun run test:dom`
+Expected: clean, PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/deck/src/api/status.ts apps/deck/src/api/status.test.ts apps/deck/core/board apps/deck/core/generated apps/deck/test/fixture/status-off.json apps/deck/test/dom/board.spec.ts
+git commit -m "deck board: an off app reads off, not broken; no switch here"
 ```
 
 ### Task 6: the bundle identity ships `requiresTeam`; board and boxscore declare it
