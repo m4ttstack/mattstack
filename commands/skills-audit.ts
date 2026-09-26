@@ -24,7 +24,7 @@ export function buildAuditPrompt(paths: string[], tools: Array<{ name: string; d
     "1. an instruction in plain words (\"push the branch\", \"open the MR\", \"rebase onto main\") that an agent will turn into a shell command a tool covers; name the tool;",
     "2. values carried between code blocks through shell variables ($IID, $RT_RUN_DB, read_token) instead of a tool result passed on explicitly;",
     "3. wrapped commands (cd x && ..., VAR=$(...), pipes, -C <tree>) around an rt, glab or git call.",
-    "Anything on this kept list is fine and must not be reported: rt gate answer --by shepherd, rt gate wait, rt chat tail, rt events wait, git commit, git add, git fetch, git merge-base, git rebase --continue, git rebase --skip, project tooling such as pnpm. A line carrying <!-- mcp-lint: allow --> is a deliberate don't and must not be reported either.",
+    "Anything on this kept list is fine and must not be reported: rt gate answer --by shepherd, rt gate wait, rt events wait, git commit, git add, git fetch, git merge-base, git rebase --continue, git rebase --skip, project tooling such as pnpm. A line carrying <!-- mcp-lint: allow --> is a deliberate don't and must not be reported either.",
     "End with one line: `findings: <n>`.",
     "## Files",
     fileList,

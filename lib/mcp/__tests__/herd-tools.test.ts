@@ -140,6 +140,13 @@ describe("herd shepherd tools", () => {
     const r = await tool("herd_start").handler({ name: "n", repo: "remote:gitlab.com%2Facme%2Facme-dev" }, {} as NodeJS.ProcessEnv);
     expect(r.ok).toBe(false);
   });
+  test("herd_start refuses in a worker pane, before resolving the repo or calling the daemon", async () => {
+    const { tool, calls } = fake();
+    const r = await tool("herd_start").handler({ name: "n", repo: "remote:gitlab.com%2Fexample%2Fapp" }, WORKER);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("HERD_JOB");
+    expect(calls).toEqual([]);
+  });
   test("herd_spawn passes every option and a minutes-long timeout, sending the brief file's CONTENTS, not its path", async () => {
     const { tool, destructive } = fake();
     await tool("herd_spawn").handler({ herd: "hd-1", job: "j", brief: BRIEF, model: "opus", effort: "high", account: "a", disposable: true }, SESSION);

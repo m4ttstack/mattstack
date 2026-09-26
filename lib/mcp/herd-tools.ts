@@ -65,6 +65,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       description: "Start a herd (room, workspace, gate subscription) for this shepherd session. repo is the repo's identity, checkout path or label.",
       inputSchema: { type: "object", properties: { name: { type: "string" }, repo: { type: "string" }, hidden: { type: "boolean" } }, required: ["name", "repo"], additionalProperties: false },
       async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "name", type: "string" }, { name: "repo", type: "string" }]) ?? checkOptional(input, [{ name: "hidden", type: "boolean" }]);
         if (bad) return err(bad);
         if (!env.CLAUDE_CODE_SESSION_ID) return err(NO_SESSION);

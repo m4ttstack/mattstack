@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { execSync } from "child_process";
-import { mkdtempSync, realpathSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { insertAgent, openStateDb, postMessage } from "../../state/index.ts";
 import { createChatHandlers, inviteText, renderWelcome, type InboxDeps } from "../handlers/chat.ts";
 import { herdrRequest } from "../../herdr/client.ts";
@@ -14,6 +14,7 @@ import { runCapture } from "../../subprocess.ts";
 import { drainNotifications, loadNotificationPrefs, peekNotifications, saveNotificationPrefs } from "../../notifier.ts";
 import { setSetting } from "../../settings/write.ts";
 import { AGENT_NAMES } from "../../chat-names.ts";
+import { sessionFilePath, writeChatSession } from "../../chat-session.ts";
 
 /** A real local git repo, no remote: the daemon's `deriveRoomForCwdAsync` (via deriveRepoIdentity) needs a real toplevel and a real `git worktree list`/`config --get` to resolve against, not a stub `.git/worktrees` dir. */
 function initRepo(dir: string): void {
@@ -1259,4 +1260,38 @@ test("chat:post warns through the injected logger (ctx.log), not a module-privat
   const res = await h["chat:post"]({ room: "r", handle: "a", body: "hi" });
   expect(res.ok).toBe(true);
   expect(warnCalls.length).toBeGreaterThan(0);
+});
+
+test("chat:sign-out deletes the session's chat session file", async () => {
+  const h = freshHandlers();
+  await h["chat:sign-in"]({ sessionId: "so-signed-in", baseHandle: "x" });
+  writeChatSession({ sessionId: "so-signed-in", handle: "x", baseHandle: "x", signedInAt: 1 });
+  const res = await h["chat:sign-out"]({ sessionId: "so-signed-in" });
+  expect(res.ok).toBe(true);
+  expect(existsSync(sessionFilePath("so-signed-in"))).toBe(false);
+});
+
+test("chat:sign-out deletes a leftover session file even with no presence row", async () => {
+  const h = freshHandlers();
+  writeChatSession({ sessionId: "so-no-presence", handle: "y", baseHandle: "y", signedInAt: 1 });
+  const res = await h["chat:sign-out"]({ sessionId: "so-no-presence" });
+  expect(res.ok).toBe(true);
+  expect(existsSync(sessionFilePath("so-no-presence"))).toBe(false);
+});
+
+test("chat:sign-out with an unsafe session id does not throw and deletes nothing outside the sessions dir", async () => {
+  const h = freshHandlers();
+  // sessionFilePath("../escape") throws before it returns a path, so derive
+  // the path a naive join would reach from a valid id's real sessions dir.
+  const sessionsDir = dirname(sessionFilePath("probe"));
+  const name = `escape-${process.pid}-${Date.now()}`;
+  const escapePath = join(dirname(sessionsDir), `${name}.json`);
+  writeFileSync(escapePath, "{}");
+  try {
+    const res = await h["chat:sign-out"]({ sessionId: `../${name}` });
+    expect(res.ok).toBe(true);
+    expect(existsSync(escapePath)).toBe(true);
+  } finally {
+    rmSync(escapePath, { force: true });
+  }
 });

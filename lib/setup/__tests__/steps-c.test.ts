@@ -1595,14 +1595,13 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
   describe("claude.permissions", () => {
     const settingsPath = () => `${home}/.claude/settings.json`;
 
-    test("BASE_PERMISSIONS is exactly the seven declared entries, verbatim", () => {
+    test("BASE_PERMISSIONS is exactly the six declared entries, verbatim", () => {
       expect(BASE_PERMISSIONS).toEqual([
         "mcp__plugin_fast-browser_fast-browser",
         "mcp__plugin_mattstack_mattstack",
         "EnterWorktree",
         "Bash(claude plugin update *)",
         "Bash(rt gate *)",
-        "Bash(rt chat tail *)",
         "Bash(rt events wait *)",
       ]);
     });

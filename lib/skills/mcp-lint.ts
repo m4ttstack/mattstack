@@ -27,7 +27,6 @@ export const MCP_LINT_RULES: LintRule[] = [
 export const KEPT_ON_BASH: RegExp[] = [
   /\brt gate answer\b.*--by shepherd\b/,
   /\brt gate wait\b/,
-  /\brt chat tail\b/,
   /\brt events wait\b/,
 ];
 
