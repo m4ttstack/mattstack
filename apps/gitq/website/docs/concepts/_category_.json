@@ -1,0 +1,9 @@
+{
+  "label": "Concepts",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "title": "Concepts",
+    "description": "How gitq models a stack, and what it does to your repo when you run a command."
+  }
+}
