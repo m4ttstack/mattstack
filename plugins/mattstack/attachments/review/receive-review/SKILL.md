@@ -23,33 +23,35 @@ posting each wait for their gate's answer.
 ## Run
 
 Outside a pipeline this verb is its own run, so the console shows it and
-the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
-and `rt runs snapshot` shows `run.status` = `running`: you were invoked
-from inside that run, you inherit it, `run.current_stage` is your stage,
-and you close nothing at the end.
+the Stop hook covers its pane. Skip this section when a caller handed you
+a `runDb` (a pipeline invoking this verb carries it in context) and
+`run_snapshot` with that `runDb` shows `run.status` = `running`: you were
+invoked from inside that run, you inherit it, `run.current_stage` is your
+stage, you pass that handed `runDb` on every `run_*` call, and you close
+nothing at the end.
 
-Otherwise, when a surface launched this pane (the `--spawned-by` case
+Otherwise, when a surface launched this pane (the `spawnedBy` case
 below), start fresh: another pane's live run is not yours to resume.
-Launched by hand, first the Resume offer: run `rt runs --repo <repo>
---json` (the `--repo` value in the flags block below) and keep the runs
+Launched by hand, first the Resume offer: call `run_list` with `repo`
+(the `--repo` value in the flags block below) and keep the runs
 whose `status` is `running` and `work_type` is `receive-review`; never
 read the run dbs by hand. Any found: gate
 `clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
 and `current_stage`, then the structured-question tool with one **Resume**
 option per candidate (recommended for a run this session started earlier; a
 run another live pane owns is not yours) / **Start fresh**; **Hold**.
-Resume: `export RT_RUN_DB=~/.mattstack/runs/<repo>/<its id>/state.db`
-(the candidate row's `id`), then `rt runs stage-start --stage
-receive-review` (a new attempt, which re-records this session) and `rt runs field set
-hold - --stage receive-review`; re-enter with the snapshot's decisions and do not
-re-ask a question it already answered. rt runs verbs resolve your run
-automatically (env RT_RUN_DB first, else the run this session started,
-else the newest running run in this worktree; ambiguity errors loudly).
-Export RT_RUN_DB only to drive a different run than yours.
+Resume: your `runDb` is `<home>/.mattstack/runs/<repo>/<its id>/state.db`
+(the candidate row's `id`, the home directory written out, never `~`),
+then `run_stage` with `action: "start"`, `stage: "receive-review"` (a new
+attempt, which re-records this session) and `run_field_set` with `key:
+"hold"`, `value: "-"`, `stage: "receive-review"`; re-enter with
+`run_snapshot`'s decisions and do not re-ask a question it already
+answered. Keep `runDb` and pass it on every `run_*` call.
 
 **Posted already.** On any resume, a caller replaying a parked gate's
 answer into a fresh pane or the snapshot alone, read each thread on the
-forge (its full note chain, step 1's fetch) before its reply posts or a
+forge (its full note chain, step 1's `mr_threads` fetch, or `gh` on
+GitHub) before its reply posts or a
 re-asked `respond-post` offers it. A thread that already carries this
 run's reply, a note whose text is the reply due to post or any note by
 the account this run posts as dated after the run's `started_at`, is
@@ -59,27 +61,23 @@ it is never offered at a re-asked gate, and it is never posted again,
 whatever the snapshot or the report says of it. Only a thread with no
 such note posts or is offered.
 
-Fresh. The flags for this verb, rendered by the compiler:
+Fresh. Start the run with the `run_start` tool: `flags` is this verb's
+value in the block below, verbatim; `skillDir` is this skill's own
+directory; add `spawnedBy` when a board or another surface launched this
+pane.
 
 {{run-start.flags:receive-review}}
 
-```bash
-PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
-rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>
-rt runs stage-start --stage receive-review
-```
+The result must carry `ok: true` and a `runDb`. Anything else means this
+rt predates the run tools: stop and tell the user to update rt. Keep
+`runDb` and pass it to every `run_*` call below; nothing is exported.
+Then `run_stage` with `action: "start"`, `stage: "receive-review"`.
 
-The response must parse as JSON with `ok: true` and a `runDb`; anything
-else means this rt predates the run verbs: stop and tell the user to
-update rt. Pass `--spawned-by` when a board or another surface launched
-this pane.
-
-Every gate in this verb then writes its `gate` field and its decision with
-`--stage receive-review`. The close, after the final gate's answer and only when
-this section ran `run-start`: `rt runs stage-done --stage receive-review`, `rt runs
-run-status --status done` (or `abandoned` when the gate said so), then
-`unset RT_RUN_DB`.
+Every gate in this verb then writes its `gate` field with `stage:
+"receive-review"`, and its decision. The close, after the final gate's
+answer and only when this section called `run_start`: `run_stage` with
+`action: "done"`, `stage: "receive-review"`, then `run_status` with
+`status: "done"` (or `abandoned` when the gate said so).
 
 Baseline agents already fetch threads, verify before implementing, clarify
 vague comments, and gate posting; this skill cross-references those rather
@@ -100,13 +98,17 @@ When the run is yours, record the resolved change per Run identity above:
 `mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id it
 names, when one exists).
 
+- Fetch the threads: on GitLab, `mr_threads` with the MR (`mrUrl`, or
+  `repoName` plus `iid`; with neither in hand, `mr_for_branch` with
+  `repoName` = this checkout and `branches: [<the checked-out branch>]`
+  gives the iid, and a null entry means no open MR in rt's cache has that
+  branch as its source: report that and stop) and `refresh: true`; on
+  GitHub, `gh`.
 - Keep only **unresolved human** threads: drop system notes and bot authors.
   Capture each thread's id, its `file:line`, and its full note chain.
 - Zero unresolved human threads: say so and stop. Close, only when `## Run`
-  started this run: `rt runs stage-done --stage receive-review`, `rt runs
-  run-status --status done`, `unset RT_RUN_DB`.
-
-Fetch mechanics belong to the forge CLI (`gh` / `glab`) and the adapter.
+  started this run: `run_stage` with `action: "done"`, `stage:
+  "receive-review"`, then `run_status` with `status: "done"`.
 
 ## 2. Adjudicate in a fresh context
 
@@ -269,13 +271,13 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
 
 **Otherwise** (a direct terminal run) the verb runs the gate itself:
 
-- `rt runs field set gate respond-plan --stage <stage>`.
+- `run_field_set` with `key: "gate"`, `value: "respond-plan"`, `stage:
+  <stage>`.
 - Run gate-protocol's Runs integration with kind `respond-plan`, the open
-  read from the file:
-
-  ```bash
-  rt gate ask --questions "$(jq -c .questions <dir>/respond-plan.open.json)" --kind respond-plan --context "$(jq -r .context <dir>/respond-plan.open.json)"
-  ```
+  read from the file: read `<dir>/respond-plan.open.json` with the Read
+  tool; call `gate_ask` with its `questions` array, `kind:
+  "respond-plan"` and its `context`; act on the returned presentation as
+  gate-protocol says.
 
   One question per thread keeps every question at three options, under
   the form cap, so a herdr pane gets `form` for any thread count; never
@@ -307,14 +309,14 @@ that file's `.questions` and `.context`, then hands `{plan}` back.
   registry, and Iterate / Hold are never extra options on a thread or
   code-changes question: a fourth and fifth option there would push it
   over the cap.
-  Continue: submit exactly ONE `rt gate answer` after that last call,
+  Continue: submit exactly ONE `gate_answer` after that last call,
   carrying every thread answer plus `code-changes`, never one per chunk.
   The pane's answer never carries `text`: a replacement reply the human
   types in the form's free-text field rides as `note`, which makes a
   `reply:` thread an override (Report rows below).
 - `fix:<threadId>` implies that thread's reply; `skip:<threadId>` means
   neither.
-- `rt runs decision record --contract gate@1 --scope respond-plan --selection '{"threads":{"<threadId>":"reply|fix|skip","...":"one entry per thread, keyed by the id read out of its answer value"},"texts":{"<threadId>":"<the answer's text>"},"overrides":["<threadId>"],"notes":{"<threadId>":"<the answer's note>"},"code-changes":"approve|revise|skip"}' --decided-by <the answer's by>`.
+- `run_decision` with `contract: "gate@1"`, `scope: "respond-plan"`, `selection: {"threads":{"<threadId>":"reply|fix|skip","...":"one entry per thread, keyed by the id read out of its answer value"},"texts":{"<threadId>":"<the answer's text>"},"overrides":["<threadId>"],"notes":{"<threadId>":"<the answer's note>"},"code-changes":"approve|revise|skip"}`, `decidedBy: <the answer's by>`.
   `threads` values stay the bare verbs. `texts` holds one entry per
   `reply:` answer that carries `text`; `overrides` lists every
   `gate-1: override` thread (Report rows below); `notes` holds one entry
@@ -468,13 +470,13 @@ hand back which replies posted, as the no-offer path does.
 
 **Otherwise** the verb runs the gate itself:
 
-- `rt runs field set gate respond-post --stage <stage>`.
+- `run_field_set` with `key: "gate"`, `value: "respond-post"`, `stage:
+  <stage>`.
 - Run gate-protocol's Runs integration with kind `respond-post`, the open
-  read from the file:
-
-  ```bash
-  rt gate ask --questions "$(jq -c .questions <dir>/respond-post.open.json)" --kind respond-post --context "$(jq -r .context <dir>/respond-post.open.json)"
-  ```
+  read from the file: read `<dir>/respond-post.open.json` with the Read
+  tool; call `gate_ask` with its `questions` array, `kind:
+  "respond-post"` and its `context`; act on the returned presentation as
+  gate-protocol says.
 
   `next` carries the navigation verbs -- **Proceed** (recommended) /
   **Iterate here** / **Hold** -- and never folds into a thread question.
@@ -486,7 +488,7 @@ hand back which replies posted, as the no-offer path does.
   (`<file> FIX · <sha>: <text>` or `<file> REPLY: <text>`), then `Post,
   resolve, both, or neither?`, under the header `Thread <n>`, as a
   multi-select. Ask the thread questions in order, up to four per call,
-  then `next` in one last call, and submit exactly ONE `rt gate answer`
+  then `next` in one last call, and submit exactly ONE `gate_answer`
   carrying every thread answer plus `next`. The pane's answer never
   carries `text`: whatever the human types in the form's free-text
   field, a full replacement reply included, rides as `note`, and the
@@ -502,8 +504,9 @@ proceeds, or a caller hands `post`, and before acting on those rows:
    rev-parse --abbrev-ref @{push}` must print that branch on its remote
    (`origin/<source branch>`). Any other output, an error included, is a
    failed push; never switch branches to make it match.
-2. Push that one branch explicitly, `git push origin <source branch>`
-   (the branch step 1 verified), never a bare `git push`, which can
+2. Push that one branch with `git_push`, `tree` = this worktree: it
+   pushes only the current branch (the one step 1 verified) to its
+   same-named upstream by explicit refspec, never a bare push, which can
    publish other refs under a configured push refspec or a mirror
    remote. That proceed is the authorization: ask nothing more.
 
@@ -558,10 +561,10 @@ row fully, as that older gate did: one it lists posts once and is
 resolved only on `resolve-addressed`, and one it omits (an empty list
 included) posts nothing.
 
-At execution time, after acting: `rt runs decision record --contract
-gate@1 --scope respond-post --selection
-'{"threads":{"<threadId>":{"post":true,"resolve":false},"...":"one entry per offered thread"}}'
---decided-by <the answer's by>`. An entry carries `text` only when its
+At execution time, after acting: `run_decision` with `contract:
+"gate@1"`, `scope: "respond-post"`, `selection:
+{"threads":{"<threadId>":{"post":true,"resolve":false},"...":"one entry per offered thread"}}`,
+`decidedBy: <the answer's by>`. An entry carries `text` only when its
 thread's answer was an object with `text` and `post:`, and then it is the
 answer's: `{"post":true,"resolve":true,"text":"<the answer's text>"}`
 when that answer also carries `resolve:`, `"resolve":false` when it does
@@ -579,8 +582,8 @@ a `gate-1: fix` row step 5 finalized) that no answer value names as both `false`
 `thread-<n>` key to a thread by its position.
 
 Close, only when `## Run` started this run: after every reply has posted
-and every decision is recorded, `rt runs stage-done --stage receive-review`, `rt runs
-run-status --status done`, `unset RT_RUN_DB`. Zero unresolved human
+and every decision is recorded, `run_stage` with `action: "done"`,
+`stage: "receive-review"`, then `run_status` with `status: "done"`. Zero unresolved human
 threads (step 1) closes the same way, right after the sentence that says
 so.
 
@@ -606,7 +609,7 @@ so.
 | "Step 3 recommended a reply here, so it posts" | Posting reads each report row's `gate-1` field, never the recommendation. A `gate-1: skip` row posts nothing. |
 | "The plan record has no slot for the edited reply" | It goes in `texts` beside `threads`, and over the draft in the report's row for that thread. Overrides go in `overrides`, and an override's note in `notes`. |
 | "The gate approved posting, not a push, so the Fixed reply goes up (or I ask first)" | "Fixed" with nothing on the remote is false. The proceed authorizes the push: check the branch and `@{push}`, push first, and a mismatch or failed push holds every picked `gate-1: fix` row. |
-| "A plain `git push` pushes the MR" | It pushes whatever branch is checked out, to its own destination, and any configured push refspec or mirror refs with it. Check both against the MR's source branch, then push that one branch: `git push origin <source branch>`. |
+| "A plain push from the shell pushes the MR" | It pushes whatever branch is checked out, to its own destination, and any configured push refspec or mirror refs with it. Check both against the MR's source branch, then push that one branch: `git_push` with `tree` = this worktree, never forced. |
 | "The fix is held, so I'll record respond-post once it posts" | A resume from the snapshot would re-offer the replies that already posted. Record now, with the fix threads under `"held"`. |
 | "They ticked post before choosing Iterate (or Hold), so those picks act now" | Only `proceed` acts. On `hold` or `iterate` nothing pushes, posts, resolves or records, whatever the picks; every offered thread stays pending, and the re-ask is a new gate over the threads not yet posted. |
 | "The snapshot has no respond-post record, so nothing has posted yet" | A pane can post and die before it records. On a resume, read each thread on the forge before its reply posts or a re-asked gate offers it: one carrying this run's reply (the same text, or a note by this run's account since `started_at`) is posted, counted as posted, never posted or offered again. |
@@ -624,11 +627,11 @@ so.
 | Verdicts in hand | Verdict table + drafted replies, one block (step 3); reply-rules voice, no performative openers. |
 | Caller hands `{plan, post}` | Use it, ask nothing; decided-by is the caller's named decider. The handed `post` decides before any `gate-1: reply` row posts, even with nothing offered. |
 | No caller-handed answers | Gate `respond-plan` (threads + code-changes), then `respond-post` (a post/resolve pair per offered thread) only when a report row is a finalized fix or an override, in order; a caller that owns the gates gets each open handed back instead. |
-| Opening either gate | Source file, `gate-ctx.sh fit`, then its open verbatim: handed back to a caller that owns the gates, else `rt gate ask`. |
+| Opening either gate | Source file, `gate-ctx.sh fit`, then its open verbatim: handed back to a caller that owns the gates, else read it and call `gate_ask`. |
 | `respond-plan` answered | Rewrite every report row with its `gate-1` field and any edited reply (step 4's Report rows); posting reads only these rows. |
 | `respond-plan` answered `reply:` | Override when the answer has no `text` and any one of: a card that was not verbatim, a note, or a question context that never reached the gate. An override is `gate-1: override`, listed under `overrides` (its note, when it has one, under `notes`), redrafted and offered at `respond-post`. Any other `reply:` is `gate-1: reply` (the answer's `text` under `texts`, else the verbatim draft): it posts from gate 1, never resolved except as a retired-shape `post` decides it, at once with no offered thread and no caller-handed `post`, once `respond-post` proceeds otherwise, never on `revise`. |
 | `respond-plan` approves | `fix:<threadId>` threads one at a time, verify each, finalize to "Fixed -- file:line" (step 5). |
-| `respond-post` answered | `hold` or `iterate`: nothing pushes, posts, resolves or records, whatever the picks; every offered thread stays pending, and the re-ask is a new gate over the threads not yet posted. `proceed` (or a caller-handed `post`): when a `gate-1: fix` row posts or resolves, check the branch and `@{push}`, then push that one branch first (`git push origin <source branch>`); a mismatch or failed push holds those rows under `"held"` in the record. Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; then the `gate-1: reply` rows post; never approve. |
+| `respond-post` answered | `hold` or `iterate`: nothing pushes, posts, resolves or records, whatever the picks; every offered thread stays pending, and the re-ask is a new gate over the threads not yet posted. `proceed` (or a caller-handed `post`): when a `gate-1: fix` row posts or resolves, check the branch and `@{push}`, then push that one branch first (`git_push` with `tree` = this worktree, never forced); a mismatch or failed push holds those rows under `"held"` in the record. Per offered thread: `post:` posts its reply (the answer's `text` when edited), `resolve:` resolves it, either or both; then the `gate-1: reply` rows post; never approve. |
 
 ## Gate protocol
 

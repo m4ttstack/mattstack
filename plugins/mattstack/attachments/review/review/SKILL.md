@@ -15,70 +15,78 @@ The standalone entry for reviewing someone else's change.
 ## Run
 
 Outside a pipeline this verb is its own run, so the console shows it and
-the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
-and `rt runs snapshot` shows `run.status` = `running`: you were invoked
-from inside that run, you inherit it, `run.current_stage` is your stage,
-and you close nothing at the end.
+the Stop hook covers its pane. Skip this section when a caller handed you
+a `runDb` (a pipeline invoking this verb carries it in context) and
+`run_snapshot` with that `runDb` shows `run.status` = `running`: you were
+invoked from inside that run, you inherit it, `run.current_stage` is your
+stage, you pass that handed `runDb` on every `run_*` call, and you close
+nothing at the end.
 
-Otherwise, when a surface launched this pane (the `--spawned-by` case
+Otherwise, when a surface launched this pane (the `spawnedBy` case
 below), start fresh: another pane's live run is not yours to resume.
-Launched by hand, first the Resume offer: run `rt runs --repo <repo>
---json` (the `--repo` value in the flags block below) and keep the runs
+Launched by hand, first the Resume offer: call `run_list` with `repo`
+(the `--repo` value in the flags block below) and keep the runs
 whose `status` is `running` and `work_type` is `review`; never read the
 run dbs by hand. Any found: gate
 `clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
 and `current_stage`, then the structured-question tool with one **Resume**
 option per candidate (recommended for a run this session started earlier; a
 run another live pane owns is not yours) / **Start fresh**; **Hold**.
-Resume: `export RT_RUN_DB=~/.mattstack/runs/<repo>/<its id>/state.db`
-(the candidate row's `id`), then `rt runs stage-start --stage
-review` (a new attempt, which re-records this session) and `rt runs field set
-hold - --stage review`; re-enter with the snapshot's decisions and do not
-re-ask a question it already answered. rt runs verbs resolve your run
-automatically (env RT_RUN_DB first, else the run this session started,
-else the newest running run in this worktree; ambiguity errors loudly).
-Export RT_RUN_DB only to drive a different run than yours.
+Resume: your `runDb` is `<home>/.mattstack/runs/<repo>/<its id>/state.db`
+(the candidate row's `id`, the home directory written out, never `~`),
+then `run_stage` with `action: "start"`, `stage: "review"` (a new
+attempt, which re-records this session) and `run_field_set` with `key:
+"hold"`, `value: "-"`, `stage: "review"`; re-enter with `run_snapshot`'s
+decisions and do not re-ask a question it already answered. Keep `runDb`
+and pass it on every `run_*` call.
 
-Fresh. The flags for this verb, rendered by the compiler:
+Fresh. Start the run with the `run_start` tool: `flags` is this verb's
+value in the block below, verbatim; `skillDir` is this skill's own
+directory; add `spawnedBy` when a board or another surface launched this
+pane.
 
 {{run-start.flags:review}}
 
-```bash
-PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
-rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>
-rt runs stage-start --stage review
-```
+The result must carry `ok: true` and a `runDb`. Anything else means this
+rt predates the run tools: stop and tell the user to update rt. Keep
+`runDb` and pass it to every `run_*` call below; nothing is exported.
+Then `run_stage` with `action: "start"`, `stage: "review"`.
 
-The response must parse as JSON with `ok: true` and a `runDb`; anything
-else means this rt predates the run verbs: stop and tell the user to
-update rt. Pass `--spawned-by` when a board or another surface launched
-this pane.
-
-Every gate in this verb then writes its `gate` field and its decision with
-`--stage review`. The close, after the final gate's answer and only when
-this section ran `run-start`: `rt runs stage-done --stage review`, `rt runs
-run-status --status done` (or `abandoned` when the gate said so), then
-`unset RT_RUN_DB`.
+Every gate in this verb then writes its `gate` field with `stage:
+"review"`, and its decision. The close, after the final gate's answer and
+only when this section called `run_start`: `run_stage` with `action:
+"done"`, `stage: "review"`, then `run_status` with `status: "done"` (or
+`abandoned` when the gate said so).
 
 {{include:run-identity}}
 
 ## 1. Resolve the target
 
 From the conversation: an MR/PR URL, a bare !iid or #number, a ticket id,
-or a branch name. Resolve to one MR/PR via the forge CLI
-(`glab mr view <ref>` or `gh pr view <ref>`); ambiguity is gate `clarify`:
+or a branch name. Resolve to one MR/PR: on GitLab with the `mr_view` tool
+and `maxAgeMs: 5000`, so the read is live (`mrUrl` when you were given a
+URL, else `repoName` = the checkout path plus `iid`; a branch name
+resolves first with `mr_for_branch`, `repoName` = the checkout path and
+`branches: [<branch>]`, then `mr_view` on the iid it returns; a ticket id
+with no URL, iid or branch is gate `clarify`), on GitHub with `gh pr view
+<ref>`. An `mr_view` not found, or a null `mr_for_branch` entry for the
+branch, means rt's open-MR cache does not hold it
+(outside its author or time window): say so, then Hold as below with that
+message as the reason (`decidedBy: "pane"`), never a fallback to the
+forge CLI. Ambiguity is gate `clarify`:
 one sentence naming the candidates, then run gate-protocol's Runs
 integration with kind `clarify` and these questions: `target`, one
 option per candidate, and `next`: **Proceed** (recommended) / **Hold**
-(`rt runs field set gate clarify --stage
+(`run_field_set` with `key: "gate"`, `value: "clarify"`, `stage:
 <stage>` before, where `<stage>` is `review` for an own run and
-`run.current_stage` when inherited, and `rt runs decision record --contract gate@1 --scope
-clarify --selection '{"target":"<picked>"}' --decided-by <the answer's by>` after).
-Hold: record `hold:<stage>:<attempt>` (`rt runs decision record --contract
-gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their words>"}'
---decided-by <the answer's by>`), `rt runs field set hold "<their words>"
---stage <stage>`, end the turn. Never a guess.
+`run.current_stage` when inherited, and `run_decision` with `contract:
+"gate@1"`, `scope: "clarify"`, `selection: {"target": "<picked>"}`,
+`decidedBy: <the answer's by>` after).
+Hold: record `hold:<stage>:<attempt>` (`run_decision` with `contract:
+"gate@1"`, `scope: "hold:<stage>:<attempt>"`, `selection: {"reason":
+"<their words>"}`, `decidedBy: <the answer's by>`), `run_field_set` with
+`key: "hold"`, `value: "<their words>"`, `stage: <stage>`, end the turn.
+Never a guess.
 
 When the run is yours, record the resolved target per Run identity above:
 `mr` (the MR/PR URL), `branch` (its source branch), `ticket` (the id the
@@ -86,7 +94,13 @@ MR itself names in branch, title, or description, when one exists).
 
 ## 2. Review
 
-Fetch the diff (`glab mr diff` / `gh pr diff`). Then follow the review flow
+Fetch the diff. On GitHub, `gh pr diff`. On GitLab, git reads in Bash,
+fetching the MR ref so any MR works, as two separate commands:
+`git fetch origin <targetBranch>
++refs/merge-requests/<iid>/head:refs/remotes/origin/mr-<iid>`, then
+`git diff origin/<targetBranch>...origin/mr-<iid>`, with `targetBranch`
+from step 1's live `mr_view`.
+Then follow the review flow
 below for depth triage, fresh-context reviewer dispatch, and the structured
 draft. Its Criteria section carries the domain's review standards when the
 pack binds them; apply its triage lines and addendum exactly as it directs.
@@ -185,16 +199,15 @@ wait for its `{findings, outcome}`.
 
 **Otherwise** (a direct terminal run) this verb runs the gate:
 
-- `rt runs field set gate post --stage <stage>`, where `<stage>` is
-  `review` for an own run and `run.current_stage` when inherited.
+- `run_field_set` with `key: "gate"`, `value: "post"`, `stage: <stage>`,
+  where `<stage>` is `review` for an own run and `run.current_stage` when
+  inherited.
 - Run gate-protocol's Runs integration with kind `review-post`, the
   registry kind every review surface routes on (the run field and the
-  decision record keep scope `post`), the open read from the file:
-
-  ```bash
-  rt gate ask --questions "$(jq -c .questions <dir>/review-post.open.json)" --kind review-post --context "$(jq -r .context <dir>/review-post.open.json)"
-  ```
-
+  decision record keep scope `post`), the open read from the file: read
+  `<dir>/review-post.open.json` with the Read tool; call `gate_ask` with
+  its `questions` array, `kind: "review-post"` and its `context`; act on
+  the returned presentation as gate-protocol says.
 - In-pane form (gate-protocol's presentation: "form" branch): the form
   never shows the JSON. Run
   `sh "${CLAUDE_SKILL_DIR}/scripts/gate-ctx.sh" prose < <dir>/review-post.source.json`,
@@ -202,9 +215,9 @@ wait for its `{findings, outcome}`.
   each `findings-<n>` question's form text its label, a newline, then its
   prose `context`; options keep the gate's labels and descriptions. Ask
   in gate order, up to four questions per call, then submit exactly ONE
-  `rt gate answer` carrying every question.
-- No report json: the same bracket and `rt gate ask --kind review-post`,
-  with `--context` the severity line verbatim and three questions:
+  `gate_answer` carrying every question.
+- No report json: the same bracket and `gate_ask` with `kind:
+  "review-post"`, `context` the severity line verbatim and three questions:
   `tiers` (multi-select over the levels present, each pre-selected), then
   `outcome` and `next` exactly as in the extras above.
 - `next`: **Proceed** executes posting; **Iterate here** takes their text
@@ -221,10 +234,10 @@ unmigrated wrapper), or a `tiers` answer, passes to posting as legacy
 `{levels: <tiers>, disposition: <outcome>}`, which posting accepts
 unchanged; the record below then carries that same legacy selection.
 
-Then, when an rt-runs run is active, record the decision at execution time,
-after posting: `rt runs decision record --contract gate@1 --scope post
---selection '{"findings":["f1","f3"],"disposition":"comment"}'
---decided-by <decider>`, where `<decider>` names the surface that
+Then, when a run is active, record the decision at execution time,
+after posting: `run_decision` with `contract: "gate@1"`, `scope: "post"`,
+`selection: {"findings": ["f1", "f3"], "disposition": "comment"}`,
+`decidedBy: <decider>`, where `<decider>` names the surface that
 actually answered -- `board`, `console`, `pane`, or `shepherd`: the
 caller's named decider on intake, else the gate answer's `by`.
 
@@ -234,8 +247,8 @@ pr comment`; on GitLab follow the thread mechanics below.
 Review verbs produce judgment and execute posting; they never decide what
 posts.
 
-Close, only when `## Run` started this run: `rt runs stage-done --stage
-review`, `rt runs run-status --status done`, `unset RT_RUN_DB`. The final
+Close, only when `## Run` started this run: `run_stage` with `action:
+"done"`, `stage: "review"`, then `run_status` with `status: "done"`. The final
 message still ends with the target's link (the close HARD-GATE below).
 
 ## Gate protocol
@@ -258,5 +271,5 @@ issue list carries a selected finding with no `file` anchor, and with
 `resolvable: false` when it carries none. The daemon verifies DiffNote
 placement and, on the silent general-note degrade, retries ONCE with fresh
 diff_refs (deleting the stray notes; it cannot fix a position GitLab
-rejects outright), so never hand-build a `glab api` position payload.
+rejects outright), so never hand-build a position payload.
 `mr_comment` returns `mrUrl`, the link the close needs.
