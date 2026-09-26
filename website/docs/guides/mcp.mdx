@@ -35,7 +35,7 @@ The server exposes the families below. Most call rt's daemon; the run-tracking w
 
 ### Run tracking
 
-Pipeline runs record their stages, fields and decisions through these tools. `run_start` returns a `runDb`; pass it to every other `run_*` call. A `runDb` outside rt's runs root is refused.
+Pipeline runs record their stages, fields and decisions through these tools. `run_start` returns a `runDb`; pass it to every run-targeted tool (all of them except `run_start` and `run_list`, which takes only an optional `repo`). Those tools also accept an absolute `cwd` in its place, which resolves to this session's run, else the newest running run whose worktree holds `cwd`, but passing `runDb` is the reliable form. A `runDb` outside rt's runs root is refused.
 
 | Tool | What it does |
 | --- | --- |
