@@ -8,8 +8,8 @@ description: Use when adding, editing, publishing, or debugging why a change isn
 Skills load from a **versioned plugin cache**
 (`<config>/plugins/cache/<marketplace>/<plugin>/<version>/`), never from the
 source repo. A source edit is invisible until you bump the plugin version,
-run the update, and restart the session. Same-commit version bumps are the
-convention (see any pack bump in git history). What the update puts in the
+run the update, and run `/reload-plugins` in the session. Same-commit
+version bumps are the convention (see any pack bump in git history). What the update puts in the
 cache differs by estate: a team pack's update copies the pack's whole
 working tree, untracked files and `.worktrees/` included, so prune stray
 worktrees before a bump; the mattstack plugin's update clones the checkout's
@@ -19,7 +19,7 @@ the cache.
 The team pack is a _directory-source_ marketplace, so a loaded pack skill's
 reported base dir often points at the SOURCE path, not the cache copy. Don't
 read that as "it loads from source": the versioned cache is still what a
-fresh session loads, and the bump/update/restart rule above still applies.
+session loads, and the bump/update/reload rule above still applies.
 The source path in the base dir is a convenience, not the live surface. The
 mattstack plugin is a _url-source_ entry (a `file://` URL to the checkout),
 so its base dir is the cache clone itself.
@@ -91,7 +91,11 @@ it does gives a real-looking command that updates nothing.
    resolving to `<config>/plugins`; for each session it names, repeat the
    update with `CLAUDE_CONFIG_DIR=<that session dir>` prefixed. By hand when
    sync refuses: `claude plugin update <plugin>@<marketplace>`.
-7. Restart the Claude session -- the running process keeps its old cache.
+7. Run `/reload-plugins` in each running session: it reloads plugins, skills,
+   agents, hooks and plugin MCP servers in place from the updated cache. In a
+   herdr pane, queue it on yourself with
+   `rt pane send self --text "/reload-plugins" --then "Continue: ..."` and end
+   the turn; otherwise ask the user to type it.
 
 What sync never does is author or bump the ENGINE, so steps 1-5 stay yours in
 every case.
@@ -150,7 +154,8 @@ What `compile` and `check` read:
    `installed cache: lagging (<a> installed vs <b> source) -- run rt skills sync`
    line is the other trigger; lag alone leaves check's exit code at 0, so read
    the line, not the status.
-4. Restart the sessions sync reported `restartNeeded` for.
+4. When sync reports `restartNeeded`, run `/reload-plugins` in each running
+   session (step 7 of the pipeline above).
 
 Sync refuses with `content drift survives recompile` when the pack has real
 content changes pending. That is a handoff to this skill, not a failure: sync
@@ -167,8 +172,8 @@ mattstack, whichever version that is.
 ## Verifying
 
 `ls <config>/plugins/cache/<marketplace>/<plugin>/` shows installed
-versions; the newest must match your bump. A skill invocable by name in a
-fresh session is the end-to-end proof.
+versions; the newest must match your bump. A skill invocable by name after
+`/reload-plugins` is the end-to-end proof.
 
 ## Final Validation
 
