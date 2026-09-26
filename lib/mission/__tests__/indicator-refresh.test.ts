@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { FetchState, GitClient, RepoSnapshot } from "../../../packages/git-core/src/index.ts";
+import type { FetchOptions, FetchState, GitClient, RepoSnapshot } from "../../../packages/git-core/src/index.ts";
 import type { GitWorktreeBadge } from "../../../packages/rt-client/src/commands.ts";
 import { refreshIndicator } from "../indicator-refresh.ts";
 
@@ -16,14 +16,15 @@ function fakeClient(opts: {
   remotes?: { name: string }[];
   fetch?: (signal?: AbortSignal) => Promise<void>;
 }) {
-  const calls = { snapshot: 0, fetch: 0, signals: [] as (AbortSignal | undefined)[] };
+  const calls = { snapshot: 0, fetch: 0, signals: [] as (AbortSignal | undefined)[], opts: [] as (FetchOptions | undefined)[] };
   const client = {
     snapshot: async () => opts.snapshots[Math.min(calls.snapshot++, opts.snapshots.length - 1)]!,
     fetchState: async () => opts.fetchState,
     remotes: async () => opts.remotes ?? [{ name: "origin" }],
-    fetch: async (_remote?: string, signal?: AbortSignal) => {
+    fetch: async (_remote?: string, signal?: AbortSignal, fetchOpts?: FetchOptions) => {
       calls.fetch++;
       calls.signals.push(signal);
+      calls.opts.push(fetchOpts);
       await (opts.fetch?.(signal) ?? Promise.resolve());
     },
   } as unknown as GitClient;
@@ -65,6 +66,12 @@ describe("refreshIndicator", () => {
     await refreshIndicator(TARGET, { client: () => client, pathExists: () => true, now: () => NOW }, publish);
     expect(calls.fetch).toBe(1);
     expect(published.map(([, b]) => b!.behind)).toEqual([0, 3]);
+  });
+
+  test("the background fetch never prompts on the board's terminal", async () => {
+    const { client, calls } = fakeClient({ snapshots: [snap()], fetchState: { lastFetchedAt: null } });
+    await refreshIndicator(TARGET, { client: () => client, pathExists: () => true, now: () => NOW }, collect().publish);
+    expect(calls.opts).toEqual([{ nonInteractive: true }]);
   });
 
   test("never fetched counts as stale", async () => {

@@ -1,5 +1,5 @@
 import type { ClientContext } from "./client.ts";
-import type { BranchInfo, RemoteInfo, TagInfo } from "./types.ts";
+import type { BranchInfo, FetchOptions, RemoteInfo, TagInfo } from "./types.ts";
 import { rawGit } from "./exec.ts";
 import { assertSafeCommitish, assertSafeRemote, assertValidTagName } from "./ref-guard.ts";
 
@@ -113,8 +113,13 @@ export async function pushTag(ctx: ClientContext, name: string, remote = "origin
   await rawGit(ctx.dir, ["push", remote, `refs/tags/${name}`]);
 }
 
-export async function fetchRemote(ctx: ClientContext, remote = "origin", signal?: AbortSignal): Promise<void> {
+export async function fetchRemote(
+  ctx: ClientContext,
+  remote = "origin",
+  signal?: AbortSignal,
+  opts: FetchOptions = {},
+): Promise<void> {
   assertSafeRemote(remote);
   // rawGit, not ctx.git.fetch: fetch reads GIT_SSH_COMMAND/GIT_ASKPASS same as push.
-  await rawGit(ctx.dir, ["fetch", "--quiet", remote], { signal });
+  await rawGit(ctx.dir, ["fetch", "--quiet", remote], { signal, nonInteractive: opts.nonInteractive });
 }

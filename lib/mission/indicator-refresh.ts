@@ -32,7 +32,7 @@ async function fetchWithTimeout(client: GitClient, timeoutMs: number, stop: Abor
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      client.fetch(undefined, controller.signal),
+      client.fetch(undefined, controller.signal, { nonInteractive: true }),
       new Promise((_resolve, reject) => {
         timer = setTimeout(() => {
           controller.abort();

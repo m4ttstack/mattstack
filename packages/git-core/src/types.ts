@@ -127,6 +127,11 @@ export interface FetchState {
   lastFetchedAt: string | null; // ISO 8601; null = never fetched
 }
 
+export interface FetchOptions {
+  /** Never prompt for credentials, passphrases or host keys; fail instead. */
+  nonInteractive?: boolean;
+}
+
 export interface DiffSources {
   old?: string;
   new?: string;
@@ -168,7 +173,7 @@ export interface GitClient {
   stashPop(index: number): Promise<void>;
   stashDrop(index: number): Promise<void>;
   fetchState(): Promise<FetchState>;
-  fetch(remote?: string, signal?: AbortSignal): Promise<void>;
+  fetch(remote?: string, signal?: AbortSignal, opts?: FetchOptions): Promise<void>;
   stagingDiff(path: string, opts?: DiffReadOpts): Promise<StagingDiff>;
   stageSelection(
     diff: StagingDiff,

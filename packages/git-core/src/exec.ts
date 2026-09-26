@@ -2,6 +2,10 @@ export interface RawGitOpts {
   okCodes?: number[]; // exit codes besides 0 that still return stdout
   stdin?: string; // piped to the child and closed; e.g. `git apply -` patches
   signal?: AbortSignal; // kills the child and rejects promptly on abort
+  // git's credential prompt and ssh's passphrase or host-key prompt open
+  // /dev/tty directly, bypassing piped stdio, so the child also needs its own
+  // session with no controlling terminal to fail instead of painting a prompt.
+  nonInteractive?: boolean;
 }
 
 // Set only on the exit-code-classification throw below, so a caller can
@@ -65,7 +69,8 @@ export async function rawGit(dir: string, args: string[], opts: RawGitOpts = {})
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: scrubGitEnv(),
+    env: opts.nonInteractive ? { ...scrubGitEnv(), GIT_TERMINAL_PROMPT: "0" } : scrubGitEnv(),
+    detached: opts.nonInteractive === true,
   });
   // Always closed, even with no stdin data: git plumbing commands that never
   // read it ignore the EOF, but leaving it open (the default "inherit") would
