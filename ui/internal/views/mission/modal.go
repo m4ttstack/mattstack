@@ -167,7 +167,10 @@ func newBranchModal(m Model) *modalState {
 // newWorktreeModal lists every worktree; on-deck ones (provisioned but not
 // checked out) carry a "ready" meta alongside their branch. Its filter
 // placeholder names the current repo, since a worktree only ever belongs to
-// one -- mirroring its board.
+// one -- mirroring its board. An unmanaged repo (rt does not track it) has
+// no action row, the same nil-action shape newRepoModal always uses:
+// provisioning needs rt's own worktree machinery, which an unmanaged repo
+// has nothing to hook into.
 func newWorktreeModal(m Model) *modalState {
 	rows := make([]modalRow, len(m.Worktrees))
 	for i, w := range m.Worktrees {
@@ -184,11 +187,14 @@ func newWorktreeModal(m Model) *modalState {
 			current: w.Current, selectable: true, value: w.Path,
 		}
 	}
-	action := &modalActionRow{
-		label: "Provision new worktree…",
-		buildPayload: func(name string) json.RawMessage {
-			return mustPayload(worktreeNewPayload{New: true, Name: name})
-		},
+	var action *modalActionRow
+	if !m.Current.Unmanaged {
+		action = &modalActionRow{
+			label: "Provision new worktree…",
+			buildPayload: func(name string) json.RawMessage {
+				return mustPayload(worktreeNewPayload{New: true, Name: name})
+			},
+		}
 	}
 	repoLabel := m.Current.RepoLabel
 	if repoLabel == "" {
@@ -767,8 +773,11 @@ func modalGroupHeaderLine(text string, width int) string {
 // modalKeybarPairsFor lists a zone's wired key/label pairs, in display order:
 // only what this modal actually dispatches, never the boards' unwired
 // ctrl-f/ctrl-w/ctrl-d. While naming, enter and esc mean create/cancel
-// instead of whatever the zone's own action row wires them to.
-func modalKeybarPairsFor(zone zoneID, naming bool) [][2]string {
+// instead of whatever the zone's own action row wires them to. hasAction
+// drops the ctrl-n pair when the zone's modal was built with a nil action
+// (an unmanaged repo's worktree modal): showing it would be a dead key
+// hint, since ctrl-n is a no-op with nothing to name.
+func modalKeybarPairsFor(zone zoneID, naming bool, hasAction bool) [][2]string {
 	if naming {
 		return [][2]string{{"enter", "create"}, {"esc", "cancel"}}
 	}
@@ -776,8 +785,14 @@ func modalKeybarPairsFor(zone zoneID, naming bool) [][2]string {
 	case zoneRepo:
 		return [][2]string{{"enter", "open"}, {"esc", "close"}}
 	case zoneBranch:
+		if !hasAction {
+			return [][2]string{{"enter", "checkout"}, {"esc", "close"}}
+		}
 		return [][2]string{{"enter", "checkout"}, {"ctrl-n", "new branch"}, {"esc", "close"}}
 	case zoneWorktree:
+		if !hasAction {
+			return [][2]string{{"enter", "switch"}, {"esc", "close"}}
+		}
 		return [][2]string{{"enter", "switch"}, {"ctrl-n", "provision"}, {"esc", "close"}}
 	default:
 		return nil
@@ -785,11 +800,11 @@ func modalKeybarPairsFor(zone zoneID, naming bool) [][2]string {
 }
 
 func modalKeybarPairs(ms *modalState) [][2]string {
-	return modalKeybarPairsFor(ms.zone, ms.naming)
+	return modalKeybarPairsFor(ms.zone, ms.naming, ms.action != nil)
 }
 
-func modalKeybarPlainTextFor(zone zoneID, naming bool) string {
-	pairs := modalKeybarPairsFor(zone, naming)
+func modalKeybarPlainTextFor(zone zoneID, naming bool, hasAction bool) string {
+	pairs := modalKeybarPairsFor(zone, naming, hasAction)
 	parts := make([]string, len(pairs))
 	for i, p := range pairs {
 		parts[i] = p[0] + " " + p[1]
@@ -799,11 +814,13 @@ func modalKeybarPlainTextFor(zone zoneID, naming bool) string {
 
 // modalKeybarMaxPlainWidth is the widest keybar text a zone can ever show,
 // naming or not, so modalWidth sizes the box off a bound that does not
-// shift when naming opens or closes (a ratified geometry invariant).
+// shift when naming opens or closes (a ratified geometry invariant). It
+// measures with hasAction true: an unmanaged repo's narrower keybar must
+// never widen the box past what a managed repo's modal already sizes it to.
 func modalKeybarMaxPlainWidth(zone zoneID) int {
 	max := 0
 	for _, naming := range []bool{false, true} {
-		if w := lipgloss.Width(modalKeybarPlainTextFor(zone, naming)); w > max {
+		if w := lipgloss.Width(modalKeybarPlainTextFor(zone, naming, true)); w > max {
 			max = w
 		}
 	}

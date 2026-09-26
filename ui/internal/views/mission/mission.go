@@ -430,6 +430,10 @@ func (m *Mission) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case session.CloseRequest:
 		m.reason = session.ReasonClosed
 		return m, tea.Quit
+	case tea.FocusMsg:
+		return m, m.em.Emit(protocol.Intent{Name: "mission:focus", Payload: mustPayload(focusPayload{Focused: true})})
+	case tea.BlurMsg:
+		return m, m.em.Emit(protocol.Intent{Name: "mission:focus", Payload: mustPayload(focusPayload{Focused: false})})
 	case selectDebounceMsg:
 		if v.generation != m.selectGen {
 			return m, nil
@@ -670,6 +674,10 @@ type selectPayload struct {
 // not carry one or it would clear a filter mid-flight.
 type pathSelectPayload struct {
 	Path string `json:"path"`
+}
+
+type focusPayload struct {
+	Focused bool `json:"focused"`
 }
 
 // mustPayload marshals a payload struct built entirely from strings/bools,
@@ -916,6 +924,7 @@ func (m *Mission) View() tea.View {
 	// explicitly -- session's wireMouse decorator defers to whatever mode
 	// is already set here rather than overwriting it.
 	v.MouseMode = tea.MouseModeAllMotion
+	v.ReportFocus = true
 	// bubbletea's renderer optimizes trailing styled blanks by erasing to
 	// end-of-line rather than emitting every styled space, and an erased
 	// cell paints the TERMINAL's own default background, not whatever SGR
