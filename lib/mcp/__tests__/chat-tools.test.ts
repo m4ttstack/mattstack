@@ -9,7 +9,7 @@ type Call = { fn: string; a: any; o?: any };
 
 function fake(opts: {
   signedIn?: boolean; fail?: string; who?: unknown; whoFail?: string; alive?: boolean; human?: string | null; spawn?: unknown; dirs?: string[];
-  buddiesRows?: unknown[]; buddiesFail?: string; roomsResult?: unknown; roomsFail?: string;
+  buddiesRows?: unknown[]; buddiesFail?: string; roomsResult?: unknown; roomsFail?: string; messagesResult?: unknown;
 } = {}) {
   const calls: Call[] = [];
   const rec = (fn: string, data: unknown = {}) => (async (a?: unknown, o?: unknown) => {
@@ -18,7 +18,7 @@ function fake(opts: {
   }) as any;
   const deps: ChatToolDeps = {
     read: rec("read", { rooms: [{ room: "build", messages: [] }] }),
-    messages: rec("messages", { messages: [{ id: 9 }] }),
+    messages: rec("messages", opts.messagesResult ?? { messages: [{ id: 9 }] }),
     mark: rec("mark"),
     rooms: opts.roomsFail
       ? ((async (a?: unknown, o?: unknown) => { calls.push({ fn: "rooms", a, o }); return { ok: false, error: opts.roomsFail }; }) as any)
@@ -112,15 +112,22 @@ describe("chat_read", () => {
     }
   });
 
-  test("last reads the newest page then marks the room", async () => {
+  test("last reads the newest page then marks only up to the page's own newest id", async () => {
     const f = fake();
     const r = await f.tool("chat_read").handler({ room: "build", last: 3 }, ENV);
     expect(r).toEqual({ ok: true, body: { rooms: [{ room: "build", messages: [{ id: 9 }] }] } });
     expect(f.calls.map((c) => [c.fn, c.a])).toEqual([
       ["who", { room: "build" }],
       ["messages", { room: "build", limit: 3 }],
-      ["mark", { handle: "ann", room: "build" }],
+      ["mark", { handle: "ann", room: "build", upto: 9 }],
     ]);
+  });
+
+  test("last makes no mark call when the page is empty", async () => {
+    const f = fake({ messagesResult: { messages: [] } });
+    const r = await f.tool("chat_read").handler({ room: "build", last: 3 }, ENV);
+    expect(r).toEqual({ ok: true, body: { rooms: [{ room: "build", messages: [] }] } });
+    expect(f.calls.map((c) => c.fn)).toEqual(["who", "messages"]);
   });
 
   test("last is refused for a non-member with no messages or mark call", async () => {

@@ -125,9 +125,14 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
           if (!(who.data?.members ?? []).some((m) => m.handle === id.handle)) return err(`${id.handle} is not a member of #${room}; join it first`);
           const page = await deps.messages({ room, limit: input.last as number });
           if (!page.ok) return fromResponse(page);
-          const marked = await deps.mark({ handle: id.handle, room });
-          if (!marked.ok) return fromResponse(marked);
-          return ok({ rooms: [{ room, messages: page.data?.messages ?? [] }] });
+          const messages = page.data?.messages ?? [];
+          // upto is the shown page's own newest id, never the room's true latest: a message posted after this fetch (or beyond limit) must stay unread.
+          if (messages.length > 0) {
+            const upto = Math.max(...messages.map((m) => m.id));
+            const marked = await deps.mark({ handle: id.handle, room, upto });
+            if (!marked.ok) return fromResponse(marked);
+          }
+          return ok({ rooms: [{ room, messages }] });
         }
         let sinceMs: number | undefined;
         if (typeof input.since === "string") {

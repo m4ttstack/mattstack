@@ -151,7 +151,10 @@ rules: `limit` positive (default 20), `since` in the CLI's duration syntax
 positive integer that needs a room and excludes `since`. A plain read
 advances only the caller's own cursor, as the CLI does. `last` requires
 this handle to be a member of the room, since `chat:messages` itself
-checks no membership.
+checks no membership. The mark call passes `upto` as the fetched page's
+own newest message id, never a bare mark (which would mark the room's
+true latest read, silently skipping anything beyond the page the caller
+was shown); an empty page makes no mark call at all.
 
 `since` is parsed with the CLI's own `parseDuration`, so the grammar
 cannot drift. `lib/mcp` may import only `commands/runs-write.ts` from
