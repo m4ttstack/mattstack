@@ -353,7 +353,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
   return [
     {
       name: "git_push",
-      description: "Push the tree's current branch to its same-named upstream, or as origin/<branch> with setUpstream: true (which replaces any existing upstream). Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD, the repo's default branch, main and master, and an upstream that is the default branch or has a different branch name unless setUpstream is passed.",
+      description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; an upstream with a different branch name, or one that is its own remote's default branch (setUpstream: true pushes as origin/<branch> instead).",
       inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" } }, required: ["tree"], additionalProperties: false },
       handler: guarded(async (path, input) => {
         const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }]);
@@ -379,7 +379,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
     },
     {
       name: "branch_sync",
-      description: "Bring the tree's branch current in one call, the rt sync flow: fetch; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease. Refuses when a local commit has no equivalent on origin (unpushed work) or when origin has commits the push would drop (a branch only behind origin: run git_pull first), naming the commits. A rebase conflict returns status conflict with rt sync's bundle and leaves the rebase paused.",
+      description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin syncs and pushes as usual. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that another ref shadows; a push destination redirected by git config. A rebase conflict returns status conflict with rt sync's bundle and leaves the rebase paused.",
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
       handler: guarded(async (path) => {
         const pre = await branchSyncPreflight(path, deps.git);

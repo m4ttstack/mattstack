@@ -140,12 +140,12 @@ export interface CommandNode {
   /**
    * An agent may run this leaf through the mattstack MCP server's `rt_verb`
    * tool with no permission prompt, including from a pane reading untrusted
-   * text (an MR under review). The bar: a read, or a routine write that
-   * stays inside rt's own state and the caller's own work -- a pack it
-   * compiles, checks, syncs or binds; its own runs, gates and briefs. It
-   * never merges, pushes only a pack's own publish (skills sync), and never
-   * writes another agent's state. Set it only on a leaf that declares
-   * --json. Guarded by lib/__tests__/agent-safe.test.ts.
+   * text (an MR under review). Set it when a skill runs the verb as part of
+   * its normal flow and it is an rt call, a forge call or a git write the
+   * auto-mode classifier blocks; the skill's own gates stay the human check.
+   * Only a leaf that declares --json qualifies, and a leaf that writes or
+   * reads a caller-named path lists that flag in agentTempRootFlags or
+   * agentReadRootFlags. Guarded by lib/__tests__/agent-safe.test.ts.
    */
   agentSafe?: true;
 

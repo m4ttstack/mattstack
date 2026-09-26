@@ -125,7 +125,8 @@ describe("mcpTools", () => {
       const tool = mcpTools().find((t) => t.name === "gate_ask")!;
       expect(tool.description).toContain("act on the returned presentation");
       expect(tool.description).toContain("form: ask it in the pane with AskUserQuestion");
-      expect(tool.description).toContain("rt gate answer <id> --answers <json> --by pane");
+      expect(tool.description).toContain("then answer with the gate_answer tool");
+      expect(tool.description).not.toContain("--by pane");
       expect(tool.description).toContain("wait: run `rt gate wait <id>` as background bash and end the turn");
       expect(tool.description.indexOf("rt gate wait")).toBeGreaterThan(tool.description.indexOf("wait:"));
     });
@@ -287,6 +288,12 @@ describe("mcpTools", () => {
 
   test("roster contains gate_ask", () => {
     expect(mcpTools().map((t) => t.name)).toContain("gate_ask");
+  });
+
+  test("rt_verb does not describe itself as read-only", () => {
+    const tool = mcpTools().find((t) => t.name === "rt_verb")!;
+    expect(tool.description).not.toContain("read-only rt verb");
+    expect(tool.description).toContain("not all are read-only");
   });
 
   test("mr_comment_inline validates required fields", async () => {
