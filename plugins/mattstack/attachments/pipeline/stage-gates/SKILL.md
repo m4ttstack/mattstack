@@ -19,19 +19,16 @@ metadata:
 
 Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `rt runs stage-start --stage gates`
-- Read consumed fields with `rt runs field get <key>` before
-  deriving or asking for them.
-- Write each declared produce the moment it exists:
-  `rt runs field set <key> <value> --stage gates`
-- Last action on success: `rt runs stage-done --stage gates`;
-  on failure: `rt runs stage-fail --stage gates --reason
-  "<which gate, what it found>"` before you report it.
+- First action: `run_stage` with `action: "start"`, `stage: "gates"` and the run's `runDb`.
+- Read consumed fields with `run_field_get` before deriving or asking for them.
+- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "gates"`).
+- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"` and a `reason` naming which gate failed and what it found, before you report it.
 
 Apply every triggered pre-implementation gate NOW, before the implement
-stage, and note which gates fired via `rt runs field set
-extra.gates <value> --stage gates` (ship-time gates run again inside the
-ship stage's domain flow; firing here does not discharge them).
+stage, and note which gates fired with `run_field_set`
+(`key: "extra.gates"`, `value` = the gates that fired, `stage: "gates"`).
+Ship-time gates run again inside the ship stage's domain flow; firing
+here does not discharge them.
 
 ## Domain rules
 

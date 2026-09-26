@@ -21,15 +21,10 @@ metadata:
 
 Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `rt runs stage-start --stage watch-ci`
-- Read consumed fields with `rt runs field get <key>` before
-  deriving or asking for them.
-- Write each declared produce the moment it exists:
-  `rt runs field set <key> <value> --stage watch-ci`
-- Last action on success: `rt runs stage-done --stage watch-ci`;
-  on failure: `rt runs stage-fail --stage watch-ci --reason
-  "<what actually failed>" --detail-path <path to the triage report>`
-  before you report it.
+- First action: `run_stage` with `action: "start"`, `stage: "watch-ci"` and the run's `runDb`.
+- Read consumed fields with `run_field_get` before deriving or asking for them.
+- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "watch-ci"`).
+- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"`, a `reason` naming what actually failed and `detailPath` = the path to the triage report, before you report it.
 
 ## Where the scripts live
 
@@ -95,16 +90,26 @@ gate below. 2 = the pipeline outran the timeout: relaunch the watcher
 once, then the `ci` gate. 4 = no pipeline ever appeared: verify the branch
 was pushed, then the `ci` gate.
 
-**Neither bound:** poll the forge CLI (`gh pr checks <mr> --watch` or
-`glab ci status --live`) until the pipeline settles. Green: the
-mark-ready gate below. Red: read the failing job log, classify REAL (the
-change broke it) vs INFRA/flake (unrelated, retry once: on GitLab the
-`mr_retry` tool with the failed job's id as `jobId`); any REAL failure is
-the `ci` gate below.
+**Neither bound:** every GitLab MR tool call in this stage targets the
+MR with `repoName` = this worktree's absolute path and `iid` = the iid in
+`mr`. On GitLab poll the `mr_pipeline` tool (`repoName`, `iid`; live by
+default) until the pipeline settles, then `mr_job_trace` (`repoName`,
+`iid`, `jobId`) for each failed job; on GitHub
+`gh pr checks <mr> --watch`. Between `mr_pipeline` calls wait about 60
+seconds by running `sleep 60` as a background Bash task (never a
+foreground sleep) and poll again when it finishes; refresh the attendant
+lease heartbeat each round, and if the pipeline has not settled after 45
+minutes, treat it as a timeout and go to the `ci` gate.
+GitLab with no MR: do not poll; go straight
+to the `ci` gate with the reason "no MR to watch; ship first".
+Green: the mark-ready gate below. Red: read the failing job log, classify
+REAL (the change broke it) vs INFRA/flake (unrelated, retry once: on
+GitLab the `mr_retry` tool with `repoName`, `iid`, and the failed job's
+id as `jobId`); any REAL failure is the `ci` gate below.
 
 ## Gate `ci` (red, timeout, or no pipeline)
 
-- `rt runs field set gate ci:watch-ci:<attempt> --stage watch-ci`
+- `run_field_set` with `key: "gate"`, `value: "ci:watch-ci:<attempt>"`, `stage: "watch-ci"`
 - One sentence: the verdict and the one-line triage per blocking failure.
 - Run gate-protocol's Runs integration with kind `ci:watch-ci:<attempt>`
   and these questions, each its own question (never fold one list into
@@ -116,17 +121,22 @@ the `ci` gate below.
     **Abandon the run**
   - `next`: **Proceed** (recommended) / **Iterate here** / **Go back to
     `<stage>`** / **Hold**
-- `rt runs decision record --contract gate@1 --scope ci:watch-ci:<attempt> --selection '{"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
+- `run_decision` with `contract: "gate@1"`, `scope: "ci:watch-ci:<attempt>"`, `selection: {"next":"fix|retry|handback|abandon|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`, `decidedBy: <the answer's by>`
 - Fix: write no `ci`; hand control back to the orchestrator with one
   sentence naming the answer, and it redirects to `implement` with the
   triage as the reason (the work engine's `## Redirect`; the gate answer
-  is what names the stage). Retry: the report's retry command, relaunch
-  the watcher. Hand back: write `ci` as `red: <triage>` and `stage-done`.
-  Abandon: `rt runs run-status --status abandoned`, `unset RT_RUN_DB`.
+  is what names the stage). Retry, forge bound: the report's retry
+  command, relaunch the watcher. Retry, neither bound: on GitLab the
+  `mr_retry` tool with `repoName`, `iid`, and the failed job's id as
+  `jobId`; on GitHub `gh run rerun <run-id> --failed`, the run id taken
+  from the failed check's link in `gh pr checks <mr>`; then re-enter
+  Watch and triage. Hand back: write `ci` as `red: <triage>` and
+  `run_stage` with `action: "done"`. Abandon: `run_status` with
+  `status: "abandoned"`.
 
 ## Gate `mark-ready` (green, `mr` set, MR still a draft)
 
-- `rt runs field set gate mark-ready --stage watch-ci`
+- `run_field_set` with `key: "gate"`, `value: "mark-ready"`, `stage: "watch-ci"`
 - One sentence: CI is green for the MR's head; `evidence` is set (or is
   `-`).
 - Run gate-protocol's Runs integration with kind `mark-ready` and these
@@ -140,12 +150,12 @@ the `ci` gate below.
     stage row exists: one option per earlier stage, split `to-1`,
     `to-2`, ... over 4; with exactly one candidate stage label it **Go
     back to `<stage>`** in `next` and skip this question
-- `rt runs decision record --contract gate@1 --scope mark-ready --selection '{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
+- `run_decision` with `contract: "gate@1"`, `scope: "mark-ready"`, `selection: {"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`, `decidedBy: <the answer's by>`
 - Go back: hand control back to the orchestrator with one sentence naming
   the answer; it runs `## Redirect`.
 - Yes: the forge-host rule (read `git remote get-url origin`; GitLab means
-  the `mr_ready` tool, GitHub means `gh pr ready <number>`, anything else
-  is a `clarify` gate).
+  the `mr_ready` tool with `repoName` and `iid`; GitHub means
+  `gh pr ready <number>`, anything else is a `clarify` gate).
 
 Finish by writing `ci` (`green`, or `red: <one-line triage>` when the
 human handed it back). The exit-2 and exit-4 paths write no `ci` until

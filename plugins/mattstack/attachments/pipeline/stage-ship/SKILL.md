@@ -19,18 +19,14 @@ metadata:
 
 Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `rt runs stage-start --stage ship`
-- Read consumed fields with `rt runs field get <key>` before
-  deriving or asking for them.
-- Write each declared produce the moment it exists:
-  `rt runs field set <key> <value> --stage ship`
-- Last action on success: `rt runs stage-done --stage ship`;
-  on failure: `rt runs stage-fail --stage ship --reason
-  "<what actually failed>"` before you report it.
+- First action: `run_stage` with `action: "start"`, `stage: "ship"` and the run's `runDb`.
+- Read consumed fields with `run_field_get` before deriving or asking for them.
+- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "ship"`).
+- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"` and a `reason` naming what actually failed, before you report it.
 
 ## Gate `ship` (before the push, bound or unbound)
 
-- `rt runs field set gate ship --stage ship`
+- `run_field_set` with `key: "gate"`, `value: "ship"`, `stage: "ship"`
 - One sentence: the branch, the commits about to go (`git log --oneline
   @{upstream}.. 2>/dev/null || git log --oneline -5`), and whether the
   tree is dirty.
@@ -45,11 +41,12 @@ Contracts v2 and v3 (authoritative text: the parameterized-skills skill's conven
     ticket mismatch, an MR already open)
   - `next`: **Proceed** (recommended) / **Iterate here** / **Go back to
     `<stage>`** / **Hold**
-- `rt runs decision record --contract gate@1 --scope ship --selection '{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
+- `run_decision` with `contract: "gate@1"`, `scope: "ship"`, `selection: {"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`, `decidedBy: <the answer's by>`
 - Go back: hand control back to the orchestrator with one sentence naming
   the answer; it runs `## Redirect`.
-- Abort or Hold: no push. Hold records `hold:ship:<attempt>` and `rt runs
-  field set hold "<their words>" --stage ship`, then the turn ends.
+- Abort or Hold: no push. Hold records `hold:ship:<attempt>` and
+  `run_field_set` with `key: "hold"`, `value: "<their words>"`,
+  `stage: "ship"`, then the turn ends.
 
 ## Forge-host rule
 
@@ -65,10 +62,16 @@ guess.
 
 When nothing is inlined above, follow the generic path below.
 
-Unbound (generic fallback): push the branch (`git push -u origin
-<branch>`), then open the MR/PR the way the forge-host rule names,
-as draft unless the gate said ready, title from the ticket or first commit
-subject, body linking the ticket and the `evidence` field's entries. Never
+Unbound (generic fallback): push with the `git_push` tool (`tree` = the
+worktree root, the absolute path `git rev-parse --show-toplevel` prints;
+`setUpstream: true`). An error starting
+`tree must be the absolute path of the root` fires for a subdirectory as
+well as for a repo not registered with rt: retry once with that root, and
+only when the root is refused too, push with plain git on Bash instead
+(`git push -u origin <branch>`). <!-- mcp-lint: allow -->
+Then open
+the MR/PR the way the forge-host rule names, as draft unless the gate said ready, title
+from the ticket or first commit subject, body linking the ticket and the `evidence` field's entries. Never
 force-push; never push a branch whose tests you have not seen pass in this
 session.
 

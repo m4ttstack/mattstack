@@ -19,14 +19,10 @@ metadata:
 
 Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `rt runs stage-start --stage self-review`
-- Read consumed fields with `rt runs field get <key>` before
-  deriving or asking for them.
-- Write each declared produce the moment it exists:
-  `rt runs field set <key> <value> --stage self-review`
-- Last action on success: `rt runs stage-done --stage self-review`;
-  on failure: `rt runs stage-fail --stage self-review --reason
-  "<what actually failed>"` before you report it.
+- First action: `run_stage` with `action: "start"`, `stage: "self-review"` and the run's `runDb`.
+- Read consumed fields with `run_field_get` before deriving or asking for them.
+- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "self-review"`).
+- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"` and a `reason` naming what actually failed, before you report it.
 
 ## Domain rules
 
