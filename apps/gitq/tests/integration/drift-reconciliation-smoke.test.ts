@@ -1,5 +1,5 @@
 /**
- * Drift reconciliation smoke test — mirrors the real-world acme-1231/acme-1233/acme-1234
+ * Drift reconciliation smoke test: models the acme-1231/acme-1233/acme-1234
  * stacking scenario where a parent branch receives review commits after children
  * branched, then is squash-merged.
  *
@@ -213,49 +213,49 @@ describe('Stacked MR drift reconciliation: end-to-end smoke test', () => {
     // ── Phase 1: Build the initial 3-branch stack ──────────────────────
     // Mirrors: acme-1231 (refactor) → acme-1233 (extract) → acme-1234 (images)
 
-    // feat/refactor: VehicleImage truth-table rewrite + dark mode story
+    // feat/refactor: WidgetGallery truth-table rewrite + dark mode story
     r.git('checkout', '-b', 'feat/refactor');
     await commit(
       r.dir, r.git,
-      'VehicleImage.tsx',
-      'export function VehicleImage() { return <div>truth-table</div>; }\n',
-      'refactor: rewrite VehicleImage as truth-table',
+      'WidgetGallery.tsx',
+      'export function WidgetGallery() { return <div>truth-table</div>; }\n',
+      'refactor: rewrite WidgetGallery as truth-table',
     );
     await commit(
       r.dir, r.git,
-      'VehicleImage.stories.tsx',
+      'WidgetGallery.stories.tsx',
       'export const DarkMode = { args: { theme: "dark" } };\n',
       'refactor: add dark mode Storybook story',
     );
 
-    // feat/extract branches from feat/refactor — extracts into a package
+    // feat/extract branches from feat/refactor: extracts into a package
     r.git('checkout', '-b', 'feat/extract');
     await commitNested(
       r.dir, r.git,
-      'packages/vehicle-image/package.json',
-      '{ "name": "@app/vehicle-image", "version": "1.0.0" }\n',
-      'extract: create vehicle-image package',
+      'packages/widget-gallery/package.json',
+      '{ "name": "@app/widget-gallery", "version": "1.0.0" }\n',
+      'extract: create widget-gallery package',
     );
     await commitNested(
       r.dir, r.git,
-      'packages/vehicle-image/codegen.ts',
+      'packages/widget-gallery/codegen.ts',
       'export const codegen = { plugin: "graphql-codegen" };\n',
       'extract: replace schema script with codegen plugin',
     );
 
-    // feat/images branches from feat/extract — adds new images
+    // feat/images branches from feat/extract: adds new images
     r.git('checkout', '-b', 'feat/images');
     await commitNested(
       r.dir, r.git,
-      'packages/vehicle-image/assets/commercial.svg',
-      '<svg>commercial vehicle</svg>\n',
-      'images: add commercial vehicle images',
+      'packages/widget-gallery/assets/large.svg',
+      '<svg>large widget</svg>\n',
+      'images: add large widget images',
     );
     await commitNested(
       r.dir, r.git,
-      'packages/vehicle-image/assets/motorcycle.svg',
-      '<svg>motorcycle</svg>\n',
-      'images: add motorcycle images',
+      'packages/widget-gallery/assets/small.svg',
+      '<svg>small widget</svg>\n',
+      'images: add small widget images',
     );
 
     // Push all branches to remote
@@ -265,28 +265,28 @@ describe('Stacked MR drift reconciliation: end-to-end smoke test', () => {
     }
 
     // ── Phase 2: Parent gets review commits AFTER children branched ────
-    // Mirrors: acme-1231 got injury overlay and wireframe commits during review
+    // Mirrors: acme-1231 got badge and outline commits during review
 
     r.git('checkout', 'feat/refactor');
     await commitNested(
       r.dir, r.git,
-      'components/wireframes.tsx',
-      'export const SedanWireframe = () => <svg>sedan outline</svg>;\n' +
-      'export const SUVWireframe = () => <svg>suv outline</svg>;\n',
-      'refactor: add inline SVG wireframe components (review feedback)',
+      'components/outlines.tsx',
+      'export const CompactOutline = () => <svg>compact outline</svg>;\n' +
+      'export const WideOutline = () => <svg>wide outline</svg>;\n',
+      'refactor: add inline SVG outline components (review feedback)',
     );
     await commit(
       r.dir, r.git,
-      'VehicleImage.tsx',
-      'import { SedanWireframe } from "./components/wireframes";\n' +
-      'export function VehicleImage() { return <SedanWireframe />; }\n',
-      'refactor: use wireframe components in VehicleImage (review feedback)',
+      'WidgetGallery.tsx',
+      'import { CompactOutline } from "./components/outlines";\n' +
+      'export function WidgetGallery() { return <CompactOutline />; }\n',
+      'refactor: use outline components in WidgetGallery (review feedback)',
     );
     await commitNested(
       r.dir, r.git,
-      'components/InjuryOverlay.tsx',
-      'export function InjuryOverlay() { return <div>overlay</div>; }\n',
-      'refactor: improve injury overlay theme rendering (review feedback)',
+      'components/StatusBadge.tsx',
+      'export function StatusBadge() { return <div>badge</div>; }\n',
+      'refactor: improve status badge theme rendering (review feedback)',
     );
 
     const refactorFinalHead = r.git('rev-parse', 'feat/refactor');
@@ -301,7 +301,7 @@ describe('Stacked MR drift reconciliation: end-to-end smoke test', () => {
     await squashMergeOnRemote(
       r.remoteDir,
       'feat/refactor',
-      'squash: VehicleImage architecture refactor (ACME-1231)',
+      'squash: WidgetGallery architecture refactor (ACME-1231)',
     );
 
     // Fetch so local repo sees the merge
@@ -310,7 +310,7 @@ describe('Stacked MR drift reconciliation: end-to-end smoke test', () => {
 
     // ── Phase 4: Build the stack model with forge sync ─────────────────
 
-    let stack = StackManager.createStack('vehicle-stack', 'main');
+    let stack = StackManager.createStack('widget-stack', 'main');
     stack = StackManager.addNode(stack, 'feat/refactor', 'main');
     stack = StackManager.updateNode(stack, 'feat/refactor', {
       lastKnownHead: refactorFinalHead,
@@ -396,51 +396,51 @@ describe('Stacked MR drift reconciliation: end-to-end smoke test', () => {
 
       // feat/extract should have:
       //   - Its own package files
-      //   - Parent's review commits (wireframes, updated VehicleImage, InjuryOverlay)
+      //   - Parent's review commits (outlines, updated WidgetGallery, StatusBadge)
       r.git('checkout', 'feat/extract');
 
       const packageJson = await readFile(
-        join(r.dir, 'packages/vehicle-image/package.json'), 'utf-8',
+        join(r.dir, 'packages/widget-gallery/package.json'), 'utf-8',
       );
-      expect(packageJson).toContain('@app/vehicle-image');
+      expect(packageJson).toContain('@app/widget-gallery');
 
       const codegen = await readFile(
-        join(r.dir, 'packages/vehicle-image/codegen.ts'), 'utf-8',
+        join(r.dir, 'packages/widget-gallery/codegen.ts'), 'utf-8',
       );
       expect(codegen).toContain('graphql-codegen');
 
       // These files came from the parent's review commits (drift reconciliation)
-      const wireframes = await readFile(
-        join(r.dir, 'components/wireframes.tsx'), 'utf-8',
+      const outlines = await readFile(
+        join(r.dir, 'components/outlines.tsx'), 'utf-8',
       );
-      expect(wireframes).toContain('SedanWireframe');
+      expect(outlines).toContain('CompactOutline');
 
-      const vehicleImage = await readFile(join(r.dir, 'VehicleImage.tsx'), 'utf-8');
-      expect(vehicleImage).toContain('SedanWireframe');
+      const widgetGallery = await readFile(join(r.dir, 'WidgetGallery.tsx'), 'utf-8');
+      expect(widgetGallery).toContain('CompactOutline');
 
-      const injuryOverlay = await readFile(
-        join(r.dir, 'components/InjuryOverlay.tsx'), 'utf-8',
+      const statusBadge = await readFile(
+        join(r.dir, 'components/StatusBadge.tsx'), 'utf-8',
       );
-      expect(injuryOverlay).toContain('overlay');
+      expect(statusBadge).toContain('badge');
 
       // feat/images should have everything from extract + its own assets
       r.git('checkout', 'feat/images');
 
-      const commercial = await readFile(
-        join(r.dir, 'packages/vehicle-image/assets/commercial.svg'), 'utf-8',
+      const large = await readFile(
+        join(r.dir, 'packages/widget-gallery/assets/large.svg'), 'utf-8',
       );
-      expect(commercial).toContain('commercial vehicle');
+      expect(large).toContain('large widget');
 
-      const motorcycle = await readFile(
-        join(r.dir, 'packages/vehicle-image/assets/motorcycle.svg'), 'utf-8',
+      const small = await readFile(
+        join(r.dir, 'packages/widget-gallery/assets/small.svg'), 'utf-8',
       );
-      expect(motorcycle).toContain('motorcycle');
+      expect(small).toContain('small widget');
 
       // Grandchild also has the reconciled files from the parent's review
-      const wireframesOnImages = await readFile(
-        join(r.dir, 'components/wireframes.tsx'), 'utf-8',
+      const outlinesOnImages = await readFile(
+        join(r.dir, 'components/outlines.tsx'), 'utf-8',
       );
-      expect(wireframesOnImages).toContain('SedanWireframe');
+      expect(outlinesOnImages).toContain('CompactOutline');
     } finally {
       GitShell.pushForceWithLease = originalPush;
     }
@@ -626,7 +626,7 @@ describe('ACID: old behavior vs new behavior on drifted stack', () => {
         GitShell.pushForceWithLease = originalPush;
       }
     } else {
-      // Old approach FAILED — even better proof that reconciliation is needed
+      // Old approach FAILED: even better proof that reconciliation is needed
       try { r.git('rebase', '--abort'); } catch { /* safe */ }
       r.git('checkout', 'feat/child');
       r.git('reset', '--hard', childOriginal);
@@ -677,7 +677,7 @@ describe('forkPoint metadata: rebased parent scenario', () => {
     await commit(r.dir, r.git, 'parent.ts', 'parent work\n', 'parent: initial');
     const forkPointSHA = r.git('rev-parse', 'HEAD');
 
-    // Child branches — capture the fork point
+    // Child branches: capture the fork point
     r.git('checkout', '-b', 'feat/child');
     await commit(r.dir, r.git, 'child.ts', 'child work\n', 'child: unique');
     const childOriginal = r.git('rev-parse', 'HEAD');
