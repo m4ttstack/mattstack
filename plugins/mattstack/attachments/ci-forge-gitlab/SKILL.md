@@ -31,8 +31,8 @@ doc before writing an invocation for any verb not shown above.
 
 ## Requirements
 
-Authenticated `glab`, `jq`, and a working directory where
-`glab api projects/:fullpath/...` resolves (inside the target GitLab
+Authenticated `glab`, `jq`, and a working directory where <!-- mcp-lint: allow -->
+`glab api projects/:fullpath/...` resolves (inside the target GitLab <!-- mcp-lint: allow -->
 project's checkout).
 
 ## Exit codes
