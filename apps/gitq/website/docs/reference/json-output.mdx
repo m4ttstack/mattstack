@@ -11,7 +11,7 @@ Hard failures never reach `emit()`; nothing is printed to stdout for those, unde
 
 ## The `worktrees` array
 
-`stacks`, `diagnose`, and `preflight` each append a `worktrees` array, built by `worktreesForJson` (`src/cli/slots.ts:83-96`): every worktree of the repo, work slots included.
+`stacks`, `diagnose`, and `preflight` each append a `worktrees` array, built by `worktreesForJson` (`src/cli/slots.ts:119-132`): every worktree of the repo, work slots included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -170,11 +170,11 @@ Real capture, one `sync` entry, trimmed to its outer shape and one representativ
 }
 ```
 
-Note that `continue`'s own entry is logged under `operation: "sync"`, not `"continue"`: `continueCommand` calls `withOperationLog(ctx, stack, 'sync', ...)` (`src/cli/commands/cascade.ts:87`), the same operation type `sync` itself uses. There is no `"continue"` value in the `OperationType` union (`src/core/operation-log.ts:9-18`) at all.
+Note that `continue`'s own entry is logged under `operation: "sync"`, not `"continue"`: `continueCommand` calls `withOperationLog(ctx, stack, 'sync', ...)` (`src/cli/commands/cascade.ts:93`), the same operation type `sync` itself uses. There is no `"continue"` value in the `OperationType` union (`src/core/operation-log.ts:9-18`) at all.
 
 ## `gitq track` / `gitq untrack` / `gitq add` / `gitq remove`
 
-All four emit `{ stack: Stack }` (`track`, `add`, `remove`) or `{ removed: stackName }` (`untrack`); source: `src/cli/commands/crud.ts:24-79`.
+All four emit `{ stack: Stack }` (`track`, `add`, `remove`) or `{ removed: stackName }` (`untrack`); source: `src/cli/commands/crud.ts:40-95`.
 
 Real captures:
 
@@ -197,7 +197,7 @@ Real captures:
 ] } }
 ```
 
-`remove` was not run live; its source (`src/cli/commands/crud.ts:68-79`) shows the identical `{ stack: Stack }` shape, with the removed node absent from `nodes`.
+`remove` was not run live; its source (`src/cli/commands/crud.ts:84-95`) shows the identical `{ stack: Stack }` shape, with the removed node absent from `nodes`.
 
 ## `gitq sync` / `gitq continue` / `gitq abort`
 
@@ -289,7 +289,7 @@ None of these five were run live for this page; each shape below is the exact ty
 | `rename` | `RenameResult` (`src/core/branch-rename.ts:5-7`) | `updatedStack` |
 | `reset` | `ResetToRemoteResult` (`src/core/branch-reset.ts:7-11`) | `updatedStack`, `newHead` (the SHA reset to) |
 
-`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:217-230`).
+`reparent`'s emitted JSON is `{ stack: result.newStack, result }` when its own rebase and cascade both succeed, or the shared cascade shape from `finishCascade` above when the descendant cascade pauses (`src/cli/commands/surgery.ts:270-309`).
 
 ## `gitq publish` / `gitq import`
 
@@ -301,7 +301,7 @@ Neither was run for this page: both talk to a real forge API, which this project
 
 `skipped` is `PublishSkip[]` (`src/core/forge-sync.ts:63-70`): `{ branch, mrIid, reason, detail }`, one entry per published branch publish would not write to. `reason` is `mr-not-open`, `mr-unreadable`, or `source-branch-mismatch` (`PublishSkipReason`, `src/core/forge-sync.ts:60`), and `detail` is the same one-liner the human output prints. It is `[]` on an ordinary run, and a run with skips still exits `0`. See [`gitq publish`](/reference/forge/publish#skipped) for what each reason means.
 
-`import` (`src/cli/commands/forge.ts:142-189`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:94-106`).
+`import` (`src/cli/commands/forge.ts:188-235`) emits `{ store }`, the whole rebuilt `StackStore` (`src/core/types.ts:94-106`).
 
 ## `gitq undo`
 

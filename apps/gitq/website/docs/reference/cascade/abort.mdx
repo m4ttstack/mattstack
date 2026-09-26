@@ -21,7 +21,7 @@ gitq abort [--stack <name>]
 
 ## Behavior
 
-- Finds the parked lease exactly as `continue` does (`findParkedLease`, `src/cli/slots.ts:99-110`), and fails the same way when nothing or too much is parked: `nothing to continue (no parked cascade)` (the message says "continue" even though you ran `abort`), or `multiple parked cascades; pass --stack to pick one`.
+- Finds the parked lease exactly as `continue` does (`findParkedLease`, `src/cli/slots.ts:135-146`), and fails the same way when nothing or too much is parked: `nothing to continue (no parked cascade)` (the message says "continue" even though you ran `abort`), or `multiple parked cascades; pass --stack to pick one`.
 - Aborts the rebase wherever it actually lives: the pause file's tree when one exists (`pauseInfo.worktreePath ?? pauseInfo.treePath`), else the leased work slot -- and only when a rebase is actually in progress there. Then clears the pause file, detaches the work slot's HEAD, and releases the lease (`src/cli/commands/cascade.ts:110-138`).
 - **Unlike `continue`, it does not require the pause file to exist.** If it is missing entirely, `abort` falls back to the leased work slot, never the repo root, and skips the rebase abort itself when that slot has no rebase in progress -- it still clears the pause file and releases the lease either way.
 - Prints `aborted` and exits `0` on success.
