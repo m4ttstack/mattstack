@@ -72,7 +72,7 @@ const SIGN_OUT_TIMEOUT_MS = 3000;
 const PANE_REF = /^[A-Za-z0-9._:][A-Za-z0-9._:-]*$/;
 const NOTE_MAX = 300;
 /** Bidi override/isolate controls: invisible on the page but able to reorder how the surrounding text renders. */
-const BIDI_CONTROLS = "‎‏‪-‮⁦-⁩";
+const BIDI_CONTROLS = "\u200e\u200f\u202a-\u202e\u2066-\u2069";
 /** Newlines are allowed because the daemon's inviteText folds them to spaces; every other C0 byte, DEL, C1 control or bidi control would reach the target pane as a keystroke or a visually reordered line. */
 const NOTE_CONTROL = new RegExp(`[\\u0000-\\u0009\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f${BIDI_CONTROLS}]`);
 /** inviteText prefixes every delivered note with "note from <handle>: ", so a note containing that phrase could spoof a second attribution line. */
