@@ -29,7 +29,7 @@ gitq log
 2026-07-25T20:49:41.241Z sync (main, feat-a, feat-b)
 ```
 
-It reads the same global `operation-log.json` that `undo` reads, filtered to this repo's common dir, so it's the fastest way to check "did that actually happen" and "what would `undo` even do" before you run it. It never modifies anything. See [Where state lives](/concepts/state#the-config-directory).
+It reads the same global `operation-log.json` that `undo` reads, filtered to this repo's common dir, so it's the fastest way to check "did that actually happen" and "what would `undo` even do" before you run it. It never modifies anything. See [Where state lives](/concepts/state#the-app-root-and-the-config-directory-inside-it).
 
 ## Undo the last operation
 

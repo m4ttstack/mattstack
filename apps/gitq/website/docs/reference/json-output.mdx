@@ -201,7 +201,7 @@ Real captures:
 
 ## `gitq sync` / `gitq continue` / `gitq abort`
 
-All three route through `finishCascade` (`src/cli/commands/cascade.ts:18-59`), so all three share one JSON contract, keyed on `state`.
+`sync` and `continue` route through `finishCascade` (`src/cli/commands/cascade.ts:18-59`); `abort` emits its own `{ state: "aborted" }`. All three share one JSON contract, keyed on `state`.
 
 Paused (`state: "paused"`, exit `2`), real capture, second conflict of a two commit rebase, so `commitIndex`/`commitTotal` are filled in:
 

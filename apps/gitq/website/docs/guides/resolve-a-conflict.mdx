@@ -135,7 +135,7 @@ The message has four parts:
 | Part | What it is |
 | --- | --- |
 | `paused on feat-api` | The branch whose rebase stopped. The branches after it in the walk have not been attempted. |
-| `in /Users/you/.cache/.../gitq-1` | **Where the rebase actually is.** Go here. |
+| `in /Users/you/.mattstack/gitq/work/.../gitq-1` | **Where the rebase actually is.** Go here. |
 | `(commit ?/?)` | Position within this branch's rebase. `?/?` on a first stop, because gitq only reads git's rebase counters when a `gitq continue` runs into another conflict. See [below](#when-the-same-branch-conflicts-twice). |
 | `UU handlers.ts` | One line per conflicted file, with git's two-letter porcelain code. `UU` is both modified. |
 
