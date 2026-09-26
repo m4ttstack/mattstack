@@ -7,7 +7,10 @@ const ENV = { CLAUDE_CODE_SESSION_ID: "s1", HERDR_PANE_ID: "w1:p2" } as NodeJS.P
 
 type Call = { fn: string; a: any; o?: any };
 
-function fake(opts: { signedIn?: boolean; fail?: string; who?: unknown; whoFail?: string; alive?: boolean; human?: string | null; spawn?: unknown; dirs?: string[] } = {}) {
+function fake(opts: {
+  signedIn?: boolean; fail?: string; who?: unknown; whoFail?: string; alive?: boolean; human?: string | null; spawn?: unknown; dirs?: string[];
+  buddiesRows?: unknown[]; buddiesFail?: string; roomsResult?: unknown; roomsFail?: string;
+} = {}) {
   const calls: Call[] = [];
   const rec = (fn: string, data: unknown = {}) => (async (a?: unknown, o?: unknown) => {
     calls.push({ fn, a, o });
@@ -17,11 +20,15 @@ function fake(opts: { signedIn?: boolean; fail?: string; who?: unknown; whoFail?
     read: rec("read", { rooms: [{ room: "build", messages: [] }] }),
     messages: rec("messages", { messages: [{ id: 9 }] }),
     mark: rec("mark"),
-    rooms: rec("rooms", { rooms: [] }),
+    rooms: opts.roomsFail
+      ? ((async (a?: unknown, o?: unknown) => { calls.push({ fn: "rooms", a, o }); return { ok: false, error: opts.roomsFail }; }) as any)
+      : rec("rooms", opts.roomsResult ?? { rooms: [] }),
     who: opts.whoFail
       ? ((async (a?: unknown, o?: unknown) => { calls.push({ fn: "who", a, o }); return { ok: false, error: opts.whoFail }; }) as any)
       : rec("who", opts.who ?? { members: [{ room: "build", handle: "ann" }] }),
-    buddies: (async (o?: unknown) => { calls.push({ fn: "buddies", a: undefined, o }); return { ok: true, data: { buddies: [] } }; }) as any,
+    buddies: opts.buddiesFail
+      ? ((async (o?: unknown) => { calls.push({ fn: "buddies", a: undefined, o }); return { ok: false, error: opts.buddiesFail }; }) as any)
+      : ((async (o?: unknown) => { calls.push({ fn: "buddies", a: undefined, o }); return { ok: true, data: { buddies: opts.buddiesRows ?? [] } }; }) as any),
     join: rec("join", { handle: "ann", memberCount: 2, unread: 0 }),
     leave: rec("leave"),
     away: rec("away"),
@@ -294,6 +301,53 @@ describe("chat_sign_in", () => {
     const f = fake({ spawn });
     const r = await f.tool("chat_sign_in").handler({}, ENV);
     expect(r.ok).toBe(false);
+  });
+
+  test("as refuses an offline other session's own base handle, with no spawn", async () => {
+    const f = fake({ buddiesRows: [{ sessionId: "s2", handle: "bob", baseHandle: "bob" }] });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("another session holds or held (bob)");
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
+  });
+
+  test("as refuses a suffixed handle from the same base family, with no spawn", async () => {
+    const f = fake({ buddiesRows: [{ sessionId: "s2", handle: "bob-2", baseHandle: "bob" }] });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("another session holds or held (bob-2)");
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
+  });
+
+  test("as allows retaking this session's own prior base handle without calling buddies", async () => {
+    const f = fake();
+    const r = await f.tool("chat_sign_in").handler({ as: "ann" }, ENV);
+    expect(r.ok).toBe(true);
+    expect(f.calls.map((c) => c.fn)).not.toContain("buddies");
+    expect(f.calls.map((c) => c.fn)).toContain("spawnRt");
+  });
+
+  test("as fails closed when buddies errors, with no spawn", async () => {
+    const f = fake({ buddiesFail: "rt daemon unreachable" });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("rt daemon unreachable");
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
+  });
+
+  test("as refuses a handle with remaining room memberships, with no spawn", async () => {
+    const f = fake({ roomsResult: { rooms: [{ room: "build" }] } });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("room memberships");
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "rooms"]);
+  });
+
+  test("as spawns when the name is unused (buddies and rooms both empty)", async () => {
+    const f = fake();
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(true);
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "rooms", "spawnRt"]);
   });
 });
 

@@ -266,6 +266,22 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
           if (input.as === human || RESERVED_HANDLES.includes(input.as)) {
             return err(`"as" may not be ${JSON.stringify(input.as)}: that handle speaks for the human`);
           }
+          // A session may retake its own prior seat; any other "as" must name
+          // a handle nobody else's presence row or room membership still claims.
+          const own = deps.session(sessionId);
+          if (own?.baseHandle !== input.as) {
+            const buddies = await deps.buddies();
+            if (!buddies.ok) return fromResponse(buddies);
+            const held = (buddies.data?.buddies ?? []).find(
+              (b) => (b.baseHandle === input.as || b.handle === input.as) && b.sessionId !== sessionId,
+            );
+            if (held) return err(`"as" names a handle another session holds or held (${held.handle}); omit as, or pick an unused name`);
+            const rooms = await deps.rooms({ handle: input.as });
+            if (!rooms.ok) return fromResponse(rooms);
+            if ((rooms.data?.rooms ?? []).length > 0) {
+              return err('"as" names a handle that still has room memberships; omit as, or pick an unused name');
+            }
+          }
         }
         if (!deps.sessionAlive(sessionId)) return err(REPLACED);
         const rest = ["--session", sessionId];

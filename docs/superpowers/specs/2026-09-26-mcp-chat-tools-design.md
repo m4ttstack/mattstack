@@ -108,12 +108,19 @@ argv is built here, never from caller-supplied flags.
   in), because the server's own working directory is fixed at session
   start. Omitted, the CLI runs in the server's directory.
 - `room` with `noRoom: true` is an input error.
-- `as` names this session's base handle. The daemon only hands out a seat
-  that is free or reclaimable (signed out or stale), so it cannot take a
-  live session's handle. The human has no presence row, so their handle
-  would be a free seat, and a post from it counts as the human's (the
-  daemon adds `here`). So `as` equal to the `chat.humanHandle` setting,
-  or to the reserved mention `here`, is refused before any spawn.
+- `as` names this session's base handle. The human has no presence row, so
+  their handle would be a free seat, and a post from it counts as the
+  human's (the daemon adds `here`). So `as` equal to the `chat.humanHandle`
+  setting, or to the reserved mention `here`, is refused before any spawn.
+  The daemon's own signIn also reclaims a signed-out or stale family row for
+  the requested base, and room memberships survive sign-out keyed by
+  handle, so `as` may not name a handle another session holds or held, or
+  one with remaining room memberships, unless it is this session's own
+  prior base (`as` equal to the session's saved `baseHandle`, which may
+  retake its own seat). The tool checks `chat:buddies` (any row whose
+  `baseHandle` or `handle` matches, held by a different session) and
+  `chat:rooms` for that handle (catches a pruned presence row whose
+  memberships remain) before the spawn, failing closed on either call.
 - Timeout: the `rt_verb` default (30s).
 - Returns `{handle, room}`.
 
