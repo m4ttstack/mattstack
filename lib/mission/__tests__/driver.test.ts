@@ -3564,6 +3564,65 @@ describe("unregistered repos", () => {
     await run;
   });
 
+  test("a later pass resolves identity only for scan paths it has not seen", async () => {
+    const timers: (() => void)[] = [];
+    const asked: string[] = [];
+    let cache = [cacheRow("/u/a")];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => cache,
+      identityOf: (root) => { asked.push(root); return identityOf(root); },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    expect(asked).toEqual(["/u/a"]);
+    cache = [cacheRow("/u/a"), cacheRow("/u/b")];
+    timers[0]!();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(asked).toEqual(["/u/a", "/u/b"]);
+  });
+
+  test("the board opens before any scanned identity is resolved, then lists them", async () => {
+    const order: string[] = [];
+    const session = new FakeSession([{ t: "intent", name: "quit" }]);
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf: (root) => { order.push(`identity ${root}`); return identityOf(root); },
+    });
+    const open = deps.openSession;
+    deps.openSession = async (view, model) => {
+      order.push("open");
+      return open(view, model);
+    };
+    await new MissionDriver(deps, START).run();
+    expect(order).toEqual(["open", "identity /u/a"]);
+    expect((session.pushed[0] as MissionModel).repos.map((r) => r.id)).toEqual(["gh:me/a", "repo-tools"]);
+  });
+
+  test("switching away from the open unmanaged repo keeps its live badge on its row", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "repo-tools" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      client: makeFakeClient({ snapshot: async () => baseSnapshot({ ahead: 2 }) }),
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: unmanagedA,
+    });
+    await new MissionDriver(deps, OPEN_A).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("repo-tools");
+    const row = last.repos.find((r) => r.id === "gh:me/a")!;
+    expect(row.badge.ahead).toBe(2);
+  });
+
   test("an unmanaged repo lists worktrees from git alone", async () => {
     const queried: string[] = [];
     const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);

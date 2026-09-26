@@ -113,7 +113,7 @@ export interface MissionDeps {
   launchEditor: (command: string, target: string) => Promise<boolean>;
   /** Sync stat, called once per History changeset (the cache drops on every refresh and git-status sweep), never per push. */
   pathExists: (absPath: string) => boolean;
-  /** Read-only: the cd cache's repo rows, never a scan or a registration. */
+  /** The cd cache's repo rows, never a registration. A cache miss falls back to a synchronous full scan of the repo roots. */
   readRepoCache: () => KnownRepo[];
   /** Must not register or write the repo index. */
   identityOf: (root: string) => string;
@@ -264,6 +264,10 @@ export function resolveCompactedSelIdx(diff: StagingDiff, compactedIdx: number):
   throw new Error(`mission: selIdx ${compactedIdx} out of range for ${diff.path}`);
 }
 
+function sameRepos(a: UnregisteredRepo[], b: UnregisteredRepo[]): boolean {
+  return a.length === b.length && a.every((r, i) => r.identity === b[i]!.identity && r.path === b[i]!.path);
+}
+
 export class MissionDriver {
   private readonly state: DriverState;
   private session: SessionHandle | null = null;
@@ -326,6 +330,8 @@ export class MissionDriver {
   /** Keyed by changeset identity so a push never stats the disk; every refresh drops it, since the tree may have changed under an unchanged changeset. */
   private onDiskCache: { changeset: ChangesetData | null; paths: Set<string> } = { changeset: null, paths: new Set() };
   private unregistered: UnregisteredRepo[] = [];
+  /** Each identityOf call spawns git, so a pass pays only for scan paths it has not seen. */
+  private readonly scannedIdentities = new Map<string, string>();
   private indicatorBadges = new Map<string, GitWorktreeBadge>();
   private unmanaged = false;
   private readonly updater: IndicatorUpdater;
@@ -372,9 +378,17 @@ export class MissionDriver {
     });
   }
 
+  private identityOfScanned(path: string): string {
+    const known = this.scannedIdentities.get(path);
+    if (known !== undefined) return known;
+    const identity = this.deps.identityOf(path);
+    this.scannedIdentities.set(path, identity);
+    return identity;
+  }
+
   private reloadRepoList(): void {
     this.unregistered = loadUnregisteredRepos(
-      { readCached: this.deps.readRepoCache, identityOf: this.deps.identityOf },
+      { readCached: this.deps.readRepoCache, identityOf: (path) => this.identityOfScanned(path) },
       new Set(this.rows.map((r) => r.repo)),
       { identity: this.state.currentRepo, path: this.state.currentWorktree, registered: !this.unmanaged },
     );
@@ -399,10 +413,13 @@ export class MissionDriver {
     this.resolveEditor();
     this.unmanaged = !this.deps.isRegistered(this.state.currentRepo);
     await this.refresh();
-    this.reloadRepoList();
+    if (this.unmanaged) this.unregistered = [{ identity: this.state.currentRepo, path: this.state.currentWorktree }];
     this.rememberRepo();
     const session = await this.deps.openSession("mission", this.model());
     this.session = session;
+    const painted = this.unregistered;
+    this.reloadRepoList();
+    if (!sameRepos(painted, this.unregistered)) this.push();
     this.updater.start();
     const sub = this.deps.subscribe((ev) => {
       if (ev.type === "worktree:ready-settled") {
@@ -1329,6 +1346,8 @@ export class MissionDriver {
       this.push();
       return;
     }
+    // The updater never refreshes the open repo, so its live badge is the only one it has until the next pass.
+    if (this.unmanaged) this.indicatorBadges.set(this.state.currentRepo, this.currentBadge());
     this.state.currentRepo = payload.repo;
     this.unmanaged = !this.deps.isRegistered(payload.repo);
     this.setCurrentWorktree(target, false);
