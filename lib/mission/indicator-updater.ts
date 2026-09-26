@@ -22,10 +22,12 @@ export interface IndicatorUpdaterDeps {
 export class IndicatorUpdater {
   private running = false;
   private timer: unknown = null;
+  private staleTimer: unknown = null;
   private paused = false;
   private pauseWaiter: Promise<void> = Promise.resolve();
   private release: (() => void) | null = null;
   private lastPassStartedAt: number | null = null;
+  private generation = 0;
 
   constructor(private readonly deps: IndicatorUpdaterDeps) {}
 
@@ -37,6 +39,7 @@ export class IndicatorUpdater {
 
   stop(): void {
     this.running = false;
+    this.generation++;
     if (this.timer !== null) {
       this.deps.clearTimer(this.timer);
       this.timer = null;
@@ -59,10 +62,15 @@ export class IndicatorUpdater {
 
   private schedule(): void {
     if (!this.running || this.timer !== null) return;
+    if (this.staleTimer !== null) {
+      this.deps.clearTimer(this.staleTimer);
+      this.staleTimer = null;
+    }
     const base = this.lastPassStartedAt === null
       ? INITIAL_DELAY_MS
       : Math.max(REFRESH_INTERVAL_MS - (this.deps.now() - this.lastPassStartedAt), 0);
     this.timer = this.deps.setTimer(() => {
+      this.staleTimer = this.timer;
       this.timer = null;
       void this.pass();
     }, base + this.deps.skewMs);
@@ -71,11 +79,12 @@ export class IndicatorUpdater {
   private async pass(): Promise<void> {
     if (this.paused) await this.pauseWaiter;
     if (!this.running) return;
+    const gen = this.generation;
     this.lastPassStartedAt = this.deps.now();
     this.deps.onPassStart?.();
     const done = new Set<string>();
     let next: IndicatorTarget | undefined;
-    while (this.running && (next = this.deps.targets().find((t) => !done.has(t.id))) !== undefined) {
+    while (this.running && gen === this.generation && (next = this.deps.targets().find((t) => !done.has(t.id))) !== undefined) {
       try {
         await this.deps.refreshOne(next);
       } catch {
@@ -84,6 +93,6 @@ export class IndicatorUpdater {
       done.add(next.id);
       if (this.paused) await this.pauseWaiter;
     }
-    this.schedule();
+    if (gen === this.generation) this.schedule();
   }
 }

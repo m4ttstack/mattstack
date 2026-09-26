@@ -133,4 +133,34 @@ describe("IndicatorUpdater", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(started).toEqual(["a", "b"]);
   });
+
+  test("stop resumes a paused pass so the next start can run", async () => {
+    const h = harness([A, B]);
+    h.updater.start();
+    h.timers[0]!.fn();
+    await h.flush();
+    h.updater.pause();
+    await h.finishNext();
+    expect(h.started).toEqual(["a"]);
+    h.updater.stop();
+    h.updater.start();
+    expect(h.timers).toHaveLength(2);
+    h.timers[1]!.fn();
+    await h.flush();
+    expect(h.started).toEqual(["a", "a"]);
+  });
+
+  test("restart race: old pass does not continue after stop-start", async () => {
+    const h = harness([A, B]);
+    h.updater.start();
+    h.timers[0]!.fn();
+    await h.flush();
+    expect(h.started).toEqual(["a"]);
+    h.updater.stop();
+    h.updater.start();
+    expect(h.timers).toHaveLength(2);
+    await h.finishNext();
+    expect(h.started).toEqual(["a"]);
+    expect(h.timers.filter((t) => !t.cleared)).toHaveLength(1);
+  });
 });
