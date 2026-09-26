@@ -8,7 +8,9 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { createFileActions } from "../lib/file-actions.ts";
 import { MissionDriver, type MissionDeps } from "../lib/mission/driver.ts";
 import { publishRepo, runAction } from "../lib/mission/git-actions.ts";
-import { resolveGlitterStart, readLastRepo } from "../lib/mission/launch.ts";
+import { resolveGlitterStart, readLastRepo, writeLastRepo } from "../lib/mission/launch.ts";
+import { randomSkewMs } from "../lib/mission/indicator-updater.ts";
+import { isRepoRegistered } from "../lib/repo-index.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import { exit, openSession } from "../lib/ui/spawn.ts";
 import { SessionDied } from "../lib/runner/runner.ts";
@@ -68,6 +70,15 @@ export async function glitterCommand(_args: string[], _ctx: CommandContext): Pro
     resolveEditor: resolveEditorForDir,
     launchEditor: launchEditorDetached,
     pathExists: existsSync,
+    readRepoCache: () => getKnownReposCached({ includeMissing: false }),
+    identityOf: identityForRootReadOnly,
+    isRegistered: isRepoRegistered,
+    saveLastRepo: writeLastRepo,
+    indicatorTimers: {
+      setTimer: (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; },
+      clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+      skewMs: randomSkewMs(),
+    },
   };
 
   const driver = new MissionDriver(deps, {

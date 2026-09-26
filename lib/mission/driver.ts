@@ -34,6 +34,11 @@ import type { SessionHandle } from "../ui/spawn.ts";
 import type { listWorktreesAsync, WorktreeEntry } from "../worktree/git-async.ts";
 import { deriveAction, type ActionKind, type ActionState, type RunnableAction } from "./git-actions.ts";
 import { HistoryStore, type HistoryBranch } from "./history.ts";
+import { refreshIndicator } from "./indicator-refresh.ts";
+import { IndicatorUpdater } from "./indicator-updater.ts";
+import type { LastRepo } from "./launch.ts";
+import { loadUnregisteredRepos, mergeRepoRows, type UnregisteredRepo } from "./repo-list.ts";
+import type { KnownRepo } from "../repo-index.ts";
 import { buildHistoryModel, committedFileRow } from "./history-model.ts";
 import { buildModel, joinWorktreeRows, mergeWorktreeTrees, reconcileSelectedPath, type MissionLastCommit, type MissionModel, type MissionState, type WorktreeRow } from "./model.ts";
 import {
@@ -108,6 +113,13 @@ export interface MissionDeps {
   launchEditor: (command: string, target: string) => Promise<boolean>;
   /** Sync stat, called once per History changeset (the cache drops on every refresh and git-status sweep), never per push. */
   pathExists: (absPath: string) => boolean;
+  /** Read-only: the cd cache's repo rows, never a scan or a registration. */
+  readRepoCache: () => KnownRepo[];
+  /** Must not register or write the repo index. */
+  identityOf: (root: string) => string;
+  isRegistered: (identity: string) => boolean;
+  saveLastRepo: (value: LastRepo) => void;
+  indicatorTimers: { setTimer: (fn: () => void, ms: number) => unknown; clearTimer: (h: unknown) => void; skewMs: number };
 }
 
 interface StagePayload {
@@ -313,6 +325,10 @@ export class MissionDriver {
   private editor: ResolvedEditor | null = null;
   /** Keyed by changeset identity so a push never stats the disk; every refresh drops it, since the tree may have changed under an unchanged changeset. */
   private onDiskCache: { changeset: ChangesetData | null; paths: Set<string> } = { changeset: null, paths: new Set() };
+  private unregistered: UnregisteredRepo[] = [];
+  private indicatorBadges = new Map<string, GitWorktreeBadge>();
+  private unmanaged = false;
+  private readonly updater: IndicatorUpdater;
 
   constructor(private readonly deps: MissionDeps, start: { repo: string; worktree: string }) {
     this.state = {
@@ -334,13 +350,52 @@ export class MissionDriver {
       publishPrompt: null,
       tab: "changes",
     };
+    this.updater = new IndicatorUpdater({
+      targets: () => this.unregistered
+        .filter((u) => u.identity !== this.state.currentRepo)
+        .map((u) => ({ id: u.identity, path: u.path })),
+      refreshOne: (target) => refreshIndicator(
+        target,
+        { client: this.deps.client, pathExists: this.deps.pathExists, now: this.deps.now },
+        (id, badge) => {
+          if (badge) this.indicatorBadges.set(id, badge);
+          else this.indicatorBadges.delete(id);
+          this.push();
+        },
+      ),
+      onPassStart: () => this.reloadRepoList(),
+      setTimer: this.deps.indicatorTimers.setTimer,
+      clearTimer: this.deps.indicatorTimers.clearTimer,
+      now: () => this.deps.now().getTime(),
+      skewMs: this.deps.indicatorTimers.skewMs,
+    });
+  }
+
+  private reloadRepoList(): void {
+    this.unregistered = loadUnregisteredRepos(
+      { readCached: this.deps.readRepoCache, identityOf: this.deps.identityOf },
+      new Set(this.rows.map((r) => r.repo)),
+      { identity: this.state.currentRepo, path: this.state.currentWorktree, registered: !this.unmanaged },
+    );
+  }
+
+  private repoRows(): RepoStatusRow[] {
+    return mergeRepoRows(this.rows, this.unregistered, this.indicatorBadges);
+  }
+
+  private rememberRepo(): void {
+    this.deps.saveLastRepo({ identity: this.state.currentRepo, worktree: this.state.currentWorktree });
   }
 
   async run(): Promise<void> {
     this.resolveEditor();
+    this.unmanaged = !this.deps.isRegistered(this.state.currentRepo);
     await this.refresh();
+    this.reloadRepoList();
+    this.rememberRepo();
     const session = await this.deps.openSession("mission", this.model());
     this.session = session;
+    this.updater.start();
     const sub = this.deps.subscribe((ev) => {
       if (ev.type === "worktree:ready-settled") {
         const data = ev.data as { path?: string; ok?: boolean } | undefined;
@@ -377,6 +432,7 @@ export class MissionDriver {
         }
       }
     } finally {
+      this.updater.stop();
       sub.close();
       const end = await session.close();
       if (end.reason === "died" || end.reason === "error") throw new SessionDied(end.code);
@@ -413,7 +469,8 @@ export class MissionDriver {
     const stashFile = this.stash.selectedFile;
     return buildModel({
       state: this.state,
-      rows: this.rows,
+      rows: this.repoRows(),
+      unmanaged: this.unmanaged,
       snapshot: this.snapshot,
       branches: this.branches,
       guards: this.guards,
@@ -473,7 +530,7 @@ export class MissionDriver {
   }
 
   private currentRepoBadges(): GitWorktreeBadge[] {
-    return this.rows.find((r) => r.repo === this.state.currentRepo)?.worktrees ?? [];
+    return this.repoRows().find((r) => r.repo === this.state.currentRepo)?.worktrees ?? [];
   }
 
   /**
@@ -528,7 +585,9 @@ export class MissionDriver {
     this.clearOnDisk();
     const [statusRes, treesRes, snapshot, fetchState, branches, remotes, guards, gitWorktrees, log] = await Promise.all([
       this.deps.daemonQuery("repos:status", {}),
-      this.deps.daemonQuery("worktree:list", { repoName: this.state.currentRepo }),
+      // The daemon answers repo-unknown for an unregistered repo, and a failed
+      // reply would keep the previous repo's trees; git's own listing is the whole truth here.
+      this.unmanaged ? Promise.resolve({ ok: true, data: { trees: [] } }) : this.deps.daemonQuery("worktree:list", { repoName: this.state.currentRepo }),
       client.snapshot(),
       client.fetchState(),
       client.branches(),
@@ -739,6 +798,12 @@ export class MissionDriver {
         this.stash.hide();
         this.push();
         break;
+      case "mission:focus": {
+        const focused = (intent.payload as { focused?: unknown } | undefined)?.focused;
+        if (focused === false) this.updater.pause();
+        else if (focused === true) this.updater.resume();
+        break;
+      }
       case "mission:refresh":
         this.resolveEditor();
         await this.refresh();
@@ -1178,6 +1243,11 @@ export class MissionDriver {
   private async provisionWorktree(payload: WorktreePayload): Promise<void> {
     const name = typeof payload.name === "string" ? payload.name.trim() : "";
     if (name === "") return;
+    if (this.unmanaged) {
+      this.state.notice = "worktree provisioning needs a repo rt manages";
+      this.push();
+      return;
+    }
     // Provisioning can run for minutes (PROVISION_TIMEOUT_MS): the modal has
     // already closed by the time this awaits, so the board must say why it
     // is frozen rather than sitting blank until the daemon replies.
@@ -1240,7 +1310,9 @@ export class MissionDriver {
 
   private async handleRepo(payload: RepoPayload | undefined): Promise<void> {
     if (!payload || typeof payload.repo !== "string") return;
-    const target = this.rows.find((r) => r.repo === payload.repo)?.worktrees[0];
+    const known = this.rows.find((r) => r.repo === payload.repo)?.worktrees[0]?.worktree;
+    const scanned = this.unregistered.find((u) => u.identity === payload.repo)?.path;
+    const target = known ?? (scanned && this.deps.pathExists(scanned) ? scanned : undefined);
     if (!target) {
       // Refuse rather than half-switch: a repo without a known worktree has
       // no directory to point the git client at.
@@ -1249,9 +1321,11 @@ export class MissionDriver {
       return;
     }
     this.state.currentRepo = payload.repo;
-    this.setCurrentWorktree(target.worktree, false);
+    this.unmanaged = !this.deps.isRegistered(payload.repo);
+    this.setCurrentWorktree(target, false);
     this.state.selections = new Map();
     await this.refresh();
+    this.rememberRepo();
     this.push();
   }
 

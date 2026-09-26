@@ -488,6 +488,7 @@ export function buildModel(input: {
   stash?: { entry: DesktopStashEntry; files: CommittedFileChange[] | null; showing: boolean; selectedFile: string } | null;
   stashDiff?: { path: string | null; status: string; diff: StagingDiff | null; oversizedOverride: boolean };
   canStash?: boolean;
+  unmanaged?: boolean;
 }): MissionModel {
   const { state, rows, snapshot, branches, guards, worktrees, currentBadge, stagingDiff, lastCommit, action, headShortSha, defaultBranch, now = new Date(), historyDiff, stash, stashDiff } = input;
   const tab = input.tab ?? "changes";
@@ -593,6 +594,7 @@ export function buildModel(input: {
     branch: snapshot.branch ?? (snapshot.detached ? (headShortSha ?? "") : ""),
     detached: snapshot.detached,
     settling: state.settling,
+    unmanaged: input.unmanaged ?? false,
   };
 
   const actionModel: MissionActionModel = {

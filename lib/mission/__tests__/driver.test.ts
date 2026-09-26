@@ -24,6 +24,7 @@ import { SessionDied } from "../../runner/runner.ts";
 import { MissionDriver, resolveCompactedSelIdx, type MissionDeps } from "../driver.ts";
 import type { MissionModel } from "../model.ts";
 import { FakeSession, flushMicrotasks, QueueSession } from "./fake-sessions.ts";
+import { repoLabel } from "../../repo-label.ts";
 
 // ─── translation helper fixtures ────────────────────────────────────────────
 
@@ -298,6 +299,11 @@ function baseDeps(over: {
   resolveEditor?: MissionDeps["resolveEditor"];
   launchEditor?: MissionDeps["launchEditor"];
   pathExists?: MissionDeps["pathExists"];
+  readRepoCache?: MissionDeps["readRepoCache"];
+  identityOf?: MissionDeps["identityOf"];
+  isRegistered?: MissionDeps["isRegistered"];
+  saveLastRepo?: MissionDeps["saveLastRepo"];
+  indicatorTimers?: MissionDeps["indicatorTimers"];
 }): MissionDeps {
   const client = over.client ?? makeFakeClient();
   return {
@@ -334,6 +340,11 @@ function baseDeps(over: {
     resolveEditor: over.resolveEditor ?? (() => null),
     launchEditor: over.launchEditor ?? (async () => false),
     pathExists: over.pathExists ?? (() => false),
+    readRepoCache: over.readRepoCache ?? (() => []),
+    identityOf: over.identityOf ?? ((root: string) => `path:${root}`),
+    isRegistered: over.isRegistered ?? (() => true),
+    saveLastRepo: over.saveLastRepo ?? (() => {}),
+    indicatorTimers: over.indicatorTimers ?? { setTimer: () => null, clearTimer: () => {}, skewMs: 0 },
   };
 }
 
@@ -3377,5 +3388,125 @@ describe("MissionDriver: History tab", () => {
 
     session.send({ t: "intent", name: "quit" });
     await runPromise;
+  });
+});
+
+describe("unregistered repos", () => {
+  const cacheRow = (path: string) => ({ repoName: path, worktrees: [{ path, branch: "main", isBare: false }], dataDir: "/d", registered: false });
+  const ids: Record<string, string> = { "/u/a": "gh:me/a", "/u/b": "gh:me/b" };
+  const identityOf = (root: string) => ids[root] ?? `path:${root}`;
+
+  test("lists scanned unregistered repos next to the daemon's rows", async () => {
+    const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);
+    const deps = baseDeps({ session, readRepoCache: () => [cacheRow("/u/a")], identityOf });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.repos.map((r) => r.id)).toEqual(["gh:me/a", "repo-tools"]);
+  });
+
+  test("switches to an unregistered repo before its first badge", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const saved: unknown[] = [];
+    const deps = baseDeps({ session, readRepoCache: () => [cacheRow("/u/a")], identityOf, isRegistered: (id) => id !== "gh:me/a", pathExists: () => true, saveLastRepo: (v) => { saved.push(v); } });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("gh:me/a");
+    expect(last.current.worktree).toBe("/u/a");
+    expect(last.current.unmanaged).toBe(true);
+    expect(saved.at(-1)).toEqual({ identity: "gh:me/a", worktree: "/u/a" });
+  });
+
+  test("refuses a vanished unregistered repo", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({ session, readRepoCache: () => [cacheRow("/u/a")], identityOf, pathExists: () => false });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("repo-tools");
+    expect(last.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
+  });
+
+  test("the updater skips registered repos and the open repo, and publishes badges", async () => {
+    const timers: (() => void)[] = [];
+    const refreshed: string[] = [];
+    const client = makeFakeClient();
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a"), cacheRow("/u/b"), cacheRow("/repo")],
+      identityOf: (root) => (root === "/repo" ? "repo-tools" : identityOf(root)),
+      pathExists: (p) => { refreshed.push(p); return true; },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(refreshed.filter((p) => p.startsWith("/u/") || p === "/repo")).toEqual(["/u/a", "/u/b"]);
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.repos.find((r) => r.id === "gh:me/a")!.badge).toBeDefined();
+  });
+
+  test("mission:focus pauses and resumes the updater", async () => {
+    const timers: (() => void)[] = [];
+    const refreshed: string[] = [];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: (p) => { refreshed.push(p); return true; },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: false } });
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(refreshed.filter((p) => p === "/u/a")).toEqual([]);
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: true } });
+    await flushMicrotasks();
+    expect(refreshed.filter((p) => p === "/u/a")).toEqual(["/u/a"]);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("an unmanaged repo lists worktrees from git alone", async () => {
+    const queried: string[] = [];
+    const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);
+    const deps = baseDeps({
+      session,
+      isRegistered: () => false,
+      daemonQuery: async (cmd: string) => { queried.push(cmd); return { ok: true, data: { repos: [], trees: [{ path: "/pool/x", name: "x", branch: "x", state: "claimed" }] } }; },
+      listGitWorktrees: async () => [{ path: "/repo", branch: "main", headSha: "abc", isBare: false }],
+    });
+    await new MissionDriver(deps, START).run();
+    expect(queried).not.toContain("worktree:list");
+    expect((session.pushed.at(-1) as MissionModel).worktrees.map((w) => w.path)).toEqual(["/repo"]);
+  });
+
+  test("provisioning in an unmanaged repo is refused without asking the daemon", async () => {
+    const queried: string[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:worktree", payload: { new: true, name: "feat" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      isRegistered: () => false,
+      daemonQuery: async (cmd: string) => { queried.push(cmd); return { ok: true, data: { repos: [], trees: [] } }; },
+    });
+    await new MissionDriver(deps, START).run();
+    expect(queried).not.toContain("worktree:provision");
+    expect((session.pushed.at(-1) as MissionModel).notice).toBe("worktree provisioning needs a repo rt manages");
   });
 });
