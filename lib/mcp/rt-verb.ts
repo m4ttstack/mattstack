@@ -31,7 +31,7 @@ export function realRtVerbDeps(): RtVerbDeps {
   };
 }
 
-type RtVerbResult = { ok: true; body: unknown } | { ok: false; error: string };
+export type RtVerbResult = { ok: true; body: unknown } | { ok: false; error: string };
 
 const fail = (error: string): RtVerbResult => ({ ok: false, error });
 
@@ -54,6 +54,31 @@ function errorText(value: unknown): string | null {
   if (typeof e === "string") return e;
   if (e && typeof e === "object" && typeof (e as { message?: unknown }).message === "string") return (e as { message: string }).message;
   return null;
+}
+
+export async function spawnRtJson(
+  path: string[],
+  rest: string[],
+  opts: { cwd?: string; timeoutMs?: number },
+  deps: Pick<RtVerbDeps, "selfArgv" | "spawn"> = realRtVerbDeps(),
+): Promise<RtVerbResult> {
+  if (rest.some((a) => CONTROL_CHAR.test(a))) return fail("args must not contain a control character");
+  const verb = `rt ${path.join(" ")}`;
+  const args = rest.includes("--json") ? rest : [...rest, "--json"];
+  const cap = opts.timeoutMs ?? RT_VERB_TIMEOUT_MS;
+  const res = await deps.spawn([...deps.selfArgv(), ...path, ...args], {
+    cwd: opts.cwd,
+    env: { RT_BATCH: "1", RT_SKIP_SETUP: "1" },
+    timeoutMs: cap,
+  });
+
+  const parsed = parseJson(res.stdout);
+  if (res.code === 0) return parsed.ok ? { ok: true, body: parsed.value } : fail(`${verb} returned non-JSON output: ${tail(res.stdout)}`);
+  if (res.code === 124) return fail(`${verb} timed out after ${cap / 1000}s`);
+  const envelopeMessage = parsed.ok ? errorText(parsed.value) : null;
+  if (res.code === 2 && envelopeMessage) return fail(envelopeMessage);
+  const detail = envelopeMessage ?? (tail(res.stderr) || tail(res.stdout));
+  return fail(`${verb} failed (exit ${res.code})${detail ? `: ${detail}` : ""}`);
 }
 
 export async function runRtVerb(input: { args?: unknown; cwd?: unknown }, deps: RtVerbDeps = realRtVerbDeps()): Promise<RtVerbResult> {
@@ -141,19 +166,5 @@ export async function runRtVerb(input: { args?: unknown; cwd?: unknown }, deps: 
     cwd = input.cwd;
   }
 
-  const rest = forwarded.includes("--json") ? forwarded : [...forwarded, "--json"];
-  const cap = leaf.node.agentTimeoutMs ?? RT_VERB_TIMEOUT_MS;
-  const res = await deps.spawn([...deps.selfArgv(), ...leaf.path, ...rest], {
-    cwd,
-    env: { RT_BATCH: "1", RT_SKIP_SETUP: "1" },
-    timeoutMs: cap,
-  });
-
-  const parsed = parseJson(res.stdout);
-  if (res.code === 0) return parsed.ok ? { ok: true, body: parsed.value } : fail(`${verb} returned non-JSON output: ${tail(res.stdout)}`);
-  if (res.code === 124) return fail(`${verb} timed out after ${cap / 1000}s`);
-  const envelopeMessage = parsed.ok ? errorText(parsed.value) : null;
-  if (res.code === 2 && envelopeMessage) return fail(envelopeMessage);
-  const detail = envelopeMessage ?? (tail(res.stderr) || tail(res.stdout));
-  return fail(`${verb} failed (exit ${res.code})${detail ? `: ${detail}` : ""}`);
+  return spawnRtJson(leaf.path, forwarded, { cwd, timeoutMs: leaf.node.agentTimeoutMs ?? RT_VERB_TIMEOUT_MS }, deps);
 }
