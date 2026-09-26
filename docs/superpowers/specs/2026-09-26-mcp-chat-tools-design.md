@@ -140,10 +140,15 @@ rules: `limit` positive (default 20), `since` in the CLI's duration syntax
 positive integer that needs a room and excludes `since`. A plain read
 advances only the caller's own cursor, as the CLI does.
 
-`since` is parsed with the CLI's own `parseDuration`, imported from
-`commands/events.ts` (a light module that imports only the daemon
-client; `run-tools.ts` already imports from `commands/`), so the grammar
-cannot drift. Lifting it into `lib/` is outside this lane's write fence.
+`since` is parsed with the CLI's own `parseDuration`, so the grammar
+cannot drift. `lib/mcp` may import only `commands/runs-write.ts` from
+`commands/`, so the parser moves: `parseDuration` is lifted verbatim
+from `commands/events.ts` into `lib/duration.ts`, its tests move from
+`lib/__tests__/events-cli.test.ts` to `lib/__tests__/duration.test.ts`,
+and `commands/events.ts` imports it from there and re-exports it, so
+`commands/chat.ts` and `commands/gate.ts` keep their existing imports
+unchanged. `lib/mcp/chat-tools.ts` imports `lib/duration.ts`. (The
+shepherd widened this lane's fence for this one move.)
 
 ### chat_join
 
