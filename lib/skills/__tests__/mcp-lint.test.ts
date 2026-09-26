@@ -41,7 +41,7 @@ describe("lintSkillText: one hit per rule", () => {
 describe("lintSkillText: no hits", () => {
   test("the kept-on-Bash list", () => {
     const kept = md(
-      "```bash", "rt gate answer <id> --answers '<json>' --by shepherd", "rt gate wait <id>", "rt chat tail", "rt events wait 'run:*'",
+      "```bash", "rt gate answer <id> --answers '<json>' --by shepherd", "rt gate wait <id>", "rt events wait 'run:*'",
       "git rebase --continue", "git rebase --skip", "git commit -m x", "git add -A", "git fetch origin", "git merge-base HEAD origin/main", "```",
     );
     expect(lintSkillText(kept, "k.md")).toEqual([]);

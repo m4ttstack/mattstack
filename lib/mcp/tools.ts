@@ -20,6 +20,7 @@ import { reverseLookupByName } from "../repo-name-lookup.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { explainError } from "../explain-error.ts";
 import { chatToolDefs } from "./chat-tools.ts";
+import { whoamiToolDefs } from "./whoami-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
@@ -206,7 +207,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "gate_ask",
-      description: "Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with `rt gate answer <id> --answers <json> --by pane`. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim.",
+      description: "Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim.",
       inputSchema: {
         type: "object",
         properties: {
@@ -739,7 +740,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "rt_verb",
-      description: "Run one read-only rt verb and return its --json result. Only verbs marked agent-safe run; anything else is refused with the list of verbs that do. Pass args without the leading \"rt\" (e.g. [\"worktree\", \"list\"]) and cwd when the verb depends on the current repo, since this server's working directory is fixed at session start and does not follow cd or EnterWorktree.",
+      description: "Run one agent-safe rt verb and return its --json result. Agent-safe verbs are the ones skills run in their normal flow, and not all are read-only: skills sync pulls, commits and pushes the pack checkout and runs claude plugin update; skills compile, surface set and apply, and bind write pack files; herd brief writes its --out file. Anything else is refused with the list of verbs that are agent-safe. Pass args without the leading \"rt\" (e.g. [\"worktree\", \"list\"]) and cwd when the verb depends on the current repo, since this server's working directory is fixed at session start and does not follow cd or EnterWorktree.",
       inputSchema: {
         type: "object",
         properties: {
@@ -760,5 +761,6 @@ export function mcpTools(): McpToolDef[] {
     ...worktreeToolDefs(),
     ...herdToolDefs(),
     ...chatToolDefs(),
+    ...whoamiToolDefs(),
   ];
 }

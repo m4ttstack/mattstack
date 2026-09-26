@@ -98,14 +98,14 @@ Each git tool takes `tree`, the absolute path of the root of a checkout or workt
 | `git_push` | Push the current branch to its same-named upstream, or as `origin/<branch>` with `setUpstream: true`. |
 | `git_pull` | Fast-forward the current branch from its upstream (`--ff-only`). |
 | `git_rebase` | Rebase onto a named branch or ref, fetching a remote-tracking ref first; `abort: true` aborts a rebase in progress. |
-| `branch_sync` | Bring the branch current in one call, the `rt sync` flow: fetch, reset to origin when GitLab rebased it, rebase onto the default branch, push with a lease. |
+| `branch_sync` | Bring the branch current in one call, the `rt sync` flow: fetch, reset to origin when GitLab rebased it, rebase onto the default branch, and push with a lease when the reset or rebase changed the branch. |
 
 What they refuse:
 
-- `git_push` never pushes a detached HEAD, `main`, `master` or the remote's default branch, and refuses outright when that default cannot be determined. It pushes exactly one ref, and forces only with `--force-with-lease --force-if-includes`. An upstream with a different branch name, or one that is the default branch, is refused unless you pass `setUpstream`.
+- `git_push` pushes exactly one ref (no tags, no submodules) to the same-named branch on its upstream's remote, and forces only with `--force-with-lease --force-if-includes`. It never pushes a detached HEAD, `main`, `master` or origin's default branch, and refuses outright when origin's default cannot be read. It refuses a branch with no upstream, an upstream with a different branch name, and an upstream that is its own remote's default branch or whose remote's default cannot be read. `setUpstream: true` pushes to `origin/<branch>` instead and makes that the upstream; the refusal of origin's default branch still applies.
 - `git_pull` never merges or rebases; a diverged branch is an error.
 - `git_rebase` takes only a branch or ref name for `onto`, never an option. On a conflict it returns the conflicted files and leaves the rebase paused for you to resolve and finish with `git rebase --continue`.
-- `branch_sync` refuses to reset over a local commit with no equivalent on origin (unpushed work), refuses to force-push over commits only origin has (a branch only behind origin: run `git_pull` first), and names the commits when it can. It also refuses a rebase already in progress and a push that config would redirect to another ref.
+- `branch_sync` refuses to reset over a local commit with no equivalent on origin (unpushed work), refuses to force-push over commits only origin has (a branch only behind origin: run `git_pull` first), and names the commits when it can. It also refuses a rebase already in progress, a detached HEAD, `main`, `master` or the default branch, a branch name that is unsafe or ambiguous with a tag or other ref, a local ref shadowing `origin/<branch>` or `origin/<default>`, a push that config would redirect to another ref, and a gitq stack member. A branch only ahead of origin is not refused, but it is pushed only when the reset or rebase changed it; use `git_push` to publish new commits.
 
 `git commit` and `git add` are not tools; they stay in Bash.
 
@@ -145,7 +145,7 @@ Shepherd side:
 | `herd_status` | One herd: jobs, panes, gates, subscription, unread. |
 | `herd_list` | Active herds, or every herd with `all: true`. |
 
-`herd_spawn`, `herd_close`, `herd_attend` and `herd_wrap_up` run only from the session the daemon records as the herd's shepherd (the one that ran `herd_start`, or took the herd over with `herd_resume`), and never from a worker pane. The files these tools read or write are confined: `herd_brief`'s `out` must sit in your Claude Code temp root, and a brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
+`herd_start` refuses in a worker pane. `herd_spawn`, `herd_close`, `herd_attend` and `herd_wrap_up` run only from the session the daemon records as the herd's shepherd (the one that ran `herd_start`, or took the herd over with `herd_resume`), and never from a worker pane. The files these tools read or write are confined: `herd_brief`'s `out` must sit in your Claude Code temp root, and a brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
 
 ### Chat
 
@@ -173,6 +173,14 @@ Every chat tool acts as this session's own chat handle; none takes the acting ha
 | `chat_invite` | Invite another herdr pane into a room by typing `/chat:join <room>` into it, with an optional one-line note. |
 
 Every chat tool except `chat_sign_in`, `chat_away`, `chat_back`, `chat_sign_out`, `chat_who` and `chat_buddies` needs a signed-in session. After `/clear`, the server still acts as the session from before the clear, so the tools report no signed-in session and `chat_sign_in` refuses; run `rt chat sign-in` and the other chat verbs in Bash for the rest of that session.
+
+### Identity
+
+| Tool | What it does |
+| --- | --- |
+| `whoami` | Report this session's identity as the other tools see it: its Claude Code session id, herdr pane, the chat handle the chat tools act as (null, with a sign-in hint, when this session is not signed in), and the herd id, job and room in a herd worker pane. |
+
+`whoami` takes no input and reads only the server's environment and this session's chat session file. It makes no daemon call, so it shows what the tools would act as, not live presence.
 
 ### rt_verb
 

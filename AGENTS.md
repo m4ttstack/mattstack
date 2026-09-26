@@ -230,8 +230,9 @@ spreads in the rest: run tracking (`run-tools.ts`, in-process over
 daemon's open-MR cache, the others ask the daemon directly), git writes
 (`git-tools.ts`), worktrees (`worktree-tools.ts`: provision, dispose,
 stop-holders, and no general kill), the other herd tools
-(`herd-tools.ts`) and the other chat tools
-(`chat-tools.ts`); every chat tool acts only as this session's own handle.
+(`herd-tools.ts`), the other chat tools (`chat-tools.ts`) and `whoami`
+(`whoami-tool.ts`, which reads only the server's env and this session's own
+chat session file); every chat tool acts only as this session's own handle.
 Every git tool goes through `tree-guard.ts`, which
 admits only the root of a registered checkout or worktree: `git_push` pushes
 one explicit refspec to the branch's same-named upstream, forces only with
@@ -337,10 +338,9 @@ belongs in the list (a test pins this). And what skills still run in a shell
 is `rt gate` (`rt gate wait`, which blocks past any tool timeout, and the
 shepherd's CLI-only `rt gate answer --by shepherd`) and `rt events wait`
 under `Monitor`, covered by `Bash(rt gate *)` and `Bash(rt events wait *)`.
-The list also carries a `Bash(rt chat tail *)` rule, which matches no
-current verb. Everything else a skill runs routinely is a tool on the
-mattstack server. Do not widen the list to make a skill work; add a tool or
-an agent-safe verb.
+Everything else a skill runs routinely is a tool on the mattstack server.
+Do not widen the list to make a skill work; add a tool or an agent-safe
+verb.
 
 ## The relocation prompt parser reads a real capture, not a hand-drawn one
 
