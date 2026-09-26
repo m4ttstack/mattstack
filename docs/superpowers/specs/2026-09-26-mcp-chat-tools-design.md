@@ -67,16 +67,39 @@ sees the same fields. No CLI JSON shape changes.
 - `chat_invite` requires a signed-in session and sends that handle as
   `from`. The CLI's fallback to the `chat.humanHandle` setting is not
   carried over: a tool call must never speak as the human.
+  `chat_sign_in` enforces the same rule on `as` (below).
 
 ### chat_sign_in
 
 Sign-in derives the repo room from the working tree (git root, repo
 identity, branch) and resolves the base handle through the CLI's own
 chain, all in `commands/chat.ts`, which `lib/mcp` may not import. So the
-tool spawns the CLI the way `herd_brief` does, with a fixed argv:
+tool spawns the CLI with a fixed argv:
 
 `rt chat sign-in --json --session <CLAUDE_CODE_SESSION_ID>` plus `--as`,
 `--room`, `--no-room`, `--status` when given.
+
+**The spawn.** `runRtVerb` cannot carry it: it refuses any leaf without
+`agentSafe`, and `chat` stays unsafe. The spawn-and-parse half of
+`runRtVerb` is lifted into a helper in `lib/mcp/rt-verb.ts`,
+`spawnRtJson(path, rest, { cwd, timeoutMs }, deps)`, which `runRtVerb`
+then calls after its leaf and flag checks. The helper keeps every safety
+property the runner has today:
+
+- argv starts with `rtSelfArgv()`, which pins the bunfig and
+  `--no-env-file`, so a caller-chosen `cwd` holding a `bunfig.toml` or
+  `.env` runs no code;
+- env is `{ RT_BATCH: "1", RT_SKIP_SETUP: "1" }` over the server's own
+  environment (which carries `HERDR_PANE_ID` for the pane reference);
+- args with a control character are refused;
+- the same exit-code and JSON-envelope mapping (124 is a timeout, exit 2
+  with an envelope returns its message).
+
+`chat_sign_in` calls the helper directly with the path `["chat",
+"sign-in"]`. It is the only caller that bypasses the leaf gate, and its
+argv is built here, never from caller-supplied flags.
+
+**Inputs.**
 
 - `--pane` is never passed; the argv is built from named inputs only, so
   no caller string reaches it as a flag. Values starting with `-` and
@@ -87,9 +110,20 @@ tool spawns the CLI the way `herd_brief` does, with a fixed argv:
 - `room` with `noRoom: true` is an input error.
 - `as` names this session's base handle. The daemon only hands out a seat
   that is free or reclaimable (signed out or stale), so it cannot take a
-  live session's handle.
+  live session's handle. The human has no presence row, so their handle
+  would be a free seat, and a post from it counts as the human's (the
+  daemon adds `here`). So `as` equal to the `chat.humanHandle` setting,
+  or to the reserved mention `here`, is refused before any spawn.
 - Timeout: the `rt_verb` default (30s).
 - Returns `{handle, room}`.
+
+**Replaced sessions.** Before spawning, the tool checks that the
+server's session id still resolves to a live Claude Code session
+(`resolveInbox` plus `inboxAlive`, `lib/claude-registry.ts`). After a
+`/clear` the old id no longer resolves, and signing it in would create a
+presence row that receives nothing and that no SessionEnd hook will ever
+remove. The tool refuses with: this session was replaced (`/clear`);
+run `rt chat sign-in` in Bash.
 
 ### chat_sign_out
 
@@ -106,6 +140,11 @@ rules: `limit` positive (default 20), `since` in the CLI's duration syntax
 positive integer that needs a room and excludes `since`. A plain read
 advances only the caller's own cursor, as the CLI does.
 
+`since` is parsed with the CLI's own `parseDuration`, imported from
+`commands/events.ts` (a light module that imports only the daemon
+client; `run-tools.ts` already imports from `commands/`), so the grammar
+cannot drift. Lifting it into `lib/` is outside this lane's write fence.
+
 ### chat_join
 
 `cwd` is sent as the membership's cwd, as the CLI sends its own. Omitted,
@@ -118,12 +157,19 @@ Both reach beyond the caller, and the operator chose to make both tools
 anyway:
 
 - `chat_archive` hides a room from every member until someone posts into
-  it. The daemon checks no membership; the tool adds none, matching the
-  CLI. The skill's "archive is Matt's call" line stays the guard.
+  it. The daemon checks no membership, so the tool adds one: it reads
+  `chat:who <room>` (which answers for an archived room by name, so
+  `reopen` works too) and refuses unless the caller's handle is a
+  member. The CLI keeps its current behavior.
 - `chat_invite` types `/chat:join <room>` (plus `note from <handle>:
   <note>`) into the target pane. The daemon collapses newlines in the
   note, refuses panes it cannot deliver to, and reports
-  `accepted | queued | refused`. `callerPane` is the server's own pane.
+  `accepted | queued | refused`. The tool refuses a note holding any
+  other control character (C0 or DEL, e.g. ESC or Ctrl-C, which would
+  reach the other agent's prompt as keystrokes) and a note over 300
+  characters. `pane` must be a pane reference shape (letters, digits,
+  `.`, `_`, `:`, `-`, not starting with `-`). `callerPane` is the
+  server's own pane.
 
 ## Input checks
 
@@ -138,8 +184,15 @@ The server's `CLAUDE_CODE_SESSION_ID` is fixed at session start, as the
 parent spec notes. After a `/clear`, the Bash CLI sees the new session
 while these tools still act as the pre-clear one, whose file the
 SessionEnd hook deletes; the handle tools then report no signed-in
-session. The existing five chat tools already behave this way. This
-lane does not change it; the tool hint says to sign in again.
+session for the rest of that session. The existing five chat tools
+already behave this way, and no tool can act as the new id without
+taking a caller-supplied session id, which this lane rules out.
+
+So the shared hint (`SIGN_IN_HINT`, used by all 18 chat tools) names
+both paths: call `chat_sign_in`, or, if this session was `/clear`ed, run
+`rt chat sign-in` and the other chat verbs in Bash. `chat_sign_in`
+itself refuses a replaced session (above), so the tool path can never
+sign in a dead id.
 
 ## Not in this lane
 
@@ -147,6 +200,9 @@ lane does not change it; the tool hint says to sign in again.
 - `rt chat tail` and `rt pane send` stay on Bash. (`commands/chat.ts` has
   no `tail` verb today; delivery is pushed into the session. Nothing to
   build.)
+- The rt:chat skill's other pane verbs: `pane list` and `pane peek` are
+  already reachable through `rt_verb` (agent-safe); `pane spawn`,
+  `pane accounts` and `pane directories` stay on Bash.
 - `rt chat prune` (no skill runs it) and `--as` / `--pane` forms.
 - `buddy` and `session` are not chat verbs.
 
@@ -156,11 +212,20 @@ lane does not change it; the tool hint says to sign in again.
   `herd-tools.test.ts`): per tool, the argument checks, that the payload
   carries the session's own handle or session id and never a caller one,
   the unsigned-session error, and daemon error mapping. `chat_sign_in`:
-  the exact argv (never `--pane`, `--session` from the environment), `cwd`
+  the exact argv (never `--pane`, `--session` from the environment), that
+  the argv prefix is `selfArgv()` and the env carries `RT_BATCH`, `cwd`
   refused when relative or missing, `room` with `noRoom` refused, a value
-  starting with `-` refused. `chat_sign_out`: the file is deleted when the
-  daemon fails. `chat_read`: `last` with `since`, `last` without a room.
-  `chat_invite`: refused unsigned, `from` is the session handle.
+  starting with `-` refused, `as` equal to the human handle or `here`
+  refused with no spawn, a session id that no longer resolves (or is not
+  alive) refused with no spawn. `chat_sign_out`: the file is deleted when
+  the daemon fails. `chat_read`: `last` with `since`, `last` without a
+  room, a bad `since`. `chat_archive`: a non-member refused, a member
+  allowed, `reopen` by a member of an archived room allowed.
+  `chat_invite`: refused unsigned, `from` is the session handle, a note
+  with ESC or Ctrl-C refused, a note over 300 characters refused, a
+  malformed pane refused.
+- **rt_verb** (`rt-verb.test.ts`): the existing suite passes unchanged
+  over the lifted `spawnRtJson`.
 - **Roster**: the 13 names appended to `NAMES` (`tools.test.ts`),
   `EXPECTED_TOOL_NAMES` and `PUBLISHED` (`e2e/tests/mcp-serve.test.ts`).
 - **e2e**: `mcp-serve.test.ts` against a freshly built `dist/rt`.
