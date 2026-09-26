@@ -1,5 +1,5 @@
 /**
- * Stale tombstone smoke test — replicates the EXACT real-world acme-1231/acme-1233/acme-1234
+ * Stale tombstone smoke test. Models the acme-1231/acme-1233/acme-1234
  * scenario where:
  *
  *   1. Parent branch (acme-1231) is created from master, adds commits
@@ -91,12 +91,12 @@ async function squashMergeOnRemote(
   }
 }
 
-describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication', () => {
+describe('Stale tombstone: acme-1231/acme-1233/acme-1234 stacking scenario', () => {
   /**
-   * This test precisely replicates the topology that caused repeated rebase
-   * failures in the user's real repo. The key elements:
+   * This test models a topology that causes rebase to replay stale
+   * commits if not handled carefully. The key elements:
    *
-   * - Parent has commits that touch VehicleImage files
+   * - Parent has commits that touch the widget gallery component's files
    * - Child branches from parent BEFORE parent's review commits
    * - Child carries old copies of parent's commits (pre-rebase SHAs)
    * - Parent then gets review commits + is rebased onto updated master
@@ -112,41 +112,41 @@ describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication'
     await commit(r.dir, r.git, 'app.ts', 'initial app\n', 'main: initial app');
     r.git('push', 'origin', 'main');
 
-    // ── Phase 2: Parent branch (acme-1231) — initial commits ───────────
+    // ── Phase 2: Parent branch (acme-1231): initial commits ───────────
     r.git('checkout', '-b', 'feat/parent');
 
     // Parent commit 1: backend fix (will be a duplicate on child)
     await commitNested(
       r.dir, r.git,
       'backend/extraction.ts',
-      'export function extractVehicleType(data: any) {\n  return data.vehicleType ?? "sedan";\n}\n',
-      'fix: preserve van vehicle type in extraction',
+      'export function extractWidgetType(data: any) {\n  return data.widgetType ?? "compact";\n}\n',
+      'fix: preserve compact widget type in extraction',
     );
 
-    // Parent commit 2: VehicleImage refactor (will be unique on child — different patch)
+    // Parent commit 2: WidgetGallery refactor (will be unique on child, different patch)
     await commitNested(
       r.dir, r.git,
-      'components/VehicleImage/VehicleImage.tsx',
+      'components/WidgetGallery/WidgetGallery.tsx',
       'import React from "react";\n' +
-      'export function VehicleImage({ type }: { type: string }) {\n' +
-      '  const Component = TRUTH_TABLE[type] ?? Sedan;\n' +
+      'export function WidgetGallery({ type }: { type: string }) {\n' +
+      '  const Component = TRUTH_TABLE[type] ?? Compact;\n' +
       '  return <Component />;\n' +
       '}\n' +
       'const TRUTH_TABLE: Record<string, React.FC> = {};\n',
-      'refactor: rewrite VehicleImage as truth-table',
+      'refactor: rewrite WidgetGallery as truth-table',
     );
     await commitNested(
       r.dir, r.git,
-      'components/VehicleImage/components/VehicleWireframe.tsx',
-      'export function VehicleWireframe() {\n  return <svg>basic wireframe</svg>;\n}\n',
-      'refactor: add VehicleWireframe component',
+      'components/WidgetGallery/components/GridOutline.tsx',
+      'export function GridOutline() {\n  return <svg>basic outline</svg>;\n}\n',
+      'refactor: add GridOutline component',
     );
 
     // Parent commit 3: dark mode story (will be a duplicate on child)
     await commitNested(
       r.dir, r.git,
-      'components/VehicleImage/VehicleImage.stories.tsx',
-      'export const DarkMode = {\n  args: { theme: "dark" },\n  render: () => <VehicleImage type="sedan" />,\n};\n',
+      'components/WidgetGallery/WidgetGallery.stories.tsx',
+      'export const DarkMode = {\n  args: { theme: "dark" },\n  render: () => <WidgetGallery type="compact" />,\n};\n',
       'feat: add dark mode Storybook story',
     );
 
@@ -157,28 +157,28 @@ describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication'
     // Child commit 1: extract into package (unique work)
     await commitNested(
       r.dir, r.git,
-      'packages/vehicle-image/package.json',
-      '{ "name": "@acme/vehicle-image", "version": "0.0.1" }\n',
-      'feat: extract VehicleImage into @acme/vehicle-image package',
+      'packages/widget-gallery/package.json',
+      '{ "name": "@acme/widget-gallery", "version": "0.0.1" }\n',
+      'feat: extract WidgetGallery into @acme/widget-gallery package',
     );
-    // Child also moves VehicleImage.tsx to package (modifies the file parent also changed)
+    // Child also moves WidgetGallery.tsx to package (modifies the file parent also changed)
     await commitNested(
       r.dir, r.git,
-      'packages/vehicle-image/src/VehicleImage.tsx',
+      'packages/widget-gallery/src/WidgetGallery.tsx',
       'import React from "react";\n' +
-      '// Extracted to @acme/vehicle-image package\n' +
-      'export function VehicleImage({ type }: { type: string }) {\n' +
-      '  const Component = TRUTH_TABLE[type] ?? Sedan;\n' +
+      '// Extracted to @acme/widget-gallery package\n' +
+      'export function WidgetGallery({ type }: { type: string }) {\n' +
+      '  const Component = TRUTH_TABLE[type] ?? Compact;\n' +
       '  return <Component />;\n' +
       '}\n' +
       'const TRUTH_TABLE: Record<string, React.FC> = {};\n',
-      'feat: move VehicleImage to package',
+      'feat: move WidgetGallery to package',
     );
 
     // Child commit 2: codegen plugin (unique work)
     await commitNested(
       r.dir, r.git,
-      'packages/vehicle-image/codegen.config.ts',
+      'packages/widget-gallery/codegen.config.ts',
       'export default {\n  generates: { "./src/generated/graphql.ts": { plugins: ["typescript"] } },\n};\n',
       'refactor: replace custom schema script with codegen plugin',
     );
@@ -204,34 +204,34 @@ describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication'
     // ── Phase 7: Parent gets REVIEW COMMITS after child branched ─────
     await commitNested(
       r.dir, r.git,
-      'components/VehicleImage/components/VehicleWireframe.tsx',
+      'components/WidgetGallery/components/GridOutline.tsx',
       '// Rewrote based on review feedback\n' +
-      'export function SedanWireframe() {\n  return <svg viewBox="0 0 200 100">sedan outline</svg>;\n}\n' +
-      'export function SUVWireframe() {\n  return <svg viewBox="0 0 200 120">suv outline</svg>;\n}\n',
-      'refactor: replace runtime SVG fetch with inline wireframe components (review)',
+      'export function CompactOutline() {\n  return <svg viewBox="0 0 200 100">compact outline</svg>;\n}\n' +
+      'export function WideOutline() {\n  return <svg viewBox="0 0 200 120">wide outline</svg>;\n}\n',
+      'refactor: replace runtime SVG fetch with inline outline components (review)',
     );
     await commitNested(
       r.dir, r.git,
-      'components/VehicleImage/VehicleImage.tsx',
+      'components/WidgetGallery/WidgetGallery.tsx',
       'import React from "react";\n' +
-      'import { SedanWireframe } from "./components/VehicleWireframe";\n' +
-      'export function VehicleImage({ type }: { type: string }) {\n' +
-      '  const Component = TRUTH_TABLE[type] ?? SedanWireframe;\n' +
+      'import { CompactOutline } from "./components/GridOutline";\n' +
+      'export function WidgetGallery({ type }: { type: string }) {\n' +
+      '  const Component = TRUTH_TABLE[type] ?? CompactOutline;\n' +
       '  return <Component />;\n' +
       '}\n' +
       'const TRUTH_TABLE: Record<string, React.FC> = {\n' +
-      '  sedan: SedanWireframe,\n' +
+      '  compact: CompactOutline,\n' +
       '};\n',
-      'refactor: use wireframe components in VehicleImage (review)',
+      'refactor: use outline components in WidgetGallery (review)',
     );
     await commit(
       r.dir, r.git,
       'theme.ts',
-      'export const darkModeVehicle = { bg: "#1a1a1a", stroke: "#fff" };\n',
+      'export const darkModeTheme = { bg: "#1a1a1a", stroke: "#fff" };\n',
       'feat: dark mode via tailwind',
     );
 
-    // The LIVE branch tip — this is the real tombstone
+    // The LIVE branch tip: this is the real tombstone
     const liveTombstone = r.git('rev-parse', 'feat/parent');
 
     // Push all branches
@@ -244,7 +244,7 @@ describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication'
     await squashMergeOnRemote(
       r.remoteDir,
       'feat/parent',
-      'squash: Van Images + Dark Mode Vehicle Images (ACME-1231)',
+      'squash: widget gallery refactor + dark mode support (ACME-1231)',
     );
     r.git('fetch', 'origin');
 
@@ -260,7 +260,7 @@ describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication'
     expect(hasMinus).toBe(true);
 
     // ── Phase 10: Build the stack with STALE lastKnownHead ────────────
-    let stack = StackManager.createStack('vehicle-stack', 'main');
+    let stack = StackManager.createStack('widget-stack', 'main');
     stack = StackManager.addNode(stack, 'feat/parent', 'main');
     stack = StackManager.updateNode(stack, 'feat/parent', {
       // STALE: points to pre-rebase, pre-review parent head
@@ -295,31 +295,31 @@ describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication'
 
       // Child's own unique work: package extraction
       const pkg = await readFile(
-        join(r.dir, 'packages/vehicle-image/package.json'), 'utf-8',
+        join(r.dir, 'packages/widget-gallery/package.json'), 'utf-8',
       );
-      expect(pkg).toContain('@acme/vehicle-image');
+      expect(pkg).toContain('@acme/widget-gallery');
 
       // Child's own unique work: codegen config
       const codegen = await readFile(
-        join(r.dir, 'packages/vehicle-image/codegen.config.ts'), 'utf-8',
+        join(r.dir, 'packages/widget-gallery/codegen.config.ts'), 'utf-8',
       );
       expect(codegen).toContain('graphql');
 
       // Parent's review commits should be present (from tombstone reconciliation)
-      const wireframes = await readFile(
-        join(r.dir, 'components/VehicleImage/components/VehicleWireframe.tsx'), 'utf-8',
+      const outlines = await readFile(
+        join(r.dir, 'components/WidgetGallery/components/GridOutline.tsx'), 'utf-8',
       );
-      expect(wireframes).toContain('SedanWireframe');
+      expect(outlines).toContain('CompactOutline');
 
       // Parent's dark mode theme from review
       const theme = await readFile(join(r.dir, 'theme.ts'), 'utf-8');
-      expect(theme).toContain('darkModeVehicle');
+      expect(theme).toContain('darkModeTheme');
 
-      // The VehicleImage should have the updated version from parent's review
-      const vehicleImage = await readFile(
-        join(r.dir, 'components/VehicleImage/VehicleImage.tsx'), 'utf-8',
+      // The WidgetGallery should have the updated version from parent's review
+      const widgetGallery = await readFile(
+        join(r.dir, 'components/WidgetGallery/WidgetGallery.tsx'), 'utf-8',
       );
-      expect(vehicleImage).toContain('SedanWireframe');
+      expect(widgetGallery).toContain('CompactOutline');
     } finally {
       GitShell.pushForceWithLease = originalPush;
     }
@@ -332,12 +332,12 @@ describe('Stale tombstone: real-world acme-1231/acme-1233/acme-1234 replication'
     const r = await createSandboxRepoWithRemote();
     dirs.push(r.dir, r.remoteDir);
 
-    // Simplified version of the same scenario — NO file content conflicts
+    // Simplified version of the same scenario: NO file content conflicts
     r.git('checkout', '-b', 'feat/parent');
     await commit(r.dir, r.git, 'parent-a.ts', 'parent work A\n', 'parent: work A');
     await commit(r.dir, r.git, 'parent-b.ts', 'parent work B\n', 'parent: work B');
 
-    // Child branches — carries both parent commits
+    // Child branches: carries both parent commits
     r.git('checkout', '-b', 'feat/child');
     await commit(r.dir, r.git, 'child.ts', 'child work\n', 'child: unique work');
     await commit(r.dir, r.git, 'child-extra.ts', 'child extra\n', 'child: extra work');
