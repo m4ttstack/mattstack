@@ -22,7 +22,6 @@ export interface IndicatorUpdaterDeps {
 export class IndicatorUpdater {
   private running = false;
   private timer: unknown = null;
-  private staleTimer: unknown = null;
   private paused = false;
   private pauseWaiter: Promise<void> = Promise.resolve();
   private release: (() => void) | null = null;
@@ -62,15 +61,10 @@ export class IndicatorUpdater {
 
   private schedule(): void {
     if (!this.running || this.timer !== null) return;
-    if (this.staleTimer !== null) {
-      this.deps.clearTimer(this.staleTimer);
-      this.staleTimer = null;
-    }
     const base = this.lastPassStartedAt === null
       ? INITIAL_DELAY_MS
       : Math.max(REFRESH_INTERVAL_MS - (this.deps.now() - this.lastPassStartedAt), 0);
     this.timer = this.deps.setTimer(() => {
-      this.staleTimer = this.timer;
       this.timer = null;
       void this.pass();
     }, base + this.deps.skewMs);

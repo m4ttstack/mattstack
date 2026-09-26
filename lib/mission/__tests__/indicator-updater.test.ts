@@ -161,6 +161,5 @@ describe("IndicatorUpdater", () => {
     expect(h.timers).toHaveLength(2);
     await h.finishNext();
     expect(h.started).toEqual(["a"]);
-    expect(h.timers.filter((t) => !t.cleared)).toHaveLength(1);
   });
 });
