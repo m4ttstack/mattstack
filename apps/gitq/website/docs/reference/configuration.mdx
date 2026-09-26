@@ -1,0 +1,116 @@
+---
+title: Configuration
+sidebar_position: 4
+---
+
+# Configuration
+
+gitq has two independent local configuration surfaces, read by two different processes, plus a shared settings store that can override individual keys of either. The CLI reads a settings file inside its own config directory. The board reads a `config.json` sitting in the app root. Neither reads the other's file, and nothing in the CLI reads anything from the board's `config.json`. The [rt](https://rt.cool) settings store sits above both: when it owns a key (or, for `gitq.workSlots`, a field of one), that value wins over whichever file would otherwise have answered.
+
+## The app root
+
+One root holds everything gitq owns: **`~/.mattstack/gitq`**, whether gitq runs from a checkout or as the bundled binary in mattstack.app (`src/core/app-root.ts`). Running both forms against one root is what makes `gitq stacks` answer the same whichever copy is on PATH, and it is the mattstack rule for a bundled helper — a helper never writes inside the read-only app bundle, and never anywhere cwd-relative.
+
+**`GITQ_APP_ROOT`** moves the root, resolved to an absolute path. `GITQ_CONFIG_DIR` still moves the CLI's own subset within it and wins where they overlap (below).
+
+gitq's files used to live in `~/.config/gitq`. The first run after the move copies that directory into the app root, verifies every file, and writes `migrated-from.json` recording where it came from. The old directory is **copied, never moved** — it stays exactly as it was, yours to delete once you are satisfied. Rerunning is a no-op. If both directories hold files and no marker connects them, gitq uses the app root and names the other one once rather than merging two stack stores, since nothing tells it which is current. See [Where state lives](/concepts/state).
+
+## The settings store
+
+Three keys, read through `@mattstack/rt-client`'s `getSetting`, each falling back to a local file when the store doesn't own it:
+
+| Key | Scope | Shape | Store-vs-file precedence | File fallback |
+| --- | --- | --- | --- | --- |
+| `gitq.workSlots` | machine | `{ maxWorkSlots?, workSlotLocation? }` | Per field: `maxWorkSlots` and `workSlotLocation` each independently fall back to the file when the store doesn't have that field (`storeWorkSlots`, `src/core/worktrees.ts`). | `settings.json` |
+| `gitq.forges` | user | host-keyed map, `tokenEnv` names only, never a live token | Wholesale: an owning store value replaces the file's map entirely, not merged by host (`readForgeOverrides`, `src/core/forges.ts`). | `settings.json` |
+| `gitq.board` | machine | `{ repos, port, herdrWorkspace }` | Wholesale: an owning store value replaces `repos`/`port`/`herdrWorkspace` together (`loadConfig`, `src/server/config.ts`). | `config.json` |
+
+A resolver throw (an unreadable or malformed store file — never the daemon) degrades to the file after one warning, for every key. Until a key (or, for `workSlots`, a field of it) is imported into the store, its file remains the only place to edit it — the transition is opt-in, not a flag day.
+
+Set a key with `rt settings set <key> <json-value> --scope user|team|machine`. **This replaces the whole value stored at that key and scope** — it is not a merge, so a multi-field value (`workSlots`) or a multi-host map (`forges`) needs every field or host you want to keep in the JSON you send. Check what's already there first with `rt settings explain <key>`.
+
+## The CLI: `settings.json`
+
+gitq's config directory defaults to the [app root](#the-app-root), `~/.mattstack/gitq`, and can be moved on its own with **`GITQ_CONFIG_DIR`**, an environment variable read once, at process start (`src/core/config-paths.ts`, `const DEFAULT_CONFIG_DIR = envConfigDir ? resolve(envConfigDir) : APP_ROOT`). It wins over `GITQ_APP_ROOT` when both are set. An empty value counts as unset, and a relative one is resolved against the directory gitq was started in, so the config directory is always an absolute path. Every path the CLI derives, the stack stores, the settings file, the operation log, comes from this one directory. Export it in your shell profile rather than expecting a mid-session change to take effect, and remember that a gitq run with a different `GITQ_CONFIG_DIR` sees a different set of tracked stacks entirely.
+
+The work slots gitq leases for cascades follow the same directory, with no carve-out: a non-pool repo gets its slots under `<config dir>/work/<hash>/` (`getWorkSlotRoot`, `src/core/config-paths.ts`). Pool repos are unaffected: their slots are siblings of your own worktrees, unless `workSlotLocation` says otherwise (below). Slots created before the move to the app root, under the old `~/.cache/gitq/work` root, keep working and are not migrated: a slot is recognised by its `gitq-<n>` name in the repo's own `git worktree list`, and leases record absolute paths. See [Work slots and leases](/concepts/work-slots).
+
+What the variable does not move is anything gitq writes into the repo you point it at. The lease registry (`<commonDir>/gitq/leases.json`), a paused cascade's `<gitdir>/gitq-pause.json`, and the `core.hooksPath` gitq pins per work slot all land in the operated-on repo's git directory regardless. A throwaway `GITQ_CONFIG_DIR` gets you a throwaway gitq state directory, not a run that leaves no trace; see [Where state lives](/concepts/state) for the full inventory.
+
+Inside it, `settings.json` holds the three keys the CLI reads today, `maxWorkSlots`, `workSlotLocation`, and `forges` — each also readable (and, once imported, overridable) through [the settings store](#the-settings-store) above:
+
+```json
+{ "maxWorkSlots": 5 }
+```
+
+Read by `getMaxWorkSlots` (`src/core/worktrees.ts`), which checks the `gitq.workSlots` store field first: the value must be a number of at least `1`, and it is floored; anything else, or nothing in either the store or the file, falls back to the default of `3`. gitq never creates or writes this file itself; make it by hand if you want to change the value without the store. It caps how many cascades can run per repo at once, one work slot each; see [Work slots and leases](/concepts/work-slots) for what the cap actually gates (a stack with a running or parked cascade already blocks other mutations regardless of the cap, so raising it only helps when several *different* stacks want to cascade at the same time).
+
+The second key, `workSlotLocation`, decides where a new work slot is created:
+
+```json
+{ "workSlotLocation": "root" }
+```
+
+Two values. `auto`, the default, keeps the pool-aware placement: a repo whose primary worktree has a sibling worktree of its own gets its slots next to them, everything else gets them under the work-slot root. `root` skips the pool detection and always uses the work-slot root, wherever the config directory puts it. Read by `getWorkSlotLocation` (`src/core/worktrees.ts`), which checks the `gitq.workSlots` store field first, same as `maxWorkSlots` above; anything other than `"root"`, including nothing in either place, is `auto`.
+
+Reach for `root` when the pool detection is technically right but practically wrong: a clone that lives directly in a directory of unrelated repos (`~/repos/myrepo`, next to twenty other checkouts) reads as a pool the moment you add one sibling worktree of it, and `gitq-1` then appears in that directory alongside the repos. The setting only governs slots gitq *creates*: an existing slot is still reused wherever it already sits, so remove it with `git worktree remove` if you want it relocated.
+
+The third key, `forges`, tells gitq which forge a self-hosted host is running. It is keyed by the host of the repo's git remote:
+
+```json
+{
+  "forges": {
+    "gitlab.acme.com": { "provider": "gitlab" },
+    "ghe.acme.com": { "provider": "github", "tokenEnv": "GHE_ACME_TOKEN" },
+    "work": { "provider": "gitlab", "baseUrl": "https://gitlab.acme.com" }
+  }
+}
+```
+
+`provider` is required and must be `gitlab` or `github`; anything else is an error naming the entry, not a silently skipped line. `baseUrl` defaults to `https://<host>`, so a host that is already the instance's address needs only the provider. `tokenEnv` is covered under [the forge token](#the-forge-token) below. Read by `resolveForge` (`src/core/forges.ts`), out of the same file as `maxWorkSlots` (`readForgeOverrides`, `src/core/forges.ts`) — but unlike `maxWorkSlots`/`workSlotLocation`, `readForgeOverrides` checks `gitq.forges` **wholesale**: an owning store value replaces this whole map, not merged host by host with what's in the file.
+
+You need an entry only for a host gitq cannot identify on its own. `github.com` and `gitlab.com` are known outright (`src/core/forges.ts:38-41`), and an entry for either still wins, which is how you route one through a proxy. The third example above is an `~/.ssh/config` alias: a remote like `git@work:acme/web.git` names no domain at all, so an alias entry has to give a `baseUrl` and is refused without one.
+
+Do not look for other keys: the stack stores and the operation log live in this directory too, but those are state gitq writes for itself, not settings you configure; see [Where state lives](/concepts/state) for the full inventory of what is written and when.
+
+## The forge token
+
+`publish` and `import` both need a token, and which one they need follows from the repo's remote rather than from configuration. gitq reads the remote's host, resolves the forge from it, and then resolves that forge's credential (`createForgeProvider`, `src/cli/provider.ts:44-78`). A GitHub remote is never offered a GitLab token.
+
+`resolveForgeToken` (`src/core/secrets.ts`) takes the forge's environment variable first — **`GITLAB_TOKEN`** for `gitlab`, **`GITHUB_TOKEN`** for `github` — and, if that is unset, asks the rt daemon for a grant-gated token instead (the `secrets:forge-token` verb, backed by rt's own encrypted store — set with `rt secrets set rt gitlabToken`, not a plaintext file gitq reads itself). The daemon lookup needs the repo tracked with rt (`rt daemon track <repo> live branches`); gitq never reads or writes any secrets file directly, at either step.
+
+Missing both is a hard failure before any network call is made, naming the forge, the host, and why: for a repo not tracked with rt, `gitq: no github token for github.com (set GITHUB_TOKEN or track the repo with rt (rt daemon track <repo> live branches); <repoPath> is not registered with rt (~/.mattstack/rt/repos.json))` (`src/cli/provider.ts`, `src/core/secrets.ts`).
+
+A self-hosted instance can carry its own credential with `tokenEnv` on its `forges` entry, since a github.com token is not a GitHub Enterprise token. When an entry names a variable, that variable is the only place gitq looks: it does **not** fall back to `GITHUB_TOKEN` or the rt daemon, because falling back would hand the instance a credential it never issued. The error then names just that variable: `no github token for ghe.acme.com (set GHE_ACME_TOKEN)`.
+
+Two failures happen before the token is ever considered, both from the remote alone. A host with no `forges` entry that gitq does not know is refused rather than guessed at, since defaulting an enterprise GitHub host to GitLab fails somewhere a long way from the cause: `cannot tell which forge "git.acme.com" is (from remote ...); check the current map with rt settings explain gitq.forges, then set it with rt settings set gitq.forges '{"git.acme.com": {"provider": "gitlab"}, ...}' --scope user ...` (`src/cli/provider.ts:61-74`; the full message spells out that the write replaces the whole host-keyed map and gives the `settings.json` fallback too). A remote that names no host at all, a local path or a bare clone directory, gets `no forge host in remote "..."` (`src/cli/provider.ts:49-53`).
+
+## The board: `config.json`
+
+The board (`src/server/server.ts`) is a separate process with its own configuration file, `config.json`, resolved against the [app root](#the-app-root) and deliberately not against `GITQ_CONFIG_DIR`: `CONFIG_PATH = join(APP_ROOT, 'config.json')` (`src/server/config.ts`). Pointing the CLI at a throwaway stack store should not also repoint the board. `config.json` is the fallback for the `gitq.board` machine-scoped [store key](#the-settings-store) above; once that key is owned, `repos`/`port`/`herdrWorkspace` come from the store wholesale instead and the file is ignored. Start from `config.example.json` for the file-only path:
+
+```json
+{
+  "repos": [{ "path": "/Users/matt/Documents/GitHub/example", "name": "example" }],
+  "port": 11008,
+  "herdrWorkspace": "gitq"
+}
+```
+
+Parsed and validated by `validateBoardConfig` (`src/server/config.ts:35-57`) against whichever source answers — the store's `gitq.board` value or the file, via `parseConfig` (`src/server/config.ts:60-68`):
+
+| Field | Required | Default | Validation |
+| --- | --- | --- | --- |
+| `repos` | Yes | none | Non-empty array; each entry needs a non-empty `path` string, `name` defaults to the path's basename if omitted. |
+| `port` | No | `11008` | Must be a number if given. |
+| `herdrWorkspace` | No | `"gitq"` | Must be a string if given. |
+
+A missing `config.json`, with no `gitq.board` in the store either, is a startup failure: `no config.json at <path>, and no "gitq.board" in the settings store; set one of them` (`src/server/config.ts`). The result is read once, at module load (`const config = loadConfig();`, `src/server/server.ts:12`), so an edit — to either the store or the file — needs a server restart to take effect; see [The board](/getting-started/the-board).
+
+`$PORT` in the environment overrides `config.port` at runtime, letting a process manager (launchd, for example) pin the port independently of the file: `const port = Number(process.env.PORT) || config.port;` (`src/server/server.ts:52`).
+
+## Next
+
+- [Where state lives](/concepts/state): every file gitq writes, as opposed to the settings you write for it.
+- [Work slots and leases](/concepts/work-slots): what `maxWorkSlots` actually caps.
+- [The board](/getting-started/the-board): running the board day to day.

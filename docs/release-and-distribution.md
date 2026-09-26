@@ -222,9 +222,9 @@ as a verification exercise, not a routine.
 ## App builds in release.yml (build-apps)
 
 The apps are built in-tree by `build-apps`, and deps.lock's tree rows carry
-no url. Board, boxscore, chat, console and deck live at `apps/*` in this
-checkout and are `source: "tree"` rows in `rt-tray/deps.lock`: no url, no
-sha256, nothing to pin. `release.yml`'s `build-apps` job builds them all
+no url. Board, boxscore, chat, console, deck and gitq live at `apps/*` in
+this checkout and are `source: "tree"` rows in `rt-tray/deps.lock`: no url,
+no sha256, nothing to pin. `release.yml`'s `build-apps` job builds them all
 from the tagged commit: `bun install --frozen-lockfile`, then
 `scripts/build-apps.ts`, which itself builds the platform packages under
 `packages/*` via turbo before running each app's own compile recipe.
@@ -233,10 +233,10 @@ Helpers loop every other bundled binary goes through. A change merged to
 main ships in the very next release by construction: there is no separate
 dispatch, no bot PR, and no pin to bump.
 
-gitq stays its own repo (`~/Documents/GitHub/gitq`) rather than living
-under `apps/*` here, and its `deps.lock` row keeps a `repo`/`url`/`sha256`
-pin instead of `source: "tree"`, so it is not built by `build-apps`; it
-stays on the same standalone pin-freshness policy as fast-browser (see
+gitq also publishes `@mattstack/gitq` to npm on its own schedule
+(`bun run release` from `apps/gitq`; see `apps/gitq/docs/releasing.md`),
+independent of the bundled binary `build-apps` produces here. fast-browser
+is the one app left on the standalone pin-freshness policy (see
 `skills/rt-release/SKILL.md`).
 
 `apps/AGENTS.md` is the contract for what lives under `apps/*` and

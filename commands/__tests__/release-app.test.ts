@@ -20,7 +20,7 @@ const LOCK = JSON.stringify({
     servedTreeTool("chat", 11002),
     servedTreeTool("console", 11001),
     servedTreeTool("boxscore", 11005),
-    helperTool("gitq", { version: "0.2.1", repo: "m4ttstack/gitq", url: "https://github.com/m4ttstack/gitq/releases/download/v0.2.1/gitq-darwin-arm64", sha256: "0".repeat(64), exposeByDefault: true }),
+    helperTool("gitq", { source: "tree", exposeByDefault: true }),
   ],
 });
 
@@ -95,14 +95,14 @@ afterEach(() => {
 });
 
 describe("rt release app: the omitted-name picker", () => {
-  test("the served tree apps plus gitq are offered, deck excluded", async () => {
+  test("the fast-path tree apps are offered, deck excluded", async () => {
     const h = await invoke([], { tty: true, pick: "chat" });
     expect(h.picks).toEqual([[
       { value: "board", label: "board" },
       { value: "chat", label: "chat" },
       { value: "console", label: "console" },
       { value: "boxscore", label: "boxscore" },
-      { value: "gitq", label: "gitq", hint: "0.2.1" },
+      { value: "gitq", label: "gitq" },
     ]]);
     expect(h.runs).toEqual([{ name: "chat", dryRun: false, json: false, yesNotes: null }]);
   });

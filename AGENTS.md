@@ -41,11 +41,17 @@ apps trees. Deck serves the apps from this checkout in dev mode
 (`deck register --dir ~/Documents/GitHub/repo-tools/apps/<name>`), and the
 release builds them at the tagged commit (`scripts/build-apps.ts`, the
 `build-apps` job in `release.yml`); `rt-tray/deps.lock` lists them as
-`source: "tree"` rows, which is deck's served-app catalog. gitq stays its
-own repo (`~/Documents/GitHub/gitq`) and keeps a `repo`/`url`/`sha256` pin
-in `deps.lock` like fast-browser's; see `skills/rt-release/SKILL.md` for
-how that pin gets bumped. `packages/glance` and `packages/glance-react`
-keep their own contract in `packages/glance/AGENTS.md`.
+`source: "tree"` rows, which is deck's served-app catalog (the rows that
+carry a `serve` port; `apps/deck/src/registry/bundle-catalog.ts`). gitq is
+a tree row too, at `apps/gitq`, built the same way by `build-apps.ts` and
+shipped as the plain `Contents/Helpers/gitq` CLI, but its row carries no
+`serve`, so it is not in that catalog: deck serves its board only in dev
+mode, never automatically in the bundle. gitq releases on the same
+served-app fast path as the others (`skills/rt-release/SKILL.md`) and also
+publishes `@mattstack/gitq` to npm on its own schedule
+(`apps/gitq/docs/releasing.md`), separate from the bundled CLI this repo
+builds. `packages/glance` and `packages/glance-react` keep their own
+contract in `packages/glance/AGENTS.md`.
 
 ## Worktree pool: the golden tree
 
@@ -197,21 +203,59 @@ A verb is exposed there only when its node in `lib/command-tree-def.ts` sets
 `agentSafe: true`; `listAgentSafe` in `lib/command-tree-resolve.ts` is the
 one place that computes the set, and `lib/mcp/rt-verb.ts` refuses everything
 else, refuses control characters in args, and caps a run at
-`RT_VERB_TIMEOUT_MS`. Mark a verb agent-safe only when it writes nothing the
-calling agent does not already own (its own run, its own gates, a read); the
-tool is the long-term replacement for Bash allow rules, so a careless flag
-here is a permission grant on every estate machine.
+`RT_VERB_TIMEOUT_MS`. Mark a verb agent-safe when a skill runs it as part of
+its normal flow and it is an rt call, a forge call or a git write the
+classifier blocks; the skill's own gates stay the human check. A leaf whose
+run outlasts `RT_VERB_TIMEOUT_MS` sets `agentTimeoutMs` on its node. Only a
+leaf that declares `--json` qualifies (`lib/__tests__/agent-safe.test.ts`),
+and a leaf that writes or reads a caller-named path lists that flag in
+`agentTempRootFlags` or `agentReadRootFlags` so `rt_verb` confines it first;
+`agentDeniedFlags` and `agentNoCwd` refuse the flags and cwd that would let a
+caller-written file drive a pack write. The tool is the long-term
+replacement for Bash allow rules, so a careless flag here is a permission
+grant on every estate machine.
 
-The `mr_*` tools in the same file are the rest of that grant.
+Every other tool on the server is the rest of that grant.
 `mcp__plugin_mattstack_mattstack` is in `BASE_PERMISSIONS`, so every tool on
 the server runs on every estate machine with no permission check, and a new
-`mr_*` tool is a forge write any agent can make unasked. They cover what
-board panes and pipeline verbs write (notes, approvals, resolves, draft
-state, retries, rebase, create, update, upload). Merge, and anything equally
-irreversible, stays off the server so the classifier or a human stays in
-front of it. `mr_upload` is the one tool that reads local files, so its
-daemon guard (`lib/daemon/upload-guard.ts`) refuses anything outside the
-target repo's worktrees, the user's Claude Code temp root and
+tool is a write any agent can make unasked, including one reading untrusted
+text (an MR under review). `mcpTools()` in `lib/mcp/tools.ts` is the roster
+(`rt mcp tools --json` prints it). `tools.ts` itself holds the gate tools,
+the `mr_*` writes and `mr_map`, `rt_verb`, the herd worker tools
+(`herd_gates`, `herd_ask`, `herd_answer`, `herd_report`) and five chat tools
+(`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
+spreads in the rest: run tracking (`run-tools.ts`, in-process over
+`runWriteVerb`, a caller's `runDb` confined to the runs root), GitLab reads
+(`mr-read-tools.ts`; `mr_view`, `mr_list` and `mr_pipeline` read the
+daemon's open-MR cache, the others ask the daemon directly), git writes
+(`git-tools.ts`), worktrees (`worktree-tools.ts`: provision, dispose,
+stop-holders, and no general kill), the other herd tools
+(`herd-tools.ts`) and the other chat tools
+(`chat-tools.ts`); every chat tool acts only as this session's own handle.
+Every git tool goes through `tree-guard.ts`, which
+admits only the root of a registered checkout or worktree: `git_push` pushes
+one explicit refspec to the branch's same-named upstream, forces only with
+`--force-with-lease --force-if-includes`, and refuses a detached HEAD, main,
+master and the remote's default branch (and a remote whose default cannot be
+read); `git_pull` is `--ff-only`; `branch_sync` runs `rt sync` only after a
+preflight that refuses to reset over unpushed commits or force-push over
+commits only origin has. `herd_spawn`, `herd_close`, `herd_attend` and
+`herd_wrap_up` run only from the session the daemon records as the herd's
+shepherd, never from a worker pane, and every caller-named path a herd tool
+or `rt_verb` takes (a brief, a template, an out file) is confined by
+`temp-root-guard.ts` to the Claude Code temp root or an installed plugin or
+pack root. Every result, success or error, passes through `callTool` in
+`lib/mcp/redact.ts` (called by `commands/mcp.ts` for each tools/call), which
+strips credentials from URLs, query params, token shapes and auth headers; a
+new tool inherits it and must never answer around it.
+
+The `mr_*` tools cover what board panes and pipeline verbs write (notes,
+approvals, resolves, draft state, retries, rebase, create, update, upload,
+merge). `mr_merge` is on the server (GitLab still enforces approvals and
+pipeline rules); the skill's ship gate is the human check. `mr_upload` is
+the one tool that sends a local file off the machine, so its daemon guard
+(`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's
+worktrees, the user's Claude Code temp root and
 `rt.mcp.uploadRoots`, and anything whose bytes do not match its image or
 video extension; widen the roots through that setting, never by loosening
 the guard. Target resolution (`repoName` as identity, path or label, or
@@ -289,16 +333,34 @@ rule resolves BEFORE the auto-mode classifier, so a `Bash(git push *)`-shaped
 entry would wave through a forced push and `Bash(git rebase *)` a `--exec` of
 any command; the read-only git forms need no rule in any mode and the
 classifier approves routine commits and pushes, so no `Bash(git ...)` entry
-belongs in the list (a test pins this). And the `rt runs` / `rt gate`
-entries are the RT-246 stopgap until every skill reaches those verbs through
-`rt_verb`; do not widen the list to make a skill work, expose the verb.
+belongs in the list (a test pins this). And what skills still run in a shell
+is `rt gate` (`rt gate wait`, which blocks past any tool timeout, and the
+shepherd's CLI-only `rt gate answer --by shepherd`) and `rt events wait`
+under `Monitor`, covered by `Bash(rt gate *)` and `Bash(rt events wait *)`.
+The list also carries a `Bash(rt chat tail *)` rule, which matches no
+current verb. Everything else a skill runs routinely is a tool on the
+mattstack server. Do not widen the list to make a skill work; add a tool or
+an agent-safe verb.
 
 ## The relocation prompt parser reads a real capture, not a hand-drawn one
 
-`lib/daemon/trust-dialog.ts` auto-accepts Claude Code's EnterWorktree
-"permission-root relocation" prompt for unattended panes (RT-200, RT-257).
-Claude Code 2.1.281 draws it under a full-width rule with a " Tool use"
-heading, an "   Entering worktree(<path>)" echo and a
+`lib/daemon/trust-dialog.ts` parses Claude Code's EnterWorktree
+"permission-root relocation" prompt (RT-200, RT-257), the only relocation
+dialog Claude Code paints (ExitWorktree paints none on 2.1.283). Three seams
+drive it, all behind the machine setting `panes.relocationAutoAccept`
+(default on) and all accepting only a path in rt's worktree registry: the
+herd watchdog for herd worker panes, the reconciler for other unattended
+panes, and `lib/daemon/relocation-announce.ts` for attended herdr panes. The
+last two stand down on a herd pane and share `createPaneDriveGuard`, so no
+two seams press keys on one pane at once. An attended pane is driven only
+after a `pane:announce-relocation` naming its session, sent by the mattstack
+plugin's `PreToolUse` hook on EnterWorktree (through the hidden
+`rt worktree announce-relocation`) or by the WorktreeCreate hook once it
+provisions a tree, and only inside the watcher's 8-second window and for the
+announced path.
+
+Claude Code 2.1.281 draws the dialog under a full-width rule with a
+" Tool use" heading, an "   Entering worktree(<path>)" echo and a
 " │ permission-root relocation to ..." gutter line; the parser matches those
 markers by column, never rejoins a path the terminal split across rows, and
 refuses a dialog whose rule is narrower than any other line (a fake painted by
@@ -365,20 +427,22 @@ something that does nothing.
 
 The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
 
-- **Served apps (board, console, chat, boxscore) and deck run from source**
-  in the shared `~/Documents/GitHub/repo-tools` checkout. To deploy:
+- **Served apps (board, console, chat, boxscore) and deck run from
+  source** in the shared `~/Documents/GitHub/repo-tools` checkout. To deploy:
   merge, check `git branch --show-current` is `main`, pull, then
   `deck restart <app>` (or the deck row's deploy button for deck itself);
   `rt release update-machine` also re-registers and restarts them, as its
-  `checkout-sync` (labelled "shared checkout sync") and served-suite legs.
-  Deck runs through the dev shim (`rt-tray/Sources-deck-shim`), which falls
-  back to `Contents/Helpers/deck-pinned` when source cannot run; `api.json`'s
-  `runMode` says which is serving. A pin older than `runMode` (deck 1.0.6
-  today) reads as `standalone`; the last `deck-dev-shim:` line in
-  `~/.mattstack/deck/logs/deck.err.log` says whether the shim fell back.
-  gitq is its own repo at
-  `~/Documents/GitHub/gitq`, deployed the same way: merge, confirm `main`,
-  pull, `deck restart gitq`.
+  `checkout-sync` (labelled "shared checkout sync") and served-suite legs
+  (`REGISTERED_APPS` in `lib/release/update-machine.ts` is exactly this
+  list plus deck). Deck runs through the dev shim (`rt-tray/Sources-deck-shim`),
+  which falls back to `Contents/Helpers/deck-pinned` when source cannot
+  run; `api.json`'s `runMode` says which is serving. A pin older than
+  `runMode` (deck 1.0.6 today) reads as `standalone`; the last
+  `deck-dev-shim:` line in `~/.mattstack/deck/logs/deck.err.log` says
+  whether the shim fell back. gitq is not in that re-register list: merge
+  and pull the same way, then `deck restart gitq` restarts the board
+  served from `apps/gitq` in dev mode; the bundled `gitq` CLI only picks
+  up the change at the next release.
 - **Manifest keys in `mattstack.deck.json` are read only at register or
   adopt.** After a manifest change, run `deck register --dir <absolute path>`.
 - **Tray and shim changes need a dev app rebuild**: in a scratch tree at the
@@ -483,11 +547,9 @@ name` on the next bump, rolls the migration back, and makes every later
 
 `packages/rt-client`, `packages/settings-kit` and `packages/tui-kit` publish
 nowhere; every consumer inside this monorepo (rt itself, board, console,
-chat, boxscore, deck) links the workspace package directly, and the root
-`postinstall` builds all three `dist/` directories. gitq, still its own
-repo, stays on the last published npm `rt-client` (its `package.json` pins
-`^0.14.0`); a change in this tree never reaches it until gitq folds in.
-There is no npm version to announce or renumber for any of the three.
+chat, boxscore, deck, gitq) links the workspace package directly, and the
+root `postinstall` builds all three `dist/` directories. There is no npm
+version to announce or renumber for any of the three.
 
 `packages/glance` links the same way in-repo (rt-client, the VS Code
 extension and root typecheck all resolve its `workspace:*` dist), but it is
@@ -500,12 +562,11 @@ not private: it publishes to npm on its own schedule via `bun publish`
 `dist/` is gitignored. Inside this monorepo, consumers link the workspace
 package, and `dist/` is what their `import` condition resolves; the root
 `postinstall` and turbo's `^build` rebuild it. So any change or merge that
-touches rt-client's source leaves every in-workspace consumer resolving the
-previous build until the next install or turbo run (gitq stays on its
-pinned npm version regardless). The source is right, the shipped
-artifact is not, and nothing about the working tree looks wrong. Run
-`bun run build` in `packages/rt-client` after touching it, and after any
-merge that does.
+touches rt-client's source leaves every in-workspace consumer, gitq
+included, resolving the previous build until the next install or turbo run.
+The source is right, the shipped artifact is not, and nothing about the
+working tree looks wrong. Run `bun run build` in `packages/rt-client` after
+touching it, and after any merge that does.
 
 `packages/rt-client/test/dist-freshness.test.ts` is the guard and names the fix in its failure message. Treat that failure as a real instruction, not as a flaky artifact test. It caught this three separate times in one day across three sessions.
 

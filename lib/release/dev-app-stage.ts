@@ -66,7 +66,8 @@ export async function stageLocalDevApp(seams: StageSeams, cwd: string): Promise<
 
   const sha = (await seams.exec(["git", "rev-parse", "--short", "HEAD"], { cwd: source })).stdout.trim();
   const dirty = (await seams.exec(["git", "status", "--porcelain"], { cwd: source })).stdout.trim() !== "";
-  const version = (await seams.exec(["git", "describe", "--tags", "--abbrev=0"], { cwd: source })).stdout.trim() || "dev";
+  const version =
+    (await seams.exec(["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"], { cwd: source })).stdout.trim() || "dev";
   const tree = source.split("/").pop() ?? source;
   const stamp = `${stampTime(seams.now())} ${sha}${dirty ? "+dirty" : ""} ${tree}`;
   const paths = devAppStagePaths(seams.home);

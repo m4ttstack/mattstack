@@ -1,0 +1,96 @@
+---
+title: Install
+sidebar_position: 1
+---
+
+# Install
+
+```bash
+npm install -g @mattstack/gitq
+```
+
+That puts a `gitq` binary on your `PATH`. It runs on plain Node 20 or later; you do not need [Bun](https://bun.sh) to use the CLI.
+
+Or run it without installing:
+
+```bash
+npx @mattstack/gitq stacks
+```
+
+Bun is needed only for the board (`gitq board`), which the npm-installed CLI ships without, and for building gitq from source. See [Build from source](#build-from-source).
+
+## Confirm it works
+
+`gitq stacks` is the cheapest read-only command, and it works from any git repo. Run it somewhere you have not tracked anything yet:
+
+```bash
+cd ~/some/other/repo
+gitq stacks
+```
+
+```
+no stacks
+```
+
+If you get `command not found`, check that npm's global bin directory is on your `PATH` (`npm config get prefix` shows where npm installs global binaries).
+
+Every command also takes `-C <path>` to run as if invoked from somewhere else, so you can check a repo without leaving the one you are in:
+
+```bash
+gitq stacks -C ~/some/other/repo
+```
+
+## Build from source
+
+For working on gitq itself, or to run the board (`gitq board`), clone the repo and link it onto your `PATH` with [Bun](https://bun.sh):
+
+```bash
+git clone https://github.com/m4ttstack/rt.git repo-tools
+cd repo-tools
+bun install
+cd apps/gitq
+bun run build
+bun link
+```
+
+`bun link` puts this checkout's `gitq` on your `PATH` through the package's `bin` entry, `bin/gitq.mjs`, which loads the built bundle at `dist/gitq.js`. That is why `bun run build` comes first, and why it has to run again after a source change.
+
+To skip the build loop while developing, run the TypeScript sources straight from the checkout instead:
+
+```bash
+bun bin/gitq stacks
+```
+
+## Where state lives
+
+gitq keeps almost nothing in your repository. At a glance:
+
+| Location | What it holds |
+| --- | --- |
+| `~/.mattstack/gitq/` | gitq's app root: the stack stores (one JSON file per repo under `stacks/`), `settings.json`, the global `operation-log.json`, the work slots it creates under `work/`, and the board's `config.json` and `state/jobs/`. Move the whole root with `GITQ_APP_ROOT`, or just the CLI's subset with `GITQ_CONFIG_DIR`. |
+| `<commonDir>/gitq/leases.json` | The per-repo work-slot lease registry: which stack currently holds which work worktree. |
+| `<gitdir>/gitq-pause.json` | Present only while a cascade is paused on a conflict. During a normal cascade that `<gitdir>` is the leased work slot's, not your checkout's. See [Pause protocol](/concepts/pause-protocol). |
+
+`GITQ_CONFIG_DIR` is read once per process, so exporting it for a single command is enough to point gitq at a throwaway store. That is worth knowing before you try anything experimental. If you used gitq before it moved to the app root, the first run copies `~/.config/gitq` in and leaves the original alone. See [State](/concepts/state) for the full picture.
+
+## Optional: the agent skills
+
+The four agent skills that drive gitq from a Claude pane install as symlinks into `~/.claude/skills`:
+
+```bash
+bun run scripts/install-skills.ts
+```
+
+You only need this if you want the board's right-click actions, or want to invoke the skills by hand. See [Agent skills](/guides/agent-skills).
+
+## Optional: a forge token
+
+Everything local works with no credentials at all. Two commands do not: `gitq publish` and `gitq import` talk to a forge API and need a token.
+
+Which forge follows from your remote's host, so which token you need does too. For `gitlab.com`, gitq looks for `GITLAB_TOKEN` in the environment first, then asks the rt daemon for a grant-gated token (which needs the repo tracked with rt); for `github.com`, `GITHUB_TOKEN` then the same daemon lookup. Neither is ever a plaintext file gitq reads itself.
+
+Self-hosted GitLab and GitHub Enterprise work as well, but their hostnames do not say which forge they are, so they need one line of configuration naming it. See [the forge token](/reference/configuration#the-forge-token) and [Publish a stack](/guides/publish).
+
+## Next
+
+[Build your first stack](/getting-started/first-stack) in a throwaway repo.
