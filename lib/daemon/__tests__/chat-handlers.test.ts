@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { execSync } from "child_process";
-import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { insertAgent, openStateDb, postMessage } from "../../state/index.ts";
@@ -1284,10 +1284,14 @@ test("chat:sign-out with an unsafe session id does not throw and deletes nothing
   // sessionFilePath("../escape") throws before it returns a path, so derive
   // the path a naive join would reach from a valid id's real sessions dir.
   const sessionsDir = dirname(sessionFilePath("probe"));
-  const escapePath = join(dirname(sessionsDir), "escape.json");
+  const name = `escape-${process.pid}-${Date.now()}`;
+  const escapePath = join(dirname(sessionsDir), `${name}.json`);
   writeFileSync(escapePath, "{}");
-
-  const res = await h["chat:sign-out"]({ sessionId: "../escape" });
-  expect(res.ok).toBe(true);
-  expect(existsSync(escapePath)).toBe(true);
+  try {
+    const res = await h["chat:sign-out"]({ sessionId: `../${name}` });
+    expect(res.ok).toBe(true);
+    expect(existsSync(escapePath)).toBe(true);
+  } finally {
+    rmSync(escapePath, { force: true });
+  }
 });
