@@ -740,7 +740,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "rt_verb",
-      description: "Run one agent-safe rt verb and return its --json result. Agent-safe verbs are the ones skills run in their normal flow, and not all are read-only: some write rt's own state, a forge or git for the caller's own work (its runs, gates and briefs, a pack it compiles, checks, syncs or binds). Anything else is refused with the list of verbs that are agent-safe. Pass args without the leading \"rt\" (e.g. [\"worktree\", \"list\"]) and cwd when the verb depends on the current repo, since this server's working directory is fixed at session start and does not follow cd or EnterWorktree.",
+      description: "Run one agent-safe rt verb and return its --json result. Agent-safe verbs are the ones skills run in their normal flow, and not all are read-only: skills compile, sync, surface apply and bind write pack files, and herd brief writes its --out file. Anything else is refused with the list of verbs that are agent-safe. Pass args without the leading \"rt\" (e.g. [\"worktree\", \"list\"]) and cwd when the verb depends on the current repo, since this server's working directory is fixed at session start and does not follow cd or EnterWorktree.",
       inputSchema: {
         type: "object",
         properties: {

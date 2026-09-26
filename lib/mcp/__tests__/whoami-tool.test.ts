@@ -39,7 +39,7 @@ describe("whoami", () => {
     expect(r.body).toEqual({ sessionId: null, pane: null, chat: null, herd: null, hint: SIGN_IN_HINT });
   });
 
-  test("HERD_JOB without HERD_ID still reports the herd, since herd tools guard on HERD_JOB alone", async () => {
+  test("HERD_JOB without HERD_ID still reports the herd, since the shepherd tools treat HERD_JOB alone as a worker pane", async () => {
     const { t } = tool({ s1: SIGNED_IN });
     const r = await t.handler({}, { CLAUDE_CODE_SESSION_ID: "s1", HERD_JOB: "j" } as NodeJS.ProcessEnv);
     expect((r.body as { herd: unknown }).herd).toEqual({ id: null, job: "j", room: null });
