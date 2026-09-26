@@ -171,7 +171,7 @@ export async function checkGitState(
   try {
     const branch = (await git(seams, ["branch", "--show-current"])).trim();
     const porcelain = (await git(seams, ["status", "--porcelain"])).trim();
-    const tag = (await git(seams, ["describe", "--tags", "--abbrev=0"])).trim();
+    const tag = (await git(seams, ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"])).trim();
     const count = Number((await git(seams, ["rev-list", `${tag}..HEAD`, "--count"])).trim());
 
     const problems: string[] = [];

@@ -249,13 +249,13 @@ async function pickReleaseApp(options: SelectOption[]): Promise<string | null> {
   return filterableSelect({ message: "Release which app?", options, breadcrumb: ["rt", "release", "app"] });
 }
 
-/** The served apps this checkout's deps.lock builds from a tree, plus gitq; empty when it is not an rt checkout. */
+/** The fast-path app directories this checkout's deps.lock builds from a tree; empty when it is not an rt checkout. */
 function releaseAppOptions(seams: ReleaseAppSeams): SelectOption[] {
   const raw = seams.readFile(join(seams.repoRoot, "rt-tray", "deps.lock"));
   if (!raw) return [];
   const rows = parseDepsLock(raw).tools;
   return rows
-    .filter((r) => ((r.source === "tree" && r.serve !== undefined) || r.name === "gitq") && keepsFastPath(r.name))
+    .filter((r) => r.source === "tree" && keepsFastPath(r.name))
     .map((r) => ({ value: r.name, label: r.name, ...(r.version ? { hint: r.version } : {}) }));
 }
 

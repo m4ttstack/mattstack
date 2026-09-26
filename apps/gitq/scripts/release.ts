@@ -100,9 +100,16 @@ if (import.meta.main) {
   //    to already exist on the registry.
   for (const name of workspaceDependencies(pkg)) {
     const basename = name.split('/').pop()!;
-    const depPkg = JSON.parse(readFileSync(join(ROOT, '..', '..', 'packages', basename, 'package.json'), 'utf8')) as {
-      version: string;
-    };
+    const depPkgPath = join(ROOT, '..', '..', 'packages', basename, 'package.json');
+    let depPkg: { version: string };
+    try {
+      depPkg = JSON.parse(readFileSync(depPkgPath, 'utf8'));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        die(`${name} is a workspace: dependency but ${depPkgPath} does not exist`);
+      }
+      throw err;
+    }
     try {
       run(['npm', 'view', `${name}@${depPkg.version}`, 'version'], { capture: true, throws: true });
     } catch {
@@ -150,8 +157,12 @@ if (import.meta.main) {
     throw err;
   }
 
-  // 7. Record it.
-  run(['git', 'add', 'package.json']);
+  // 7. Record it. `bun install` run from this workspace member still resolves
+  //    and updates the root lockfile, so the version bump and bun.lock land
+  //    in the same commit; otherwise main's "Lockfile in sync" check fails
+  //    on the next `bun install`.
+  run(['bun', 'install']);
+  run(['git', 'add', 'package.json', '../../bun.lock']);
   run(['git', 'commit', '-m', `gitq: release ${next}`]);
   run(['git', 'tag', '-a', tag, '-m', `${pkg.name} ${next}`]);
   run(['git', 'push', 'origin', 'main', '--follow-tags']);
