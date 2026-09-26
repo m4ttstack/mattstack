@@ -785,9 +785,6 @@ func modalKeybarPairsFor(zone zoneID, naming bool, hasAction bool) [][2]string {
 	case zoneRepo:
 		return [][2]string{{"enter", "open"}, {"esc", "close"}}
 	case zoneBranch:
-		if !hasAction {
-			return [][2]string{{"enter", "checkout"}, {"esc", "close"}}
-		}
 		return [][2]string{{"enter", "checkout"}, {"ctrl-n", "new branch"}, {"esc", "close"}}
 	case zoneWorktree:
 		if !hasAction {
