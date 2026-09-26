@@ -185,6 +185,8 @@ const EXPECTED_TOOL_NAMES = [
   "git_push", "git_pull", "git_rebase", "branch_sync",
   "worktree_provision", "worktree_dispose", "worktree_stop_holders",
   "herd_start", "herd_spawn", "herd_brief", "herd_close", "herd_status", "herd_list", "herd_attend", "herd_wrap_up", "herd_resume", "herd_milestone",
+  "chat_read", "chat_mark", "chat_rooms", "chat_who", "chat_buddies", "chat_join", "chat_leave", "chat_away", "chat_back",
+  "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite",
 ];
 
 describe("rt mcp serve e2e", () => {
@@ -232,7 +234,7 @@ describe("rt mcp serve e2e", () => {
       const names = listResult.tools.map((t) => t.name).sort();
       expect(names).toEqual([...EXPECTED_TOOL_NAMES].sort());
 
-      const PUBLISHED = ["run_start", "run_stage", "run_field_set", "run_field_get", "run_decision", "run_status", "run_snapshot", "run_list", "mr_view", "mr_list", "mr_for_branch", "mr_threads", "mr_pipeline", "mr_job_trace", "mr_merge", "git_push", "git_pull", "git_rebase", "branch_sync", "worktree_provision", "worktree_dispose", "worktree_stop_holders", "herd_start", "herd_spawn", "herd_brief", "herd_close", "herd_status", "herd_list", "herd_attend", "herd_wrap_up", "herd_resume", "herd_milestone"];
+      const PUBLISHED = ["run_start", "run_stage", "run_field_set", "run_field_get", "run_decision", "run_status", "run_snapshot", "run_list", "mr_view", "mr_list", "mr_for_branch", "mr_threads", "mr_pipeline", "mr_job_trace", "mr_merge", "git_push", "git_pull", "git_rebase", "branch_sync", "worktree_provision", "worktree_dispose", "worktree_stop_holders", "herd_start", "herd_spawn", "herd_brief", "herd_close", "herd_status", "herd_list", "herd_attend", "herd_wrap_up", "herd_resume", "herd_milestone", "chat_read", "chat_mark", "chat_rooms", "chat_who", "chat_buddies", "chat_join", "chat_leave", "chat_away", "chat_back", "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite"];
       for (const name of PUBLISHED) expect(names, name).toContain(name);
 
       const call = await client.request("tools/call", { name: "gate_list", arguments: {} });

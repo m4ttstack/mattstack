@@ -5,7 +5,7 @@ import { join } from "path";
 import type { CommandNode } from "../../command-tree.ts";
 import { TREE } from "../../command-tree-def.ts";
 import type { ExecResult } from "../../setup/probes.ts";
-import { RT_VERB_TIMEOUT_MS, runRtVerb, type RtVerbDeps } from "../rt-verb.ts";
+import { RT_VERB_TIMEOUT_MS, runRtVerb, spawnRtJson, type RtVerbDeps } from "../rt-verb.ts";
 
 /** A real directory standing in for the Claude Code temp root -- checkTempRootPath realpaths the parent, so the root must actually exist on disk. */
 const FAKE_TEMP_ROOT = realpathSync(mkdtempSync(join(tmpdir(), "rt-verb-out-")));
@@ -279,5 +279,45 @@ describe("runRtVerb", () => {
     expect(c.ok ? "" : c.error.length).toBeLessThan(500);
     const n = await runRtVerb({ args: ["worktree", "list"] }, deps(ok("not json")));
     expect(n.ok).toBe(false);
+  });
+});
+
+describe("spawnRtJson", () => {
+  function spawnDeps(result: ExecResult, calls: { argv: string[]; opts: unknown }[]) {
+    return {
+      selfArgv: () => ["/bin/rt", "--no-env-file"],
+      spawn: async (argv: string[], opts: unknown) => {
+        calls.push({ argv, opts });
+        return result;
+      },
+    };
+  }
+
+  test("prefixes selfArgv, appends --json, sets the batch env and the default cap", async () => {
+    const calls: { argv: string[]; opts: unknown }[] = [];
+    const r = await spawnRtJson(["chat", "sign-in"], ["--session", "s1"], { cwd: "/work" }, spawnDeps(ok('{"ok":true,"handle":"ann"}'), calls));
+    expect(r).toEqual({ ok: true, body: { ok: true, handle: "ann" } });
+    expect(calls[0]!.argv).toEqual(["/bin/rt", "--no-env-file", "chat", "sign-in", "--session", "s1", "--json"]);
+    expect(calls[0]!.opts).toEqual({ cwd: "/work", env: { RT_BATCH: "1", RT_SKIP_SETUP: "1" }, timeoutMs: RT_VERB_TIMEOUT_MS });
+  });
+
+  test("does not add a second --json", async () => {
+    const calls: { argv: string[]; opts: unknown }[] = [];
+    await spawnRtJson(["chat", "sign-in"], ["--json"], {}, spawnDeps(ok("{}"), calls));
+    expect(calls[0]!.argv.filter((a) => a === "--json")).toHaveLength(1);
+  });
+
+  test("refuses a control character with no spawn", async () => {
+    const calls: { argv: string[]; opts: unknown }[] = [];
+    const r = await spawnRtJson(["chat", "sign-in"], ["--status", "a\u001bb"], {}, spawnDeps(ok("{}"), calls));
+    expect(r.ok).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  test("maps a timeout and an exit-2 envelope as runRtVerb does", async () => {
+    const t = await spawnRtJson(["chat", "sign-in"], [], { timeoutMs: 5000 }, spawnDeps({ code: 124, stdout: "", stderr: "" }, []));
+    expect(t).toEqual({ ok: false, error: "rt chat sign-in timed out after 5s" });
+    const e = await spawnRtJson(["chat", "sign-in"], [], {}, spawnDeps({ code: 2, stdout: '{"ok":false,"error":"no session id"}', stderr: "" }, []));
+    expect(e).toEqual({ ok: false, error: "no session id" });
   });
 });
