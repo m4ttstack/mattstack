@@ -187,8 +187,6 @@ jobs:
           restore-keys: mattstack-deps-${{ runner.os }}-
 
       - name: Fetch bundled dependencies
-        env:
-          GH_TOKEN: ${{ secrets.MATTSTACK_RELEASE_TOKEN }}
         run: scripts/fetch-deps.sh arm64
 
       - name: Land the tree rows

@@ -63,7 +63,7 @@ export interface PreflightSeams {
   violations(): { path: string }[];
 }
 
-/** Apps deck merely serves; a diff limited to their directories, the notes and website keeps the fast path. */
+/** Apps built from this tree at the release SHA; a diff limited to their directories, the notes and website keeps the fast path. */
 export const SERVE_ONLY_APPS = ["board", "boxscore", "chat", "console", "gitq"] as const;
 const FAST_PATH_FILES = new Set(["RELEASE_NOTES.md"]);
 
@@ -78,7 +78,7 @@ export function movedServedApps(files: string[]): string[] {
   return SERVE_ONLY_APPS.filter((a) => seen.has(a));
 }
 
-/** Whether this name is one of the apps deck merely serves. */
+/** Whether this name is one of the apps built from this tree at the release SHA. */
 export function keepsFastPath(name: string): boolean {
   return (SERVE_ONLY_APPS as readonly string[]).includes(name);
 }
@@ -100,7 +100,6 @@ export function compareVersions(a: string, b: string): number {
 
 /** Standalone app rows live in their own repos; fast-browser's deps.lock url is npm, so its repo is declared here. */
 const STANDALONE_REPOS: Record<string, string> = {
-  gitq: "m4ttstack/gitq",
   "fast-browser": "m4ttstack/fast-browser",
 };
 
@@ -172,7 +171,7 @@ export async function checkGitState(
   try {
     const branch = (await git(seams, ["branch", "--show-current"])).trim();
     const porcelain = (await git(seams, ["status", "--porcelain"])).trim();
-    const tag = (await git(seams, ["describe", "--tags", "--abbrev=0"])).trim();
+    const tag = (await git(seams, ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"])).trim();
     const count = Number((await git(seams, ["rev-list", `${tag}..HEAD`, "--count"])).trim());
 
     const problems: string[] = [];

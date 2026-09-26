@@ -63,9 +63,10 @@ pinning its own version. `packages/tui-kit` and `apps/board` each pin
 would downgrade their compiler, so both opt out on purpose, for the same
 reason. Do not add a further exception without the same kind of reason.
 `packages/glance` and `packages/glance-react` pin TypeScript 5.9, vite 7 and
-`@vitejs/plugin-react` 5 explicitly, the third documented exception, until
-they are bumped in their own PR; `extensions/vscode/rt-context` pins the
-same TypeScript 5.9 line for its esbuild path, a fourth.
+`@vitejs/plugin-react` 5 explicitly, and `apps/gitq` keeps the same
+TypeScript 5.9 line explicitly, the third documented exception, until they
+are bumped in their own PR; `extensions/vscode/rt-context` pins the same
+TypeScript 5.9 line for its esbuild path, a fourth.
 Member-level lockfiles are forbidden: the root
 `bun.lock` is the only lockfile that owns resolution, so a workspace
 member never runs `bun install` scoped to itself in a way that would
@@ -164,7 +165,9 @@ from a different Mantine version.
 ### Publishing
 
 `packages/glance` and `packages/glance-react` publish to npm on demand
-(`packages/glance/docs/releasing.md`); nothing else in this repo publishes.
+(`packages/glance/docs/releasing.md`), and `apps/gitq` publishes
+`@mattstack/gitq` to npm on demand too (`bun run release`, per
+`apps/gitq/docs/releasing.md`); nothing else in this repo publishes.
 `@mattstack/app-kit`,
 `@mattstack/app-server`, `@mattstack/mantine-tokyo`, and
 `@mattstack/tui-kit` each carry a version (bumped together via

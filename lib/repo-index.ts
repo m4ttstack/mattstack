@@ -62,10 +62,11 @@ export const REPO_INDEX_NS = "repo-index";
 
 /**
  * Deprecated derived-compatibility path: state.db is authoritative, but
- * out-of-process rt-client consumers still read this file directly against
- * a PUBLISHED @mattstack/rt-client (gitq's secrets.ts and data.ts, at
- * minimum — they run in their own process and cannot see this process's
- * state.db handle). Kept in sync on every repo-index write so those readers
+ * out-of-process rt-client consumers still read this file directly (gitq's
+ * secrets.ts and data.ts, at minimum). Their bundle vendors rt-client's
+ * workspace build and still falls back to this file under node, since they
+ * run in their own process and cannot see this process's state.db handle.
+ * Kept in sync on every repo-index write so those readers
  * don't go stale. Safe to delete once rt-client resolves the repo index
  * through state.db (or the daemon) and every consumer has upgraded past
  * @mattstack/rt-client 0.3.0.

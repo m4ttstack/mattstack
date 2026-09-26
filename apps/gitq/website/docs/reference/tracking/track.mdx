@@ -1,0 +1,42 @@
+---
+title: gitq track
+sidebar_label: track
+---
+
+# gitq track
+
+Starts tracking a new stack rooted at an existing branch.
+
+## Usage
+
+```bash
+gitq track <stackName> --root <branch>
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--root <branch>` | Required. The branch this stack grows from, typically your trunk. Stored on the stack, never as one of its nodes. |
+
+## Behavior
+
+Pure bookkeeping: creates a new, empty stack in the store (a fresh UUID `id`, `stackName`, `root`, and an empty `nodes` list, `src/core/stack-manager.ts:42-44`) and returns. It does not create the root branch, does not require the root branch to exist yet, and does not touch any git ref (`src/cli/commands/crud.ts:24-34`).
+
+- Refuses with usage help if `<stackName>` or `--root` is missing.
+- Refuses if a stack with that name is already tracked in this repo: `gitq: stack <name> already exists`.
+- **Not guarded by the stack lease.** `track` is the one mutating command exempt from `requireStackFree`, because the stack it is about to create cannot yet hold a lease.
+- Prints `tracked <stackName> (root <root>)` on success. Under `--json`, emits `{ stack }`, the freshly created `Stack`. See [JSON output](/reference/json-output).
+
+## Exit codes
+
+- `0`: the stack was created.
+- `1`: missing `<stackName>` or `--root`, or a stack by that name already exists.
+
+See [Exit codes](/reference/exit-codes) for the general contract.
+
+## See also
+
+- [Your first stack](/getting-started/first-stack): `track` as the first step of building a stack.
+- [The stack tree](/concepts/stack-tree): what a stack and a node store, and why the root isn't a node.
+- [`gitq untrack`](/reference/tracking/untrack), [`gitq add`](/reference/tracking/add).

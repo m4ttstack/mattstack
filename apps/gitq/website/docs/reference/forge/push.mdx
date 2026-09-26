@@ -1,0 +1,90 @@
+---
+title: gitq push
+sidebar_label: push
+---
+
+# gitq push
+
+Brings every published branch in a stack up to its local head on the remote. This is the command for the state a restack leaves behind: the local branches are correct, and every MR still points at the commits from before.
+
+## Usage
+
+```bash
+gitq push [--preview] [--stack <name>]
+```
+
+## Flags
+
+| flag | meaning |
+|------|---------|
+| `--stack <name>` | Which tracked stack to push. Optional when the repo has exactly one; required otherwise. See [Global flags](/reference/global-flags#the---stack-rule). |
+| `--preview` | Print the per-branch plan and push nothing. Preview resolves the plan and returns before the executor is reached at all (`src/cli/commands/forge.ts:170-175`), so it cannot push by accident. |
+
+## No token, no forge call
+
+`push` reads which branches are published from the local store (`node.mrIid`), not from the forge. It opens no provider, resolves no token, and makes no API request: it moves refs and nothing else.
+
+That is deliberate. A restacked stack is exactly the state where every MR is stale, and needing a working forge API, or any credential beyond the one git already uses, to fix that would be a bad trade. It also means `push` works against a forge gitq has no provider for.
+
+## Behavior
+
+Walks the stack in topological order and does one of four things per node (`buildPushPlan`, `src/core/push.ts:23-38`):
+
+| node state | action |
+|------------|--------|
+| has an `mrIid`, not merged, `refs/remotes/origin/<branch>` differs from the local head | `git push --force-with-lease origin <branch>` |
+| has an `mrIid`, remote-tracking ref already matches the local head | `already current`, nothing sent |
+| `status` is `merged` | skipped: the forge may have deleted the branch when it merged |
+| `mrIid` is `null` | skipped, pointing at [`gitq publish`](/reference/forge/publish), which creates the branch and its MR together |
+
+The decision is pure, taken from heads alone, so which node state produces which action is testable without a repo (`tests/push.test.ts`). Resolving those heads is the executor's job (`ForgePush.planPush`, `src/core/push.ts:71-101`).
+
+### It never fetches, on purpose
+
+`--force-with-lease` compares against `refs/remotes/origin/<branch>`. Fetching first would refresh the very ref the lease is checking, which is the standard way this protection gets defanged: it would bless a push someone else made between their push and yours, then overwrite it.
+
+So `push` leaves the remote-tracking ref alone. If the remote moved since your last fetch, git rejects the push and gitq reports:
+
+```
+feat-api: REJECTED (remote moved since last fetch; run gitq sync)
+```
+
+Nothing was written to that branch. `gitq sync` fetches, so it is both the diagnosis and the fix; a plain `git fetch` followed by another `gitq push` works too, once you have looked at what moved. A branch with no remote-tracking ref at all is rejected the same way, with the same advice (`pushErrorMessage`, `src/core/push.ts:61-67`).
+
+### One rejection does not stop the walk
+
+Unlike [`publish`](/reference/forge/publish), where a failed create stops everything because the branches below have no base to target, each branch here is independent: `feat-api` being rejected does not make `feat-handlers`' push wrong. Every branch is attempted, and the failures are reported per branch (`ForgePush.pushStack`, `src/core/push.ts:103-126`).
+
+### Guarded, but takes no lease
+
+`push` refuses while the stack holds a lease, the same guard every mutating command uses (`requireStackFree`). Pushing a half-restacked stack mid-pause would put exactly the wrong commits in front of a reviewer. It takes no lease of its own, since it moves no local refs.
+
+It writes no operation-log entry either. The log backs [`gitq undo`](/reference/other/undo), which restores local branch heads; a push is not undoable that way, and an entry undo cannot honor would be worse than none.
+
+## Output
+
+```
+$ gitq push
+feat-api: pushed 02583d1 -> 8f2a1c4
+feat-handlers: pushed 6993cae -> 1a0f9b2
+feat-ui: already current
+feat-db: REJECTED (remote moved since last fetch; run gitq sync)
+feat-old: skipped (merged)
+feat-new: skipped (no MR; use gitq publish)
+
+pushed 2, current 1, failed 1, skipped 2
+```
+
+Under `--json`, `results` carries one record per branch with `branch`, `action` (`pushed`, `current`, `failed`, or `skipped`), `before` and `after` (the remote head before, and the local head that is now on it), plus `detail` on a skip and `error` on a failure. `--preview` emits `plan` instead, whose entries carry `branch`, `action` (`push`, `current`, or `skip`), `localHead`, and `remoteHead`.
+
+## Exit codes
+
+- `0`: no branch failed. Includes the run where everything was already current, and the run where every node was skipped.
+- `1`: at least one branch was rejected, or a hard refusal before the walk (a lease held, `--stack` unresolved).
+
+Never exits `2`.
+
+## See also
+
+- [`gitq sync`](/reference/cascade/sync): restacks the branches, and fetches. Run it first; `push` ships the result.
+- [`gitq publish`](/reference/forge/publish): opens MRs for branches that have none, and pushes those branches as part of creating them.

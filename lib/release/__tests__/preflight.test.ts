@@ -38,9 +38,10 @@ const APP_ROW = row({
   name: "board", version: "0.1.4", repo: "m4ttstack/apps", subdir: "apps/board",
   url: "https://github.com/m4ttstack/apps/releases/download/board-v0.1.4/board-darwin-arm64.tgz",
 });
-const GITQ_ROW = row({
-  name: "gitq", version: "0.2.1", repo: "m4ttstack/gitq",
-  url: "https://github.com/m4ttstack/gitq/releases/download/v0.2.1/gitq-darwin-arm64",
+const GITQ_ROW = row({ name: "gitq", version: "", url: "", source: "tree" });
+const WIDGET_ROW = row({
+  name: "widget", version: "0.2.1", repo: "m4ttstack/widget",
+  url: "https://github.com/m4ttstack/widget/releases/download/v0.2.1/widget-darwin-arm64",
 });
 const FB_ROW = row({
   name: "fast-browser", version: "0.1.3",
@@ -77,7 +78,9 @@ describe("normalizeVersion", () => {
 describe("pinnedTagFromUrl", () => {
   test("reads the release tag out of a GitHub download url", () => {
     expect(pinnedTagFromUrl(APP_ROW.url)).toBe("board-v0.1.4");
-    expect(pinnedTagFromUrl(GITQ_ROW.url)).toBe("v0.2.1");
+    expect(pinnedTagFromUrl("https://github.com/m4ttstack/gitq/releases/download/v0.2.1/gitq-darwin-arm64")).toBe(
+      "v0.2.1",
+    );
   });
   test("null for non-release urls", () => {
     expect(pinnedTagFromUrl(NODE_ROW.url)).toBeNull();
@@ -88,13 +91,22 @@ describe("classifyRows", () => {
   test("splits standalone repos from everything else", () => {
     const rows = [APP_ROW, GITQ_ROW, FB_ROW, GH_ROW, NODE_ROW];
     const c = classifyRows(rows);
-    expect(c.standalone.map((r) => r.name)).toEqual(["gitq", "fast-browser"]);
+    expect(c.standalone.map((r) => r.name)).toEqual(["fast-browser"]);
     expect(c.tools.map((r) => r.name)).toEqual(["board", "gh", "node"]);
   });
   test("a tree row is dropped: it has no upstream url or repo to diff against", () => {
     const treeRow = row({ name: "deck", version: "", url: "", source: "tree" });
     const c = classifyRows([treeRow, APP_ROW, GH_ROW]);
     expect(c.tools.map((r) => r.name)).toEqual(["board", "gh"]);
+    expect(c.standalone).toEqual([]);
+  });
+  test("a non-tree gitq row is a tool, not standalone: gitq is no longer in STANDALONE_REPOS", () => {
+    const gitqDownloadRow = row({
+      name: "gitq", version: "0.2.1", repo: "m4ttstack/gitq",
+      url: "https://github.com/m4ttstack/gitq/releases/download/v0.2.1/gitq-darwin-arm64",
+    });
+    const c = classifyRows([gitqDownloadRow]);
+    expect(c.tools.map((r) => r.name)).toEqual(["gitq"]);
     expect(c.standalone).toEqual([]);
   });
 });
@@ -146,6 +158,25 @@ describe("checkGitState", () => {
     const r = await checkGitState(seams());
     expect(r.row.status).toBe("error");
     expect(r.tag).toBeNull();
+  });
+
+  test("describe is scoped to v[0-9]* so a gitq-v* tag never wins", async () => {
+    let describeArgv: readonly string[] = [];
+    const s = seams({
+      exec: (argv) => {
+        const cmd = argv.join(" ");
+        if (cmd.includes("--show-current")) return ok("main\n");
+        if (cmd.includes("status")) return ok("");
+        if (cmd.includes("describe")) {
+          describeArgv = argv;
+          return ok("v2.10.2\n");
+        }
+        if (cmd.includes("rev-list")) return ok("3\n");
+        return failExec();
+      },
+    });
+    await checkGitState(s);
+    expect(describeArgv).toEqual(["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"]);
   });
 });
 
@@ -237,13 +268,13 @@ describe("checkStandaloneRows", () => {
     const s = seams({
       exec: (argv) => {
         const cmd = argv.join(" ");
-        if (cmd.includes("m4ttstack/gitq")) return ok("v0.2.1\n");
+        if (cmd.includes("m4ttstack/widget")) return ok("v0.2.1\n");
         if (cmd.includes("m4ttstack/fast-browser")) return ok("v0.1.4\n");
         return failExec();
       },
     });
-    const rows = await checkStandaloneRows(s, [GITQ_ROW, FB_ROW]);
-    expect(rows.find((r) => r.id === "standalone:gitq")!.status).toBe("ok");
+    const rows = await checkStandaloneRows(s, [WIDGET_ROW, FB_ROW]);
+    expect(rows.find((r) => r.id === "standalone:widget")!.status).toBe("ok");
     const fb = rows.find((r) => r.id === "standalone:fast-browser")!;
     expect(fb.status).toBe("stale");
     expect(fb.current).toBe("0.1.4");

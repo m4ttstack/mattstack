@@ -1,0 +1,9 @@
+{
+  "label": "Guides",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "title": "Guides",
+    "description": "Task by task walkthroughs for the things you will actually do with a stack."
+  }
+}

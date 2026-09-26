@@ -295,8 +295,8 @@ board is one app in [mattstack](https://github.com/m4ttstack), a personal
 developer estate: [rt](https://github.com/m4ttstack/rt) is the CLI and daemon
 this board reads its MR data from,
 [deck](../deck) (in this same repo) serves it locally at
-`board.mattstack`, [gitq](https://github.com/m4ttstack/gitq) manages stacked
-branches, [glance](https://github.com/m4ttstack/glance) models the forge data,
+`board.mattstack`, [gitq](../gitq) (in this same repo) manages stacked
+branches, [glance](../../packages/glance) (in this same repo) models the forge data,
 and [skills](https://github.com/m4ttstack/skills) plus the
 [marketplace](https://github.com/m4ttstack/mattstack-marketplace) carry the
 agent skills the row actions invoke.

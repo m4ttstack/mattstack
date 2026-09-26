@@ -8,14 +8,11 @@ const lock = parseDepsLock(
 );
 
 describe("live deps.lock buildable set", () => {
-  test("gitq still pins its own repo; the apps-monorepo rows are built from this checkout instead", () => {
-    const gitq = lock.tools.find((t) => t.name === "gitq");
-    expect(gitq?.repo).toBe("m4ttstack/gitq");
-    expect(gitq?.subdir).toBeUndefined();
-
+  test("the apps-monorepo rows, gitq included, are built from this checkout instead of pinned to a repo", () => {
     const wantTree: Record<string, { skills?: boolean }> = {
       deck: { skills: true },
       board: { skills: true },
+      gitq: {},
       console: {},
       chat: {},
       boxscore: {},
@@ -30,17 +27,8 @@ describe("live deps.lock buildable set", () => {
     }
   });
 
-  test("repo-bearing rows are fully pinned or explicitly pending", () => {
-    for (const t of lock.tools) {
-      if (!t.repo) continue;
-      if (t.status === "bundled") {
-        expect(t.url, t.name).toMatch(/^https:\/\/github\.com\/m4ttstack\//);
-        expect(t.sha256, t.name).toMatch(/^[0-9a-f]{64}$/);
-        expect(t.version, t.name).not.toBe("");
-      } else {
-        expect(t.url, t.name).toBe("");
-      }
-    }
+  test("no row carries a repo field, now that gitq folded into the tree rows above", () => {
+    expect(lock.tools.filter((t) => t.repo)).toEqual([]);
   });
 
   test("third-party pins carry no repo", () => {

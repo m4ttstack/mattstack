@@ -1,0 +1,754 @@
+import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { restoreMockedModulesAfterAll } from './module-restore.ts';
+import { BranchSplitter } from '../src/core/branch-splitter.ts';
+import { StackManager } from '../src/core/stack-manager.ts';
+import { GitShell } from '../src/core/git-shell.ts';
+import type { Stack } from '../src/core/types.ts';
+
+restoreMockedModulesAfterAll();
+
+/** Build a test stack with a branch that has multiple commits. */
+function buildTestStack(): Stack {
+  let stack = StackManager.createStack('feature', 'main');
+  stack = StackManager.addNode(stack, 'feat/big-branch', 'main');
+  stack = StackManager.updateNode(stack, 'feat/big-branch', { lastKnownHead: 'commit-5' });
+  return stack;
+}
+
+/** Build a stack where the source branch already has children. */
+function buildStackWithChildren(): Stack {
+  let stack = buildTestStack();
+  stack = StackManager.addNode(stack, 'feat/child-a', 'feat/big-branch');
+  stack = StackManager.updateNode(stack, 'feat/child-a', { lastKnownHead: 'child-head' });
+  return stack;
+}
+
+/** Where the source branch forks from its stack parent in these stubs. */
+const FORK_SHA = 'fork-point-sha';
+
+/**
+ * The stubs behind tailSplit's containment questions: the source branch exists
+ * in git and forks from its parent at `FORK_SHA`. `onBranch` lists the shas
+ * reachable from the source (omitted: all of them); `belowFork` lists the ones
+ * sitting at or below the fork point (none by default). Both answers come back
+ * through isAncestor, the way tailSplit asks git. `noFork` stands in for a
+ * parent ref git cannot find, which leaves no fork point to compare against.
+ */
+function containment(opts: { onBranch?: string[]; belowFork?: string[]; noFork?: boolean } = {}) {
+  return {
+    branchExists: mock(() => Promise.resolve(true)),
+    getMergeBase: mock(() =>
+      opts.noFork ? Promise.reject(new Error('no merge base')) : Promise.resolve(FORK_SHA),
+    ),
+    isAncestor: mock((_: string, ancestor: string, descendant: string) =>
+      Promise.resolve(
+        descendant === FORK_SHA
+          ? (opts.belowFork ?? []).includes(ancestor)
+          : opts.onBranch === undefined || opts.onBranch.includes(ancestor),
+      ),
+    ),
+  };
+}
+
+// ── tailSplit ────────────────────────────────────────────────────────────────
+
+describe('BranchSplitter.tailSplit', () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test('creates new branch at source HEAD and CAS-rewinds source to the split point', async () => {
+    const branchAtCalls: { name: string; from: string }[] = [];
+    const updateRefCasCalls: { branch: string; newSha: string; oldSha: string }[] = [];
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
+        getBranchHead: mock((_, branch: string) => {
+          if (branch === 'feat/big-branch') return Promise.resolve('commit-5');
+          return Promise.resolve('commit-3');
+        }),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        ...containment(),
+        logOneLine: mock(() =>
+          Promise.resolve([
+            { sha: 'commit-5', message: 'Fifth commit' },
+            { sha: 'commit-4', message: 'Fourth commit' },
+          ]),
+        ),
+        branchAt: mock((_: string, name: string, from: string) => {
+          branchAtCalls.push({ name, from });
+          return Promise.resolve();
+        }),
+        updateRefCas: mock((_: string, branch: string, newSha: string, oldSha: string) => {
+          updateRefCasCalls.push({ branch, newSha, oldSha });
+          return Promise.resolve();
+        }),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildTestStack();
+    const result = await BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/split-tail', 'commit-3');
+
+    // New branch was created at source HEAD, ref-only (no checkout)
+    expect(branchAtCalls).toHaveLength(1);
+    expect(branchAtCalls[0]!.name).toBe('feat/split-tail');
+    expect(branchAtCalls[0]!.from).toBe('commit-5');
+
+    // Source was CAS-rewound to the split point
+    expect(updateRefCasCalls).toHaveLength(1);
+    expect(updateRefCasCalls[0]!.branch).toBe('feat/big-branch');
+    expect(updateRefCasCalls[0]!.oldSha).toBe('commit-5');
+    expect(updateRefCasCalls[0]!.newSha).toBe('commit-3');
+
+    // Result has correct structure
+    expect(result.newBranch).toBe('feat/split-tail');
+    expect(result.movedCommits).toEqual(['commit-5', 'commit-4']);
+  });
+
+  test('adds new branch as child of source in stack tree', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
+        getBranchHead: mock(() => Promise.resolve('head-sha')),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        ...containment(),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'commit-5', message: 'Fifth' }])),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildTestStack();
+    const result = await BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/split-tail', 'commit-3');
+
+    // New branch is a child of source
+    const newNode = StackManager.findNode(result.updatedStack, 'feat/split-tail');
+    expect(newNode).toBeDefined();
+    expect(newNode!.parent).toBe('feat/big-branch');
+  });
+
+  test('updates lastKnownHead on both branches', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
+        getBranchHead: mock((_: string, branch: string) => {
+          if (branch === 'feat/big-branch') return Promise.resolve('original-head');
+          return Promise.resolve('reset-head');
+        }),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        ...containment(),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'original-head', message: 'Latest' }])),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildTestStack();
+    const result = await BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/tail', 'split-point');
+
+    // New branch gets the original source HEAD as lastKnownHead
+    const newNode = StackManager.findNode(result.updatedStack, 'feat/tail');
+    expect(newNode!.lastKnownHead).toBe('original-head');
+  });
+
+  test('re-parents existing children of source to new branch', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
+        getBranchHead: mock(() => Promise.resolve('head-sha')),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        ...containment(),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'commit-5', message: 'Fifth' }])),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildStackWithChildren();
+    const result = await BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/tail', 'commit-3');
+
+    // feat/child-a should now be a child of feat/tail, not feat/big-branch
+    const child = StackManager.findNode(result.updatedStack, 'feat/child-a');
+    expect(child!.parent).toBe('feat/tail');
+  });
+
+  test('throws if source branch not in stack', async () => {
+    const stack = buildTestStack();
+
+    await expect(BranchSplitter.tailSplit('/tmp/repo', stack, 'nonexistent', 'feat/new', 'abc')).rejects.toThrow(
+      /not found in stack/,
+    );
+  });
+
+  test('throws if new branch name already exists in stack', async () => {
+    const stack = buildTestStack();
+
+    await expect(
+      BranchSplitter.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/big-branch', 'abc'),
+    ).rejects.toThrow(/already exists/);
+  });
+
+  test('does not refuse on tree dirtiness alone (ref-only surgery, no preflight check)', async () => {
+    // Old contract: any dirty cwd refused the split outright. New contract:
+    // tailSplit never reads the working tree, so a dirty `cwd` that isn't
+    // the branch's own checkout (no worktree owns it) does not block.
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(true)),
+        hasUnstagedChanges: mock(() => Promise.resolve(true)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        worktreeList: mock(() => Promise.resolve([])),
+        getBranchHead: mock(() => Promise.resolve('commit-5')),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        ...containment(),
+        logOneLine: mock(() => Promise.resolve([{ sha: 'commit-5', message: 'Fifth' }])),
+        branchAt: mock(() => Promise.resolve()),
+        updateRefCas: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildTestStack();
+
+    const result = await BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/new', 'commit-3');
+    expect(result.newBranch).toBe('feat/new');
+  });
+
+  test('throws if split point is at HEAD (no commits to move)', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getBranchHead: mock(() => Promise.resolve('commit-5')),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        ...containment(),
+        logOneLine: mock(() => Promise.resolve([])),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildTestStack();
+
+    await expect(BS.tailSplit('/tmp/repo', stack, 'feat/big-branch', 'feat/new', 'commit-5')).rejects.toThrow(
+      /No commits to split/,
+    );
+  });
+});
+
+// ── tailSplit: split-point resolution ────────────────────────────────────────
+
+const FULL_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+
+/**
+ * Mock GitShell for a branch whose head is `head-sha`, where `resolve` decides
+ * what the caller's `--at` input resolves to, `onBranch` shas are reachable
+ * from the source branch, and `belowFork` shas sit at or below where it forks
+ * from its stack parent.
+ */
+function mockSplitRepo(opts: {
+  resolve: unknown;
+  onBranch?: string[];
+  belowFork?: string[];
+  noFork?: boolean;
+  moved?: { sha: string; message: string }[];
+  logFails?: Error;
+  casCalls?: { newSha: string; oldSha: string }[];
+}) {
+  const onBranch = opts.onBranch ?? [];
+  mock.module('../src/core/git-shell.ts', () => ({
+    GitShell: {
+      ...GitShell,
+      isDirty: mock(() => Promise.resolve(false)),
+      hasUnstagedChanges: mock(() => Promise.resolve(false)),
+      hasStagedChanges: mock(() => Promise.resolve(false)),
+      worktreeList: mock(() => Promise.resolve([])),
+      getBranchHead: mock(() => Promise.resolve('head-sha')),
+      resolveRef: mock(() => Promise.resolve(opts.resolve)),
+      ...containment({ onBranch, belowFork: opts.belowFork, noFork: opts.noFork }),
+      logOneLine: mock(() =>
+        opts.logFails
+          ? Promise.reject(opts.logFails)
+          : Promise.resolve(opts.moved ?? [{ sha: 'moved-1', message: 'Later work' }]),
+      ),
+      branchAt: mock(() => Promise.resolve()),
+      updateRefCas: mock((_: string, __: string, newSha: string, oldSha: string) => {
+        opts.casCalls?.push({ newSha, oldSha });
+        return Promise.resolve();
+      }),
+    },
+  }));
+}
+
+describe('BranchSplitter.tailSplit split-point resolution', () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test('accepts a short sha and splits at the full commit git resolved', async () => {
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({ resolve: { kind: 'resolved', sha: FULL_SHA }, onBranch: [FULL_SHA], casCalls });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', 'a1b2c3d');
+
+    expect(result.movedCommits).toEqual(['moved-1']);
+    // The source rewinds to the full sha, never to the abbreviation.
+    expect(casCalls).toEqual([{ newSha: FULL_SHA, oldSha: 'head-sha' }]);
+  });
+
+  test('accepts a full sha', async () => {
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({ resolve: { kind: 'resolved', sha: FULL_SHA }, onBranch: [FULL_SHA], casCalls });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA);
+
+    expect(result.newBranch).toBe('feat/tail');
+    expect(casCalls).toEqual([{ newSha: FULL_SHA, oldSha: 'head-sha' }]);
+  });
+
+  test('reports an ambiguous abbreviation as ambiguous, with the candidates', async () => {
+    mockSplitRepo({
+      resolve: {
+        kind: 'ambiguous',
+        candidates: ['63b2796818f58177ce943f07a045c29893d9a701', '63b2bc6d4322b8b338956b5b4cc85565d25db3d0'],
+      },
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    let message = '';
+    try {
+      await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', '63b2');
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toMatch(/ambiguous abbreviation \(matches 63b2796818, 63b2bc6d43\)/);
+    expect(message).not.toMatch(/not found in branch/);
+  });
+
+  test('keeps "not found in branch" for a sha that resolves but is not on the source branch', async () => {
+    mockSplitRepo({ resolve: { kind: 'resolved', sha: FULL_SHA }, onBranch: [] });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+
+    await expect(
+      BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA),
+    ).rejects.toThrow(/not found in branch "feat\/big-branch"/);
+  });
+
+  test('says the ref does not resolve when git knows nothing about it', async () => {
+    mockSplitRepo({ resolve: { kind: 'unknown' } });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+
+    await expect(
+      BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', 'deadbee'),
+    ).rejects.toThrow(/does not resolve to a commit/);
+  });
+
+  test('splits at a commit older than the commit-log window', async () => {
+    // The old implementation scanned getCommitLog's 50-commit default and
+    // called anything past it "not found in branch". Containment now comes
+    // from git, so an ancient commit is still a valid split point.
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({
+      resolve: { kind: 'resolved', sha: FULL_SHA },
+      onBranch: [FULL_SHA],
+      moved: Array.from({ length: 120 }, (_, i) => ({ sha: `moved-${i}`, message: `commit ${i}` })),
+      casCalls,
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA);
+
+    expect(result.movedCommits).toHaveLength(120);
+    expect(casCalls).toEqual([{ newSha: FULL_SHA, oldSha: 'head-sha' }]);
+  });
+});
+
+// ── tailSplit: the fork-point floor ──────────────────────────────────────────
+
+describe('BranchSplitter.tailSplit fork-point floor', () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test('refuses a split point below the fork with the stack parent, naming the HEAD~n trap', async () => {
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({
+      resolve: { kind: 'resolved', sha: FULL_SHA },
+      onBranch: [FULL_SHA],
+      belowFork: [FULL_SHA],
+      casCalls,
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    let message = '';
+    try {
+      await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', 'HEAD~2');
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toMatch(/at or below where "feat\/big-branch" forks from "main"/);
+    expect(message).toMatch(/"HEAD~n" counts back from the checked-out branch/);
+    expect(message).toMatch(/use "feat\/big-branch~n" instead/);
+    // Nothing was rewound: the guard runs before any ref moves.
+    expect(casCalls).toEqual([]);
+  });
+
+  test('refuses a split point sitting exactly on the fork point', async () => {
+    mockSplitRepo({
+      resolve: { kind: 'resolved', sha: FORK_SHA },
+      onBranch: [FORK_SHA],
+      belowFork: [FORK_SHA],
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+
+    await expect(
+      BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', 'main'),
+    ).rejects.toThrow(/at or below where "feat\/big-branch" forks from "main"/);
+  });
+
+  test('splits at the oldest commit above the fork', async () => {
+    const casCalls: { newSha: string; oldSha: string }[] = [];
+    mockSplitRepo({
+      resolve: { kind: 'resolved', sha: FULL_SHA },
+      onBranch: [FULL_SHA],
+      belowFork: [FORK_SHA],
+      casCalls,
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA);
+
+    expect(result.newBranch).toBe('feat/tail');
+    expect(casCalls).toEqual([{ newSha: FULL_SHA, oldSha: 'head-sha' }]);
+  });
+
+  test('stands down when the parent ref is gone, rather than blocking the split', async () => {
+    mockSplitRepo({ resolve: { kind: 'resolved', sha: FULL_SHA }, onBranch: [FULL_SHA], noFork: true });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const result = await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA);
+
+    expect(result.newBranch).toBe('feat/tail');
+  });
+});
+
+// ── tailSplit: honest failures ───────────────────────────────────────────────
+
+describe('BranchSplitter.tailSplit failure reporting', () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test('says the source branch is missing from git instead of blaming the split point', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        branchExists: mock(() => Promise.resolve(false)),
+        resolveRef: mock((_: string, ref: string) => Promise.resolve({ kind: 'resolved', sha: ref })),
+        isAncestor: mock(() => Promise.resolve(false)),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    let message = '';
+    try {
+      await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', 'commit-3');
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toMatch(/Branch "feat\/big-branch" is in stack ".+" but does not exist in this repository/);
+    expect(message).not.toMatch(/not found in branch/);
+  });
+
+  test('surfaces a failed range walk instead of calling it an empty range', async () => {
+    mockSplitRepo({
+      resolve: { kind: 'resolved', sha: FULL_SHA },
+      onBranch: [FULL_SHA],
+      logFails: new Error('git log --format=%H %s a..b failed: fatal: bad revision'),
+    });
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    let message = '';
+    try {
+      await BS.tailSplit('/tmp/repo', buildTestStack(), 'feat/big-branch', 'feat/tail', FULL_SHA);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+
+    expect(message).toMatch(/fatal: bad revision/);
+    expect(message).not.toMatch(/No commits to split/);
+  });
+});
+
+// ── getCommitLog ─────────────────────────────────────────────────────────────
+
+describe('BranchSplitter.getCommitLog', () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test('returns structured commit log', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        logDetailed: mock(() =>
+          Promise.resolve([
+            { sha: 'abc123', subject: 'Add feature X' },
+            { sha: 'def456', subject: 'Fix bug Y' },
+          ]),
+        ),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const commits = await BS.getCommitLog('/tmp/repo', 'main');
+
+    expect(commits).toHaveLength(2);
+    expect(commits[0]!.sha).toBe('abc123');
+    expect(commits[0]!.subject).toBe('Add feature X');
+  });
+
+  test('returns empty array for branch with no commits', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        logDetailed: mock(() => Promise.resolve([])),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const commits = await BS.getCommitLog('/tmp/repo', 'empty-branch');
+
+    expect(commits).toEqual([]);
+  });
+});
+
+// ── splitByFile ──────────────────────────────────────────────────────────────
+
+function buildSplitByFileStack(): Stack {
+  let stack = StackManager.createStack('test', 'main');
+  stack = StackManager.addNode(stack, 'feat/mixed', 'main');
+  stack = StackManager.updateNode(stack, 'feat/mixed', { lastKnownHead: 'mixed-head' });
+  return stack;
+}
+
+describe('BranchSplitter.splitByFile', () => {
+  beforeEach(() => {
+    mock.restore();
+  });
+
+  test('files matching pattern go to new branch', async () => {
+    const addCalls: string[][] = [];
+    const checkoutFilesCalls: { ref: string; files: string[] }[] = [];
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getMergeBase: mock(() => Promise.resolve('merge-base-sha')),
+        diffNameOnly: mock(() => Promise.resolve(['api.ts', 'config.json', 'schema.sql', 'utils.ts'])),
+        getBranchHead: mock(() => Promise.resolve('mixed-head')),
+        createBranch: mock(() => Promise.resolve()),
+        checkoutBranch: mock(() => Promise.resolve()),
+        checkoutFiles: mock((_: string, ref: string, files: string[]) => {
+          checkoutFilesCalls.push({ ref, files });
+          return Promise.resolve();
+        }),
+        add: mock((_: string, files: string[]) => {
+          addCalls.push(files);
+          return Promise.resolve();
+        }),
+        commit: mock(() => Promise.resolve('new-branch-head')),
+        amendNoEdit: mock(() => Promise.resolve()),
+        resetHard: mock(() => Promise.resolve()),
+        lsTree: mock(() => Promise.resolve([])),
+        rm: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildSplitByFileStack();
+    const result = await BS.splitByFile('/tmp/repo', stack, 'feat/mixed', ['*.ts'], 'feat/ts-only');
+
+    expect(result.movedFiles).toEqual(['api.ts', 'utils.ts']);
+    expect(result.remainingFiles).toEqual(['config.json', 'schema.sql']);
+    expect(result.newBranch).toBe('feat/ts-only');
+  });
+
+  test('remaining files stay on source branch', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getMergeBase: mock(() => Promise.resolve('mb')),
+        diffNameOnly: mock(() => Promise.resolve(['a.ts', 'b.json', 'c.ts'])),
+        getBranchHead: mock(() => Promise.resolve('head')),
+        createBranch: mock(() => Promise.resolve()),
+        checkoutBranch: mock(() => Promise.resolve()),
+        checkoutFiles: mock(() => Promise.resolve()),
+        add: mock(() => Promise.resolve()),
+        commit: mock(() => Promise.resolve('new-head')),
+        amendNoEdit: mock(() => Promise.resolve()),
+        lsTree: mock(() => Promise.resolve([])),
+        rm: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildSplitByFileStack();
+    const result = await BS.splitByFile('/tmp/repo', stack, 'feat/mixed', ['*.json'], 'feat/json-only');
+
+    expect(result.movedFiles).toEqual(['b.json']);
+    expect(result.remainingFiles).toEqual(['a.ts', 'c.ts']);
+  });
+
+  test('glob patterns match correctly (*.json, src/**)', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getMergeBase: mock(() => Promise.resolve('mb')),
+        diffNameOnly: mock(() =>
+          Promise.resolve(['src/api/handler.ts', 'src/api/types.ts', 'config.json', 'README.md']),
+        ),
+        getBranchHead: mock(() => Promise.resolve('head')),
+        createBranch: mock(() => Promise.resolve()),
+        checkoutBranch: mock(() => Promise.resolve()),
+        checkoutFiles: mock(() => Promise.resolve()),
+        add: mock(() => Promise.resolve()),
+        commit: mock(() => Promise.resolve('new-head')),
+        amendNoEdit: mock(() => Promise.resolve()),
+        lsTree: mock(() => Promise.resolve([])),
+        rm: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildSplitByFileStack();
+    const result = await BS.splitByFile('/tmp/repo', stack, 'feat/mixed', ['src/**'], 'feat/src');
+
+    expect(result.movedFiles).toEqual(['src/api/handler.ts', 'src/api/types.ts']);
+    expect(result.remainingFiles).toEqual(['config.json', 'README.md']);
+  });
+
+  test('throws when no files match the patterns', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getMergeBase: mock(() => Promise.resolve('mb')),
+        diffNameOnly: mock(() => Promise.resolve(['a.ts', 'b.ts'])),
+        getBranchHead: mock(() => Promise.resolve('head')),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildSplitByFileStack();
+
+    await expect(
+      BS.splitByFile('/tmp/repo', stack, 'feat/mixed', ['*.json'], 'feat/json'),
+    ).rejects.toThrow(/No files match/);
+  });
+
+  test('all files matching resets source to merge base', async () => {
+    const resetCalls: string[] = [];
+
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getMergeBase: mock(() => Promise.resolve('mb-sha')),
+        diffNameOnly: mock(() => Promise.resolve(['a.ts', 'b.ts'])),
+        getBranchHead: mock(() => Promise.resolve('head')),
+        createBranch: mock(() => Promise.resolve()),
+        checkoutBranch: mock(() => Promise.resolve()),
+        checkoutFiles: mock(() => Promise.resolve()),
+        add: mock(() => Promise.resolve()),
+        commit: mock(() => Promise.resolve('new-head')),
+        resetHard: mock((_: string, ref: string) => {
+          resetCalls.push(ref);
+          return Promise.resolve();
+        }),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildSplitByFileStack();
+    const result = await BS.splitByFile('/tmp/repo', stack, 'feat/mixed', ['*.ts'], 'feat/ts');
+
+    expect(result.movedFiles).toEqual(['a.ts', 'b.ts']);
+    expect(result.remainingFiles).toEqual([]);
+    expect(resetCalls).toContain('mb-sha');
+  });
+
+  test('new branch is added as sibling (child of same parent) in stack tree', async () => {
+    mock.module('../src/core/git-shell.ts', () => ({
+      GitShell: {
+        ...GitShell,
+        isDirty: mock(() => Promise.resolve(false)),
+        hasUnstagedChanges: mock(() => Promise.resolve(false)),
+        hasStagedChanges: mock(() => Promise.resolve(false)),
+        getMergeBase: mock(() => Promise.resolve('mb')),
+        diffNameOnly: mock(() => Promise.resolve(['a.ts', 'b.json'])),
+        getBranchHead: mock(() => Promise.resolve('head')),
+        createBranch: mock(() => Promise.resolve()),
+        checkoutBranch: mock(() => Promise.resolve()),
+        checkoutFiles: mock(() => Promise.resolve()),
+        add: mock(() => Promise.resolve()),
+        commit: mock(() => Promise.resolve('new-head')),
+        amendNoEdit: mock(() => Promise.resolve()),
+        lsTree: mock(() => Promise.resolve([])),
+        rm: mock(() => Promise.resolve()),
+      },
+    }));
+
+    const { BranchSplitter: BS } = await import('../src/core/branch-splitter.ts');
+    const stack = buildSplitByFileStack();
+    const result = await BS.splitByFile('/tmp/repo', stack, 'feat/mixed', ['*.ts'], 'feat/ts');
+
+    const newNode = StackManager.findNode(result.newStack, 'feat/ts');
+    expect(newNode).toBeDefined();
+    expect(newNode!.parent).toBe('main');
+  });
+});
