@@ -26,10 +26,10 @@ that catalog actually changed — an unchanged one is a no-op that pushes nothin
 > and users update through Sparkle rather than by downloading a tarball.
 >
 > This skill still owns the docs/notes/tag half of a release. The build,
-> signing, notarization, clean-room, and appcast half — plus the cross-repo
-> coordination a release needs (deck, board, console, chat and boxscore
-> build from this tree; gitq and fast-browser are the two vendored apps in
-> their own repos) — is `~/.claude/skills/mattstack-release/SKILL.md`. Read
+> signing, notarization, clean-room, and appcast half, plus the cross-repo
+> coordination a release needs (deck, board, console, chat, boxscore and
+> gitq build from this tree; fast-browser is the one vendored app in its
+> own repo), is `~/.claude/skills/mattstack-release/SKILL.md`. Read
 > that one before cutting a real release; read this one for the notes and
 > the tag.
 
@@ -39,7 +39,7 @@ left as-is or reduced to a pointer here.
 ## Fast path: one served-app fix
 
 When the diff since the last tag touches only served-app directories
-(`apps/board`, `apps/boxscore`, `apps/chat`, `apps/console`),
+(`apps/board`, `apps/boxscore`, `apps/chat`, `apps/console`, `apps/gitq`),
 `RELEASE_NOTES.md` and `website/`, the release is one verb, `rt release app
 <name>` (bare `rt release app` on a terminal picks the app; from source,
 `bun run cli.ts release app <name>`). It qualifies origin/main against that
@@ -90,7 +90,7 @@ why.
    git/tag state (on `main`, tree clean, commits since the last tag), the
    picker conformance gate, the settings schema lock against the last
    tag, the candidate's own settings check against the real stores,
-   the standalone gitq/fast-browser rows, tool-row drift against
+   the standalone fast-browser row, tool-row drift against
    upstreams, plugin catalog pin drift, Chrome extension currency, and
    the gate (fast path vs full) the pending diff implies.
    Exit 0 means every layer verified current. A stale row prints pinned
@@ -117,18 +117,15 @@ why.
    any `feat(` or a new module/file is a minor bump; only `fix(` / `chore(` /
    `docs(` / `ci(` / `test(` is a patch bump; if ambiguous, ask.
 
-2b. **Apps ship at HEAD, except gitq.** Board, boxscore, chat, console and
-   deck are `source: "tree"` rows in `rt-tray/deps.lock` and are built from
+2b. **Apps ship at HEAD.** Board, boxscore, chat, console, deck and gitq
+   are `source: "tree"` rows in `rt-tray/deps.lock` and are built from
    the tagged commit by `release.yml`'s `build-apps` job
    (`scripts/build-apps.ts`), so there is no pin to go stale and nothing to
    bump for them; a change merged to main is in the next release by
    construction, and their `package.json` versions are labels nothing
-   reads. gitq is different: it still lives in its own repo
-   (`~/Documents/GitHub/gitq`), and its `rt-tray/deps.lock` row is a
-   `repo`/`url`/`sha256` pin like fast-browser's, so a change there needs
-   the pin bumped through 2c's standalone-row policy before it reaches
-   users. gitq releases take the full process through 2c, never the Fast
-   path above.
+   reads (gitq's own npm publish of `@mattstack/gitq`, via `bun run
+   release` from `apps/gitq`, is a separate schedule that this release
+   process does not gate).
 
 2c. **The other vendored layers: plugins, standalone apps, tools, the
    extension.** None of them build from this tree, so each keeps its own
@@ -144,12 +141,11 @@ why.
      preflight does its own compare), then review the diff and land it
      before the notes commit so the tag publishes current pins. The
      in-tree `chat` plugin has no upstream and never drifts.
-   - **Standalone app rows** (`standalone` rows: gitq, fast-browser):
-     gitq compares against its repo's latest GitHub release;
-     fast-browser against `m4ttstack/fast-browser`'s main
-     `package.json`, because that repo publishes to npm and has no
-     GitHub releases. A stale pin can be held, but only as the user's
-     recorded decision, noted in the release notes.
+   - **Standalone app rows** (`standalone` rows: fast-browser): compares
+     against `m4ttstack/fast-browser`'s main `package.json`, because that
+     repo publishes to npm and has no GitHub releases. A stale pin can be
+     held, but only as the user's recorded decision, noted in the release
+     notes.
    - **Tool rows** (`tool` rows: bun, sparkle, age, zstd, git-lfs, gh,
      glab, jq, node, sops, cloudflared, portless): hand-pinned; Renovate
      does NOT watch deps.lock, so preflight's sweep is the only drift
@@ -273,7 +269,7 @@ why.
    **Path fast path:** when `git diff --name-only <last-tag>..HEAD` stays
    inside the served-app directories, `RELEASE_NOTES.md` and `website/`,
    skip the local walkthrough and tag on the rehearsal alone. `apps/deck/`,
-   every tool row, gitq, fast-browser and any rt file keep the full gate.
+   every tool row, fast-browser and any rt file keep the full gate.
 
    `rt release app` goes one step further: it tags with no rehearsal at
    all, because its own gate admits nothing but the served-app path, notes

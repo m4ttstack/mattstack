@@ -440,7 +440,7 @@ CI runs all of these on every pull request.
 | `ui/` | The Go `rt-ui` helper that renders prompts, spinners, and the runner board |
 | `rt-tray/` | The Swift menu bar app and the bundle build |
 | `extensions/vscode/rt-context/` | The editor status-bar extension |
-| `packages/rt-client/` | The client every in-tree app links as a workspace package; gitq, still standalone, uses the last published npm version |
+| `packages/rt-client/` | The client every in-tree app, including gitq, links as a workspace package |
 | `website/` | The rt.cool documentation site |
 | `docs/` | Design and operations documents |
 

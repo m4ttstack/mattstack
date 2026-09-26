@@ -41,11 +41,12 @@ apps trees. Deck serves the apps from this checkout in dev mode
 (`deck register --dir ~/Documents/GitHub/repo-tools/apps/<name>`), and the
 release builds them at the tagged commit (`scripts/build-apps.ts`, the
 `build-apps` job in `release.yml`); `rt-tray/deps.lock` lists them as
-`source: "tree"` rows, which is deck's served-app catalog. gitq stays its
-own repo (`~/Documents/GitHub/gitq`) and keeps a `repo`/`url`/`sha256` pin
-in `deps.lock` like fast-browser's; see `skills/rt-release/SKILL.md` for
-how that pin gets bumped. `packages/glance` and `packages/glance-react`
-keep their own contract in `packages/glance/AGENTS.md`.
+`source: "tree"` rows, which is deck's served-app catalog. gitq is one of
+these served apps too, at `apps/gitq`, built the same way and released with
+the same fast path; `skills/rt-release/SKILL.md` covers it. gitq also
+publishes `@mattstack/gitq` to npm on its own schedule (`apps/gitq/docs/releasing.md`),
+separate from the bundled binary this repo builds. `packages/glance` and
+`packages/glance-react` keep their own contract in `packages/glance/AGENTS.md`.
 
 ## Worktree pool: the golden tree
 
@@ -365,8 +366,8 @@ something that does nothing.
 
 The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
 
-- **Served apps (board, console, chat, boxscore) and deck run from source**
-  in the shared `~/Documents/GitHub/repo-tools` checkout. To deploy:
+- **Served apps (board, console, chat, boxscore, gitq) and deck run from
+  source** in the shared `~/Documents/GitHub/repo-tools` checkout. To deploy:
   merge, check `git branch --show-current` is `main`, pull, then
   `deck restart <app>` (or the deck row's deploy button for deck itself);
   `rt release update-machine` also re-registers and restarts them, as its
@@ -376,9 +377,6 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   `runMode` says which is serving. A pin older than `runMode` (deck 1.0.6
   today) reads as `standalone`; the last `deck-dev-shim:` line in
   `~/.mattstack/deck/logs/deck.err.log` says whether the shim fell back.
-  gitq is its own repo at
-  `~/Documents/GitHub/gitq`, deployed the same way: merge, confirm `main`,
-  pull, `deck restart gitq`.
 - **Manifest keys in `mattstack.deck.json` are read only at register or
   adopt.** After a manifest change, run `deck register --dir <absolute path>`.
 - **Tray and shim changes need a dev app rebuild**: in a scratch tree at the
@@ -483,11 +481,9 @@ name` on the next bump, rolls the migration back, and makes every later
 
 `packages/rt-client`, `packages/settings-kit` and `packages/tui-kit` publish
 nowhere; every consumer inside this monorepo (rt itself, board, console,
-chat, boxscore, deck) links the workspace package directly, and the root
-`postinstall` builds all three `dist/` directories. gitq, still its own
-repo, stays on the last published npm `rt-client` (its `package.json` pins
-`^0.14.0`); a change in this tree never reaches it until gitq folds in.
-There is no npm version to announce or renumber for any of the three.
+chat, boxscore, deck, gitq) links the workspace package directly, and the
+root `postinstall` builds all three `dist/` directories. There is no npm
+version to announce or renumber for any of the three.
 
 `packages/glance` links the same way in-repo (rt-client, the VS Code
 extension and root typecheck all resolve its `workspace:*` dist), but it is
@@ -500,12 +496,11 @@ not private: it publishes to npm on its own schedule via `bun publish`
 `dist/` is gitignored. Inside this monorepo, consumers link the workspace
 package, and `dist/` is what their `import` condition resolves; the root
 `postinstall` and turbo's `^build` rebuild it. So any change or merge that
-touches rt-client's source leaves every in-workspace consumer resolving the
-previous build until the next install or turbo run (gitq stays on its
-pinned npm version regardless). The source is right, the shipped
-artifact is not, and nothing about the working tree looks wrong. Run
-`bun run build` in `packages/rt-client` after touching it, and after any
-merge that does.
+touches rt-client's source leaves every in-workspace consumer, gitq
+included, resolving the previous build until the next install or turbo run.
+The source is right, the shipped artifact is not, and nothing about the
+working tree looks wrong. Run `bun run build` in `packages/rt-client` after
+touching it, and after any merge that does.
 
 `packages/rt-client/test/dist-freshness.test.ts` is the guard and names the fix in its failure message. Treat that failure as a real instruction, not as a flaky artifact test. It caught this three separate times in one day across three sessions.
 
