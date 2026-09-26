@@ -214,13 +214,19 @@ Every other tool on the server is the rest of that grant.
 the server runs on every estate machine with no permission check, and a new
 tool is a write any agent can make unasked, including one reading untrusted
 text (an MR under review). `mcpTools()` in `lib/mcp/tools.ts` is the roster
-(`rt mcp tools --json` prints it) and spreads in one file per family: run
-tracking (`run-tools.ts`, in-process over `runWriteVerb`, a caller's `runDb`
-confined to the runs root), GitLab reads (`mr-read-tools.ts`, over the
-daemon's open-MR cache), git writes (`git-tools.ts`), worktrees
-(`worktree-tools.ts`: provision, dispose, stop-holders, and no general kill),
-herds (`herd-tools.ts`) and chat (`chat-tools.ts`, acting only as this
-session's own handle). Every git tool goes through `tree-guard.ts`, which
+(`rt mcp tools --json` prints it). `tools.ts` itself holds the gate tools,
+the `mr_*` writes and `mr_map`, `rt_verb`, the herd worker tools
+(`herd_gates`, `herd_ask`, `herd_answer`, `herd_report`) and five chat tools
+(`chat_post`, `chat_dm`, `chat_ack`, `chat_claim`, `chat_release`), and
+spreads in the rest: run tracking (`run-tools.ts`, in-process over
+`runWriteVerb`, a caller's `runDb` confined to the runs root), GitLab reads
+(`mr-read-tools.ts`; `mr_view`, `mr_list` and `mr_pipeline` read the
+daemon's open-MR cache, the others ask the daemon directly), git writes
+(`git-tools.ts`), worktrees (`worktree-tools.ts`: provision, dispose,
+stop-holders, and no general kill), the other herd tools
+(`herd-tools.ts`) and the other chat tools
+(`chat-tools.ts`); every chat tool acts only as this session's own handle.
+Every git tool goes through `tree-guard.ts`, which
 admits only the root of a registered checkout or worktree: `git_push` pushes
 one explicit refspec to the branch's same-named upstream, forces only with
 `--force-with-lease --force-if-includes`, and refuses a detached HEAD, main,
@@ -321,13 +327,14 @@ rule resolves BEFORE the auto-mode classifier, so a `Bash(git push *)`-shaped
 entry would wave through a forced push and `Bash(git rebase *)` a `--exec` of
 any command; the read-only git forms need no rule in any mode and the
 classifier approves routine commits and pushes, so no `Bash(git ...)` entry
-belongs in the list (a test pins this). And the only rt entries are
-`rt gate`, `rt chat tail` and `rt events wait`, each in one bare form, for
-what skills still run in a shell (the shepherd's CLI-only
-`rt gate answer --by shepherd`, and the long waits under `Monitor` that block
-past any tool timeout); everything else a skill runs routinely is a tool on
-the mattstack server. Do not widen the list to make a skill work; add a tool
-or an agent-safe verb.
+belongs in the list (a test pins this). And what skills still run in a shell
+is `rt gate` (`rt gate wait`, which blocks past any tool timeout, and the
+shepherd's CLI-only `rt gate answer --by shepherd`) and `rt events wait`
+under `Monitor`, covered by `Bash(rt gate *)` and `Bash(rt events wait *)`.
+The list also carries a `Bash(rt chat tail *)` rule, which matches no
+current verb. Everything else a skill runs routinely is a tool on the
+mattstack server. Do not widen the list to make a skill work; add a tool or
+an agent-safe verb.
 
 ## The relocation prompt parser reads a real capture, not a hand-drawn one
 

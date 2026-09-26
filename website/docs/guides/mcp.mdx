@@ -15,7 +15,7 @@ The server's environment is fixed when the session starts: its working directory
 
 ## Why tools instead of Bash
 
-A shell command skips Claude Code's permission check only when it matches an allow rule, and agents wrap commands (`cd x && ...`, `$(...)`, pipes) in ways prefix rules miss. In auto mode every miss waits on the classifier, which blocks some calls outright (pushes, merges, rebases). A tool call has nothing to wrap, and the whole server is allowed at once, so a skill's routine rt calls, forge calls and git writes run without a prompt or a classifier wait. The human check stays in the skill's own gates: the ship go-ahead, a wrap-up form, a review disposition.
+A shell command skips Claude Code's permission check only when it matches an allow rule, and agents wrap commands (`cd x && ...`, `$(...)`, pipes) in ways prefix rules miss. In auto mode every miss waits on the classifier, which blocks some calls outright (force-pushes, merges and rebases most often). A tool call has nothing to wrap, and the whole server is allowed at once, so a skill's routine rt calls, forge calls and git writes run without a prompt or a classifier wait. The human check stays in the skill's own gates: the ship go-ahead, a wrap-up form, a review disposition.
 
 ## Setup
 
@@ -23,7 +23,7 @@ Setup's Install step (run by mattstack.app's setup wizard, or `rt setup`) instal
 
 ## Tools
 
-The server exposes the families below. Most call rt's daemon; the run-tracking writes run in the server process, the git tools run git (and `rt sync`) directly, and `rt_verb` runs rt as a child process.
+The server exposes the families below. Most call rt's daemon; the run-tracking writes run in the server process, the git tools run git (and `rt sync`) directly, and `rt_verb`, `herd_brief` and `chat_sign_in` run rt as a child process.
 
 ### Gates
 
@@ -105,7 +105,7 @@ What they refuse:
 - `git_push` never pushes a detached HEAD, `main`, `master` or the remote's default branch, and refuses outright when that default cannot be determined. It pushes exactly one ref, and forces only with `--force-with-lease --force-if-includes`. An upstream with a different branch name, or one that is the default branch, is refused unless you pass `setUpstream`.
 - `git_pull` never merges or rebases; a diverged branch is an error.
 - `git_rebase` takes only a branch or ref name for `onto`, never an option. On a conflict it returns the conflicted files and leaves the rebase paused for you to resolve and finish with `git rebase --continue`.
-- `branch_sync` refuses to reset over a local commit with no equivalent on origin (unpushed work), refuses to force-push over commits only origin has (a branch only behind origin: run `git_pull` first), and names the commits either way. It also refuses a rebase already in progress and a push that config would redirect to another ref.
+- `branch_sync` refuses to reset over a local commit with no equivalent on origin (unpushed work), refuses to force-push over commits only origin has (a branch only behind origin: run `git_pull` first), and names the commits when it can. It also refuses a rebase already in progress and a push that config would redirect to another ref.
 
 `git commit` and `git add` are not tools; they stay in Bash.
 
@@ -149,7 +149,7 @@ Shepherd side:
 
 ### Chat
 
-Every chat tool acts as this session's own chat handle; none takes a handle or session id as input.
+Every chat tool acts as this session's own chat handle; none takes the acting handle or a session id as input. (`chat_sign_in`'s `as` only chooses this session's handle, and `chat_dm`'s `to` names the recipient.)
 
 | Tool | What it does |
 | --- | --- |
@@ -180,9 +180,9 @@ Every chat tool except `chat_sign_in`, `chat_away`, `chat_back`, `chat_sign_out`
 | --- | --- |
 | `rt_verb` | Run one agent-safe rt verb and return its `--json` result. |
 
-Unlike the other tools, `rt_verb` does not itself connect to the daemon; it runs rt as a child process. The verb it runs may still talk to the daemon internally (`worktree list`, `worktree triage`, `endpoint lookup` and `herd status` are daemon-backed reads; `skills writing-style show` is not), so `rt_verb` is not a way to reach those commands while the daemon is down. A flag the verb does not declare is refused, and `--json` is added for you. Pass `args` without the leading `rt` (e.g. `["worktree", "list"]`), and pass `cwd` (an absolute path) when the verb depends on the current repo.
+`rt_verb` does not itself connect to the daemon; it runs rt as a child process. The verb it runs may still talk to the daemon internally (`worktree list`, `worktree triage`, `endpoint lookup` and `herd status` are daemon-backed reads; `skills writing-style show` is not), so `rt_verb` is not a way to reach those commands while the daemon is down. A flag the verb does not declare is refused, and `--json` is added for you. Pass `args` without the leading `rt` (e.g. `["worktree", "list"]`), and pass `cwd` (an absolute path) when the verb depends on the current repo.
 
-Only verbs marked agent-safe run; anything else is refused, and the refusal lists the verbs that do. Today those are:
+Only verbs marked agent-safe run; anything else is refused, and the refusal lists the verbs that do. These are:
 
 - **Reads:** `git status`, `git log`, `git branches`, `worktree list`, `worktree triage`, `daemon status`, `events list`, `gate list`, `gate subscriptions`, `herd gates`, `herd status`, `runs show`, `runs find`, `endpoint lookup`, `settings get`, `settings list`, `settings explain`, `pane list`, `pane peek`, `repos status`, `skills writing-style show`, `setup status`, `team status`.
 - **Routine writes and waits:** `worktree await-ready`, `herd brief`, `skills compile`, `skills check`, `skills sync`, `skills surface`, `skills bind`.
@@ -207,12 +207,12 @@ Forge payloads can carry live credentials: avatar URLs with a `private_token` qu
 
 A few things skills still run in a shell, on purpose:
 
-- **Long waits.** `rt gate wait <id>` and `rt events wait` block past any tool timeout, so skills run them as background Bash or under `Monitor`. Install's allow list covers them with exact `rt gate` and `rt events wait` rules.
+- **Long waits.** `rt gate wait <id>` and `rt events wait` block past any tool timeout, so skills run them as background Bash or under `Monitor`. Install's allow list covers them with the prefix rules `Bash(rt gate *)` and `Bash(rt events wait *)`.
 - **The shepherd's gate answers.** `gate_answer` always answers as the pane, so a shepherd answering a herd gate runs `rt gate answer --by shepherd` in Bash, under the same `rt gate` rule.
 - **Commits and staging.** `git commit`, `git add`, and `git rebase --continue` after a resolved conflict run in Bash; in auto mode the classifier approves routine commits.
 - **Project tooling.** A repo's own checks and scripts, and a pack's scripts.
 - **GitHub.** Every `mr_*` tool is GitLab only; GitHub flows run `gh` in Bash.
-- **Pane control.** `rt pane send`, `rt pane spawn`, `rt pane accounts` and `rt pane directories` (only `pane list` and `pane peek` run through `rt_verb`).
+- **Pane control.** `rt pane send`, `rt pane spawn`, `rt pane focus`, `rt pane accounts` and `rt pane directories` (only `pane list` and `pane peek` run through `rt_verb`).
 - **Chat after `/clear`.** As above, `rt chat sign-in` and the other chat verbs in Bash.
 
 ## For pack authors
