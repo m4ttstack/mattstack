@@ -3431,10 +3431,10 @@ describe("unregistered repos", () => {
     expect(last.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
   });
 
-  test("the updater skips registered repos and the open repo, and publishes badges", async () => {
+  test("the updater skips registered repos and publishes badges", async () => {
     const timers: (() => void)[] = [];
     const refreshed: string[] = [];
-    const client = makeFakeClient();
+    const client = makeFakeClient({ snapshot: async () => baseSnapshot({ ahead: 3 }) });
     const session = new QueueSession();
     const deps = baseDeps({
       session,
@@ -3452,7 +3452,91 @@ describe("unregistered repos", () => {
     await run;
     expect(refreshed.filter((p) => p.startsWith("/u/") || p === "/repo")).toEqual(["/u/a", "/u/b"]);
     const last = session.pushed.at(-1) as MissionModel;
-    expect(last.repos.find((r) => r.id === "gh:me/a")!.badge).toBeDefined();
+    expect(last.repos.find((r) => r.id === "gh:me/a")!.badge.ahead).toBe(3);
+  });
+
+  const OPEN_A = { repo: "gh:me/a", worktree: "/u/a" };
+  const unmanagedA = (id: string) => !id.startsWith("gh:me/");
+
+  test("the updater never refreshes the open repo", async () => {
+    const timers: (() => void)[] = [];
+    const refreshed: string[] = [];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a"), cacheRow("/u/b")],
+      identityOf,
+      isRegistered: unmanagedA,
+      pathExists: (p) => { refreshed.push(p); return true; },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, OPEN_A).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(refreshed.filter((p) => p === "/u/a" || p === "/u/b")).toEqual(["/u/b"]);
+  });
+
+  test("the open unmanaged repo's row carries the live badge", async () => {
+    const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);
+    const deps = baseDeps({
+      session,
+      client: makeFakeClient({ snapshot: async () => baseSnapshot({ ahead: 2 }) }),
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: unmanagedA,
+    });
+    await new MissionDriver(deps, OPEN_A).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.repos.find((r) => r.id === "gh:me/a")!.badge.ahead).toBe(2);
+  });
+
+  test("a failing last-repo write never blocks the launch or a switch", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: unmanagedA,
+      pathExists: () => true,
+      saveLastRepo: () => { throw new Error("database is locked"); },
+    });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("gh:me/a");
+    expect(last.notice).toBe("");
+  });
+
+  test("quitting aborts an in-flight background fetch", async () => {
+    const timers: (() => void)[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const client = makeFakeClient();
+    client.fetch = (_remote?: string, signal?: AbortSignal) => {
+      signals.push(signal);
+      return new Promise((_resolve, reject) => { signal?.addEventListener("abort", () => reject(new Error("aborted"))); });
+    };
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(signals).toHaveLength(1);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(signals[0]?.aborted).toBe(true);
   });
 
   test("mission:focus pauses and resumes the updater", async () => {

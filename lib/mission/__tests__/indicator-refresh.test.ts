@@ -106,6 +106,34 @@ describe("refreshIndicator", () => {
     expect(published).toHaveLength(1);
   });
 
+  test("the stop signal aborts an in-flight fetch", async () => {
+    const stop = new AbortController();
+    const { client, calls } = fakeClient({
+      snapshots: [snap()],
+      fetchState: { lastFetchedAt: null },
+      fetch: (signal) => new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+    });
+    const { published, publish } = collect();
+    const done = refreshIndicator(TARGET, { client: () => client, pathExists: () => true, now: () => NOW, signal: stop.signal }, publish);
+    while (calls.fetch === 0) await Promise.resolve();
+    stop.abort();
+    await done;
+    expect(calls.signals[0]?.aborted).toBe(true);
+    expect(published).toHaveLength(1);
+  });
+
+  test("an already-stopped refresh never starts a fetch", async () => {
+    const stop = new AbortController();
+    stop.abort();
+    const { client, calls } = fakeClient({ snapshots: [snap()], fetchState: { lastFetchedAt: null } });
+    const { published, publish } = collect();
+    await refreshIndicator(TARGET, { client: () => client, pathExists: () => true, now: () => NOW, signal: stop.signal }, publish);
+    expect(calls.fetch).toBe(0);
+    expect(published).toHaveLength(1);
+  });
+
   test("a snapshot that throws publishes null", async () => {
     const client = { snapshot: async () => { throw new Error("not a git repo"); }, fetchState: async () => ({ lastFetchedAt: null }) } as unknown as GitClient;
     const { published, publish } = collect();

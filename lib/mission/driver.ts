@@ -329,6 +329,7 @@ export class MissionDriver {
   private indicatorBadges = new Map<string, GitWorktreeBadge>();
   private unmanaged = false;
   private readonly updater: IndicatorUpdater;
+  private readonly stopIndicators = new AbortController();
 
   constructor(private readonly deps: MissionDeps, start: { repo: string; worktree: string }) {
     this.state = {
@@ -356,7 +357,7 @@ export class MissionDriver {
         .map((u) => ({ id: u.identity, path: u.path })),
       refreshOne: (target) => refreshIndicator(
         target,
-        { client: this.deps.client, pathExists: this.deps.pathExists, now: this.deps.now },
+        { client: this.deps.client, pathExists: this.deps.pathExists, now: this.deps.now, signal: this.stopIndicators.signal },
         (id, badge) => {
           if (badge) this.indicatorBadges.set(id, badge);
           else this.indicatorBadges.delete(id);
@@ -380,11 +381,18 @@ export class MissionDriver {
   }
 
   private repoRows(): RepoStatusRow[] {
-    return mergeRepoRows(this.rows, this.unregistered, this.indicatorBadges);
+    const badges = this.unmanaged
+      ? new Map(this.indicatorBadges).set(this.state.currentRepo, this.currentBadge())
+      : this.indicatorBadges;
+    return mergeRepoRows(this.rows, this.unregistered, badges);
   }
 
   private rememberRepo(): void {
-    this.deps.saveLastRepo({ identity: this.state.currentRepo, worktree: this.state.currentWorktree });
+    try {
+      this.deps.saveLastRepo({ identity: this.state.currentRepo, worktree: this.state.currentWorktree });
+    } catch {
+      // Best effort: a missed write only costs the next launch its default repo.
+    }
   }
 
   async run(): Promise<void> {
@@ -433,6 +441,7 @@ export class MissionDriver {
       }
     } finally {
       this.updater.stop();
+      this.stopIndicators.abort();
       sub.close();
       const end = await session.close();
       if (end.reason === "died" || end.reason === "error") throw new SessionDied(end.code);
