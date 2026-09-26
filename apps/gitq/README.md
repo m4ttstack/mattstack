@@ -314,9 +314,10 @@ The four board skills take `<repoPath> <stackName>` positionals plus optional `-
 ## Development
 
 ```bash
-git clone https://github.com/m4ttstack/gitq.git
-cd gitq
+git clone https://github.com/m4ttstack/rt.git repo-tools
+cd repo-tools
 bun install
+cd apps/gitq
 bun run build
 bun link
 ```
@@ -336,7 +337,7 @@ The full documentation site (getting started, concepts, guides, and a reference 
 
 ## Contributing
 
-Issues and pull requests are welcome at [github.com/m4ttstack/gitq](https://github.com/m4ttstack/gitq).
+Issues and pull requests are welcome at [github.com/m4ttstack/rt](https://github.com/m4ttstack/rt); gitq lives under `apps/gitq`.
 
 Before opening a PR, run `bun run check-types` and `bun run test`. A new CLI command also needs a reference page under `website/docs/reference/<category>/<command>.mdx`; `tests/docs-coverage.test.ts` fails the suite when a command has no page, or when a page has no command.
 

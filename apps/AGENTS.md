@@ -165,7 +165,9 @@ from a different Mantine version.
 ### Publishing
 
 `packages/glance` and `packages/glance-react` publish to npm on demand
-(`packages/glance/docs/releasing.md`); nothing else in this repo publishes.
+(`packages/glance/docs/releasing.md`), and `apps/gitq` publishes
+`@mattstack/gitq` to npm on demand too (`bun run release`, per
+`apps/gitq/docs/releasing.md`); nothing else in this repo publishes.
 `@mattstack/app-kit`,
 `@mattstack/app-server`, `@mattstack/mantine-tokyo`, and
 `@mattstack/tui-kit` each carry a version (bumped together via

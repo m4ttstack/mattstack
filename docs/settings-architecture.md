@@ -96,18 +96,15 @@ exist for out-of-process callers only.
 4. `bun run cli.ts settings schema lock` regenerates `schema.lock.json`;
    commit it with the schema. CI regenerates it and fails on any difference.
 5. `cd packages/rt-client && bun run build`: workspace consumers (board,
-   console, deck) link the package and resolve `dist/` directly, and gitq
-   installs whatever `dist/` the last npm publish shipped; either way a
+   console, deck, gitq) link the package and resolve `dist/` directly, so a
    stale `dist/` is what the dist-freshness test catches.
 6. Deliver the new registry to every consumer: a node_modules copy never
-   updates itself. Board, console and deck link `@mattstack/rt-client` as an
-   in-tree `workspace:*` package, so the registry row lands for them on the
-   next `bun install` (the root `postinstall` rebuilds rt-client's `dist/`)
-   or the next turbo build; deck additionally bundles rt-client into its
-   compiled binary, so it needs a rebuild at the next release to ship the
-   change. gitq, still its own repo, stays on the last published npm
-   `rt-client` and only sees the key after a version bump + publish +
-   install there.
+   updates itself. Board, console, deck and gitq link `@mattstack/rt-client`
+   as an in-tree `workspace:*` package, so the registry row lands for them
+   on the next `bun install` (the root `postinstall` rebuilds rt-client's
+   `dist/`) or the next turbo build; deck and gitq additionally bundle
+   rt-client into their own compiled binaries, so each needs a rebuild at
+   the next release to ship the change.
 7. Read via `getSetting`, write via `setSetting`. Never construct store paths
    by hand; never cache a path or a value at module load.
 
@@ -227,7 +224,7 @@ place, unrenamed) stays recoverable by hand. Verifying is not optional:
 necessarily a write that landed. Reference implementations:
 `lib/state/legacy-import.ts`, `lib/run-history.ts`,
 `extensions/vscode/rt-context/src/branchNaming.ts`, `apps/board/src/config.ts`,
-`gitq/src/core/{worktrees,forges}.ts`, `apps/deck/src/api/platform-settings.ts`.
+`apps/gitq/src/core/{worktrees,forges}.ts`, `apps/deck/src/api/platform-settings.ts`.
 
 **Invariant: keys behind an ownership latch must carry NO registry `default`** —
 a default materializes as a present value and flips the key store-authoritative
