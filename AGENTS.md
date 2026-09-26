@@ -45,9 +45,9 @@ release builds them at the tagged commit (`scripts/build-apps.ts`, the
 carry a `serve` port; `apps/deck/src/registry/bundle-catalog.ts`). gitq is
 a tree row too, at `apps/gitq`, built the same way by `build-apps.ts` and
 shipped as the plain `Contents/Helpers/gitq` CLI, but its row carries no
-`serve`, so it is not in that catalog: deck serves its board only in dev
-mode, never automatically in the bundle. gitq releases on the same
-served-app fast path as the others (`skills/rt-release/SKILL.md`) and also
+`serve`, so it is not in that catalog: deck never registers or serves it,
+in dev mode or in the bundle, and gitq is a CLI tool only for now. gitq
+releases on the same fast path as the others (`skills/rt-release/SKILL.md`) and also
 publishes `@mattstack/gitq` to npm on its own schedule
 (`apps/gitq/docs/releasing.md`), separate from the bundled CLI this repo
 builds. `packages/glance` and `packages/glance-react` keep their own
@@ -439,10 +439,12 @@ The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
   run; `api.json`'s `runMode` says which is serving. A pin older than
   `runMode` (deck 1.0.6 today) reads as `standalone`; the last
   `deck-dev-shim:` line in `~/.mattstack/deck/logs/deck.err.log` says
-  whether the shim fell back. gitq is not in that re-register list: merge
-  and pull the same way, then `deck restart gitq` restarts the board
-  served from `apps/gitq` in dev mode; the bundled `gitq` CLI only picks
-  up the change at the next release.
+  whether the shim fell back. gitq is not in that re-register list: it
+  ships only as the `Contents/Helpers/gitq` CLI, built by
+  `scripts/build-apps.ts` from `apps/gitq/mattstack.deck.json`'s
+  `bundle.build` recipe. Deck neither registers nor serves gitq, so a
+  merge and pull change nothing running; the CLI only picks up the change
+  at the next release.
 - **Manifest keys in `mattstack.deck.json` are read only at register or
   adopt.** After a manifest change, run `deck register --dir <absolute path>`.
 - **Tray and shim changes need a dev app rebuild**: in a scratch tree at the

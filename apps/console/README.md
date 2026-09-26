@@ -32,8 +32,8 @@ most useful once `rt` itself is set up locally; without that, the board and sett
 start out empty.
 
 ```bash
-git clone https://github.com/m4ttstack/apps.git
-cd apps                       # the workspace root, not this app's own dir
+git clone https://github.com/m4ttstack/rt.git
+cd rt                         # the workspace root, not this app's own dir
 bun install                   # workspace install: packages/*, apps/*
 cd apps/console
 ```
