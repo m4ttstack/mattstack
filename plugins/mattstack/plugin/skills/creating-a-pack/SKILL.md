@@ -15,7 +15,7 @@ Each step is required; the flow is not done until the last one has run:
 
 1. every prerequisite checked and named
 2. `rt skills init --json` run once, its envelope read
-3. a restarted session that has run `/<pack>:work`, with its fallbacks named
+3. a reloaded session that has run `/<pack>:work`, with its fallbacks named
 4. the first-rules question asked once
 5. the zone's commit confirmed and pushed
 
@@ -69,23 +69,25 @@ Read the envelope:
 - Success is `{ "ok": true, ... }`: continue with `pack.name`, `pack.dir`,
   `tryNext`, `restartNeeded`.
 
-## 3. Restart and prove
+## 3. Reload and prove
 
-`restartNeeded` is always true. In a herdr pane use `rt:herdr-inject` to
-restart this session with a continuation; otherwise tell the author to
-restart and paste `tryNext` with a small real ticket.
+`restartNeeded` is always true: run `/reload-plugins` in this session, which
+loads the new pack in place. In a herdr pane, queue it with `rt:herdr-inject`
+(`rt pane send self --text "/reload-plugins" --then "Continue: <tryNext> with a
+small real ticket"`) and end the turn; otherwise ask the author to type
+`/reload-plugins`, then paste `tryNext` with a small real ticket.
 
-"Works" means, in the restarted session: a branch or worktree, an APPROACH
+"Works" means, after the reload: a branch or worktree, an APPROACH
 block printed, a commit, an MR, and a CI verdict. Every stage runs its
 generic path; that is the expected shape of a pack with no fills. Name each
 fallback the run took in the report, for example: the provisioner did not
 know the repo, so the branch was made in the checkout; `glab` was absent, so
 the MR went through the forge API.
 
-Until the restarted run has reported back, the pack is scaffolded, not
-proven: say "scaffolded, proof pending". In a herdr pane the continuation
-brings the run's result back to this session, which then reports it;
-otherwise the restarted session owns the report. A hand-off is not a proof.
+Until the first `/<pack>:work` run has reported back, the pack is
+scaffolded, not proven: say "scaffolded, proof pending". In a herdr pane
+the continuation runs it in this session, which then reports it; otherwise
+the author's reloaded session owns the report. A hand-off is not a proof.
 
 The `work` verb's description in `pack/stubs.jsonc` is a placeholder seeded
 from the engine. Rewording it in the team's words is the first, smallest
