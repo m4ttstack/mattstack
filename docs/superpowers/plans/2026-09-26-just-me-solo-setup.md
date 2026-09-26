@@ -19,14 +19,15 @@
 - Deck: prod serves the bundle's explicit catalog, dev serves the machine's registrations; `enabled` narrows either set and never adds to it. Absent `enabled` reads as enabled.
 - `requiresTeam` is declared in `mattstack.deck.json` only (board and boxscore declare `true`); deck parses it; rt reads it from deck's API, never from the bundle.
 - The `deck.managed` step PATCHes `enabled` only for apps with `requiresTeam: true`, and only at Install or upgrade. Nothing else overwrites a user's toggle.
-- Copy, verbatim: card title `Just me`; card body `rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings.`; forge note `Works without this. Connect a GitHub account later to open pull requests from rt.`; apps caption `Needs a team. Create or join one under Team to use this.`; team status text `rt team status: no team (Just me)`.
+- Copy, verbatim: card title `Just me`; card body `rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings.`; forge note `Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.` (the spec's wording); Fast Browser solo note `Works without this; only the browser skills need it.` (new: the spec points at "the existing works-without-this note", but the only note the row carries today is `FASTBROWSER_SETUP_NOTE`, which says Install creates the runtime, not that the tool is optional); apps caption `Needs a team. Create or join one under Team to use this.`; team status text `rt team status: no team (Just me)`.
+- The `deck.managed` default runs only when `ctx.intent !== null`: a first run (solo, create, join, restore) and both upgrade entries write an intent, and a completed apply clears it, so a bare `rt setup apply` on an installed machine leaves every toggle alone.
 - Execution order: Part A (deck) lands after monorepo Stage C merges; Part B (rt) may start now on this branch and merges after Part A; Part C (tray) after B; Part D after C.
 - Every new rt command module goes into `lib/module-registry.ts` as a thunk; every visible leaf with a required positional declares `omitBehavior`; `bun run picker:check` must pass.
 
 ## Review Focus
 
 1. A registry written by an older deck (no `enabled` key) must serve every app exactly as before. Pinned in Task 3 (`isEnabled` on a record without the key) and Task 4 (sweep treats such a record as served).
-2. A user who disables console by hand, then upgrades to a team, must keep console disabled: the default touches only `requiresTeam` apps. Pinned in Task 11.
+2. A user who disables console by hand, then upgrades to a team, must keep console disabled (the default touches only `requiresTeam` apps), and a solo user who turns board on from Settings must keep it on across a later plain `rt setup apply` (the default runs only under an intent). Both pinned in Task 11.
 3. A solo intent left on disk from an interrupted first run must not make a later `rt setup apply` create a team of one: `team.create` applies only with an explicit create intent or the headless flag with no intent at all. Pinned in Task 7.
 4. `rt team status --json` on a machine with two team clones and no `--team` must still error `ambiguous-team`, never answer `mode: "solo"`. Pinned in Task 12.
 5. An `enabled` PATCH mixed with structural fields must be refused rather than half-applied. Pinned in Task 5.
@@ -118,31 +119,42 @@ git commit -m "deck: parse requiresTeam from mattstack.deck.json"
 **Interfaces:**
 - Produces: `AppRecord.requiresTeam?: boolean`, `AppRecord.enabled?: boolean`, `AppIdentity.requiresTeam?: boolean`, and `export function requiresTeamFor(record: AppRecord): boolean` in `bundled-identity.ts` (true when the effective identity says so).
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Rewrite the fixture in staged form and write the failing tests**
 
-In `apps/deck/src/registry/bundled-identity.test.ts`, after the existing tests (reuse the file's `FIXTURE`/resources setup and its `AppRecord` builder):
+The deck fixture's bytes are sha256-pinned (`FIXTURE_SHA256` in `bundled-identity.test.ts`, test `the fixture bytes match the digests its repo-tools twin pins`) and must stay byte-identical to `scripts/lib/__tests__/fixtures/bundle-resources/apps/board/mattstack.deck.json`, which Task 6 rewrites the same way. Overwrite `apps/deck/src/registry/__fixtures__/bundle-resources/apps/board/mattstack.deck.json` with exactly (2-space JSON, `requiresTeam` last, one trailing newline):
+
+```json
+{
+  "name": "board",
+  "displayName": "Board",
+  "description": "Open MRs ready for review.",
+  "icon": "./src/favicon.svg",
+  "badge": "/api/badge",
+  "requiresTeam": true
+}
+```
+
+and set `FIXTURE_SHA256['mattstack.deck.json']` to `998fddd2621726f465df3f478d0eeefa8c0186ce3e5c8fd1de7c0edb7193faf5` (verify with `shasum -a 256` on the file). Extend the two `toEqual` expectations on `readBundledIdentity(FIXTURE_RESOURCES, 'board')` (test `reads the staged identity build-apps ships`) and `effectiveIdentity(record(), FIXTURE_RESOURCES)` (test `an unlinked managed row takes its identity from the bundle`) with `requiresTeam: true`. Then append:
 
 ```ts
-test('readBundledIdentity carries requiresTeam from the shipped manifest', () => {
-  const id = readBundledIdentity(FIXTURE, 'board');
-  expect(id?.requiresTeam).toBe(true);
-});
-
 test('requiresTeamFor reads the effective identity: bundled beats a stored record without it', () => {
-  setBundledResourcesDir(FIXTURE);
-  const record: AppRecord = { name: 'board', managedBy: 'rt', port: 11006, kind: 'service', createdAt: '2026-08-10T00:00:00Z' };
-  expect(requiresTeamFor(record)).toBe(true);
+  setBundledResourcesDir(FIXTURE_RESOURCES);
+  expect(requiresTeamFor(record())).toBe(true);
   setBundledResourcesDir(null);
-  expect(requiresTeamFor(record)).toBe(false);
-  expect(requiresTeamFor({ ...record, requiresTeam: true })).toBe(true);
+  expect(requiresTeamFor(record())).toBe(false);
+  expect(requiresTeamFor(record({ requiresTeam: true }))).toBe(true);
 });
 ```
 
-In `apps/deck/src/registry/manifest.test.ts` (it already has a checkout-dir helper writing `mattstack.deck.json` + an svg; copy that shape):
+In `apps/deck/src/registry/manifest.test.ts`, follow the file's per-test shape (`isolate()`, then `const { putRecord, getRecord, reloadRegistry } = await import('./records.ts'); reloadRegistry();`) and its checkout-dir helper that writes `mattstack.deck.json` plus `icon.svg`:
 
 ```ts
-test('ingestManifest carries requiresTeam onto the record and clears a stale one', () => {
-  const dir = deckManifestDir({ name: 'board', displayName: 'Board', icon: './icon.svg', requiresTeam: true });
+test('ingestManifest carries requiresTeam onto the record and clears a stale one', async () => {
+  isolate();
+  const { putRecord, getRecord, reloadRegistry } = await import('./records.ts');
+  const { ingestManifest } = await import('./manifest.ts');
+  reloadRegistry();
+  const dir = checkoutDir({ name: 'board', displayName: 'Board', icon: './icon.svg', requiresTeam: true });
   putRecord({ name: 'board', managedBy: 'rt', port: 11006, kind: 'service', workingDirectory: dir, createdAt: '2026-08-10T00:00:00Z' });
   ingestManifest('board');
   expect(getRecord('board')?.requiresTeam).toBe(true);
@@ -152,7 +164,7 @@ test('ingestManifest carries requiresTeam onto the record and clears a stale one
 });
 ```
 
-(If `manifest.test.ts` has no `deckManifestDir` helper, add one next to its existing helpers: mkdtemp, write the given object as `mattstack.deck.json`, write `icon.svg` with the file's `SVG` constant, return the dir.)
+(`checkoutDir` stands for whatever the file already names that helper; if it takes a fixed manifest, add a variant that takes the object.)
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -188,8 +200,6 @@ export function requiresTeamFor(record: AppRecord): boolean {
 }
 ```
 
-Fixture: add `"requiresTeam": true` to `apps/deck/src/registry/__fixtures__/bundle-resources/apps/board/mattstack.deck.json`.
-
 - [ ] **Step 4: Run to verify they pass, plus the registry suite**
 
 Run: `cd apps/deck && bun test src/registry`
@@ -210,16 +220,26 @@ git commit -m "deck: carry requiresTeam and enabled on the app record"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `discovery.test.ts` (same fixture shape as `discovery returns managed products only`):
+`buildDiscoveryApps` keeps only records that `buildStatus` joined to a route in `routes.json`, so a record with no route is dropped before any `enabled` check and a test that forgets the route passes for the wrong reason. Append to `discovery.test.ts`, seeding both routes in one write (the file's `boardRow` helper overwrites the routes file with board's alone):
 
 ```ts
 test('a disabled managed app is absent from discovery; a record without enabled is present', async () => {
   const chatDir = manifestDir();
   putRecord({ name: 'chat', managedBy: 'rt', port: 11002, kind: 'service', workingDirectory: chatDir, createdAt: '2026-08-10T00:00:00Z' });
   ingestManifest('chat');
-  putRecord({ name: 'board', managedBy: 'rt', port: 11006, kind: 'service', enabled: false, createdAt: '2026-08-10T00:00:00Z' });
+  boardRow({ enabled: false });
+  writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH!, JSON.stringify([
+    { hostname: 'chat.localhost', port: 11002 },
+    { hostname: 'board.localhost', port: 11006 },
+  ]));
   const apps = await buildDiscoveryApps(statusOpts);
   expect(apps.map(a => a.name)).toEqual(['chat']);
+  boardRow();
+  writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH!, JSON.stringify([
+    { hostname: 'chat.localhost', port: 11002 },
+    { hostname: 'board.localhost', port: 11006 },
+  ]));
+  expect((await buildDiscoveryApps(statusOpts)).map(a => a.name)).toEqual(['board', 'chat']);
 });
 ```
 
@@ -259,34 +279,42 @@ git commit -m "deck: hide disabled apps from the launcher catalog"
 
 - [ ] **Step 1: Write the failing tests**
 
-In `register.test.ts`, next to the existing `reresolveManagedApps` tests (reuse their `drivers` with `FakeServiceManager`, and their way of registering an rt row with a label and an installed plist):
+A managed row only serves what the resolver finds: a command whose argv0 lives under the bundle helpers dir, or a linked source. So the row must be built the way the neighbouring reresolve test (`reinstalls only the app whose resolved command differs`) builds it: `bundleHelpers('board')` aims the resolver's seam at a scratch helpers dir, `registerApp` with `h.command('board', 'serve')` writes a servable row, and the module-level `drivers` (from `beforeEach`) with a `CountingManager` records installs and uninstalls. Add next to that test:
 
 ```ts
 test('reresolve: a disabled rt row loses its plist and is reported under disabled; enabling it again installs it', async () => {
-  const manager = new FakeServiceManager();
-  const drivers = fakeDrivers({ manager });
-  putRecord({ name: 'board', managedBy: 'rt', port: 11006, kind: 'service', label: `${LABEL_PREFIX}board`, command: ['/x/board'], workingDirectory: '/tmp', enabled: false, createdAt: '2026-08-10T00:00:00Z' });
-  await manager.install({ label: `${LABEL_PREFIX}board`, programArguments: ['/x/board'], workingDirectory: '/tmp', environment: {}, stdoutPath: '/dev/null', stderrPath: '/dev/null' });
-  const r = await reresolveManagedApps(drivers);
-  expect(r.body.disabled).toEqual(['board']);
-  expect(manager.installed.has(`${LABEL_PREFIX}board`)).toBe(false);
+  const counting = new CountingManager();
+  const reresolveDrivers = { manager: counting, edge: drivers.edge };
+  const h = bundleHelpers('board');
+  await registerApp({ ...input, name: 'board', managedBy: 'rt', command: h.command('board', 'serve') }, reresolveDrivers);
+  const label = `${LABEL_PREFIX}board`;
+  expect(counting.installed.has(label)).toBe(true);
+  counting.installCalls = [];
+  counting.uninstallCalls = [];
+
+  putRecord({ ...getRecord('board')!, enabled: false });
+  const off = await reresolveManagedApps(reresolveDrivers);
+  expect(off.body).toMatchObject({ ok: true, disabled: ['board'], failed: [] });
+  expect(counting.uninstallCalls).toEqual([label]);
+  expect(counting.installed.has(label)).toBe(false);
+
   putRecord({ ...getRecord('board')!, enabled: undefined });
-  const again = await reresolveManagedApps(drivers);
-  expect(again.body.disabled).toEqual([]);
-  expect(manager.installed.has(`${LABEL_PREFIX}board`)).toBe(true);
+  const on = await reresolveManagedApps(reresolveDrivers);
+  expect(on.body).toMatchObject({ ok: true, disabled: [], restarted: ['board'] });
+  expect(counting.installed.has(label)).toBe(true);
 });
 
 test('restartManagedApps skips a disabled row', async () => {
-  const manager = new FakeServiceManager();
-  const drivers = fakeDrivers({ manager });
-  putRecord({ name: 'board', managedBy: 'rt', port: 11006, kind: 'service', label: `${LABEL_PREFIX}board`, enabled: false, createdAt: '2026-08-10T00:00:00Z' });
+  const h = bundleHelpers('board');
+  await registerApp({ ...input, name: 'board', managedBy: 'rt', command: h.command('board', 'serve') }, drivers);
+  putRecord({ ...getRecord('board')!, enabled: false });
+  const manager = drivers.manager as FakeServiceManager;
+  manager.kickstarts = [];
   const r = await restartManagedApps(drivers);
   expect(manager.kickstarts).toEqual([]);
   expect(r.body.restarted).toEqual([]);
 });
 ```
-
-Use whatever the file already names its drivers builder (search for `manager: new FakeServiceManager()` in the file; if the tests build the object inline, do the same here).
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -340,36 +368,44 @@ git commit -m "deck: a disabled app is not served by the sweep"
 
 - [ ] **Step 1: Write the failing tests**
 
-`register.test.ts`:
+`register.test.ts`, built the same way as Task 4's servable row:
 
 ```ts
 test('editApp: enabled alone flips the record and re-sweeps; mixed with other fields it is refused', async () => {
-  const manager = new FakeServiceManager();
-  const drivers = fakeDrivers({ manager });
-  putRecord({ name: 'board', managedBy: 'rt', port: 11006, kind: 'service', label: `${LABEL_PREFIX}board`, command: ['/x/board'], workingDirectory: '/tmp', createdAt: '2026-08-10T00:00:00Z' });
-  const off = await editApp('board', { enabled: false } as never, 'rt', false, drivers);
+  const h = bundleHelpers('board');
+  await registerApp({ ...input, name: 'board', managedBy: 'rt', command: h.command('board', 'serve') }, drivers);
+  const manager = drivers.manager as FakeServiceManager;
+  const label = `${LABEL_PREFIX}board`;
+  expect(manager.installed.has(label)).toBe(true);
+
+  const off = await editApp('board', { enabled: false }, 'rt', false, drivers);
   expect(off.status).toBe(200);
   expect(getRecord('board')?.enabled).toBe(false);
-  expect(manager.installed.has(`${LABEL_PREFIX}board`)).toBe(false);
-  const mixed = await editApp('board', { enabled: true, port: 11007 } as never, 'rt', false, drivers);
-  expect(mixed.status).toBe(400);
-  expect(mixed.body).toEqual({ error: 'enabled must be patched on its own' });
-  const notRegistrar = await editApp('board', { enabled: true } as never, 'user', false, drivers);
+  expect(manager.installed.has(label)).toBe(false);
+
+  const mixed = await editApp('board', { enabled: true, port: 11007 }, 'rt', false, drivers);
+  expect(mixed).toEqual({ status: 400, body: { error: 'enabled must be patched on its own' } });
+  const notRegistrar = await editApp('board', { enabled: true }, 'user', false, drivers);
   expect(notRegistrar.status).toBe(409);
-  const bad = await editApp('board', { enabled: 'yes' } as never, 'rt', false, drivers);
-  expect(bad.status).toBe(400);
+  const bad = await editApp('board', { enabled: 'yes' as never }, 'rt', false, drivers);
+  expect(bad).toEqual({ status: 400, body: { error: 'enabled must be a boolean' } });
+
+  const on = await editApp('board', { enabled: true }, 'rt', false, drivers);
+  expect(on.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBeUndefined();
+  expect(manager.installed.has(label)).toBe(true);
 });
 ```
 
-`status.test.ts` (next to an existing `buildStatus` test that registers an rt row; copy its opts):
+`status.test.ts`: its `beforeEach` seeds one route, `myapp.localhost` on 19999, so the record under test must be `myapp` at that port (a record with no route gets no row):
 
 ```ts
 test('status rows carry enabled, requiresTeam and displayName', async () => {
-  putRecord({ name: 'board', managedBy: 'rt', port: 11006, kind: 'service', enabled: false, requiresTeam: true, displayName: 'Board', createdAt: '2026-08-10T00:00:00Z' });
-  const row = (await buildStatus(statusOpts)).apps.find(a => a.name === 'board')!;
+  putRecord({ name: 'myapp', managedBy: 'rt', port: 19999, kind: 'service', enabled: false, requiresTeam: true, displayName: 'My App', createdAt: '2026-08-10T00:00:00Z' });
+  const row = (await buildStatus(opts)).apps.find(a => a.name === 'myapp')!;
   expect(row.enabled).toBe(false);
   expect(row.requiresTeam).toBe(true);
-  expect(row.displayName).toBe('Board');
+  expect(row.displayName).toBe('My App');
 });
 ```
 
@@ -417,7 +453,7 @@ and in the tunnel row literal (`managedBy: null`): `displayName: <that row's nam
   }
 ```
 
-`safeRecord` lives in `server.ts`; move it and `SafeRecord` into `status.ts` (exported), import them in `server.ts` and `register.ts`, and name the import `safeRecord` in both (the snippet's `safeRecordFor` is that function).
+`safeRecord` lives in `server.ts`; move it and `SafeRecord` into `status.ts` (exported), import them in `server.ts` and `register.ts`, and name the import `safeRecord` in both (the snippet's `safeRecordFor` is that function). This branch deliberately answers with the safe record where the rest of `editApp` answers with the raw one: an `enabled` flip is the one PATCH the tray drives through `rt apps`, and no raw record field should ride out through it.
 
 - [ ] **Step 4: Run to verify they pass, plus typecheck**
 
@@ -453,7 +489,7 @@ test("requiresTeam survives staging and a non-boolean is refused", () => {
 });
 ```
 
-Update the fixture `scripts/lib/__tests__/fixtures/bundle-resources/apps/board/mattstack.deck.json` to the staged form with `"requiresTeam": true` as the last key (the `staging board's source manifest writes exactly the twin fixture's bytes` test pins the bytes; regenerate by running `stageIdentity` once and copying its output if the hand edit misses).
+Overwrite the fixture `scripts/lib/__tests__/fixtures/bundle-resources/apps/board/mattstack.deck.json` with the exact bytes Task 2 wrote to its deck twin (same seven lines, `requiresTeam` last, trailing newline; sha256 `998fddd2621726f465df3f478d0eeefa8c0186ce3e5c8fd1de7c0edb7193faf5`). The `staging board's source manifest writes exactly the twin fixture's bytes` test pins those bytes, and the deck side pins the same digest, so the two files must stay identical.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -525,7 +561,7 @@ test("isSolo: no team known, and only then", () => {
   });
 ```
 
-Also add to `lib/setup/__tests__/` a test for the verb; `commands/setup.ts`'s intent tests live in `commands/__tests__/setup-intent.test.ts` if present, else add one there with the `IntentDeps` fake shape (`probes: fakeProbes()`, `print` collecting lines, `exit` throwing):
+The verb is covered in `commands/__tests__/setup-apply.test.ts` (search it for `setupIntent(`); add there, with the `IntentDeps` fake shape that file already uses (`probes: fakeProbes()`, `print` collecting lines, `exit` throwing):
 
 ```ts
 test("rt setup intent solo writes the solo intent and prints it", async () => {
@@ -539,8 +575,8 @@ test("rt setup intent solo writes the solo intent and prints it", async () => {
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `bun test ./lib/setup/__tests__/intent.test.ts ./lib/setup/__tests__/contract.test.ts ./lib/setup/__tests__/steps-a.test.ts ./commands/__tests__`
-Expected: FAIL (type error on `"solo"`, `isSolo` missing, usage error from the verb).
+Run: `bun test ./lib/setup/__tests__/intent.test.ts ./lib/setup/__tests__/contract.test.ts ./lib/setup/__tests__/steps-a.test.ts ./commands/__tests__/setup-apply.test.ts && bunx tsc --noEmit`
+Expected: the contract test and the verb test FAIL at runtime; the intent and steps-a tests pass at runtime but `tsc` rejects `"solo"` (bun test does not typecheck).
 
 - [ ] **Step 3: Implement**
 
@@ -573,13 +609,13 @@ Update both usage strings to `rt setup intent restore <org>/<repo> | rt setup in
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `bun test ./lib/setup/__tests__/intent.test.ts ./lib/setup/__tests__/contract.test.ts ./lib/setup/__tests__/steps-a.test.ts ./commands/__tests__ && bunx tsc --noEmit`
+Run: `bun test ./lib/setup/__tests__/intent.test.ts ./lib/setup/__tests__/contract.test.ts ./lib/setup/__tests__/steps-a.test.ts ./commands/__tests__/setup-apply.test.ts && bunx tsc --noEmit`
 Expected: PASS, clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/setup/intent.ts lib/setup/contract.ts commands/setup.ts lib/command-tree-def.ts lib/setup/__tests__ commands/__tests__
+git add lib/setup/intent.ts lib/setup/contract.ts commands/setup.ts lib/command-tree-def.ts lib/setup/__tests__ commands/__tests__/setup-apply.test.ts
 git commit -m "setup: solo intent and isSolo"
 ```
 
@@ -631,7 +667,7 @@ git commit -m "setup: no access rows on a solo install"
 - Test: `lib/setup/__tests__/validators-accounts.test.ts`
 
 **Interfaces:**
-- Produces: `accountRows(p, team, reqs, secrets, intent, overrides?, solo = false)`; on solo with nothing declared, exactly one row `account.github` with `required: false` and `optionalNote: "Works without this. Connect a GitHub account later to open pull requests from rt."`.
+- Produces: `accountRows(p, team, reqs, secrets, intent, overrides?, solo = false)`; on solo with nothing declared, exactly one row `account.github` with `required: false` and `optionalNote: "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt."`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -643,7 +679,7 @@ describe("accountRows on solo", () => {
     const rows = await accountRows(fakeProbes(), baseTeam({ slug: "" }), [], NO_SECRETS, { v: 1, at: "", mode: "solo" }, {}, true);
     expect(rows.map((r) => r.id)).toEqual(["account.github"]);
     expect(rows[0]!.required).toBe(false);
-    expect(rows[0]!.optionalNote).toBe("Works without this. Connect a GitHub account later to open pull requests from rt.");
+    expect(rows[0]!.optionalNote).toBe("Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.");
     expect(rows[0]!.status).toBe("missing");
   });
 });
@@ -659,7 +695,7 @@ Expected: FAIL (no rows).
 Add the constant and the branch in `accountRows`:
 
 ```ts
-const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub account later to open pull requests from rt.";
+const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.";
 ```
 
 ```ts
@@ -725,6 +761,7 @@ git commit -m "setup: optional GitHub account row on a solo install"
   });
 
   test("create, join and restore intents produce the same rows as before solo existed", async () => {
+    // readyExec puts no fast-browser on PATH, so the row's "missing" branch is the one asserted; the pending branches already read required:false in every mode.
     for (const intent of [createIntent(), joinIntent(), restoreIntent()]) {
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
       writeIntent(p, intent);
@@ -786,7 +823,7 @@ In the `deck.managed` describe, extend `healthyFetch` so a `GET .../api/v1/apps`
       };
 ```
 
-Append `; no team-only apps` to every existing expected `deck ready; ...` detail in that describe. Then add:
+Every existing `deck ready; ...` expectation in that describe gets a fragment appended: `; no team-only apps` where the test uses `healthyFetch` (its list answers `{ apps: [] }`), and `; app defaults skipped (deck answered 404)` where a test supplies its own `fetch` that does not answer the list. Every existing test there runs with `makeCtx`'s default `intent: null`, which the new gate treats as "not an install", so those expectations instead end with `; app defaults untouched (not an install)`; only tests that set an intent reach the fragments above. Then add:
 
 ```ts
     const CATALOG = [
@@ -796,9 +833,20 @@ Append `; no team-only apps` to every existing expected `deck ready; ...` detail
       { name: "chat", managedBy: "rt", requiresTeam: false, enabled: true },
     ];
 
+    // steps-b.test.ts does not import SetupIntent today; add `import type { SetupIntent } from "../intent.ts";` to its imports.
+    const SOLO_INTENT: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" };
+    const CREATE_INTENT: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://github.com/acme/x.git", others: false } };
+
+    test("no intent (a plain rt setup apply after install): nothing is PATCHed, whatever the mode", async () => {
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
+      const { ctx } = makeCtx(p, { intent: null, team: { slug: "", name: "", mode: "none" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; app defaults untouched (not an install)" });
+      expect(p.calls.fetchInits.filter((c) => c.init?.method === "PATCH")).toEqual([]);
+    });
+
     test("solo: every requiresTeam app is PATCHed off; console's manual off is left alone", async () => {
       const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
-      const { ctx } = makeCtx(p, { team: { slug: "", name: "", mode: "none" } });
+      const { ctx } = makeCtx(p, { intent: SOLO_INTENT, team: { slug: "", name: "", mode: "none" } });
       expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; solo: board, boxscore off" });
       const patches = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => [c.url, c.init?.body]);
       expect(patches).toEqual([
@@ -809,7 +857,7 @@ Append `; no team-only apps` to every existing expected `deck ready; ...` detail
 
     test("team: every requiresTeam app is PATCHed on; console's manual off is left alone", async () => {
       const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
-      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "create" } });
+      const { ctx } = makeCtx(p, { intent: CREATE_INTENT, team: { slug: "acme", name: "Acme", mode: "create" } });
       expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; team apps on: board, boxscore" });
       const patched = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => c.url);
       expect(patched).toEqual(["http://127.0.0.1:4100/api/v1/apps/board", "http://127.0.0.1:4100/api/v1/apps/boxscore"]);
@@ -848,6 +896,8 @@ export function readDeckApiPort(ctx: ApplyContext): number | null {
 interface DeckAppRow { name: string; managedBy: string; requiresTeam?: boolean; enabled?: boolean }
 
 async function applyAppDefaults(ctx: ApplyContext, port: number): Promise<string> {
+  // An intent is only on disk during a first run or an upgrade; a completed apply clears it. Without one this is a re-run, and a user's own toggles stand.
+  if (ctx.intent === null) return "app defaults untouched (not an install)";
   const res = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps`);
   if (res.status !== 200) return `app defaults skipped (deck answered ${res.status})`;
   let apps: DeckAppRow[];
@@ -1649,22 +1699,26 @@ git commit -m "tray: Settings > Apps toggles the served mattstack apps"
 
     func testJustMeScreensLightAndDark() {
         for scheme in ["Light", "Dark"] {
-            app = XCUIApplication()
+            prepare("solo")
             app.launchArguments += ["-AppleInterfaceStyle", scheme]
-            launch("solo")
+            app.launch()
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
             waitFor("setup.team.screen"); el("setup.team.card.solo").click(); shoot("team-\(scheme)")
             el("setup.team.continue").click(); waitFor("setup.checklist.screen")
             el("setup.checklist.continue").click(); waitFor("setup.done.screen", 60); shoot("done-\(scheme)")
+            // Settings opens with the Command-comma shortcut only while a window is key, and the Done screen is; Finish closes it.
+            app.typeKey(",", modifierFlags: .command)
+            waitFor("settings.tab.apps"); el("settings.tab.apps").click(); waitFor("settings.apps.toggle.board"); shoot("settings-apps-\(scheme)")
+            el("settings.tab.team").click(); waitFor("settings.team.create"); shoot("settings-team-\(scheme)")
+            app.typeKey("w", modifierFlags: .command)
             waitUntilEnabled("setup.done.continue"); el("setup.done.continue").click()
-            openSettings(pane: "apps"); shoot("settings-apps-\(scheme)")
-            openSettings(pane: "team"); shoot("settings-team-\(scheme)")
+            waitUntilGone("setup.done.screen")
             app.terminate()
         }
     }
 ```
 
-`openSettings(pane:)` follows what `testUninstallFromSettingsShowsDryRunList` does to reach a pane (clicking the tab whose identifier is `AXID.settingsTab(pane)`); if `launch` does not reassign `app`, adapt the helper so `launchArguments` reaches it.
+`launch(_:)` assigns `app = XCUIApplication()` itself, so set `launchArguments` after it returns and before `app.launch()`: split `launch` into `prepare(_:)` (everything but the final `app.launch()`) and call `app.launch()` from the test after appending the scheme argument.
 
 - [ ] **Step 2: Run it and look at the attachments**
 
@@ -1683,12 +1737,12 @@ git commit -m "tray: light and dark screenshots of the Just me screens"
 ### Task 20: VM walkthrough, solo scenario and the upgrade leg
 
 **Files:**
-- Modify: `rt-tray/vm/run/walkthrough.sh`, `rt-tray/vm/run/guest/drive-setup.sh`, `rt-tray/vm/run/guest/assert-installed.sh`, `rt-tray/vm/run/guest/served-apps.sh`
+- Modify: `rt-tray/vm/run/walkthrough.sh`, `rt-tray/vm/run/guest/drive-setup.sh`, `rt-tray/vm/run/guest/assert-installed.sh`, `rt-tray/vm/run/guest/served-apps.sh`, `rt-tray/vm/run/guest/jq/served-verdict.jq`
 - Create: `rt-tray/vm/run/guest/upgrade-to-team.sh`
 
-- [ ] **Step 1: Accept `--scenario solo`**
+- [ ] **Step 1: Accept `--scenario solo` and thread it to the guest asserts**
 
-`walkthrough.sh`: the usage line lists `create|join|headless|solo`; `drive-setup.sh`'s `case "$SCENARIO"` accepts `solo`; in `screen_team` add:
+`walkthrough.sh`: the usage line lists `create|join|headless|solo`; the `assert-installed.sh` invocation (the `vm_ssh_try ... bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG` line) gains `$SOLO_ARG`, set beside the others as `SOLO_ARG=""; [ "$SCENARIO" = solo ] && SOLO_ARG="--solo"`. `drive-setup.sh`'s `case "$SCENARIO"` accepts `solo`; in `screen_team` add:
 
 ```bash
     solo)
@@ -1697,9 +1751,22 @@ git commit -m "tray: light and dark screenshots of the Just me screens"
       ;;
 ```
 
-`assert-installed.sh`: when `SCENARIO=solo`, assert `rt setup status --json` has no row whose id starts with `access.` or `team.`, `rt team status --json` has `.mode == "solo"`, and `rt verify --json` is green (these are jq checks in the file's existing `ok`/`fail` style; add them under a `[ "$SCENARIO" = solo ]` guard next to the create assertions).
+`assert-installed.sh` has no `$SCENARIO`; it parses its own flags. Add `SOLO=0` and `--solo) SOLO=1; shift;;` to its `while` loop, `export SERVED_SOLO=$SOLO` before `assert_served_apps` is called, and under `[ "$SOLO" = 1 ]` next to the existing rt-side asserts:
 
-`served-apps.sh`: take `--solo`; under it assert `https://console.mattstack` and `https://chat.mattstack` answer 200 and `https://board.mattstack` and `https://boxscore.mattstack` do not resolve or answer 502, using the same curl helper the file uses for the create scenario; also assert `rt apps list --json | jq '[.apps[] | select(.requiresTeam) | .enabled] | all(. == false)'`.
+```bash
+  if rt setup status --json | "$JQ" -e '[.groups[].rows[].id | select(startswith("access.") or startswith("team."))] | length == 0' >/dev/null; then ok "solo: no access or team rows"; else bad "solo: access or team rows present"; fi
+  if rt team status --json | "$JQ" -e '.mode == "solo"' >/dev/null; then ok "solo: team status reports mode solo"; else bad "solo: team status did not report mode solo"; fi
+  if rt apps list --json | "$JQ" -e '[.apps[] | select(.requiresTeam) | .enabled] | all(. == false)' >/dev/null; then ok "solo: every team-only app is off"; else bad "solo: a team-only app is on"; fi
+```
+
+`served-apps.sh`: `served_snapshot` also fetches `http://127.0.0.1:$port/api/v1/apps` into `$dir/apps.json` (`null` when unreachable, the same way `status.json` is written), and `assert_served_apps` passes `--slurpfile apps "$dir/apps.json"` to jq. `served-verdict.jq` today demands every deps.lock serve app be rt-managed, healthy, routed, loaded and running; on a solo run board and boxscore are none of those by design, and `/api/v1/status` will carry the new `enabled` field only after Task 5. Teach the verdict the disabled case: bind `($apps[0].apps // []) as $adm`, and inside the per-app branch, before the `$row == null` check, add
+
+```jq
+        elif ([$adm[] | select(.name == $a.name and .enabled == false)] | length) > 0 then
+          ok("\($a.name): disabled, not served (deck /api/v1/apps enabled false)")
+```
+
+so a disabled catalog app yields one ok line and skips the health, route and launchd asserts. Leave `assert_mattstack_routes` alone: deck keeps the portless alias when it disables an app, so the hostname still resolves and answers TLS; the upstream is simply down.
 
 - [ ] **Step 2: Add the upgrade leg**
 
