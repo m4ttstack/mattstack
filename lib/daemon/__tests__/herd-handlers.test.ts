@@ -14,11 +14,15 @@ import { createBgHandlers } from "../handlers/bg.ts";
 import { createEscapeInjector } from "../gate-escape.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import { acceptTrustOnPane } from "../trust-accept.ts";
+import { deleteChatSession, readChatSession, writeChatSession } from "../../chat-session.ts";
 
 const log = pino({ level: "silent" });
 let dirs: string[] = [];
 beforeEach(() => { dirs = []; });
-afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  for (const s of ["sess-w1", "sess-w2", "sess-shep", "sess-shep-2", "sess-shep-3"]) deleteChatSession(s);
+});
 
 export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { registerBudgetMs?: number; settleMs?: number; stepMs?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "rt-herd-h-"));
@@ -303,6 +307,14 @@ describe("herd:resume / status / close", () => {
     if (!res.ok) throw new Error(res.error);
     return { ...hx, herd: res.data.herd, room: res.data.room };
   }
+
+  test("start and resume write the shepherd's chat session file", async () => {
+    const { h, herd } = await started();
+    expect(readChatSession("sess-shep")).toMatchObject({ handle: "shepherd", baseHandle: "shepherd" });
+    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    if (!res.ok) throw new Error(res.error);
+    expect(readChatSession("sess-shep-2")).toMatchObject({ handle: "shepherd", baseHandle: "shepherd" });
+  });
 
   test("resume re-subscribes with the new session and returns gates, unread, status", async () => {
     const { h, store, gateStore, herd } = await started();
@@ -962,6 +974,29 @@ describe("herd:spawn", () => {
     expect(store.getJob(herd, "job-a")).toMatchObject({ worktree: "/w/job-a", branch: "job-a", tree: "job-a", pane: "w9:p1", agentSession: "sess-w1", agentId: "ag-1", handle: "job-a", status: "spawning", disposable: false });
     expect(res.data).toMatchObject({ pane: "w9:p1", worktree: "/w/job-a", tree: "job-a", sessionId: "sess-w1", wasOnDeck: false });
     expect(readFileSync(join(dir, "herds", herd, "job-a", "job.md"), "utf8")).toContain("do the thing");
+  });
+
+  test("a spawned worker gets a chat session file, so the chat_* MCP tools resolve its handle", async () => {
+    const { h, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
+    if (!res.ok) throw new Error(res.error);
+    expect(readChatSession("sess-w1")).toMatchObject({ sessionId: "sess-w1", handle: "job-a", baseHandle: "job-a" });
+  });
+
+  test("an existing file naming the same handle is kept, room and all", async () => {
+    writeChatSession({ sessionId: "sess-w1", handle: "job-a", baseHandle: "job-a", signedInAt: 1, room: "r" });
+    const { h, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
+    if (!res.ok) throw new Error(res.error);
+    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a", room: "r", signedInAt: 1 });
+  });
+
+  test("a stale file naming another handle is rewritten to the signed-in handle, keeping its room", async () => {
+    writeChatSession({ sessionId: "sess-w1", handle: "old-2", baseHandle: "old", signedInAt: 1, room: "r" });
+    const { h, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
+    if (!res.ok) throw new Error(res.error);
+    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a", baseHandle: "job-a", room: "r" });
   });
 
   test("--dir skips provisioning; a respawn closes the old pane first and reuses the stored job.md", async () => {
