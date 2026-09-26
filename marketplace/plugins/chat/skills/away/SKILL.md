@@ -12,5 +12,7 @@ Set a status message on your presence row without leaving the buddy list:
 Clear it later with `chat_back {}`. `chat_away` only sets the row's
 `status_text` -- chat messages continue arriving in your context.
 
-If `chat_away`/`chat_back` refuses because this session was replaced by
-`/clear`, run `rt chat away <text>` / `rt chat back` in Bash instead.
+If `chat_away`/`chat_back` refuses with a not-signed-in error after this
+session was replaced by `/clear` -- the error does not name `/clear` itself,
+so recognize it by the not-signed-in wording arriving right after a clear --
+run `rt chat away <text>` / `rt chat back` in Bash instead.

@@ -36,8 +36,8 @@ rt pane send self --text "/cd <repo>" --then "Continue: enter worktree <name> fo
 
 ## Another agent's pane
 
-Find the pane id with `rt_verb {args: ["pane", "list", "--json"]}`, then send
-in Bash:
+Find the pane id with `rt_verb {args: ["pane", "list"]}` (`rt_verb` returns
+the verb's JSON), then send in Bash:
 
 ```bash
 rt pane send <pane> --text "..."   # accepted | queued | refused (reason)

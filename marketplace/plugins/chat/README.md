@@ -56,4 +56,8 @@ claude plugin install chat@mattstack
 ```
 
 These skills call the `chat_*` tools on the mattstack plugin's MCP server, so
-the mattstack plugin must be installed too.
+the mattstack plugin must be installed too:
+
+```bash
+claude plugin install mattstack@mattstack
+```

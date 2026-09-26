@@ -11,9 +11,10 @@ them, registers them with the daemon, and cleans them up. In a repo that
 unregistered tree gets none of the guarded disposal, freshening, or
 auto-cleanup.
 
-`rt worktree --help` is the live reference: the bare usage lists every verb,
-and `rt worktree <cmd> --help` carries the current flags. Trust that output
-over anything remembered or written here.
+For the Bash `rt worktree` verbs, `rt worktree --help` is the live
+reference: the bare usage lists every verb, and `rt worktree <cmd> --help`
+carries the current flags. For the tools below, their own descriptions and
+input schemas are the reference.
 
 ## The lifecycle
 
@@ -27,9 +28,11 @@ over anything remembered or written here.
   `readyPending` with the queued steps.
 - **Finish**: trees claimed with the default `merge` disposal auto-dispose
   after their MR merges, so cleanup usually needs no command. The
-  `worktree_dispose` tool (`{repoName, tree}`) is the manual path; it refuses
-  dirty or unpushed trees, and it is soft ... the tree is retained in trash
-  for a window.
+  `worktree_dispose` tool (`{repoName, tree}`) is the manual path; it is
+  soft ... the tree is retained in trash for a window. It does not error on
+  a dirty or unpushed tree: check the result's `disposed` and `refused`
+  lists, since a dirty or unpushed tree comes back listed under `refused`
+  rather than failing the call.
 - **Undo**: `rt worktree restore --list` shows what is recoverable; `restore
   <tree>` rebuilds the tree, its branch, and retained untracked files. Reach
   for this before git plumbing when a disposed tree is missed.
@@ -45,10 +48,10 @@ over anything remembered or written here.
   branch}`) and enter its result's `path` with `EnterWorktree` in path mode,
   which always prompts. Disposal stays rt's either way; `ExitWorktree` never
   removes an rt tree.
-- Pass explicit args. A kept-on-Bash form also takes `--json`; `rt_verb`
-  adds `--json` itself, so leave it out of `args`. Omitted args open
+- Pass explicit args. `rt_verb` appends `--json` itself and returns the
+  verb's JSON, so leave `--json` out of `args`. Omitted args open
   interactive pickers in a TTY and exit with usage otherwise.
-- `rt_verb {args: ["worktree", "list", "--json"]}` is ground truth for what
+- `rt_verb {args: ["worktree", "list"]}` is ground truth for what
   exists and where. Tree kinds: `main`, `claimed`, `on-deck`, `unmanaged`.
 - **Never run the tree's install yourself.** A tree from the pool is warm for
   the default branch, so its `node_modules` genuinely can be wrong for your

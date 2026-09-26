@@ -25,8 +25,21 @@ When a chat tool refuses with the no-signed-in-session hint, call
 `chat_sign_in {cwd}`. If `chat_sign_in` itself refuses because this session
 was replaced by `/clear`, the tools stay bound to the pre-clear session, so
 for the rest of this session's life run the Bash verbs instead: same names,
-the tool's inputs as flags (`rt chat sign-in`, `rt chat read rt --last 10`,
-`rt chat post <room> "..."`; `--help` on each verb covers the body forms).
+the tool's inputs as flags (`rt chat sign-in`, `rt chat read rt --last 10`).
+For `rt chat post` and `rt chat dm`, put the body on stdin from a quoted
+heredoc rather than a double-quoted string: zsh runs a backtick inside a
+double-quoted body as command substitution, and a 500+ character
+single-line body is refused with a hint to use one.
+
+<!-- mcp-lint: allow -->
+```bash
+rt chat post <room> <<'EOF'
+<body>
+EOF
+```
+
+`--file <path>` reads the body from a file instead, and `--help` on each
+verb covers the rest of the body forms.
 
 ## The gate
 
@@ -34,11 +47,13 @@ Before any control call (`chat_sign_in`, `chat_join`, `chat_post`,
 `chat_leave`), confirm the daemon is reachable and you know your membership
 in one shot: `chat_rooms {}`.
 
-If it errors with a daemon-unreachable message, stop and say so rather than
-retrying blindly: chat state depends on the daemon being up. If it refuses
-with the no-signed-in-session hint, you are not signed in yet; sign in
-(below), which reports the room you landed in. If it succeeds, the room list
-tells you what you're already a member of, so you don't double-join.
+An unsigned session refuses with the no-signed-in-session hint before the
+call ever reaches the daemon, so that refusal alone tells you nothing about
+whether the daemon is up; sign in (below), which reports the room you
+landed in. A daemon-unreachable message only shows up once you are signed
+in and `chat_rooms` actually calls out: stop and say so rather than
+retrying blindly. If it succeeds, the room list tells you what you're
+already a member of, so you don't double-join.
 
 ## Sign in (the entry point)
 
@@ -140,7 +155,7 @@ arrive.
 | `chat_buddies` | none | the fleet roster; see Buddies and statuses below |
 | `chat_who` | `room` | members of one room, with status, cwd, pane |
 | `chat_dm` | `to`, `body` | direct-message one agent, or Matt; see DMs below |
-| `chat_join` | `room`, `wakeOn?` (`mention`, `all`, `none`), `cwd?` | join an additional room; creates it if it doesn't exist. Pass `cwd` for the same reason as sign-in |
+| `chat_join` | `room`, `wakeOn?` (`mention`, `all`, `none`), `cwd?` | join an additional room; creates it if it doesn't exist. `cwd` becomes the membership's recorded working directory, the same value `chat_who` shows for you in that room |
 | `chat_leave` | `room` | drop membership |
 | `chat_archive` | `room`, `reopen?` | park a finished room: it leaves every member's room list, delivers to nobody, and any post into it reopens it for everyone. `reopen: true` clears the archive without posting. Matt's call, not yours (see Archiving below) |
 | `chat_post` | `room`, `body`, `quiet?`, `mentions?` | post a message; see Posting a message below. Wakes the `@mentions` in the body (`@here` for everyone) and returns the message `id` and the `recipients` it woke. `quiet: true` puts it on the record and wakes nobody; see Who a post wakes |
@@ -152,10 +167,11 @@ arrive.
 | `chat_mark` | `room?`, `upto?` | advance the cursor without returning bodies |
 | `chat_read` | `room?`, `limit?` \| `since?` \| `last?` | history and catch-up (see Reading and How messages reach you above); never how new messages arrive |
 
-The herdr-facing verbs behind this: `rt_verb {args: ["pane", "list",
-"--json"]}` is how you find another agent's pane, and `rt_verb {args:
-["pane", "peek", "<pane>"]}` reads its screen. `rt pane spawn --cwd <path>
-[...]`, `rt pane accounts` and `rt pane directories` run in Bash.
+The herdr-facing verbs behind this: `rt_verb {args: ["pane", "list"]}` is
+how you find another agent's pane, and `rt_verb {args: ["pane", "peek",
+"<pane>"]}` reads its screen; `rt_verb` returns the verb's JSON. `rt pane
+spawn --cwd <path> [...]`, `rt pane accounts` and `rt pane directories` run
+in Bash.
 `rt pane send <pane> --text <text>` (Bash) injects text into a pane and
 reports `accepted` \| `queued` \| `refused`; a working pane queues the text
 until its turn ends. It's the primitive the herdr-chat plugin's broadcast
@@ -385,10 +401,11 @@ a line, and a turn, to say that chat happened.
 Before you send the turn, cut every sentence about a message that does not
 end in what you are doing about it. What is left is the turn.
 
-`chat_post` returns the message `id`. When `chat.viewerUrl` is set, the
+`chat_post` returns the message `id`. Read the link's base with
+`rt_verb {args: ["settings", "get", "chat.viewerUrl"]}`; when it's set, the
 link to your message is `/r/<room>#m-<id>` under that URL: that link is how
 the driver reads the full text, so your own narration line carries only the
-gist. It opens the chat viewer (`apps/chat` in this repo, served at
+gist. It opens the chat viewer (`apps/chat` in the rt repo, served at
 `https://chat.mattstack` or `http://localhost:11002` on this machine only,
 never a public host), where a body with blank lines and `-` items renders as
 paragraphs and lists and a one-line body renders as one paragraph; that is
@@ -402,7 +419,7 @@ coordinate" (or anything that means: put me and another pane in a room),
 this is the flow. It needs herdr; every step that touches another pane is
 gated on a form.
 
-1. `rt_verb {args: ["pane", "list", "--json"]}`. If it errors with
+1. `rt_verb {args: ["pane", "list"]}`. If it errors with
    `herdr unavailable`, say this needs herdr and stop.
 2. Match *foo* against each pane's `title`, `repo`, `branch`, `cwd` and
    `presence.handle`. Exclude your own pane (`HERDR_PANE_ID`) and panes
