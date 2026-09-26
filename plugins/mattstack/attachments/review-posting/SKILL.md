@@ -103,7 +103,8 @@ carry an unqualified all-clear.
 <HARD-GATE>
 The final message ends with the target's id formatted as a markdown link to
 its real web URL, read from the forge (the `mrUrl` a posting tool
-returned, or the forge CLI) -- never hand-assembled, never
+returned; else on GitLab the `webUrl` of `mr_view` with `mrUrl`, or
+`repoName` plus `iid`; on GitHub `gh pr view`) -- never hand-assembled, never
 left as a bare id or number. Required every time, on every disposition.
 </HARD-GATE>
 
@@ -116,7 +117,7 @@ left as a bare id or number. Required every time, on every disposition.
 | "This selected finding has no `file`, I'll anchor it to the nearest line" | Never invent an anchor. A selected entry with no `file` goes in the summary comment. |
 | "I'll fold the deselected Minors into the summary note" | No side door. A deselected finding drops entirely; it does not move to a different channel. |
 | "No approval landed, but I'll still say 'nothing blocking'" | Tacit approval. Strip the all-clear language unless the disposition actually approves. |
-| "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge (a posting tool's `mrUrl`, or the forge CLI). |
+| "I'll close with !123" | Bare id. The close HARD-GATE needs a markdown link to the real URL, read from the forge (a posting tool's `mrUrl`; else `mr_view`'s `webUrl`, called with `mrUrl` or `repoName` plus `iid`, on GitLab, `gh pr view` on GitHub). |
 | "GitLab has no Request changes here, I'll just post a plain Comment" | Post a blocking-framed Comment: its Assessment names what blocks the merge and says approval is withheld. |
 | "The selection looked stale, I'll re-ask to be sure" | Not this part's call. A decided selection is trusted as handed; re-deciding belongs to the caller, not the executor. |
 
@@ -132,4 +133,4 @@ left as a bare id or number. Required every time, on every disposition.
 | Disposition is Approve | Post the findings first, then approve. |
 | Disposition is Request changes on a forge without it (GitLab) | Blocking-framed Comment: the Assessment names what blocks the merge and says approval is withheld. |
 | Disposition carries no approval | Strip all-clear language from the summary; state the decision is deferred or withheld. |
-| About to close | Markdown link to the real URL, read from the forge (a posting tool's `mrUrl`, or the forge CLI) -- every time. |
+| About to close | Markdown link to the real URL, read from the forge (a posting tool's `mrUrl`; else `mr_view`'s `webUrl`, called with `mrUrl` or `repoName` plus `iid`, on GitLab, `gh pr view` on GitHub) -- every time. |

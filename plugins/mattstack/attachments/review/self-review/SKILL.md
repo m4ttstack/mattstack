@@ -23,51 +23,48 @@ returns.
 ## Run
 
 Outside a pipeline this verb is its own run, so the console shows it and
-the Stop hook covers its pane. Skip this section when `RT_RUN_DB` is set
-and `rt runs snapshot` shows `run.status` = `running`: you were invoked
-from inside that run, you inherit it, `run.current_stage` is your stage,
-and you close nothing at the end.
+the Stop hook covers its pane. Skip this section when a caller handed you
+a `runDb` (a pipeline invoking this verb carries it in context) and
+`run_snapshot` with that `runDb` shows `run.status` = `running`: you were
+invoked from inside that run, you inherit it, `run.current_stage` is your
+stage, you pass that handed `runDb` on every `run_*` call, and you close
+nothing at the end.
 
-Otherwise, when a surface launched this pane (the `--spawned-by` case
+Otherwise, when a surface launched this pane (the `spawnedBy` case
 below), start fresh: another pane's live run is not yours to resume.
-Launched by hand, first the Resume offer: run `rt runs --repo <repo>
---json` (the `--repo` value in the flags block below) and keep the runs
+Launched by hand, first the Resume offer: call `run_list` with `repo`
+(the `--repo` value in the flags block below) and keep the runs
 whose `status` is `running` and `work_type` is `self-review`; never read
 the run dbs by hand. Any found: gate
 `clarify`, one sentence naming each candidate's `spawned_by`, `started_at`,
 and `current_stage`, then the structured-question tool with one **Resume**
 option per candidate (recommended for a run this session started earlier; a
 run another live pane owns is not yours) / **Start fresh**; **Hold**.
-Resume: `export RT_RUN_DB=~/.mattstack/runs/<repo>/<its id>/state.db`
-(the candidate row's `id`), then `rt runs stage-start --stage
-self-review` (a new attempt, which re-records this session) and `rt runs field set
-hold - --stage self-review`; re-enter with the snapshot's decisions and do not
-re-ask a question it already answered. rt runs verbs resolve your run
-automatically (env RT_RUN_DB first, else the run this session started,
-else the newest running run in this worktree; ambiguity errors loudly).
-Export RT_RUN_DB only to drive a different run than yours.
+Resume: your `runDb` is `<home>/.mattstack/runs/<repo>/<its id>/state.db`
+(the candidate row's `id`, the home directory written out, never `~`),
+then `run_stage` with `action: "start"`, `stage: "self-review"` (a new
+attempt, which re-records this session) and `run_field_set` with `key:
+"hold"`, `value: "-"`, `stage: "self-review"`; re-enter with
+`run_snapshot`'s decisions and do not re-ask a question it already
+answered. Keep `runDb` and pass it on every `run_*` call.
 
-Fresh. The flags for this verb, rendered by the compiler:
+Fresh. Start the run with the `run_start` tool: `flags` is this verb's
+value in the block below, verbatim; `skillDir` is this skill's own
+directory; add `spawnedBy` when a board or another surface launched this
+pane.
 
 {{run-start.flags:self-review}}
 
-```bash
-PACK_DIRS="$(cd "${CLAUDE_SKILL_DIR}/../.." && pwd -P)"
-rt runs run-start <the flags above> --pack-dirs "$PACK_DIRS" [--spawned-by "<surface>"]
-export RT_RUN_DB=<runDb from the response>
-rt runs stage-start --stage self-review
-```
+The result must carry `ok: true` and a `runDb`. Anything else means this
+rt predates the run tools: stop and tell the user to update rt. Keep
+`runDb` and pass it to every `run_*` call below; nothing is exported.
+Then `run_stage` with `action: "start"`, `stage: "self-review"`.
 
-The response must parse as JSON with `ok: true` and a `runDb`; anything
-else means this rt predates the run verbs: stop and tell the user to
-update rt. Pass `--spawned-by` when a board or another surface launched
-this pane.
-
-Every gate in this verb then writes its `gate` field and its decision with
-`--stage self-review`. The close, after the final gate's answer and only when
-this section ran `run-start`: `rt runs stage-done --stage self-review`, `rt runs
-run-status --status done` (or `abandoned` when the gate said so), then
-`unset RT_RUN_DB`.
+Every gate in this verb then writes its `gate` field with `stage:
+"self-review"`, and its decision. The close, after the final gate's answer
+and only when this section called `run_start`: `run_stage` with `action:
+"done"`, `stage: "self-review"`, then `run_status` with `status: "done"`
+(or `abandoned` when the gate said so).
 
 Whoever wrote the code re-derives the same assumptions while reading it back
 and nods at them; a bug on the page reads as the intent that produced it. The
@@ -107,17 +104,18 @@ When the run is yours, record the branch per Run identity above: `branch`
 (the current branch), `ticket` (the branch's ticket, when it carries one).
 
 - Requirements: from the branch's ticket or task description. If the branch
-  carries no ticket, gate `clarify` (`rt runs field set gate clarify --stage
-  <stage>` before, `rt runs decision record --contract gate@1 --scope clarify
-  --selection '{"source":"<picked>"}' --decided-by <the answer's by>` after):
+  carries no ticket, gate `clarify` (`run_field_set` with `key: "gate"`,
+  `value: "clarify"`, `stage: <stage>` before, `run_decision` with
+  `contract: "gate@1"`, `scope: "clarify"`, `selection: {"source":
+  "<picked>"}`, `decidedBy: <the answer's by>` after):
   one sentence, then run gate-protocol's Runs integration with kind
   `clarify` and these questions: `source`, the candidate sources (the task
   as stated, a linked doc, or their text), and `next`: **Proceed**
   (recommended) / **Hold**, rather than reviewing against nothing. Hold:
-  record `hold:<stage>:<attempt>` (`rt runs decision record --contract
-  gate@1 --scope hold:<stage>:<attempt> --selection '{"reason":"<their
-  words>"}' --decided-by <the answer's by>`), `rt runs field set hold
-  "<their words>" --stage <stage>`, end the turn.
+  record `hold:<stage>:<attempt>` (`run_decision` with `contract:
+  "gate@1"`, `scope: "hold:<stage>:<attempt>"`, `selection: {"reason":
+  "<their words>"}`, `decidedBy: <the answer's by>`), `run_field_set` with
+  `key: "hold"`, `value: "<their words>"`, `stage: <stage>`, end the turn.
 
 ## 2. Delegate to the review engine
 
@@ -152,8 +150,9 @@ The review flow returns Strengths / Issues (Critical / Important / Minor) /
 Assessment. Present it, then the gate; the draft is the sentence, the form
 is the close:
 
-- `rt runs field set gate self-review --stage <stage>` (`self-review` for an
-  own run, `run.current_stage` when inherited).
+- `run_field_set` with `key: "gate"`, `value: "self-review"`, `stage:
+  <stage>` (`self-review` for an own run, `run.current_stage` when
+  inherited).
 - Run gate-protocol's Runs integration with kind `self-review` and these
   questions, each its own question (never fold one list into another --
   a question over 4 options sends the whole gate to the wait queue):
@@ -161,7 +160,7 @@ is the close:
     Critical or Important exists) / **Fix the minors too** / **Ship as
     is**
   - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
-- `rt runs decision record --contract gate@1 --scope self-review --selection '{"fix":"blocking|all|none","note":"<their words or null>"}' --decided-by <the answer's by>`.
+- `run_decision` with `contract: "gate@1"`, `scope: "self-review"`, `selection: {"fix": "blocking|all|none", "note": "<their words or null>"}`, `decidedBy: <the answer's by>`.
 - Fix: one finding at a time, test-first, verify each; then the flow that
   called this verb continues (ship, or the next task). Ship as is: hand
   back with the Minor findings listed for the record.
@@ -170,8 +169,8 @@ Where the domain defines ship-time gates, this self-review complements them
 and never checks their box.
 
 Close, only when `## Run` started this run: after the fixes the gate
-selected are verified, `rt runs stage-done --stage self-review`, `rt runs
-run-status --status done`, `unset RT_RUN_DB`.
+selected are verified, `run_stage` with `action: "done"`, `stage:
+"self-review"`, then `run_status` with `status: "done"`.
 
 ## Gate protocol
 
