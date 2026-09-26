@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.21.3 + mattstack:model-tiering@0.21.3 + mattstack:execution-strategy@0.21.3 + mattstack:cswap-accounts@0.21.3"
+  compiled: "mattstack@0.22.0 + mattstack:model-tiering@0.22.0 + mattstack:execution-strategy@0.22.0 + mattstack:cswap-accounts@0.22.0"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.21.3 path=attachments/orchestration/shepherdr/SKILL.md lines=15-565 -->
+<!-- part: step source=mattstack:shepherdr version=0.22.0 path=attachments/orchestration/shepherdr/SKILL.md lines=15-565 -->
 
 # shepherdr
 
@@ -49,7 +49,7 @@ else in this skill changes. To
 put one worker in front of the user, `herd_attend {job, herd}`
 opens a focused tab in the visible session attached to that pane (the user
 detaches with `ctrl+b q`; close the tab it returned afterwards). At wrap-up,
-offer the Bash command `rt herd stop --hidden` (no tool runs it); never run it unprompted. The background
+offer the Bash command `rt herd stop --hidden` (no tool runs it); never run it unprompted. The background <!-- mcp-lint: allow -->
 server is shared: the stop refuses while ANY background claim is live
 (another herd, a runner board, an `agent --bg` pane), naming the owners --
 report the refusal, never work around it.
@@ -64,7 +64,7 @@ If work arrives unscoped and the user wants it scoped before fan-out, brainstorm
 
 ## Tiering
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.21.3 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.22.0 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -178,7 +178,7 @@ this skill is the generic framework they override.
 
 ## Strategy
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.21.3 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.22.0 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -312,7 +312,7 @@ below the floor is wrong.
 
 ## Accounts
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.21.3 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.22.0 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -395,7 +395,7 @@ automatically or ask the user; the respawn itself is one command. Obtain
 the new account, then run in Bash:
 
 ```bash
-rt herd spawn --herd <id> --job <same job> --dir <its worktree> --account <A> --model <its model>
+rt herd spawn --herd <id> --job <same job> --dir <its worktree> --account <A> --model <its model>  # <!-- mcp-lint: allow -->
 ```
 
 **The respawn is this Bash line, never `herd_spawn`:** the tool never
@@ -529,7 +529,7 @@ then spawns in that tree with this Bash line in place of `herd_spawn`
 (the tool never takes a dir):
 
 ```bash
-rt herd spawn --herd <id> --job <job> --brief <path-to-brief.md> --model <model> --dir <its tree> [--effort <effort>] [--account <A>]
+rt herd spawn --herd <id> --job <job> --brief <path-to-brief.md> --model <model> --dir <its tree> [--effort <effort>] [--account <A>]  # <!-- mcp-lint: allow -->
 ```
 
 The error rules below still apply to the call it prescribes.
@@ -651,7 +651,7 @@ answer's `note`. On **Spawn a reviewer**, spawn a disposable reviewer in
 the same herd and in the job's own worktree, with this Bash line:
 
 ```bash
-rt herd spawn --herd <id> --job review-<job> --brief <review-brief.md> --dir <the job's worktree> --disposable --model <model>
+rt herd spawn --herd <id> --job review-<job> --brief <review-brief.md> --dir <the job's worktree> --disposable --model <model>  # <!-- mcp-lint: allow -->
 ```
 
 **The reviewer spawn is this Bash line, never `herd_spawn`:** the tool
@@ -710,7 +710,7 @@ it so the user answers the dialog by hand, or `herd_close {job, herd}` and
 respawn it in Bash, reusing the stored brief:
 
 ```bash
-rt herd spawn --herd <id> --job <job> --dir <its worktree> --model <model> [--effort <effort>] [--account <A>]
+rt herd spawn --herd <id> --job <job> --dir <its worktree> --model <model> [--effort <effort>] [--account <A>]  # <!-- mcp-lint: allow -->
 ```
 
 **Every respawn of an existing job is this Bash form, never `herd_spawn`:**
@@ -735,7 +735,7 @@ is on the room record.
 If the user redirects scope: one sentence naming the running agents, then the structured-question tool with **Let them finish** (recommended) / **Kill and respawn with the new briefs**; **Hold**. A kill is `herd_close {job, herd}`, then the Bash respawn with the new brief (the tree stays attached after the close, so never `herd_spawn`):
 
 ```bash
-rt herd spawn --herd <id> --job <job> --brief <new brief> --dir <its worktree> --model <model> [--effort <effort>] [--account <A>]
+rt herd spawn --herd <id> --job <job> --brief <new brief> --dir <its worktree> --model <model> [--effort <effort>] [--account <A>]  # <!-- mcp-lint: allow -->
 ```
 
 Your own posts to the herd room deliver as `@here` and wake every worker;
@@ -781,7 +781,7 @@ a question for one worker is a DM.
 5. Execute exactly the answers: call
    `herd_wrap_up {herd, closePanes, dispose: [<job>...], deleteJobDirs, archiveRoom}`.
    A disposal refusal is reported in the guard's own words. In hidden
-   mode, also offer the Bash command `rt herd stop --hidden`.
+   mode, also offer the Bash command `rt herd stop --hidden`. <!-- mcp-lint: allow -->
 6. Never push on the agents' behalf.
 
 **Domain hook -- wrap-up.** Unbound: as above. A bound domain part may
@@ -790,7 +790,7 @@ work merges, what a disposal refusal means) -- follow it over item 5.
 
 ## wrap-up form contract
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.21.3 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.22.0 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
@@ -826,7 +826,7 @@ next call after the answers return, never into the context sentence.
 - About to fix a test or merge a branch yourself? Stop. That is an integration job.
 - About to reword, merge or reorder an agent's options? Stop. Options and their values are relayed exactly; only a herd question's context is yours to condense.
 - Spawn without a model (`model` on `herd_spawn`, `--model` on a Bash spawn)? The worker launches on the default model, which silently defeats tiering.
-- About to spawn through `herd_spawn` for any respawn of an existing job (rate limit, parked modal, kill and respawn), a disposable reviewer in a job's worktree, or a domain-provisioned tree? Stop. Those spawns need `--dir`, which the tool never takes; run the Bash `rt herd spawn ... --dir <tree>` line their section gives.
+- About to spawn through `herd_spawn` for any respawn of an existing job (rate limit, parked modal, kill and respawn), a disposable reviewer in a job's worktree, or a domain-provisioned tree? Stop. Those spawns need `--dir`, which the tool never takes; run the Bash `rt herd spawn ... --dir <tree>` line their section gives. <!-- mcp-lint: allow -->
 - Spawning Opus for a fully-specified execution job? That's overspending. Sonnet handles mechanical work.
 - About to ask the account question before models are chosen? Stop. Some providers budget per-model pools separately; model-blind headroom is misleading.
 - About to pick a strategy or model per job without asking? Stop. The bound skills give you the recommendation; the choice is the user's -- a bound domain part may pin the strategy half or set a floor (see the model-floor hook), and only the half still open is asked.

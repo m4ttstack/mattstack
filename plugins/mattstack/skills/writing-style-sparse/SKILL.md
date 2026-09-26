@@ -2,12 +2,12 @@
 name: "writing-style-sparse"
 description: "Use only when the mattstack writing-style lookup names mattstack:writing-style-sparse. The voice for review comments, replies, PR descriptions and commit messages posted under the operator's name: terse, lowercase technical prose, one tight paragraph per point."
 metadata:
-  compiled: "mattstack@0.21.2"
+  compiled: "mattstack@0.22.0"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:writing-style-sparse version=0.21.2 path=attachments/writing-style/writing-style-sparse/SKILL.md lines=7-108 -->
+<!-- part: step source=mattstack:writing-style-sparse version=0.22.0 path=attachments/writing-style/writing-style-sparse/SKILL.md lines=7-108 -->
 
 # Sparse
 
@@ -15,7 +15,7 @@ Terse and conversational. The reader is a colleague who can follow a chain
 from one sentence. Load this before the first draft and write in it from the
 first word; it is not a pass applied to a finished draft.
 
-<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.21.2 path=attachments/writing-style-floor/SKILL.md lines=6-59 -->
+<!-- part: include:writing-style-floor source=mattstack:writing-style-floor version=0.22.0 path=attachments/writing-style-floor/SKILL.md lines=6-59 -->
 ## Rules every style shares
 
 These bind anything posted under the operator's name: review findings, the

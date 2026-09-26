@@ -38,7 +38,7 @@ Requirements on the entry point itself:
   (first-party adapters use bash with `set -euo pipefail`); this contract
   governs the CLI surface, not the implementation dialect.
 - Its only runtime dependencies should be `jq` and the forge's own CLI
-  (e.g. `glab`, `gh`).
+  (e.g. `glab`, `gh`). <!-- mcp-lint: allow -->
 - stdout carries data only, in the shapes specified below. Nothing else may
   ever be printed to stdout, including on error.
 - All diagnostics, warnings, and human-readable error text go to stderr.
@@ -111,7 +111,7 @@ Read that table twice. In particular:
   pipelines at all -- the object itself does not exist.
 - `2` is a malformed invocation (missing required arg, unknown flag).
 - `3` is "the forge CLI cannot be reached or is not authenticated" --
-  network failure, `glab`/`gh` not installed, expired auth. This is
+  network failure, `glab`/`gh` not installed, expired auth. This is <!-- mcp-lint: allow -->
   distinct from both `0` and `1`: an unauthenticated forge must never be
   silently read as "no pipeline found."
 

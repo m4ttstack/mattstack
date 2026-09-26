@@ -65,7 +65,7 @@ it does gives a real-looking command that updates nothing.
    below; finish that section's step 3 for each compiled pack.
 5. Commit and push: `cd <checkout>` as its own Bash call, then the bare
    commands (`git add`, `git commit`), never `git -C <path> ...`. Push a
-   checkout on its default branch with a bare `git push`; push a feature
+   checkout on its default branch with a bare `git push`; push a feature <!-- mcp-lint: allow -->
    branch with `git_push {tree: <checkout path>}`, which refuses the
    default branch. For the team
    pack, push IS the team publish (teammates' installs read the same

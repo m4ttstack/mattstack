@@ -28,8 +28,8 @@ nothing else differs. same briefs, same herd, same rules.
 the shepherd calls `herd_start` to mint the herd (registry row, chat
 room, herdr workspace, gate subscription) and `herd_spawn` per worker
 (worktree, herdr pane, claude agent). you watch it with
-`rt herd status --herd <id>`: jobs, panes, gates, unread. lost the id?
-`rt herd list` shows every herd on the machine.
+`rt herd status --herd <id>`: jobs, panes, gates, unread. lost the id? <!-- mcp-lint: allow -->
+`rt herd list` shows every herd on the machine. <!-- mcp-lint: allow -->
 
 ## when an agent needs you
 
@@ -42,7 +42,7 @@ a pane only comes forward when a job is `blocked` and someone has to look.
 then, in hidden mode:
 
 ```bash
-rt herd attend <job> --herd <id>
+rt herd attend <job> --herd <id>  # <!-- mcp-lint: allow -->
 ```
 
 that opens the worker's pane in a tab of your own workspace, live and
@@ -61,7 +61,7 @@ a herd outlives the session that started it. a shepherd in any session
 picks it up with `herd_resume`; by hand it is:
 
 ```bash
-rt herd resume <id>
+rt herd resume <id>  # <!-- mcp-lint: allow -->
 ```
 
 that re-points the herd's gate subscription and chat handle at the session
@@ -70,7 +70,7 @@ you're in now, so new questions start arriving here.
 ## teardown
 
 ```bash
-rt herd wrap-up <id> --close-panes --delete-job-dirs --archive-room
+rt herd wrap-up <id> --close-panes --delete-job-dirs --archive-room  # <!-- mcp-lint: allow -->
 ```
 
 wrap-up only does what its flags name, so pick the ones that match what
@@ -78,7 +78,7 @@ you want gone (add `--dispose <job>` per worktree you want disposed too).
 in hidden mode, stop the server itself after:
 
 ```bash
-rt herd stop --hidden
+rt herd stop --hidden  # <!-- mcp-lint: allow -->
 ```
 
 the server is shared with other background work (runner boards, `rt agent
@@ -109,10 +109,10 @@ controller detached. if hidden panes come up tiny under `herd_spawn`,
 that is the fix to reapply.
 
 **panes cannot move between sessions.** separate server processes. there
-is no "pull this agent into my UI", only `rt herd attend` streaming it into
+is no "pull this agent into my UI", only `rt herd attend` streaming it into <!-- mcp-lint: allow -->
 a tab of your own.
 
 ## requirements
 
-an rt build whose CLI has `rt herd` -- that is `@mattstack/rt-client`
+an rt build whose CLI has `rt herd` -- that is `@mattstack/rt-client` <!-- mcp-lint: allow -->
 0.17.0 or newer -- and herdr 0.7.5 or newer.
