@@ -39,7 +39,7 @@ const APP_ROW = row({
   url: "https://github.com/m4ttstack/apps/releases/download/board-v0.1.4/board-darwin-arm64.tgz",
 });
 const GITQ_ROW = row({
-  name: "gitq", version: "0.2.1", repo: "m4ttstack/gitq",
+  name: "gitq", version: "0.2.1", repo: "m4ttstack/gitq", source: "tree",
   url: "https://github.com/m4ttstack/gitq/releases/download/v0.2.1/gitq-darwin-arm64",
 });
 const FB_ROW = row({
@@ -88,7 +88,7 @@ describe("classifyRows", () => {
   test("splits standalone repos from everything else", () => {
     const rows = [APP_ROW, GITQ_ROW, FB_ROW, GH_ROW, NODE_ROW];
     const c = classifyRows(rows);
-    expect(c.standalone.map((r) => r.name)).toEqual(["gitq", "fast-browser"]);
+    expect(c.standalone.map((r) => r.name)).toEqual(["fast-browser"]);
     expect(c.tools.map((r) => r.name)).toEqual(["board", "gh", "node"]);
   });
   test("a tree row is dropped: it has no upstream url or repo to diff against", () => {

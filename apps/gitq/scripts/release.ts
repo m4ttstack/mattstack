@@ -12,15 +12,22 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 /**
- * `dependencies` entries pinned to a local path (`file:...`), by name.
+ * `dependencies` entries pinned to a local path (`file:...` or `link:...`), by name.
  *
  * A published tarball keeps that spec verbatim: nobody who installs it has
- * the local path, so the dependency resolves nowhere. A `file:` pin is a
- * local-development state; a release must refuse while one is in place.
+ * the local path, so the dependency resolves nowhere. A `file:`/`link:` pin
+ * is a local-development state; a release must refuse while one is in place.
  */
 export function fileDependencies(pkg: { dependencies?: Record<string, string> }): string[] {
   return Object.entries(pkg.dependencies ?? {})
-    .filter(([, spec]) => spec.startsWith('file:'))
+    .filter(([, spec]) => spec.startsWith('file:') || spec.startsWith('link:'))
+    .map(([name]) => name);
+}
+
+/** `dependencies` entries still on the `workspace:` protocol, by name. */
+export function workspaceDependencies(pkg: { dependencies?: Record<string, string> }): string[] {
+  return Object.entries(pkg.dependencies ?? {})
+    .filter(([, spec]) => spec.startsWith('workspace:'))
     .map(([name]) => name);
 }
 
@@ -87,7 +94,23 @@ if (import.meta.main) {
     );
   }
 
-  // 3. Work out the next version.
+  // 3. Refuse to publish while a workspace: dependency's version is not on
+  //    npm yet. bun publish rewrites `workspace:*` to that package's own
+  //    version, so an installer resolving the published manifest needs it
+  //    to already exist on the registry.
+  for (const name of workspaceDependencies(pkg)) {
+    const basename = name.split('/').pop()!;
+    const depPkg = JSON.parse(readFileSync(join(ROOT, '..', '..', 'packages', basename, 'package.json'), 'utf8')) as {
+      version: string;
+    };
+    try {
+      run(['npm', 'view', `${name}@${depPkg.version}`, 'version'], { capture: true, throws: true });
+    } catch {
+      die(`${name}@${depPkg.version} is not on npm; publish it first`);
+    }
+  }
+
+  // 4. Work out the next version.
   const [maj, min, pat] = pkg.version.split('.').map(Number) as [number, number, number];
   const next =
     bumpArg === 'patch' ? `${maj}.${min}.${pat + 1}`
@@ -96,12 +119,13 @@ if (import.meta.main) {
     : /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(bumpArg) ? bumpArg
     : die(`not a bump or a version: ${bumpArg}`);
 
-  const tag = `v${next}`;
+  // gitq-v, not a bare v: a bare v* tag would trigger rt's mattstack.app release.
+  const tag = `gitq-v${next}`;
   if (run(['git', 'tag', '--list', tag], { capture: true })) die(`tag ${tag} already exists`);
 
   console.log(`\n${pkg.name}  ${pkg.version} -> ${next}\n`);
 
-  // 4. Gates. prepublishOnly reruns check-types and build, so this is the
+  // 5. Gates. prepublishOnly reruns check-types and build, so this is the
   //    tests plus a fast fail before anything is written.
   run(['bun', 'run', 'check-types']);
   run(['bun', 'run', 'test:unit']);
@@ -111,7 +135,7 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // 5. Publish first. If it fails, the repo is untouched and rerunnable;
+  // 6. Publish first. If it fails, the repo is untouched and rerunnable;
   //    the reverse order would leave a tag pointing at an unpublished version.
   writeFileSync(PKG, JSON.stringify({ ...JSON.parse(readFileSync(PKG, 'utf8')), version: next }, null, 2) + '\n');
   // --otp is forwarded, not left to the environment: `bun publish` ignores
@@ -126,13 +150,13 @@ if (import.meta.main) {
     throw err;
   }
 
-  // 6. Record it.
+  // 7. Record it.
   run(['git', 'add', 'package.json']);
   run(['git', 'commit', '-m', `chore: release ${next}`]);
   run(['git', 'tag', '-a', tag, '-m', `${pkg.name} ${next}`]);
   run(['git', 'push', 'origin', 'main', '--follow-tags']);
 
-  // 7. npm's packument lags the tarball on fresh publishes, so the version can
+  // 8. npm's packument lags the tarball on fresh publishes, so the version can
   //    exist while `npm install` still cannot resolve a range against it.
   console.log('\nwaiting for the registry to serve the new version...');
   const encoded = pkg.name.replace('/', '%2f');

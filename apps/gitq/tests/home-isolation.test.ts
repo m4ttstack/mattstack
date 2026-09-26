@@ -29,7 +29,7 @@ describe('HOME isolation (rt-client settings)', () => {
     const storePath = join(fakeHome, '.mattstack', 'user', 'settings.user.jsonc');
     expect(existsSync(storePath)).toBe(false);
 
-    const written = { 'guard.example.test': { tokenEnv: 'GUARD_TEST_TOKEN' } };
+    const written = { 'guard.example.test': { provider: 'gitlab' as const, tokenEnv: 'GUARD_TEST_TOKEN' } };
     setSetting('gitq.forges', written, 'user');
 
     expect(existsSync(storePath)).toBe(true);

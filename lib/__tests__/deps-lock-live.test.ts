@@ -8,14 +8,11 @@ const lock = parseDepsLock(
 );
 
 describe("live deps.lock buildable set", () => {
-  test("gitq still pins its own repo; the apps-monorepo rows are built from this checkout instead", () => {
-    const gitq = lock.tools.find((t) => t.name === "gitq");
-    expect(gitq?.repo).toBe("m4ttstack/gitq");
-    expect(gitq?.subdir).toBeUndefined();
-
+  test("the apps-monorepo rows, gitq included, are built from this checkout instead of pinned to a repo", () => {
     const wantTree: Record<string, { skills?: boolean }> = {
       deck: { skills: true },
       board: { skills: true },
+      gitq: {},
       console: {},
       chat: {},
       boxscore: {},

@@ -63,7 +63,7 @@ export interface PreflightSeams {
   violations(): { path: string }[];
 }
 
-/** Apps deck merely serves; a diff limited to their directories, the notes and website keeps the fast path. */
+/** Apps built from this tree at the release SHA; a diff limited to their directories, the notes and website keeps the fast path. */
 export const SERVE_ONLY_APPS = ["board", "boxscore", "chat", "console", "gitq"] as const;
 const FAST_PATH_FILES = new Set(["RELEASE_NOTES.md"]);
 
@@ -100,7 +100,6 @@ export function compareVersions(a: string, b: string): number {
 
 /** Standalone app rows live in their own repos; fast-browser's deps.lock url is npm, so its repo is declared here. */
 const STANDALONE_REPOS: Record<string, string> = {
-  gitq: "m4ttstack/gitq",
   "fast-browser": "m4ttstack/fast-browser",
 };
 

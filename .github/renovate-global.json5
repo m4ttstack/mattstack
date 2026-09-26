@@ -13,7 +13,6 @@
   autodiscover: false,
   repositories: [
     "m4ttstack/rt",
-    "m4ttstack/gitq",
     "m4ttstack/fast-browser",
   ],
   onboarding: false,
