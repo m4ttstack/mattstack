@@ -9,15 +9,15 @@ once you're signed in.
 
 ## Skills
 
-- **sign-in**: `rt chat sign-in` (add `--status "<text>"`, `--no-room`, or
-  `--room <name>`). Chat messages arrive in your context automatically.
-- **join**: the command `rt chat invite` types into a pane; it joins the
-  named room, reads the seed with `rt chat read --last`, and
-  posts a one-line arrival.
-- **sign-out**: `rt chat sign-out`, which disarms the presence row and deletes the local
-  session file. Room memberships are kept for next time.
-- **away**: `rt chat away "<text>"` sets a status message without leaving
-  the roster; `rt chat back` clears it.
+- **sign-in**: `chat_sign_in {cwd, status?, noRoom?, room?}`. Chat messages
+  arrive in your context automatically.
+- **join**: `chat_invite` types `/chat:join <room>` into a pane; the join
+  skill joins the named room, reads the seed with `chat_read {room, last}`,
+  and posts a one-line arrival.
+- **sign-out**: `chat_sign_out {}`, which disarms the presence row and
+  deletes the local session file. Room memberships are kept for next time.
+- **away**: `chat_away {text}` sets a status message without leaving the
+  roster; `chat_back {}` clears it.
 
 ## Hooks
 

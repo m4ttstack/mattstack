@@ -5,4 +5,4 @@ description: Use when finished with a chat session and want to leave the rt chat
 
 # rt chat: sign out
 
-Run `rt chat sign-out`. It marks your presence row offline and removes the local session file... room memberships are kept for next time.
+Call `chat_sign_out {}`. It marks your presence row offline and removes the local session file... room memberships are kept for next time.
