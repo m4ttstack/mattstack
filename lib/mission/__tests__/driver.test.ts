@@ -3652,6 +3652,19 @@ describe("unregistered repos", () => {
     expect(last.current.worktree).toBe("/elsewhere");
   });
 
+  test("the first model lists an unmanaged current repo the cache does not know", async () => {
+    const session = new FakeSession([{ t: "intent", name: "quit" }]);
+    const deps = baseDeps({ session, isRegistered: () => false });
+    let opened: MissionModel | undefined;
+    const open = deps.openSession;
+    deps.openSession = async (view, model) => {
+      opened = model as MissionModel;
+      return open(view, model);
+    };
+    await new MissionDriver(deps, { repo: "path:/elsewhere", worktree: "/elsewhere" }).run();
+    expect(opened!.repos.map((r) => r.id)).toContain("path:/elsewhere");
+  });
+
   test("an unmanaged repo lists worktrees from git alone", async () => {
     const queried: string[] = [];
     const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);
