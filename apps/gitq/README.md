@@ -29,7 +29,7 @@ gitq turns a chain of dependent git branches into something you can operate on a
 - **Worktree-native.** Cascades run in a leased work worktree with a detached HEAD and move branch refs with compare-and-swap at the end, so your checkout is never switched out from under you.
 - **A board and agent skills.** A local web UI shows every tracked stack's branch statuses, MR and pipeline state, and live progress while an agent works a stack from one of the five bundled Claude skills.
 
-gitq is part of the [mattstack](https://github.com/m4ttstack) estate: it talks to GitLab and GitHub through [glance](../../packages/glance) (in this same repo), can read its settings and grant-gated forge tokens from [rt](https://github.com/m4ttstack/rt), has its board served by [deck](../deck) (in this same repo) in dev mode (the CLI itself ships inside the mattstack.app bundle), and launches board actions as agent panes through [herdr](https://github.com/herdrdev/herdr). Only glance ships as a dependency; the CLI works with none of the others installed.
+gitq is part of the [mattstack](https://github.com/m4ttstack) estate: it talks to GitLab and GitHub through [glance](../../packages/glance) (in this same repo), can read its settings and grant-gated forge tokens from [rt](https://github.com/m4ttstack/rt), ships as a CLI inside the mattstack.app bundle (not registered with or served by [deck](../deck)), and launches board actions as agent panes through [herdr](https://github.com/herdrdev/herdr). Only glance ships as a dependency; the CLI works with none of the others installed.
 
 ## Installation
 
