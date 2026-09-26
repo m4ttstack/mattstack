@@ -23,31 +23,32 @@ Each step is required; the flow is not done until the last one has run:
 
 | check | command | pass |
 | --- | --- | --- |
-| rt daemon | `rt daemon status --json` | `"ok":true` |
+| rt daemon | `rt_verb {args: ["daemon", "status"]}` | `"state":"running"` |
 | mattstack plugin | `claude plugin list --json` | an id starting `mattstack@` |
 | superpowers | `claude plugin list --json` | an id starting `superpowers@` |
-| glab | `which glab` | a path (the ship and watch-ci stages call it) |
 | a GitLab remote | `git remote get-url origin` | host is a GitLab host |
 
 A miss is reported as the missing thing and the command that installs it
-(`rt setup pack` covers the first three; the mattstack app bundles glab).
-Do not improvise a substitute.
+(`rt setup pack`, run once, not routine, covers the first three). Do not
+improvise a substitute.
 
 ## 2. Run init
 
 Resolve the zone before anything is written. A zone is a directory under
 `~/.mattstack/teams/` whose `mattstack/mattstack.jsonc` says `role: team`.
-When the team's zone is absent, create it first:
+When the team's zone is absent, create it first (a one-time setup call, not
+routine):
 
 ```bash
 rt team create <Name> --remote <url>    # an empty repo the team owns
 ```
 
-When the team is unclear, ask which team this is before running. Then,
-from the repo root, always name the zone:
+When the team is unclear, ask which team this is before running. Then name
+the zone and the app repo explicitly, rather than relying on the current
+directory:
 
 ```bash
-rt skills init --json --zone <slug>
+rt skills init --json --zone <slug> --repo <repo-path>
 ```
 
 Without `--zone`, init picks by detection (the zone declaring this repo,
@@ -108,15 +109,13 @@ skill.
 
 The daemon's team snapshot commits the zone on its own within a minute of
 init (a `snapshot:` commit covering the pack dir, `team.jsonc`, and
-`marketplace.json`). Confirm it landed and reached the remote:
-
-```bash
-git -C <zone dir> status -sb
-```
+`marketplace.json`). `cd <zone checkout>` as its own Bash call, then
+confirm it landed and reached the remote with a bare `git status -sb`.
 
 Clean and not ahead means published. Ahead means the daemon could not push;
-push it. Then say that teammates receive the pack through `rt setup`, and
-hand any later change to `mattstack:editing-skills`.
+push it from the same directory with a bare `git push`. Then say that
+teammates receive the pack through `rt setup`, and hand any later change to
+`mattstack:editing-skills`.
 
 ## Red flags
 

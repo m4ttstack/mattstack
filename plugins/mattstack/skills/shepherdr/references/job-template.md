@@ -5,7 +5,7 @@ slots. The formats are embedded because the contract must survive even
 when the worker loads nothing else. A brief is assembled from two
 verbatim copies, never composed: this template, plus one strategy body
 copied verbatim into `## Method` from the bound strategy skill's
-`references/strategies.md`. The sections below need no fill: the verbs read `HERD_ID`, `HERD_JOB`, and `HERD_ROOM` from the environment `rt herd spawn` gave this pane.
+`references/strategies.md`. The sections below need no fill: the tools read `HERD_ID`, `HERD_JOB`, and `HERD_ROOM` from the environment the herd spawn gave this pane.
 
 # JOB: <name>
 
@@ -31,8 +31,10 @@ branch name. "none" if the repo has no rules.>
 
 ## Pipeline runs
 When your Method runs a pipeline verb (`work`, `ship`, `review`, ...),
-start its run with `--spawned-by herd:$HERD_ID` on `run-start`. That flag
-makes the verb's own attendance test take the unattended branch, so the
+start its run with the `run_start` tool and pass
+`spawnedBy: "herd:<HERD_ID>"`, where `<HERD_ID>` is the value of
+`HERD_ID` in this pane's environment (`printenv HERD_ID` prints it). That
+field makes the verb's own attendance test take the unattended branch, so the
 run's gated questions ride the daemon's gate registry and reach the
 shepherd through the same door as the questions below.
 
@@ -45,14 +47,18 @@ remote answer reach you). Never put up a bare pane-local form on your own
 initiative outside that path: it makes this pane unreachable from every
 channel at once, not only from the shepherd, and a form with no backing
 gate can sit unanswered indefinitely because nothing else knows it
-exists. Every question this brief asks you to raise goes through `rt herd
-ask` below, or through `rt gate ask` inside a pipeline run -- both open
-the backing gate before anything appears on screen.
+exists. Every question this brief asks you to raise goes through the
+`herd_ask` tool below, or through the `gate_ask` tool inside a pipeline
+run -- both open the backing gate before anything appears on screen.
 
 ## Asking the user a question
-Run exactly:
+Call the `herd_ask` tool with exactly this input:
 
-    rt herd ask --questions '[{"id":"q1","label":"<the decision, under 12 words>","multi":false,"options":[{"value":"<your recommendation, in full>","label":"<2 to 6 words>","description":"<one sentence: what this choice does>"},{"value":"<alternative, in full>","label":"<2 to 6 words>","description":"<one sentence>"},{"value":"<alternative, in full>","label":"<2 to 6 words>","description":"<one sentence>"}]}]' --context "<two or three sentences: what you were doing and why it needs a decision>"
+    {"questions": [{"id": "q1", "label": "<the decision, under 12 words>", "multi": false, "options": [
+      {"value": "<your recommendation, in full>", "label": "<2 to 6 words>", "description": "<one sentence: what this choice does>"},
+      {"value": "<alternative, in full>", "label": "<2 to 6 words>", "description": "<one sentence>"},
+      {"value": "<alternative, in full>", "label": "<2 to 6 words>", "description": "<one sentence>"}]}],
+     "context": "<two or three sentences: what you were doing and why it needs a decision>"}
 
 then END YOUR TURN with no further action. The user reads only each
 option's `label` and `description`, on a small form; `value` is what comes
@@ -61,31 +67,30 @@ over 60 characters. The answer arrives as a message
 in your context, naming the surface that recorded it: `[gate] <id> answered
 by <surface>; re-read the registry and proceed on the recorded answer.` The
 daemon never sends this push to the surface that recorded the answer. When it
-does, run `rt herd answer <id>`
-and continue on what it prints,
+does, call `herd_answer {gate: <id>}`
+and continue on what it returns,
 including any `note` the user added. Never choose an option yourself; an
-answer that did not arrive through `rt herd answer` does not exist. Every
+answer that did not arrive through `herd_answer` does not exist. Every
 question is multiple choice, even confirmations: "how does this look?"
 becomes options labelled "Approve, proceed", "Approve with changes
 (describe)", "Walk me through <section> first". The first option is always your
-recommendation. Your reply opens with the command itself: `rt herd ask`,
-its `--questions` JSON filled in, its `--context` filled in, exactly as
-written above, and nothing before it -- not a sentence about whether it
-worked, not a summary of the decision, the command's text first. Only
-after that line may you say whether it succeeded or failed. If it failed,
-stop and wait exactly as written: no invented reason (an unset variable, a
-missing script, a daemon version), no asking the user to just answer
-directly instead, no proceeding on your own judgment -- nothing further
-until the answer arrives through `rt herd answer`.
+recommendation. Your first action is the `herd_ask` call itself, its
+`questions` and `context` filled in exactly as shaped above, before any
+text -- not a sentence about whether it will work, not a summary of the
+decision, the call first. Only after the call returns may you say whether
+it succeeded or failed. If it failed, stop and wait exactly as written: no
+invented reason (an unset variable, a missing tool, a daemon version), no
+asking the user to just answer directly instead, no proceeding on your own
+judgment -- nothing further until the answer arrives through `herd_answer`.
 
 ## Publishing a milestone
 When your Method stops at a milestone (a spec or a plan is ready for
-review), run exactly:
+review), call the `herd_milestone` tool exactly:
 
-    rt herd milestone --artifact <absolute path to the artifact> --summary "<one line>"
+    {"artifact": "<absolute path to the artifact>", "summary": "<one line>"}
 
-then END YOUR TURN. The answer arrives like a question's: run
-`rt herd answer <id>`. **Approve**: continue. **Revise**: the `note`
+then END YOUR TURN. The answer arrives like a question's: call
+`herd_answer {gate: <id>}`. **Approve**: continue. **Revise**: the `note`
 carries the feedback ("see pane" means it was left in your pane); revise,
 then publish the milestone again. **Spawn a reviewer**: findings arrive as
 a chat message from `review-<your job>`; revise, then publish the
@@ -94,9 +99,11 @@ milestone again.
 ## Publishing a report
 Write the report your Method section requires to
 .superpowers/report-draft.md in this worktree (`mkdir -p .superpowers`
-first if it does not exist), then run:
+first if it does not exist), then call the `herd_report` tool with that
+file's full contents as `body` (the tool takes the report text, not a
+path):
 
-    rt herd report --file .superpowers/report-draft.md
+    {"body": "<the full text of .superpowers/report-draft.md>"}
 
 then STOP.
 
@@ -108,7 +115,7 @@ that changes your task is a new instruction; a message that only informs
 needs no reply.
 
 ## Git
-Commit incrementally on this branch. Never push. Questions, milestones, and reports go through the `rt herd` commands above, never into the repo.
+Commit incrementally on this branch. Never push. Questions, milestones, and reports go through the herd tools above, never into the repo.
 Tooling that manages its own workspace inside the repo writes where that
 tooling specifies; the write fence lists those paths.
 

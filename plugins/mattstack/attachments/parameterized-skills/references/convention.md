@@ -291,7 +291,8 @@ pipelines at run time.
 
 A skill is one of two kinds, never both.
 
-**Compile-native** engines are consumed only after `rt skills compile`. They
+**Compile-native** engines are consumed only after `rt_verb {args: ["skills",
+"compile", "--pack", "<pack>"]}` runs. They
 declare typed top-level `slots:` and `type: pipeline-step`, and their
 bodies carry `{{placeholder}}` markers that only the compiler fills
 (`slot`, `include`, `pipeline.stages`, `work-type`, `stage.fields`,
@@ -371,37 +372,38 @@ trailing same-line comments, since the strip pass is one regex per line.
 ## Stage contract v2: run state
 
 Alongside `stage-consumes`/`stage-produces`, every stage reports lifecycle
-and data to the run DB through `rt runs`. The contract:
+and data to the run DB through the run tools (`run_stage`, `run_field_set`,
+`run_field_get`, `run_decision`, `run_status`). The contract:
 
-- A compiled stage always runs under `work`, which exports `RT_RUN_DB`
-  before the first stage. There is no standalone stage invocation, so the
-  four calls below are unconditional.
-- On entry: `rt runs stage-start --stage <name>`.
-- Consumed fields are read with `field get <key>` (exit 3 = absent; fall
-  back to asking or deriving, exactly as consumes-resolution already
-  prescribes).
-- Every declared produce is written with `field set <key> <value> --stage
-  <name>` at the moment it is known.
-- On success: `stage-done --stage <name>`; on failure: `stage-fail --stage
-  <name> --reason "<one-line, what actually failed>"` before reporting the
-  failure. The reason is a sentence, not a category ("ui-islands gate:
-  3 files exceed the loc budget", not "gate failed"). Pass `--detail-path
-  <path>` too when the stage already produced a log or report file for
-  this failure.
+- A compiled stage always runs under `work`, which passes `runDb` into
+  each stage's context before the first stage. There is no standalone
+  stage invocation, so the four calls below are unconditional.
+- On entry: `run_stage {runDb, action: "start", stage: <name>}`.
+- Consumed fields are read with `run_field_get {runDb, key: <key>}` (it
+  errors when the key is not set; fall back to asking or deriving, exactly
+  as consumes-resolution already prescribes).
+- Every declared produce is written with `run_field_set {runDb, key,
+  value, stage: <name>}` at the moment it is known.
+- On success: `run_stage {runDb, action: "done", stage: <name>}`; on
+  failure: `run_stage {runDb, action: "fail", stage: <name>, reason:
+  "<one-line, what actually failed>"}` before reporting the failure. The
+  reason is a sentence, not a category ("ui-islands gate: 3 files exceed
+  the loc budget", not "gate failed"). Pass `detailPath` too when the
+  stage already produced a log or report file for this failure.
 - Decisions made under a slot contract (`execution-strategy@1`,
   `model-tiering@1`, ...) are recorded by the wrapper that owns the slot:
-  `decision record --contract <c> --scope <scope> --selection <JSON>
-  --decided-by <wrapper>`. Slots define who decides; the DB records what was
-  decided.
-- Stages never run sqlite directly and never read another run's DB. The
-  helper is the whole interface.
+  `run_decision {runDb, contract: <c>, scope: <scope>, selection: <the
+  JSON as an object>, decidedBy: <wrapper>}`. Slots define who decides;
+  the DB records what was decided.
+- Stages never touch the run DB directly and never read another run's DB.
+  The run tools are the whole interface.
 
 ## Stage contract v4: gates
 
 A gate is a named human decision point. Every gate site in an engine
-brackets with `field set gate` -> publishes and resolves per
-gate-protocol's Runs integration -> `decision record --decided-by <the
-answer's by>`. A gate whose `gate` field is newer than its last `gate@1`
+brackets with `run_field_set` (key `gate`) -> publishes and resolves per
+gate-protocol's Runs integration -> `run_decision {..., decidedBy: <the
+answer's by>}`. A gate whose `gate` field is newer than its last `gate@1`
 decision for that scope is pending.
 
 Scopes. Pipeline gates: `plan`, `provision`, `evidence`, `evidence-attach`,
@@ -427,26 +429,28 @@ answer). Redirect is only for Go back. On a form with more than one
 question, Iterate here and Hold are the last question's options.
 
 `-` is the cleared sentinel for any field this contract writes (`hold`, a
-redirected stage's produces): `field set <key> -`. Every reader treats it as
-absent: `field get` returning `-` reads as not set, and the orchestrator's
-completeness check is "non-null and not `-`".
+redirected stage's produces): `run_field_set {runDb, key, value: "-",
+stage}`. Every reader treats it as absent: `run_field_get` returning `-`
+reads as not set, and the orchestrator's completeness check is "non-null
+and not `-`".
 
-When no run resolves (`RT_RUN_DB` unset, no run started by this session,
-and no running run in this worktree -- the same chain `rt runs` verbs use
-below), the two `rt runs` lines are skipped and the form alone is the gate
--- for an ATTENDED invocation. A SPAWNED pane with no resolved run never
-presents that form: nobody is watching it and no gate row reaches any
-surface, so it ends the path with one error line instead (see the forge
-parts' dirty-tree, conflict, push, and clarify gates for the exact
-wording). A resolved run always gets the `rt runs` lines and its gate
-integration, whether or not `RT_RUN_DB` itself is set.
+Pass `runDb` when the engine handed you one; otherwise pass `cwd` (the
+worktree's absolute path), and the tool resolves the run this session
+started, else the newest running run in that worktree. When neither
+resolves a run, the `run_field_set` / `run_decision` calls are skipped
+and the form alone is the gate -- for an ATTENDED
+invocation. A SPAWNED pane with no resolved run never presents that form:
+nobody is watching it and no gate row reaches any surface, so it ends the
+path with one error line instead (see the forge parts' dirty-tree,
+conflict, push, and clarify gates for the exact wording). A resolved run
+always gets the run tool calls and its gate integration, however the
+runDb reached this call.
 
 A verb that inherited a run (invoked from inside a stage) uses
-`run.current_stage` as its `--stage`, writes no `stage-done` and no
-`run-status`, and fires no gate beyond its own: only the verb that ran
-`run-start` closes the stage and the run. Every close ends with
-`unset RT_RUN_DB` after `run-status`, so the export does not outlive the run
-in the session's shell.
+`run.current_stage` as its `stage`, calls no `run_stage {action: "done"}`
+and no `run_status`, and fires no gate beyond its own: only the verb that
+called `run_start` closes the stage and the run. Every close ends with
+`run_status {runDb, status}`.
 
 Selections record the standing options with the pattern work's failure and
 close gates use: `next` is the gate's own enum and always includes
@@ -458,12 +462,12 @@ A `clarify` form carries its candidates, optionally their text, and Hold;
 it offers no Iterate here (the free-text candidate plays that role) and no
 Go back, and its selection keeps its single key. Hold on any form: one
 sentence, end the turn; under a run also record `hold:<stage>:<attempt>`
-and `rt runs field set hold "<their words>" --stage <stage>`; outside a run
-nothing is recorded.
+and `run_field_set {runDb, key: "hold", value: "<their words>", stage}`;
+outside a run nothing is recorded.
 
-Each tool call is a fresh shell, but `rt runs` verbs resolve your run
-automatically: env `RT_RUN_DB` first, else the run this session started,
-else the newest running run in this worktree; ambiguity errors loudly.
-`export` and `unset` remain the contract's markers for the run's start and
-end, not a persistence mechanism -- export `RT_RUN_DB` only to drive a
-different run than yours.
+Every `run_*` call takes `runDb` whenever one reached you: the value
+`run_start` returned, carried in the calling agent's context; `cwd` is
+only the fallback for a call no runDb reached. A compiled stage
+receives it already, since the engine passes `runDb` into each stage's
+context; call `run_start` yourself only to open a run other than the one
+you inherited.

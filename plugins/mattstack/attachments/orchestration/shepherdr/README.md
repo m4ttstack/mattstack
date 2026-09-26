@@ -2,7 +2,8 @@
 
 fan work out across parallel claude agents, each in its own herdr pane and
 its own git worktree. you talk to the shepherd; the shepherd talks to the
-herd through `rt herd`.
+herd through rt's herd tools (`herd_start`, `herd_spawn`, `herd_gates`
+and the rest).
 
 `SKILL.md` is the instruction file the shepherd agent reads. this readme is
 for you, the human driving it.
@@ -13,7 +14,7 @@ for you, the human driving it.
 tab each. you can watch them work and take over any pane by clicking into
 it.
 
-**hidden** (`--hidden` on `rt herd start`). agents land on the daemon's
+**hidden** (`hidden: true` on the shepherd's `herd_start`). agents land on the daemon's
 shared background herdr server, whose panes never appear in your UI (rt
 prints them as `bg:<pane>` refs, and `rt pane peek/send/focus` take those
 refs directly). you see
@@ -24,15 +25,15 @@ nothing else differs. same briefs, same herd, same rules.
 
 ## running a herd
 
-the shepherd runs `rt herd start` to mint the herd (registry row, chat
-room, herdr workspace, gate subscription) and `rt herd spawn` per worker
+the shepherd calls `herd_start` to mint the herd (registry row, chat
+room, herdr workspace, gate subscription) and `herd_spawn` per worker
 (worktree, herdr pane, claude agent). you watch it with
 `rt herd status --herd <id>`: jobs, panes, gates, unread. lost the id?
 `rt herd list` shows every herd on the machine.
 
 ## when an agent needs you
 
-most questions never need a pane. a worker calls `rt herd ask`, which
+most questions never need a pane. a worker calls `herd_ask`, which
 opens a gate; the question arrives in the shepherd's conversation as a
 form, and your answer is relayed back to the worker as a nudge. you answer
 in the conversation you are already in.
@@ -56,7 +57,8 @@ worker asked or was told is lost once the pane closes.
 
 ## picking a herd back up
 
-a herd outlives the session that started it. from any session:
+a herd outlives the session that started it. a shepherd in any session
+picks it up with `herd_resume`; by hand it is:
 
 ```bash
 rt herd resume <id>
@@ -103,7 +105,7 @@ that never attached. a claude TUI at that size is unusable and every
 `pane read` comes back hard-wrapped. `spawn-agent.sh` used to fix it with
 a one-shot `terminal session control --takeover --cols/--rows`, which
 resized the pane in about 0.2s and the size persisted after the
-controller detached. if hidden panes come up tiny under `rt herd spawn`,
+controller detached. if hidden panes come up tiny under `herd_spawn`,
 that is the fix to reapply.
 
 **panes cannot move between sessions.** separate server processes. there

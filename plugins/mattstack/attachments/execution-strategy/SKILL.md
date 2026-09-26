@@ -87,7 +87,7 @@ up: 1 job = 1 sub-project = 1 spec = 1 plan = 1 branch = 1 worktree =
 When the caller has no brief-assembly verb, copy the assigned strategy's
 body from `${CLAUDE_SKILL_DIR}/references/strategies.md` verbatim into the
 brief and fill its `<angle-bracket>` slots yourself. A caller that has one
-(`rt herd brief` and its `--strategy`/`--strategies` flags) does this copy
+(the `herd_brief` tool and its `strategy`/`strategies` fields) does this copy
 for you -- name the strategy and pass it, nothing more. Either way, do not
 compose method prose per job; the bodies carry the worker-boundary rules
 and the report contract.
