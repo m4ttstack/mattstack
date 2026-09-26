@@ -64,6 +64,17 @@ export const realChatToolDeps: ChatToolDeps = {
 
 const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; this tool runs inside a Claude Code session";
 const ROOM_PROP = { room: { type: "string", description: "Room name (lowercase letters, digits, . _ -)." } };
+const REPLACED = "this session was replaced (/clear) or has ended, so chat_sign_in would sign in a session nothing receives for; run `rt chat sign-in` in Bash";
+/** The reserved mention every human post carries (chat:post adds it for the human handle). */
+const RESERVED_HANDLES = ["here"];
+const SIGN_OUT_TIMEOUT_MS = 3000;
+
+function flagValueError(name: string, v: unknown): string | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || v === "") return `"${name}" must be a non-empty string`;
+  if (v.startsWith("-")) return `"${name}" must not start with "-"`;
+  return undefined;
+}
 
 function checkPositiveInt(input: Record<string, unknown>, name: string): string | undefined {
   const v = input[name];
@@ -214,6 +225,52 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         const sessionId = env.CLAUDE_CODE_SESSION_ID;
         if (!sessionId) return err(NO_SESSION);
         return fromResponse(await deps.back({ sessionId }));
+      },
+    },
+    {
+      name: "chat_sign_in",
+      description: "Sign this session in to rt chat (presence, a handle, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as picks this session's base handle and may not be the human's handle. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.",
+      inputSchema: {
+        type: "object",
+        properties: { cwd: { type: "string" }, as: { type: "string" }, room: { type: "string" }, noRoom: { type: "boolean" }, status: { type: "string" } },
+        additionalProperties: false,
+      },
+      async handler(input, env) {
+        const sessionId = env.CLAUDE_CODE_SESSION_ID;
+        if (!sessionId) return err(NO_SESSION);
+        const bad = checkOptional(input, [{ name: "noRoom", type: "boolean" }])
+          ?? flagValueError("as", input.as) ?? flagValueError("room", input.room) ?? flagValueError("status", input.status)
+          ?? (input.as !== undefined ? checkChatName("as", input.as) : undefined)
+          ?? (input.room !== undefined ? checkChatName("room", input.room) : undefined)
+          ?? checkCwd(input, deps.isDir);
+        if (bad) return err(bad);
+        if (input.room !== undefined && input.noRoom === true) return err("room and noRoom are mutually exclusive");
+        if (typeof input.as === "string" && (input.as === deps.humanHandle() || RESERVED_HANDLES.includes(input.as))) {
+          return err(`"as" may not be ${JSON.stringify(input.as)}: that handle speaks for the human`);
+        }
+        if (!deps.sessionAlive(sessionId)) return err(REPLACED);
+        const rest = ["--session", sessionId];
+        if (typeof input.as === "string") rest.push("--as", input.as);
+        if (typeof input.room === "string") rest.push("--room", input.room);
+        if (input.noRoom === true) rest.push("--no-room");
+        if (typeof input.status === "string") rest.push("--status", input.status);
+        const r = await deps.spawnRt(["chat", "sign-in"], rest, typeof input.cwd === "string" ? { cwd: input.cwd } : {});
+        if (!r.ok) return err(r.error);
+        const body = r.body as { handle?: unknown; room?: unknown };
+        return ok({ handle: body.handle, room: body.room ?? null });
+      },
+    },
+    {
+      name: "chat_sign_out",
+      description: "Sign this session out of rt chat: drop its presence and delete its session file. Room memberships are kept.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler(_input, env) {
+        const sessionId = env.CLAUDE_CODE_SESSION_ID;
+        if (!sessionId) return err(NO_SESSION);
+        const res = await deps.signOut({ sessionId }, { timeoutMs: SIGN_OUT_TIMEOUT_MS });
+        // Local cleanup runs whatever the daemon said, as the CLI's sign-out does: a stranded file keeps resolving to a dead handle.
+        deps.deleteSession(sessionId);
+        return ok(res.ok ? {} : { daemonError: res.error ?? "sign-out failed" });
       },
     },
   ];

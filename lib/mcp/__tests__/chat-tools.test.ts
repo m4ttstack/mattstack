@@ -175,3 +175,98 @@ describe("chat_mark, chat_join, chat_leave, chat_rooms, chat_who", () => {
     }
   });
 });
+
+describe("chat_sign_in", () => {
+  test("spawns the CLI with a fixed argv built from named inputs, in the given cwd", async () => {
+    const f = fake();
+    const r = await f.tool("chat_sign_in").handler({ cwd: "/work", as: "ann", room: "build", status: "rebasing" }, ENV);
+    expect(r).toEqual({ ok: true, body: { handle: "ann", room: "rt" } });
+    expect(f.calls).toEqual([{
+      fn: "spawnRt",
+      a: { path: ["chat", "sign-in"], rest: ["--session", "s1", "--as", "ann", "--room", "build", "--status", "rebasing"] },
+      o: { cwd: "/work" },
+    }]);
+  });
+
+  test("noRoom passes --no-room; no cwd runs in the server's directory", async () => {
+    const f = fake();
+    await f.tool("chat_sign_in").handler({ noRoom: true }, ENV);
+    expect(f.calls[0]!.a.rest).toEqual(["--session", "s1", "--no-room"]);
+    expect(f.calls[0]!.o).toEqual({});
+  });
+
+  test("never passes --pane, even when input names one", async () => {
+    const f = fake();
+    await f.tool("chat_sign_in").handler({ pane: "w9:p9", session: "other" }, ENV);
+    expect(f.calls[0]!.a.rest).toEqual(["--session", "s1"]);
+  });
+
+  test.each([
+    [{ room: "build", noRoom: true }],
+    [{ cwd: "relative" }],
+    [{ cwd: "/missing" }],
+    [{ as: "--pane" }],
+    [{ status: "-x" }],
+    [{ as: "Bad Name" }],
+    [{ room: "--no-room" }],
+    [{ noRoom: "true" }],
+    [{ as: "pat" }],
+    [{ as: "here" }],
+  ])("refuses %j with no spawn", async (input) => {
+    const f = fake();
+    const r = await f.tool("chat_sign_in").handler(input, ENV);
+    expect(r.ok).toBe(false);
+    expect(f.calls).toEqual([]);
+  });
+
+  test("the human handle refusal follows the setting", async () => {
+    const f = fake({ human: "robin" });
+    expect((await f.tool("chat_sign_in").handler({ as: "robin" }, ENV)).ok).toBe(false);
+    expect((await f.tool("chat_sign_in").handler({ as: "pat" }, ENV)).ok).toBe(true);
+  });
+
+  test("a replaced or dead session is refused with the Bash pointer and no spawn", async () => {
+    const f = fake({ alive: false });
+    const r = await f.tool("chat_sign_in").handler({}, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("rt chat sign-in");
+    expect(f.calls).toEqual([]);
+  });
+
+  test("refuses without a session id", async () => {
+    const f = fake();
+    expect((await f.tool("chat_sign_in").handler({}, {} as NodeJS.ProcessEnv)).ok).toBe(false);
+    expect(f.calls).toEqual([]);
+  });
+
+  test("a CLI failure comes back as the tool error", async () => {
+    const f = fake({ spawn: { ok: false, error: "rt daemon unreachable" } });
+    const r = await f.tool("chat_sign_in").handler({}, ENV);
+    expect(r).toEqual({ ok: false, body: undefined, error: "rt daemon unreachable" });
+  });
+});
+
+describe("chat_sign_out", () => {
+  test("signs out the env session and deletes its file", async () => {
+    const f = fake();
+    const r = await f.tool("chat_sign_out").handler({}, ENV);
+    expect(r).toEqual({ ok: true, body: {} });
+    expect(f.calls).toEqual([
+      { fn: "signOut", a: { sessionId: "s1" }, o: { timeoutMs: 3000 } },
+      { fn: "deleteSession", a: "s1" },
+    ]);
+  });
+
+  test("deletes the file even when the daemon fails, reporting daemonError", async () => {
+    const f = fake({ fail: "rt daemon unreachable" });
+    const r = await f.tool("chat_sign_out").handler({}, ENV);
+    expect(r).toEqual({ ok: true, body: { daemonError: "rt daemon unreachable" } });
+    expect(f.calls.map((c) => c.fn)).toEqual(["signOut", "deleteSession"]);
+  });
+
+  test("refuses without a session id", async () => {
+    const f = fake();
+    expect((await f.tool("chat_sign_out").handler({}, {} as NodeJS.ProcessEnv)).ok).toBe(false);
+    expect(f.calls).toEqual([]);
+  });
+});
