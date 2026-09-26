@@ -64,8 +64,8 @@ export function loadCronConfig(log?: CronLog): CronConfig {
 
 function defaultRunCommand(argv: string[], trigger: CronTrigger, log: CronLog): void {
   try {
-    // Non-blocking, NOT detached: Bun.spawn offers no process-group detach,
-    // so a daemon restart kills an in-flight command. Accepted (spec section
+    // Non-blocking, NOT detached, so a daemon restart kills an in-flight
+    // command. Accepted (spec section
     // 5): invoked programs must be idempotent one-shot passes, and the next
     // matching event simply re-runs them.
     // Bun.spawn ignores assignments made to process.env after startup unless
