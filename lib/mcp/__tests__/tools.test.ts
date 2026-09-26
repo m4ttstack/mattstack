@@ -29,6 +29,18 @@ const realRtCommand = realTransport.rtCommand;
 const ID = "remote:gitlab.com%2Facme%2Facme-dev";
 
 describe("mcpTools", () => {
+  test("the existing chat tools point unsigned sessions at chat_sign_in", async () => {
+    for (const name of ["chat_post", "chat_dm", "chat_ack", "chat_claim", "chat_release"]) {
+      const tool = mcpTools().find((t) => t.name === name)!;
+      expect(tool.description, name).toContain("chat_sign_in");
+      expect(tool.description, name).not.toContain("in bash first");
+    }
+    const tool = mcpTools().find((t) => t.name === "chat_ack")!;
+    const res = await tool.handler({ id: 1 }, {} as NodeJS.ProcessEnv);
+    expect(res.error).toContain("chat_sign_in");
+    expect(res.error).toContain("rt chat sign-in");
+  });
+
   test("roster matches the published tool names", () => {
     expect(mcpTools().map((t) => t.name).sort()).toEqual([...NAMES].sort());
   });
@@ -1285,5 +1297,22 @@ describe("mcpTools", () => {
       expect(withRemove.ok).toBe(false);
       expect(calls).toEqual([]);
     });
+  });
+});
+
+describe("chat helpers", () => {
+  test("requireChatHandle reads only the env session's file", async () => {
+    const { requireChatHandle } = await import("../shared.ts");
+    const seen: Array<string | undefined> = [];
+    const read = (id: string | undefined) => { seen.push(id); return id === "s1" ? { sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 } : null; };
+    expect(requireChatHandle({ CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv, read)).toEqual({ handle: "ann" });
+    expect("error" in requireChatHandle({} as NodeJS.ProcessEnv, read)).toBe(true);
+    expect(seen).toEqual(["s1", undefined]);
+  });
+
+  test("checkChatName matches the daemon's name rule", async () => {
+    const { checkChatName } = await import("../shared.ts");
+    expect(checkChatName("room", "build-1.x_y")).toBeUndefined();
+    for (const bad of ["Build", "a b", "", "a/b", 7]) expect(checkChatName("room", bad), String(bad)).toContain('"room"');
   });
 });

@@ -14,7 +14,6 @@ import {
   rtCommand,
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands, GateQuestion } from "../../packages/rt-client/src/index.ts";
-import { readChatSession } from "../chat-session.ts";
 import { joinMrsToWorktrees } from "../mr-map.ts";
 import { repoLabel } from "../repo-label.ts";
 import { reverseLookupByName } from "../repo-name-lookup.ts";
@@ -30,8 +29,8 @@ import { worktreeToolDefs } from "./worktree-tools.ts";
 import {
   checkOptional, checkPositiveInts, checkRequired, checkStringArray,
   err, fromResponse, HERD_ENV_ERROR, MR_TARGET_PROPS, MR_WRITE_TIMEOUT_MS, ok,
-  REPO_NAME_RULE, REPO_TARGET_PROPS, requireJobEnv, requireWorkerEnv,
-  resolveSoleHerd, withLandingHint,
+  REPO_NAME_RULE, REPO_TARGET_PROPS, requireChatHandle, requireJobEnv, requireWorkerEnv,
+  resolveSoleHerd, SIGN_IN_HINT, withLandingHint,
   type McpToolDef, type ToolResult,
 } from "./shared.ts";
 
@@ -39,15 +38,6 @@ export type { McpToolDef } from "./shared.ts";
 
 /** A 50 MB multipart POST over a slow link outlives the 30s write timeout. */
 const MR_UPLOAD_TIMEOUT_MS = 120_000;
-
-const SIGN_IN_HINT = "no signed-in chat session for this pane; run `rt chat sign-in` in bash first";
-
-/** No derived-handle fallback: a tool call with no session file is a hard error, unlike the CLI's resolveHandle. */
-function requireChatHandle(env: NodeJS.ProcessEnv): { handle: string } | { error: string } {
-  const session = readChatSession(env.CLAUDE_CODE_SESSION_ID);
-  if (!session) return { error: SIGN_IN_HINT };
-  return { handle: session.handle };
-}
 
 type MrActionName = Commands["mr:action"]["payload"]["action"];
 
@@ -247,7 +237,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "chat_post",
-      description: "Post a message to an rt chat room as the signed-in handle. Requires a signed-in chat session; run `rt chat sign-in` in bash first.",
+      description: "Post a message to an rt chat room as the signed-in handle. Requires a signed-in chat session; call chat_sign_in first.",
       inputSchema: {
         type: "object",
         properties: {
@@ -272,7 +262,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "chat_dm",
-      description: "Send a direct message to another rt chat handle. Requires a signed-in chat session; run `rt chat sign-in` in bash first.",
+      description: "Send a direct message to another rt chat handle. Requires a signed-in chat session; call chat_sign_in first.",
       inputSchema: {
         type: "object",
         properties: { to: { type: "string" }, body: { type: "string" } },
@@ -289,7 +279,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "chat_ack",
-      description: "Acknowledge a chat message by id as the signed-in handle. Requires a signed-in chat session; run `rt chat sign-in` in bash first.",
+      description: "Acknowledge a chat message by id as the signed-in handle. Requires a signed-in chat session; call chat_sign_in first.",
       inputSchema: {
         type: "object",
         properties: { id: { type: "number" } },
@@ -306,7 +296,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "chat_claim",
-      description: "Claim a chat message by id so other agents skip answering it. Requires a signed-in chat session; run `rt chat sign-in` in bash first.",
+      description: "Claim a chat message by id so other agents skip answering it. Requires a signed-in chat session; call chat_sign_in first.",
       inputSchema: {
         type: "object",
         properties: { id: { type: "number" } },
@@ -323,7 +313,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "chat_release",
-      description: "Release a previously claimed chat message by id. Requires a signed-in chat session; run `rt chat sign-in` in bash first.",
+      description: "Release a previously claimed chat message by id. Requires a signed-in chat session; call chat_sign_in first.",
       inputSchema: {
         type: "object",
         properties: { id: { type: "number" } },
