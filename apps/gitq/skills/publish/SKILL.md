@@ -98,12 +98,11 @@ just talk to the human; everything else below is unchanged.
      neither `results` nor `skipped` needed nothing.
    - **exit 1** with a `gitq:` line on stderr: hard failure. The commonest is
      a missing token for the repo's forge. gitq reads the remote's host to
-     decide which it needs: `GITLAB_TOKEN` then `gitlabToken` in
-     `~/.mattstack/rt/secrets.json` for GitLab, `GITHUB_TOKEN` then `githubToken` for
-     GitHub. A self-hosted host needs a `forges` entry in
-     `~/.mattstack/gitq/settings.json` naming its provider, and the error says so.
-     Mark
-     error with the stderr text.
+     decide which it needs: `GITLAB_TOKEN` for GitLab, `GITHUB_TOKEN` for
+     GitHub, else a grant-gated token from the rt daemon (the repo must be
+     tracked: `rt daemon track <repo> live branches`). A self-hosted host
+     needs a `gitq.forges` entry naming its provider, and the error says so.
+     Mark error with the stderr text.
    - **exit 1** after normal JSON: some per-MR results have
      `success: false`. Mark error naming the failed branches, and report
      which MRs did go through. A failed create stops the walk there; a failed
