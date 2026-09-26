@@ -3665,6 +3665,35 @@ describe("unregistered repos", () => {
     expect(opened!.repos.map((r) => r.id)).toContain("path:/elsewhere");
   });
 
+  test("stopBackground aborts an in-flight background fetch before the session ends", async () => {
+    const timers: (() => void)[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const client = makeFakeClient();
+    client.fetch = (_remote?: string, signal?: AbortSignal) => {
+      signals.push(signal);
+      return new Promise((_resolve, reject) => { signal?.addEventListener("abort", () => reject(new Error("aborted"))); });
+    };
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const driver = new MissionDriver(deps, START);
+    const run = driver.run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(signals).toHaveLength(1);
+    driver.stopBackground();
+    expect(signals[0]?.aborted).toBe(true);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
   test("an unmanaged repo lists worktrees from git alone", async () => {
     const queried: string[] = [];
     const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);

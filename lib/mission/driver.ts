@@ -400,6 +400,11 @@ export class MissionDriver {
     if (this.unmanaged) this.opened.set(this.state.currentRepo, this.state.currentWorktree);
   }
 
+  stopBackground(): void {
+    this.updater.stop();
+    this.stopIndicators.abort();
+  }
+
   private repoRows(): RepoStatusRow[] {
     const badges = this.unmanaged
       ? new Map(this.indicatorBadges).set(this.state.currentRepo, this.currentBadge())
@@ -464,8 +469,7 @@ export class MissionDriver {
         }
       }
     } finally {
-      this.updater.stop();
-      this.stopIndicators.abort();
+      this.stopBackground();
       sub.close();
       const end = await session.close();
       if (end.reason === "died" || end.reason === "error") throw new SessionDied(end.code);

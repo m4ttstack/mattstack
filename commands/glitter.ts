@@ -88,6 +88,8 @@ export async function glitterCommand(_args: string[], _ctx: CommandContext): Pro
   });
 
   const onSignal = () => {
+    // The background fetch runs detached in its own process group, so exiting without killing it leaves it running.
+    driver.stopBackground();
     process.exit(130);
   };
   process.once("SIGINT", onSignal);
