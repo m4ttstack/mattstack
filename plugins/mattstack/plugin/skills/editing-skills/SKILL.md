@@ -50,6 +50,11 @@ it does gives a real-looking command that updates nothing.
    baseline a fresh agent before writing, verify after). For parameterized
    wrapper skills also read
    `${CLAUDE_SKILL_DIR}/../../../attachments/parameterized-skills/SKILL.md`.
+   The verify (GREEN) step asks one more question: did the fresh agent run a
+   shell command a tool covers (`rt runs`, `glab`, `git push`, `git rebase`, `rt herd`, `rt worktree provision`)? <!-- mcp-lint: allow -->
+   Then the skill is not green: name the tool in the sentence that named the
+   command. `${CLAUDE_SKILL_DIR}/../../../attachments/mcp-tools/reference.md`
+   lists every tool.
 2. Edit or create `SKILL.md` in the source path above.
 3. **New mattstack skill only**: the manifest's `skills` field is an
    EXPLICIT array of the roots Claude loads directly (`./skills`,
