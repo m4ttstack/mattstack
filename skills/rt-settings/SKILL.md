@@ -33,10 +33,12 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
    `postinstall` rebuilds rt-client's `dist/`) or turbo build picks up the
    new key; deck and gitq additionally bundle rt-client into their own
    compiled binaries, so each needs a rebuild at the next release to ship
-   it; the add-a-key checklist in the routed doc carries the real
+   it. gitq's npm bundle (`dist/gitq.js`) also carries rt-client, so an
+   npm-installed `gitq` only sees the key after `bun run release` from
+   `apps/gitq`; the add-a-key checklist in the routed doc carries the real
    per-consumer delivery steps. A key that resolves undefined (or throws
    unknown-key) in one app while `rt settings` knows it is a stale
-   `dist/`: rebuild rt-client.
+   `dist/` (rebuild rt-client), not a missing value.
 3. Scopes, weakest → strongest: `default < team < user < team.repo <
    user.repo < machine < machine.repo` — most-specific wins; machine
    outranks user outranks team. Pick the scope by whose intent it is: team

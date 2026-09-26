@@ -332,12 +332,12 @@ you run. The rest of the estate:
 
 - [rt](https://github.com/m4ttstack/rt): the CLI and daemon Deck's own
   settings and secrets run through.
-- [gitq](https://github.com/m4ttstack/gitq): a deterministic stacked-branch
+- [gitq](../gitq) (in this same repo): a deterministic stacked-branch
   engine for git.
 - [board](../board) (in this same repo): a team's open GitLab MRs,
   ready to review, on one page.
-- [glance](https://github.com/m4ttstack/glance): one client for GitHub and
-  GitLab, one set of types.
+- [glance](../../packages/glance) (in this same repo): one client for GitHub
+  and GitLab, one set of types.
 - [fast-browser](https://github.com/m4ttstack/fast-browser): drive the
   Chrome you already have from an agent.
 - [herdr-chat](https://github.com/m4ttstack/herdr-chat): rt chat, where the

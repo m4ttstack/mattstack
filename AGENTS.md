@@ -41,12 +41,17 @@ apps trees. Deck serves the apps from this checkout in dev mode
 (`deck register --dir ~/Documents/GitHub/repo-tools/apps/<name>`), and the
 release builds them at the tagged commit (`scripts/build-apps.ts`, the
 `build-apps` job in `release.yml`); `rt-tray/deps.lock` lists them as
-`source: "tree"` rows, which is deck's served-app catalog. gitq is one of
-these served apps too, at `apps/gitq`, built the same way and released with
-the same fast path; `skills/rt-release/SKILL.md` covers it. gitq also
-publishes `@mattstack/gitq` to npm on its own schedule (`apps/gitq/docs/releasing.md`),
-separate from the bundled binary this repo builds. `packages/glance` and
-`packages/glance-react` keep their own contract in `packages/glance/AGENTS.md`.
+`source: "tree"` rows, which is deck's served-app catalog (the rows that
+carry a `serve` port; `apps/deck/src/registry/bundle-catalog.ts`). gitq is
+a tree row too, at `apps/gitq`, built the same way by `build-apps.ts` and
+shipped as the plain `Contents/Helpers/gitq` CLI, but its row carries no
+`serve`, so it is not in that catalog: deck serves its board only in dev
+mode, never automatically in the bundle. gitq releases on the same
+served-app fast path as the others (`skills/rt-release/SKILL.md`) and also
+publishes `@mattstack/gitq` to npm on its own schedule
+(`apps/gitq/docs/releasing.md`), separate from the bundled CLI this repo
+builds. `packages/glance` and `packages/glance-react` keep their own
+contract in `packages/glance/AGENTS.md`.
 
 ## Worktree pool: the golden tree
 
@@ -366,17 +371,22 @@ something that does nothing.
 
 The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
 
-- **Served apps (board, console, chat, boxscore, gitq) and deck run from
+- **Served apps (board, console, chat, boxscore) and deck run from
   source** in the shared `~/Documents/GitHub/repo-tools` checkout. To deploy:
   merge, check `git branch --show-current` is `main`, pull, then
   `deck restart <app>` (or the deck row's deploy button for deck itself);
   `rt release update-machine` also re-registers and restarts them, as its
-  `checkout-sync` (labelled "shared checkout sync") and served-suite legs.
-  Deck runs through the dev shim (`rt-tray/Sources-deck-shim`), which falls
-  back to `Contents/Helpers/deck-pinned` when source cannot run; `api.json`'s
-  `runMode` says which is serving. A pin older than `runMode` (deck 1.0.6
-  today) reads as `standalone`; the last `deck-dev-shim:` line in
-  `~/.mattstack/deck/logs/deck.err.log` says whether the shim fell back.
+  `checkout-sync` (labelled "shared checkout sync") and served-suite legs
+  (`REGISTERED_APPS` in `lib/release/update-machine.ts` is exactly this
+  list plus deck). Deck runs through the dev shim (`rt-tray/Sources-deck-shim`),
+  which falls back to `Contents/Helpers/deck-pinned` when source cannot
+  run; `api.json`'s `runMode` says which is serving. A pin older than
+  `runMode` (deck 1.0.6 today) reads as `standalone`; the last
+  `deck-dev-shim:` line in `~/.mattstack/deck/logs/deck.err.log` says
+  whether the shim fell back. gitq is not in that re-register list: merge
+  and pull the same way, then `deck restart gitq` restarts the board
+  served from `apps/gitq` in dev mode; the bundled `gitq` CLI only picks
+  up the change at the next release.
 - **Manifest keys in `mattstack.deck.json` are read only at register or
   adopt.** After a manifest change, run `deck register --dir <absolute path>`.
 - **Tray and shim changes need a dev app rebuild**: in a scratch tree at the

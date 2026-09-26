@@ -104,7 +104,9 @@ exist for out-of-process callers only.
    on the next `bun install` (the root `postinstall` rebuilds rt-client's
    `dist/`) or the next turbo build; deck and gitq additionally bundle
    rt-client into their own compiled binaries, so each needs a rebuild at
-   the next release to ship the change.
+   the next release to ship the change. gitq's npm bundle (`dist/gitq.js`)
+   also carries rt-client, so an npm-installed `gitq` only sees the key
+   after `bun run release` from `apps/gitq`.
 7. Read via `getSetting`, write via `setSetting`. Never construct store paths
    by hand; never cache a path or a value at module load.
 

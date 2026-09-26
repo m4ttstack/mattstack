@@ -11,9 +11,9 @@ Full documentation lives at **[rt.cool](https://rt.cool)**.
 ![rt --help output](docs/assets/rt-help.png)
 
 rt is the command line piece of mattstack, a small estate of tools that share
-its daemon and settings: [gitq](https://github.com/m4ttstack/gitq) for stacked
+its daemon and settings: [gitq](apps/gitq) (in this same repo) for stacked
 branches, [board](https://github.com/m4ttstack/board) for reviewing merge
-requests, [glance](https://github.com/m4ttstack/glance) for one GitHub and
+requests, [glance](packages/glance) (in this same repo) for one GitHub and
 GitLab client, [deck](https://github.com/m4ttstack/deck) for local app hosting,
 [fast-browser](https://github.com/m4ttstack/fast-browser) for driving Chrome,
 [skills](https://github.com/m4ttstack/skills) and the

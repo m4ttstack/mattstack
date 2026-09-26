@@ -122,10 +122,10 @@ why.
    the tagged commit by `release.yml`'s `build-apps` job
    (`scripts/build-apps.ts`), so there is no pin to go stale and nothing to
    bump for them; a change merged to main is in the next release by
-   construction, and their `package.json` versions are labels nothing
-   reads (gitq's own npm publish of `@mattstack/gitq`, via `bun run
-   release` from `apps/gitq`, is a separate schedule that this release
-   process does not gate).
+   construction. Their `package.json` versions are labels nothing reads,
+   except gitq's: its version is read only by its own npm publish
+   (`bun run release` from `apps/gitq`), a separate schedule that this
+   release process does not gate.
 
 2c. **The other vendored layers: plugins, standalone apps, tools, the
    extension.** None of them build from this tree, so each keeps its own
