@@ -85,7 +85,7 @@ function fakeSeams(
         return v === undefined ? fail() : ok(`${v}\n`);
       }
       if (cmd === "git status --porcelain") return ok(opts.dirty ? " M rt-tray/Sources/AppDelegate.swift\n" : "");
-      if (cmd === "git describe --tags --abbrev=0") return ok("v2.11.0\n");
+      if (cmd === "git describe --tags --abbrev=0 --match v[0-9]*") return ok("v2.11.0\n");
       if (cmd.includes("rt-tray/build.sh dev")) return opts.buildExit ? fail("build broke") : ok();
       return ok();
     },

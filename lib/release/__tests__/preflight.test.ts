@@ -159,6 +159,25 @@ describe("checkGitState", () => {
     expect(r.row.status).toBe("error");
     expect(r.tag).toBeNull();
   });
+
+  test("describe is scoped to v[0-9]* so a gitq-v* tag never wins", async () => {
+    let describeArgv: readonly string[] = [];
+    const s = seams({
+      exec: (argv) => {
+        const cmd = argv.join(" ");
+        if (cmd.includes("--show-current")) return ok("main\n");
+        if (cmd.includes("status")) return ok("");
+        if (cmd.includes("describe")) {
+          describeArgv = argv;
+          return ok("v2.10.2\n");
+        }
+        if (cmd.includes("rev-list")) return ok("3\n");
+        return failExec();
+      },
+    });
+    await checkGitState(s);
+    expect(describeArgv).toEqual(["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"]);
+  });
 });
 
 function seamsWithDiff(files: string[]): PreflightSeams {
