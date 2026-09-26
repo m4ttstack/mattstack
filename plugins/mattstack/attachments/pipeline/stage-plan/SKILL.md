@@ -19,14 +19,10 @@ metadata:
 
 Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `rt runs stage-start --stage plan`
-- Read consumed fields with `rt runs field get <key>` before
-  deriving or asking for them.
-- Write each declared produce the moment it exists:
-  `rt runs field set <key> <value> --stage plan`
-- Last action on success: `rt runs stage-done --stage plan`;
-  on failure: `rt runs stage-fail --stage plan --reason
-  "<what actually failed>"` before you report it.
+- First action: `run_stage` with `action: "start"`, `stage: "plan"` and the run's `runDb`.
+- Read consumed fields with `run_field_get` before deriving or asking for them.
+- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "plan"`).
+- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"` and a `reason` naming what actually failed, before you report it.
 
 Read the ticket (or the task description standing in for one).
 
@@ -81,7 +77,7 @@ the point.
 Then the plan gate, scope `plan`. The printed block is the proposal; the
 human's answer is the decision:
 
-- `rt runs field set gate plan --stage plan`
+- `run_field_set` with `key: "gate"`, `value: "plan"`, `stage: "plan"`
 - One sentence naming the printed tier and why.
 - Run gate-protocol's Runs integration with kind `plan` and these
   questions, each its own question (never fold one list into another --
@@ -94,17 +90,18 @@ human's answer is the decision:
     its own, as it words them
   - `next`: **Proceed** (recommended) / **Iterate here** / **Go back** /
     **Hold**
-  - `to`, only when **Go back** is answered and `snapshot` shows more
+  - `to`, only when **Go back** is answered and `run_snapshot` shows more
     than one earlier stage row: one option per earlier stage, split
     `to-1`, `to-2`, ... over 4; with exactly one candidate stage label
     it **Go back to `<stage>`** in `next` and skip this question
-- `rt runs decision record --contract gate@1 --scope plan --selection '{"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}' --decided-by <the answer's by>`
-- Proceed: `rt runs decision record --contract execution-strategy@1 --scope run --selection '{"tier":"<picked tier>"}' --decided-by stage-plan`
+- `run_decision` with `contract: "gate@1"`, `scope: "plan"`, `selection: {"tier":"<picked>","failing_test":"<as confirmed or null>","domain":{<the domain questions' answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`, `decidedBy: <the answer's by>`
+- Proceed: `run_decision` with `contract: "execution-strategy@1"`, `scope: "run"`, `selection: {"tier":"<picked tier>"}`, `decidedBy: "stage-plan"`
 - Iterate: re-read the ticket with their note and print a new triage
-  block, then gate again. Hold: record `hold:plan:<attempt>` and `rt runs
-  field set hold "<their words>" --stage plan`, then end the turn. Go back:
-  hand control back to the orchestrator with one sentence naming the
-  answer; it runs `## Redirect`.
+  block, then gate again. Hold: record `hold:plan:<attempt>` and
+  `run_field_set` with `key: "hold"`, `value: "<their words>"`,
+  `stage: "plan"`, then end the turn. Go back: hand control back to the
+  orchestrator with one sentence naming the answer; it runs
+  `## Redirect`.
 
 Finish by writing `approach` (the tier the gate recorded) and
 `evidence-plan` (the EVIDENCE value).

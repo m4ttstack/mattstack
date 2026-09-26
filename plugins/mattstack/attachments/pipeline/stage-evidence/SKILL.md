@@ -19,15 +19,10 @@ metadata:
 
 Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
 
-- First action: `rt runs stage-start --stage evidence`
-- Read consumed fields with `rt runs field get <key>` before
-  deriving or asking for them.
-- Write each declared produce the moment it exists:
-  `rt runs field set <key> <value> --stage evidence`
-- Last action on success: `rt runs stage-done --stage evidence`;
-  on failure: `rt runs stage-fail --stage evidence --reason
-  "<what actually failed>" --detail-path <path to whatever was captured
-  before the failure>` before you report it.
+- First action: `run_stage` with `action: "start"`, `stage: "evidence"` and the run's `runDb`.
+- Read consumed fields with `run_field_get` before deriving or asking for them.
+- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "evidence"`).
+- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"`, a `reason` naming what actually failed and `detailPath` = the path to whatever was captured before the failure, before you report it.
 
 If `evidence-plan` is `none` (or starts with `none`), write `evidence` as
 `{"plan": "none"}` and finish -- nothing to capture.
@@ -43,7 +38,7 @@ instead of recapturing.
 Before any capture, when the domain rules below declare intake questions,
 or the data source is anything other than the local default:
 
-- `rt runs field set gate evidence --stage evidence`
+- `run_field_set` with `key: "gate"`, `value: "evidence"`, `stage: "evidence"`
 - One sentence: what the plan asks for and what is unknown.
 - Run gate-protocol's Runs integration with kind `evidence` and these
   questions, each its own question (never fold one list into another --
@@ -52,7 +47,7 @@ or the data source is anything other than the local default:
   - `source`, only when the data source is not local: **Proceed with
     `<source>`** / **Switch to local**
   - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
-- `rt runs decision record --contract gate@1 --scope evidence --selection '{"intake":{<answers>},"source":"<as confirmed>"}' --decided-by <the answer's by>`
+- `run_decision` with `contract: "gate@1"`, `scope: "evidence"`, `selection: {"intake":{<answers>},"source":"<as confirmed>"}`, `decidedBy: <the answer's by>`
 
 ## Domain rules
 
@@ -69,7 +64,7 @@ and store it under `~/.mattstack/work/<work-id>/evidence/`.
 Before the MR is modified, when the domain rules attach here and an MR
 already exists for the branch (the ship stage normally attaches):
 
-- `rt runs field set gate evidence-attach --stage evidence`
+- `run_field_set` with `key: "gate"`, `value: "evidence-attach"`, `stage: "evidence"`
 - One sentence: what was captured and where it sits.
 - Run gate-protocol's Runs integration with kind `evidence-attach` and
   these questions, each its own question (never fold one list into
@@ -82,10 +77,11 @@ already exists for the branch (the ship stage normally attaches):
   - `attach`: **Hand back the markdown** (recommended; the ship stage
     attaches) / **Attach to the MR now**
   - `next`: **Proceed** (recommended) / **Iterate here** / **Hold**
-- `rt runs decision record --contract gate@1 --scope evidence-attach --selection '{"annotations":[...],"attach":"now|handback"}' --decided-by <the answer's by>`
+- `run_decision` with `contract: "gate@1"`, `scope: "evidence-attach"`, `selection: {"annotations":[...],"attach":"now|handback"}`, `decidedBy: <the answer's by>`
 
-Hold at either gate: record `hold:evidence:<attempt>`, `rt runs field set
-hold "<their words>" --stage evidence`, end the turn.
+Hold at either gate: record `hold:evidence:<attempt>`, `run_field_set`
+with `key: "hold"`, `value: "<their words>"`, `stage: "evidence"`, end
+the turn.
 
 **These thoughts mean you are skipping the gate -- STOP:**
 
