@@ -32,7 +32,7 @@ function sh(cmd: string, args: string[]): string {
 }
 
 function latestTag(): string {
-  const r = spawnSync("git", ["describe", "--tags", "--abbrev=0"], { encoding: "utf8" });
+  const r = spawnSync("git", ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"], { encoding: "utf8" });
   return r.status === 0 ? r.stdout.trim() : "";
 }
 

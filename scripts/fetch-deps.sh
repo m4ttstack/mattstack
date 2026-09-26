@@ -51,9 +51,10 @@ fetch() { # url sha → prints cached path
   if [ ! -f "$dest" ]; then
     curl -fsSL --retry 3 -o "$dest.part" "$url" || {
       rm -f "$dest.part"
-      # A private repo's release asset (console, chat) refuses bare curl;
-      # gh carries the caller's token (GH_TOKEN in CI, keychain locally).
-      # The sha gate below still judges whatever arrives.
+      # A private repo's release asset would refuse bare curl; gh carries
+      # the caller's token (keychain locally). No current row is private,
+      # so this path is a fallback, not the common case. The sha gate below
+      # still judges whatever arrives.
       case "$url" in
         https://github.com/*/releases/download/*)
           local path="${url#https://github.com/}"

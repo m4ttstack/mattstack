@@ -11,10 +11,10 @@ Full documentation lives at **[rt.cool](https://rt.cool)**.
 ![rt --help output](docs/assets/rt-help.png)
 
 rt is the command line piece of mattstack, a small estate of tools that share
-its daemon and settings: [gitq](https://github.com/m4ttstack/gitq) for stacked
-branches, [board](https://github.com/m4ttstack/board) for reviewing merge
-requests, [glance](https://github.com/m4ttstack/glance) for one GitHub and
-GitLab client, [deck](https://github.com/m4ttstack/deck) for local app hosting,
+its daemon and settings: [gitq](apps/gitq) (in this same repo) for stacked
+branches, [board](apps/board) (in this same repo) for reviewing merge
+requests, [glance](packages/glance) (in this same repo) for one GitHub and
+GitLab client, [deck](apps/deck) (in this same repo) for local app hosting,
 [fast-browser](https://github.com/m4ttstack/fast-browser) for driving Chrome,
 [skills](https://github.com/m4ttstack/skills) and the
 [marketplace](https://github.com/m4ttstack/mattstack-marketplace) that installs
@@ -263,7 +263,7 @@ rt update                 # ask mattstack.app to check for an update
 rt uninstall              # reverse setup: services, links, plugins
 ```
 
-The [`board`](https://github.com/m4ttstack/board) app is where merge requests
+The [`board`](apps/board) app is where merge requests
 get reviewed; rt keeps the data it needs warm but no longer renders a dashboard
 of its own.
 
@@ -440,7 +440,7 @@ CI runs all of these on every pull request.
 | `ui/` | The Go `rt-ui` helper that renders prompts, spinners, and the runner board |
 | `rt-tray/` | The Swift menu bar app and the bundle build |
 | `extensions/vscode/rt-context/` | The editor status-bar extension |
-| `packages/rt-client/` | The client every in-tree app links as a workspace package; gitq, still standalone, uses the last published npm version |
+| `packages/rt-client/` | The client every in-tree app, including gitq, links as a workspace package |
 | `website/` | The rt.cool documentation site |
 | `docs/` | Design and operations documents |
 
