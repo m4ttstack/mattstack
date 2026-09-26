@@ -11,13 +11,14 @@ every run: the board row shows `ticket` and `branch`, the run detail card
 shows all three. Nothing backfills them: a field not recorded while the
 run is live reads "not recorded" forever.
 
-Record identity only when this verb ran `run-start`. An inherited run's
+Record identity only when this verb ran `run_start`. An inherited run's
 identity belongs to the verb that started it, and must not be overwritten
 with the target of a review or a watch invoked mid-run.
 
 When the run is yours, record each key the moment the target-resolution
-step produces it: `rt runs field set <key> <value> --stage <verb>`. The
-stage is always the verb's own name; identity is own-run only, so the
+step produces it: the `run_field_set` tool with the `runDb` that
+`run_start` returned, `key`, `value`, and `stage` = `<verb>`. The stage
+is always the verb's own name; identity is own-run only, so the
 inherited-run stage form never applies here.
 
 Skip a key the target does not have: a branch with no ticket records no

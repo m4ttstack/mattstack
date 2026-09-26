@@ -1,6 +1,6 @@
 ---
 name: gate-protocol
-description: "Use when a gated pane or wrapper needs to publish a human decision point and carry it to an answer -- opening it through rt gate ask or the gate_ask tool, presenting the in-pane form, blocking in gate wait, handling a CAS rejection, or reconciling a doorbell push. Not for direct invocation; a gated verb includes this part."
+description: "Use when a gated pane or wrapper needs to publish a human decision point and carry it to an answer -- opening it through the gate_ask tool, presenting the in-pane form, blocking in gate wait, handling a lost answer CAS, or reconciling a doorbell push. Not for direct invocation; a gated verb includes this part."
 disable-model-invocation: true
 ---
 
@@ -15,38 +15,33 @@ it.
 
 Open before anything that depends on the answer. One call owns the whole
 opening ceremony (subject resolution, presentation, nudge, origin, the
-context size cap):
-
-```bash
-rt gate ask --questions '[{"id": ..., "label": ..., "options": [...]}, ...]' --kind <scope> [--context <text>] [--subject <s>]
-```
-
-or, tool-native, the `gate_ask` MCP tool with the same `questions` /
-`kind` / `context` / `subject` inputs. Success prints one JSON object:
-`{"ok":true,"id":"gt-...","presentation":"form"|"wait","subject":"...","supersededId":null|"gt-..."}`;
-a refusal prints `{"ok":false,"error":"..."}` and exits 1. Each tool call
-is a fresh shell: capture `id` and `presentation` in the same call that
-uses them.
+context size cap): the `gate_ask` tool, with `questions` (each
+`{"id", "label", "multi", "options"}`), `kind` = the gate's scope, and
+optional `context` and `subject`. Success returns `id` (`gt-...`),
+`presentation` (`form` or `wait`), `subject`, and `supersededId` (null or
+the superseded gate's id); a refusal comes back as the tool's error. Keep
+`id` and `presentation` from that result: every step below acts on
+them.
 
 The daemon resolves the subject; never build one by hand. Your session's
 running run wins (`run:<id>`), else your agent record (its launch
 subject when it carries one, else `agent:<id>`); with neither, a loud
 refusal, and a session with multiple running runs is refused naming the
-candidates. Pass `--subject` only to open on a subject that is
+candidates. Pass `subject` only to open on a subject that is
 not your own. Opening on a subject that already carries an open gate of
 the same kind supersedes the old one, so a relaunch after a crash is safe
 without a separate cleanup step.
 
-A prose `--context` is a VERBATIM QUOTE of the material the decision is
+A prose `context` is a VERBATIM QUOTE of the material the decision is
 about (the task summary from the brief, the plan section under decision,
 the failing check output), never a freshly composed summary; a structured
 one carries its shape's fields instead (Structured context below). A
-human-owned, non-exempt gate REFUSES (exit 1) on empty or
-whitespace-only context -- give it real material or omit the flag, never
-blank it. The gate context and every question's `context` share one
-8192-byte UTF-8 budget; over it, the daemon drops the question contexts,
+human-owned, non-exempt gate REFUSES on empty or whitespace-only
+context -- give it real material or omit the field, never blank it. The
+gate context and every question's `context` share one 8192-byte UTF-8
+budget; over it, the daemon drops the question contexts,
 and the gate context too when it alone is over, loudly, not silently:
-the response carries `contextOmitted: true` and one line lands on stderr.
+the result carries `contextOmitted: true`.
 Do not measure or trim a prose context yourself; a structured open
 pre-flights instead. Emit labeled options (`{"value": "...", "label": "..."}`)
 whenever a site's option values are not already human-readable; the
@@ -70,7 +65,7 @@ the raw primitive underneath; a gated verb never needs it directly.
 Three fields carry explanatory text, each a different scope -- pick by
 what the text is background for, never by habit:
 
-- Gate-level `--context` (above): background shared by every question in
+- Gate-level `context` (above): background shared by every question in
   this open -- the task summary, the plan section under decision, the
   failing check output.
 - A question's own `context` field: setup specific to that one question,
@@ -91,12 +86,12 @@ path. The key is both the discriminant and the version:
 
 | Shape | Carried by | Required | Optional |
 |---|---|---|---|
-| `plan@1` | gate `--context` | `reviewer`, `threads.total` | `round`, `threads.blocking` (absent reads 0), `adjudication` (display string) |
-| `post@1` | gate `--context` | `reviewer`, `replies` (count) | `round`, `fixes` (`[{"sha": ...}]`) |
+| `plan@1` | gate `context` | `reviewer`, `threads.total` | `round`, `threads.blocking` (absent reads 0), `adjudication` (display string) |
+| `post@1` | gate `context` | `reviewer`, `replies` (count) | `round`, `fixes` (`[{"sha": ...}]`) |
 | `thread@1` | a thread question's `context` | `author`, `severity`, `claim.summary`, `verdict.call`, `reply.kind`, `reply.text` unless `reply.kind` is `none` | `claim.points` (strings), `verdict.note` |
 | `reply@1` | a respond-post thread question's `context` | `thread`, `file`, `verb`, `text` | `sha` |
 | `replies@1` | a replies question's `context` (the retired respond-post shape; renderers still read gates opened with it) | `replies[]`, each `thread`, `file`, `verb`, `text` | `sha` per entry |
-| `review@1` | a review-post gate's `--context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
+| `review@1` | a review-post gate's `context` | `readiness`, `summary`, `findings` (counts by severity) | `reviewer`, `round`, `re_review` (absent reads false), `prior` (`{addressed, still_open}`, both required) |
 | `findings@1` | each `findings-*` question's `context` | `findings[]`, each `id`, `severity`, `title`, `body` | `file`, `fix`, `evidence`, `disposition` per entry |
 
 - Enums: `severity` is `blocking | non-blocking | question | none`;
@@ -148,13 +143,13 @@ subject is what lets the form through, and so is the pane's own
 worktree carrying its own open run: gate). Render each
 option's `label` when it has one and its `description` when it has one
 (the AskUserQuestion option's own description field); submit the chosen
-option's `value` verbatim, in one object keyed by question id:
-`rt gate answer <id> --answers '{"<question id>": "<value>" | ["<value>", ...] | {"value": ..., "note": "..."}}' --by pane`
-(or the `gate_answer` tool). A question with no options takes what the
-human typed as its value. When the gate carries more questions than one form
-call fits, chunk the forms but submit exactly ONE answer after the last
-chunk; a CAS rejection at that point discards every chunk's answer
-together.
+option's `value` verbatim through the `gate_answer` tool: `id` = the
+gate's id, `answers` = one object keyed by question id,
+`{"<question id>": "<value>" | ["<value>", ...] | {"value": ..., "note": "..."}}`.
+A question with no options takes what the human typed as its value.
+When the gate carries more questions than one form call fits, chunk the
+forms but submit exactly ONE answer after the last chunk; a lost CAS at
+that point (`conflict: true`) discards every chunk's answer together.
 
 **`presentation: "wait"`, attended pane** (a human's interactive
 non-herdr session; the default for a human-invoked verb): take the plain
@@ -165,7 +160,8 @@ idle wait safe. Answer exactly as the form branch above.
 
 **`presentation: "wait"`, unattended pane** (spawned, or a herdr pane
 whose gate exceeded the form option cap): record the marker when a run
-exists (`rt runs field set waiting-gate <id> --stage <stage>`), launch
+exists (the `run_field_set` tool with the run's `runDb`, `key`
+`waiting-gate`, `value` `<id>`, `stage` `<stage>`), launch
 ONE background `rt gate wait <id>` (the shell tool's run-in-background
 mode; the wait is never a tool call), and END THE TURN in one line:
 `holding at gate <id>`. The wait loops internally around the daemon
@@ -173,24 +169,25 @@ clamp, survives daemon restarts, and exits only on answered or closed,
 printing `{"ok":true,"status":"answered","row":{...}}` as its last
 stdout. The pane is idle but armed: the wait's completion re-invokes this
 pane with the answer as the tool result. On re-invoke, clear the marker
-FIRST (`rt runs field set waiting-gate - --stage <stage>`), then read the
-answers at `row.answer.answers` and the deciding surface at
+FIRST (`run_field_set` with `key` `waiting-gate`, `value` `-`, `stage`
+`<stage>`), then read the answers at `row.answer.answers` and the deciding surface at
 `row.answer.by`. `status:"closed"` or a `gate not found` failure is
 terminal: clear the marker, end this path cleanly, never invent an
 answer, never present a form.
 
 Attendance comes from the invocation context, never from asking: the
-spawning surface says so (`--spawned-by`, the run record's `spawned_by`),
+spawning surface says so (the run's `spawnedBy`, recorded as `spawned_by`),
 and a human-run verb defaults to attended. A human who opens an
 unattended pane can interrupt the wait and answer conversationally with
-the same `rt gate answer ... --by pane`.
+the same `gate_answer` tool.
 
 ## CAS and the doorbell
 
-If the answer CAS reports an earlier answer, discard your form's answer,
-say in the pane in one line which answer won and from where, and proceed
-on the recorded one; the rejection payload carries it, no second read
-needed. A `gate@1` record's `--decided-by` always names the WINNER, never
+A losing `gate_answer` is not an error: it returns a successful result
+carrying `conflict: true` and the winner's `row`. On `conflict: true`,
+discard your form's answer, say in the pane in one line which answer won
+and from where (`row.answer.by`), and proceed on `row`'s recorded answer;
+no second read needed. A `gate@1` record's `decidedBy` always names the WINNER, never
 `pane` when a different surface won.
 
 Answered externally while a form still sits open: the daemon queues the
@@ -211,8 +208,8 @@ Hold or Iterate is handled IN-PANE by the verb itself, not posted through
 the registry as a terminal decision; a verb that re-asks after Hold or
 Iterate opens a NEW gate rather than reusing the old one. Marking such
 options pane-only (so remote cards render them disabled) rides `meta`,
-which only the typed client and raw `rt gate open` carry; `rt gate ask`
-and the tool do not.
+which only the typed client and raw `rt gate open` carry; `gate_ask`
+does not.
 
 ## Answers are option values
 
@@ -233,46 +230,43 @@ neither in for offered text by itself.
 ## Runs integration
 
 A gated pipeline site publishes its decision on the run's subject and
-lets the presentation pick the branch:
+lets the presentation pick the branch. Every `run_*` call here passes
+the run's `runDb`, which the verb holds:
 
-1. Bracket the run record: `rt runs field set gate <scope> --stage
-   <stage>`.
-2. Publish: `rt gate ask --questions '<questions json array>' --kind <scope>
-   --context '<verbatim quote of the material -- per-site substitution
-   point>'`. Include `--context` only when the site has material to
-   quote; omit the flag entirely otherwise, never an empty string. No
-   `--subject`: the daemon resolves this session's running run. Capture
-   `id` and `presentation` from the response in this same call.
+1. Bracket the run record: the `run_field_set` tool with `key` `gate`,
+   `value` `<scope>`, `stage` `<stage>`.
+2. Publish: the `gate_ask` tool with `questions` = the questions array,
+   `kind` = `<scope>`, and `context` = a verbatim quote of the material
+   (the per-site substitution point). Include `context` only when the
+   site has material to quote; omit the field entirely otherwise, never an
+   empty string. No `subject`: the daemon resolves this session's running
+   run. Keep `id` and `presentation` from the result.
 3. Act on the response per the branches above (form; wait-but-attended;
    wait-and-unattended).
-4. Record at execution time, decider = the surface that answered:
-
-   ```bash
-   rt runs decision record --contract gate@1 --scope <scope> \
-     --selection '<json>' --decided-by <row.answer.by>
-   ```
-
-   (a `gate@1` record's `--decided-by` is `pane`, `board`, `console`, or
-   `shepherd`, never a verb name.)
+4. Record at execution time, decider = the surface that answered: the
+   `run_decision` tool with `contract` `gate@1`, `scope` `<scope>`,
+   `selection` = the site's selection as a JSON object, `decidedBy` =
+   `row.answer.by` (a `gate@1` record's `decidedBy` is `pane`, `board`,
+   `console`, or `shepherd`, never a verb name).
 
 ## Daemon down (either mode)
 
-`rt gate ask` failing with a daemon-unreachable error means form-only
+`gate_ask` failing with a daemon-unreachable error means form-only
 in-pane, exactly the pre-facility behavior: attended sites present the
-form and act on its answer, recording `--decided-by pane`, with no
-`gate ask` / `wait` / `answer` calls at all; unattended sites fail the
-stage rather than presenting a form. A refusal that names a subject or
+form and act on its answer, recording `decidedBy` `pane`, with no
+`gate_ask` / `rt gate wait` / `gate_answer` calls at all; unattended
+sites fail the stage rather than presenting a form. A refusal that names a subject or
 question problem is not daemon-down: fix the call.
 
 ## Red flags
 
 | Thought | Reality |
 |---|---|
-| "I'll compute presentation / build --origin / branch on HERDR_ENV myself" | The daemon owns the ceremony. `rt gate ask` returns the presentation; act on it. |
-| "The CAS lost, I'll resubmit the form's answer anyway" | The rejection already carries the winner. Discard the form's answer and proceed on the recorded one. |
+| "I'll compute presentation / build --origin / branch on HERDR_ENV myself" | The daemon owns the ceremony. `gate_ask` returns the presentation; act on it. |
+| "The CAS lost, I'll resubmit the form's answer anyway" | The `conflict: true` result already carries the winner's `row`. Discard the form's answer and proceed on the recorded one. |
 | "The doorbell push tells me what they picked" | It's verify-only. It never carries or implies the answer -- go read the registry. |
 | "A closed gate means I should ask again" | `closed` means the decision site is abandoned. End that path per the verb's own policy; never invent an answer, never re-ask on your own initiative. |
-| "I'll submit each form chunk's answer as it completes" | One `gate answer` after the LAST chunk; a CAS rejection there discards all of them together. |
-| "`--decided-by` is whoever just submitted the form" | It names the CAS WINNER, which may be a different surface than the one that just submitted. |
-| "I'll ask the human whether this pane is attended" | Attendance comes from the invocation context (`--spawned-by`), never asked. |
+| "I'll submit each form chunk's answer as it completes" | One `gate_answer` call after the LAST chunk; a `conflict: true` result there discards all of them together. |
+| "`decidedBy` is whoever just submitted the form" | It names the CAS WINNER, which may be a different surface than the one that just submitted. |
+| "I'll ask the human whether this pane is attended" | Attendance comes from the invocation context (`spawnedBy`), never asked. |
 | "I'll run the wait as a tool call" | The wait is `rt gate wait` as background bash, ending the turn; a synchronous tool call cannot park the pane. |
