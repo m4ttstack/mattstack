@@ -103,7 +103,7 @@ Until setup has run, other `rt` commands print a one-line hint pointing at matts
 
 ## Claude Code setup
 
-Install seeds a baseline `permissions.allow` list into every Claude Code config dir so agents don't stall on per-tool prompts for calls rt already trusts: `glab` commands, `claude plugin update`, the Fast Browser plugin, `EnterWorktree`, the mattstack MCP server, `rt skills sync`, `rt runs`, and `rt gate`. Existing entries stay; only missing ones are added. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays.
+Install seeds a baseline `permissions.allow` list into every Claude Code config dir so agents don't stall on per-tool prompts for calls rt already trusts: the mattstack MCP server and the Fast Browser plugin, `EnterWorktree`, `claude plugin update`, and the few rt commands skills still run in a shell (`rt gate` and `rt events wait`). Everything else a skill runs routinely is a tool on the [MCP server](/guides/mcp). Existing entries stay; only missing ones are added. A config dir with no `permissions.defaultMode` gets `auto`, and a mode you already chose stays.
 
 It installs the `mattstack`, `fast-browser`, and `chat` plugins from the mattstack marketplace, and `superpowers` from `claude-plugins-official`, which the mattstack skills and every team pack call. An existing `superpowers-marketplace` install counts.
 
