@@ -1,0 +1,9 @@
+{
+  "name": "gitq-docs",
+  "port": 11009,
+  "commands": {
+    "start": "bun serve.ts",
+    "build": "bun run build:local",
+    "deploy": "bun run build:local && deck restart gitq-docs"
+  }
+}

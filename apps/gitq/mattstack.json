@@ -1,0 +1,5 @@
+{
+  "displayName": "gitq",
+  "description": "Stacked-branch management for git.",
+  "icon": "./src/client/favicon.svg"
+}
