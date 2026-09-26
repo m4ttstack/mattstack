@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { execSync } from "child_process";
 import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { insertAgent, openStateDb, postMessage } from "../../state/index.ts";
 import { createChatHandlers, inviteText, renderWelcome, type InboxDeps } from "../handlers/chat.ts";
 import { herdrRequest } from "../../herdr/client.ts";
@@ -1279,8 +1279,15 @@ test("chat:sign-out deletes a leftover session file even with no presence row", 
   expect(existsSync(sessionFilePath("so-no-presence"))).toBe(false);
 });
 
-test("chat:sign-out with an unsafe session id does not throw", async () => {
+test("chat:sign-out with an unsafe session id does not throw and deletes nothing outside the sessions dir", async () => {
   const h = freshHandlers();
+  // sessionFilePath("../escape") throws before it returns a path, so derive
+  // the path a naive join would reach from a valid id's real sessions dir.
+  const sessionsDir = dirname(sessionFilePath("probe"));
+  const escapePath = join(dirname(sessionsDir), "escape.json");
+  writeFileSync(escapePath, "{}");
+
   const res = await h["chat:sign-out"]({ sessionId: "../escape" });
   expect(res.ok).toBe(true);
+  expect(existsSync(escapePath)).toBe(true);
 });

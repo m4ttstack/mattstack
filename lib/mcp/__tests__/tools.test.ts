@@ -294,6 +294,7 @@ describe("mcpTools", () => {
     const tool = mcpTools().find((t) => t.name === "rt_verb")!;
     expect(tool.description).not.toContain("read-only rt verb");
     expect(tool.description).toContain("not all are read-only");
+    expect(tool.description).toContain("push");
   });
 
   test("mr_comment_inline validates required fields", async () => {
