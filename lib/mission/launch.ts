@@ -14,10 +14,12 @@ export interface LaunchDeps {
   identityOf: (root: string) => string;
   readLast: () => LastRepo | null;
   pathExists: (p: string) => boolean;
-  pick: () => Promise<string | null>;
+  pick: () => Promise<PickResult>;
 }
 
-export type LaunchResult = { kind: "start"; repo: string; worktree: string } | { kind: "cancelled" };
+export type PickResult = { kind: "picked"; root: string } | { kind: "cancelled" } | { kind: "no-repos" };
+
+export type LaunchResult = { kind: "start"; repo: string; worktree: string } | { kind: "cancelled" } | { kind: "no-repos" };
 
 export async function resolveGlitterStart(deps: LaunchDeps): Promise<LaunchResult> {
   const root = deps.repoRoot();
@@ -27,8 +29,8 @@ export async function resolveGlitterStart(deps: LaunchDeps): Promise<LaunchResul
   if (last && deps.pathExists(last.worktree)) return { kind: "start", repo: last.identity, worktree: last.worktree };
 
   const picked = await deps.pick();
-  if (!picked) return { kind: "cancelled" };
-  return { kind: "start", repo: deps.identityOf(picked), worktree: picked };
+  if (picked.kind !== "picked") return picked;
+  return { kind: "start", repo: deps.identityOf(picked.root), worktree: picked.root };
 }
 
 export function readLastRepo(): LastRepo | null {

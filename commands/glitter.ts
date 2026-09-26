@@ -8,7 +8,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { createFileActions } from "../lib/file-actions.ts";
 import { MissionDriver, type MissionDeps } from "../lib/mission/driver.ts";
 import { publishRepo, runAction } from "../lib/mission/git-actions.ts";
-import { resolveGlitterStart, readLastRepo, writeLastRepo } from "../lib/mission/launch.ts";
+import { resolveGlitterStart, readLastRepo, writeLastRepo, type PickResult } from "../lib/mission/launch.ts";
 import { randomSkewMs } from "../lib/mission/indicator-updater.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
 import { interactive } from "../lib/ui/gate.ts";
@@ -25,15 +25,12 @@ import { filterableSelect } from "../lib/pick-wrappers.ts";
 import { listWorktreesAsync } from "../lib/worktree/git-async.ts";
 import { launchEditorDetached, resolveEditorForDir } from "./code.ts";
 
-async function pickRepoRoot(): Promise<string | null> {
+async function pickRepoRoot(): Promise<PickResult> {
   const repos = getKnownReposCached({ includeMissing: false });
-  if (repos.length === 0) {
-    process.stderr.write("rt glitter: not in a git repo and no repos found under your repo roots\n");
-    return null;
-  }
+  if (repos.length === 0) return { kind: "no-repos" };
   const picked = await filterableSelect({ message: "Pick a repo for rt glitter", options: repoOptions(repos), breadcrumb: ["rt", "glitter"] });
-  if (!picked) return null;
-  return repoFromOptionValue(repos, picked)?.worktrees[0]?.path ?? null;
+  const root = picked ? repoFromOptionValue(repos, picked)?.worktrees[0]?.path : undefined;
+  return root ? { kind: "picked", root } : { kind: "cancelled" };
 }
 
 export async function glitterCommand(_args: string[], _ctx: CommandContext): Promise<void> {
@@ -50,6 +47,10 @@ export async function glitterCommand(_args: string[], _ctx: CommandContext): Pro
     pick: pickRepoRoot,
   });
   if (start.kind === "cancelled") return exit(0);
+  if (start.kind === "no-repos") {
+    process.stderr.write("rt glitter: not in a git repo and no repos found under your repo roots\n");
+    return exit(1);
+  }
 
   const deps: MissionDeps = {
     openSession,

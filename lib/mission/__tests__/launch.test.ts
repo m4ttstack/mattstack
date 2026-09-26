@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveGlitterStart, type LaunchDeps } from "../launch.ts";
+import { resolveGlitterStart, type LaunchDeps, type PickResult } from "../launch.ts";
 
 function deps(over: Partial<LaunchDeps> = {}): LaunchDeps & { picks: number } {
   const d = {
@@ -8,7 +8,7 @@ function deps(over: Partial<LaunchDeps> = {}): LaunchDeps & { picks: number } {
     identityOf: (root: string) => `path:${root}`,
     readLast: () => null,
     pathExists: () => true,
-    pick: async () => { d.picks++; return "/picked"; },
+    pick: async (): Promise<PickResult> => { d.picks++; return { kind: "picked", root: "/picked" }; },
     ...over,
   };
   return d;
@@ -38,6 +38,10 @@ describe("resolveGlitterStart", () => {
   });
 
   test("Esc on the picker cancels", async () => {
-    expect(await resolveGlitterStart(deps({ pick: async () => null }))).toEqual({ kind: "cancelled" });
+    expect(await resolveGlitterStart(deps({ pick: async () => ({ kind: "cancelled" }) }))).toEqual({ kind: "cancelled" });
+  });
+
+  test("nothing to pick is its own result, distinct from Esc", async () => {
+    expect(await resolveGlitterStart(deps({ pick: async () => ({ kind: "no-repos" }) }))).toEqual({ kind: "no-repos" });
   });
 });
