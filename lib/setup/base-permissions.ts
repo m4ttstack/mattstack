@@ -9,10 +9,9 @@
  * `claude.permissions` unions in without importing a step, and there is
  * never a second copy of the list to drift from this one.
  *
- * `rt gate`, `rt chat tail` and `rt events wait` are the long waits and the
- * shepherd's CLI-only answer that skills still run in Bash, each in one bare
- * form; everything else a skill runs routinely is a tool on the mattstack
- * server.
+ * `rt gate` and `rt events wait` are the long waits and the shepherd's
+ * CLI-only answer that skills still run in Bash, each in one bare form;
+ * everything else a skill runs routinely is a tool on the mattstack server.
  *
  * No git entries, on purpose. An allow rule resolves before the auto-mode
  * classifier, so `Bash(git push *)` would wave through a forced push and
@@ -27,6 +26,5 @@ export const BASE_PERMISSIONS: string[] = [
   "EnterWorktree",
   "Bash(claude plugin update *)",
   "Bash(rt gate *)",
-  "Bash(rt chat tail *)",
   "Bash(rt events wait *)",
 ];
