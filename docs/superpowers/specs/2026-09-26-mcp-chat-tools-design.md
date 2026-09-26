@@ -108,6 +108,10 @@ argv is built here, never from caller-supplied flags.
   in), because the server's own working directory is fixed at session
   start. Omitted, the CLI runs in the server's directory.
 - `room` with `noRoom: true` is an input error.
+- `status`, when given, is refused over 300 characters or holding a C0/C1
+  control, DEL or a bidi override/isolate control (U+200E, U+200F, U+202A
+  through U+202E, U+2066 through U+2069), the same checks `chat_away`'s
+  `text` gets, before the spawn.
 - `as` names this session's base handle. The human has no presence row, so
   their handle would be a free seat, and a post from it counts as the
   human's (the daemon adds `here`). So `as` equal to the `chat.humanHandle`
@@ -182,8 +186,13 @@ anyway:
   note, refuses panes it cannot deliver to, and reports
   `accepted | queued | refused`. The tool refuses a note holding any
   other control character (C0 or DEL, e.g. ESC or Ctrl-C, which would
-  reach the other agent's prompt as keystrokes) and a note over 300
-  characters. `pane` must be a pane reference shape (letters, digits,
+  reach the other agent's prompt as keystrokes), a C1 control (U+0080
+  through U+009F) or a bidi override/isolate control (U+200E, U+200F,
+  U+202A through U+202E, U+2066 through U+2069, which can reorder how the
+  delivered line renders), a note over 300 characters, or a note
+  containing the phrase "note from" (case-insensitive; that phrase is the
+  delivered attribution prefix, so a note carrying it could spoof a second
+  one). `pane` must be a pane reference shape (letters, digits,
   `.`, `_`, `:`, `-`, not starting with `-`). `callerPane` is the
   server's own pane.
 

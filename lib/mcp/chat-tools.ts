@@ -71,11 +71,15 @@ const RESERVED_HANDLES = ["here"];
 const SIGN_OUT_TIMEOUT_MS = 3000;
 const PANE_REF = /^[A-Za-z0-9._:][A-Za-z0-9._:-]*$/;
 const NOTE_MAX = 300;
-/** Newlines are allowed because the daemon's inviteText folds them to spaces; every other C0 byte or DEL would reach the target pane as a keystroke. */
-const NOTE_CONTROL = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/;
+/** Bidi override/isolate controls: invisible on the page but able to reorder how the surrounding text renders. */
+const BIDI_CONTROLS = "‎‏‪-‮⁦-⁩";
+/** Newlines are allowed because the daemon's inviteText folds them to spaces; every other C0 byte, DEL, C1 control or bidi control would reach the target pane as a keystroke or a visually reordered line. */
+const NOTE_CONTROL = new RegExp(`[\\u0000-\\u0009\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f${BIDI_CONTROLS}]`);
+/** inviteText prefixes every delivered note with "note from <handle>: ", so a note containing that phrase could spoof a second attribution line. */
+const NOTE_FROM = /note from/i;
 const AWAY_MAX = 300;
 /** Away text is one line: no exception for newline or tab here, unlike NOTE_CONTROL. */
-const AWAY_CONTROL = /[\u0000-\u001f\u007f]/;
+const AWAY_CONTROL = new RegExp(`[\\u0000-\\u001f\\u007f-\\u009f${BIDI_CONTROLS}]`);
 
 function flagValueError(name: string, v: unknown): string | undefined {
   if (v === undefined) return undefined;
@@ -260,6 +264,10 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
           ?? checkCwd(input, deps.isDir);
         if (bad) return err(bad);
         if (input.room !== undefined && input.noRoom === true) return err("room and noRoom are mutually exclusive");
+        if (typeof input.status === "string") {
+          if (AWAY_CONTROL.test(input.status)) return err('"status" must not contain control characters');
+          if (input.status.length > AWAY_MAX) return err(`"status" must be at most ${AWAY_MAX} characters`);
+        }
         if (typeof input.as === "string") {
           const human = deps.humanHandle();
           if (human === null) return err('"as" is refused: the human\'s chat handle could not be read');
@@ -343,6 +351,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (typeof input.note === "string") {
           if (NOTE_CONTROL.test(input.note)) return err('"note" must not contain control characters');
           if (input.note.length > NOTE_MAX) return err(`"note" must be at most ${NOTE_MAX} characters`);
+          if (NOTE_FROM.test(input.note)) return err('"note" must not contain "note from" (reserved for the delivered attribution prefix)');
         }
         const payload: Commands["chat:invite"]["payload"] = { paneId: input.pane as string, room: input.room as string, from: id.handle };
         if (typeof input.note === "string") payload.note = input.note;

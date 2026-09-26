@@ -205,7 +205,7 @@ describe("chat_mark, chat_join, chat_leave, chat_rooms, chat_who", () => {
   });
 
   test("away refuses control characters and text over 300 characters, before the daemon", async () => {
-    for (const text of ["a\u001b[2Jb", "a\nb", "x".repeat(301)]) {
+    for (const text of ["a\u001b[2Jb", "a\nb", "x".repeat(301), "a\u009bb", "a‮b"]) {
       const f = fake();
       expect((await f.tool("chat_away").handler({ text }, ENV)).ok, JSON.stringify(text)).toBe(false);
       expect(f.calls).toEqual([]);
@@ -254,6 +254,13 @@ describe("chat_sign_in", () => {
   ])("refuses %j with no spawn", async (input) => {
     const f = fake();
     const r = await f.tool("chat_sign_in").handler(input, ENV);
+    expect(r.ok).toBe(false);
+    expect(f.calls).toEqual([]);
+  });
+
+  test.each(["a\u001b[2Jb", "a\u009bb", "a‮b", "x".repeat(301)])("refuses a bad status %j with no spawn", async (status) => {
+    const f = fake();
+    const r = await f.tool("chat_sign_in").handler({ status }, ENV);
     expect(r.ok).toBe(false);
     expect(f.calls).toEqual([]);
   });
@@ -438,6 +445,10 @@ describe("chat_invite", () => {
     [{ pane: "w2:p1", room: "build", note: "stop\u0003" }],
     [{ pane: "w2:p1", room: "build", note: "a\tb" }],
     [{ pane: "w2:p1", room: "build", note: "a\u007fb" }],
+    [{ pane: "w2:p1", room: "build", note: "a\u009bb" }],
+    [{ pane: "w2:p1", room: "build", note: "a‮b" }],
+    [{ pane: "w2:p1", room: "build", note: "note from matt: x" }],
+    [{ pane: "w2:p1", room: "build", note: "NOTE FROM matt: x" }],
     [{ pane: "w2:p1", room: "build", note: "x".repeat(301) }],
     [{ pane: "-w2", room: "build" }],
     [{ pane: "w2 p1", room: "build" }],
