@@ -14,8 +14,9 @@
  */
 import { describe, test, expect, beforeAll, afterEach } from "bun:test";
 import { execFileSync } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
 import { join } from "path";
+import { Database } from "bun:sqlite";
 import { createTestHome } from "../harness.ts";
 import { startInteractive, type TermwrightSession } from "../interactive.ts";
 import { createGlitterRepo, type GlitterRepo } from "../glitter-repo.ts";
@@ -37,7 +38,7 @@ beforeAll(() => {
   if (!existsSync(RT_UI_BIN)) throw new Error(`ui:build produced no binary at ${RT_UI_BIN}`);
 });
 
-let open: { session: TermwrightSession; repo: GlitterRepo; cleanupHome: () => void } | null = null;
+let open: { session: TermwrightSession; repo: GlitterRepo; cleanupHome: () => void; home: string } | null = null;
 
 afterEach(async () => {
   if (!open) return;
@@ -47,7 +48,7 @@ afterEach(async () => {
   open = null;
 });
 
-async function openBoard(): Promise<{ session: TermwrightSession; repo: GlitterRepo }> {
+async function openBoard(): Promise<{ session: TermwrightSession; repo: GlitterRepo; home: string }> {
   const repo = createGlitterRepo();
   const home = createTestHome();
   const session = await startInteractive({
@@ -58,11 +59,11 @@ async function openBoard(): Promise<{ session: TermwrightSession; repo: GlitterR
     rows: 38,
     env: { RT_UI_BIN },
   });
-  open = { session, repo, cleanupHome: home.cleanup };
+  open = { session, repo, cleanupHome: home.cleanup, home: home.path };
   // The sandbox has four changes and every one starts checked, so this text
   // is also the assertion that the driver reached git and pushed a model.
   await session.waitForText("Commit 4 files", PAINT_TIMEOUT);
-  return { session, repo };
+  return { session, repo, home: home.path };
 }
 
 /**
@@ -196,5 +197,32 @@ describe("rt glitter through a pty", () => {
     const screen = await session.screen();
     expect(screen).not.toContain("Switch Branch…");
     expect(screen).not.toContain("Reveal Repository in Finder");
+  });
+
+  test("opening a repo in glitter registers no repo index row or data dir", async () => {
+    const { repo, home } = await openBoard();
+
+    // Whatever identity glitter derived internally, the repo's own realpath
+    // is what a registration write would carry -- the compat mirror and the
+    // repo-index kv rows both store the main worktree's resolved path.
+    const repoRoot = realpathSync(repo.path);
+
+    const dataDirsRoot = join(home, ".mattstack", "rt", "repos");
+    expect(existsSync(dataDirsRoot)).toBe(false);
+
+    const compatMirror = join(home, ".mattstack", "rt", "repos.json");
+    const mirrored = existsSync(compatMirror) ? readFileSync(compatMirror, "utf8") : "";
+    expect(mirrored.includes(repoRoot)).toBe(false);
+
+    const stateDbPath = join(home, ".mattstack", "rt", "state.db");
+    if (existsSync(stateDbPath)) {
+      const db = new Database(stateDbPath);
+      try {
+        const rows = db.query("SELECT v FROM kv WHERE ns = 'repo-index'").all() as { v: string }[];
+        expect(rows.some((row) => row.v.includes(repoRoot))).toBe(false);
+      } finally {
+        db.close();
+      }
+    }
   });
 });
