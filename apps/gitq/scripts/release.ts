@@ -89,7 +89,7 @@ if (import.meta.main) {
   const localDeps = fileDependencies(pkg);
   if (localDeps.length > 0) {
     die(
-      `${localDeps.join(', ')} still ${localDeps.length === 1 ? 'points' : 'point'} at a file: dependency; ` +
+      `${localDeps.join(', ')} still ${localDeps.length === 1 ? 'points' : 'point'} at a file: or link: dependency; ` +
         `switch ${localDeps.join(', ')} back to ${localDeps.length === 1 ? 'a published version' : 'published versions'} before releasing`,
     );
   }
@@ -152,7 +152,7 @@ if (import.meta.main) {
 
   // 7. Record it.
   run(['git', 'add', 'package.json']);
-  run(['git', 'commit', '-m', `chore: release ${next}`]);
+  run(['git', 'commit', '-m', `gitq: release ${next}`]);
   run(['git', 'tag', '-a', tag, '-m', `${pkg.name} ${next}`]);
   run(['git', 'push', 'origin', 'main', '--follow-tags']);
 

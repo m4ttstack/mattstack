@@ -78,7 +78,7 @@ export function movedServedApps(files: string[]): string[] {
   return SERVE_ONLY_APPS.filter((a) => seen.has(a));
 }
 
-/** Whether this name is one of the apps deck merely serves. */
+/** Whether this name is one of the apps built from this tree at the release SHA. */
 export function keepsFastPath(name: string): boolean {
   return (SERVE_ONLY_APPS as readonly string[]).includes(name);
 }
