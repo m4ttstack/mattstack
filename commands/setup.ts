@@ -43,7 +43,7 @@ import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, buildSlackManifest } from "
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
-import { readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
+import { discoverTeams, readTeamSnapshot, readUserIntegrationOverrides, type TeamSnapshot, type UserIntegrationOverrides } from "../lib/setup/team-settings.ts";
 import type { Plan, Row, RowStatus } from "../lib/setup/contract.ts";
 import { createRelayClient, inviteRelayUrl, type RelayClient } from "../lib/team/relay-client.ts";
 import type { SecretPresence } from "../lib/setup/validators/accounts.ts";
@@ -435,6 +435,14 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
       return;
     }
     if (sub === "solo") {
+      const teams = discoverTeams(deps.probes);
+      if (teams.length > 0) {
+        const folders = teams.map((slug) => `~/.mattstack/teams/${slug}`).join(" and ");
+        throw new UserActionableError(
+          "team-exists",
+          `a team is already set up on this Mac (${teams.join(", ")}); Just me needs a Mac with no team. Remove ${folders} or pick Join or Create instead.`,
+        );
+      }
       writeIntent(deps.probes, { v: 1, at: deps.probes.now().toISOString(), mode: "solo" });
       printIntentResult(deps, json, { mode: "solo" });
       return;
