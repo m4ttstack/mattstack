@@ -86,8 +86,8 @@ describe("claim rules", () => {
   });
   test("a lock file mid write (empty, fresh mtime) is not broken while its writer is still busy", () => {
     writeFileSync(join(dir, "grp-proj-42.lock"), "");
-    expect(() => claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, opts())).toThrow(CiLeaseError);
-  }, 15_000);
+    expect(() => claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, { ...opts(), lockWaitMs: 150 })).toThrow(CiLeaseError);
+  });
   test("a genuinely stale empty lock (old mtime) is broken and the claim succeeds, leaving no lock or aside file", () => {
     const lockPath = join(dir, "grp-proj-42.lock");
     writeFileSync(lockPath, "");

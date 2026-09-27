@@ -21,6 +21,11 @@ export interface CiLeaseOpts {
   dir?: string;
   now?: () => number;
   lockStaleMs?: number;
+  lockWaitMs?: number;
+  /** Test seam: fires once per contested-lock retry iteration, before the wait sleep. */
+  onLockWait?: () => void;
+  /** Test seam: fires inside breakIfStale after a lock is judged stale, before it is renamed aside. */
+  onStaleLockObserved?: () => void;
 }
 
 export class CiLeaseError extends Error {}
@@ -115,15 +120,16 @@ class LockLost extends Error {}
     its final write so a holder whose lock was broken as stale never writes. */
 function withLock<T>(lock: string, opts: CiLeaseOpts, body: (stillMine: () => void) => T): T {
   const staleMs = opts.lockStaleMs ?? LOCK_STALE_MS;
-  const deadline = Date.now() + LOCK_WAIT_MS;
+  const deadline = Date.now() + (opts.lockWaitMs ?? LOCK_WAIT_MS);
   for (;;) {
     const token = randomUUID();
     try {
       writeFileSync(lock, JSON.stringify({ token, at: Date.now() }), { flag: "wx" });
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      breakIfStale(lock, staleMs);
+      breakIfStale(lock, staleMs, opts);
       if (Date.now() > deadline) throw new CiLeaseError(`lease lock busy: ${lock}`);
+      opts.onLockWait?.();
       sleepSync(15);
       continue;
     }
@@ -152,12 +158,13 @@ function fileAgeMs(path: string, now: number): number | null {
   }
 }
 
-function breakIfStale(lock: string, staleMs: number): void {
+function breakIfStale(lock: string, staleMs: number, opts: CiLeaseOpts): void {
   const now = Date.now();
   const seen = lockToken(lock);
   // `wx` create is open-then-write, not atomic: a lock mid-creation reads with
   // no token, and its own freshness can only be judged by mtime, never assumed stale.
   if (seen ? now - seen.at <= staleMs : (fileAgeMs(lock, now) ?? 0) <= staleMs) return;
+  opts.onStaleLockObserved?.();
   const aside = `${lock}.${randomUUID()}.broken`;
   try {
     renameSync(lock, aside);
@@ -183,6 +190,16 @@ function writeTmp(path: string, lease: CiLease): string {
 
 function commitReplace(tmp: string, path: string): void {
   renameSync(tmp, path);
+}
+
+/** Runs `stillMine`, cleaning up `tmp` first when the lock was lost so a retry never leaves it orphaned. */
+function checkStillMine(tmp: string, stillMine: () => void): void {
+  try {
+    stillMine();
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* already gone */ }
+    throw e;
+  }
 }
 
 /** Exclusive create: false when a lockless writer (the pack script) got there first. */
@@ -265,7 +282,7 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
       };
       const fresh = !fileExists(p.lease);
       const tmp = writeTmp(p.lease, lease);
-      stillMine();
+      checkStillMine(tmp, stillMine);
       if (fresh) {
         if (!commitCreate(tmp, p.lease)) continue;
       } else {
@@ -291,7 +308,7 @@ export function heartbeatCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts
     if (leaseOwner(existing) !== owner) return { ok: false, reason: "lost", holder: existing };
     const lease = { ...existing, heartbeatAt: clock(opts) };
     const tmp = writeTmp(p.lease, lease);
-    stillMine();
+    checkStillMine(tmp, stillMine);
     commitReplace(tmp, p.lease);
     return { ok: true, lease };
   });
@@ -323,7 +340,7 @@ export function adoptLegacyCiLease(mrUrl: string, owner: string, holder: CiLease
     const existing = readFileLease(p.lease);
     if (!existing || existing.owner !== undefined || existing.holder !== holder) return { adopted: false };
     const tmp = writeTmp(p.lease, { ...existing, owner });
-    stillMine();
+    checkStillMine(tmp, stillMine);
     commitReplace(tmp, p.lease);
     return { adopted: true };
   });
