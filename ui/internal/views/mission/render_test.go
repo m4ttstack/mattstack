@@ -122,7 +122,7 @@ func TestRenderBranchSegmentNormalHasChevron(t *testing.T) {
 }
 
 func TestRenderRepoSegmentWidthIsSidebarWidth(t *testing.T) {
-	out := renderRepoSegment(pullModel(), sidebarWidth, false, false)
+	out := renderRepoSegment(pullModel(), sidebarWidth, false, false, colSpan{})
 	for i, line := range strings.Split(out, "\n") {
 		if w := lipgloss.Width(line); w != sidebarWidth {
 			t.Fatalf("row %d width = %d, want sidebarWidth %d:\n%s", i, w, sidebarWidth, out)
@@ -142,7 +142,7 @@ func TestRenderSegmentChevronSitsTwoCellsBeforeTheRightEdge(t *testing.T) {
 		name string
 		out  string
 	}{
-		{"repo", renderRepoSegment(pullModel(), width, false, false)},
+		{"repo", renderRepoSegment(pullModel(), width, false, false, colSpan{})},
 		{"worktree", renderWorktreeSegment(pullModel(), theme.SpinnerFrames[0], width, false, false)},
 		{"branch", renderBranchSegment(Model{Current: Current{Branch: "main"}}, width, false, false)},
 	}
@@ -3225,7 +3225,7 @@ func TestMouseClickFileRowWhileScrolledMapsToAbsoluteIndex(t *testing.T) {
 // went darker and merged with the canvas) -- BgSubtle must not appear
 // anywhere in a rest-state segment any more.
 func TestTopBarSegmentRestPaintsTopBarBgBandFullWidth(t *testing.T) {
-	out := renderRepoSegment(pullModel(), sidebarWidth, false, false)
+	out := renderRepoSegment(pullModel(), sidebarWidth, false, false, colSpan{})
 	if strings.Contains(out, bgSGR(theme.BgSubtle)) || strings.Contains(out, fgSGR(theme.BgSubtle)) {
 		t.Fatalf("an at-rest segment must not carry BgSubtle anywhere: %q", out)
 	}
@@ -3271,14 +3271,14 @@ func TestTopBarSegmentRestPaintsTopBarBgBandFullWidth(t *testing.T) {
 // Surface must still replace the rest-state TopBarBg band, never sit beside
 // it -- the hovered/open treatments are unchanged by TopBarBg's introduction.
 func TestTopBarSegmentHoverAndOpenStillWinOverTopBarBgBand(t *testing.T) {
-	hovered := renderRepoSegment(pullModel(), sidebarWidth, true, false)
+	hovered := renderRepoSegment(pullModel(), sidebarWidth, true, false, colSpan{})
 	if strings.Contains(hovered, bgSGR(theme.TopBarBg)) || strings.Contains(hovered, fgSGR(theme.TopBarBg)) {
 		t.Fatalf("hovered segment must not still carry the rest TopBarBg band: %q", hovered)
 	}
 	if !strings.Contains(hovered, bgSGR(theme.TopBarHoverBg)) {
 		t.Fatalf("hovered segment should wear TopBarHoverBg: %q", hovered)
 	}
-	open := renderRepoSegment(pullModel(), sidebarWidth, false, true)
+	open := renderRepoSegment(pullModel(), sidebarWidth, false, true, colSpan{})
 	if strings.Contains(open, bgSGR(theme.TopBarBg)) || strings.Contains(open, fgSGR(theme.TopBarBg)) {
 		t.Fatalf("open segment must not still carry the rest TopBarBg band: %q", open)
 	}
@@ -3309,7 +3309,7 @@ func TestRenderChangeRowRestPaintsBgBandFullWidth(t *testing.T) {
 // top bar.
 func TestTopBarSegmentsWearNerdFontOcticons(t *testing.T) {
 	m := pullModel()
-	repo := renderRepoSegment(m, sidebarWidth, false, false)
+	repo := renderRepoSegment(m, sidebarWidth, false, false, colSpan{})
 	if !strings.Contains(ansi.Strip(repo), theme.GlyphRepo) {
 		t.Fatalf("repo segment missing its Nerd Font icon: %q", repo)
 	}
@@ -3571,5 +3571,43 @@ func TestDiffDelLineIsHighlighted(t *testing.T) {
 	out := renderDiffLine(d, DiffLine{Kind: "del", OldNo: 1, Text: `s := "hi"`}, 60, false, false)
 	if !strings.Contains(out, fgSGR(chromaStyleTable[chroma.LiteralString].fg)) {
 		t.Fatalf("del row not highlighted:\n%q", out)
+	}
+}
+
+func TestTopBarClosingRowCapsOnlyTheHoveredTab(t *testing.T) {
+	half := sidebarWidth / 2
+	for _, tc := range []struct {
+		name    string
+		history bool
+		hover   bool
+		capFrom int
+		capTo   int
+	}{
+		{"changes active, history hovered", false, true, half, sidebarWidth},
+		{"history active, changes hovered", true, true, 0, half},
+		{"changes active, no hover", false, false, 0, 0},
+		{"history active, no hover", true, false, 0, 0},
+	} {
+		m := newTestMission()
+		m.model = pullModel()
+		m.width, m.height = 140, 30
+		if tc.history {
+			m.model.Tab = "history"
+		}
+		m.hoverTab = tc.hover
+		lines := strings.Split(renderTopBarCapped(m.model, theme.SpinnerFrames[0], m.width, zoneNone, zoneNone, m.tabCap()), "\n")
+		closing := cellBackgrounds(lines[len(lines)-1])
+		for x := 0; x < sidebarWidth; x++ {
+			want := bgSGR(theme.Bg)
+			if x >= tc.capFrom && x < tc.capTo {
+				want = bgSGR(theme.HoverBg)
+			}
+			if closing[x] != want {
+				t.Fatalf("%s: closing row col %d bg = %q, want %q", tc.name, x, closing[x], want)
+			}
+		}
+		if h := m.hitTest(tc.capFrom, len(lines)-1); h.kind == hitTab {
+			t.Fatalf("%s: the top bar's closing row must not be a tab button", tc.name)
+		}
 	}
 }

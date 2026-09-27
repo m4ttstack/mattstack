@@ -892,8 +892,22 @@ func (m *Mission) keybarMode() string {
 	return "changes"
 }
 
+// tabCap is the hovered inactive tab's columns, the span of the top bar's
+// closing half-row that becomes the tab button's top padding; empty when no
+// tab is hovered.
+func (m *Mission) tabCap() colSpan {
+	if !m.hoverTab {
+		return colSpan{}
+	}
+	half := sidebarWidth / 2
+	if m.historyTab() {
+		return colSpan{0, half}
+	}
+	return colSpan{half, sidebarWidth}
+}
+
 func (m *Mission) View() tea.View {
-	top := renderTopBar(m.model, m.spin.View(), m.width, m.hoverZone, m.openZone())
+	top := renderTopBarCapped(m.model, m.spin.View(), m.width, m.hoverZone, m.openZone(), m.tabCap())
 	diffW := m.diffWidth()
 	keybar := renderKeybar(m.width, m.keybarMode())
 	l := m.layout()
