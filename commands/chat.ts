@@ -14,7 +14,7 @@
  *   rt chat who [room]
  *   rt chat mark [room] [--upto <messageId>]      advance the cursor to <messageId>, or clear the room when omitted
  *   rt chat prune [--json]                          delete messages past the retention floor (also runs daily in the daemon)
- *   rt chat sign-in [--as <h>] [--status <text>] [--no-room] [--room <name>] [--session <id>]
+ *   rt chat sign-in [--as <h> | --name <x>] [--status <text>] [--no-room] [--room <name>] [--session <id>]
  *   rt chat sign-in --pane <id> [--as <h>] [--status <text>]   sign in a herdr pane's session, no CLAUDE_CODE_SESSION_ID needed
  *   rt chat sign-out [--quiet] [--session <id>]
  *   rt chat sign-out --pane <id>                   sign out a herdr pane's session daemon-side, no CLAUDE_CODE_SESSION_ID needed
@@ -272,6 +272,9 @@ function herdrPaneHandle(): string | null {
  */
 function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?: string } {
   const explicit = flagValue(args, "--as");
+  if (explicit !== undefined && flagValue(args, "--name") !== undefined) {
+    fail("sign-in takes --as or --name, not both: --as continues an identity, --name starts a fresh one");
+  }
   if (explicit) {
     requireValidName("handle", explicit);
     return { continue: explicit };
@@ -304,13 +307,14 @@ function readChatHandleSetting(): string | undefined {
  * own to have a prior handle for.
  */
 function resolvePaneRequest(args: string[]): { continue?: string } {
+  if (flagValue(args, "--name") !== undefined) fail("sign-in --pane takes --as only, not --name");
   const explicit = flagValue(args, "--as");
   if (!explicit) return {};
   requireValidName("handle", explicit);
   return { continue: explicit };
 }
 
-/** The --as-first chain (positions 1-6): what sign-in assigns a baseHandle from, and what resolveHandle falls back to for an unsigned-in session. */
+/** The --as-first chain (positions 1-6): what resolveHandle falls back to for an unsigned-in session. Sign-in never reads it; its request comes from resolveSignInRequest. */
 function resolveBaseHandle(args: string[]): string {
   const explicit = flagValue(args, "--as");
   if (explicit) {
@@ -342,8 +346,8 @@ function resolveBaseHandle(args: string[]): string {
 
 /**
  * Position 0 (the session file) wins over every other position, for every
- * verb but sign-in itself (which calls resolveBaseHandle directly, before a
- * session file exists for this sign-in). `--as` alongside an active session
+ * verb but sign-in itself (whose request comes from resolveSignInRequest,
+ * before a session file exists for this sign-in). `--as` alongside an active session
  * is refused rather than silently overridden — a second identity is exactly
  * the desync the base resolution order exists to prevent.
  */

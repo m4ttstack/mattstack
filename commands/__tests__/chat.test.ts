@@ -678,6 +678,22 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
+  test("sign-in refuses --as with --name, before contacting the daemon", async () => {
+    const { code, stderr } = await runChatRaw(["sign-in", "--as", "x", "--name", "y", "--no-room", "--session", "s1"]);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("--as");
+    expect(stderr).toContain("--name");
+    expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
+  });
+
+  test("sign-in --pane refuses --name, before contacting the daemon", async () => {
+    const { code, stderr } = await runChatRaw(["sign-in", "--pane", "w1:p1", "--name", "y"]);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("--name");
+    expect(stderr).toContain("--pane");
+    expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
+  });
+
   test("--no-room signs in without joining any room", async () => {
     const out = await runChat(["sign-in", "--as", "y", "--no-room", "--session", "s2"]);
     expect(out).toMatch(/signed in as y/);
