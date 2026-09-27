@@ -3,6 +3,7 @@ import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { DEFAULT_TIMEOUT_MS, deliverToInbox, deliveryLabel, probeInboxReachability, renderDeliveries, replySteer, senderHints, wrapCrossSession } from "../inbox.ts";
+import { SYSTEM_HANDLE } from "../handlers/herd.ts";
 
 test("the default push timeout is 3000ms, not the original 1000ms that made one slow recipient look like a dropped push", () => {
   expect(DEFAULT_TIMEOUT_MS).toBe(3000);
@@ -61,6 +62,22 @@ test("senderHints lists distinct senders in first-seen order", () => {
     '  reply to a: rt chat dm a.0001 "..."',
     '  reply to b: rt chat dm b "..."',
   ]);
+});
+
+test("replySteer from the herd's system poster alone keeps the room post and offers no dm to it", () => {
+  const steer = replySteer([{ handle: SYSTEM_HANDLE, name: SYSTEM_HANDLE }]);
+  expect(steer).toBe('reply via rt chat post <room> "..." or rt chat dm <id> "..." (never SendMessage; this arrived through rt chat)');
+  expect(steer).not.toContain(`dm ${SYSTEM_HANDLE}`);
+});
+
+test("replySteer treats the system poster as absent: one real sender gets the single-sender form", () => {
+  expect(replySteer([{ handle: SYSTEM_HANDLE, name: SYSTEM_HANDLE }, { handle: "remy.k3f9", name: "remy" }])).toBe(
+    'reply via rt chat post <room> "..." or rt chat dm remy.k3f9 "..." (never SendMessage; this arrived through rt chat)',
+  );
+});
+
+test("senderHints leaves the herd's system poster out", () => {
+  expect(senderHints([{ handle: SYSTEM_HANDLE, name: SYSTEM_HANDLE }, { handle: "b", name: "b" }])).toEqual(['  reply to b: rt chat dm b "..."']);
 });
 
 test("deliverToInbox writes exactly one msgV:1 user frame line", async () => {

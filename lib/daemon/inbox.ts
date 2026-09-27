@@ -1,3 +1,5 @@
+import { SYSTEM_HANDLE } from "./handlers/herd.ts";
+
 // 1000ms once let one slow-but-alive recipient (heavy load, not actually
 // gone) register as a dropped push -- the failure that started the silent
 // deadlock this file's delivery fix addresses. 3000ms gives a busy inbox
@@ -136,8 +138,9 @@ export function renderDeliveries(items: DeliveryItem[]): string {
     .join("\n");
 }
 
+/** Distinct repliable senders: the herd's system poster has no reader, so a dm to it is never offered. */
 function distinctSenders(senders: Array<{ handle: string; name: string }>): Array<{ handle: string; name: string }> {
-  return [...new Map(senders.map((s) => [s.handle, s])).values()];
+  return [...new Map(senders.filter((s) => s.handle !== SYSTEM_HANDLE).map((s) => [s.handle, s])).values()];
 }
 
 /** One reply line per distinct sender: the lines above show names, and a name can change hands before the reply is sent. */
