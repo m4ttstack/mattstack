@@ -109,20 +109,32 @@ pub fn summary(results: &[rt::SendResult]) -> String {
     )
 }
 
-/// The recorded snapshot: each result joined to its pane's handle (when the pane
-/// is still in the list and signed in).
+/// The recorded snapshot: each result joined to its pane's identity (when the
+/// pane is still in the list and signed in).
 fn recipients(results: &[rt::SendResult], panes: &[rt::ChatPane]) -> Vec<Recipient> {
     results
         .iter()
-        .map(|res| Recipient {
-            pane_id: res.pane_id.clone(),
-            handle: panes
+        .map(|res| {
+            let presence = panes
                 .iter()
                 .find(|p| p.pane_id == res.pane_id)
-                .and_then(|p| p.presence.as_ref().map(|pr| pr.handle.clone())),
-            delivered: res.delivered.clone(),
+                .and_then(|p| p.presence.as_ref());
+            Recipient {
+                pane_id: res.pane_id.clone(),
+                handle: presence.map(|pr| pr.handle.clone()),
+                name: presence.map(|pr| pr.display_name().to_string()),
+                delivered: res.delivered.clone(),
+            }
         })
         .collect()
+}
+
+/// A history entry recorded before display names existed carries only the handle.
+fn recipient_label(r: &Recipient) -> String {
+    r.name
+        .clone()
+        .or_else(|| r.handle.clone())
+        .unwrap_or_else(|| r.pane_id.clone())
 }
 
 fn now_unix() -> i64 {
@@ -351,7 +363,7 @@ fn draw_result(
         Line::from(""),
     ];
     for r in recipients {
-        let who = r.handle.clone().unwrap_or_else(|| r.pane_id.clone());
+        let who = recipient_label(r);
         lines.push(Line::from(vec![
             Span::styled(format!("{:<10} ", r.delivered), theme.dim),
             Span::styled(who, theme.base),
@@ -490,6 +502,35 @@ mod tests {
         assert_eq!(recs[1].pane_id, "w1:p9");
         assert_eq!(recs[1].handle, None);
         assert_eq!(recs[1].delivered, "refused");
+        assert_eq!(recs[0].name.as_deref(), Some("meg"));
+        assert_eq!(recs[1].name, None);
+    }
+
+    #[test]
+    fn recipients_record_the_id_and_the_name() {
+        let mut pane = chat_pane("w1:p1", Some("remy.k3f9"));
+        if let Some(pr) = pane.presence.as_mut() {
+            pr.name = Some("remy".to_string());
+        }
+        let recs = recipients(&[sr("w1:p1", "accepted")], &[pane]);
+        assert_eq!(recs[0].handle.as_deref(), Some("remy.k3f9"));
+        assert_eq!(recs[0].name.as_deref(), Some("remy"));
+    }
+
+    #[test]
+    fn a_recipient_is_shown_by_name_then_handle_then_pane() {
+        let rec = |handle: Option<&str>, name: Option<&str>| Recipient {
+            pane_id: "w1:p1".to_string(),
+            handle: handle.map(str::to_string),
+            name: name.map(str::to_string),
+            delivered: "accepted".to_string(),
+        };
+        assert_eq!(
+            recipient_label(&rec(Some("remy.k3f9"), Some("remy"))),
+            "remy"
+        );
+        assert_eq!(recipient_label(&rec(Some("meg"), None)), "meg");
+        assert_eq!(recipient_label(&rec(None, None)), "w1:p1");
     }
 
     #[test]

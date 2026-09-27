@@ -28,6 +28,10 @@ pub struct Broadcast {
 pub struct Recipient {
     pub pane_id: String,
     pub handle: Option<String>,
+    // Without `default` a history file written before names existed fails to
+    // parse, and `push_broadcast` would then replace it with an empty list.
+    #[serde(default)]
+    pub name: Option<String>,
     pub delivered: String,
 }
 
@@ -138,5 +142,41 @@ mod tests {
         let r = recent_broadcasts(d.path());
         assert_eq!(r.len(), 50);
         assert_eq!(r[0].message, "59");
+    }
+
+    #[test]
+    fn a_history_file_written_before_display_names_still_loads() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(
+            d.path().join("broadcasts.json"),
+            r#"[{"at":1,"message":"hi","recipients":[{"pane_id":"w1:p1","handle":"meg","delivered":"accepted"}]}]"#,
+        )
+        .unwrap();
+        let r = recent_broadcasts(d.path());
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].recipients[0].handle.as_deref(), Some("meg"));
+        assert_eq!(r[0].recipients[0].name, None);
+    }
+
+    #[test]
+    fn a_recipient_name_round_trips() {
+        let d = tempfile::tempdir().unwrap();
+        push_broadcast(
+            d.path(),
+            &Broadcast {
+                at: 1,
+                message: "hi".to_string(),
+                recipients: vec![Recipient {
+                    pane_id: "w1:p1".to_string(),
+                    handle: Some("remy.k3f9".to_string()),
+                    name: Some("remy".to_string()),
+                    delivered: "accepted".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+        let r = recent_broadcasts(d.path());
+        assert_eq!(r[0].recipients[0].handle.as_deref(), Some("remy.k3f9"));
+        assert_eq!(r[0].recipients[0].name.as_deref(), Some("remy"));
     }
 }
