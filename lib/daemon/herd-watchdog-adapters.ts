@@ -179,6 +179,7 @@ export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogAct
         const outcome = await driveTrustAccept({
           herdr: deps.herdr, sock: { sockPath }, pane: parsePaneRef(pane).paneId,
           log, context: { herd, job },
+          trustsPath: (path) => findTreeByPath(path) !== null,
           ...(deps.trustSettleMs !== undefined && { settleMs: deps.trustSettleMs }),
           ...(deps.trustStepMs !== undefined && { stepMs: deps.trustStepMs }),
         });
