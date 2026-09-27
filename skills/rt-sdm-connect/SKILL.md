@@ -37,10 +37,16 @@ digraph sdm_connect {
     "Several matches: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: which of the matches" [shape=plaintext];
     "gate_ask {questions, context}: which of the matches" [shape=plaintext];
+    "several-matches gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the several-matches gate" [shape=plaintext];
+    "Waiting: the several-matches answer arrives when rt gate wait returns" [shape=doublecircle];
     "Pick among the matches?" [shape=diamond];
     "No match: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: which of all the labels" [shape=plaintext];
     "gate_ask {questions, context}: which of all the labels" [shape=plaintext];
+    "no-match gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the no-match gate" [shape=plaintext];
+    "Waiting: the no-match answer arrives when rt gate wait returns" [shape=doublecircle];
     "Pick from the full list?" [shape=diamond];
     "Chosen connection already live and no reconnect asked?" [shape=diamond];
     "Chosen connection is production?" [shape=diamond];
@@ -48,12 +54,15 @@ digraph sdm_connect {
     "Production: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: this is production, connect?" [shape=plaintext];
     "gate_ask {questions, context}: this is production, connect?" [shape=plaintext];
+    "production gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the production gate" [shape=plaintext];
+    "Waiting: the production answer arrives when rt gate wait returns" [shape=doublecircle];
     "Production answer?" [shape=diamond];
-    "rt sdm connect <key> --json" [shape=plaintext];
-    "rt sdm connect <key> --confirm-production --json" [shape=plaintext];
+    "rt sdm connect '<key>' --json" [shape=plaintext];
+    "rt sdm connect '<key>' --confirm-production --json" [shape=plaintext];
     "rt sdm connect exit?" [shape=diamond];
     "Connect attempts = 2?" [shape=diamond];
-    "Asked the production question for this key already?" [shape=diamond];
+    "Confirm retry used for this key?" [shape=diamond];
     "rt sdm login (session expired mid-connect)" [shape=plaintext];
     "Mid-connect login result?" [shape=diamond];
     "Production yes already given for this key?" [shape=diamond];
@@ -93,45 +102,54 @@ digraph sdm_connect {
     "Several matches: attended session?" -> "AskUserQuestion {questions}: which of the matches" [label="yes"];
     "Several matches: attended session?" -> "gate_ask {questions, context}: which of the matches" [label="no: unattended pane"];
     "AskUserQuestion {questions}: which of the matches" -> "Pick among the matches?";
-    "gate_ask {questions, context}: which of the matches" -> "Pick among the matches?";
+    "gate_ask {questions, context}: which of the matches" -> "several-matches gate_ask result?";
+    "several-matches gate_ask result?" -> "Pick among the matches?" [label="an answer recorded"];
+    "several-matches gate_ask result?" -> "rt gate wait <id>: the several-matches gate" [label="presentation: wait"];
+    "rt gate wait <id>: the several-matches gate" -> "Waiting: the several-matches answer arrives when rt gate wait returns" [label="end the turn"];
     "Pick among the matches?" -> "Chosen connection already live and no reconnect asked?" [label="a connection"];
     "Pick among the matches?" -> "Not connected: the user declined or chose none" [label="none of them"];
     "No match: attended session?" -> "AskUserQuestion {questions}: which of all the labels" [label="yes"];
     "No match: attended session?" -> "gate_ask {questions, context}: which of all the labels" [label="no: unattended pane"];
     "AskUserQuestion {questions}: which of all the labels" -> "Pick from the full list?";
-    "gate_ask {questions, context}: which of all the labels" -> "Pick from the full list?";
+    "gate_ask {questions, context}: which of all the labels" -> "no-match gate_ask result?";
+    "no-match gate_ask result?" -> "Pick from the full list?" [label="an answer recorded"];
+    "no-match gate_ask result?" -> "rt gate wait <id>: the no-match gate" [label="presentation: wait"];
+    "rt gate wait <id>: the no-match gate" -> "Waiting: the no-match answer arrives when rt gate wait returns" [label="end the turn"];
     "Pick from the full list?" -> "Chosen connection already live and no reconnect asked?" [label="a connection"];
     "Pick from the full list?" -> "Not connected: the user declined or chose none" [label="none of them"];
     "Chosen connection already live and no reconnect asked?" -> "Report the tunnel" [label="yes: connected is true"];
     "Chosen connection already live and no reconnect asked?" -> "Chosen connection is production?" [label="no"];
-    "Chosen connection is production?" -> "rt sdm connect <key> --json" [label="no"];
+    "Chosen connection is production?" -> "rt sdm connect '<key>' --json" [label="no"];
     "Chosen connection is production?" -> "Production: attended session?" [label="yes"];
     "Chosen connection is production?" -> "STOP: confirm production only on the user's yes to that question" [label="tempted to confirm production on an earlier blanket yes"];
     "STOP: confirm production only on the user's yes to that question" -> "Production: attended session?";
     "Production: attended session?" -> "AskUserQuestion {questions}: this is production, connect?" [label="yes"];
     "Production: attended session?" -> "gate_ask {questions, context}: this is production, connect?" [label="no: unattended pane"];
     "AskUserQuestion {questions}: this is production, connect?" -> "Production answer?";
-    "gate_ask {questions, context}: this is production, connect?" -> "Production answer?";
-    "Production answer?" -> "rt sdm connect <key> --confirm-production --json" [label="a clear yes"];
+    "gate_ask {questions, context}: this is production, connect?" -> "production gate_ask result?";
+    "production gate_ask result?" -> "Production answer?" [label="an answer recorded"];
+    "production gate_ask result?" -> "rt gate wait <id>: the production gate" [label="presentation: wait"];
+    "rt gate wait <id>: the production gate" -> "Waiting: the production answer arrives when rt gate wait returns" [label="end the turn"];
+    "Production answer?" -> "rt sdm connect '<key>' --confirm-production --json" [label="a clear yes"];
     "Production answer?" -> "Not connected: the user declined or chose none" [label="anything else"];
-    "rt sdm connect <key> --json" -> "rt sdm connect exit?";
-    "rt sdm connect <key> --confirm-production --json" -> "rt sdm connect exit?";
+    "rt sdm connect '<key>' --json" -> "rt sdm connect exit?";
+    "rt sdm connect '<key>' --confirm-production --json" -> "rt sdm connect exit?";
     "rt sdm connect exit?" -> "Report the tunnel" [label="0"];
     "rt sdm connect exit?" -> "Connect attempts = 2?" [label="1, stage login"];
-    "rt sdm connect exit?" -> "Asked the production question for this key already?" [label="1, stage confirm"];
+    "rt sdm connect exit?" -> "Confirm retry used for this key?" [label="1, stage confirm"];
     "rt sdm connect exit?" -> "Not connected: error and hint relayed" [label="1, any other stage"];
     "rt sdm connect exit?" -> "STOP: a failed connect is relayed, never dug into with the sdm CLI" [label="tempted to dig with the sdm CLI"];
     "STOP: a failed connect is relayed, never dug into with the sdm CLI" -> "Not connected: error and hint relayed";
-    "Asked the production question for this key already?" -> "Production: attended session?" [label="no"];
-    "Asked the production question for this key already?" -> "Not connected: error and hint relayed" [label="yes: budget spent"];
+    "Confirm retry used for this key?" -> "Production: attended session?" [label="no: ask once more"];
+    "Confirm retry used for this key?" -> "Not connected: error and hint relayed" [label="yes: budget spent"];
     "Connect attempts = 2?" -> "rt sdm login (session expired mid-connect)" [label="no: log in once more"];
     "Connect attempts = 2?" -> "Not connected: error and hint relayed" [label="yes: budget spent"];
     "rt sdm login (session expired mid-connect)" -> "Mid-connect login result?";
     "Mid-connect login result?" -> "Production yes already given for this key?" [label="exit 0"];
     "Mid-connect login result?" -> "Hand off: the user runs the manual login in a terminal" [label="non-zero, names the manual login"];
     "Mid-connect login result?" -> "Not connected: error and hint relayed" [label="non-zero, anything else"];
-    "Production yes already given for this key?" -> "rt sdm connect <key> --confirm-production --json" [label="yes"];
-    "Production yes already given for this key?" -> "rt sdm connect <key> --json" [label="no"];
+    "Production yes already given for this key?" -> "rt sdm connect '<key>' --confirm-production --json" [label="yes"];
+    "Production yes already given for this key?" -> "rt sdm connect '<key>' --json" [label="no"];
     "Report the tunnel" -> "Tunnel reported";
 }
 ```
@@ -168,7 +186,9 @@ Ask "This is production: <label>. Connect?" with Connect and Do not connect
 as the options. Only a yes to this question counts: an earlier "yes to
 whatever it asks" was given before the user knew the target was production.
 `Production yes already given for this key?` is yes only when this question
-was answered yes for this same key in this conversation.
+was answered yes for this same key in this conversation. A `stage: confirm`
+failure means rt counts the key as production though you did not: ask this
+question then, once per key (`Confirm retry used for this key?`).
 
 ### Report the tunnel
 
@@ -181,6 +201,8 @@ and suggest retrying their query. Never paste the whole envelope.
 ## Call notes
 
 - JSON is on stdout; progress lines are on stderr. Parse stdout only.
+- The connection key always goes in single quotes. A key that contains a
+  single quote is not run: tell the user, never escape it by hand.
 - `rt sdm login` is a silent browser flow. It usually finishes in seconds,
   but a cold or MFA session escalates to a visible Chrome window and can
   take about 3 minutes: run it with a timeout of at least 240s and tell the
