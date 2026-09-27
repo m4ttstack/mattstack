@@ -243,7 +243,7 @@ test('a synchronous spawn failure cleans up the run record instead of leaving th
   expect(retry.started).toBe(true);
 });
 
-test("a run's PATH puts the user's tools ahead of the bundle Helpers dir", () => {
+test("a run spawns with the command PATH, not deck's own", () => {
   const logDir = mkdtempSync(join(tmpdir(), 'runlog-'));
   const bundle = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'M.app');
   const helpers = join(bundle, 'Contents', 'Helpers');

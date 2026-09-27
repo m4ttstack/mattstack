@@ -81,7 +81,6 @@ export function resetRuns(): void {
   runs.clear();
 }
 
-// Explicit env: Bun otherwise spawns with the PATH the process started on.
 const defaultSpawn: SpawnFn = (argv, opts) =>
   Bun.spawn(argv, opts) as unknown as {
     exited: Promise<number>;
@@ -121,6 +120,7 @@ export function startCommandRun(
       stdout: out,
       stderr: errFd,
       detached: input.detached ?? false,
+      // Explicit env: Bun otherwise spawns with the PATH the process started on.
       env: { ...process.env, PATH: composeCommandPath() },
     });
   } catch (err) {
