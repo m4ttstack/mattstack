@@ -1,185 +1,228 @@
 ---
 name: work
 disable-model-invocation: true
-description: "Use when running a unit of work through a configured pipeline -- 'run the feature pipeline', 'do this ticket end to end', 'start a unit of work', or when a repo's .mattstack/skills.jsonc defines pipelines and a ticket or task should flow through its stages."
+description: "Use when running a unit of work end to end through a pack's compiled pipeline -- 'run the feature pipeline', 'do this ticket end to end', 'start a unit of work'."
 allowed-tools:
   - Bash(git -C *:*)
+  - Bash(*/scripts/ci-watch.sh:*)
+  - Bash(*/scripts/ci-triage.sh:*)
+  - Bash(*/scripts/ci-attendant.sh:*)
+  - Bash(*/scripts/ci-forge.sh:*)
 type: pipeline-step
 slots:
   tiering: { contract: model-tiering@1, required: false }
 ---
 
-# work -- the do-a-unit-of-work orchestrator
+# work -- the pipeline orchestrator
 
-You run one unit of work through the pipeline compiled into this skill.
-Everything below the stage list is baked: you never resolve a stage, a
-binding, or a chain -- the compiler already did.
+You run one unit of work through eight stages. The graph below is the run:
+follow its edges, and treat a move it does not show as a question for a
+gate, never as a judgment call. Every `run_*` call passes `runDb`.
 
-## 1. Work type
+## Stages
 
-{{work-type}}
+Walk them in this order. Each file sits beside this one; read it when its
+stage starts, and follow it.
 
-## 2. Stages
+| Stage | Read | Consumes | Produces |
+|---|---|---|---|
+| `provision` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-provision}}` | `ticket` `repo` | `branch` `worktree` |
+| `plan` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-plan}}` | `ticket` | `approach` `evidence-plan` |
+| `gates` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-gates}}` | `approach` `worktree` | nothing |
+| `evidence` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-evidence}}` | `evidence-plan` `worktree` | `evidence` |
+| `implement` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-implement}}` | `approach` `branch` `worktree` | `commits` |
+| `self-review` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-self-review}}` | `commits` | `review` |
+| `ship` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-ship}}` | `commits` `ticket` | `mr` |
+| `watch-ci` | `${CLAUDE_SKILL_DIR}/{{verb.path:stage-watch-ci}}` | `mr` `branch` | `ci` |
 
-Read the list for the chosen work type. Each entry is a compiled stage
-skill sitting beside this one; `dir` is where to read it.
+`run_start` takes these flags verbatim:
 
-{{pipeline.stages}}
+{{run-start.flags:work}}
 
-## 3. Start the run
+```dot
+digraph work {
+    rankdir=TB;
 
-Start the run with the `run_start` tool: `flags` is the chosen work type's
-flag string from the block below, verbatim (the value, never its work-type
-key); `skillDir` is this skill's own directory, `${CLAUDE_SKILL_DIR}`, as
-an absolute path; add `ticket` when the request named one and `spawnedBy`
-when this run was spawned rather than started interactively. Never
-fabricate a ticket.
+    "Request: run this unit of work" [shape=ellipse];
+    "Existing work, and no runDb in context?" [shape=diamond];
+    "run_list {repo}" [shape=plaintext];
+    "Newest running run in this repo?" [shape=diamond];
+    "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" [shape=box];
+    "clarify answer?" [shape=diamond];
+    "runDb = absolute runs root/<repo>/<id>/state.db" [shape=box];
+    "run_snapshot" [shape=plaintext];
+    "run_start {flags, skillDir, ticket?, spawnedBy?}" [shape=plaintext];
+    "ok: true with a runDb?" [shape=diamond];
+    "STOP: report the tool's message; no run_start tool means rt needs an update" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Ticket named?" [shape=diamond];
+    "Tracker: In Progress, assigned to the operator" [shape=box];
+    "Spawn-time account pick made?" [shape=diamond];
+    "run_decision {contract: account-pool@1, scope: run, selection, decidedBy}" [shape=plaintext];
+    "Take the next stage in the table" [shape=box];
 
-{{run-start.flags}}
+    subgraph cluster_stage {
+        label="Per stage";
+        "run_stage {action: start, stage}" [shape=plaintext];
+        "Resuming a held stage?" [shape=diamond];
+        "run_field_set {key: hold, value: -, stage}" [shape=plaintext];
+        "Read the stage file and follow it" [shape=box];
+        "How did the stage end?" [shape=diamond];
+        "run_snapshot: every produce set and not -?" [shape=diamond];
+        "run_stage {action: fail, stage, reason: <missing field>}" [shape=plaintext];
+        "run_stage {action: done, stage}" [shape=plaintext];
+    }
 
-The result must carry `ok: true` and a `runDb`. A tool error: stop and
-report its message. No `run_start` tool available at all: this rt is too
-old; stop and tell the user to update rt. Keep
-`runDb` and pass it to every `run_*` call below; nothing is exported.
-`runDb` is the one value to carry forward when summarising; if it is gone
-mid-run, recover it through `## Resume` (the running run in this repo)
-rather than treating the request as new work.
+    "Last stage done?" [shape=diamond];
+    "Gate <stage>-failed:<attempt>" [shape=box];
+    "failure answer?" [shape=diamond];
+    "Gate close" [shape=box];
+    "close answer?" [shape=diamond];
+    "run_status {status: done}" [shape=plaintext];
+    "run_status {status: abandoned}" [shape=plaintext];
 
-When the run carries a ticket, update its tracker now as the opening act:
-set it In Progress and ensure it is assigned to the operating user (for
-Linear, `save_issue` with state In Progress and assignee `me`).
+    subgraph cluster_redirect {
+        label="Redirect to <to>";
+        "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" [shape=plaintext];
+        "Is the <from> row still running?" [shape=diamond];
+        "run_stage {action: redirect, stage: <from>, to, reason}" [shape=plaintext];
+        "run_field_set {key: <each produce from <to> on>, value: -}" [shape=plaintext];
+    }
 
-Back-fill any spawn-time decision made before the DB existed (account
-selection per `account-pool@1`): `run_decision` with
-`contract: "account-pool@1"`, `scope: "run"`, `selection` = the decision
-as an object, `decidedBy` = the spawning surface.
+    "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy}" [shape=plaintext];
+    "run_field_set {key: hold, value: <their words, or held>, stage}" [shape=plaintext];
+    "Held: end the turn naming run and stage" [shape=doublecircle];
+    "Run abandoned" [shape=doublecircle];
+    "Run done" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-## 4. Walk the stages
+    "Request: run this unit of work" -> "Existing work, and no runDb in context?";
+    "Existing work, and no runDb in context?" -> "run_list {repo}" [label="yes"];
+    "Existing work, and no runDb in context?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="no: new work"];
+    "run_list {repo}" -> "Newest running run in this repo?";
+    "Newest running run in this repo?" -> "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" [label="found"];
+    "Newest running run in this repo?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="none"];
+    "Gate clarify, AskUserQuestion only: Resume it / Start fresh / Hold" -> "clarify answer?";
+    "clarify answer?" -> "runDb = absolute runs root/<repo>/<id>/state.db" [label="resume"];
+    "clarify answer?" -> "run_start {flags, skillDir, ticket?, spawnedBy?}" [label="start fresh"];
+    "clarify answer?" -> "Held: end the turn naming run and stage" [label="hold"];
+    "runDb = absolute runs root/<repo>/<id>/state.db" -> "run_snapshot";
+    "run_snapshot" -> "run_stage {action: start, stage}" [label="at run.current_stage"];
+    "run_start {flags, skillDir, ticket?, spawnedBy?}" -> "ok: true with a runDb?";
+    "ok: true with a runDb?" -> "Ticket named?" [label="yes: keep runDb"];
+    "ok: true with a runDb?" -> "STOP: report the tool's message; no run_start tool means rt needs an update" [label="no"];
+    "Ticket named?" -> "Tracker: In Progress, assigned to the operator" [label="yes"];
+    "Ticket named?" -> "Spawn-time account pick made?" [label="no"];
+    "Tracker: In Progress, assigned to the operator" -> "Spawn-time account pick made?";
+    "Spawn-time account pick made?" -> "run_decision {contract: account-pool@1, scope: run, selection, decidedBy}" [label="yes"];
+    "Spawn-time account pick made?" -> "Take the next stage in the table" [label="no"];
+    "run_decision {contract: account-pool@1, scope: run, selection, decidedBy}" -> "Take the next stage in the table";
+    "Take the next stage in the table" -> "run_stage {action: start, stage}";
+    "run_stage {action: start, stage}" -> "Resuming a held stage?";
+    "Resuming a held stage?" -> "run_field_set {key: hold, value: -, stage}" [label="yes"];
+    "Resuming a held stage?" -> "Read the stage file and follow it" [label="no"];
+    "run_field_set {key: hold, value: -, stage}" -> "Read the stage file and follow it";
+    "Read the stage file and follow it" -> "How did the stage end?";
+    "How did the stage end?" -> "run_snapshot: every produce set and not -?" [label="finished"];
+    "How did the stage end?" -> "Gate <stage>-failed:<attempt>" [label="it wrote run_stage fail"];
+    "How did the stage end?" -> "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" [label="a Go back or Fix answer: no produce check"];
+    "How did the stage end?" -> "Held: end the turn naming run and stage" [label="held at a gate"];
+    "How did the stage end?" -> "Run abandoned" [label="the stage abandoned the run"];
+    "run_snapshot: every produce set and not -?" -> "run_stage {action: done, stage}" [label="yes"];
+    "run_snapshot: every produce set and not -?" -> "run_stage {action: fail, stage, reason: <missing field>}" [label="no"];
+    "run_stage {action: fail, stage, reason: <missing field>}" -> "Gate <stage>-failed:<attempt>";
+    "run_stage {action: done, stage}" -> "Last stage done?";
+    "Last stage done?" -> "Take the next stage in the table" [label="no"];
+    "Last stage done?" -> "Gate close" [label="yes"];
+    "Gate <stage>-failed:<attempt>" -> "failure answer?";
+    "failure answer?" -> "run_stage {action: start, stage}" [label="proceed + retry: a new attempt"];
+    "failure answer?" -> "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" [label="go back, or iterate here (to = this stage)"];
+    "failure answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
+    "failure answer?" -> "run_status {status: abandoned}" [label="proceed + abandon"];
+    "Gate close" -> "close answer?";
+    "close answer?" -> "run_status {status: done}" [label="done"];
+    "close answer?" -> "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" [label="iterate (to = implement) or go back"];
+    "close answer?" -> "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
+    "run_decision {contract: gate@1, scope: hold:<stage>:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage}";
+    "run_field_set {key: hold, value: <their words, or held>, stage}" -> "Held: end the turn naming run and stage";
+    "run_decision {contract: gate@1, scope: redirect:<from>:<attempt>, selection: {from, to, reason}}" -> "Is the <from> row still running?";
+    "Is the <from> row still running?" -> "run_stage {action: redirect, stage: <from>, to, reason}" [label="yes: a Go back or Fix handed back mid-stage"];
+    "Is the <from> row still running?" -> "run_field_set {key: <each produce from <to> on>, value: -}" [label="no: done (Close) or failed (failure gate): no redirect call"];
+    "run_stage {action: redirect, stage: <from>, to, reason}" -> "run_field_set {key: <each produce from <to> on>, value: -}";
+    "run_field_set {key: <each produce from <to> on>, value: -}" -> "run_stage {action: start, stage}" [label="stage = <to>, walk forward"];
+    "run_status {status: done}" -> "Run done";
+    "run_status {status: abandoned}" -> "Run abandoned";
+}
+```
 
-Each stage receives `runDb` and passes it on every `run_*` call it makes.
-For each entry, in order:
+## What the graph cannot show
 
-1. `run_stage` with `action: "start"`, `stage: "<stage>"`
-2. Read `<dir>/SKILL.md` and follow it. It carries its own domain rules
-   inline and states what it consumes and produces.
-3. When it finishes, `run_snapshot` and confirm every
-   field in the entry's `produces` is non-null and not `-` (the cleared
-   sentinel a redirect writes). A missing or cleared field means the stage
-   did not finish: `run_stage` with `action: "fail"`, `stage: "<stage>"`,
-   `reason: "<what>"`, then the failure gate below.
-4. `run_stage` with `action: "done"`, `stage: "<stage>"`
+- **One owner for stage rows.** This file writes every `run_stage`
+  `start`, `done` and `redirect`; a stage writes only its fields and, on
+  failure, its own `fail`. Every `start` inserts a new attempt row, so a
+  second one leaves a row running forever.
+- **Tracker.** For Linear: `save_issue` with state In Progress and
+  assignee `me`. Never fabricate a ticket.
+- **skillDir** is this skill's own directory, `${CLAUDE_SKILL_DIR}`, as an
+  absolute path, passed to `run_start`.
+- **Resume path.** `runDb` is `<absolute home>/.mattstack/runs/<repo>/<id>/state.db`,
+  `<repo>` being the `--repo` value in the flags above and `<id>` the
+  `run_list` row's `id`; the run tools refuse `~` and relative paths. An
+  error naming a different runs root wins. Decided questions stay decided.
+  Starting fresh leaves the found run's own status untouched.
+- **State lives in the DB.** `run_field_set` and `run_snapshot` state
+  survives context compaction; carrying it forward in prose instead does
+  not.
+- **The cleared sentinel.** `-` marks a produce a Redirect cleared, so the
+  completeness check re-runs honestly. Later stages re-run as new attempts;
+  a ship re-run pushes new commits to the same MR.
+- **Redirect reasons** are the human's words, never a category. A redirect
+  typed in the pane with no open gate records `decidedBy: "pane"`. The
+  `redirect` call closes a row that is still running; after Close (the
+  last row is done) or a failure gate (the row is failed) there is nothing
+  to close, so the decision record alone carries the move. A `redirect`
+  refused anyway because the row was not running: say so in one line and
+  continue.
+- **A finished run stays finished.** Only Close's answer or Abandon ends
+  it; a green `ci` does not. Never carry a finished run's `runDb` into new
+  work: its next `run_stage start` would write into it.
+- **Clarify comes before the run.** No `runDb` exists yet, so `clarify`
+  is AskUserQuestion alone: no `gate_*` and no `run_*` call.
+- **This file's own gates** (`<stage>-failed`, `close`) walk
+  gate-protocol with "Under a run: fail the stage at the gate?" answered
+  no: a gate the daemon cannot open here ends the turn quoting the
+  refusal, and the run stays `running`.
+- **Hold at `close`** records against the last stage row (watch-ci) and
+  its attempt.
+- **A gate ends the turn only as gate-protocol ends it.** Under a running
+  run, a turn ends at a gate with the form on screen, with `waiting-gate`
+  armed and its wait running, or with `hold` recorded; any other ending
+  and the Stop hook sends you back.
+- **Account back-fill** (a pick made before the DB existed):
+  `selection` is the pick as an object, `decidedBy` the spawning surface.
+- **The failure gate's `action`.** Read `next` first; Proceed applies
+  `action` (Retry or Abandon).
 
-After the last entry, `## Close`.
+## Gate questions
 
-A stage failure is a gate, not a report. Gate `<stage>-failed:<attempt>`
-(the attempt from the failed stage row in `run_snapshot`):
+Each question is its own; never fold one list into another.
 
-- `run_field_set` with `key: "gate"`, `value: "<stage>-failed:<attempt>"`, `stage: "<stage>"`
-- One sentence: the stage, the reason the failed `run_stage` recorded,
-  and the detail path if there is one.
-- Run gate-protocol's Runs integration with kind `<stage>-failed:<attempt>`
-  and these questions, each its own question (never fold one list into
-  another -- a question over 4 options sends the whole gate to the wait
-  queue):
-  - `action`: **Retry the stage** (recommended when the reason names
-    something you can fix) / **Abandon the run**
-  - `next`: **Proceed** (recommended) / **Iterate here** (their text is
-    what to change first) / **Go back** / **Hold**
-  - `to`, only when **Go back** is answered and more than one earlier
-    stage row exists: one option per earlier stage, split `to-1`,
-    `to-2`, ... over 4; with exactly one candidate stage label it **Go
-    back to `<stage>`** in `next` and skip this question
-- `run_decision` with `contract: "gate@1"`, `scope: "<stage>-failed:<attempt>"`, `selection: {"next":"retry|redirect|iterate|hold|abandon","to":"<stage or null>","note":"<their words or null>"}`, `decidedBy: <the answer's by>`
-- Retry: a fresh `run_stage` start for the stage (a new attempt) and
-  re-enter it. Go back: `## Redirect`. Iterate: `## Redirect` to the same
-  stage with their note as the reason. Hold: `## Hold`. Abandon:
-  `run_status` with `status: "abandoned"`.
+| Gate | Question | Options (recommended first) | Shown when |
+|---|---|---|---|
+| `clarify` | `resume` | **Resume it** / **Start fresh** / **Hold** | a running run was found |
+| `<stage>-failed:<attempt>` | `action` | **Retry the stage** (when the reason names something fixable) / **Abandon the run** | always |
+| | `next` | **Proceed** / **Iterate here** / **Go back** / **Hold** | always |
+| | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4 | Go back answered and more than one earlier stage row |
+| `close` | `next` | **Done** (when `ci` is green and the MR ready) / **Iterate here** / **Go back** / **Hold** | always |
+| | `to` | one option per stage, split over 4 | Go back answered and more than one stage row |
 
-The run itself stays `running` through every answer but Abandon; only the
-Close statuses end it.
+With exactly one candidate stage, label the option **Go back to
+`<stage>`** in `next` and skip `to`. One sentence above each form: the
+stage and the failure reason (and detail path), or the MR link, its state
+and the `ci` verdict.
 
-## Resume
+Selections:
 
-Re-entering existing work with no `runDb` in context: call `run_list`
-with `repo` = the `--repo` value in the flags above, and keep the newest
-run whose `status` is `running`; never read the run dbs by hand. One
-found: gate `clarify`, one sentence naming it, the structured-question
-tool with **Resume it** (recommended) / **Start fresh**; **Hold**. Start
-fresh: `## 3. Start the run`; the found run keeps its status. Resume: use
-`runDb` = `<absolute home>/.mattstack/runs/<repo>/<its id>/state.db` (the
-candidate row's `id`; the run tools refuse `~` and relative paths). If a
-run tool refuses it with an error naming a different runs root, use that
-root instead. Re-enter at
-`run.current_stage` with `run_snapshot`'s fields and decisions (a fresh
-`run_stage` start for that stage records the new attempt). Do not re-ask
-decided questions. Re-entering a held run clears the hold as `## Hold`
-says.
-
-## Redirect
-
-A gate answer or a human message that names an earlier stage sends the
-run back there. A stage that hands back such an answer (the ci gate's
-*Fix and re-push*) has not finished, and its produces are not checked:
-Redirect runs instead of step 3's completeness check, and no failed
-`run_stage` is written for it. In order:
-
-1. `run_decision` with `contract: "gate@1"`, `scope: "redirect:<from>:<attempt>"`, `selection: {"from":"<current stage>","to":"<stage>","reason":"<their words>"}`, `decidedBy: <the answer's by>`
-   (the attempt is the current stage row's; the reason is what they said,
-   never a category). A human-typed redirect with no open gate has no
-   answer to cite: record `decidedBy: "pane"`.
-2. `run_stage` with `action: "redirect"`, `stage: "<from>"`, `to: "<to>"`,
-   `reason: "<their words>"`: the stage you leave closes as `redirected`,
-   so `run_snapshot` never shows it `running` behind a later attempt. An
-   error saying that row was not running: say so in one line and
-   continue.
-3. For `<to>` and every stage after it in the list, `run_field_set` with
-   `key` = each key in that stage's `produces`, `value: "-"`,
-   `stage: "<to>"`: the cleared sentinel keeps the completeness check
-   honest on the re-run.
-4. `run_stage` with `action: "start"`, `stage: "<to>"` (the DB bumps the
-   attempt), then walk forward from `<to>` exactly as in section 4. Later
-   stages re-run as new attempts; a ship stage re-run pushes new commits
-   to the same MR.
-
-## Hold
-
-A gate answer of *Hold* parks the run without ending it:
-
-1. `run_decision` with `contract: "gate@1"`, `scope: "hold:<stage>:<attempt>"`, `selection: {"reason":"<their words or empty>"}`, `decidedBy: <the answer's by>`
-2. `run_field_set` with `key: "hold"`, `value: "<their words, or held>"`, `stage: "<stage>"`
-3. End the turn with one sentence naming the run and the stage. The Stop
-   hook lets a held run's turn end; the console shows it held.
-
-Resume clears the hold: right after the next `run_stage` start,
-`run_field_set` with `key: "hold"`, `value: "-"`, `stage: "<stage>"`.
-
-## Close
-
-The run stays `running` until the human answers the close gate; a green
-`ci` does not end it, the answer does. Gate `close`:
-
-- `run_field_set` with `key: "gate"`, `value: "close"`, `stage: "<last stage>"`
-- One sentence: the MR link and its state (draft, or ready as decided at
-  the `mark-ready` gate) and the `ci` verdict.
-- Run gate-protocol's Runs integration with kind `close` and these
-  questions, each its own question (never fold one list into another --
-  a question over 4 options sends the whole gate to the wait queue):
-  - `next`: **Done** (recommended when `ci` is green and the MR is
-    ready) / **Iterate here** (their text is the change request) / **Go
-    back** / **Hold**
-  - `to`, only when **Go back** is answered and `run_snapshot` shows more
-    than one stage row: one option per stage, split `to-1`, `to-2`, ...
-    over 4; with exactly one candidate stage label it **Go back to
-    `<stage>`** in `next` and skip this question
-- `run_decision` with `contract: "gate@1"`, `scope: "close"`, `selection: {"next":"done|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`, `decidedBy: <the answer's by>`
-- Done: `run_status` with `status: "done"`.
-  Iterate: `## Redirect` to `implement` (or the stage their note names)
-  with the note as the reason. Go back: `## Redirect`. Hold: `## Hold`.
-
-`failed` and `abandoned` are written by the failure gate's or the ci
-gate's Abandon answer or by a human saying so; never leave a finished run
-`running`, and never carry a finished run's `runDb` into new work: a
-later `run_stage` start would write into it.
+- failure: `{"next":"retry|redirect|iterate|hold|abandon","to":"<stage or null>","note":"<their words or null>"}`
+- close: `{"next":"done|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`
 
 ## Sub-agent tiering
 
@@ -192,18 +235,3 @@ later `run_stage` start would write into it.
 ## Wrap-up form contract
 
 {{include:wrap-up-form}}
-
-## Red flags -- stop yourself
-
-- About to run a stage the list does not name, or skip one it does? Stop.
-- About to carry state in prose because a `run_field_set` feels slow?
-  Stop: the DB survives compaction; your prose does not.
-- About to end the turn with the run still `running` and no form on
-  screen? Stop. The gate is the form; the Stop hook will send you back.
-- About to write "pipeline complete" after `ci=green`? Stop. Complete is
-  the human's answer at the close gate.
-- About to go back a stage because the human typed it, without a
-  `redirect` decision? Stop. Record it, then a `run_stage` start.
-- About to describe each option under a form, or ask "which would you
-  like?" after it? Stop. The one sentence sits above the form; the options
-  are labels, nothing more.

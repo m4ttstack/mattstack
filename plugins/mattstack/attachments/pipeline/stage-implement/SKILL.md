@@ -1,6 +1,6 @@
 ---
 name: stage-implement
-description: "Pipeline stage: build the change under the approach the plan stage committed to, test-first. Reached only through a resolved pipeline; not for direct invocation."
+description: "Pipeline stage: build the change under the approach the plan stage committed to, test-first. Reached only through the work orchestrator; not for direct invocation."
 disable-model-invocation: true
 type: pipeline-step
 metadata:
@@ -13,28 +13,77 @@ metadata:
 
 {{stage.fields}}
 
-## Run state
+Run state: the orchestrator opens and closes this stage, so never write
+`run_stage` `start` or `done` here. Read consumes with `run_field_get`,
+write `commits` with `run_field_set` (`stage: "implement"`), and on
+failure write `run_stage {action: fail, stage: "implement", reason}`
+naming what failed.
 
-Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
+```dot
+digraph implement {
+    rankdir=TB;
 
-- First action: `run_stage` with `action: "start"`, `stage: "implement"` and the run's `runDb`.
-- Read consumed fields with `run_field_get` before deriving or asking for them.
-- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "implement"`).
-- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"` and a `reason` naming what actually failed, before you report it.
+    "Implement stage entered" [shape=ellipse];
+    "run_field_get {key: approach}; {key: branch}; {key: worktree}" [shape=plaintext];
+    "approach?" [shape=diamond];
+    "Make the trivial change" [shape=box];
+    "Found yourself writing a test?" [shape=diamond];
+    "Run RED, GREEN, REFACTOR from the named failing test" [shape=box];
+    "Run the superpowers chain" [shape=box];
+    "Commit incrementally on branch, inside worktree" [shape=box];
+    "STOP: implement never pushes; ship owns the push" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "git log --format=%h <branch-point>..HEAD" [shape=plaintext];
+    "run_field_set {key: commits, value: <shas>, stage: implement}" [shape=plaintext];
+    "run_stage {action: fail, stage: implement, reason}" [shape=plaintext];
+    "Stage failed" [shape=doublecircle];
+    "Tell the orchestrator the triage was wrong: Go back to plan" [shape=doublecircle];
+    "Implement done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-Honor `approach` exactly:
+    "Implement stage entered" -> "run_field_get {key: approach}; {key: branch}; {key: worktree}";
+    "run_field_get {key: approach}; {key: branch}; {key: worktree}" -> "approach?";
+    "approach?" -> "Make the trivial change" [label="trivial"];
+    "approach?" -> "Run RED, GREEN, REFACTOR from the named failing test" [label="direct-tdd"];
+    "approach?" -> "Run the superpowers chain" [label="superpowers"];
+    "Make the trivial change" -> "Found yourself writing a test?";
+    "Found yourself writing a test?" -> "Tell the orchestrator the triage was wrong: Go back to plan" [label="yes"];
+    "Found yourself writing a test?" -> "Commit incrementally on branch, inside worktree" [label="no"];
+    "Run RED, GREEN, REFACTOR from the named failing test" -> "Commit incrementally on branch, inside worktree";
+    "Run RED, GREEN, REFACTOR from the named failing test" -> "run_stage {action: fail, stage: implement, reason}" [label="a failure the approach cannot get past"];
+    "Run the superpowers chain" -> "Commit incrementally on branch, inside worktree";
+    "Run the superpowers chain" -> "run_stage {action: fail, stage: implement, reason}" [label="a failure the approach cannot get past"];
+    "Commit incrementally on branch, inside worktree" -> "git log --format=%h <branch-point>..HEAD";
+    "Commit incrementally on branch, inside worktree" -> "STOP: implement never pushes; ship owns the push" [label="tempted to push"];
+    "STOP: implement never pushes; ship owns the push" -> "git log --format=%h <branch-point>..HEAD";
+    "git log --format=%h <branch-point>..HEAD" -> "run_field_set {key: commits, value: <shas>, stage: implement}";
+    "run_field_set {key: commits, value: <shas>, stage: implement}" -> "Implement done: return to the orchestrator";
+    "run_stage {action: fail, stage: implement, reason}" -> "Stage failed";
+}
+```
 
-- **trivial**: make the change; no test because there is no runtime
-  behavior. If you find yourself testing anyway, the triage was wrong --
-  stop and tell the orchestrator to re-run the plan stage.
-- **direct-tdd**: invoke superpowers:test-driven-development and run
-  RED -> GREEN -> REFACTOR inline, starting from the FAILING TEST the plan
-  stage named. No spec doc, no subagents.
-- **superpowers**: run the chain -- superpowers:brainstorming ->
-  spec -> superpowers:writing-plans -> subagent execution. TDD still
-  holds inside every task. When dispatching sub-agents, apply the
-  orchestrator's resolved tiering skill if it announced one.
+### Make the trivial change
 
-Work only inside `worktree`, commit incrementally on `branch`, never push
-from this stage. Finish by writing `commits` (the new commit shas,
-`git log --format=%h` since the branch point).
+No test, because there is no runtime behavior: docs, config, a rename.
+
+### Run RED, GREEN, REFACTOR from the named failing test
+
+**REQUIRED SUB-SKILL:** superpowers:test-driven-development, inline,
+starting from the FAILING TEST the plan stage named. No spec doc, no
+subagents.
+
+### Run the superpowers chain
+
+superpowers:brainstorming, then the spec, then superpowers:writing-plans,
+then subagent execution. TDD still holds inside every task. When
+dispatching sub-agents, apply the orchestrator's resolved tiering skill if
+it announced one.
+
+## What the graph cannot show
+
+- **A failure the approach cannot get past** (a test that cannot be made
+  to run, a dependency that will not resolve, a question the plan left
+  open) ends the stage with `run_stage {action: fail, stage: "implement",
+  reason}` naming it. Switching approach inside this stage is not a way
+  past it.
+- **Go back to plan** is a Redirect, not a failure: hand it to the
+  orchestrator with `to: plan`, `decidedBy: "pane"`, and the triage
+  mismatch (what made the trivial change need a test) as the reason.

@@ -170,5 +170,15 @@ that quotes a shell form carries `<!-- mcp-lint: allow -->`.
 | 2026-09-27 | mattstack:editing-skills | pure | pass | n/a (no description edit) | Craft gate points process skills at process-digraphs |
 | 2026-09-27 | mattstack:creating-a-pack | pure | pass | n/a (no description edit) | Process fills get a digraph map; rule fills key sections to engine nodes and add no STOP moves |
 | 2026-09-27 | mattstack:extending-a-pack | pure | pass | n/a (no description edit) | Same pointer as creating-a-pack |
+| 2026-09-27 | mattstack:work | pure | pass | n/a (not rostered on the mattstack side) | promoted from the work-next digraph twin; prose engine retired; includes gate-protocol and wrap-up-form; records Hold on the failure and close hold edges; runs record work type work; certify exit 0 |
+| 2026-09-27 | mattstack:stage-provision | pure | pass | n/a (hidden) | promoted from work-next-provision; gate-protocol and wrap-up-form replace the work-next gate; Hold recorded on its hold edge; certify exit 0 |
+| 2026-09-27 | mattstack:stage-plan | pure | pass | n/a (hidden) | promoted from work-next-plan; same include swap and Hold record; certify exit 0 |
+| 2026-09-27 | mattstack:stage-gates | pure | pass | n/a (hidden) | promoted from work-next-gates; no gate; certify exit 0 |
+| 2026-09-27 | mattstack:stage-evidence | pure | pass | n/a (hidden) | promoted from work-next-evidence; include swap; Hold recorded on both hold edges; off-script answers route iterate (2 rounds) and hold; certify exit 0 |
+| 2026-09-27 | mattstack:stage-implement | pure | pass | n/a (hidden) | promoted from work-next-implement; slotless; certify exit 0 |
+| 2026-09-27 | mattstack:stage-self-review | pure | pass | n/a (hidden) | promoted from work-next-self-review; certify exit 0 |
+| 2026-09-27 | mattstack:stage-ship | pure | pass | n/a (hidden) | promoted from work-next-ship; include swap; Hold record; off-script answers route iterate (2 rounds) and hold; certify exit 0 |
+| 2026-09-27 | mattstack:stage-watch-ci | pure | pass | n/a (hidden) | promoted from work-next-watch-ci; include swap; Hold record; ci-triage.sh keeps nonzero-failure lines and counts only base pipelines whose jobs were read; certify exit 0 |
+| 2026-09-27 | mattstack:watch-ci | pure | pass | n/a (no description edit) | ci-triage.sh synced to stage-watch-ci's (test-resolve-args identity); certify exit 0 |
 
 (Ledger rows are appended by the orchestrating session as each lane lands -- lanes themselves never edit this file.)

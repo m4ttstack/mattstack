@@ -146,7 +146,11 @@ print_job() { # $1=pid $2=jid $3=name $4=blocking|allow_failure
   forge trace "$2" "$log.raw" || { echo "  (trace unavailable for job $2)"; return 0; }
   sed $'s/\x1b\\[[0-9;]*m//g' "$log.raw" >"$log"; rm -f "$log.raw"
   local real_hits infra_hits verdict noisy_suffix=""
-  real_hits=$(grep -Eiv 'passed|0 failed|0 error' "$log" | grep -E -f "$OUT_DIR/_real_pat" | head -5 || true)
+  # A nonzero failure count keeps a line even when it also reports passes or a zero count.
+  real_hits=$(awk '{ l = tolower($0) }
+    l ~ /(^|[^0-9])[1-9][0-9]* (failed|error)/ { print; next }
+    l ~ /passed|(^|[^0-9])0 (failed|error)/ { next }
+    { print }' "$log" | grep -E -f "$OUT_DIR/_real_pat" | head -5 || true)
   infra_hits=$(grep -E -f "$OUT_DIR/_infra_pat" "$log" | head -3 || true)
   if [ -n "$real_hits" ]; then verdict=REAL
   elif [ -n "$infra_hits" ]; then verdict=INFRA
@@ -213,8 +217,8 @@ if [ "$SKIP_BASE" != 1 ]; then
     fi
     while IFS=$'\t' read -r bpid bstatus burl; do
       [ -n "${bpid:-}" ] || continue
-      SCANNED=$((SCANNED+1))
       if forge jobs "$bpid" --scope failed; then
+        SCANNED=$((SCANNED+1))
         if [ -n "$FORGE_OUT" ]; then
           printf '%s\n' "$FORGE_OUT" | awk -F'\t' -v OFS='\t' -v b="$bref" '{print b, $1, $3}' >>"$OUT_DIR/_base_failures.tsv"
         fi
