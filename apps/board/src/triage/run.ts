@@ -362,6 +362,10 @@ export async function runTriage(
     // everything from here through launchDoctor now shares one try, so a
     // throw at any point after the claim above still reaches the release.
     let statePath: string | undefined;
+    // Set the instant launchDoctor resolves: a throw from the POST-launch
+    // bookkeeping below (the race-guard read, the queued-state update) must
+    // not release a lease the now-running doctor pane still owns.
+    let launched = false;
     try {
       statePath = deps.doctorFilePath(edge.mrUrl);
       // The wrapper treats an absent tier as the historical checkout
@@ -398,6 +402,7 @@ export async function runTriage(
         fixClasses,
         draftBin: draftBinPath(),
       });
+      launched = true;
       if (!launchResult.focusedExisting) {
         // Race guard: an operator stand-down (a different process, the
         // board server) may have closed this row out while the launch
@@ -441,7 +446,11 @@ export async function runTriage(
         attempt: m.attemptsToday,
       });
     } catch (err) {
-      deps.attendants?.release(edge.mrUrl, edge.iid);
+      // A throw after launchDoctor resolved means a doctor pane is actually
+      // running and still holds the lease; releasing it here would let a
+      // watch-ci agent claim alongside it. Only an unsuccessful launch
+      // releases.
+      if (!launched) deps.attendants?.release(edge.mrUrl, edge.iid);
       // statePath is unset only when deps.doctorFilePath itself threw, before
       // any row existed to mark 'error' -- the audit entry below still
       // records the failure.

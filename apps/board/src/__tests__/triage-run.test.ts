@@ -1,5 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
+import { boardDoctorOwner, readCiLease } from '@mattstack/rt-client';
+
+import { createBoardAttendants } from '../triage/attendant.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import type { OwnMrFacts } from '../triage/edge.ts';
@@ -509,6 +515,50 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     await runTriage(d);
     expect(releases).toEqual([['https://x/mr/1', 1]]);
     expect(d.launches).toHaveLength(0);
+  });
+
+  test('a throw AFTER launchDoctor resolves (post-launch bookkeeping) does not release the claim', async () => {
+    // A real GitLab-shaped MR URL: createBoardAttendants runs through
+    // rt-client's actual ciLeaseFileName, which (unlike the fake
+    // 'https://x/mr/1' URLs elsewhere in this file) requires a parseable
+    // /merge_requests/<iid> segment.
+    const mrUrl = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1821';
+    const dir = mkdtempSync(join(tmpdir(), 'attendants-run-'));
+    const now = () => 1_000_000_000;
+    try {
+      const attendants = createBoardAttendants({ dir, now });
+      let readDoctorStatesCalls = 0;
+      const d = deps({
+        attendants,
+        fetchOwnMrs: async () => [
+          {
+            mrUrl,
+            iid: 1821,
+            pipelineId: 100,
+            pipelineState: 'failed',
+            needsRebase: false,
+            author: 'matt',
+            sourceBranch: 'feat',
+            targetBranch: 'master',
+            isStacked: false,
+          } satisfies OwnMrFacts,
+        ],
+        // The first call builds runTriage's own `doctors` map; the second is
+        // the post-launch race-guard read -- only that one must fail here,
+        // after the doctor pane already exists and holds the lease.
+        readDoctorStates: () => {
+          readDoctorStatesCalls++;
+          if (readDoctorStatesCalls > 1) throw new Error('disk read failed');
+          return new Map();
+        },
+      });
+      await runTriage(d);
+      expect(d.launches).toHaveLength(1);
+      const lease = readCiLease(mrUrl, { dir, now }).lease;
+      expect(lease?.owner).toBe(boardDoctorOwner(mrUrl));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
