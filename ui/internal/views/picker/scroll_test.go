@@ -2,6 +2,22 @@ package picker
 
 import "testing"
 
+func TestFreeWindowClampsToTheContentWithoutACursor(t *testing.T) {
+	cases := []struct{ top, n, rows, wantTop, wantH int }{
+		{3, 40, 10, 3, 10},
+		{-2, 40, 10, 0, 10},
+		{35, 40, 10, 30, 10},
+		{5, 4, 10, 0, 4},
+		{2, 0, 10, 0, 0},
+		{2, 10, -1, 0, 0},
+	}
+	for _, c := range cases {
+		if top, h := FreeWindow(c.top, c.n, c.rows); top != c.wantTop || h != c.wantH {
+			t.Errorf("FreeWindow(%d, %d, %d) = (%d, %d), want (%d, %d)", c.top, c.n, c.rows, top, h, c.wantTop, c.wantH)
+		}
+	}
+}
+
 // TestViewportAroundKeepsEachMargin walks a cursor through a long list both
 // ways, feeding each top back in: the window keeps before rows above the
 // cursor and after rows below it, or the list's end when fewer remain.

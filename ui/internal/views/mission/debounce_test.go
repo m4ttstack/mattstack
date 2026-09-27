@@ -162,22 +162,3 @@ func TestClickDuringPendingDebounceIsNotDoubleEmitted(t *testing.T) {
 		t.Fatal("the earlier movement's tick must be stale after the click already emitted")
 	}
 }
-
-// TestMouseWheelRoutesThroughTheSameDebounce confirms the wheel path shares
-// cursorSelectCmd rather than emitting on its own.
-func TestMouseWheelRoutesThroughTheSameDebounce(t *testing.T) {
-	instantSelectTick(t)
-	m := newMouseTestMission()
-
-	_, cmd := m.Update(tea.MouseWheelMsg{X: 10, Y: 9, Button: tea.MouseWheelDown})
-	if cmd == nil {
-		t.Fatal("a wheel move must still schedule a debounce tick")
-	}
-	if m.selected != "c.go" {
-		t.Fatalf("wheel movement itself must be instant, got %q", m.selected)
-	}
-	msg := cmd()
-	if _, ok := msg.(selectDebounceMsg); !ok {
-		t.Fatalf("wheel move's cmd must resolve to a selectDebounceMsg, got %#v", msg)
-	}
-}

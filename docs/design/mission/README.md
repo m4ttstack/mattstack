@@ -97,9 +97,8 @@ shadows, no radii).
   shift-modified clicks: Ghostty and Terminal.app keep shift+click for
   their own text selection while mouse reporting is on. Shift+↑/↓ always
   works.
-- The History list's mouse wheel scrolls the view without moving the
-  selection, and paging is an explicit "Load 100 more commits" row rather
-  than GitHub Desktop's load-as-you-scroll.
+- History paging is an explicit "Load 100 more commits" row rather than
+  GitHub Desktop's load-as-you-scroll.
 - History groups commits under date headers (Today, Yesterday, Earlier
   this week, Last week, then by month) and has a `/` filter over loaded
   commits; GitHub Desktop has neither.
@@ -331,6 +330,25 @@ The `Stash.png` and `StashStates.png` boards (see Boards above) are the
 signed-off reference for every state: the strip's three treatments, the
 view's header and buttons, both Switch Branch variants, and every dialog.
 
+## Mouse wheel: scroll the view, never the selection (2026-09-26)
+
+As in GitHub Desktop, a wheel tick moves the view under the pointer by
+three rows and leaves every cursor and selection where it is, even when
+that scrolls them out of sight. This holds for the Changes list (so
+scrolling never changes which file's diff is shown), the diff pane, the
+History commit list, the History and stash file columns, and the repo,
+branch and worktree foldouts; the context menu already worked this way.
+
+Each of these regions keeps a stored top plus a free-scroll flag
+(`picker.FreeWindow` clamps it). A key that moves the cursor clears the
+flag, so the cursor moves one step from where it was and the window
+follows it back into view with the usual scrolloff. A click inside a
+wheel-scrolled region hits the row painted there and leaves the view
+where it is; hover is re-resolved after every tick because the rows
+slide under a pointer that did not move. A worktree switch drops the
+Changes list's and the diff's free scroll, a new commit selection drops
+the History file column's, and reopening the stash view drops its own.
+
 ## Terminal-fidelity deltas (same set the picker ratified)
 
 No drop shadows (modal lift = Surface token + Panel border + parent dim),
@@ -466,8 +484,8 @@ pre-ratification drawing:
   frame's own last row, and it stays that height regardless of match
   count -- covering the main keybar for as long as it is open, which GHD
   also does and which is intended here, not a bug. A short list top-aligns
-  with Surface filler below it; a long list scrolls (cursor-follow, a
-  Panel thumb) in a fixed-height row region above a pinned action/keybar
+  with Surface filler below it; a long list scrolls (following the
+  keyboard cursor, or freely under the wheel, with a Panel thumb) in a fixed-height row region above a pinned action/keybar
   block. This supersedes the content-height foldouts drawn on
   RepoPicker.png, BranchModal.png, and WorktreeModal.png; those boards
   will be re-exported separately, and this line is the behavior contract

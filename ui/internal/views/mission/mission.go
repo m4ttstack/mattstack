@@ -55,9 +55,12 @@ type Mission struct {
 	// replacement in SetModel carries no index that would survive a
 	// reordered or filtered list. changesTop is the Changes list's own
 	// scroll window top (picker.Viewport), the same role diffTop plays for
-	// the diff pane.
-	selected   string
-	changesTop int
+	// the diff pane. While changesFreeScroll is set (the wheel moved the
+	// view) changesTop holds as the wheel left it instead of following the
+	// cursor, historyFreeScroll's role for the History list.
+	selected          string
+	changesTop        int
+	changesFreeScroll bool
 
 	focus            focusKind
 	filterText       string
@@ -74,15 +77,17 @@ type Mission struct {
 	// which a key or wheel step needs to know whether the cursor line is
 	// taller than the pane (tallCursorSpan); diffRowOff is how far into
 	// such a line the pane reads, owned by the line diffRowOffAt
-	// (cursorRowOff).
-	diffCursor    int
-	diffTop       int
-	diffPath      string
-	diffViewH     int
-	diffRowOff    int
-	diffRowOffAt  DiffLine
-	diffHL        diffHighlighter
-	diffRowsCache diffRowIndex
+	// (cursorRowOff). While diffFreeScroll is set (the wheel moved the view)
+	// diffTop holds as the wheel left it instead of following the cursor.
+	diffCursor     int
+	diffTop        int
+	diffFreeScroll bool
+	diffPath       string
+	diffViewH      int
+	diffRowOff     int
+	diffRowOffAt   DiffLine
+	diffHL         diffHighlighter
+	diffRowsCache  diffRowIndex
 
 	// modal is the open repo/branch/worktree foldout, nil when none is open.
 	modal *modalState
@@ -169,6 +174,7 @@ type Mission struct {
 	historyFileShown   string
 	historyDriverFile  string
 	historyFilesTop    int
+	historyFilesFree   bool
 	hoverHistoryFile   int
 	historyExpanded    bool
 	hoverExpander      bool
@@ -180,6 +186,7 @@ type Mission struct {
 	diffFromStash     bool
 	stashFile         string
 	stashFilesTop     int
+	stashFilesFree    bool
 	hoverStashFile    int
 	hoverStashRestore bool
 	hoverStashDiscard bool
@@ -308,7 +315,8 @@ func (m *Mission) SetModel(raw json.RawMessage) error {
 	// tree changed the same path, but that diff is another tree's, so it
 	// opens at its top, and the other tab's stashed position goes too.
 	if decoded.Current.Worktree != m.model.Current.Worktree {
-		m.diffCursor, m.diffTop, m.diffPath = 0, 0, ""
+		m.diffCursor, m.diffTop, m.diffPath, m.diffFreeScroll = 0, 0, "", false
+		m.changesTop, m.changesFreeScroll = 0, false
 		m.tabDiff = map[string]diffScroll{}
 	}
 	wasShowing := m.stashShowing()
@@ -321,7 +329,7 @@ func (m *Mission) SetModel(raw json.RawMessage) error {
 		}
 		m.tabDiff[tabKey(m.lastTab)] = diffScroll{cursor: m.diffCursor, top: m.diffTop, path: m.diffPath}
 		restored := m.tabDiff[tab]
-		m.diffCursor, m.diffTop, m.diffPath = restored.cursor, restored.top, restored.path
+		m.diffCursor, m.diffTop, m.diffPath, m.diffFreeScroll = restored.cursor, restored.top, restored.path, false
 		// The pointer that hovered the old inactive half now rests on the
 		// active one, and no motion arrives to clear it.
 		m.hoverTab = false
@@ -394,6 +402,7 @@ func (m *Mission) index() int {
 }
 
 func (m *Mission) moveCursor(delta int) {
+	m.changesFreeScroll = false
 	n := len(m.model.Changes)
 	if n == 0 {
 		return
@@ -535,6 +544,7 @@ func (m *Mission) filterKey(v tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		ft := m.filterText
 		m.focus = m.homeFocus()
+		m.changesFreeScroll = false
 		return m, m.em.Emit(protocol.Intent{Name: "mission:select", Payload: mustPayload(selectPayload{Filter: ft})})
 	case "backspace":
 		if r := []rune(m.filterText); len(r) > 0 {
@@ -759,7 +769,12 @@ func (m *Mission) renderChangesList(width, listRegionH int) string {
 	if cursorIdx < 0 {
 		cursorIdx = 0
 	}
-	top, h := picker.Viewport(cursorIdx, m.changesTop, n, listRegionH, listRegionH, 0)
+	var top, h int
+	if m.changesFreeScroll {
+		top, h = picker.FreeWindow(m.changesTop, n, listRegionH)
+	} else {
+		top, h = picker.Viewport(cursorIdx, m.changesTop, n, listRegionH, listRegionH, 0)
+	}
 	m.changesTop = top
 	thumbTop, thumbH := picker.ThumbSpan(top, h, n)
 	thumbOn := lipgloss.NewStyle().Background(theme.Panel)
@@ -1202,16 +1217,10 @@ func (m *Mission) diffHit(diffX, y, paneW int) hit {
 // block (action/keybar) rather than there being nothing left to hit.
 func (m *Mission) modalHitTest(x, y int) hit {
 	ms := m.modal
-	inner := modalInnerWidth(ms, m.width)
-	boxW := inner + 2
-	bx := clampX(segmentOrigin(ms.zone, m.width), boxW, m.width)
-	by := m.layout().topH
-	boxH := m.height - by
-	if x < bx || x >= bx+boxW || y < by || y >= by+boxH {
+	li, boxInnerHeight, inside := m.modalBoxLine(x, y)
+	if !inside {
 		return hit{kind: hitModalOutside}
 	}
-	li := y - by - 1 // -1 for the box's own top border
-	boxInnerHeight := boxH - 2
 	if li < 0 || li >= boxInnerHeight {
 		return hit{}
 	}
@@ -1223,11 +1232,8 @@ func (m *Mission) modalHitTest(x, y int) hit {
 		return hit{}
 	}
 
-	above, below := modalFixedRows(ms)
-	rowRegionH := boxInnerHeight - above - below
-	if rowRegionH < 0 {
-		rowRegionH = 0
-	}
+	above, _ := modalFixedRows(ms)
+	rowRegionH := modalRowRegionHeight(ms, boxInnerHeight)
 	rowLocal := li - above
 	if rowLocal >= 0 && rowLocal < rowRegionH {
 		displayLines := modalDisplayLines(ms)
@@ -1252,6 +1258,29 @@ func (m *Mission) modalHitTest(x, y int) hit {
 		return hit{}
 	}
 	return hit{} // the keybar: no click target
+}
+
+// modalBoxLine is the box's inner line under (x, y), counted below its top
+// border (so -1 and boxInnerHeight are the border rows); inside is false
+// off the box altogether.
+func (m *Mission) modalBoxLine(x, y int) (li, boxInnerHeight int, inside bool) {
+	ms := m.modal
+	boxW := modalInnerWidth(ms, m.width) + 2
+	bx := clampX(segmentOrigin(ms.zone, m.width), boxW, m.width)
+	by := m.layout().topH
+	boxH := m.height - by
+	if x < bx || x >= bx+boxW || y < by || y >= by+boxH {
+		return 0, 0, false
+	}
+	return y - by - 1, boxH - 2, true
+}
+
+// overModalRows reports whether (x, y) is inside the modal's scrollable row
+// region, the band modalHitTest resolves rows in.
+func (m *Mission) overModalRows(x, y int) bool {
+	li, boxInnerHeight, inside := m.modalBoxLine(x, y)
+	above, _ := modalFixedRows(m.modal)
+	return inside && li >= above && li-above < modalRowRegionHeight(m.modal, boxInnerHeight)
 }
 
 // mouseClick dispatches a button press against whatever hitTest resolves it
@@ -1556,18 +1585,18 @@ func (m *Mission) setHover(x, y int) {
 	}
 }
 
-// mouseWheel scrolls whichever pane the pointer sits over: the modal's own
-// cursor (skipping a guarded row, like its keyboard up/down), the diff
-// pane's line cursor, or the Changes list's row cursor, each moving the same
-// cursor the arrow keys do. The History commit list is the exception: the
-// wheel scrolls its view and never its selection (historyScroll). An open
-// menu takes every tick: over its box they scroll a row region too tall to
-// fit, and nowhere do they reach the board beneath it. A modal
-// claims every row like hitTest's own first check; otherwise the tick must
-// land inside the body's Y range (between the topbar and the keybar/notice
-// strip) -- mirroring hitTest's bodyY bound -- or a tick over the
-// keybar/notice row would otherwise nudge a cursor nothing under the pointer
-// owns.
+// mouseWheel scrolls the view of whichever pane the pointer sits over and
+// never moves a cursor or selection, GitHub Desktop's behavior: the modal's
+// row region, the diff pane, the Changes list, the History commit list, the
+// History and stash file columns. A key that moves a cursor afterwards
+// brings the view back to it. An open menu takes every tick: over its
+// box they scroll a row region too tall to fit, and nowhere do they reach
+// the board beneath it. A modal claims every tick like hitTest's own first
+// check, but scrolls only when the pointer is over its row region.
+// Otherwise a tick scrolls only the region under the pointer: nothing on
+// the divider column, the keybar/notice row, the Changes filter and master
+// rows, or the docked commit block. Hover is re-resolved after every scroll, as the
+// rows slide under a pointer that did not move.
 func (m *Mission) mouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
 	var delta int
@@ -1583,27 +1612,31 @@ func (m *Mission) mouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		m.menu.Wheel(mouse.X, mouse.Y, delta)
 		return m, nil
 	}
+	l := m.layout()
 	if m.modal != nil {
-		step := 1
-		if delta < 0 {
-			step = -1
+		if m.overModalRows(mouse.X, mouse.Y) {
+			m.modal.scroll(delta, m.height-l.topH-2)
+			m.setHover(mouse.X, mouse.Y)
 		}
-		m.modal.moveCursor(step)
 		return m, nil
 	}
-	l := m.layout()
 	bodyY := mouse.Y - l.topH
 	if bodyY < 0 || bodyY >= l.bodyH {
 		return m, nil
 	}
-	if mouse.X >= sidebarWidth {
+	if mouse.X == sidebarWidth {
+		return m, nil
+	}
+	if mouse.X > sidebarWidth {
 		switch {
 		case m.historyTab():
-			return m, m.historyWheel(mouse.X-sidebarWidth-1, bodyY, delta)
+			m.historyWheel(mouse.X-sidebarWidth-1, bodyY, delta)
 		case m.stashShowing():
-			return m, m.stashWheel(mouse.X-sidebarWidth-1, bodyY, delta)
+			m.stashWheel(mouse.X-sidebarWidth-1, bodyY, delta)
+		default:
+			m.scrollDiff(delta)
 		}
-		m.moveDiffCursor(delta)
+		m.setHover(mouse.X, mouse.Y)
 		return m, nil
 	}
 	if m.historyTab() {
@@ -1613,5 +1646,11 @@ func (m *Mission) mouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	return m, m.cursorSelectCmd(delta)
+	if bodyY < sidebarFixedTopRows || bodyY >= sidebarFixedTopRows+l.listRegionH {
+		return m, nil
+	}
+	m.changesFreeScroll = true
+	m.changesTop, _ = picker.FreeWindow(m.changesTop+delta, len(m.model.Changes), l.listRegionH)
+	m.setHover(mouse.X, mouse.Y)
+	return m, nil
 }
