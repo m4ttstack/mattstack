@@ -87,7 +87,11 @@ export async function undoCommand(ctx: CliContext): Promise<number> {
       : '';
   const human = result.success
     ? `undone: restored ${result.restoredBranches.join(', ') || 'no branches'}${skippedNote}${result.error ? ` (${result.error})` : ''}`
-    : `undo failed: ${result.error ?? 'unknown error'}`;
+    : `undo failed: ${result.error ?? 'unknown error'}${
+        result.restoredBranches.length > 0
+          ? `; already restored (the stack record is unchanged): ${result.restoredBranches.join(', ')}`
+          : ''
+      }`;
   emit(ctx, human, { ...result, restoredStack, skippedBranches });
   return result.success ? 0 : 1;
 }

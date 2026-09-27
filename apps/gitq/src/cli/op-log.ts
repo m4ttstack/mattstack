@@ -9,8 +9,12 @@ import type { CliContext } from './context.ts';
  * (e.g. not yet created) is simply omitted.
  */
 async function snapshotBranches(cwd: string, stack: Stack): Promise<Record<string, string>> {
+  return headsOf(cwd, [stack.root, ...stack.nodes.map((n) => n.branch)]);
+}
+
+async function headsOf(cwd: string, branchList: string[]): Promise<Record<string, string>> {
   const snapshots: Record<string, string> = {};
-  const branches = new Set<string>([stack.root, ...stack.nodes.map((n) => n.branch)]);
+  const branches = new Set<string>(branchList);
   for (const branch of branches) {
     try {
       snapshots[branch] = await GitShell.getBranchHead(cwd, branch);
@@ -25,8 +29,9 @@ async function snapshotBranches(cwd: string, stack: Stack): Promise<Record<strin
  * Record an operation-log entry around a mutating command.
  *
  * Snapshots the stack's branch heads BEFORE running `fn`, installs the GitShell
- * command hook so every git invocation `fn` makes is captured, then persists the
- * entry once `fn` resolves — but only when `shouldLog(exitCode)` is true
+ * command hook so every git invocation `fn` makes is captured, then records the
+ * same branches' heads again as `resultHeads` and persists the entry once `fn`
+ * resolves — but only when `shouldLog(exitCode)` is true
  * (default: a clean exit `0`). A thrown `fn` never logs. This is the piece that
  * makes `gitq undo`/`gitq log` reflect real operations; without it both are inert.
  *
@@ -53,6 +58,7 @@ export async function withOperationLog(
     setCommandHook(null);
   }
   if (shouldLog(exitCode)) {
+    entry.resultHeads = await headsOf(ctx.repoRoot, Object.keys(snapshots));
     await OperationLog.save(entry).catch(() => {});
   }
   return exitCode;
