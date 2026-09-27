@@ -299,6 +299,9 @@ on hold and list hold first; otherwise set it on take and list take first.
 |---|---|
 | This stack has a parked cascade. Resume it here? | `hold: leave it paused`: another pane owns the pause; this run ends without touching it. `take: resume it here`: the earlier pane is gone; I recover the pause and resolve its conflicts. `iterate: check the lease again`: I re-read the stacks and ask again with your note. `hand back: stop with an error`: I mark the run failed with "stack has a parked cascade owned elsewhere". |
 
+Two iterate rounds spend the budget: the next iterate answer writes the
+error "take-over of the parked cascade not settled after 2 rounds".
+
 ### Recover the pause from the parked lease
 
 Find the stack by `stackName` in `gitq -C <repoPath> stacks --json`'s
@@ -354,7 +357,8 @@ sentence on why the merge cannot be inferred.
 | How should this conflict resolve? | `take: I name the resolution`: you give the merged content, or keep or delete the file, and I apply it. `iterate: try again with a note`: I resolve the file again, steered by your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack and mark the run failed. |
 
 On hand back the error reason is "conflict on <file> needs human judgment:
-<why>".
+<why>". Two iterate rounds spend the budget: the next iterate answer aborts
+the cascade and writes "conflict on <file> not settled after 2 rounds".
 
 ### Apply the human's resolution (sync judgment gate)
 
@@ -381,7 +385,9 @@ to this gate, and `Pause rounds = 2 (sync)?` bounds how often. A new pause
 starts its own count.
 
 On hand back the error reason is "pause on <branch> (commit <i>/<total>)
-will not clear: <files still conflicted>".
+will not clear: <files still conflicted>". Two iterate rounds spend the
+budget: the next iterate answer aborts the cascade and writes "pause on
+<branch> (commit <i>/<total>) not settled after 2 rounds".
 
 ### Apply the human's resolution (sync pause gate)
 
@@ -401,6 +407,10 @@ line on how each resolved, and the current `pauseInfo`.
 | Question | Options (recommended first) |
 |---|---|
 | Twenty conflict pauses so far. Keep going? | `take: keep going for another 20`: I carry on resolving and ask again after 20 more pauses. `iterate: keep going with a note`: I carry on, steered by your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack and mark the run failed. |
+
+On hand back the error reason is "stopped after <n> conflict pauses". Two
+iterate rounds spend the budget: the next iterate answer aborts the cascade
+and writes "conflict pauses past 20 not settled after 2 rounds".
 
 ### sync off-script gate: gitq continue refused
 
@@ -442,16 +452,21 @@ error write's reason is the string the board shows:
   gitq:absorb, which exists for exactly this. Preflight's `report.dirty` is
   only a flag, so read the paths from `git -C <repoPath> status --porcelain`.
 - A hand back at the judgment gate, reason "conflict on <file> needs human
-  judgment: <why>": lay out the conflict and both sides so the human can
-  resolve it by hand.
+  judgment: <why>", or its budget spent, reason "conflict on <file> not
+  settled after 2 rounds": lay out the conflict and both sides so the human
+  can resolve it by hand.
 - A hand back at the pause gate, reason "pause on <branch> (commit
-  <i>/<total>) will not clear: <files still conflicted>": list each attempt
-  and what it tried. A hand back at the twenty-pause gate names the pauses
-  so far.
+  <i>/<total>) will not clear: <files still conflicted>", or its budget
+  spent, reason "pause on <branch> (commit <i>/<total>) not settled after 2
+  rounds": list each attempt and what it tried.
+- A hand back at the twenty-pause gate, reason "stopped after <n> conflict
+  pauses", or its budget spent, reason "conflict pauses past 20 not settled
+  after 2 rounds": name the pauses so far.
 - A hand back at the continue-refused gate, reason "gitq continue refused
   on <branch>: <the gitq: line>": quote any hook output with it.
 - A hand back at the take-over gate, reason "stack has a parked cascade
-  owned elsewhere": quote the lease.
+  owned elsewhere", or its budget spent, reason "take-over of the parked
+  cascade not settled after 2 rounds": quote the lease.
 - A refusal: quote the `gitq:` line.
 
 ### Report the rebased branches and each resolution (sync)
@@ -494,7 +509,7 @@ updated.
 
 | Thought | Reality |
 |---|---|
-| "per step 7, abort the rebase and clear the pause instead of forcing a guessed merge" | An uninferable conflict opens `sync gate: conflict needs human judgment`. The abort runs only on the human's hand back. |
+| "abort the rebase and clear the pause instead of forcing a guessed merge" | An uninferable conflict opens `sync gate: conflict needs human judgment`. The abort runs only on the human's hand back. |
 | "I ran gitq abort rather than guess" | Abort is not the only alternative to guessing: the judgment gate keeps the pause while the human decides. |
 | "the skill requires stopping and asking rather than guessing" | Asking is `gate_ask`, with the pause intact, never a prose ask after an abort. |
 | "skill has no rule for a pre-existing parked lease" | A parked lease on this stack opens `sync gate: take over the parked pause`. |

@@ -206,9 +206,11 @@ holding: nothing is published and nothing is written.
 
 ### Fix what the refusal names (publish)
 
-`gate_ask` refuses a malformed ask: no `context` on a human-owned gate, a
-question over 4 options, a missing field. Fix exactly what the refusal names
-and ask again with the same questions and options.
+`gate_ask` refuses a malformed ask, such as no `context` on a human-owned
+gate or a missing required field. Fix exactly what the refusal names and ask
+again with the same questions and options. A question over 4 options is not
+a refusal: the gate opens as `wait` and reports `formCapExceeded`, so keep
+every question at 4 options or fewer.
 
 ### Ask the same questions in the pane as plain text (publish)
 
@@ -277,6 +279,10 @@ Context, quoted and never trimmed:
 | Question | Options (recommended first) |
 |---|---|
 | Publish this MR chain? | `take: approve and publish`: I run gitq publish with these drafts, pushing new branches and opening or updating their MRs. `iterate: revise the drafts`: I rewrite the titles and descriptions with your note and ask again. `hold: leave it with you`: this run ends with nothing pushed and writes no status. `hand back: do not publish`: nothing is pushed and I mark the run failed as declined at the publish gate; pick this to sync first yourself. |
+
+When `gate_ask` returns `contextOmitted: true`, the drafts did not reach
+the human through the gate, so write every title and description in the
+pane before ending the turn.
 
 Three revision rounds spend the budget: the next iterate answer is written
 as an error ("publish drafts not settled after 3 rounds") and reported.

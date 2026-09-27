@@ -52,7 +52,7 @@ digraph gitq_track {
     "Forge (track)?" [shape=diamond];
     "STOP: Published comes from the forge or reads unknown" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "mr_for_branch {repoName: <repoPath>, branches: [<branch>]}" [shape=plaintext];
-    "gh pr list --head <branch> --state open" [shape=plaintext];
+    "gh pr list --repo <owner/repo> --head <branch> --state open" [shape=plaintext];
     "Forge answered for <branch> (track)?" [shape=diamond];
     "Write unknown in Published for <branch> and say why (track)" [shape=box];
     "Branches left to check (track)?" [shape=diamond];
@@ -137,12 +137,12 @@ digraph gitq_track {
 
     "Fill the Root and Members slots (track)" -> "Forge (track)?" [label="first member"];
     "Forge (track)?" -> "mr_for_branch {repoName: <repoPath>, branches: [<branch>]}" [label="GitLab"];
-    "Forge (track)?" -> "gh pr list --head <branch> --state open" [label="GitHub"];
+    "Forge (track)?" -> "gh pr list --repo <owner/repo> --head <branch> --state open" [label="GitHub"];
     "Forge (track)?" -> "Write unknown in Published for <branch> and say why (track)" [label="forge unreachable"];
     "Forge (track)?" -> "STOP: Published comes from the forge or reads unknown" [label="tempted to write none without asking the forge"];
     "STOP: Published comes from the forge or reads unknown" -> "Forge (track)?";
     "mr_for_branch {repoName: <repoPath>, branches: [<branch>]}" -> "Forge answered for <branch> (track)?";
-    "gh pr list --head <branch> --state open" -> "Forge answered for <branch> (track)?";
+    "gh pr list --repo <owner/repo> --head <branch> --state open" -> "Forge answered for <branch> (track)?";
     "Forge answered for <branch> (track)?" -> "Branches left to check (track)?" [label="yes: Published takes the open iid, or none"];
     "Forge answered for <branch> (track)?" -> "Write unknown in Published for <branch> and say why (track)" [label="no: an error or no answer"];
     "Write unknown in Published for <branch> and say why (track)" -> "Branches left to check (track)?";
@@ -408,7 +408,10 @@ work); say which ones you excluded.
 **Published.** Ask the forge, per branch, whether an open MR/PR already
 exists. `Forge (track)?` reads the forge from the remote's host: GitLab is
 `mr_for_branch` with this repo's path as `repoName`, GitHub is
-`gh pr list --head <branch> --state open`. An open MR/PR gives its iid; an
+`gh pr list --repo <owner/repo> --head <branch> --state open`, with
+`<owner/repo>` read from `<repoPath>`'s origin remote
+(`git -C <repoPath> remote get-url origin`), since `gh` otherwise asks the
+repo of whatever directory it runs in. An open MR/PR gives its iid; an
 answer that lists none gives "none".
 
 On an iterate answer from `track gate: confirm the parents`, reassess with

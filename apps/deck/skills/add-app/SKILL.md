@@ -114,25 +114,26 @@ digraph deck_add_app {
     "Public edge torn down (deck)" [shape=doublecircle];
 
     "deck status (teardown)" [shape=plaintext];
-    "add-app gate: confirm the teardown" [shape=box];
+    "deck gate: confirm the teardown" [shape=box];
     "Teardown answer (deck)?" [shape=diamond];
     "Teardown rounds = 2 (deck)?" [shape=diamond];
     "Held (deck): the teardown waits on the user" [shape=doublecircle];
     "Row to remove (deck)?" [shape=diamond];
     "STOP: never remove deck's own row; it stops the platform" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Tell the user deck's own row is never removed (deck)" [shape=box];
-    "Teardown refused: deck's own row kept (deck)" [shape=doublecircle];
     "deck remove <name>" [shape=plaintext];
     "deck remove result (deck)?" [shape=diamond];
     "STOP: a 409 is relayed verbatim, never forced" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Relay the 409 message verbatim (deck)" [shape=box];
-    "409 relayed: another registrar owns the app (deck)" [shape=doublecircle];
-    "App removed (deck)" [shape=doublecircle];
     "deck off-script gate: deck remove refused" [shape=box];
     "Remove answer (deck)?" [shape=diamond];
     "Remove rounds = 2 (deck)?" [shape=diamond];
     "deck remove <name> --force" [shape=plaintext];
     "Forced remove result (deck)?" [shape=diamond];
+    "Rows left to remove (deck)?" [shape=diamond];
+    "Domain listed for unbind (deck)?" [shape=diamond];
+    "Report the teardown (deck)" [shape=box];
+    "Teardown finished (deck)" [shape=doublecircle];
 
     "Held (deck): nothing changed after the refusal" [shape=doublecircle];
     "Report the refusal to the user (deck)" [shape=box];
@@ -292,26 +293,26 @@ digraph deck_add_app {
     "Forced unbind result (deck)?" -> "Public edge torn down (deck)" [label="torn down"];
     "Forced unbind result (deck)?" -> "Report the refusal to the user (deck)" [label="refused or errored"];
 
-    "deck status (teardown)" -> "add-app gate: confirm the teardown";
-    "add-app gate: confirm the teardown" -> "Teardown answer (deck)?";
+    "deck status (teardown)" -> "deck gate: confirm the teardown";
+    "deck gate: confirm the teardown" -> "Teardown answer (deck)?";
     "Teardown answer (deck)?" -> "Row to remove (deck)?" [label="take: remove exactly the listed rows and unbind the listed domain"];
     "Teardown answer (deck)?" -> "Teardown rounds = 2 (deck)?" [label="iterate: the user edits the list"];
     "Teardown answer (deck)?" -> "Held (deck): the teardown waits on the user" [label="hold"];
     "Teardown answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
-    "Teardown rounds = 2 (deck)?" -> "add-app gate: confirm the teardown" [label="no"];
+    "Teardown rounds = 2 (deck)?" -> "deck gate: confirm the teardown" [label="no"];
     "Teardown rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
 
     "Row to remove (deck)?" -> "deck remove <name>" [label="the user's app"];
     "Row to remove (deck)?" -> "Tell the user deck's own row is never removed (deck)" [label="deck's own row"];
     "Row to remove (deck)?" -> "STOP: never remove deck's own row; it stops the platform" [label="tempted to remove deck's own row anyway"];
-    "Tell the user deck's own row is never removed (deck)" -> "Teardown refused: deck's own row kept (deck)";
+    "Tell the user deck's own row is never removed (deck)" -> "Rows left to remove (deck)?";
     "deck remove <name>" -> "deck remove result (deck)?";
-    "deck remove result (deck)?" -> "App removed (deck)" [label="removed"];
+    "deck remove result (deck)?" -> "Rows left to remove (deck)?" [label="removed"];
     "deck remove result (deck)?" -> "Relay the 409 message verbatim (deck)" [label="409: another registrar owns the app"];
     "deck remove result (deck)?" -> "deck off-script gate: deck remove refused" [label="any other refusal or error"];
     "deck remove result (deck)?" -> "STOP: a 409 is relayed verbatim, never forced" [label="tempted to force past the 409"];
     "STOP: a 409 is relayed verbatim, never forced" -> "Relay the 409 message verbatim (deck)";
-    "Relay the 409 message verbatim (deck)" -> "409 relayed: another registrar owns the app (deck)";
+    "Relay the 409 message verbatim (deck)" -> "Rows left to remove (deck)?";
     "deck off-script gate: deck remove refused" -> "Remove answer (deck)?";
     "Remove answer (deck)?" -> "deck remove <name> --force" [label="take: the user asked for --force"];
     "Remove answer (deck)?" -> "Remove rounds = 2 (deck)?" [label="iterate: a note to try again"];
@@ -320,9 +321,14 @@ digraph deck_add_app {
     "Remove rounds = 2 (deck)?" -> "deck remove <name>" [label="no: remove again with the note"];
     "Remove rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
     "deck remove <name> --force" -> "Forced remove result (deck)?";
-    "Forced remove result (deck)?" -> "App removed (deck)" [label="removed"];
+    "Forced remove result (deck)?" -> "Rows left to remove (deck)?" [label="removed"];
     "Forced remove result (deck)?" -> "Relay the 409 message verbatim (deck)" [label="409: another registrar owns the app"];
     "Forced remove result (deck)?" -> "Report the refusal to the user (deck)" [label="refused or errored"];
+    "Rows left to remove (deck)?" -> "Row to remove (deck)?" [label="yes: the next confirmed row"];
+    "Rows left to remove (deck)?" -> "Domain listed for unbind (deck)?" [label="no: every confirmed row walked"];
+    "Domain listed for unbind (deck)?" -> "deck domain unbind" [label="yes"];
+    "Domain listed for unbind (deck)?" -> "Report the teardown (deck)" [label="no"];
+    "Report the teardown (deck)" -> "Teardown finished (deck)";
 
     "Report the refusal to the user (deck)" -> "Handed back to the user (deck)";
 }
@@ -547,6 +553,9 @@ can bind:
 4. The deck secrets `cfZoneId` and `cfDnsToken`, the second a Cloudflare
    token with Zone.DNS:Edit.
 
+The tunnel is one wildcard per domain, so a request for `notes.example.dev`
+binds the wildcard on `example.dev`, never the full hostname.
+
 Check each one you can read: `cloudflared` on PATH, the cert file for the
 login, and `rt secrets list deck` for the two secret names (it prints names
 only, never values). Treat the zone as present unless the user says
@@ -617,7 +626,7 @@ it names as going offline.
 |---|---|
 | deck domain unbind refused. What next? | `hold: leave it with you`: this run ends with the edge still up. `take: force the unbind`: you ask for it, and I run deck domain unbind with --force. `iterate: unbind again with a note`: I act on your note, then run deck domain unbind again. `hand back: stop and report`: I report the refusal and the apps it names. |
 
-### add-app gate: confirm the teardown
+### deck gate: confirm the teardown
 
 Opens once `deck status (teardown)` runs, before any row is touched, and
 again after each iterate round.
@@ -626,7 +635,9 @@ Context, quoted and never trimmed: every row `deck status` shows except
 deck's own rows `deck` and `local`, the bound domain `deck domain` reports
 (or none), and what each removal does: `deck remove <name>` unregisters
 that row, and `deck domain unbind` tears down the public edge and takes
-every published app offline.
+every published app offline. The context also says, in these words:
+"deck's own rows stay; removing deck itself is your `deck uninstall`, run
+after this teardown finishes".
 
 Recommended is `take` when the user's request already named the exact
 rows and domain to remove; otherwise it is `iterate`, since a broad
@@ -653,7 +664,8 @@ and so comes only after this teardown finishes. The agent never runs it.
 A 409 from `deck remove` means another registrar owns the app. The CLI shows
 it only as the message naming the app's owner, with no status code, so
 recognize it by that message. Relay it word for word, since it names the
-command that owner uses, and never retry with `--force`.
+command that owner uses, and never retry with `--force`. The row stays
+registered, and the teardown moves on to the next confirmed row.
 
 ### deck off-script gate: deck remove refused
 
@@ -666,6 +678,19 @@ Context, quoted and never trimmed: deck's refusal text.
 | Question | Options (recommended first) |
 |---|---|
 | deck remove refused. What next? | `hold: leave it with you`: this run ends with the app still registered. `take: force the remove`: you ask for it, and I run deck remove with --force. `iterate: remove again with a note`: I act on your note, then run deck remove again. `hand back: stop and report`: I report the refusal and what was tried. |
+
+### Report the teardown (deck)
+
+Reached once every confirmed row has been walked and the confirmed list
+names no domain to unbind. The per-row loop is bounded by that list:
+`Rows left to remove (deck)?` answers yes only for a confirmed row not yet
+walked, so each row is walked once and nothing outside the list is touched.
+
+Report each confirmed row and what happened to it: removed, kept as deck's
+own row, or kept because another registrar owns it (with the 409 message
+verbatim). Then restate that deck's own rows stay, and that removing deck
+itself is the user's `deck uninstall`, run in their own terminal now that
+this teardown has finished.
 
 ### Report the refusal to the user (deck)
 
@@ -687,13 +712,22 @@ changed beyond what the report names.
 - Deck's `migrate` exists to clean up hand-written plists and portless
   aliases. That is why none are ever written, even when deck refuses or is
   missing.
-- A teardown covering several apps walks the teardown path once per row,
-  and a request that covers the public edge walks the unbind branch for it.
-  Deck's own row always reaches the tell box, never `deck remove`.
+- A teardown walks `Row to remove (deck)?` once per row on the confirmed
+  list, and `Rows left to remove (deck)?` ends the loop when the list is
+  used up, so the list bounds it. A list that names the domain then walks
+  the unbind branch once. Deck's own row always reaches the tell box, never
+  `deck remove`.
+- A teardown that unbinds ends where the unbind branch ends, not at
+  `Report the teardown (deck)`, so its closing message carries that
+  section's report: each row's result and the `deck uninstall` pointer.
+- When `Domain bound for access (deck)?` answers no, the run binds a domain
+  first and ends in the domain flow. Its closing message tells the user to
+  ask for the access move again once the domain is bound.
+- A registered supervised app already starts at login: the plists deck
+  writes carry `RunAtLoad`, so nothing more is needed for that.
 - Each counter counts per run: repair attempts, each gate's rounds, and the
-  take counters. A
-  counter diamond's `yes` edge is taken once its count has reached the
-  number.
+  take counters. A counter diamond's `yes` edge is taken once its count has
+  reached the number.
 
 ## Rationalizations
 
@@ -703,7 +737,7 @@ changed beyond what the report names.
 | "the skill gives no troubleshooting path for a registration-time allocator conflict" | The register gate is that path: quote the refusal, and the user frees the port or answers iterate. |
 | "the one-time, browser-based login the skill lists as a prereq for the tunnel" | The tunnel login is the user's step, in the prereq hand-over list. |
 | "Reply to [the user] in chat, not as a command" | The prereq hand-over is the reply. A token pasted in chat is never passed to `rt secrets set`; the user runs it. |
-| "(per the skill's Teardown section) to tear it down" | Teardown is `Row to remove (deck)?` once per row. Deck's own row reaches the tell box, never `deck remove`. |
-| "rather than have me guess" | Keeping deck's row is an outcome, not an open question. A refused remove goes to its gate. |
+| "to tear it down" | Teardown is the confirm gate, then `Row to remove (deck)?` once per confirmed row. Deck's own row reaches the tell box, never `deck remove`. |
+| "rather than have me guess" | Keeping deck's row is settled, not an open question: the tell box says so and the loop moves on. A refused remove goes to its gate. |
 | "pending the human's confirmation on how to proceed" | A question to the user is `gate_ask`, per `Asking the human`, never a prose "pending confirmation". |
 | "The request says everything, so I remove every row now." | The confirm gate lists the rows and the domain first; the user answers before anything is removed. |

@@ -469,7 +469,9 @@ be inferred.
 | How should this conflict resolve? | `take: I name the resolution`: you give the merged content, or keep or delete the file, and I apply it. `iterate: try again with a note`: I resolve the file again, steered by your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack, skip the rest of the plan and mark the run failed. |
 
 On hand back the error reason is "conflict on <file> needs human judgment:
-<why>".
+<why>". Two iterate rounds spend the budget: the next iterate answer aborts
+the cascade, skips the rest of the plan and writes "conflict on <file> not
+settled after 2 rounds".
 
 ### Apply the human's resolution (restructure judgment gate)
 
@@ -488,6 +490,18 @@ on what was tried.
 | Question | Options (recommended first) |
 |---|---|
 | This pause keeps coming back. What next? | `take: I name the resolution`: you give the content for the files still conflicted, and I apply it. `iterate: try again with a note`: I resolve the files again, steered by your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack, skip the rest of the plan and mark the run failed. |
+
+An iterate does not restart the resolve-attempt count: this pause's count
+stays at 3, so when the next continue re-pauses on the same branch and
+commit, or unmerged paths survive staging again, the run comes straight back
+to this gate, and `Pause rounds = 2 (restructure)?` bounds how often. A new
+pause starts its own count.
+
+On hand back the error reason is "pause on <branch> (commit <i>/<total>)
+will not clear: <files still conflicted>". Two iterate rounds spend the
+budget: the next iterate answer aborts the cascade, skips the rest of the
+plan and writes "pause on <branch> (commit <i>/<total>) not settled after 2
+rounds".
 
 ### Apply the human's resolution (restructure pause gate)
 
@@ -509,6 +523,11 @@ of each pause so far with one line on how each resolved, and the current
 |---|---|
 | Twenty conflict pauses so far. Keep going? | `take: keep going for another 20`: I carry on resolving and ask again after 20 more pauses. `iterate: keep going with a note`: I carry on, steered by your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack, skip the rest of the plan and mark the run failed. |
 
+On hand back the error reason is "stopped after <n> conflict pauses". Two
+iterate rounds spend the budget: the next iterate answer aborts the cascade,
+skips the rest of the plan and writes "conflict pauses past 20 not settled
+after 2 rounds".
+
 ### restructure off-script gate: gitq continue refused
 
 Opens when `gitq continue` exits 1: a `gitq:` refusal, or the rebase's
@@ -521,6 +540,11 @@ Context: the `gitq:` stderr line verbatim, plus any hook output it printed.
 | Question | Options (recommended first) |
 |---|---|
 | gitq continue refused. What next? | `take: fixed it, run again`: you fixed what the refusal names, and I run the continue again. `iterate: run again with a note`: I run the continue again after acting on your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack, skip the rest of the plan and mark the run failed. |
+
+A hold reaches `Held (restructure): cascade paused for the human`: the pause
+stays in `<rebaseDir>` for the human, and the operations after it do not
+run. On hand back the error reason is "gitq continue refused on <branch>:
+<the gitq: line>".
 
 ### Report the new tree shape (restructure)
 
@@ -540,8 +564,10 @@ only a logged `reparent` can be walked back with `gitq undo`.
 | hand back at the instruction gate, or its rounds spent | "no clear restructure instruction", or "restructure instruction still unclear after 2 rounds"; nothing ran |
 | hand back at the plan gate, or its rounds spent | "declined at the plan gate", or "restructure plan not settled after 3 rounds"; the last plan, and, when the gate reopened mid-run, the operations already run, which stay applied |
 | refusal handed back, or its budget spent | the `gitq:` stderr line; for an upfront reparent refusal, that the stack needs a sync first (gitq:sync) |
-| hand back at a conflict gate, or its rounds spent | "conflict on <file> needs human judgment: <why>" for the judgment gate, else the pause and why it would not settle; the conflict and both sides, so the human can resolve it by hand |
-| continue refused, handed back or budget spent | the `gitq:` stderr line and any hook output |
+| hand back at the judgment gate, or its rounds spent | "conflict on <file> needs human judgment: <why>", or "conflict on <file> not settled after 2 rounds"; the conflict and both sides, so the human can resolve it by hand |
+| hand back at the pause gate, or its rounds spent | "pause on <branch> (commit <i>/<total>) will not clear: <files still conflicted>", or "pause on <branch> (commit <i>/<total>) not settled after 2 rounds"; each attempt and what it tried |
+| hand back at the twenty-pause gate, or its rounds spent | "stopped after <n> conflict pauses", or "conflict pauses past 20 not settled after 2 rounds"; the pauses so far |
+| continue refused, handed back or budget spent | "gitq continue refused on <branch>: <the gitq: line>" on hand back; the `gitq:` stderr line and any hook output |
 
 After an abort, the reparent that paused is started but not finished: its
 cascade stopped at the paused branch, and a paused reparent is not in the
@@ -569,14 +595,16 @@ operation log, so `gitq undo` cannot walk it back.
   `error` write, so the board badge never sticks. On a hold, tell the human
   in the pane what is waiting on them and which operations ran. At the
   instruction gate nothing ran; at the plan gate nothing ran unless it
-  reopened mid-run, and then the operations already run stay applied. At the refusal gate, quote the
-  `gitq:` line. When a cascade is paused, say where it sits (`<rebaseDir>`,
-  branch, conflicted files) and that the operations after it did not run;
-  gitq:sync takes over a parked pause on this stack.
+  reopened mid-run, and then the operations already run stay applied. At
+  the refusal gate, quote the `gitq:` line. When a cascade is paused, say
+  where it sits (`<rebaseDir>`, branch, conflicted files) and that the
+  operations after it did not run; gitq:sync takes over a parked pause on
+  this stack.
 
 ## Rationalizations
 
 | Thought | Reality |
 |---|---|
-| "the human stepping away does not block this report or the status write, since Step 5's exit-1 handling is not the gate-wait case that would leave the pane silently holding" | An exit 1 opens `restructure off-script gate: a gitq operation refused`. A human who is away leaves the pane holding at that gate; the error is written only on hand back or a spent budget. |
+| "the human stepping away does not block this report or the status write" | An exit 1 opens `restructure off-script gate: a gitq operation refused`. A human who is away leaves the pane holding at that gate; the error is written only on hand back or a spent budget. |
 | "this is a plain status report, not a gate question, so it does not require the human to be present to answer anything" | Whether to fix and run again or stop is the human's question, asked with `gate_ask`. The refused operation and the rest of the plan wait at the gate. |
+| "They said keep it moving, I'm in a meeting, so I answer the gate for them" | A remark in the pane before any gate opened is not an answer to a gate. Open it through `gate_ask` and act only on the answer it records. |
