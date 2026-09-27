@@ -258,9 +258,11 @@ reads that answer as the gate's.
 
 ### Fix what the refusal names (sync)
 
-`gate_ask` refuses a malformed ask: no `context` on a human-owned gate, a
-question over 4 options, a missing field. Fix exactly what the refusal names
-and ask again with the same questions and options.
+`gate_ask` refuses a malformed ask, such as no `context` on a human-owned
+gate or a missing required field. Fix exactly what the refusal names and ask
+again with the same questions and options. A question over 4 options is not
+a refusal: the gate opens as `wait` and reports `formCapExceeded`, so keep
+every question at 4 options or fewer.
 
 ### Ask the same questions in the pane as plain text (sync)
 
@@ -283,9 +285,12 @@ Context: the lease's worktree `path`, its paused `branch`, the unmerged
 lines from `git -C <path> status --porcelain`, and any open gate on this
 stack from `gate_list {open: true}`, quoted.
 
+When `gate_list` shows an open gate on this stack, set `recommended: true`
+on hold and list hold first; otherwise set it on take and list take first.
+
 | Question | Options (recommended first) |
 |---|---|
-| This stack has a parked cascade. Resume it here? | `hold: leave it paused`: another pane owns the pause; this run ends without touching it. (Recommend this first when `gate_list` shows an open gate on this stack.) `take: resume it here`: the earlier pane is gone; I recover the pause and resolve its conflicts. (Recommend this first when no gate is open.) `iterate: check the lease again`: I re-read the stacks and ask again with your note. `hand back: stop with an error`: I mark the run failed as a parked cascade owned elsewhere. |
+| This stack has a parked cascade. Resume it here? | `hold: leave it paused`: another pane owns the pause; this run ends without touching it. `take: resume it here`: the earlier pane is gone; I recover the pause and resolve its conflicts. `iterate: check the lease again`: I re-read the stacks and ask again with your note. `hand back: stop with an error`: I mark the run failed with "stack has a parked cascade owned elsewhere". |
 
 ### Recover the pause from the parked lease
 
@@ -304,6 +309,8 @@ until `gitq continue` returns a `pauseInfo`.
 
 ### Resolve the next conflicted file in <rebaseDir> (sync)
 
+After `Recover the pause from the parked lease`, `<rebaseDir>` is the
+lease's `path` until `gitq continue` returns a `pauseInfo`. Otherwise
 `<rebaseDir>` is `pauseInfo.worktreePath` (a gitq work slot), else
 `pauseInfo.treePath`, else `<repoPath>` only when both are absent. The
 launch worktree is not where the rebase is; never resolve there.
@@ -321,8 +328,10 @@ When both sides rewrote the same logic to different ends and the merged
 behavior cannot be read from the code, that is the judgment gate, never a
 guess and never an abort.
 
-A note from a gate's iterate answer steers the next attempt on the files it
-names.
+When a gate's take answer named this file's content, or keeping or
+deleting it, that is the resolution: write it as given and go straight to
+staging, without merging on top of it. A note from a gate's iterate answer
+steers the next attempt on the files it names.
 
 ### sync gate: conflict needs human judgment
 
@@ -336,6 +345,9 @@ sentence on why the merge cannot be inferred.
 | Question | Options (recommended first) |
 |---|---|
 | How should this conflict resolve? | `take: I name the resolution`: you give the merged content, or keep or delete the file, and I apply it. `iterate: try again with a note`: I resolve the file again, steered by your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack and mark the run failed. |
+
+On hand back the error reason is "conflict on <file> needs human judgment:
+<why>".
 
 ### Apply the human's resolution (sync judgment gate)
 
@@ -402,14 +414,19 @@ Context: the `gitq:` stderr line verbatim, or the failing JSON entry.
 
 ### Report the failure to the human (sync)
 
-Say why the run stopped, in the words of the reason just written:
+Say why the run stopped, in the words of the reason just written. The
+error write's reason is the string the board shows:
 
-- A dirty launch worktree: tell the human to commit or stash first, or run
-  gitq:absorb, which exists for exactly this.
-- A hand back after the abort: lay out the conflict and both sides so the
-  human can resolve it by hand.
-- A parked cascade owned elsewhere, or a refusal: quote the lease or the
-  `gitq:` line.
+- A dirty launch worktree, reason "worktree has uncommitted changes": tell
+  the human to commit or stash first, or run gitq:absorb, which exists for
+  exactly this.
+- A hand back at the judgment gate, reason "conflict on <file> needs human
+  judgment: <why>": lay out the conflict and both sides so the human can
+  resolve it by hand. A hand back at the other conflict gates names the
+  pause and why it would not settle.
+- A hand back at the take-over gate, reason "stack has a parked cascade
+  owned elsewhere": quote the lease.
+- A refusal: quote the `gitq:` line.
 
 ### Report the rebased branches and each resolution (sync)
 
@@ -433,26 +450,31 @@ updated.
   touched; gitq never rebases it and neither do you.
 - `gitq preflight --json` takes no `--stack`: it reports every tracked
   stack, so find this stack's entry by `stackName` in its `stacks` array.
-  Predicted conflicts are information only.
+  That entry's `report.dirty` is the dirty launch worktree edge. Predicted
+  conflicts are information only.
 - A pause is one `currentBranch` plus `commitIndex`. Resolve attempts count
   per pause and restart on a new one; conflict pauses count per run. Each
   gate's rounds and each `Runs after` counter count per gate. A counter
   diamond's `yes` edge is taken once its count has reached the number.
-- Every path but a hold ends through a `done` or `error` write, so the board
-  badge never sticks. On a hold, tell the human in the pane where the
-  cascade sits (`<rebaseDir>`, branch, conflicted files); running the sync
-  again reaches the take-over gate and resumes it.
+- Every path but a hold or the missing-gitq stop ends through a `done` or
+  `error` write, so the board badge never sticks. On a hold, tell the human
+  in the pane what is waiting on them. When a cascade is paused, that is
+  where it sits (`<rebaseDir>`, branch, conflicted files), and running the
+  sync again reaches the take-over gate and resumes it. When `gitq sync`
+  itself refused, no cascade exists: quote the refusal, and running the
+  sync again starts fresh once it is fixed.
 
 ## Rationalizations
 
 | Thought | Reality |
 |---|---|
-| "I can't infer the merge, so I abort rather than guess." | An uninferable conflict opens `sync gate: conflict needs human judgment`. The abort runs only on the human's hand back. |
-| "This needs a human decision, so I stop and ask in prose." | The human decides through the gate, with the pause still intact. A prose ask after an abort throws the pause away. |
-| "The skill has no rule for a parked lease, so I stop." | A parked lease on this stack opens `sync gate: take over the parked pause`. |
-| "gitq will handle the parked pause if I just run sync." | The lease is checked with `gitq stacks` before any sync; `gitq sync` over a parked lease refuses. |
-| "I did not pause this rebase, so I hand it back." | Who owns the pause is the take-over gate's question, and the human answers it. |
-| "The human asked for the PRs updated, so that is consent to push." | Sync never pushes. The report names `gitq push` as the human's next move. |
-| "Exit 1 only calls for marking error and reporting." | A refusal opens its own off-script gate; the human fixes it and answers take. |
-| "Fixing a hook or lint failure is outside this skill, so I stop." | Right, you do not fix it: the continue-refused gate hands the fix to the human and keeps the cascade. |
-| "The gate tools are a distractor; this skill never asks for them." | Every question to the human is `gate_ask`, per `Asking the human`. |
+| "per step 7, abort the rebase and clear the pause instead of forcing a guessed merge" | An uninferable conflict opens `sync gate: conflict needs human judgment`. The abort runs only on the human's hand back. |
+| "I ran gitq abort rather than guess" | Abort is not the only alternative to guessing: the judgment gate keeps the pause while the human decides. |
+| "the skill requires stopping and asking rather than guessing" | Asking is `gate_ask`, with the pause intact, never a prose ask after an abort. |
+| "skill has no rule for a pre-existing parked lease" | A parked lease on this stack opens `sync gate: take over the parked pause`. |
+| "I'd expect gitq to report this as its own pause state" | The lease is checked with `gitq stacks` before any sync; `gitq sync` over a parked lease refuses. |
+| "never do so for a rebase I did not pause and do not own" | Who owns the pause is the take-over gate's question, and the human answers it. |
+| "I would treat that as consent to proceed rather than stop and re-ask" | Sync never pushes, whatever the launch message asked. The report names `gitq push` as the human's next move. |
+| "the skill's exit-1 handling only calls for marking error and reporting" | A refusal opens its own off-script gate; the human fixes it and answers take. |
+| "fixing application/lint issues is outside what this skill's steps describe" | Right, you do not fix it: the continue-refused gate hands the fix to the human and keeps the cascade. |
+| "The tools being present is a distractor" | Every question to the human is `gate_ask`, per `Asking the human`. |
