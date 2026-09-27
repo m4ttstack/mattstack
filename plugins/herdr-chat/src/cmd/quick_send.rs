@@ -81,15 +81,25 @@ fn targets(
             detail: None,
         })
         .collect();
-    out.extend(buddies.into_iter().map(|b| {
-        let detail = details.get(&b.handle).cloned();
-        TargetRow {
-            label: b.display_name().to_string(),
-            sigil: '@',
-            target: Target::Dm(b.handle),
-            detail,
-        }
-    }));
+    let live_names: std::collections::HashSet<String> = buddies
+        .iter()
+        .filter(|b| b.status != "offline")
+        .map(|b| b.display_name().to_string())
+        .collect();
+    out.extend(
+        buddies
+            .into_iter()
+            .filter(|b| b.status != "offline" || !live_names.contains(b.display_name()))
+            .map(|b| {
+                let detail = details.get(&b.handle).cloned();
+                TargetRow {
+                    label: b.display_name().to_string(),
+                    sigil: '@',
+                    target: Target::Dm(b.handle),
+                    detail,
+                }
+            }),
+    );
     out
 }
 
@@ -535,6 +545,47 @@ mod tests {
             r#"{"ok":true,"panes":[]}"#,
         ]);
         assert_eq!(targets_json(&r).unwrap().people, vec!["@remy"]);
+    }
+
+    /// A signed-out identity's row is dropped when a live one holds its name,
+    /// so the popup never shows two identical rows for the one name.
+    #[test]
+    fn the_popup_lists_one_row_per_name() {
+        let buddies = vec![
+            rt::Buddy {
+                handle: "remy.0001".to_string(),
+                name: Some("remy".to_string()),
+                status: "offline".to_string(),
+                session_id: None,
+                pane: None,
+                rooms: Vec::new(),
+            },
+            rt::Buddy {
+                handle: "remy.k3f9".to_string(),
+                name: Some("remy".to_string()),
+                status: "live".to_string(),
+                session_id: None,
+                pane: None,
+                rooms: Vec::new(),
+            },
+            rt::Buddy {
+                handle: "meg".to_string(),
+                name: None,
+                status: "idle".to_string(),
+                session_id: None,
+                pane: None,
+                rooms: Vec::new(),
+            },
+        ];
+        let rows = targets(vec![], buddies, &std::collections::HashMap::new());
+        let got: Vec<Target> = rows.into_iter().map(|r| r.target).collect();
+        assert_eq!(
+            got,
+            vec![
+                Target::Dm("remy.k3f9".to_string()),
+                Target::Dm("meg".to_string()),
+            ]
+        );
     }
 
     #[test]
