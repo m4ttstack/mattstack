@@ -113,6 +113,11 @@ digraph deck_add_app {
     "Forced unbind result (deck)?" [shape=diamond];
     "Public edge torn down (deck)" [shape=doublecircle];
 
+    "deck status (teardown)" [shape=plaintext];
+    "add-app gate: confirm the teardown" [shape=box];
+    "Teardown answer (deck)?" [shape=diamond];
+    "Teardown rounds = 2 (deck)?" [shape=diamond];
+    "Held (deck): the teardown waits on the user" [shape=doublecircle];
     "Row to remove (deck)?" [shape=diamond];
     "STOP: never remove deck's own row; it stops the platform" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Tell the user deck's own row is never removed (deck)" [shape=box];
@@ -145,7 +150,7 @@ digraph deck_add_app {
     "What does the user want (deck)?" -> "Visibility move (deck)?" [label="visibility"];
     "What does the user want (deck)?" -> "deck domain" [label="public domain"];
     "What does the user want (deck)?" -> "deck status" [label="something wrong"];
-    "What does the user want (deck)?" -> "Row to remove (deck)?" [label="teardown"];
+    "What does the user want (deck)?" -> "deck status (teardown)" [label="teardown"];
 
     "mattstack.deck.json in the app (deck)?" -> "deck register --dir <appDir>" [label="yes"];
     "mattstack.deck.json in the app (deck)?" -> "Manifest or quick add (deck)?" [label="no"];
@@ -286,6 +291,15 @@ digraph deck_add_app {
     "deck domain unbind --force" -> "Forced unbind result (deck)?";
     "Forced unbind result (deck)?" -> "Public edge torn down (deck)" [label="torn down"];
     "Forced unbind result (deck)?" -> "Report the refusal to the user (deck)" [label="refused or errored"];
+
+    "deck status (teardown)" -> "add-app gate: confirm the teardown";
+    "add-app gate: confirm the teardown" -> "Teardown answer (deck)?";
+    "Teardown answer (deck)?" -> "Row to remove (deck)?" [label="take: remove exactly the listed rows and unbind the listed domain"];
+    "Teardown answer (deck)?" -> "Teardown rounds = 2 (deck)?" [label="iterate: the user edits the list"];
+    "Teardown answer (deck)?" -> "Held (deck): the teardown waits on the user" [label="hold"];
+    "Teardown answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
+    "Teardown rounds = 2 (deck)?" -> "add-app gate: confirm the teardown" [label="no"];
+    "Teardown rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
 
     "Row to remove (deck)?" -> "deck remove <name>" [label="the user's app"];
     "Row to remove (deck)?" -> "Tell the user deck's own row is never removed (deck)" [label="deck's own row"];
@@ -603,11 +617,36 @@ it names as going offline.
 |---|---|
 | deck domain unbind refused. What next? | `hold: leave it with you`: this run ends with the edge still up. `take: force the unbind`: you ask for it, and I run deck domain unbind with --force. `iterate: unbind again with a note`: I act on your note, then run deck domain unbind again. `hand back: stop and report`: I report the refusal and the apps it names. |
 
+### add-app gate: confirm the teardown
+
+Opens once `deck status (teardown)` runs, before any row is touched, and
+again after each iterate round.
+
+Context, quoted and never trimmed: every row `deck status` shows except
+deck's own rows `deck` and `local`, the bound domain `deck domain` reports
+(or none), and what each removal does: `deck remove <name>` unregisters
+that row, and `deck domain unbind` tears down the public edge and takes
+every published app offline.
+
+Recommended is `take` when the user's request already named the exact
+rows and domain to remove; otherwise it is `iterate`, since a broad
+request like "everything" needs the edited, confirmed list before
+anything is removed.
+
+Take and iterate share one budget: both pass `Teardown rounds = 2 (deck)?`,
+and the second spent round is reported instead of retried.
+
+| Question | Options (recommended first) |
+|---|---|
+| Remove these rows and unbind this domain? | `take: remove the listed rows`: I run deck remove on exactly the rows named and deck domain unbind for exactly the domain named, nothing else. `iterate: edit the list`: you add, drop or correct a row or the domain, and I gate again with the updated list. `hold: leave it with you`: this run ends with nothing removed. `hand back: stop and report`: I report the list and remove nothing. |
+
 ### Tell the user deck's own row is never removed (deck)
 
 Deck's own rows are `deck` and the legacy `local`. Each shares the
 supervisor's launchd label, so removing it stops the platform. Say that the
-row stays and why, and offer nothing in its place.
+row stays and why: removing deck itself is the user's own step, `deck
+uninstall` in their own terminal, which refuses while other records exist
+and so comes only after this teardown finishes. The agent never runs it.
 
 ### Relay the 409 message verbatim (deck)
 
@@ -667,3 +706,4 @@ changed beyond what the report names.
 | "(per the skill's Teardown section) to tear it down" | Teardown is `Row to remove (deck)?` once per row. Deck's own row reaches the tell box, never `deck remove`. |
 | "rather than have me guess" | Keeping deck's row is an outcome, not an open question. A refused remove goes to its gate. |
 | "pending the human's confirmation on how to proceed" | A question to the user is `gate_ask`, per `Asking the human`, never a prose "pending confirmation". |
+| "The request says everything, so I remove every row now." | The confirm gate lists the rows and the domain first; the user answers before anything is removed. |
