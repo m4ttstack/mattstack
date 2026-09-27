@@ -136,6 +136,40 @@ test('the filter matches name, workspace, title, repo and path', async () => {
   ).toEqual(['pane-row-w1:p3']);
 });
 
+test('the filter finds a pane by its id as well as its name', async () => {
+  route({
+    'GET /api/panes': () =>
+      json({
+        available: true,
+        panes: [
+          ...PANES,
+          {
+            paneId: 'w1:p5',
+            workspace: 'rt',
+            title: 'remy',
+            cwd: '/r/rt',
+            repo: 'rt',
+            branch: 'main',
+            agentStatus: 'idle',
+            presence: {
+              handle: 'remy.m2p4',
+              name: 'remy',
+              status: 'live',
+              rooms: ['rt'],
+            },
+          },
+        ],
+      }),
+  });
+  mount();
+  await userEvent.click(screen.getByText('open'));
+  await screen.findAllByTestId(/^pane-row-/);
+  await userEvent.type(screen.getByTestId('pane-filter'), 'm2p4');
+  expect(
+    screen.getAllByTestId(/^pane-row-/).map(r => r.getAttribute('data-testid'))
+  ).toEqual(['pane-row-w1:p5']);
+});
+
 test("the caller's disable reason renders inline and the row cannot be selected", async () => {
   const results = mount({
     disable: p => (p.presence?.rooms.includes('build') ? 'in #build' : null),
