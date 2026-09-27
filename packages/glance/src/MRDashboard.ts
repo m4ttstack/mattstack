@@ -489,14 +489,17 @@ function createSingleDashboard(
         (pr: PullRequest) => {
           _isInitialLoading = false;
           listener(getMRDashboardProps(pr, connectionState));
+        },
+        {
+          onStatusChange: (s) => {
+            connectionState = s.connection;
+            statusListener?.(s);
+          }
         }
       );
     },
     onStatusChange(listener: (status: WatcherStatus) => void) {
-      statusListener = (s) => {
-        connectionState = s.connection;
-        listener(s);
-      };
+      statusListener = listener;
     },
     dispose() {
       disposeWatcher?.();
