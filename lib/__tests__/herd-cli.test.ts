@@ -72,7 +72,7 @@ describe("rt herd payload builders", () => {
 
 describe("rt herd list", () => {
   const row = (over: Partial<HerdListRow> = {}): HerdListRow => ({
-    id: "hd-1", repo: "r", room: "herd-hd-1", workspace: "w", shepherdSession: "s", shepherdHandle: "shep",
+    id: "hd-1", repo: "r", room: "herd-hd-1", workspace: "w", shepherdSession: "s", shepherdHandle: "shep", shepherdName: "shep",
     herdrSocket: null, hidden: false, status: "active", createdAt: 0, wrappedAt: null, jobs: 2, ...over,
   });
 
