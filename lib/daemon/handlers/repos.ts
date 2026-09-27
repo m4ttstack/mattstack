@@ -9,6 +9,8 @@
 
 import { decodeRepo } from "../identity-decoder.ts";
 import { applyLocate, isRefusal, planLocate } from "../../repo-locate.ts";
+import { reidentify } from "../../repo-reidentify.ts";
+import { clearIdentityMemo } from "../../settings/identity.ts";
 import type { HandlerMap } from "./types.ts";
 
 export interface ReposHandlerOpts {
@@ -25,7 +27,7 @@ export interface ReposHandlerOpts {
 // resolve to `Handler | undefined` for every caller, tests included.
 export function createReposHandlers(
   opts: ReposHandlerOpts,
-): Record<"repos:locate", (payload: any) => Promise<any>> & HandlerMap {
+): Record<"repos:locate" | "repos:reidentify", (payload: any) => Promise<any>> & HandlerMap {
   return {
     "repos:locate": async (payload) => {
       const newPath = payload?.newPath;
@@ -50,6 +52,30 @@ export function createReposHandlers(
         opts.refreshWatchedRepos();
         opts.emitEvent("repo:moved", { identity: result.identity, from: result.from, to: result.to });
         return { ok: true, data: result };
+      });
+    },
+    "repos:reidentify": async (payload) => {
+      const from = payload?.from;
+      const to = payload?.to;
+      if (typeof from !== "string" || typeof to !== "string" || from === "" || to === "") {
+        return { ok: false, error: "from-and-to-required" };
+      }
+      const dryRun = payload?.dryRun === true;
+      return opts.withReconcilerHeld(async () => {
+        const report = await reidentify(from, to, { dryRun });
+        if ("error" in report) return { ok: false, error: report.error };
+        // The memo lives as long as the daemon; without this, a checkout that
+        // never moved keeps deriving the identity its stores just left.
+        if (!dryRun) clearIdentityMemo();
+        if (!report.ok) {
+          const refused = report.stores.filter((s) => s.status === "refused").map((s) => s.store).join(", ");
+          return { ok: false, error: `refused: ${refused}`, data: report };
+        }
+        if (!dryRun) {
+          opts.refreshWatchedRepos();
+          opts.emitEvent("repo:reidentified", { from: report.from.serialized, to: report.to.serialized });
+        }
+        return { ok: true, data: report };
       });
     },
   };

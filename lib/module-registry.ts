@@ -70,6 +70,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/deps.ts": () => import("../commands/deps.ts"),
   "./commands/release.ts": () => import("../commands/release.ts"),
   "./commands/repos.ts": () => import("../commands/repos.ts"),
+  "./commands/repos-reidentify.ts": () => import("../commands/repos-reidentify.ts"),
   "./commands/setup.ts": () => import("../commands/setup.ts"),
   "./commands/team.ts": () => import("../commands/team.ts"),
   "./commands/cron.ts": () => import("../commands/cron.ts"),

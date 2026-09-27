@@ -2214,6 +2214,18 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      reidentify: {
+        description: "Move every per-repo store from one remote identity to another after a repo rename (github.com/owner/old to github.com/owner/new)",
+        module: "./commands/repos-reidentify.ts",
+        fn: "reposReidentify",
+        omitBehavior: { exempt: "agent-facing; identities are not enumerable" },
+        args: [
+          { name: "Old identity", type: "text", placeholder: "github.com/owner/old", hint: "The identity every store is keyed on today; raw host/path or serialized remote: form" },
+          { name: "New identity", type: "text", placeholder: "github.com/owner/new", hint: "The identity the repo's remote derives now" },
+          { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print per-store counts without writing" },
+          SETUP_JSON_ARG,
+        ],
+      },
       status: {
         description: "All registered repos with git badges from the daemon sweep",
         module: "./commands/repos.ts",
