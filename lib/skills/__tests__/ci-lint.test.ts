@@ -21,12 +21,8 @@ describe("new CI verbs are flagged on Bash", () => {
     });
   }
 
-  // Every ci_* shellForm is a multi-word literal ("rt ci watch", "rt ci lease
-  // claim"), so a bare substring like "circle" or "cinema" can never satisfy
-  // it: no case here turns on deriveRules' word-boundary guards standing
-  // between those and a false positive. What those guards DO stop is the
-  // trailing (?![\w-]) on "watch" letting "ci_watch" match inside a longer
-  // word.
+  // The trailing (?![\w-]) in commandPattern is what stops "ci_watch" from
+  // matching inside a longer word like "watching".
   test("rt ci watching (a longer word) does not hit ci_watch", () => {
     const hits = lintSkillText("```bash\nrt ci watching the build\n```\n", "SKILL.md", rules);
     expect(hits.map((h) => h.tool)).not.toContain("ci_watch");
