@@ -15,6 +15,7 @@ describe("repos:reidentify", () => {
   const origHome = process.env.HOME;
   let home: string;
   let held: number;
+  let refreshed: number;
   let events: { topic: string; payload: unknown }[];
   let handlers: ReturnType<typeof createReposHandlers>;
 
@@ -24,10 +25,11 @@ describe("repos:reidentify", () => {
     closeStateDb();
     clearIdentityMemo();
     held = 0;
+    refreshed = 0;
     events = [];
     handlers = createReposHandlers({
       withReconcilerHeld: async (fn) => { held++; return fn(); },
-      refreshWatchedRepos: () => {},
+      refreshWatchedRepos: () => { refreshed++; },
       emitEvent: (topic, payload) => events.push({ topic, payload }),
     });
   });
@@ -42,6 +44,7 @@ describe("repos:reidentify", () => {
     const res = await handlers["repos:reidentify"]({ from: "github.com/acme/old", to: "github.com/acme/new" });
     expect(res.ok).toBe(true);
     expect(held).toBe(1);
+    expect(refreshed).toBe(1);
     expect(loadRepoIndex()[NEW]).toBe("/x");
     expect(events).toEqual([{ topic: "repo:reidentified", payload: { from: OLD, to: NEW } }]);
   });
@@ -53,6 +56,7 @@ describe("repos:reidentify", () => {
     expect(res.data.dryRun).toBe(true);
     expect(loadRepoIndex()[OLD]).toBe("/x");
     expect(events).toEqual([]);
+    expect(refreshed).toBe(0);
   });
 
   test("missing identities are a payload error", async () => {
@@ -80,6 +84,8 @@ describe("repos:reidentify", () => {
     const res = await handlers["repos:reidentify"]({ from: OLD, to: NEW });
     expect(res.ok).toBe(false);
     expect(res.error).toContain("refused");
+    expect(refreshed).toBe(1);
+    expect(events).toEqual([]);
     expect(res.data.stores.find((s: { store: string }) => s.store === "kv:repo-index").status).toBe("refused");
   });
 });

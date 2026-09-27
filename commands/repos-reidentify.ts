@@ -45,13 +45,19 @@ export async function reposReidentify(args: string[], _ctx: CommandContext = {},
   }
   const report = outcome.report!;
 
-  if (json) {
-    deps.print(JSON.stringify(envelope({ ok: outcome.ok, data: report })));
-  } else {
-    deps.print(`${dryRun ? "would move" : "moved"} ${report.from.serialized} to ${report.to.serialized} (${outcome.via})`);
-    for (const line of table(report.stores)) deps.print(line);
-  }
   if (!outcome.ok) {
-    exitUserError(new UserActionableError("refused", outcome.error), json, VERB, deps.print);
+    // JSON mode must stay one parseable document, so the report rides in the error payload.
+    if (!json) {
+      deps.print(`${dryRun ? "would be refused" : "refused, partly moved"} ${report.from.serialized} to ${report.to.serialized} (${outcome.via})`);
+      for (const line of table(report.stores)) deps.print(line);
+    }
+    exitUserError(new UserActionableError("refused", outcome.error, { via: outcome.via, report }), json, VERB, deps.print);
   }
+
+  if (json) {
+    deps.print(JSON.stringify(envelope({ ok: true, via: outcome.via, data: report })));
+    return;
+  }
+  deps.print(`${dryRun ? "would move" : "moved"} ${report.from.serialized} to ${report.to.serialized} (${outcome.via})`);
+  for (const line of table(report.stores)) deps.print(line);
 }

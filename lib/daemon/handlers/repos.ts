@@ -64,17 +64,18 @@ export function createReposHandlers(
       return opts.withReconcilerHeld(async () => {
         const report = await reidentify(from, to, { dryRun });
         if ("error" in report) return { ok: false, error: report.error };
-        // The memo lives as long as the daemon; without this, a checkout that
-        // never moved keeps deriving the identity its stores just left.
-        if (!dryRun) clearIdentityMemo();
+        // A partly refused run has still moved stores. The memo lives as long
+        // as the daemon; without the clear, a checkout that never moved keeps
+        // deriving the identity its stores just left.
+        if (!dryRun) {
+          clearIdentityMemo();
+          opts.refreshWatchedRepos();
+        }
         if (!report.ok) {
           const refused = report.stores.filter((s) => s.status === "refused").map((s) => s.store).join(", ");
           return { ok: false, error: `refused: ${refused}`, data: report };
         }
-        if (!dryRun) {
-          opts.refreshWatchedRepos();
-          opts.emitEvent("repo:reidentified", { from: report.from.serialized, to: report.to.serialized });
-        }
+        if (!dryRun) opts.emitEvent("repo:reidentified", { from: report.from.serialized, to: report.to.serialized });
         return { ok: true, data: report };
       });
     },
