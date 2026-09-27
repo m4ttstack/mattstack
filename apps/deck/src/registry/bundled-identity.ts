@@ -93,9 +93,12 @@ export function requiresTeamFor(record: AppRecord): boolean {
 }
 
 /** The icon URL a status row carries, relative to deck's own origin. */
-export function statusIconUrl(record: AppRecord): string | null {
+export function statusIconUrl(
+  record: AppRecord,
+  identity?: AppIdentity
+): string | null {
   if (isPlatformManagedBy(record.managedBy)) return '/favicon.svg';
-  return effectiveIdentity(record).iconFile
+  return (identity ?? effectiveIdentity(record)).iconFile
     ? `/api/apps/${record.name}/icon`
     : null;
 }

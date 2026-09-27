@@ -212,42 +212,43 @@ export function rowFor(
   byName: Map<string, StatusRow>,
   redact: boolean
 ): StatusRow {
-  return (
-    byName.get(record.name) ?? {
-      name: record.name,
-      displayName: effectiveIdentity(record).displayName,
-      enabled: isEnabled(record),
-      requiresTeam: requiresTeamFor(record),
-      // Same ownership rule as buildStatus: a managed record is a mattstack
-      // product and surfaces as name.mattstack even before its route lands.
-      displayTld:
-        record.managedBy != null && record.managedBy !== 'user'
-          ? MATTSTACK_TLD
-          : 'localhost',
-      port: record.port,
-      url: null,
-      publicUrl: null,
-      health: null,
-      service: null,
-      published: false,
-      hasPassword: false,
-      isTunnel: false,
-      override: null,
-      publicFollowsOverride: false,
-      self: false,
-      managedBy: record.managedBy,
-      icon: statusIconUrl(record),
-      issues: record.issues ?? [],
-      record: {
-        kind: record.kind,
-        command: redact ? null : (record.command ?? null),
-        workingDirectory: redact ? null : (record.workingDirectory ?? null),
-      },
-      oauth: getOAuth(record.name),
-      publicOrigin: 'tunnel' as const,
-      remote: null,
-    }
-  );
+  const joined = byName.get(record.name);
+  if (joined) return joined;
+  const identity = effectiveIdentity(record);
+  return {
+    name: record.name,
+    displayName: identity.displayName,
+    enabled: isEnabled(record),
+    requiresTeam: identity.requiresTeam === true,
+    // Same ownership rule as buildStatus: a managed record is a mattstack
+    // product and surfaces as name.mattstack even before its route lands.
+    displayTld:
+      record.managedBy != null && record.managedBy !== 'user'
+        ? MATTSTACK_TLD
+        : 'localhost',
+    port: record.port,
+    url: null,
+    publicUrl: null,
+    health: null,
+    service: null,
+    published: false,
+    hasPassword: false,
+    isTunnel: false,
+    override: null,
+    publicFollowsOverride: false,
+    self: false,
+    managedBy: record.managedBy,
+    icon: statusIconUrl(record, identity),
+    issues: record.issues ?? [],
+    record: {
+      kind: record.kind,
+      command: redact ? null : (record.command ?? null),
+      workingDirectory: redact ? null : (record.workingDirectory ?? null),
+    },
+    oauth: getOAuth(record.name),
+    publicOrigin: 'tunnel' as const,
+    remote: null,
+  };
 }
 
 export function serviceJson(
@@ -324,11 +325,12 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
       // public tunnel the tunnel's domain is everyone's identity.
       const owned = record?.managedBy != null && record.managedBy !== 'user';
       const displayTld = publicDomain ?? (owned ? MATTSTACK_TLD : 'localhost');
+      const identity = record && effectiveIdentity(record);
       return {
         name: a.name,
-        displayName: record ? effectiveIdentity(record).displayName : a.name,
+        displayName: identity ? identity.displayName : a.name,
         enabled: record ? isEnabled(record) : true,
-        requiresTeam: record ? requiresTeamFor(record) : false,
+        requiresTeam: identity?.requiresTeam === true,
         displayTld,
         port: a.port,
         // The href must match the rendered identity: an owned app joins on
@@ -351,7 +353,7 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
         publicFollowsOverride: follows,
         self,
         managedBy: record?.managedBy ?? null,
-        icon: record ? statusIconUrl(record) : null,
+        icon: record ? statusIconUrl(record, identity) : null,
         issues: self
           ? withCatalogReport(record?.issues ?? [])
           : (record?.issues ?? []),
