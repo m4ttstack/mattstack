@@ -553,6 +553,22 @@ export async function runUnsupportedConformance(
       'this provider declares it supported; invoking it would open a real websocket subscription'
     );
   }
+
+  if (expectationFor(fixture.name, 'subscribePullRequestEvents').support === 'absent') {
+    await check(report, fixture, 'subscribePullRequestEvents', 'is absent, so group dashboards poll only', async () => {
+      assert(
+        provider.subscribePullRequestEvents === undefined,
+        'declared absent but the method exists, so the table is stale'
+      );
+    });
+  } else {
+    report.skip(
+      fixture.name,
+      'subscribePullRequestEvents',
+      'supported-path not exercised here',
+      'invoking it would open a real websocket subscription; the unit suite drives it against a fake socket'
+    );
+  }
 }
 
 /** Unique per run, so an aborted run never collides with the next. */

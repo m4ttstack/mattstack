@@ -704,27 +704,25 @@ function createDashboardGroup(
 
     if (!listener || currentIids.length === 0) return;
 
+    // The watcher subscribes only after its init fetch, so this holds that
+    // fetch's PRs by then. An MR the init fetch missed gets no push until the
+    // next restart; the batched poll still refreshes it.
+    let fetchedPrs: PullRequest[] = [];
+
     disposeWatcher = createRealtimeWatcher<Map<number, PullRequest>>({
       fetch: batchFetch,
 
-      subscribe: ({ onConnected }) => {
-        const subs: (() => void)[] = [];
-        for (const iid of currentIids) {
-          const dispose = provider.watchMR(
-            projectPath, iid, userId,
-            () => { /* data comes from batched fetch, not individual watchers */ }
-          );
-          subs.push(dispose);
+      subscribe: (callbacks) => {
+        if (!provider.subscribePullRequestEvents) {
+          callbacks.onConnected();
+          return () => {};
         }
-        onConnected();
-
-        return () => {
-          for (const d of subs) d();
-        };
+        return provider.subscribePullRequestEvents(projectPath, fetchedPrs, callbacks);
       },
 
       onUpdate: (freshMap) => {
         _isInitialLoading = false;
+        fetchedPrs = [...freshMap.values()];
         for (const [iid, pr] of freshMap) {
           state.set(iid, getMRDashboardProps(pr, connectionState));
         }
