@@ -86,6 +86,14 @@ export interface Drivers {
   tunnel?: TunnelDriver;
   /** Live launchd view in production; absent means a hand-installed deck under its record's label. */
   deckOwner?: DeckOwner;
+  /**
+   * Settles when the first boot sweep has finished; production caps it with
+   * bootSweepGate so it always settles. The sweep creates every catalog row,
+   * and the launcher treats its first 200 from /api/apps as the whole
+   * catalog, so /api/apps and an `enabled` PATCH wait on it before reading
+   * the rows.
+   */
+  bootSweep?: Promise<void>;
 }
 
 export interface RegisterInput {
@@ -633,10 +641,22 @@ function adoptedCatalogRow(record: AppRecord): AppRecord {
  * is re-resolved and diffed against its installed plist (ProgramArguments,
  * WorkingDirectory, EnvironmentVariables), so a flip and a flip-back both
  * read as "unchanged".
+ *
+ * Calls run one at a time: a sweep walks a snapshot of the records, so an
+ * overlapping sweep could reinstall a row another sweep just turned off.
  */
-export async function reresolveManagedApps(
-  drivers: Drivers
-): Promise<FlowResult> {
+export function reresolveManagedApps(drivers: Drivers): Promise<FlowResult> {
+  const run = sweepTail.then(() => sweepManagedApps(drivers));
+  sweepTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+let sweepTail: Promise<void> = Promise.resolve();
+
+async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
   const restarted: string[] = [];
   const unchanged: string[] = [];
   const notServed: string[] = [];
@@ -836,6 +856,7 @@ export async function editApp(
   force: boolean,
   drivers: Drivers
 ): Promise<FlowResult> {
+  if (patch.enabled !== undefined) await drivers.bootSweep;
   const record = getRecord(name);
   if (!record) return { status: 404, body: { error: 'unknown app' } };
 

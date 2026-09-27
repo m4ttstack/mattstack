@@ -1454,6 +1454,99 @@ test('reresolve: a disabled rt row loses its plist and is reported under disable
   expect(counting.installed.has(label)).toBe(true);
 });
 
+test('reresolve: a sweep parked in an install finishes before an enabled PATCH sweeps, so the off row ends with no plist', async () => {
+  class ParkedManager extends PlistManager {
+    park: PromiseWithResolvers<void> | null = null;
+    entered = Promise.withResolvers<void>();
+    override async install(spec: ServiceSpec): Promise<void> {
+      if (this.park) {
+        const park = this.park;
+        this.park = null;
+        this.entered.resolve();
+        await park.promise;
+      }
+      return super.install(spec);
+    }
+  }
+  const manager = new ParkedManager();
+  const sweepDrivers = { manager, edge: drivers.edge };
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    sweepDrivers
+  );
+  const label = `${LABEL_PREFIX}board`;
+  rmSync(join(agentsDir(), `${label}.plist`), { force: true });
+  manager.park = Promise.withResolvers<void>();
+  const park = manager.park;
+
+  const sweep = reresolveManagedApps(sweepDrivers);
+  await manager.entered.promise;
+  const patch = editApp('board', { enabled: false }, 'rt', false, sweepDrivers);
+  await Bun.sleep(20);
+  park.resolve();
+  await sweep;
+  const off = await patch;
+
+  expect(off.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBe(false);
+  expect(existsSync(join(agentsDir(), `${label}.plist`))).toBe(false);
+});
+
+test('editApp: an enabled PATCH waits on the boot sweep before looking its row up', async () => {
+  const boot = Promise.withResolvers<void>();
+  const h = bundleHelpers('board');
+  const patch = editApp(
+    'board',
+    { enabled: false },
+    'rt',
+    false,
+    { ...drivers, bootSweep: boot.promise }
+  );
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
+  boot.resolve();
+  const off = await patch;
+  expect(off.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBe(false);
+});
+
+test('reresolve: a sweep that throws does not block the next one', async () => {
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
+  putRecord({ ...getRecord('board')!, enabled: false });
+  setServeShapeDeps({
+    helpersDir: h.dir,
+    devMode: () => {
+      throw new Error('boom');
+    },
+  });
+  await expect(reresolveManagedApps(drivers)).rejects.toThrow('boom');
+  setServeShapeDeps({ helpersDir: h.dir });
+  const next = await reresolveManagedApps(drivers);
+  expect(next.body).toMatchObject({ ok: true, disabled: ['board'] });
+});
+
 test('restartManagedApps skips a disabled row', async () => {
   const h = bundleHelpers('board');
   await registerApp(

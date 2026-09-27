@@ -111,12 +111,6 @@ export interface ApiDeps extends Drivers {
   readyFetch?: typeof fetch;
   /** Tests inject an absolute fake path; production resolves cloudflared on the service PATH. */
   resolveCloudflared?: () => string | null;
-  /**
-   * Settles when the first boot sweep has finished. The sweep creates every
-   * catalog row, and the launcher treats its first 200 from /api/apps as the
-   * whole catalog, so /api/apps must not answer 200 before this settles.
-   */
-  bootSweep?: Promise<void>;
   /** How long /api/apps waits on `bootSweep` before answering 503. */
   bootSweepWaitMs?: number;
 }
