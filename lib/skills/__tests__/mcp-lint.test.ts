@@ -56,6 +56,23 @@ describe("leaf rules on denied flags and noCwd", () => {
   test("the same leaf with no denied flag still hits rt_verb", () => {
     expect(pickRule("rt skills compile --pack x", RULES)!.id).toBe("rt skills compile");
   });
+  test("a denied flag in a later command does not take the leaf off rt_verb", () => {
+    for (const code of [
+      "rt skills compile --pack x; echo --pack-dir",
+      "rt skills compile --pack x && echo --pack-dir",
+      "rt skills compile --pack x || echo --pack-dir",
+      "rt skills compile --pack x | grep --pack-dir",
+      "rt skills compile --pack x & echo --pack-dir",
+      "rt skills compile --pack x # then --pack-dir",
+    ]) expect(pickRule(code, RULES)?.id, code).toBe("rt skills compile");
+  });
+  test("a denied flag in the matched command still takes it off rt_verb", () => {
+    expect(pickRule("rt skills compile --pack-dir=/y --pack x; echo ok", RULES)).toBeNull();
+    expect(pickRule("rt skills compile --pack x --pack-dir /y | cat", RULES)).toBeNull();
+  });
+  test("a # inside an argument is not a comment", () => {
+    expect(pickRule("rt skills compile --pack x#y --pack-dir /y", RULES)).toBeNull();
+  });
   test("a noCwd leaf's note tells the agent to pass --pack", () => {
     for (const id of ["rt skills compile", "rt skills sync", "rt skills surface", "rt skills bind"]) {
       const r = RULES.find((x) => x.id === id)!;
@@ -85,6 +102,35 @@ describe("commandPattern", () => {
   });
   test("still matches after a path separator", () => {
     expect(commandPattern("rt chat dm").test("/usr/local/bin/rt chat dm")).toBe(true);
+  });
+  test("a git form tolerates global options before the subcommand", () => {
+    const push = commandPattern("git push");
+    for (const code of [
+      "git -C /tmp/tree push",
+      "git -C \"/a b/tree\" push origin HEAD",
+      "git -c core.hooksPath=/dev/null push",
+      "git --git-dir=/x/.git --work-tree=/x push",
+      "git --git-dir /x/.git push",
+      "git -C a -c k=v push",
+    ]) expect(push.test(code), code).toBe(true);
+  });
+  test("a git form with globals still refuses another subcommand", () => {
+    expect(commandPattern("git push").test("git -C /tmp/tree status")).toBe(false);
+    expect(commandPattern("git push").test("git -C push-dir status")).toBe(false);
+  });
+  test("a non-git form gains no global options", () => {
+    expect(commandPattern("rt git push").test("rt -C x git push")).toBe(false);
+  });
+});
+
+describe("git write rules on the real roster", () => {
+  test("git -C <path> <write> hits the git tool", () => {
+    expect(pickRule("git -C /tmp/tree push", RULES)!.tool).toBe("git_push");
+    expect(pickRule("git -C /tmp/tree pull --ff-only", RULES)!.tool).toBe("git_pull");
+    expect(pickRule("git -C /tmp/tree rebase origin/main", RULES)!.tool).toBe("git_rebase");
+  });
+  test("git -C <path> rebase --continue stays on Bash", () => {
+    expect(pickRule("git -C /tmp/tree rebase --continue", RULES)).toBeNull();
   });
 });
 

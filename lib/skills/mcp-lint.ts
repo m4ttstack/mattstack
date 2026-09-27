@@ -15,18 +15,34 @@ export const KEPT_ON_BASH: RegExp[] = [
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The trailing guard stops `rt herd wrap` from matching `rt herd wrap-up`. */
-export function commandPattern(command: string): RegExp {
-  return new RegExp(`(?<![\\w-])${command.trim().split(/\s+/).map(escape).join("\\s+")}(?![\\w-])`);
+const GIT_ARG = `(?:"[^"]*"|'[^']*'|[^\\s;&|]+)`;
+
+/** Global options git takes before its subcommand. Each alternative opens on a
+    distinct prefix and GIT_ARG holds no whitespace, so the repeat cannot
+    backtrack catastrophically. */
+export const GIT_GLOBAL_OPTS = `(?:\\s+(?:-[Cc]\\s+${GIT_ARG}|--(?:git-dir|work-tree)(?:=|\\s+)${GIT_ARG}))*`;
+
+function wordsPattern(command: string): string {
+  const [head, ...rest] = command.trim().split(/\s+/).map(escape);
+  if (head === "git" && rest.length > 0) return `git${GIT_GLOBAL_OPTS}\\s+${rest.join("\\s+")}`;
+  return [head, ...rest].join("\\s+");
 }
 
-/** A denied flag anywhere later on the line takes the leaf off rt_verb: that
-    call would be refused, so Bash (where the permission prompt applies) is
-    the correct call and must not also be flagged. */
+/** The trailing guard stops `rt herd wrap` from matching `rt herd wrap-up`. */
+export function commandPattern(command: string): RegExp {
+  return new RegExp(`(?<![\\w-])${wordsPattern(command)}(?![\\w-])`);
+}
+
+/** The matched command's own arguments: up to the next shell separator or a
+    whitespace-led comment. Quotes are not tracked. */
+const OWN_ARGS = `(?:(?!\\s#)[^;&|\\n])*`;
+
+/** A denied flag among the command's own arguments takes the leaf off
+    rt_verb: that call would be refused, so Bash (where the permission prompt
+    applies) is the correct call and must not also be flagged. */
 function leafPattern(command: string, deniedFlags: readonly string[]): RegExp {
-  const base = command.trim().split(/\s+/).map(escape).join("\\s+");
-  const denies = deniedFlags.map((f) => `(?!.*\\s${escape(f)}(?![\\w-]))`).join("");
-  return new RegExp(`(?<![\\w-])${base}${denies}(?![\\w-])`);
+  const denies = deniedFlags.map((f) => `(?!${OWN_ARGS}\\s${escape(f)}(?![\\w-]))`).join("");
+  return new RegExp(`(?<![\\w-])${wordsPattern(command)}${denies}(?![\\w-])`);
 }
 
 export interface LeafInput {
