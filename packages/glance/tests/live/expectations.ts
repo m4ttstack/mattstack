@@ -105,6 +105,10 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     support: 'unsupported',
     note: 'Permanent. GitHub has no push channel equivalent to ActionCable.'
   },
+  subscribePullRequestEvents: {
+    support: 'absent',
+    note: 'Permanent. GitHub has no push channel; group dashboards poll only.'
+  },
   watchEvents: {
     support: 'supported',
     capability: 'canWatchEvents',
@@ -187,6 +191,7 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   requestReReview: { support: 'supported', capability: 'canRequestReReview' },
   restRequest: { support: 'supported' },
   watchMR: { support: 'supported' },
+  subscribePullRequestEvents: { support: 'supported' },
   watchEvents: { support: 'supported', capability: 'canWatchEvents' },
   fetchMergeRequestIndex: { support: 'supported', capability: 'canFetchMergeRequestIndex' },
   fetchMergeRequestMetrics: { support: 'supported', capability: 'canFetchMergeRequestMetrics' },

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -96,6 +96,28 @@ export function addWorkSlot(repo: SandboxRepo, name: string, branch: string): { 
   const root = `${repo.dir}-slots`;
   repo.git('worktree', 'add', join(root, name), branch);
   return { path: realpathSync(join(root, name)), root };
+}
+
+/**
+ * Make git itself reject any ref transaction touching `branch`, the way a
+ * concurrent writer winning the race would. The hook sits in a repo-local
+ * core.hooksPath, so a global hooksPath neither hides it nor receives it.
+ * Returns the hook's remover.
+ */
+export async function rejectRefUpdates(repo: SandboxRepo, branch: string): Promise<() => Promise<void>> {
+  const hooksDir = join(repo.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'test-hooks');
+  await mkdir(hooksDir, { recursive: true });
+  repo.git('config', 'core.hooksPath', hooksDir);
+  const hook = join(hooksDir, 'reference-transaction');
+  await writeFile(
+    hook,
+    `#!/bin/sh\n[ "$1" = prepared ] || exit 0\nif grep ' refs/heads/${branch}$' >/dev/null; then exit 1; fi\nexit 0\n`,
+    { mode: 0o755 },
+  );
+  return async () => {
+    await rm(hook);
+    repo.git('config', '--unset', 'core.hooksPath');
+  };
 }
 
 /** Trimmed `git` bound to an arbitrary directory, for worktrees with no helper of their own. */

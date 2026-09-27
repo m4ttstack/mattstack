@@ -92,6 +92,14 @@ describe("release.yml", () => {
     expect(step.shell).toBe("bash");
     expect(step.run).toContain("no .vsix produced");
   });
+  test("the extension bundle must load in node before its VSIX ships", () => {
+    const step = wf.jobs.release.steps.find((s: any) => s.name === "Build extension");
+    const lines = (step.run as string).split("\n").map((l) => l.trim());
+    const pkg = lines.indexOf("bun run package");
+    const smoke = lines.indexOf("node scripts/load-smoke.mjs");
+    expect(pkg).toBeGreaterThanOrEqual(0);
+    expect(smoke).toBeGreaterThan(pkg);
+  });
   test("release assets are asserted present before Create Release, which stays lenient on deltas", () => {
     const guard = wf.jobs.release.steps.find((s: any) => s.name === "Assert release assets are complete");
     expect(guard.if).toBe("steps.meta.outputs.publish == 'true'");
