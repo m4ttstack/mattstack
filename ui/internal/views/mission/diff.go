@@ -90,6 +90,7 @@ func (m *Mission) clampDiffCursor() {
 		m.diffPath = m.model.Diff.Path
 		m.diffCursor = 0
 		m.diffTop = 0
+		m.diffFreeScroll = false
 		return
 	}
 	if n := len(m.model.Diff.Lines); m.diffCursor >= n {
@@ -105,6 +106,7 @@ func (m *Mission) clampDiffCursor() {
 // does the cursor move to the next line, and a line entered from below
 // opens at its bottom so reading upward never jumps.
 func (m *Mission) moveDiffCursor(delta int) {
+	m.diffFreeScroll = false
 	n := len(m.model.Diff.Lines)
 	if n == 0 {
 		return
@@ -165,8 +167,9 @@ func sameDiffLine(a, b DiffLine) bool {
 // through the pane when it wraps to more rows than the pane holds, from the
 // row index and height of the last render; ok is false for a line that fits.
 func (m *Mission) tallCursorSpan() (lo, hi int, ok bool) {
-	lines, ix, h := m.model.Diff.Lines, &m.diffRowsCache, m.diffViewH
-	if h <= 0 || len(lines) == 0 || ix.n != len(lines) || ix.key != &lines[0] {
+	lines, h := m.model.Diff.Lines, m.diffViewH
+	ix, ok := m.renderedDiffRows()
+	if !ok {
 		return 0, 0, false
 	}
 	c := min(max(m.diffCursor, 0), len(lines)-1)
@@ -174,6 +177,27 @@ func (m *Mission) tallCursorSpan() (lo, hi int, ok bool) {
 		return 0, 0, false
 	}
 	return ix.start[c], ix.start[c+1] - h, true
+}
+
+// renderedDiffRows is the row index and pane height the last render laid
+// the current diff out at; ok is false before any render of these lines.
+func (m *Mission) renderedDiffRows() (*diffRowIndex, bool) {
+	lines, ix := m.model.Diff.Lines, &m.diffRowsCache
+	if m.diffViewH <= 0 || len(lines) == 0 || ix.n != len(lines) || ix.key != &lines[0] {
+		return nil, false
+	}
+	return ix, true
+}
+
+// scrollDiff is the wheel over the diff pane: it moves the view by delta
+// screen rows and leaves the line cursor alone.
+func (m *Mission) scrollDiff(delta int) {
+	ix, ok := m.renderedDiffRows()
+	if !ok {
+		return
+	}
+	m.diffFreeScroll = true
+	m.diffTop, _ = picker.FreeWindow(m.diffTop+delta, ix.total(), m.diffViewH)
 }
 
 type diffStagePayload struct {
@@ -444,7 +468,9 @@ func (m *Mission) renderDiffLines(width, height int) string {
 	// moveDiffCursor has scrolled to.
 	m.diffViewH = height
 	var top int
-	if lo, hi, ok := m.tallCursorSpan(); ok {
+	if lo, hi, ok := m.tallCursorSpan(); m.diffFreeScroll {
+		top, _ = picker.FreeWindow(m.diffTop, total, height)
+	} else if ok {
 		top = lo + m.cursorRowOff(hi-lo)
 	} else {
 		virtualH := max(height-extra, 1)

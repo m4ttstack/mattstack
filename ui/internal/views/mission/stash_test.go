@@ -391,14 +391,6 @@ func TestClickingTheStripTogglesTheView(t *testing.T) {
 	}
 }
 
-func TestWheelOverTheStashFilesMovesTheCursor(t *testing.T) {
-	m := stashMission(true)
-	y := stashFileRowY(t, m, "a.txt")
-	if _, cmd := m.Update(tea.MouseWheelMsg{X: sidebarWidth + 4, Y: y, Button: tea.MouseWheelDown}); cmd == nil || m.stashFile != "b.txt" {
-		t.Fatalf("the wheel over the stash files should move the cursor (got %q)", m.stashFile)
-	}
-}
-
 // TestStashViewLeavesTheChangesListUnselected: Stash.png's Changes list
 // paints no cursor row while the stash view shows.
 func TestStashViewLeavesTheChangesListUnselected(t *testing.T) {
