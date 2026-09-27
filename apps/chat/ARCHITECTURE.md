@@ -145,7 +145,7 @@ The transcript body is `react-markdown` + `remark-gfm` output
 - paragraphs, `#`..`###` headings (deeper levels render as `###`), bullet and ordered lists including nested ones, task-list items (rendered, not interactive), tables, blockquotes, horizontal rules
 - `**bold**`, `*italic*`, `~~strikethrough~~`, inline code, bare and `[text](url)` links (http, https, mailto, tel; anything else loses its href), opening in a new tab
 - fenced and indented code as a `CodeBlock` (the kit's `CodeHighlight`: highlighting and a copy control)
-- `@name` for the identities the message's `mentions` list names, matched on their `mentionNames` and marked with the id (`data-mention`), never a bare `@word` guess (`src/app/remark-mentions.ts`); an `@` inside code is never a mention
+- `@name` for the identities the message's `mentions` list names, matched on their `mentionNames` and marked with the id (`data-mention`; when two ids share a name, the body's occurrences take them in `mentions` order), never a bare `@word` guess (`src/app/remark-mentions.ts`); an `@` inside code is never a mention
 - raw HTML is skipped (`skipHtml`); an image renders as its alt text linking to the file
 - a fold on a body taller than 480px, expanded by `show more` and always expanded for the linked message
 

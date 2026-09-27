@@ -25,20 +25,26 @@ function escapeForRegExp(value: string): string {
 export function remarkMentions(options: MentionOptions) {
   const { handles, names, me, className, meClassName } = options;
   if (handles.length === 0) return () => {};
-  const idBySpelling = new Map<string, string>();
+  // Two ids can share a display name, so one spelling holds every id that
+  // reads that way, in `mentions` order; the nth `@name` in the body is the
+  // nth id, and any further occurrence stays on the last.
+  const idsBySpelling = new Map<string, string[]>();
   handles.forEach((id, i) => {
     const shown = names?.[i] ?? id;
-    if (!idBySpelling.has(shown)) idBySpelling.set(shown, id);
+    const ids = idsBySpelling.get(shown);
+    if (!ids) idsBySpelling.set(shown, [id]);
+    else if (!ids.includes(id)) ids.push(id);
     // An agent quoting a delivery-frame reply hint spells the id directly
     // (`@remy.m2p4`), even when the body also carries a display name for
     // the same id; both spellings must resolve.
-    if (!idBySpelling.has(id)) idBySpelling.set(id, id);
+    if (!idsBySpelling.has(id)) idsBySpelling.set(id, [id]);
   });
   const pattern = new RegExp(
-    `@(${[...idBySpelling.keys()].map(escapeForRegExp).join('|')})(?![a-z0-9._-])`,
+    `@(${[...idsBySpelling.keys()].map(escapeForRegExp).join('|')})(?![a-z0-9._-])`,
     'g'
   );
   return (tree: Root) => {
+    const seen = new Map<string, number>();
     visit(tree, 'text', (node: Text, index, parent) => {
       if (!parent || index === undefined || parent.type === 'link') return;
       const parts: Text[] = [];
@@ -53,7 +59,10 @@ export function remarkMentions(options: MentionOptions) {
           });
         }
         const shown = match[1]!;
-        const id = idBySpelling.get(shown)!;
+        const ids = idsBySpelling.get(shown)!;
+        const nth = seen.get(shown) ?? 0;
+        seen.set(shown, nth + 1);
+        const id = ids[Math.min(nth, ids.length - 1)]!;
         const isMe = id === me;
         parts.push({
           type: 'text',

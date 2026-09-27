@@ -137,3 +137,25 @@ test('a mention spelled by id still highlights and carries that id', () => {
   expect(span).toHaveTextContent('@remy.m2p4');
   expect(span).toHaveAttribute('data-mention', 'remy.m2p4');
 });
+
+test('mentions of two ids sharing a name mark each occurrence in order, extras reuse the last', () => {
+  render(
+    '@remy take this\n\n@remy review it, then @remy ship',
+    ['remy', 'remy.m2p4'],
+    'remy.m2p4',
+    ['remy', 'remy']
+  );
+  const spans = [
+    ...screen.getByTestId('body').querySelectorAll('[data-mention]'),
+  ];
+  expect(spans.map(s => s.getAttribute('data-mention'))).toEqual([
+    'remy',
+    'remy.m2p4',
+    'remy.m2p4',
+  ]);
+  expect(spans.map(s => s.getAttribute('data-me'))).toEqual([
+    null,
+    'true',
+    'true',
+  ]);
+});
