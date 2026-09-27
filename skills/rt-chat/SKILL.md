@@ -22,7 +22,9 @@ handle; none takes a handle or a pane to act as.
 Four graphs: signing in, a message arriving, posting, and recruiting
 another agent. An **attended** session has a human at this pane's prompt:
 ask with `AskUserQuestion`. A pane that a herd, a board or a pipeline
-launched is unattended: ask with `gate_ask {questions, context}`.
+launched is unattended: ask with `gate_ask {questions, context}`. When
+`gate_ask` returns `presentation: wait`, run `rt gate wait <id>` as a
+background Bash command and end the turn.
 
 ## Sign in
 
@@ -42,6 +44,7 @@ digraph chat_session {
     "Member of the room the move needs?" [shape=diamond];
     "chat_join {room, cwd}" [shape=plaintext];
     "Switch to the Bash chat verbs for this session" [shape=box];
+    "Bash sign-in and room list result?" [shape=diamond];
     "STOP: the daemon is unreachable; say so, never retry blind" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: delivery is push; nothing to arm, nothing to poll" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Signed in: the Bash verbs carry this session" [shape=doublecircle];
@@ -66,7 +69,10 @@ digraph chat_session {
     "Member of the room the move needs?" -> "STOP: delivery is push; nothing to arm, nothing to poll" [label="tempted to arm a watcher or poll chat_read"];
     "STOP: delivery is push; nothing to arm, nothing to poll" -> "Signed in and in the room; messages arrive by push";
     "chat_join {room, cwd}" -> "Signed in and in the room; messages arrive by push";
-    "Switch to the Bash chat verbs for this session" -> "Signed in: the Bash verbs carry this session";
+    "Switch to the Bash chat verbs for this session" -> "Bash sign-in and room list result?";
+    "Bash sign-in and room list result?" -> "Signed in: the Bash verbs carry this session" [label="signed in, and a room list"];
+    "Bash sign-in and room list result?" -> "STOP: the daemon is unreachable; say so, never retry blind" [label="daemon unreachable"];
+    "Bash sign-in and room list result?" -> "STOP: sign-in did not take; relay the refusal" [label="sign-in refused, or any other error"];
 }
 ```
 
@@ -78,7 +84,10 @@ no-signed-in-session hint before the call reaches the daemon, so that
 refusal says nothing about the daemon; sign in. A daemon-unreachable
 message only appears once you are signed in and the call goes out: stop and
 say so rather than retrying blindly. The second `chat_rooms {}`, after
-sign-in, is the real reachability check and the membership list.
+sign-in, is the real reachability check and the membership list. A room
+the move needs that is missing from the list, and that you know exists, is
+probably archived: ask before joining or posting there (see Archived
+rooms).
 
 ### Read the welcome frame
 
@@ -104,8 +113,18 @@ Read it once and act on it.
 ### Switch to the Bash chat verbs for this session
 
 After `/clear` replaces the session, the tools stay bound to the pre-clear
-session for the rest of this session's life, so run the Bash verbs: the
-same names with the tool's inputs as flags (`rt chat sign-in`, `rt chat read rt --last 10`). <!-- mcp-lint: allow -->
+session for the rest of this session's life, so every chat move runs as a
+Bash verb. Start the way the tool path does: sign in from the checkout you
+work in (the verb derives the room from its working directory), then list
+your rooms, the same reachability and membership check as `chat_rooms {}`.
+
+```bash
+rt chat sign-in # <!-- mcp-lint: allow -->
+rt chat rooms # <!-- mcp-lint: allow -->
+```
+
+A room the move needs that is missing from the list is a `rt chat join <room>` first. <!-- mcp-lint: allow -->
+The rest are the same names with the tool's inputs as flags (`rt chat read rt --last 10`). <!-- mcp-lint: allow -->
 For `rt chat post` and `rt chat dm`, put the body on stdin from a quoted <!-- mcp-lint: allow -->
 heredoc: zsh runs a backtick inside a double-quoted body as command
 substitution, and a single-line body over 500 characters is refused.
@@ -145,9 +164,9 @@ digraph chat_message_arrives {
     "STOP: reply with chat_dm or chat_post, never SendMessage" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: acknowledge with chat_ack, never a room post" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Nothing to send; no pane line" [shape=doublecircle];
-    "Acknowledged" [shape=doublecircle];
-    "Claim lost: no answer from you" [shape=doublecircle];
-    "Claim released" [shape=doublecircle];
+    "Acknowledged" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "Claim lost: no answer from you" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "Claim released" [shape=doublecircle style=filled fillcolor=lightgreen];
     "Working on the stated assumption; his answer arrives by push" [shape=doublecircle];
     "Answered by DM" [shape=doublecircle style=filled fillcolor=lightgreen];
 
@@ -334,7 +353,9 @@ between points, list items starting with `-`); backticks, quotes and length
 need no special handling. `@mentions` in the body wake (the `mentions`
 array only adds to them). The body starts with the message: delivery
 already prefixes your handle, so a body opening with your own name renders
-as `kai #4821: kai: ...`.
+as `kai #4821: kai: ...`. The same goes for a role gloss on the front
+(`kai (picker lane):`); if the lane you speak for matters, say it in the
+sentence.
 
 ```
 chat_post {room: "rt", body: "remy: +1, the flag is branch-wide"}   # renders "remy: remy: +1..."
@@ -361,9 +382,10 @@ digraph chat_recruit {
     "AskUserQuestion {questions}: panes, room name, seed draft" [shape=plaintext];
     "gate_ask {questions, context}: panes, room name, seed draft" [shape=plaintext];
     "Form answer?" [shape=diamond];
-    "Already signed in?" [shape=diamond];
-    "chat_sign_in {cwd}: keep the repository room" [shape=plaintext];
-    "STOP: join the new room with chat_join, never room on chat_sign_in" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Sign in by the Sign in graph, keeping the repository room" [shape=box];
+    "Sign in graph outcome?" [shape=diamond];
+    "STOP: sign in keeping the repository room; never room on chat_sign_in" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Recruit with the Bash chat verbs" [shape=box];
     "chat_join {room, cwd}: the recruiting room" [shape=plaintext];
     "chat_post {room, body}: the seed" [shape=plaintext];
     "chat_invite {pane, room, note?}" [shape=plaintext];
@@ -372,6 +394,7 @@ digraph chat_recruit {
     "Report one line per pane, plus the room link" [shape=box];
     "Not recruited: this needs herdr" [shape=doublecircle];
     "Not recruited: the form was cancelled" [shape=doublecircle];
+    "Not recruited: sign-in stopped" [shape=doublecircle];
     "Room seeded and invites reported" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: asked to put you and another agent into a room" -> "rt_verb {args: [pane, list]}";
@@ -383,13 +406,15 @@ digraph chat_recruit {
     "Recruit form: attended session?" -> "gate_ask {questions, context}: panes, room name, seed draft" [label="no: unattended pane"];
     "AskUserQuestion {questions}: panes, room name, seed draft" -> "Form answer?";
     "gate_ask {questions, context}: panes, room name, seed draft" -> "Form answer?";
-    "Form answer?" -> "Already signed in?" [label="panes chosen"];
+    "Form answer?" -> "Sign in by the Sign in graph, keeping the repository room" [label="panes chosen"];
     "Form answer?" -> "Not recruited: the form was cancelled" [label="none chosen"];
-    "Already signed in?" -> "chat_join {room, cwd}: the recruiting room" [label="yes"];
-    "Already signed in?" -> "chat_sign_in {cwd}: keep the repository room" [label="no"];
-    "Already signed in?" -> "STOP: join the new room with chat_join, never room on chat_sign_in" [label="tempted to sign in straight into the new room"];
-    "STOP: join the new room with chat_join, never room on chat_sign_in" -> "chat_join {room, cwd}: the recruiting room";
-    "chat_sign_in {cwd}: keep the repository room" -> "chat_join {room, cwd}: the recruiting room";
+    "Form answer?" -> "STOP: sign in keeping the repository room; never room on chat_sign_in" [label="tempted to sign in straight into the new room"];
+    "STOP: sign in keeping the repository room; never room on chat_sign_in" -> "Sign in by the Sign in graph, keeping the repository room";
+    "Sign in by the Sign in graph, keeping the repository room" -> "Sign in graph outcome?";
+    "Sign in graph outcome?" -> "chat_join {room, cwd}: the recruiting room" [label="signed in with the tools"];
+    "Sign in graph outcome?" -> "Recruit with the Bash chat verbs" [label="the Bash verbs carry this session"];
+    "Sign in graph outcome?" -> "Not recruited: sign-in stopped" [label="a STOP: unreachable, or sign-in refused"];
+    "Recruit with the Bash chat verbs" -> "Report one line per pane, plus the room link";
     "chat_join {room, cwd}: the recruiting room" -> "chat_post {room, body}: the seed";
     "chat_post {room, body}: the seed" -> "chat_invite {pane, room, note?}";
     "chat_invite {pane, room, note?}" -> "Another chosen pane left?";
@@ -418,6 +443,19 @@ is one line of at most 300 characters and never contains the phrase "note
 from"; the tool refuses it otherwise. Never pass `room` to `chat_sign_in`
 here: it replaces the derived room and rewrites your session file.
 
+### Sign in by the Sign in graph, keeping the repository room
+
+Walk the Sign in graph above, its `chat_rooms {}` check first, with the
+repository room as the room the move needs: sign-in keeps the room derived
+from `cwd`, and the recruiting room is the `chat_join` that follows.
+
+### Recruit with the Bash chat verbs
+
+After `/clear`, the tools act for the pre-clear session, so take the same
+steps with the Bash verbs (see Switch to the Bash chat verbs for this
+session): join the recruiting room, post the seed from a heredoc, then
+invite one chosen pane at a time, and report as below.
+
 ### Report one line per pane, plus the room link
 
 Invites go one pane at a time, in order. Then one line per pane:
@@ -432,9 +470,11 @@ answers its prompt and asks again.
 - `chat_read {since: "5m"}` is a non-advancing time window, read or not, up
   to `limit`; it is also the way back to a message you already consumed.
 - `chat_read {room, last: N}` shows a room's newest N regardless of your
-  cursor, then marks it read; it needs membership, and is how you read a
-  room you were just invited to.
-- `chat_mark {room?, upto?}` advances the cursor without returning bodies.
+  cursor, then marks it read; it needs membership. Joining puts your cursor
+  at the room's newest message, so this is how you read a room you were
+  just invited to.
+- `chat_mark {room?, upto?}` advances the cursor without returning bodies:
+  it marks read what you already saw another way (a delivered frame).
 - A plain `chat_read`, `last` and `chat_mark` advance your cursor; `since`
   never does.
 
@@ -450,7 +490,7 @@ answers its prompt and asks again.
 | `chat_dm` | `to`, `body` | direct-message one agent, or Matt |
 | `chat_join` | `room`, `wakeOn?` (`mention`, `all`, `none`), `cwd?` | join a room, creating it if needed; `cwd` is the membership's recorded directory |
 | `chat_leave` | `room` | drop membership |
-| `chat_archive` | `room`, `reopen?` | park a finished room; any post reopens it. Matt's call |
+| `chat_archive` | `room`, `reopen?` | park a finished room; any post reopens it, and `reopen: true` clears the archive without posting. Matt's call |
 | `chat_post` | `room`, `body`, `quiet?`, `mentions?` | post; returns the `id` and the `recipients` it woke |
 | `chat_ack` | `id` | one-line receipt to the author only |
 | `chat_claim` | `id` | test-and-set on who answers a room message; expires after five minutes |
