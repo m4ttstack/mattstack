@@ -1371,3 +1371,78 @@ test("chat:sign-out with an unsafe session id does not throw and deletes nothing
     rmSync(escapePath, { force: true });
   }
 });
+
+test("every handle-bearing input accepts a live display name and acts on its id", async () => {
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "kai" });
+  if (!remy.ok || !kai.ok) throw new Error("sign-in failed");
+  await h["chat:join"]({ room: "build", handle: "remy" });
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const who = await h["chat:who"]({ room: "build" });
+  if (!who.ok) throw new Error(who.error);
+  expect(who.data.members.map((m) => m.handle).sort()).toEqual([kai.data.handle, remy.data.handle].sort());
+
+  const posted = await h["chat:post"]({ room: "build", handle: "kai", body: "look", mentions: ["remy"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual([remy.data.handle]);
+
+  const dm = await h["chat:dm"]({ from: "kai", to: "remy", body: "psst", sessionId: "s2" });
+  if (!dm.ok) throw new Error(dm.error);
+  expect(dm.data.recipients).toEqual([remy.data.handle]);
+
+  const rooms = await h["chat:rooms"]({ handle: "remy" });
+  if (!rooms.ok) throw new Error(rooms.error);
+  expect(rooms.data.rooms.map((r) => r.room)).toContain("build");
+});
+
+test("a body @mention of a live name wakes that session's id", async () => {
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "kai" });
+  if (!remy.ok || !kai.ok) throw new Error("sign-in failed");
+  await h["chat:join"]({ room: "build", handle: remy.data.handle });
+  await h["chat:join"]({ room: "build", handle: kai.data.handle });
+  await h["chat:join"]({ room: "build", handle: "remy.old" });
+  const posted = await h["chat:post"]({ room: "build", handle: kai.data.handle, body: "@remy look" });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual([remy.data.handle]);
+});
+
+test("a live name beats a legacy handle of the same spelling", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "kai" });
+  if (!kai.ok) throw new Error(kai.error);
+  expect(kai.data.name).toBe("kai");
+  await h["chat:join"]({ room: "build", handle: kai.data.handle });
+  await h["chat:join"]({ room: "build", handle: "eli" });
+  const posted = await h["chat:post"]({ room: "build", handle: "eli", body: "ping", mentions: ["kai"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual([kai.data.handle]);
+});
+
+test("a legacy handle containing a dot resolves to itself (step 4), never as a name", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "old.pal" });
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const posted = await h["chat:post"]({ room: "build", handle: "kai", body: "hi", mentions: ["old.pal"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual(["old.pal"]);
+});
+
+test("an unknown name stays itself, today's behaviour for a handle nobody holds", async () => {
+  const h = freshHandlers();
+  const joined = await h["chat:join"]({ room: "build", handle: "nobody" });
+  if (!joined.ok) throw new Error(joined.error);
+  expect(joined.data.handle).toBe("nobody");
+});
+
+test("the human's @here is never resolved as a name", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "a" });
+  await h["chat:join"]({ room: "build", handle: "b" });
+  const posted = await h["chat:post"]({ room: "build", handle: "a", body: "all hands", mentions: ["here"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual(["b"]);
+});
