@@ -18,13 +18,18 @@ import { existsSync } from "fs";
 /**
  * Enumerate the worktree roots for a repo. Returns absolute paths, filtered
  * to those that exist on disk. Returns an empty array if `repoPath` isn't a
- * git repo or git fails for any other reason.
+ * git repo, git fails for any other reason, or `opts.timeoutMs` elapses.
+ * `opts.env`, when given, replaces the inherited process environment outright
+ * (callers that need it merged with `process.env` must build that merge
+ * themselves before passing it in).
  */
-export function listWorktreeRoots(repoPath: string): string[] {
+export function listWorktreeRoots(repoPath: string, opts: { env?: Record<string, string | undefined>; timeoutMs?: number } = {}): string[] {
   let out: string;
   try {
     out = execSync("git worktree list --porcelain", {
       cwd: repoPath, encoding: "utf8", stdio: "pipe",
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
     });
   } catch {
     return [];
