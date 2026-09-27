@@ -162,9 +162,11 @@ Run by the controller after the Stage 2a release is installed on this machine.
 4. `rt repos reidentify github.com/m4ttstack/rt github.com/m4ttstack/mattstack --dry-run`,
    read the per-store counts, then run it for real.
 5. Move the folder: `mv ~/Documents/GitHub/repo-tools ~/Documents/GitHub/mattstack`;
-   `rt repos locate ~/Documents/GitHub/mattstack` (same identity now, new path);
-   `rt settings source-path ~/Documents/GitHub/mattstack` (the dev app's `rt`
-   wrapper and dev daemon read this row).
+   repoint the source path from source first, since the dev `rt` wrapper still
+   names the old folder (`bun run ~/Documents/GitHub/mattstack/cli.ts settings
+   source-path ~/Documents/GitHub/mattstack`, which also rewrites the wrapper
+   the dev app and dev daemon read); then `rt repos locate
+   ~/Documents/GitHub/mattstack` (same identity now, new path).
 6. Start the dev daemon.
 7. Re-register deck's five apps from `~/Documents/GitHub/mattstack/apps/<name>`,
    rebuild their clients and restart them; this rewrites the four
