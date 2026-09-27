@@ -400,8 +400,13 @@ export function createHerdHandlers(deps: HerdDeps) {
       const briefPath = join(dir, "job.md");
       let brief = str(p?.brief);
       if (brief) writePromptFile(dir, "job.md", brief);
-      else if (existsSync(briefPath)) brief = readFileSync(briefPath, "utf8");
-      else return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
+      else if (existsSync(briefPath)) {
+        brief = readFileSync(briefPath, "utf8");
+        // A pre-existing job.md may predate this file's mode contract (an
+        // older rt wrote it 0644 in a 0755 dir); re-write through
+        // writePromptFile on every read-back so the modes are tightened too.
+        writePromptFile(dir, "job.md", brief);
+      } else return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
 
       const prior = store.getJob(herdId, name);
       // agent:start dedups on the tab label and would focus the dead tab

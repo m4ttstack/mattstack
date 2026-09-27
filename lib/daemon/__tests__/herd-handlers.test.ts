@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync, statSync } from "fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import pino from "pino";
@@ -1015,6 +1015,24 @@ describe("herd:spawn", () => {
     expect(herdrCalls).toContainEqual(["pane", "close", "w9:p1"]);
     expect(agentCalls[1].prompt).toContain("the brief");
     expect(agentCalls[1].cwd).toBe("/existing/tree");
+  });
+
+  // A pre-existing job.md may have been written 0644 in a 0755 dir by an
+  // older rt; a brief-less respawn reads it back and must tighten both
+  // modes rather than leaving the loose ones in place.
+  test("a brief-less respawn tightens a legacy job.md's modes without changing its content", async () => {
+    const { h, dir, herd } = await started();
+    const first = await h["herd:spawn"]({ herd, job: "job-a", brief: "the brief", dir: "/existing/tree" });
+    if (!first.ok) throw new Error(first.error);
+    const jobDirPath = join(dir, "herds", herd, "job-a");
+    const jobMd = join(jobDirPath, "job.md");
+    chmodSync(jobDirPath, 0o755);
+    chmodSync(jobMd, 0o644);
+    const again = await h["herd:spawn"]({ herd, job: "job-a", dir: "/existing/tree" });
+    if (!again.ok) throw new Error(again.error);
+    expect(statSync(jobDirPath).mode & 0o777).toBe(0o700);
+    expect(statSync(jobMd).mode & 0o777).toBe(0o600);
+    expect(readFileSync(jobMd, "utf8")).toBe("the brief");
   });
 
   test("--disposable is recorded on the job row", async () => {
