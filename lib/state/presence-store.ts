@@ -304,9 +304,13 @@ export function signIn(
     prunePresence(now, db, scoped);
 
     const ownPriorRow = db.query(SELECT_PRESENCE_BY_SESSION_SQL).get(sessionId) as PresenceRawRow | null;
+    // Resolve continueId (resolveHandle's live-name lookup included) before
+    // dropping the caller's own row, or a session continuing its own live
+    // display name would find no live holder for it and fall through to a
+    // newer identity sharing that name.
+    const target = args.continueId === undefined ? undefined : continuationTarget(args.continueId, db);
     if (ownPriorRow) db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(sessionId);
 
-    const target = args.continueId === undefined ? undefined : continuationTarget(args.continueId, db);
     const continued = typeof target === "object";
     if (continued && !claimIdentitySeat(target.id, sessionStaleCutoff, scoped, db)) throw heldByAnotherSession(target.id);
     let identity: IdentityRow | undefined = continued

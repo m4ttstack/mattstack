@@ -689,3 +689,27 @@ test("continuing a legacy handle, dotted or not, keeps it as the id", () => {
   expect(mustSignIn({ sessionId: "s2", continueId: "remy.old", now }, db, NO_BINDING)).toMatchObject({ handle: "remy.old", name: "remy.old", continued: true });
   expect(getIdentity("remy.old", db)).toMatchObject({ name: "remy.old", baseName: "remy.old", sessionId: "s2" });
 });
+
+test("a session live as remy continuing remy keeps its own id while a newer offline identity named remy exists", () => {
+  const db = fresh();
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  mintIdentity({ base: "remy", name: "remy", sessionId: "s-other", now: now + MIN }, db);
+  const r = mustSignIn({ sessionId: "s1", continueId: "remy", now: now + 2 * MIN }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: first.handle, continued: true });
+});
+
+test("continuing your own current id by id returns it with continued true", () => {
+  const db = fresh();
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  const r = mustSignIn({ sessionId: "s1", continueId: first.handle, now: now + MIN }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: first.handle, continued: true });
+});
+
+test("a session holding identity X continues identity Y and releases X", () => {
+  const db = fresh();
+  const x = mustSignIn({ sessionId: "s1", baseHandle: "kai", now }, db, NO_BINDING);
+  const y = mintIdentity({ base: "remy", name: "remy", sessionId: null, now: now + MIN }, db);
+  const r = mustSignIn({ sessionId: "s1", continueId: y.id, now: now + 2 * MIN }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: y.id, continued: true });
+  expect(getIdentity(x.handle, db)?.sessionId).toBeNull();
+});
