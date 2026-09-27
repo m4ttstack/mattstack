@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { settingsHandler, type RtSettingsApi, type SettingsHandlerOptions } from "../server.ts";
+import { defToWire, effectiveFromRows, settingsHandler, type RtSettingsApi, type SettingsHandlerOptions } from "../server.ts";
 
 interface FakeDef {
   key: string;
@@ -32,7 +32,7 @@ const DEFS: Record<string, FakeDef> = {
     schema: { type: "object", required: ["webhookUrl"], properties: { webhookUrl: { type: "string" }, emoji: { type: "string" } } },
     layerSchema: { type: "object", properties: { webhookUrl: { type: "string" }, emoji: { type: "string" } } },
   },
-  "rt.roles": { key: "rt.roles", type: "object", scopes: ["team", "user", "machine"], merge: "deep", description: "Role bindings", repoScoped: true, repoOnly: true, schema: { type: "object", properties: { dev: { type: "object" } } } },
+  "rt.roles": { key: "rt.roles", type: "object", scopes: ["team", "user", "machine"], merge: "deep", description: "Role bindings", repoScoped: true, schema: { type: "object", properties: { dev: { type: "object" } } } },
 };
 
 const setCalls: unknown[][] = [];
@@ -474,10 +474,20 @@ describe("schema on the wire", () => {
     expect(roles.issues.filter((i: any) => i.scope === "team.repo")).toHaveLength(1);
   });
 
-  test("repoOnly is on the wire: true for a repo-only key, false otherwise", async () => {
-    const body = (await (await handle(get("/api/settings/defs")))!.json()) as any;
-    expect(body.defs.find((d: any) => d.key === "rt.roles").repoOnly).toBe(true);
-    expect(body.defs.find((d: any) => d.key === "board.title").repoOnly).toBe(false);
+  test("a refused global value on a repo-only key never becomes the effective layer", () => {
+    const def = { key: "rt.roles", type: "object", scopes: ["team", "user", "machine"], merge: "replace", description: "", repoScoped: true, repoOnly: true } as any;
+    const rows = [
+      { scope: "team.repo", file: "/t", present: true, value: { a: 1 } },
+      { scope: "machine", file: "/m", present: true, value: { b: 2 }, invalid: "repo-only: set it in a repo section (--repo), not the global machine store" },
+    ] as any;
+    expect(effectiveFromRows(def, rows)).toEqual({ scope: "team.repo", file: "/t", value: { a: 1 } });
+  });
+
+  test("repoOnly is on the wire: true for a repo-only key, false otherwise", () => {
+    const base = { key: "rt.x", type: "string", scopes: ["user"], merge: "replace", description: "" } as any;
+    const eff = { scope: null, file: null };
+    expect(defToWire({ ...base, repoScoped: true, repoOnly: true }, undefined, eff).repoOnly).toBe(true);
+    expect(defToWire(base, undefined, eff).repoOnly).toBe(false);
   });
 
   test("GET /repos lists store identities with labels", async () => {

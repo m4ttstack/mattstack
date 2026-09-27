@@ -170,6 +170,11 @@ describe("settings/write", () => {
       expect(existsSync(userSettingsPath())).toBe(false);
     });
 
+    test("refuses a repo-only key written with an empty repo identity", () => {
+      expect(() => setSetting("rt.roles", { backend: {} }, "user", { repoIdentity: "" })).toThrow(/repo-only/);
+      expect(existsSync(userSettingsPath())).toBe(false);
+    });
+
     test("unset of a repo-only key with no repo still removes a stray global value", () => {
       write(userSettingsPath(), `{ "rt.roles": { "backend": {} } }\n`);
       expect(unsetSetting("rt.roles", "user")).toBe(true);

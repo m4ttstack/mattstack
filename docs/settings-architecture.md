@@ -158,7 +158,9 @@ path formatted `[0].pattern` or `emoji.looking`.
   stores. It is read-only, uses the registry of
   the rt that runs it, takes `--json`, and exits 1 on any finding except an
   unregistered key. A finding against a real store is fixed in the schema,
-  never in the store.
+  never in the store, with one exception: a global value on a repo-only key
+  is misplaced, not malformed, so it moves into a repo section (`rt settings
+  set ... --repo`) or is removed (`rt settings unset ... --scope <store>`).
 - **Breaking changes.** `bun run cli.ts settings schema diff` classifies the
   registry's schemas against a lock: `origin/main` by default,
   `--against-ref <ref>` or `--against <file>` (one or the other), `--json`

@@ -13,7 +13,7 @@ export type WriteRefusalKind = "repoOnly" | "type" | "pathGuard" | "schema";
 export type WriteVerdict = { ok: true } | { ok: false; kind: WriteRefusalKind; reason: string; issues: SchemaIssue[] };
 
 export function validateWrite(def: SettingDef, value: unknown, opts: { scope: SettingScope; repoIdentity?: string; team?: string }): WriteVerdict {
-  if (def.repoOnly && opts.repoIdentity === undefined)
+  if (def.repoOnly && !opts.repoIdentity)
     return { ok: false, kind: "repoOnly", reason: `"${def.key}" is repo-only: name the repo (--repo) instead of writing a global value`, issues: [] };
   const unguarded: SettingDef = { ...def, pathGuardFields: undefined };
   const typed = validateValue(unguarded, value);
