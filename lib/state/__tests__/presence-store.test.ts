@@ -5,7 +5,7 @@
  * joinRoom/listMembers come from chat-store.ts to exercise the room-default
  * wiring those tests cover.
  */
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
 import { tmpdir } from "os";
@@ -20,9 +20,7 @@ import {
   presenceForHandle,
   presenceForSession,
   presenceThresholds,
-  paneHandleFor,
   prunePresence,
-  rememberPaneHandle,
   reserveAgentHandle,
   setAway,
   signIn,
@@ -489,52 +487,6 @@ test("an explicitly named pool name counts as used; a non-pool base is not recor
   expect(ledger["mr-board"]).toBeUndefined();
 });
 
-test("rememberPaneHandle round-trips a pane's base handle; an unknown pane resolves undefined", () => {
-  const db = fresh();
-  expect(paneHandleFor("wAR:p3", db)).toBeUndefined();
-  rememberPaneHandle("wAR:p3", "max", db);
-  expect(paneHandleFor("wAR:p3", db)).toBe("max");
-  rememberPaneHandle("wAR:p3", "kai", db);
-  expect(paneHandleFor("wAR:p3", db)).toBe("kai");
-  expect(paneHandleFor("wZZ:p9", db)).toBeUndefined();
-});
-
-test("the pane-handle ledger caps at the 200 most-recently-written pins, even when every write shares a timestamp", () => {
-  const db = fresh();
-  const frozen = spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
-  try {
-    for (let i = 1; i <= 250; i++) rememberPaneHandle(`w:p${i}`, `h${i}`, db);
-  } finally {
-    frozen.mockRestore();
-  }
-  const count = (db.query("SELECT COUNT(*) AS n FROM kv WHERE ns = 'chat_pane_handles';").get() as { n: number }).n;
-  expect(count).toBe(200);
-  // The 50 oldest writes are evicted; the newest 200 survive by insertion order.
-  expect(paneHandleFor("w:p50", db)).toBeUndefined();
-  expect(paneHandleFor("w:p51", db)).toBe("h51");
-  expect(paneHandleFor("w:p250", db)).toBe("h250");
-});
-
-test("re-pinning an old pane survives the cap as a most-recent write, even sharing a timestamp with fresh pins", () => {
-  const db = fresh();
-  const frozen = spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
-  try {
-    for (let i = 1; i <= 200; i++) rememberPaneHandle(`w:p${i}`, `h${i}`, db);
-    // Re-pin the OLDEST key (the upsert path CodeRabbit flagged): it must count
-    // as the newest write, not keep its stale rowid.
-    rememberPaneHandle("w:p1", "repinned", db);
-    // Push past the cap with fresh pins so eviction actually runs.
-    for (let i = 201; i <= 205; i++) rememberPaneHandle(`w:p${i}`, `h${i}`, db);
-  } finally {
-    frozen.mockRestore();
-  }
-  const count = (db.query("SELECT COUNT(*) AS n FROM kv WHERE ns = 'chat_pane_handles';").get() as { n: number }).n;
-  expect(count).toBe(200);
-  expect(paneHandleFor("w:p1", db)).toBe("repinned"); // re-pinned oldest survives
-  expect(paneHandleFor("w:p2", db)).toBeUndefined();   // genuinely-old untouched key evicted
-  expect(paneHandleFor("w:p205", db)).toBe("h205");    // newest survives
-});
-
 // ─── Agent handle reservations ───────────────────────────────────────────────
 
 test("reserveAgentHandle mints an unbound identity under a drawn pool name and returns its id", () => {
@@ -733,4 +685,19 @@ test("a session holding identity X continues identity Y and releases X", () => {
   const r = mustSignIn({ sessionId: "s1", continueId: y.id, now: now + 2 * MIN }, db, NO_BINDING);
   expect(r).toMatchObject({ handle: y.id, continued: true });
   expect(getIdentity(x.handle, db)?.sessionId).toBeNull();
+});
+
+test("a new session in the same pane draws a fresh name under a new id", () => {
+  const db = fresh();
+  const first = mustSignIn({ sessionId: "s1", cwd: "/w", pane: "wAR:p3", now }, db, NO_BINDING);
+  signOut("s1", now, db);
+  const next = mustSignIn({ sessionId: "s2", cwd: "/w", pane: "wAR:p3", now: now + MIN }, db, NO_BINDING);
+  expect(next.handle).not.toBe(first.handle);
+  expect(next.baseHandle).not.toBe(first.baseHandle);
+});
+
+test("the pane-pin API is gone from the state barrel", async () => {
+  const barrel = await import("../index.ts");
+  expect("paneHandleFor" in barrel).toBe(false);
+  expect("rememberPaneHandle" in barrel).toBe(false);
 });

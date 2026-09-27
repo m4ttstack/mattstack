@@ -23,7 +23,7 @@ import {
   resolveHandle,
   type IdentityRow,
 } from "./identity-store.ts";
-import { capKvNamespace, getKvValue, replaceKvValue, setKvValue } from "./kv-blob.ts";
+import { getKvValue, setKvValue } from "./kv-blob.ts";
 
 export type BuddyStatus = "live" | "idle" | "offline";
 
@@ -377,30 +377,6 @@ export function reserveAgentHandle(db: Database = getStateDb(), now: number = Da
   // BEGIN IMMEDIATE: read-then-write must lock up front or SQLITE_BUSY_SNAPSHOT
   // bypasses busy_timeout (same reason as signIn's).
   return run.immediate();
-}
-
-const PANE_HANDLES_NS = "chat_pane_handles";
-// A long-lived daemon accumulates one pin per herdr pane it ever saw; the cap
-// keeps the ledger bounded, dropping the least-recently-pinned panes first.
-const PANE_HANDLE_CAP = 200;
-
-/** The base handle a herdr pane last signed in under, or undefined if this daemon has no pin for it. */
-export function paneHandleFor(paneId: string, db: Database = getStateDb()): string | undefined {
-  const v = getKvValue<string | null>(PANE_HANDLES_NS, paneId, null, db);
-  return typeof v === "string" && v ? v : undefined;
-}
-
-/**
- * Pins `paneId` to `baseHandle` so a later session on the same pane redraws
- * it instead of a fresh pool name, then caps the ledger to its most-recently
- * -written pins (deterministic even when writes share a millisecond).
- */
-export function rememberPaneHandle(paneId: string, baseHandle: string, db: Database = getStateDb()): void {
-  // replaceKvValue, not setKvValue: re-pinning a known pane must take a fresh
-  // rowid so capKvNamespace's recency order counts it as the most recent write,
-  // not the stale rowid an in-place upsert would keep.
-  replaceKvValue(PANE_HANDLES_NS, paneId, baseHandle, db);
-  capKvNamespace(PANE_HANDLES_NS, PANE_HANDLE_CAP, db);
 }
 
 export function signOut(sessionId: string, now: number = Date.now(), db: Database = getStateDb()): void {
