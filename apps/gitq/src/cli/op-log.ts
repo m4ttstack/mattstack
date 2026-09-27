@@ -31,7 +31,7 @@ async function headsOf(cwd: string, branchList: string[]): Promise<Record<string
  * Snapshots the stack's branch heads BEFORE running `fn`, installs the GitShell
  * command hook so every git invocation `fn` makes is captured, then records the
  * same branches' heads again as `resultHeads` and persists the entry once `fn`
- * resolves — but only when `shouldLog(exitCode)` is true
+ * resolves, but only when `shouldLog(exitCode)` is true
  * (default: a clean exit `0`). A thrown `fn` never logs. This is the piece that
  * makes `gitq undo`/`gitq log` reflect real operations; without it both are inert.
  *

@@ -3,6 +3,7 @@ import type { OperationEntry, OperationType } from './operation-log.ts';
 import { GitShell } from './git-shell.ts';
 import { finalizeBranchRef } from './rebase-engine.ts';
 import { StackManager } from './stack-manager.ts';
+import { describeSlot, findSlotForBranch, getWorktreeMap } from './worktrees.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,8 +48,9 @@ export function canUndo(entry: OperationEntry): boolean {
  * Refs move by compare-and-swap through finalizeBranchRef, never by checkout,
  * so undo works from any worktree and leaves the stack root alone. Every
  * branch is checked before any ref moves: one that moved since the operation
- * (newer commits) refuses the whole undo. A CAS that still fails part way
- * stops there and reports the branches already restored.
+ * (newer commits), or is held by a worktree finalizeBranchRef would refuse,
+ * refuses the whole undo. A CAS that still fails part way stops there and
+ * reports the branches already restored; running undo again finishes it.
  */
 export async function undo(
   cwd: string,
@@ -84,9 +86,11 @@ export async function undo(
     return refuse('the working tree has uncommitted changes; commit or stash them, then retry undo');
   }
 
-  const moves: Array<{ branch: string; from: string; to: string }> = [];
+  const slots = await getWorktreeMap(cwd);
+  const steps: Array<{ branch: string; from: string; to: string; done: boolean }> = [];
   const skippedBranches: string[] = [];
   const movedSinceOperation: string[] = [];
+  const heldBySlot: string[] = [];
 
   for (const branch of undoOrder(entry)) {
     const to = entry.branchSnapshots[branch];
@@ -97,23 +101,51 @@ export async function undo(
       continue;
     }
 
+    // Already at its snapshot: restored by an earlier undo that stopped part way.
     const current = await GitShell.getBranchHead(cwd, branch);
+    if (current === to) {
+      steps.push({ branch, from: current, to, done: true });
+      continue;
+    }
+
     const from = entry.resultHeads?.[branch] ?? current;
     if (current !== from) {
       movedSinceOperation.push(branch);
       continue;
     }
-    moves.push({ branch, from, to });
+
+    // The refusals finalizeBranchRef makes, checked up front so the common
+    // case moves nothing; finalizeBranchRef still makes them to catch a race.
+    const owner = findSlotForBranch(slots, branch);
+    const blocked = !owner
+      ? null
+      : owner.dirty
+        ? 'dirty'
+        : owner.rebaseInProgress
+          ? 'mid-rebase'
+          : owner.head !== from
+            ? 'not on the branch head'
+            : null;
+    if (owner && blocked) {
+      heldBySlot.push(`${branch} is checked out in ${describeSlot(owner)}, which is ${blocked}`);
+      continue;
+    }
+    steps.push({ branch, from, to, done: false });
   }
 
+  const refusals: string[] = [];
   if (movedSinceOperation.length > 0) {
-    return refuse(
-      `moved since the ${entry.operation}, so undo would drop newer commits: ${movedSinceOperation.join(', ')}`,
-    );
+    refusals.push(`moved since the ${entry.operation}, so undo would drop newer commits: ${movedSinceOperation.join(', ')}`);
   }
+  refusals.push(...heldBySlot);
+  if (refusals.length > 0) return refuse(refusals.join('; '));
 
   const restoredBranches: string[] = [];
-  for (const { branch, from, to } of moves) {
+  for (const { branch, from, to, done } of steps) {
+    if (done) {
+      restoredBranches.push(branch);
+      continue;
+    }
     const moved = await finalizeBranchRef(cwd, branch, from, to);
     if (!moved.success) {
       return {
