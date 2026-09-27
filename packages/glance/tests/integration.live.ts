@@ -7,6 +7,16 @@
  * Run it by hand with credentials:
  *   GITHUB_TOKEN=… GITLAB_TOKEN=… bun tests/integration.live.ts
  *
+ * Mutating steps write only to the sandboxes these name, and refuse (sending
+ * no request) when one is unset. Read-only probes still use the token user's
+ * own PR and MR lists.
+ *   GLANCE_HARNESS_GITHUB_SANDBOX=owner/repo        GitHub lifecycles create
+ *                                                   their own PRs here
+ *   GLANCE_HARNESS_GITLAB_SANDBOX=group/project!iid GitLab lifecycles create
+ *                                                   their own MRs in the
+ *                                                   project; note CRUD writes
+ *                                                   onto MR !iid
+ *
  * Deliberately not named `*.test.ts`: it needs real tokens and mutates real
  * projects, so `bun test tests/` must not pick it up.
  */
@@ -25,6 +35,7 @@ import {
   type ForgeLogger,
   type ActionCableCallbacks
 } from '@mattstack/glance';
+import { mutationTarget, readOnlyProjectPath, type MutationTarget } from './live/sandboxTarget.ts';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -36,8 +47,30 @@ if (!GITHUB_TOKEN || !GITLAB_TOKEN) {
   process.exit(1);
 }
 
+const ghSandbox = mutationTarget(
+  'GLANCE_HARNESS_GITHUB_SANDBOX',
+  process.env.GLANCE_HARNESS_GITHUB_SANDBOX,
+  'project'
+);
+const glSandbox = mutationTarget(
+  'GLANCE_HARNESS_GITLAB_SANDBOX',
+  process.env.GLANCE_HARNESS_GITLAB_SANDBOX,
+  'project'
+);
+const glNoteSandbox = mutationTarget(
+  'GLANCE_HARNESS_GITLAB_SANDBOX',
+  process.env.GLANCE_HARNESS_GITLAB_SANDBOX,
+  'mr'
+);
+
 let passed = 0;
 let failed = 0;
+let refused = 0;
+
+function refuse(target: MutationTarget & { ok: false }) {
+  console.log(`  🚫 ${target.refusal}`);
+  refused++;
+}
 
 function assert(condition: boolean, label: string) {
   if (condition) {
@@ -76,13 +109,14 @@ const ghPRs = await github.fetchPullRequests();
 assert(Array.isArray(ghPRs), `Found ${ghPRs.length} PRs`);
 
 let ghTestPR: PullRequest | null = null;
-let ghRepoPath: string | null = process.env.GITHUB_PROJECT_PATH ?? null;
+let ghOwnRepoPath: string | null = null;
 
 if (ghPRs.length > 0) {
   ghTestPR = ghPRs[0]!;
   const match = ghTestPR.webUrl?.match(/github\.com\/([^/]+\/[^/]+)/);
-  ghRepoPath = match?.[1] ?? ghRepoPath;
+  ghOwnRepoPath = match?.[1] ?? null;
 }
+const ghRepoPath = readOnlyProjectPath(ghOwnRepoPath, process.env.GITHUB_PROJECT_PATH);
 
 // 3. fetchSingleMR
 console.log('\n▶ fetchSingleMR');
@@ -192,7 +226,8 @@ if (ghRepoPath) {
 console.log(
   '\n▶ createPullRequest + updatePullRequest + deleteBranch lifecycle'
 );
-if (ghRepoPath) {
+if (ghSandbox.ok) {
+  const ghRepoPath = ghSandbox.projectPath;
   const testBranch = `sdk-test-${Date.now()}`;
   try {
     // Create a branch from default branch HEAD
@@ -268,7 +303,7 @@ if (ghRepoPath) {
     } catch {}
   }
 } else {
-  console.log('  ℹ️  Skipped — no repo path');
+  refuse(ghSandbox);
 }
 
 // ── GitHub Mutation Lifecycle ────────────────────────────────────────────────
@@ -319,7 +354,8 @@ for (const { name, fn } of ghStubTests) {
 
 // 8d. Mutation lifecycle: create PR → approve → merge (with cleanup)
 console.log('\n▶ GitHub: mutation lifecycle (approve → merge)');
-if (ghRepoPath) {
+if (ghSandbox.ok) {
+  const ghRepoPath = ghSandbox.projectPath;
   const mutBranch = `sdk-mut-test-${Date.now()}`;
   try {
     // Setup: create branch + commit
@@ -397,7 +433,7 @@ if (ghRepoPath) {
     } catch {}
   }
 } else {
-  console.log('  ℹ️  Skipped — no repo path');
+  refuse(ghSandbox);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -431,9 +467,6 @@ if (glMRs.length > 0) {
   const match = glTestMR.webUrl?.match(/gitlab\.com\/(.+?)\/-\/merge_requests/);
   glProjectPath = match?.[1] ?? null;
 }
-
-// Use env project path as fallback for mutation tests
-const GL_PROJECT_PATH = process.env.GITLAB_PROJECT_PATH ?? glProjectPath;
 
 // 8. fetchSingleMR
 console.log('\n▶ fetchSingleMR');
@@ -535,12 +568,15 @@ if (glTestMR && glProjectId) {
 
 // 11. NoteMutator — create, update, delete (full CRUD cycle)
 console.log('\n▶ NoteMutator CRUD cycle');
-if (glTestMR && glProjectId) {
+if (glNoteSandbox.ok) {
+  const noteMR = await gitlab.fetchSingleMR(glNoteSandbox.projectPath, glNoteSandbox.iid!, null);
+  if (!noteMR) throw new Error(`sandbox MR ${glNoteSandbox.projectPath}!${glNoteSandbox.iid} not found`);
+  const noteProjectId = parseGitLabRepoId(noteMR.repositoryId);
   const mutator = new NoteMutator('https://gitlab.com', GITLAB_TOKEN);
   const testBody = `SDK integration test ${new Date().toISOString()}`;
 
   // Create
-  const created = await mutator.createNote(glProjectId, glTestMR.iid, testBody);
+  const created = await mutator.createNote(noteProjectId, noteMR.iid, testBody);
   assert(created.id > 0, `Created note ID: ${created.id}`);
   assert(created.body === testBody, `Body matches`);
   assert(
@@ -550,14 +586,14 @@ if (glTestMR && glProjectId) {
 
   // Update
   const updatedBody = `${testBody} (updated)`;
-  await mutator.updateNote(glProjectId, glTestMR.iid, created.id, updatedBody);
+  await mutator.updateNote(noteProjectId, noteMR.iid, created.id, updatedBody);
   assert(true, `Updated note ${created.id}`);
 
   // Delete
-  await mutator.deleteNote(glProjectId, glTestMR.iid, created.id);
+  await mutator.deleteNote(noteProjectId, noteMR.iid, created.id);
   assert(true, `Deleted note ${created.id}`);
 } else {
-  console.log('  ℹ️  Skipped — no MRs');
+  refuse(glNoteSandbox);
 }
 
 // 12. restRequest (GitLab)
@@ -624,7 +660,8 @@ if (glProjectPath) {
 console.log(
   '\n▶ createPullRequest + updatePullRequest + deleteBranch lifecycle'
 );
-if (GL_PROJECT_PATH) {
+if (glSandbox.ok) {
+  const GL_PROJECT_PATH = glSandbox.projectPath;
   const testBranch = `sdk-test-${Date.now()}`;
   try {
     // Create a branch from default branch HEAD
@@ -681,7 +718,7 @@ if (GL_PROJECT_PATH) {
     } catch {}
   }
 } else {
-  console.log('  ℹ️  Skipped — no project path');
+  refuse(glSandbox);
 }
 
 // ── GitLab Capabilities ──────────────────────────────────────────────────────
@@ -704,7 +741,8 @@ assert(gitlab.capabilities.canRequestReReview === true, 'canRequestReReview');
 // resolve/unresolve discussion → re-review → merge, then cleans up.
 
 console.log('\n▶ GitLab: mutation lifecycle');
-if (GL_PROJECT_PATH) {
+if (glSandbox.ok) {
+  const GL_PROJECT_PATH = glSandbox.projectPath;
   const mutBranch = `sdk-mut-${Date.now()}`;
   let mutMRIid: number | null = null;
   try {
@@ -894,7 +932,7 @@ if (GL_PROJECT_PATH) {
     } catch {}
   }
 } else {
-  console.log('  ℹ️  Skipped — no project path');
+  refuse(glSandbox);
 }
 
 // 16. ActionCableClient — WebSocket connect + welcome
@@ -994,7 +1032,7 @@ if (glTestMR && glProjectPath) {
 
 // ── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(50)}`);
-console.log(`  ${passed} passed, ${failed} failed`);
+console.log(`  ${passed} passed, ${failed} failed, ${refused} mutating steps refused`);
 console.log(`${'═'.repeat(50)}\n`);
 
 process.exit(failed > 0 ? 1 : 0);
