@@ -85,6 +85,11 @@ export interface TeamRef {
   mode: TeamMode;
 }
 
+/** No team known: the derived solo state every validator branches on. */
+export function isSolo(team: Pick<TeamRef, "slug" | "mode">): boolean {
+  return team.mode === "none" && team.slug === "";
+}
+
 export interface Plan {
   contract: 1;
   at: string;

@@ -75,7 +75,7 @@ condition is spelled once).
 | mac | unchanged |
 | accounts | the forge account row is present with `required: false` and `optionalNote: "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt."`; `account.switchboard` and `account.slack-app` absent; pack-declared integrations absent (there is no pack) |
 | access | empty: no `access.team-repo`, no `access.forge`, no `access.switchboard` |
-| tools | `tool.fast-browser` and `tool.fast-browser-extension` become `required: false` with the existing "works without this" note; `team.marketplace` and `team.sync` absent; `tool.plugins` installs the `mattstack:*` marketplace, which is already what a team of one gets; `repos.root` stays required; every rt-health row unchanged |
+| tools | `tool.fast-browser` and `tool.fast-browser-extension` become `required: false` with the existing "works without this" note; `team.marketplace` and `team.sync` absent; `tool.plugins` installs the `mattstack:*` marketplace, which is already what a team of one gets; `repos.root` appears only once a repo is tracked, as today; every rt-health row unchanged |
 
 Steps whose `applies()` is false on solo are left out of the run, the way
 the apply engine already expresses "not this install": `team.create` and

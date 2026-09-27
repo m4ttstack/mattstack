@@ -11,7 +11,7 @@
 import type { DaemonResponse } from "../daemon-client.ts";
 import { createRealAgeKeySeam } from "../home/age-key.ts";
 import { createRealSecretsExecSeam, NoAgeKeyError, readSecret, type SecretsSeams } from "../secrets/store.ts";
-import { finalizePlan, GROUP_TITLES, row, type Group, type GroupId, type Plan, type Row, type TeamRef } from "./contract.ts";
+import { finalizePlan, GROUP_TITLES, isSolo, row, type Group, type GroupId, type Plan, type Row, type TeamRef } from "./contract.ts";
 import { UserActionableError } from "./errors.ts";
 import { applyFinishGate, readWaived } from "./finish-gate.ts";
 import { readIntent, teamRefFromIntent, type SetupIntent } from "./intent.ts";
@@ -156,17 +156,18 @@ export async function composePlan(i: PlanInputs): Promise<Plan> {
   const snapshot = enrichSnapshotForge(team.slug ? readTeamSnapshot(i.p, team.slug) : EMPTY_SNAPSHOT, intent);
   const reqs = readPackRequirements(i.p, team.slug);
   const userOverrides = readUserIntegrationOverrides();
+  const solo = isSolo(team);
 
   const groups = await Promise.all([
     buildGroup("mac", async () => {
       const [permReply, tccRes, macList] = await Promise.all([fetchPermissions(i.p.tray), i.p.daemon("tcc:check"), macRows(i.p)]);
       return [...permissionRows(permReply, tccSummary(tccRes)), ...macList];
     }),
-    buildGroup("accounts", () => accountRows(i.p, snapshot, reqs, i.secrets, intent)),
-    buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets)),
+    buildGroup("accounts", () => accountRows(i.p, snapshot, reqs, i.secrets, intent, userOverrides, solo)),
+    buildGroup("access", () => accessRows(i.p, snapshot, intent, userOverrides, i.secrets, solo)),
     buildGroup("tools", async () => {
       const [hasBrew, healthRows] = await Promise.all([detectHasBrew(i.p), rtHealthRows(i.p, { ci: i.ci })]);
-      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug });
+      const tools = await toolRows(i.p, reqs, { hasBrew, secrets: i.secrets, teamSlug: team.slug, solo });
       const repoRoot = repoRootRow(i.p, team, snapshot);
       return [...tools, ...(repoRoot ? [repoRoot] : []), ...healthRows];
     }),

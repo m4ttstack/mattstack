@@ -100,4 +100,13 @@ describe("teamRefFromIntent", () => {
   test("null intent with no discovered teams yields an empty ref", () => {
     expect(teamRefFromIntent(null, [])).toEqual({ slug: "", name: "", mode: "none" });
   });
+
+  test("round-trips a solo intent and maps it to the no-team ref", () => {
+    const p = fakeProbes();
+    const intent: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" };
+    writeIntent(p, intent);
+    expect(readIntent(p)).toEqual(intent);
+    expect(teamRefFromIntent(intent, [])).toEqual({ slug: "", name: "", mode: "none" });
+    expect(teamRefFromIntent(intent, ["acme"])).toEqual({ slug: "acme", name: "acme", mode: "none" });
+  });
 });

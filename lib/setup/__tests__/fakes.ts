@@ -36,6 +36,7 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
   calls: {
     exec: string[][];
     fetch: string[];
+    fetchInits: Array<{ url: string; init?: Parameters<Probes["fetch"]>[1] }>;
     tray: string[];
     writes: Record<string, string>;
     removed: string[];
@@ -57,6 +58,7 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
   const calls = {
     exec: [] as string[][],
     fetch: [] as string[],
+    fetchInits: [] as Array<{ url: string; init?: Parameters<Probes["fetch"]>[1] }>,
     tray: [] as string[],
     writes: {} as Record<string, string>,
     removed: [] as string[],
@@ -242,6 +244,7 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
 
     async fetch(url, init) {
       calls.fetch.push(url);
+      calls.fetchInits.push({ url, init });
       if (opts.fetch) return opts.fetch(url, init);
       return { status: 0, body: "", headers: {} };
     },

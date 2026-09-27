@@ -1,5 +1,6 @@
 import { describe, test, expect, spyOn } from "bun:test";
 import { join } from "path";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { teamStatus, type TeamDeps } from "../team.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 import type { SettingsReader } from "../../lib/setup/team-settings.ts";
@@ -184,14 +185,30 @@ describe("teamStatus", () => {
     expect(body.error.code).toBe("no-team");
   });
 
-  test("no --team and zero local teams -> exits 2 with no-team, from resolveTeamSlug", async () => {
+  test("no --team and zero local teams -> mode solo, exit 0, in both output modes", async () => {
     const deps = baseDeps();
+    await teamStatus(["--json"], {}, deps);
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] });
 
-    const code = await runExpectingProcessExit(() => teamStatus(["--json"], {}, deps));
+    const text = baseDeps();
+    await teamStatus([], {}, text);
+    expect(text.lines[0]).toBe("rt team status: no team (Just me)");
+  });
 
-    expect(code).toBe(2);
-    const body = JSON.parse(deps.lines[0]!);
-    expect(body.error.code).toBe("no-team");
+  test("two local teams and no --team -> still exits 2 with ambiguous-team, never solo", async () => {
+    const teams = join(process.env.HOME!, ".mattstack", "teams");
+    for (const team of ["acme", "beta"]) {
+      mkdirSync(join(teams, team, "mattstack"), { recursive: true });
+      writeFileSync(join(teams, team, "mattstack", "settings.team.jsonc"), "{}");
+    }
+    try {
+      const deps = baseDeps();
+      const code = await runExpectingProcessExit(() => teamStatus(["--json"], {}, deps));
+      expect(code).toBe(2);
+      expect(JSON.parse(deps.lines[0]!).error.code).toBe("ambiguous-team");
+    } finally {
+      rmSync(teams, { recursive: true, force: true });
+    }
   });
 
   test("a credential-bearing remote is stripped before it reaches the envelope", async () => {
