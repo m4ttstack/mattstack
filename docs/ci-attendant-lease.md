@@ -108,7 +108,7 @@ own lease.
 
 ## The lock
 
-Every write (claim, heartbeat, release) runs under the MR's lock file so two
+Every write (claim, heartbeat, release, adopt) runs under the MR's lock file so two
 writers can never race each other's read-modify-write:
 
 - The lock is taken by creating the lock file exclusively (an `open` with

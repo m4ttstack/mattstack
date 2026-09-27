@@ -147,7 +147,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           sha: { type: "string", description: "The pushed commit, 7 to 40 hex characters." },
           maxWaitSeconds: { type: "number" },
           intervalSeconds: { type: "number" },
-          priorPipelineId: { type: "number", description: "The MR's head pipeline id read before the push." },
+          priorPipelineId: { type: "number", description: "The MR's head pipeline id read before the push: the numeric part of a gitlab:pipeline:N id, as mr_pipeline returns it." },
           underBoardLease: { type: "boolean" },
         },
         required: ["sha"],

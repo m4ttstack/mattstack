@@ -2232,8 +2232,9 @@ export class GitLabProvider implements GitProvider {
 
   /**
    * A merged-results or merge-train pipeline's sha is the synthetic merge
-   * commit, not the pushed source sha; the source sha is this commit's
-   * first parent.
+   * commit, not the pushed source sha. The first parent is the target
+   * branch and the source is the second, so callers look for the source sha
+   * among all the parents rather than at a fixed index.
    */
   async fetchCommitParents(projectPath: string, sha: string): Promise<string[]> {
     try {

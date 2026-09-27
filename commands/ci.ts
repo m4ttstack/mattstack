@@ -17,11 +17,10 @@ import {
   CiLeaseError, claimCiLease, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, releaseCiLease,
   type CiLeaseHolder,
 } from "../packages/rt-client/src/index.ts";
-import { ciToolDefs } from "../lib/mcp/ci-tools.ts";
+import { ciToolDefs, ownerFromEnv, type CiWatchToolDeps } from "../lib/mcp/ci-tools.ts";
 
 export function cliOwner(env: NodeJS.ProcessEnv): string {
-  if (env.CLAUDE_CODE_SESSION_ID) return `session:${env.CLAUDE_CODE_SESSION_ID}`;
-  return `user:${env.USER || userInfo().username}`;
+  return ownerFromEnv(env) ?? `user:${env.USER || userInfo().username}`;
 }
 
 function flag(args: string[], name: string): string | undefined {
@@ -105,13 +104,17 @@ export async function ciLeaseShow(args: string[]): Promise<void> {
 }
 
 export async function ciWatch(args: string[]): Promise<void> {
+  await runCiWatch(args);
+}
+
+export async function runCiWatch(args: string[], watch: Partial<CiWatchToolDeps> = {}): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = positional(args);
   const sha = flag(args, "--sha");
   if (!mrUrl || parseMrIid(mrUrl) === null || !sha) {
     emit(json, { error: "usage: rt ci watch <mr-url> --sha <sha>" }, "usage: rt ci watch <mr-url> --sha <sha>", 2);
   }
-  const tool = ciToolDefs({ owner: cliOwner }).find((t) => t.name === "ci_watch")!;
+  const tool = ciToolDefs({ owner: cliOwner, watch }).find((t) => t.name === "ci_watch")!;
   const input: Record<string, unknown> = { mrUrl, sha };
   for (const [f, k] of [["--max-wait", "maxWaitSeconds"], ["--interval", "intervalSeconds"], ["--prior-pipeline", "priorPipelineId"]] as const) {
     const v = flag(args, f);

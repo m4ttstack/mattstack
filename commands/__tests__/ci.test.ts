@@ -1,15 +1,16 @@
 /**
- * rt ci lease CLI (in-process): cliOwner derivation and every lease verb
- * against a real ci-lease.ts backed by a per-test temp dir. rt ci watch
- * spawns through the daemon and the GitLab client, so its CLI wiring is
- * covered by the spawn suite in no-ci-cli.test.ts instead of duplicated here.
+ * rt ci (in-process): cliOwner derivation, every lease verb, and rt ci
+ * watch's exit-code mapping, against a real ci-lease.ts backed by a
+ * per-test temp dir. The watch runs with fake MR and daemon reads, so no
+ * daemon or forge is reached.
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ciLeaseClaim, ciLeaseHeartbeat, ciLeaseRelease, ciLeaseShow, cliOwner } from "../ci.ts";
+import { ciLeaseClaim, ciLeaseHeartbeat, ciLeaseRelease, ciLeaseShow, cliOwner, runCiWatch } from "../ci.ts";
+import type { CiWatchToolDeps } from "../../lib/mcp/ci-tools.ts";
 
 const MR_URL = "https://gitlab.example.com/acme/proj/-/merge_requests/7";
 
@@ -208,5 +209,73 @@ describe("rt ci lease CLI (in-process)", () => {
     const again = await run(ciLeaseRelease, [MR_URL, "--json"]);
     expect(again.code).toBe(0);
     expect(JSON.parse(again.stdout)).toEqual({ released: false, reason: "none" });
+  });
+});
+
+describe("rt ci watch exit codes (in-process)", () => {
+  const SHA = "b".repeat(40);
+  let home = "";
+  let origHome: string | undefined;
+  let origDir: string | undefined;
+  let origSession: string | undefined;
+
+  beforeEach(() => {
+    origHome = process.env.HOME;
+    origDir = process.env.MATTSTACK_ATTENDANTS_DIR;
+    origSession = process.env.CLAUDE_CODE_SESSION_ID;
+    home = mkdtempSync(join(tmpdir(), "rt-ci-watch-"));
+    process.env.HOME = home;
+    process.env.MATTSTACK_ATTENDANTS_DIR = join(home, "attendants");
+    process.env.CLAUDE_CODE_SESSION_ID = "s1";
+  });
+
+  afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (origDir === undefined) delete process.env.MATTSTACK_ATTENDANTS_DIR;
+    else process.env.MATTSTACK_ATTENDANTS_DIR = origDir;
+    if (origSession === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = origSession;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  function fakes(status: string, over: Partial<CiWatchToolDeps> = {}): Partial<CiWatchToolDeps> {
+    const pipeline = { id: "gitlab:pipeline:10", status, sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
+    return {
+      resolve: (async () => ({ ok: true, identity: "remote:x", iid: 7 })) as unknown as CiWatchToolDeps["resolve"],
+      projectMrs: (async () => ({ ok: true, data: { mrs: { a: { pr: { iid: 7, sha: SHA, webUrl: MR_URL, pipeline }, fetchedAt: 0 } }, syncedAt: 1 } })) as unknown as CiWatchToolDeps["projectMrs"],
+      command: (async () => ({ ok: true, data: [] })) as unknown as CiWatchToolDeps["command"],
+      now: () => 0,
+      sleep: async () => {},
+      ...over,
+    };
+  }
+
+  test("a settled success exits 0", async () => {
+    await run(ciLeaseClaim, [MR_URL, "--json"]);
+    const { code, stdout } = await run((a) => runCiWatch(a, fakes("success")), [MR_URL, "--sha", SHA, "--json"]);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout).state).toBe("success");
+  });
+
+  test("a settled failure exits 1", async () => {
+    await run(ciLeaseClaim, [MR_URL, "--json"]);
+    const { code, stdout } = await run((a) => runCiWatch(a, fakes("failed")), [MR_URL, "--sha", SHA, "--json"]);
+    expect(code).toBe(1);
+    expect(JSON.parse(stdout).state).toBe("failed");
+  });
+
+  test("Ctrl-C mid-watch exits 130 with the aborted state", async () => {
+    await run(ciLeaseClaim, [MR_URL, "--json"]);
+    const interrupt = fakes("running", { sleep: async () => { process.emit("SIGINT"); } });
+    const { code, stdout } = await run((a) => runCiWatch(a, interrupt), [MR_URL, "--sha", SHA, "--json"]);
+    expect(code).toBe(130);
+    expect(JSON.parse(stdout).state).toBe("aborted");
+  });
+
+  test("a missing --sha is a usage error, exit 2", async () => {
+    const { code, stdout } = await run((a) => runCiWatch(a, fakes("success")), [MR_URL, "--json"]);
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout).error).toContain("usage: rt ci watch");
   });
 });

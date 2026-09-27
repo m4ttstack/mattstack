@@ -13,18 +13,12 @@ import {
 
 import type { AttendantsPort } from './run.ts';
 
-/** The board's doctor holds the MR's CI lease on the doctor pane's behalf --
-    the pane never claims, and this port's heartbeat, called every cron pass
-    while the doctor is in flight, is its pulse. The cron interval must stay
-    under the TTL. Every method catches every error, not just lock
-    contention: an fs failure (EACCES, ENOSPC, ENOTDIR) escaping any one of
-    these would abort runTriage and skip the latch pass and writeMemory that
-    follow it in bin/triage.ts. claim reports no claim; read/readByBranch
-    report no lease; heartbeat/release are no-ops. Lock contention
-    (CiLeaseError's "lease lock ..." messages) is expected under a live
-    doctor and stays silent -- the next cron pass retries; every other
-    failure warns once so a systematic failure (not just a busy lock) stays
-    visible. */
+/** Holds the MR's CI lease for the doctor pane, which never claims; the
+    heartbeat each cron pass is its pulse, so the cron interval must stay
+    under the TTL. Every method catches every error, since one escaping would
+    abort runTriage before the latch pass and writeMemory in bin/triage.ts.
+    Lock contention stays silent (the next pass retries); any other failure
+    warns. */
 
 function isLockContention(err: unknown): boolean {
   return err instanceof CiLeaseError && err.message.startsWith('lease lock');
