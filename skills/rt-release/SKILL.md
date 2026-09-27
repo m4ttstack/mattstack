@@ -60,8 +60,8 @@ digraph rt_release {
     "git fetch origin --tags" -> "Find where this release stands";
     "Find where this release stands" -> "Where does the release stand?";
     "Where does the release stand?" -> "rt release preflight --json" [label="nothing started"];
-    "Where does the release stand?" -> "Prove and tag (prove-and-tag.md)" [label="notes commit on origin/main, no tag"];
-    "Where does the release stand?" -> "Prepare the release (prepare.md)" [label="notes commit on origin/main, a fix for this release merged after it, no tag"];
+    "Where does the release stand?" -> "Prove and tag (prove-and-tag.md)" [label="notes commit on origin/main, no fix recorded, no tag"];
+    "Where does the release stand?" -> "rt release preflight --json" [label="notes commit on origin/main, a fix for this release merged after it, no tag"];
     "Where does the release stand?" -> "Publish and finish (publish-and-finish.md)" [label="tag pushed"];
     "rt release preflight --json" -> "Preflight verdict?";
     "Preflight verdict?" -> "Which gate does the diff imply?" [label="every row current"];
@@ -126,18 +126,21 @@ Read three facts after the fetch, all against origin rather than the local check
 lag origin/main), then take the first edge that matches:
 
 1. The newest tag on origin/main: `git describe --tags --abbrev=0 --match "v[0-9]*" origin/main`.
-2. A full-path notes commit after it: `git log <newest-tag>..origin/main --format='%H %s' --grep "chore(release): docs and notes for"`.
-   A match names its `<tag>`; `git ls-remote --tags origin <tag>` says whether that tag is on origin.
+2. The newest full-path notes commit after it: `git log <newest-tag>..origin/main --format='%H %s' --grep "chore(release): docs and notes for"`.
+   Read only the newest match (the first line): after a re-prepare there are two notes commits,
+   and the newest is the one in play. It names its `<tag>`; `git ls-remote --tags origin <tag>`
+   says whether that tag is on origin.
 3. Whether the newest tag's publish verified: `rt release verify <newest-tag> --json --no-wait`.
 
 - `notes commit on origin/main, a fix for this release merged after it, no tag`: fact 2 matched,
   `ls-remote` printed nothing, and the earlier hold recorded "re-prepare on the new main" as its
   resume point, in the turn's final message or in the answer to the rehearsal gate that
   recommended it, and that fix has merged. The evidence is that record, never a count of commits
-  after the notes. The tag must cover the fix, so Prepare runs again: its copy-aside keeps the
+  after the notes. A merged fix can change pins, the tree state or the diff gate, so preflight
+  runs first and the release goes through Prepare again from there: its copy-aside keeps the
   curated notes, and Matt re-approves the notes against the grown range.
-- `notes commit on origin/main, no tag`: fact 2 matched, `ls-remote` printed nothing, and no fix
-  for this release merged after it. Unrelated commits after the notes commit do not count: Prove
+- `notes commit on origin/main, no fix recorded, no tag`: fact 2 matched, `ls-remote` printed
+  nothing, and no fix for this release merged after it. Unrelated commits after the notes commit do not count: Prove
   and tag reuses a dispatch run whose `headSha` is that notes commit and tags the exercised sha
   as before.
 - `tag pushed`: fact 2 matched and `ls-remote` printed its tag (that tag is the release in
