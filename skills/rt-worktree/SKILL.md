@@ -38,11 +38,15 @@ digraph rt_worktree_start {
     "Cross-repo /cd: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: run the /cd for me" [shape=plaintext];
     "gate_ask {questions, context}: run the /cd for me" [shape=plaintext];
+    "cross-repo gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the cross-repo gate" [shape=plaintext];
+    "Waiting: the cross-repo answer arrives when rt gate wait returns" [shape=doublecircle];
     "Cross-repo off-script answer?" [shape=diamond];
     "rt worktree hook status --json" [shape=plaintext];
     "Hook installed, and no path needed before entering?" [shape=diamond];
     "EnterWorktree {name: <ticket or topic>}" [shape=plaintext];
     "EnterWorktree by name result?" [shape=diamond];
+    "ExitWorktree {action: keep}" [shape=plaintext];
     "Provision by ticket or by branch?" [shape=diamond];
     "worktree_provision {repoName, ticket, ticketTitle}" [shape=plaintext];
     "worktree_provision {repoName, branch}" [shape=plaintext];
@@ -54,6 +58,9 @@ digraph rt_worktree_start {
     "Provision refused: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: provision refused" [shape=plaintext];
     "gate_ask {questions, context}: provision refused" [shape=plaintext];
+    "provision gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the provision gate" [shape=plaintext];
+    "Waiting: the provision answer arrives when rt gate wait returns" [shape=doublecircle];
     "Provision off-script answer?" [shape=diamond];
     "EnterWorktree {path: <the result's path>}" [shape=plaintext];
     "EnterWorktree by path result?" [shape=diamond];
@@ -62,6 +69,9 @@ digraph rt_worktree_start {
     "Enter by path refused: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: entering the claimed tree was refused" [shape=plaintext];
     "gate_ask {questions, context}: entering the claimed tree was refused" [shape=plaintext];
+    "enter-path gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the enter-path gate" [shape=plaintext];
+    "Waiting: the enter-path answer arrives when rt gate wait returns" [shape=doublecircle];
     "Enter-path off-script answer?" [shape=diamond];
     "Next command needs dependencies?" [shape=diamond];
     "STOP: dependencies settle through await-ready, never your own install" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -96,7 +106,10 @@ digraph rt_worktree_start {
     "Cross-repo /cd: attended session?" -> "AskUserQuestion {questions}: run the /cd for me" [label="yes"];
     "Cross-repo /cd: attended session?" -> "gate_ask {questions, context}: run the /cd for me" [label="no: unattended pane"];
     "AskUserQuestion {questions}: run the /cd for me" -> "Cross-repo off-script answer?";
-    "gate_ask {questions, context}: run the /cd for me" -> "Cross-repo off-script answer?";
+    "gate_ask {questions, context}: run the /cd for me" -> "cross-repo gate_ask result?";
+    "cross-repo gate_ask result?" -> "Cross-repo off-script answer?" [label="an answer recorded"];
+    "cross-repo gate_ask result?" -> "rt gate wait <id>: the cross-repo gate" [label="presentation: wait"];
+    "rt gate wait <id>: the cross-repo gate" -> "Waiting: the cross-repo answer arrives when rt gate wait returns" [label="end the turn"];
     "Cross-repo off-script answer?" -> "Handed off: Matt runs the /cd; his next message resumes at hook status" [label="take: Matt runs the /cd; end the turn"];
     "Cross-repo off-script answer?" -> "rt pane send self --text \"/cd <repo>\" --then \"Continue: <the next step>\"" [label="iterate: Matt fixed the pane, send again"];
     "Cross-repo off-script answer?" -> "Held at the cross-repo gate" [label="hold"];
@@ -106,7 +119,9 @@ digraph rt_worktree_start {
     "Hook installed, and no path needed before entering?" -> "Provision by ticket or by branch?" [label="no"];
     "EnterWorktree {name: <ticket or topic>}" -> "EnterWorktree by name result?";
     "EnterWorktree by name result?" -> "Next command needs dependencies?" [label="entered an rt tree"];
-    "EnterWorktree by name result?" -> "Provision by ticket or by branch?" [label="refused, or not an rt tree"];
+    "EnterWorktree by name result?" -> "Provision by ticket or by branch?" [label="refused"];
+    "EnterWorktree by name result?" -> "ExitWorktree {action: keep}" [label="entered a stock .claude/worktrees tree"];
+    "ExitWorktree {action: keep}" -> "Provision by ticket or by branch?";
     "Provision by ticket or by branch?" -> "worktree_provision {repoName, ticket, ticketTitle}" [label="ticket"];
     "Provision by ticket or by branch?" -> "worktree_provision {repoName, branch}" [label="branch"];
     "worktree_provision {repoName, ticket, ticketTitle}" -> "worktree_provision result?";
@@ -123,7 +138,10 @@ digraph rt_worktree_start {
     "Provision refused: attended session?" -> "AskUserQuestion {questions}: provision refused" [label="yes"];
     "Provision refused: attended session?" -> "gate_ask {questions, context}: provision refused" [label="no: unattended pane"];
     "AskUserQuestion {questions}: provision refused" -> "Provision off-script answer?";
-    "gate_ask {questions, context}: provision refused" -> "Provision off-script answer?";
+    "gate_ask {questions, context}: provision refused" -> "provision gate_ask result?";
+    "provision gate_ask result?" -> "Provision off-script answer?" [label="an answer recorded"];
+    "provision gate_ask result?" -> "rt gate wait <id>: the provision gate" [label="presentation: wait"];
+    "rt gate wait <id>: the provision gate" -> "Waiting: the provision answer arrives when rt gate wait returns" [label="end the turn"];
     "Provision off-script answer?" -> "worktree_provision {repoName, branch}: the repo or branch Matt named" [label="take: provision what Matt named"];
     "Provision off-script answer?" -> "Provision by ticket or by branch?" [label="iterate: Matt fixed the cause, retry"];
     "Provision off-script answer?" -> "Held at the provision gate" [label="hold"];
@@ -138,7 +156,10 @@ digraph rt_worktree_start {
     "Enter by path refused: attended session?" -> "AskUserQuestion {questions}: entering the claimed tree was refused" [label="yes"];
     "Enter by path refused: attended session?" -> "gate_ask {questions, context}: entering the claimed tree was refused" [label="no: unattended pane"];
     "AskUserQuestion {questions}: entering the claimed tree was refused" -> "Enter-path off-script answer?";
-    "gate_ask {questions, context}: entering the claimed tree was refused" -> "Enter-path off-script answer?";
+    "gate_ask {questions, context}: entering the claimed tree was refused" -> "enter-path gate_ask result?";
+    "enter-path gate_ask result?" -> "Enter-path off-script answer?" [label="an answer recorded"];
+    "enter-path gate_ask result?" -> "rt gate wait <id>: the enter-path gate" [label="presentation: wait"];
+    "rt gate wait <id>: the enter-path gate" -> "Waiting: the enter-path answer arrives when rt gate wait returns" [label="end the turn"];
     "Enter-path off-script answer?" -> "Handed off: Matt moves the session into the claimed tree" [label="take: Matt runs the /cd to the tree; end the turn"];
     "Enter-path off-script answer?" -> "EnterWorktree {path: <the result's path>}" [label="iterate: Matt will approve the prompt, enter again"];
     "Enter-path off-script answer?" -> "Held at the enter-path gate, naming the claimed tree" [label="hold"];
@@ -186,8 +207,8 @@ into the tree, promptless; non-rt repos fall back to stock
 `.claude/worktrees`. When the hook is not installed, or a path is needed
 before entering, provision explicitly and enter the result's `path` by path
 mode, which always prompts. When name mode lands in a stock
-`.claude/worktrees` tree, the session is inside it: `ExitWorktree` (keep)
-first, then provision and enter by path.
+`.claude/worktrees` tree, the session is inside it: leave it with
+`ExitWorktree {action: keep}`, then provision and enter by path.
 
 ### Provision by ticket or by branch?
 
@@ -260,6 +281,9 @@ digraph rt_worktree_finish {
     "Dispose refused: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: dispose refused the tree" [shape=plaintext];
     "gate_ask {questions, context}: dispose refused the tree" [shape=plaintext];
+    "dispose gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the dispose gate" [shape=plaintext];
+    "Waiting: the dispose answer arrives when rt gate wait returns" [shape=doublecircle];
     "Dispose off-script answer?" [shape=diamond];
     "Trigger: a disposed tree is missed" [shape=ellipse];
     "rt worktree restore --list" [shape=plaintext];
@@ -271,6 +295,9 @@ digraph rt_worktree_finish {
     "Restore failed: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: restore cannot recover the tree" [shape=plaintext];
     "gate_ask {questions, context}: restore cannot recover the tree" [shape=plaintext];
+    "restore gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the restore gate" [shape=plaintext];
+    "Waiting: the restore answer arrives when rt gate wait returns" [shape=doublecircle];
     "Restore off-script answer?" [shape=diamond];
     "Make the recovery move Matt approved, once" [shape=box];
     "rt disposes the tree after the merge" [shape=doublecircle style=filled fillcolor=lightgreen];
@@ -299,7 +326,10 @@ digraph rt_worktree_finish {
     "Dispose refused: attended session?" -> "AskUserQuestion {questions}: dispose refused the tree" [label="yes"];
     "Dispose refused: attended session?" -> "gate_ask {questions, context}: dispose refused the tree" [label="no: unattended pane"];
     "AskUserQuestion {questions}: dispose refused the tree" -> "Dispose off-script answer?";
-    "gate_ask {questions, context}: dispose refused the tree" -> "Dispose off-script answer?";
+    "gate_ask {questions, context}: dispose refused the tree" -> "dispose gate_ask result?";
+    "dispose gate_ask result?" -> "Dispose off-script answer?" [label="an answer recorded"];
+    "dispose gate_ask result?" -> "rt gate wait <id>: the dispose gate" [label="presentation: wait"];
+    "rt gate wait <id>: the dispose gate" -> "Waiting: the dispose answer arrives when rt gate wait returns" [label="end the turn"];
     "Dispose off-script answer?" -> "Tree kept: refusal reported" [label="take: keep the tree for now"];
     "Dispose off-script answer?" -> "worktree_dispose {repoName, tree}" [label="iterate: Matt cleared the reason, dispose again"];
     "Dispose off-script answer?" -> "Held at the dispose gate" [label="hold"];
@@ -318,7 +348,10 @@ digraph rt_worktree_finish {
     "Restore failed: attended session?" -> "AskUserQuestion {questions}: restore cannot recover the tree" [label="yes"];
     "Restore failed: attended session?" -> "gate_ask {questions, context}: restore cannot recover the tree" [label="no: unattended pane"];
     "AskUserQuestion {questions}: restore cannot recover the tree" -> "Restore off-script answer?";
-    "gate_ask {questions, context}: restore cannot recover the tree" -> "Restore off-script answer?";
+    "gate_ask {questions, context}: restore cannot recover the tree" -> "restore gate_ask result?";
+    "restore gate_ask result?" -> "Restore off-script answer?" [label="an answer recorded"];
+    "restore gate_ask result?" -> "rt gate wait <id>: the restore gate" [label="presentation: wait"];
+    "rt gate wait <id>: the restore gate" -> "Waiting: the restore answer arrives when rt gate wait returns" [label="end the turn"];
     "Restore off-script answer?" -> "Make the recovery move Matt approved, once" [label="take: the named move Matt approved"];
     "Restore off-script answer?" -> "rt worktree restore --list" [label="iterate: Matt fixed the cause, list again"];
     "Restore off-script answer?" -> "Held at the restore gate" [label="hold"];
