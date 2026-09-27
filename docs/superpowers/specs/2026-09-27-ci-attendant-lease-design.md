@@ -128,9 +128,10 @@ lock file `<slug>-<iid>.lock`:
   is the chat handle when the session is signed in.
 - CLI (`rt ci lease ...`): the same token when `CLAUDE_CODE_SESSION_ID` is set,
   else `user:<login>` for a human at a terminal.
-- Board doctor: `board:doctor:<mrUrl>`, stable across cron passes so each pass
-  can heartbeat and release what an earlier pass claimed. There is one board
-  and one auto doctor per MR, so the MR URL is unique enough.
+- Board doctor: `board:doctor:<lease file name>`, from `boardDoctorOwner(mrUrl)`,
+  stable across cron passes so each pass can heartbeat and release what an
+  earlier pass claimed. There is one board and one auto doctor per MR, so the
+  lease file name is unique enough.
 
 ## 2. Pipeline sha, ref and event type (`packages/glance`)
 
@@ -188,8 +189,8 @@ One iteration per interval until a result, `maxWaitSeconds`, or cancellation:
 1. Lease check. Normally, heartbeat the caller's lease on this MR; when the
    caller does not hold it, return `state: "lease_lost"` with the holder. With
    `underBoardLease`, read the lease without writing it and return
-   `lease_lost` unless a fresh lease is owned by `board:doctor:<mrUrl>`. That
-   read is what tells a board-launched doctor that the board's lease lapsed
+   `lease_lost` unless a fresh lease is owned by `boardDoctorOwner(mrUrl)`.
+   That read is what tells a board-launched doctor that the board's lease lapsed
    (laptop asleep, a cron pass skipped by the cron lock, triage switched off)
    and a watch-ci session took the MR.
 2. Read the MR live from the daemon's cache (the `mr_pipeline` path, small
@@ -271,7 +272,7 @@ switches the pack also updates the doctor's domain skill.
   (`readLeaseByBranch` moves into rt-client too), so there is one
   implementation.
 - `runTriage`'s auto-spawn claims the lease as holder `doctor`, owner
-  `board:doctor:<mrUrl>`, BEFORE `writeDoctorState('queued')`. A refused claim
+  `boardDoctorOwner(mrUrl)`, BEFORE `writeDoctorState('queued')`. A refused claim
   skips the edge as `attended` and writes no state row, so no orphan `queued`
   row reads as a doctor in flight. A live watch-ci lease, now kept fresh by
   heartbeats, therefore blocks the doctor. A launch that throws releases the
@@ -311,7 +312,7 @@ They are not `agentSafe`: the MCP tools cover them, and each tool's
   a fast-forward merge-train pipeline matched by the fallback (with and
   without `priorPipelineId`); a failed parent fetch retried rather than cached;
   each terminal state; `lease_lost`; `underBoardLease` never writes the lease,
-  continues under a fresh `board:doctor:<mrUrl>` lease and returns
+  continues under a fresh `boardDoctorOwner(mrUrl)` lease and returns
   `lease_lost` when that lease is stale or held by another owner; abort
   returns `aborted` at once and stops heartbeating; timeout returns
   `running`; trace tails on failure.

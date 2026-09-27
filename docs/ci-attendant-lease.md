@@ -1,0 +1,262 @@
+# The CI attendant lease
+
+Only one agent should be attending an MR's CI at a time: pushing fixes,
+watching the pipeline, deciding what to do about a failure. The CI attendant
+lease is how rt enforces that. It is a small per-MR file that names who is
+attending, and a set of MCP tools (and CLI verbs) that claim it, keep it
+alive, read it, and release it.
+
+An agent working an MR's CI normally does this:
+
+1. `ci_lease_claim` the MR before touching it.
+2. Read the MR's current head pipeline (`mr_pipeline`) to capture its id as
+   `priorPipelineId`, before pushing.
+3. Push the fix.
+4. `ci_watch` the pushed commit's pipeline until it settles. `ci_watch`
+   heartbeats the lease on every poll, so a single long watch call keeps the
+   lease alive without a separate heartbeat.
+5. If more fixing follows a failure, call `ci_lease_heartbeat` directly
+   during that work (there is no watch call in flight to do it), then
+   `ci_watch` again.
+6. `ci_lease_release` once the MR reaches a state that needs no more
+   attention (merged, or handed off).
+
+A claim that is refused, or a watch that comes back `lease_lost`, means
+someone else is already attending this MR. Stand down rather than pushing
+over them.
+
+## Where the lease lives
+
+One JSON file per MR, under `MATTSTACK_ATTENDANTS_DIR` if set, otherwise
+`$HOME/.mattstack/ci-attendants` (`HOME` is read fresh on every call, not
+cached). The file name is derived from the MR URL: take the URL's path up to
+`/-/merge_requests/<iid>` (or `/pull/<n>` on GitHub), lowercase it, collapse
+every run of non-alphanumeric characters to a single dash, trim leading and
+trailing dashes, and append `-<iid>.json`. A trailing slash, a `/diffs`
+suffix or a query string on the MR URL does not change the file name; a URL
+with no merge request or pull number is refused outright.
+
+A per-MR lock file sits alongside it, named the same way but ending in
+`.lock` instead of `.json`, so a directory scan for lease files never picks
+it up.
+
+### Fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `mr` | string | The MR's web URL. |
+| `branch` | string, optional | The source branch. |
+| `holder` | `"watch-ci"` or `"doctor"` | The role attending the MR. Does not affect claim rules: any other owner is refused the same way regardless of role. |
+| `owner` | string, optional | The claimant's token (see Owner tokens below). A lease with no `owner` was written by the legacy pack script. |
+| `sessionLabel` | string, optional | A display name, the chat handle when the claiming session is signed in to chat. |
+| `pid` | number, optional | The writing process's pid. |
+| `startedAt` | number | Milliseconds since epoch. Kept across heartbeats and re-claims by the same owner. |
+| `heartbeatAt` | number | Milliseconds since epoch, refreshed by every heartbeat and re-claim. |
+| `ttlSeconds` | number | How long after `heartbeatAt` the lease stays fresh. Default 600. |
+
+A lease with no `owner` field reads as owned by `legacy:<holder>` everywhere
+in rt, which is a token no rt caller ever holds, so it behaves like any
+other stranger's lease.
+
+## Claim rules
+
+`ci_lease_claim` looks at what is on disk right now and does one of four
+things:
+
+- **No lease file, or one that cannot be parsed:** the claim wins outright.
+- **A stale lease** (its `heartbeatAt` is more than `ttlSeconds` in the
+  past): the claim wins, and the response reports the stale lease's owner as
+  `previousOwner` so the new holder knows who was last attending.
+- **A fresh lease owned by the caller:** the claim re-claims it, refreshing
+  `heartbeatAt` and keeping the original `startedAt`.
+- **A fresh lease owned by anyone else:** the claim is refused. The response
+  carries the current holder's lease so the caller can see who has it and
+  since when.
+
+A refusal is an ordinary result, not an error, specifically so an agent can
+branch on it in the normal flow.
+
+## Owner tokens
+
+Every lease operation is scoped to an owner token; there is no input that
+lets a caller name a different owner, so a caller can only ever act on its
+own lease.
+
+- **MCP tools:** `session:<id>`, where `<id>` is the calling session's
+  `CLAUDE_CODE_SESSION_ID`. A call made with no session id set is refused
+  outright: there is no identity to hold a lease under.
+- **CLI, run by a human at a terminal:** `user:<login>`, where `<login>` is
+  the shell user. The CLI falls back to this whenever
+  `CLAUDE_CODE_SESSION_ID` is unset, so a human's `rt ci watch` heartbeats
+  the same lease `rt ci lease claim` took.
+- **The board's doctor:** `board:doctor:<lease file name>`. This is stable
+  across the board's cron passes, so each pass can heartbeat or release what
+  an earlier pass claimed under the same MR, and it is unique enough because
+  there is one board and one automatic doctor per MR.
+
+## The lock
+
+Every write (claim, heartbeat, release) runs under the MR's lock file so two
+writers can never race each other's read-modify-write:
+
+- The lock is taken by creating the lock file exclusively (an `open` with
+  `wx`), writing a random token and the current time into it. A second
+  writer trying to create the same file fails immediately and either waits
+  or breaks a stale lock (see below).
+- A lock older than 10 seconds is treated as abandoned. The breaker reads
+  the lock's token, renames the lock file aside, and checks whether the
+  aside file still carries that same token. If it does, the lock truly was
+  abandoned and the aside file is discarded, clearing the way. If it does
+  not (another process broke and re-took the lock in the meantime), the
+  aside file is linked back into place and the breaker retries against the
+  lock that is actually live now.
+- Right before its final write, a lock holder checks that the lock file
+  still carries its own token. If it does not (the lock was broken as stale
+  while the holder was working), the holder abandons that write and retries
+  the whole operation from the top rather than writing over whoever holds
+  the lock now.
+- Releasing the lock checks the token first too, so a holder whose lock was
+  broken never deletes the next holder's lock.
+
+The lease file itself is written through a temp file: created by an
+exclusive link when no lease file exists yet (so a lockless writer, like the
+pack script described below, cannot be silently overwritten and two
+claimers cannot both win), or by rename when one already exists (so a reader
+never sees a half-written file).
+
+## The tools
+
+Every tool below takes `mrUrl`, the MR's (or PR's) `https://` URL. None of
+them take an owner: the owner always comes from the caller's session.
+
+### `ci_lease_claim`
+
+Claims the lease. Optional input: `holder` (`watch-ci`, the default, or
+`doctor`), `branch`, `ttlSeconds` (60 to 900, default 600, so one crashed
+session blocks nobody for more than 15 minutes). Returns
+`{claimed: true, lease, previousOwner?}` or `{claimed: false, holder}`.
+
+CLI: `rt ci lease claim <mr-url> [--holder watch-ci|doctor] [--branch <b>] [--json]`.
+Exits 3 when the claim is refused.
+
+### `ci_lease_heartbeat`
+
+Refreshes `heartbeatAt` on the caller's own lease. Returns `{ok: true,
+lease}`, or `{ok: false, reason: "lost", holder}` when another owner holds
+it now, or `{ok: false, reason: "none"}` when there is no lease at all. This
+also revives a lease of the caller's own that went stale before anyone else
+claimed it, since a heartbeat checks only ownership, not freshness.
+`ci_watch` already heartbeats on every poll, so call this directly only
+between watches, during a fix that is not itself inside a watch call.
+
+CLI: `rt ci lease heartbeat <mr-url> [--json]`. Exits 3 on `lost` or `none`.
+
+### `ci_lease_release`
+
+Releases the caller's own lease. Returns `{released: true}`, or
+`{released: false, reason: "not-owner", holder}`, or
+`{released: false, reason: "none"}` when there was nothing to release.
+
+CLI: `rt ci lease release <mr-url> [--json]`. Exits 3 on `not-owner`; exits 0
+on `none` (releasing nothing is not an error).
+
+### `ci_lease_read`
+
+Reads the lease without touching it. Returns `{lease, stale, mine}`:
+`lease` is the fresh lease or null, `stale` is a stale lease found on disk
+(for reporting who was last attending), and `mine` is true only when
+`lease` is fresh and owned by the caller. A stale lease of the caller's own
+is not reported as `mine`; call `ci_lease_heartbeat` to revive it first.
+
+CLI: `rt ci lease show <mr-url> [--json]`. Exits 0 when a fresh lease exists,
+1 otherwise.
+
+### `ci_watch`
+
+GitLab only (refused with "ci_watch is GitLab only" against a GitHub MR).
+Watches the MR's pipeline for one pushed commit until it settles or a
+timeout passes, heartbeating the caller's lease on every poll.
+
+Input: an MR target (`repoName` and `iid`, or `mrUrl`), `sha` (the pushed
+commit, 7 to 40 hex characters, required), `maxWaitSeconds` (default 300,
+capped at 1800), `intervalSeconds` (default 30, floored at 10),
+`priorPipelineId` (the MR's head pipeline id read before the push, so a
+fast-forward merge train's new pipeline can be told apart from an old one),
+and `underBoardLease` (default false, see below).
+
+Returns `state`, `sha`, `headSha`, the matching `pipeline` (or null),
+`failedJobs` (with a 40 line trace tail for up to five blocking failures on
+a terminal `failed`), `blockingFailures`, `lease`, `waitedSeconds`, `polls`
+and `next`, a one line hint for what to do next.
+
+`state` is one of:
+
+- `success`, `success_with_warnings`, `failed`, `canceled`, `skipped`,
+  `manual`: the pipeline settled.
+- `running`: the pipeline for the pushed sha is in progress; call again.
+- `waiting`: no matching pipeline yet, or the MR's head has not caught up to
+  the pushed sha yet; call again.
+- `superseded`: the MR's head moved past the pushed sha before a matching
+  pipeline settled; watch the new head instead.
+- `lease_lost`: the caller no longer holds the lease (or never did); stand
+  down, or claim it first if `next` says so.
+- `aborted`: the call was cancelled (signal, or Ctrl-C at the CLI); call
+  again to resume.
+
+`maxWaitSeconds` running out returns whatever state the loop was in
+(`running` or `waiting`) rather than an error, so the caller just calls
+again.
+
+CLI: `rt ci watch <mr-url> --sha <sha> [--max-wait <s>] [--interval <s>] [--prior-pipeline <id>] [--json]`.
+Ctrl-C aborts the watch and exits 130; any other non-terminal-success state
+exits 1; `success` and `success_with_warnings` exit 0.
+
+## The doctor's lease
+
+The board's automatic doctor never claims a lease itself. The board claims
+on the doctor's behalf, as `board:doctor:<lease file name>`, before it
+launches the doctor pane, and the board's own cron heartbeats that lease
+while the doctor is in flight and releases it once the doctor reaches a
+terminal status. If the board's claim is refused (a live `watch-ci` lease is
+already attending), the board skips that MR for this pass rather than
+launching a doctor that would collide with it.
+
+The doctor pane itself calls `ci_watch` with `underBoardLease: true`. That
+flag makes `ci_watch` only read the lease, never write it, and treat the
+watch as lost the instant there is no fresh lease owned by
+`board:doctor:<lease file name>`. That is how a doctor pane notices the
+board's lease lapsed (a laptop asleep through a cron pass, triage switched
+off, a cron pass skipped by its own lock) and a `watch-ci` session has since
+taken the MR.
+
+A doctor started by hand, outside the board, is a `watch-ci`-style attendant
+like any other: it claims with `ci_lease_claim {holder: "doctor"}` and
+follows the same claim, watch, heartbeat, release flow as any other
+attendant.
+
+## Pack script interop, and what retires it
+
+Until the watch-ci pack script (`ci-attendant.sh` and its `ci-watch.sh`
+loop) is switched over, it reads and writes the same lease files rt does,
+so both sides need to keep working during the transition:
+
+- A lease the script wrote has no `owner` field, so rt reads it as owned by
+  `legacy:<holder>` and refuses to claim over it while it is fresh, the
+  same as it would refuse any other owner.
+- The script reads only `heartbeatAt`, `ttlSeconds` and `holder`, all of
+  which rt keeps, so an rt-written lease still looks correct to the script.
+  The script still treats any fresh `watch-ci` lease as its own regardless
+  of which session wrote it, since it has no notion of a per-session owner;
+  that constant-holder behavior is expected to go away only when the script
+  itself is retired.
+- The script takes no lock of its own. It writes by exclusive create or by
+  rename, so a script write racing an rt write can still lose one side's
+  update. That window is accepted only because the script is on its way
+  out, not because it is otherwise safe.
+
+The follow-up that retires the script needs to: switch the pack's watch-ci
+and doctor flows to call `ci_lease_claim`, `ci_lease_heartbeat`,
+`ci_lease_release` and `ci_watch` instead of shelling out to the script,
+regenerate the pack's `reference.md` so it reflects that switch, and then
+delete `ci-attendant.sh` and `ci-watch.sh` once nothing reads or writes
+through them.
