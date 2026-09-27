@@ -4,7 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
-import type { PullRequest, MRDetail, Pipeline } from "@mattstack/glance";
+import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -819,6 +819,11 @@ export interface Commands {
   "mr:fetch-job-detail": { payload: { repoName: string; iid: number; jobId: number; pipelineId?: number }; data: MrJobDetail };
   "mr:fetch-job-trace": { payload: { repoName: string; iid: number; jobId: number }; data: string };
 
+  /** GitLab providers only; the daemon refuses any other provider with `unsupported: mr:commit-parents needs a GitLab repo`. */
+  "mr:commit-parents": { payload: { repoName: string; iid: number; sha: string }; data: string[] };
+  /** GitLab providers only; the daemon refuses any other provider with `unsupported: mr:pipeline-failed-jobs needs a GitLab repo`. */
+  "mr:pipeline-failed-jobs": { payload: { repoName: string; iid: number; pipelineId: number }; data: PipelineJob[] };
+
   "endpoint:claim": { payload: { repo: string; worktree: string; role: string; pid?: number }; data: EndpointClaimData };
   "endpoint:lookup": { payload: { repo: string; worktree: string; role: string }; data: EndpointLookupData };
   "endpoint:release": { payload: { repo: string; worktree: string; role?: string }; data: EndpointReleaseData };
@@ -1056,6 +1061,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:upload",
   "mr:fetch-job-detail",
   "mr:fetch-job-trace",
+  "mr:commit-parents",
+  "mr:pipeline-failed-jobs",
   "endpoint:claim",
   "endpoint:lookup",
   "endpoint:release",
