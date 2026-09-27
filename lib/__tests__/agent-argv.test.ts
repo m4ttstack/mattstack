@@ -122,6 +122,24 @@ describe("buildClaudeArgv", () => {
     const argv = buildClaudeArgv({ session: { kind: "start", sessionId: UUID }, headless: false }, bins);
     expect(argv).not.toContain("--dangerously-skip-permissions");
   });
+
+  test("addDirs emit as --add-dir immediately before --session-id, prompt stays last", () => {
+    const argv = buildClaudeArgv({
+      addDirs: ["/d1", "/d2"],
+      session: { kind: "start", sessionId: UUID }, headless: false, prompt: "read /x.md",
+    }, bins);
+    expect(argv).toEqual([
+      "/abs/claude", "--add-dir", "/d1", "--add-dir", "/d2", "--session-id", UUID, "read /x.md",
+    ]);
+  });
+
+  test("addDirs on resume sit immediately before --resume", () => {
+    const argv = buildClaudeArgv({
+      addDirs: ["/d1"],
+      session: { kind: "resume", sessionId: UUID }, headless: false,
+    }, bins);
+    expect(argv).toEqual(["/abs/claude", "--add-dir", "/d1", "--resume", UUID]);
+  });
 });
 
 describe("buildPaneCommand", () => {

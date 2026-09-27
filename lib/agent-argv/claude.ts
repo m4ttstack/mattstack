@@ -60,6 +60,10 @@ function claudeArgs(inv: AgentInvocation): string[] {
     args.push("--settings", JSON.stringify(CROSS_SESSION_INBOUND_SETTINGS));
   }
   if (inv.settingsPath) args.push("--settings", inv.settingsPath);
+  // --add-dir is variadic: the token right after its value must be another
+  // flag, never the positional prompt, or claude would swallow the prompt as
+  // one more directory to add.
+  if (inv.addDirs) for (const dir of inv.addDirs) args.push("--add-dir", dir);
   if (inv.session.kind === "start") args.push("--session-id", inv.session.sessionId);
   else args.push("--resume", inv.session.sessionId);
   if (inv.extraArgs) args.push(...inv.extraArgs.split(/\s+/).filter(Boolean));
