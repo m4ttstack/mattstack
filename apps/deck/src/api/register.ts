@@ -868,6 +868,20 @@ export async function editApp(
       };
     if (typeof patch.enabled !== 'boolean')
       return { status: 400, body: { error: 'enabled must be a boolean' } };
+    if (isPlatformManagedBy(record.managedBy))
+      return {
+        status: 409,
+        body: {
+          error: 'managed',
+          managedBy: PLATFORM_NAME,
+          message: PLATFORM_REFUSAL,
+        },
+      };
+    if (record.managedBy === 'user')
+      return {
+        status: 409,
+        body: { error: 'enabled applies to mattstack apps only' },
+      };
     const verdict = authorizeStructural(record, caller, force);
     if (!verdict.ok) return { status: verdict.status, body: verdict.body };
     putRecord({ ...record, enabled: patch.enabled ? undefined : false });

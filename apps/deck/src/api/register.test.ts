@@ -69,6 +69,7 @@ type ServiceSpec = Parameters<
 const { agentsDir } = await import('../services/launchd.ts');
 const { catalogReport } = await import('../registry/catalog-report.ts');
 const { updatePlatformSettings } = await import('./platform-settings.ts');
+const { PLATFORM_REFUSAL } = await import('../registry/lifecycle.ts');
 
 /** agentsDir() falls back to the real ~/Library/LaunchAgents when its env
     seam is unset, so a recursive rm checks it first. */
@@ -2149,6 +2150,40 @@ test('editApp: enabled alone flips the record and re-sweeps; mixed with other fi
   expect(on.status).toBe(200);
   expect(getRecord('board')?.enabled).toBeUndefined();
   expect(manager.installed.has(label)).toBe(true);
+
+  putRecord({
+    name: 'deck',
+    managedBy: PLATFORM_NAME,
+    port: 11999,
+    kind: 'service',
+    label: PLATFORM_LABEL,
+    command: ['/bundle/deck'],
+    createdAt: AT,
+  });
+  const platform = await editApp(
+    'deck',
+    { enabled: false },
+    PLATFORM_NAME,
+    true,
+    drivers
+  );
+  expect(platform).toEqual({
+    status: 409,
+    body: {
+      error: 'managed',
+      managedBy: PLATFORM_NAME,
+      message: PLATFORM_REFUSAL,
+    },
+  });
+  expect(getRecord('deck')?.enabled).toBeUndefined();
+
+  await registerApp({ ...input, name: 'mine', managedBy: 'user' }, drivers);
+  const user = await editApp('mine', { enabled: false }, 'user', true, drivers);
+  expect(user).toEqual({
+    status: 409,
+    body: { error: 'enabled applies to mattstack apps only' },
+  });
+  expect(getRecord('mine')?.enabled).toBeUndefined();
 });
 
 test('edit: unlinking a slim row with no bundle installed is rejected before any teardown', async () => {
