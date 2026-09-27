@@ -59,7 +59,7 @@ so a new herd's shepherd does not inherit an old herd's DMs.
 | Name chosen for the session (`claude --name`, `/rename`, registry `nameSource: "user"`) | new id, that display name |
 | `chat.handle` setting | new id, that display name |
 | Restarted process on the same cwd and pane (today's "seat reclaim") | new id; the display name may be reused |
-| Same session signing in again (`ownPriorRow`) | same id |
+| Same session signing in again (looked up by `chat_identities.session_id`, so it survives a presence prune) | same id |
 | `claude --resume` of the same session | same id |
 | **Continuation** (below) | the continued id |
 
@@ -166,7 +166,7 @@ and shows the id for new identities, which is why everything ships together.
 | `ChatPane.presence` | `name` |
 | `AgentRecord` | `name` |
 | `HerdInfo` | `shepherdName` |
-| `HerdJobInfo` | `name` |
+| `HerdJobInfo` | `handleName` (its `name` is already the job name) |
 | `chat:sign-in` | payload `continue?`; data `name` |
 | `chat:post`, `chat:dm` | data `recipientNames` |
 
