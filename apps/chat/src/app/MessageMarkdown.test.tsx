@@ -4,12 +4,18 @@ import { expect, test } from 'vitest';
 
 import { MessageMarkdown } from './MessageMarkdown';
 
-function render(body: string, mentions: string[] = [], humanHandle?: string) {
+function render(
+  body: string,
+  mentions: string[] = [],
+  humanHandle?: string,
+  mentionNames?: string[]
+) {
   return renderWithProviders(
     <div data-testid="body">
       <MessageMarkdown
         body={body}
         mentions={mentions}
+        mentionNames={mentionNames}
         humanHandle={humanHandle}
       />
     </div>
@@ -115,4 +121,19 @@ test('mentions: only listed handles, never inside code, the human washed', () =>
     .querySelector('[data-mention]')!;
   expect(fred).toHaveAttribute('data-mention', 'fred');
   expect(fred).not.toHaveAttribute('data-me');
+});
+
+test('a mention highlights by name and carries the id', () => {
+  render('@remy can you look', ['remy.m2p4'], 'matt', ['remy']);
+  const span = screen.getByTestId('body').querySelector('[data-mention]')!;
+  expect(span).toHaveTextContent('@remy');
+  expect(span).toHaveAttribute('data-mention', 'remy.m2p4');
+  expect(span).not.toHaveAttribute('data-me');
+});
+
+test('a mention spelled by id still highlights and carries that id', () => {
+  render('@remy.m2p4 can you look', ['remy.m2p4'], 'matt', ['remy']);
+  const span = screen.getByTestId('body').querySelector('[data-mention]')!;
+  expect(span).toHaveTextContent('@remy.m2p4');
+  expect(span).toHaveAttribute('data-mention', 'remy.m2p4');
 });

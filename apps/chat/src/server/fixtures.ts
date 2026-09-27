@@ -12,6 +12,8 @@
  * FLEET, ROOMS, DMS and RT_MSGS tables (the pane fixtures below keep their
  * own separate cast), so a fixture screenshot and the artboard are showing
  * the same content. If build.py's tables change, change these with them.
+ * The one deliberate addition is the recycled `remy.m2p4` (its roster row,
+ * its DM with kai, and #rt 607-609): two identities sharing one display name.
  *
  * Dev-only, opt-in, and never on by default: `fixturesEnabled()` is the only
  * gate and it reads the env at call time so a running server can be pointed
@@ -50,6 +52,8 @@ type Buddy = PresenceRow & {
 
 interface FleetEntry {
   h: string;
+  /** Display name when it differs from the id (a recycled pool name). */
+  name?: string;
   repo: string;
   branch: string;
   st: BuddyStatus;
@@ -174,7 +178,34 @@ const FLEET: FleetEntry[] = [
     seenAgo: 20 * H,
     cwd: '/Users/matt/Documents/GitHub/repo-tools',
   },
+  {
+    h: 'remy.m2p4',
+    name: 'remy',
+    repo: 'rt',
+    branch: 'chat-identity',
+    st: 'live',
+    title: 'remy',
+    pane: 'wC4:p2',
+    seenAgo: 30 * S,
+    cwd: '/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-rt/gandalf',
+  },
 ];
+
+const NAME_BY_ID = new Map(FLEET.map(f => [f.h, f.name ?? f.h]));
+
+function nameOf(id: string): string {
+  return NAME_BY_ID.get(id) ?? id;
+}
+
+type Unnamed = Omit<ChatMessage, 'name' | 'mentionNames'>;
+
+function named(messages: Unnamed[]): ChatMessage[] {
+  return messages.map(m => ({
+    ...m,
+    name: nameOf(m.handle),
+    mentionNames: m.mentions.map(nameOf),
+  }));
+}
 
 /** design/build.py's ROOMS table: repo -> room; `board` has agents but no room. */
 const REPO_ROOMS: Record<string, string> = {
@@ -197,6 +228,7 @@ const DMS: ReadonlyArray<readonly [string, string, number]> = [
   ['jay', 'max', 3],
   ['edie', 'stan', 14],
   ['kai', 'remy', 102],
+  ['kai', 'remy.m2p4', 2],
 ];
 /** The DM room name is a real hashed pair-key shape, never rendered. */
 const DM_ROOM: Record<string, string> = {
@@ -204,24 +236,34 @@ const DM_ROOM: Record<string, string> = {
   'jay|max': 'dm-8c1d4e6a2f90',
   'edie|stan': 'dm-5b9e02771ac4',
   'kai|remy': 'dm-e41f7a3c68bd',
+  'kai|remy.m2p4': 'dm-2c9b7e41d0a5',
 };
 /** design/build.py's LAST table: the newest message per pair, which the tree's
     DM second line falls back to. `jay|max` has none on purpose -- jay's pane
     title wins there, so the fallback never runs. */
-const DM_LAST: Record<string, { handle: string; body: string }> = {
-  'max|stan': {
-    handle: 'stan',
-    body: 'holding the console settings page until 2.8.1 lands',
-  },
-  'edie|stan': {
-    handle: 'edie',
-    body: 'pack compile is green, cutting the loop over',
-  },
-  'kai|remy': {
-    handle: 'remy',
-    body: 'tail died again at 03:12, restarting the daemon',
-  },
-};
+const DM_LAST: Record<string, { handle: string; name: string; body: string }> =
+  {
+    'max|stan': {
+      handle: 'stan',
+      name: 'stan',
+      body: 'holding the console settings page until 2.8.1 lands',
+    },
+    'edie|stan': {
+      handle: 'edie',
+      name: 'edie',
+      body: 'pack compile is green, cutting the loop over',
+    },
+    'kai|remy': {
+      handle: 'remy',
+      name: 'remy',
+      body: 'tail died again at 03:12, restarting the daemon',
+    },
+    'kai|remy.m2p4': {
+      handle: 'remy.m2p4',
+      name: 'remy',
+      body: 'picked up the chat identity lane',
+    },
+  };
 const dmPartners = new Set(DMS.flatMap(([a, c]) => [a, c]));
 
 export function fixtureBuddies(now = Date.now()): Buddy[] {
@@ -233,7 +275,8 @@ export function fixtureBuddies(now = Date.now()): Buddy[] {
     return {
       sessionId: `fixture-${f.h}`,
       handle: f.h,
-      baseHandle: f.h,
+      baseHandle: nameOf(f.h),
+      name: nameOf(f.h),
       repo: f.repo,
       branch: f.branch,
       pane: f.pane,
@@ -269,7 +312,7 @@ export function fixtureMark(room?: string): void {
 }
 
 export function fixtureRooms(): (RoomSummary & {
-  lastMessage?: { handle: string; body: string };
+  lastMessage?: { handle: string; name: string; body: string };
 })[] {
   const repoRooms = (['rt', 'skills', 'boxscore', 'console'] as const).map(
     room => {
@@ -292,7 +335,7 @@ export function fixtureRooms(): (RoomSummary & {
       unread: marked.has(room) ? 0 : unread,
       mentions: 0,
       kind: 'dm' as const,
-      participants: { a, b: c },
+      participants: { a, b: c, aName: nameOf(a), bName: nameOf(c) },
       ...(lastMessage ? { lastMessage } : {}),
     };
   });
@@ -313,6 +356,7 @@ export function fixtureMembers(room: string, now = Date.now()) {
     return {
       room,
       handle,
+      name: b.name,
       joinedAt: b.signedInAt,
       lastReadId: 0,
       wakeOn: room.startsWith('dm-') ? ('all' as const) : ('mention' as const),
@@ -350,14 +394,14 @@ function tscLog(): string {
 
 /**
  * The #rt artboard's transcript, verbatim (design/build.py's RT_MSGS): a
- * yesterday cluster then today's tsc-red thread, ending in the full log.
- * Any other room gets a one-line starter, since build.py only spells out
- * #rt's conversation in full.
+ * yesterday cluster then today's tsc-red thread, then the recycled-remy
+ * handoff. Any other room gets a one-line starter, since build.py only
+ * spells out #rt's conversation in full.
  */
 export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
   if (room === 'rt') {
     const at = (minutesAgo: number) => now - minutesAgo * M;
-    return [
+    return named([
       {
         id: 601,
         room,
@@ -414,13 +458,37 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: at(4),
         mentions: [],
       },
-    ];
+      {
+        id: 607,
+        room,
+        handle: 'remy',
+        body: 'the old tail daemon is mine, leaving it up until the swap.',
+        postedAt: at(3),
+        mentions: [],
+      },
+      {
+        id: 608,
+        room,
+        handle: 'remy.m2p4',
+        body: 'new here: picked up the chat identity lane from the plan.',
+        postedAt: at(2),
+        mentions: [],
+      },
+      {
+        id: 609,
+        room,
+        handle: 'max',
+        body: '@remy welcome, the viewer lane is yours. Ping me when the fixtures land.',
+        postedAt: at(1),
+        mentions: ['remy.m2p4'],
+      },
+    ]);
   }
 
   // The Main artboard's own inbox thread: max's set-up, then jay's question
   // for Matt. The pair is what the reader draws, context message included.
   if (room === 'boxscore') {
-    return [
+    return named([
       {
         id: 411,
         room,
@@ -440,13 +508,13 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: now - 29 * M,
         mentions: ['matt'],
       },
-    ];
+    ]);
   }
 
   // The artboard's second NEEDS YOU card: a DM Matt is not part of, which
   // still needs him because it names him.
   if (room === DM_ROOM['edie|stan']) {
-    return [
+    return named([
       {
         id: 719,
         room,
@@ -463,10 +531,44 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: now - 18 * M,
         mentions: ['matt'],
       },
-    ];
+    ]);
   }
 
-  return [
+  if (room === DM_ROOM['kai|remy']) {
+    return named([
+      {
+        id: 801,
+        room,
+        handle: 'remy',
+        body: 'tail died again at 03:12, restarting the daemon',
+        postedAt: now - 12 * M,
+        mentions: [],
+      },
+    ]);
+  }
+
+  if (room === DM_ROOM['kai|remy.m2p4']) {
+    return named([
+      {
+        id: 811,
+        room,
+        handle: 'kai',
+        body: '@remy the lane plan is pinned in #rt',
+        postedAt: now - 17 * H,
+        mentions: ['remy.m2p4'],
+      },
+      {
+        id: 812,
+        room,
+        handle: 'remy.m2p4',
+        body: 'picked up the chat identity lane',
+        postedAt: now - 2 * M,
+        mentions: [],
+      },
+    ]);
+  }
+
+  return named([
     {
       id: 1,
       room,
@@ -475,7 +577,7 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
       postedAt: now - 30 * M,
       mentions: [],
     },
-  ];
+  ]);
 }
 
 /**
@@ -510,7 +612,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'rt-63-68-locate',
       agentStatus: 'working',
       sessionId: 'fixture-fred',
-      presence: { handle: 'fred', status: 'live', rooms: ['repo-tools'] },
+      presence: {
+        handle: 'fred',
+        name: 'fred',
+        status: 'live',
+        rooms: ['repo-tools'],
+      },
     },
     {
       paneId: 'w3f:p4',
@@ -521,7 +628,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'main',
       agentStatus: 'idle',
       sessionId: 'fixture-meg',
-      presence: { handle: 'meg', status: 'live', rooms: ['build', 'chat'] },
+      presence: {
+        handle: 'meg',
+        name: 'meg',
+        status: 'live',
+        rooms: ['build', 'chat'],
+      },
     },
     {
       paneId: 'w9c:p3',
@@ -532,7 +644,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'main',
       agentStatus: 'blocked',
       sessionId: 'fixture-june',
-      presence: { handle: 'june', status: 'idle', rooms: ['gitq'] },
+      presence: {
+        handle: 'june',
+        name: 'june',
+        status: 'idle',
+        rooms: ['gitq'],
+      },
     },
     {
       paneId: 'w2d:p1',
@@ -543,7 +660,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'main',
       agentStatus: 'idle',
       sessionId: 'fixture-otis',
-      presence: { handle: 'otis', status: 'offline', rooms: ['deck'] },
+      presence: {
+        handle: 'otis',
+        name: 'otis',
+        status: 'offline',
+        rooms: ['deck'],
+      },
     },
     {
       paneId: 'w7A:pY',

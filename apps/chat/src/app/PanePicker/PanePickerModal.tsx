@@ -32,7 +32,7 @@ export function matchesFilter(pane: ChatPane, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
   return [
-    pane.presence?.handle,
+    pane.presence?.name ?? pane.presence?.handle,
     pane.workspace,
     pane.title,
     pane.repo,

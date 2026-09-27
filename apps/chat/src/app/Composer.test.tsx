@@ -157,3 +157,167 @@ test('the phone keeps a shorter cap so the keyboard does not swallow the box', (
   );
   expect(screen.getByRole('textbox')).toHaveStyle({ maxHeight: '25vh' });
 });
+
+test('autocomplete matches names, never ids, and posts the picked id', async () => {
+  renderWithProviders(
+    <Composer
+      room="rt"
+      roomMembers={['remy', 'remy.m2p4']}
+      buddies={[
+        { handle: 'remy', name: 'remy', status: 'idle' },
+        { handle: 'remy.m2p4', name: 'remy', status: 'live' },
+      ]}
+    />
+  );
+  const box = screen.getByRole('textbox');
+  // `remy.` prefixes the id but not the name, so it must match nothing.
+  await userEvent.type(box, '@remy.');
+  expect(screen.queryByTestId('composer-option-remy.m2p4')).toBeNull();
+  await userEvent.clear(box);
+  await userEvent.type(box, '@re');
+  const recycled = await screen.findByTestId('composer-option-remy.m2p4');
+  expect(recycled).toHaveTextContent('remy');
+  expect(recycled).not.toHaveTextContent('m2p4');
+  expect(screen.getByTestId('composer-option-remy')).toBeInTheDocument();
+  await userEvent.click(recycled);
+  expect(box).toHaveValue('@remy ');
+  await userEvent.type(box, 'hi{Enter}');
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/chat/post',
+      expect.objectContaining({
+        body: JSON.stringify({
+          room: 'rt',
+          body: '@remy hi',
+          mentions: ['remy.m2p4'],
+        }),
+      })
+    )
+  );
+});
+
+test('a roster pick inserts the name and a DM placeholder reads names', () => {
+  const ref = createRef<ComposerHandle>();
+  renderWithProviders(
+    <Composer
+      ref={ref}
+      room="dm-2c9b7e41d0a5"
+      isDm
+      roomMembers={['matt', 'remy.m2p4']}
+      buddies={[{ handle: 'remy.m2p4', name: 'remy', status: 'live' }]}
+    />
+  );
+  expect(screen.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'Message matt ↔ remy (both will wake)'
+  );
+  act(() => ref.current!.insertMention('remy.m2p4'));
+  expect(screen.getByRole('textbox')).toHaveValue('@remy ');
+  act(() => ref.current!.insertMention('remy.m2p4'));
+  expect(screen.getByRole('textbox')).toHaveValue('@remy ');
+});
+
+test('roster picks of two agents sharing a name insert both and post both ids', async () => {
+  const ref = createRef<ComposerHandle>();
+  renderWithProviders(
+    <Composer
+      ref={ref}
+      room="rt"
+      roomMembers={['remy', 'remy.m2p4']}
+      buddies={[
+        { handle: 'remy', name: 'remy', status: 'idle' },
+        { handle: 'remy.m2p4', name: 'remy', status: 'live' },
+      ]}
+    />
+  );
+  const box = screen.getByRole('textbox');
+  act(() => ref.current!.insertMention('remy'));
+  act(() => ref.current!.insertMention('remy.m2p4'));
+  expect(box).toHaveValue('@remy @remy ');
+  await userEvent.type(box, '{Enter}');
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/chat/post',
+      expect.objectContaining({
+        body: JSON.stringify({
+          room: 'rt',
+          body: '@remy @remy',
+          mentions: ['remy', 'remy.m2p4'],
+        }),
+      })
+    )
+  );
+});
+
+test('options that share a name show their avatars; a unique name shows none', async () => {
+  renderWithProviders(
+    <Composer
+      room="rt"
+      roomMembers={['remy', 'remy.m2p4', 'kai']}
+      buddies={[
+        { handle: 'remy', name: 'remy', status: 'idle' },
+        { handle: 'remy.m2p4', name: 'remy', status: 'live' },
+        { handle: 'kai', name: 'kai', status: 'live' },
+      ]}
+    />
+  );
+  await userEvent.type(screen.getByRole('textbox'), '@');
+  const fills = (option: HTMLElement) =>
+    [...option.querySelectorAll('svg[shape-rendering="crispEdges"]')].map(svg =>
+      svg.getAttribute('fill')
+    );
+  const legacy = await screen.findByTestId('composer-option-remy');
+  const recycled = screen.getByTestId('composer-option-remy.m2p4');
+  expect(fills(legacy)).toHaveLength(1);
+  expect(fills(recycled)).toHaveLength(1);
+  expect(fills(legacy)[0]).not.toBe(fills(recycled)[0]);
+  expect(recycled).not.toHaveTextContent('m2p4');
+  expect(fills(screen.getByTestId('composer-option-kai'))).toEqual([]);
+});
+
+test('re-picking a buddy after deleting its mention text inserts it again', async () => {
+  const ref = createRef<ComposerHandle>();
+  renderWithProviders(
+    <Composer
+      ref={ref}
+      room="build"
+      roomMembers={['kai']}
+      buddies={[{ handle: 'kai', status: 'live' }]}
+    />
+  );
+  const box = screen.getByRole('textbox');
+  act(() => ref.current!.insertMention('kai'));
+  expect(box).toHaveValue('@kai ');
+  await userEvent.clear(box);
+  act(() => ref.current!.insertMention('kai'));
+  expect(box).toHaveValue('@kai ');
+});
+
+test('a roster pick adopts a hand-typed mention of a unique name instead of repeating it', async () => {
+  const ref = createRef<ComposerHandle>();
+  renderWithProviders(
+    <Composer
+      ref={ref}
+      room="build"
+      roomMembers={['kai']}
+      buddies={[{ handle: 'kai', status: 'live' }]}
+    />
+  );
+  const box = screen.getByRole('textbox');
+  await userEvent.type(box, 'ping @kai{Escape} ');
+  act(() => ref.current!.insertMention('kai'));
+  expect(box).toHaveValue('ping @kai ');
+  await userEvent.type(box, '{Enter}');
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/chat/post',
+      expect.objectContaining({
+        body: JSON.stringify({
+          room: 'build',
+          body: 'ping @kai',
+          mentions: ['kai'],
+        }),
+      })
+    )
+  );
+});

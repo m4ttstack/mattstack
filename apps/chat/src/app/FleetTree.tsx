@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import {
   ActionIcon,
   Box,
@@ -13,6 +13,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
 import { AgentName } from './AgentName';
+import { displayName, dmPairLabel, repeatedPairLabels } from './display-name';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
 import { DOT_COLOR, MUTED_XS } from './presence-bits';
@@ -55,6 +56,7 @@ const DM_VISIBLE = 4;
 
 export interface DmLastMessage {
   handle: string;
+  name?: string;
   body: string;
 }
 
@@ -164,14 +166,27 @@ export function visibleDms(
   return active ? [...head.slice(0, cap - 1), active] : head;
 }
 
-/** `3 more · kai ↔ max 1, max ↔ wren 8`: every hidden pair with its unread,
-    truncating when the line runs past the sidebar. */
-function overflowLabel(hidden: FleetRoom[]): string {
-  const pairs = hidden.map(d => {
-    const { a, b } = d.participants!;
-    return `${a} ↔ ${b}${d.unread > 0 ? ` ${d.unread}` : ''}`;
-  });
-  return `${hidden.length} more · ${pairs.join(', ')}`;
+/** `3 more · kai ↔ max [1], max ↔ wren [8]`: every hidden pair with its
+    unread as the rows' own badge, since bare trailing digits read as part of
+    a name. Truncates when the line runs past the sidebar. */
+function overflowLabel(hidden: FleetRoom[]): ReactNode {
+  return (
+    <>
+      {hidden.length} more ·{' '}
+      {hidden.map((d, i) => (
+        <Fragment key={d.room}>
+          {i > 0 && ', '}
+          {dmPairLabel(d.participants!)}
+          {d.unread > 0 && (
+            <>
+              {' '}
+              <UnreadBadge count={d.unread} />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
 /** `.dot`: 8px, hollow whenever it has no live status to claim. */
@@ -261,7 +276,7 @@ function UnreadBadge({ count }: { count: number }) {
 
 function roomLabel(room: FleetRoom): string {
   return room.kind === 'dm' && room.participants
-    ? `${room.participants.a} ↔ ${room.participants.b}`
+    ? dmPairLabel(room.participants)
     : `#${room.room}`;
 }
 
@@ -524,6 +539,7 @@ function WorkstreamRow({
   onSelectBuddy?: (handle: string) => void;
 }) {
   const { handle, pane } = buddy;
+  const shown = displayName(buddy);
   const task = reachable ? doing(buddy, now) : null;
   const onClick = onSelectBuddy
     ? () => onSelectBuddy(handle)
@@ -542,9 +558,9 @@ function WorkstreamRow({
       data-testid={`ws-${handle}`}
       aria-label={
         onSelectBuddy
-          ? `Message ${handle}`
+          ? `Message ${shown}`
           : clickable
-            ? `Focus ${handle}'s pane`
+            ? `Focus ${shown}'s pane`
             : undefined
       }
       onClick={onClick}
@@ -655,8 +671,8 @@ function OfflineRow({
       <Dot status="offline" reachable testId={`dot-offline-${repo}`} />
       <Text component="span" inherit truncate style={{ minWidth: 0 }}>
         {only
-          ? `${only.handle} · ${statusDetail(only, now)}`
-          : `${offline.length} signed out · ${offline.map(b => b.handle).join(' ')}`}
+          ? `${displayName(only)} · ${statusDetail(only, now)}`
+          : `${offline.length} signed out · ${offline.map(b => displayName(b)).join(' ')}`}
       </Text>
     </Box>
   );
@@ -670,12 +686,15 @@ function OfflineRow({
 function DmRow({
   room,
   active,
+  withAvatars,
   onSelect,
   onClose,
   onMarkRead,
 }: {
   room: FleetRoom;
   active: boolean;
+  /** Set when another listed DM reads the same pair: the id-seeded avatars tell them apart. */
+  withAvatars: boolean;
   onSelect?: () => void;
   onClose?: (room: string) => void;
   onMarkRead?: (room: string) => void;
@@ -731,11 +750,21 @@ function DmRow({
         truncate
         style={{ fontSize: ROW_NAME_SIZE, flex: 1, minWidth: 0 }}
       >
-        <AgentName handle={pair.a} withCard={false} withAvatar={false} />{' '}
+        <AgentName
+          handle={pair.a}
+          name={pair.aName}
+          withCard={false}
+          withAvatar={withAvatars}
+        />{' '}
         <span style={{ color: 'var(--tk-text-purple-small)', flex: 'none' }}>
           ↔
         </span>{' '}
-        <AgentName handle={pair.b} withCard={false} withAvatar={false} />
+        <AgentName
+          handle={pair.b}
+          name={pair.bName}
+          withCard={false}
+          withAvatar={withAvatars}
+        />
       </Text>
       {room.unread > 0 && <UnreadBadge count={room.unread} />}
       {closable && (
@@ -839,6 +868,7 @@ export function FleetTree({
   const namedDms = dms.filter(d => d.participants);
   const shownDms = dmsExpanded ? namedDms : visibleDms(namedDms, activeRoom);
   const hiddenDms = namedDms.filter(d => !shownDms.includes(d));
+  const repeatedLabels = repeatedPairLabels(namedDms);
 
   return (
     <Fragment>
@@ -900,6 +930,7 @@ export function FleetTree({
               key={room.room}
               room={room}
               active={room.room === activeRoom}
+              withAvatars={repeatedLabels.has(dmPairLabel(room.participants!))}
               onSelect={() => onOpenDm?.(room.room)}
               onClose={onClose}
               onMarkRead={onMarkRead}

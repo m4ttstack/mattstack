@@ -5,6 +5,7 @@ import { AgentName, type AgentNameSize } from './AgentName';
 import { useBuddies } from './buddies-context';
 import { Chip } from './Chip';
 import { localTime } from './day-label';
+import { dmPairLabel } from './display-name';
 import { doing, type DoingLine } from './doing';
 import classes from './inbox.module.css';
 import { MUTED_XS } from './presence-bits';
@@ -40,7 +41,7 @@ export function CtxChip({
     reader strip and every label that has to say what a mark-read clears. */
 export function whereLabel(card: InboxCardData): string {
   return card.kind === 'dm' && card.participants
-    ? `${card.participants.a} ↔ ${card.participants.b}`
+    ? dmPairLabel(card.participants)
     : `#${card.room}`;
 }
 
@@ -137,6 +138,7 @@ export function InboxCard({
         <Box style={{ flex: 1, minWidth: 0 }}>
           <AgentName
             handle={card.handle}
+            name={card.name}
             variant="inline"
             hue={speakerHue(card.handle)}
             size={CARD_HANDLE}
@@ -156,7 +158,7 @@ export function InboxCard({
       <UnstyledButton
         data-testid={`card-lead-${card.messageId}`}
         className={classes.lead}
-        aria-label={`Read ${card.handle}'s message in ${where}`}
+        aria-label={`Read ${card.name}'s message in ${where}`}
         onClick={event => {
           event.stopPropagation();
           onOpen();

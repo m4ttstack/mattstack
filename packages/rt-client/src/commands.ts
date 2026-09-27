@@ -694,7 +694,7 @@ export interface Commands {
       room?: string;
       /** `viaPane` only: skip room derivation/join entirely, same as --no-room on the non-pane path. */
       noRoom?: boolean;
-      /** An id or a name to continue instead of minting a fresh identity; when that identity is live in another session, a new one is minted under its name with a display suffix (`continued: false`). */
+      /** An id or a name to continue instead of minting a fresh identity. A name live in another session mints a fresh id under that name with a display suffix (`continued: false`); an id live in another session, the human's own id and `herdr` are refused. */
       continue?: string;
     };
     data: { handle: string; baseHandle: string; name: string; reclaimed: boolean; continued: boolean; sessionId: string; room: string | null };

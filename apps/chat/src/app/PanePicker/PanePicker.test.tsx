@@ -20,7 +20,12 @@ const PANES: ChatPane[] = [
     repo: 'repo-tools',
     branch: 'main',
     agentStatus: 'working',
-    presence: { handle: 'fred', status: 'live', rooms: ['repo-tools'] },
+    presence: {
+      handle: 'fred',
+      name: 'fred',
+      status: 'live',
+      rooms: ['repo-tools'],
+    },
   },
   {
     paneId: 'w1:p2',
@@ -30,7 +35,7 @@ const PANES: ChatPane[] = [
     repo: 'chat',
     branch: 'main',
     agentStatus: 'idle',
-    presence: { handle: 'meg', status: 'live', rooms: ['build'] },
+    presence: { handle: 'meg', name: 'meg', status: 'live', rooms: ['build'] },
   },
   {
     paneId: 'w1:p3',
@@ -40,7 +45,7 @@ const PANES: ChatPane[] = [
     repo: 'gitq',
     branch: 'main',
     agentStatus: 'blocked',
-    presence: { handle: 'june', status: 'idle', rooms: [] },
+    presence: { handle: 'june', name: 'june', status: 'idle', rooms: [] },
   },
   {
     paneId: 'w1:p4',
@@ -118,7 +123,7 @@ test('lists claude panes sorted live, idle, not signed in, with handle or not si
   expect(within(rows[3]!).getByText('…/acme')).toBeInTheDocument();
 });
 
-test('the filter matches handle, workspace, title, repo and path', async () => {
+test('the filter matches name, workspace, title, repo and path', async () => {
   mount();
   await userEvent.click(screen.getByText('open'));
   await screen.findAllByTestId(/^pane-row-/);
@@ -290,4 +295,55 @@ test('herdr unavailable shows a notice and only cancel', async () => {
   expect(screen.queryByTestId('pane-use')).toBeNull();
   await userEvent.click(screen.getByTestId('pane-cancel'));
   expect(results).toEqual([null]);
+});
+
+test('a pane row reads its display name, and a title equal to it is not repeated', async () => {
+  route({
+    'GET /api/panes': () =>
+      json({
+        available: true,
+        panes: [
+          {
+            paneId: 'w9:p1',
+            workspace: 'repo-tools',
+            title: 'remy',
+            cwd: '/r/rt',
+            repo: 'repo-tools',
+            branch: 'main',
+            agentStatus: 'idle',
+            presence: {
+              handle: 'remy.m2p4',
+              name: 'remy',
+              status: 'live',
+              rooms: [],
+            },
+          },
+          {
+            paneId: 'w9:p2',
+            workspace: 'gitq',
+            title: 'Fix auth',
+            cwd: '/r/gitq',
+            repo: 'gitq',
+            branch: 'main',
+            agentStatus: 'idle',
+            presence: {
+              handle: 'ada.q7t2',
+              name: 'wren',
+              status: 'live',
+              rooms: [],
+            },
+          },
+        ],
+      }),
+  });
+  mount();
+  await userEvent.click(screen.getByText('open'));
+  const row = await screen.findByTestId('pane-row-w9:p1');
+  expect(within(row).getByText('remy')).toBeInTheDocument();
+  expect(row).not.toHaveTextContent('m2p4');
+  expect(row).not.toHaveTextContent('repo-tools · remy');
+  await userEvent.type(screen.getByTestId('pane-filter'), 'wren');
+  expect(
+    screen.getAllByTestId(/^pane-row-/).map(r => r.getAttribute('data-testid'))
+  ).toEqual(['pane-row-w9:p2']);
 });
