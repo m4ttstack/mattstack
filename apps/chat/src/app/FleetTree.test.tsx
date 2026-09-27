@@ -460,3 +460,68 @@ test('the daemon down withholds every presence claim in the tree', () => {
   // No pane title leaks anywhere while the daemon is down.
   expect(screen.queryByText(/Boxscore mattstack integration/)).toBeNull();
 });
+
+test('workstream rows that share a name show avatars and an ordinal in render order; a unique name gets neither', async () => {
+  const onFocusPane = vi.fn();
+  const buddies = [
+    buddy('remy.m2p4', 'boxscore', {
+      name: 'remy',
+      baseHandle: 'remy',
+      pane: 'wBT:p2',
+    }),
+    buddy('remy', 'rt', { pane: 'wAR:p1' }),
+    buddy('kai', 'rt', { pane: 'wAR:p2' }),
+  ];
+  const { unmount } = renderTree({
+    rooms: [room('rt'), room('boxscore')],
+    buddies,
+    onFocusPane,
+  });
+  const avatars = (el: HTMLElement) =>
+    el.querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+
+  // rt renders before boxscore, so the legacy remy is first even though the
+  // recycled one signed in earlier.
+  expect(screen.getByTestId('ws-remy')).toHaveAttribute(
+    'aria-label',
+    "Focus remy (1 of 2)'s pane"
+  );
+  expect(screen.getByTestId('ws-remy.m2p4')).toHaveAttribute(
+    'aria-label',
+    "Focus remy (2 of 2)'s pane"
+  );
+  expect(avatars(screen.getByTestId('ws-remy'))).toBe(1);
+  expect(avatars(screen.getByTestId('ws-remy.m2p4'))).toBe(1);
+  expect(screen.getByTestId('ws-kai')).toHaveAttribute(
+    'aria-label',
+    "Focus kai's pane"
+  );
+  expect(avatars(screen.getByTestId('ws-kai'))).toBe(0);
+
+  const noIds = () => {
+    expect(document.body.textContent).not.toContain('m2p4');
+    for (const el of document.body.querySelectorAll('[aria-label]'))
+      expect(el.getAttribute('aria-label')).not.toContain('m2p4');
+  };
+  noIds();
+  unmount();
+
+  renderTree({
+    rooms: [room('rt'), room('boxscore')],
+    buddies,
+    onSelectBuddy: vi.fn(),
+  });
+  expect(screen.getByTestId('ws-remy')).toHaveAttribute(
+    'aria-label',
+    'Message remy (1 of 2)'
+  );
+  expect(screen.getByTestId('ws-remy.m2p4')).toHaveAttribute(
+    'aria-label',
+    'Message remy (2 of 2)'
+  );
+  expect(screen.getByTestId('ws-kai')).toHaveAttribute(
+    'aria-label',
+    'Message kai'
+  );
+  noIds();
+});

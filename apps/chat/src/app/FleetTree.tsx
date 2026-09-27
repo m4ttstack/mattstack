@@ -13,7 +13,12 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
 import { AgentName } from './AgentName';
-import { displayName, dmPairLabel, repeatedPairLabels } from './display-name';
+import {
+  displayName,
+  dmPairLabel,
+  repeatedPairLabels,
+  sameNameOrdinals,
+} from './display-name';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
 import { DOT_COLOR, MUTED_XS } from './presence-bits';
@@ -520,12 +525,16 @@ function RepoRow({ repo }: { repo: string }) {
     filling the rest of the row. Clicking brings its pane to the front. */
 function WorkstreamRow({
   buddy,
+  ordinal,
   now,
   reachable,
   onFocusPane,
   onSelectBuddy,
 }: {
   buddy: RosterBuddy;
+  /** Set when another rendered row shares this name: `remy (1 of 2)`. The
+      row then shows its id-seeded avatar and labels itself by this. */
+  ordinal?: string;
   now: number;
   reachable: boolean;
   /** Desktop: brings the buddy's herdr pane to the front. Ignored when
@@ -539,7 +548,7 @@ function WorkstreamRow({
   onSelectBuddy?: (handle: string) => void;
 }) {
   const { handle, pane } = buddy;
-  const shown = displayName(buddy);
+  const shown = ordinal ?? displayName(buddy);
   const task = reachable ? doing(buddy, now) : null;
   const onClick = onSelectBuddy
     ? () => onSelectBuddy(handle)
@@ -606,7 +615,7 @@ function WorkstreamRow({
         <AgentName
           handle={handle}
           variant="name"
-          withAvatar={false}
+          withAvatar={ordinal !== undefined}
           buddy={buddy}
           reachable={reachable}
           now={now}
@@ -869,6 +878,10 @@ export function FleetTree({
   const shownDms = dmsExpanded ? namedDms : visibleDms(namedDms, activeRoom);
   const hiddenDms = namedDms.filter(d => !shownDms.includes(d));
   const repeatedLabels = repeatedPairLabels(namedDms);
+  const ordinals = sameNameOrdinals(
+    groups.flatMap(g => g.online),
+    displayName
+  );
 
   return (
     <Fragment>
@@ -889,6 +902,7 @@ export function FleetTree({
             <WorkstreamRow
               key={buddy.handle}
               buddy={buddy}
+              ordinal={ordinals.get(buddy)}
               now={now}
               reachable={daemonReachable}
               onFocusPane={onFocusPane}

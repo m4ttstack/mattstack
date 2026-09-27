@@ -71,7 +71,10 @@ a room:
 - **Workstream rows** (`.ws`, 30px, indented `26.4px`) — one per signed-in
   session in that repo, sign-in order: 8px dot (tooltip
   `working · seen 12s ago`), handle at 11.2px / 600, then the task line
-  filling the row. `.ws.on` marks the selected workstream. Clicking focuses
+  filling the row. When two or more rows in the tree share a name, each
+  carries its id-seeded avatar before the name, and its aria-label names it
+  with its place in the tree (`Focus remy (1 of 2)'s pane`); a unique name
+  gets neither. `.ws.on` marks the selected workstream. Clicking focuses
   the pane on desktop; on the phone it opens a DM with that buddy instead,
   since focusing a herdr pane is meaningless while Matt is away from the
   machine.
