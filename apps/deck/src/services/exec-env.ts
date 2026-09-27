@@ -124,13 +124,13 @@ export interface ComposeCommandPathOpts {
 
 /**
  * PATH for a command run (dev build, deploy, `deck cmd`): the user's tool
- * dirs, then the bundle's Helpers, then the OS dirs, then whatever else the
- * inherited PATH carried.
+ * dirs, then whatever else the inherited PATH carried, then the bundle's
+ * Helpers, then the OS dirs.
  *
- * Helpers must not come first here: `Helpers/bun` is signed without
- * disable-library-validation, so a build it runs cannot load a native addon
- * (rolldown's) that the user's own bun loads fine. Helpers stays on the path
- * for the tools only the bundle ships.
+ * Nothing the user installed may sit behind Helpers: `Helpers/bun` is signed
+ * without disable-library-validation, so a build it runs cannot load a native
+ * addon (rolldown's) that the user's own bun loads fine. Helpers stays on the
+ * path for the tools only the bundle ships.
  */
 export function composeCommandPath(opts: ComposeCommandPathOpts = {}): string {
   const inherited = opts.inherited ?? process.env.PATH ?? '';
@@ -140,14 +140,13 @@ export function composeCommandPath(opts: ComposeCommandPathOpts = {}): string {
   const userDirs = stablePathDirs(opts.home ?? homedir(), null).filter(
     dir => !OS_PATH_DIRS.includes(dir)
   );
-  const composed = existingUnique(
-    [...userDirs, helpers, ...OS_PATH_DIRS],
-    opts.exists ?? defaultExists
-  );
+  const exists = opts.exists ?? defaultExists;
+  const user = existingUnique(userDirs, exists);
+  const tail = existingUnique([helpers, ...OS_PATH_DIRS], exists);
   const extra = inherited
     .split(':')
-    .filter(dir => dir && !composed.includes(dir));
-  return [...composed, ...new Set(extra)].join(':');
+    .filter(dir => dir && !user.includes(dir) && !tail.includes(dir));
+  return [...user, ...new Set(extra), ...tail].join(':');
 }
 
 function isExecutableFile(path: string): boolean {
