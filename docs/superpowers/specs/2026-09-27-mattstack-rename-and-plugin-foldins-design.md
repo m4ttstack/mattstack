@@ -46,7 +46,10 @@ the new one.
 So Stage 2 builds a real re-key: an `rt repos reidentify <old> <new>` verb
 that moves every identity-keyed store from one serialized identity to
 another, verify-persisted row by row (the same write-then-reread discipline
-as `identity-migrate.ts`), with a `--dry-run` that prints per-store counts.
+as `identity-migrate.ts`), with a `--dry-run` that prints per-store counts. Like `rt repos locate`
+(`lib/repo-locate-dispatch.ts`), it runs through the daemon when one answers
+and locally when none is present, since Stage 2b runs it with the daemon
+stopped.
 It works store by store and is idempotent: a store with rows under the old
 identity and none under the new moves; a store with nothing under the old
 and rows under the new is already done; a store holding rows under both
@@ -100,8 +103,11 @@ before anything irreversible happens.
   `https://github.com/<org>/<old>/releases/latest/download/appcast.xml` still
   answers 200 after following redirects, and that
   `api.github.com/repos/<org>/<old>/releases/latest` answers with a redirect
-  to the new name; delete the throwaway.
-- Gate: both resolve. If either does not, stop and bring it back to Matt; the
+  to the new name; also PATCH a throwaway ref through the old name
+  (`gh api -X PATCH repos/<org>/<old>/git/refs/heads/<ref>`) and record
+  whether GitHub's 307 is followed for writes; delete the throwaway.
+- Gate: the asset and the API read resolve. The write result decides whether
+  a release may be cut between 2b and 2c; the plan assumes none is. If either does not, stop and bring it back to Matt; the
   rename does not happen.
 
 ### Stage 2a: the re-key verb and the folder paths (one PR, one release)
@@ -127,37 +133,10 @@ dated superpowers docs:
 - `lib/command-tree-def.ts` placeholders, AGENTS.md, `docs/*.md`, the skills
   under `skills/` and tests that pin the path follow
 
-**One doc line.** AGENTS.md and the rt-release skill gain: the repo was
-renamed from `m4ttstack/rt`, and that name is never recreated.
+**One doc line.** AGENTS.md and the rt-release skill gain: the old name
+`m4ttstack/rt` is never recreated.
 
 This PR ships in a mattstack.app release before Stage 2b.
-
-### Stage 2c: flip the repo name in code (one PR, after 2b; ships in the next release)
-
-330 files name the repo (`m4ttstack/rt`, `m4ttstack%2Frt`, `m4ttstack-rt`)
-outside dated superpowers docs. About 220 are the generated
-`website/docs/reference/**` "See code" links from `scripts/gen-docs.ts:29`:
-change the generator and regenerate, never hand-edit. The rest, by kind:
-- update feed: `rt-tray/project.yml:73`, `Info.plist:56`, `build.sh:418` and
-  the `check-bundle.sh:552` assertion move to the new URL together, so builds
-  from the next release use it; old installs keep the old URL and follow the
-  redirect Stage 1 proved
-- release code: `RT_REPO` in `lib/release/release-app.ts`, `GH_REPO` in
-  `lib/release/verify.ts`, `RELEASE_REPO` in `lib/release/update-machine.ts`,
-  `scripts/release/appcast.sh:28`'s default, `RELEASES_URL`,
-  `lib/team/invite.ts:69`, `scripts/update-docs.ts`, `scripts/build-dev-app.ts`,
-  `scripts/e2e-cleanroom.sh`, `commands/update.ts`
-- site and packages: `website/docusaurus.config.ts`,
-  `apps/gitq/website/docusaurus.config.ts`, `extensions/vscode/rt-context/package.json`,
-  every `package.json` `repository` field, `README.md`, `rt-tray/vm/README.md`,
-  `marketplace/README.md`, `.github/renovate-global.json5`, `docs/*.md`, the
-  skills under `skills/`, and the READMEs of mattstack-skills and fast-browser
-- tests that pin literal names follow the code
-- dated superpowers docs, `RELEASE_NOTES.md` history, changelogs and imported
-  commit history stay as written
-
-Every one of these already works through GitHub's redirect between 2b and
-this PR, so nothing forces an immediate release.
 
 ### Stage 2b: rename the repo and the folder (machine list)
 
@@ -166,8 +145,10 @@ Run by the controller after the Stage 2a release is installed on this machine.
 1. Announce in #rt: the shared checkout folder moves; sessions whose cwd is
    in it must `/cd` afterwards. Worktrees under `~/.mattstack` stay where
    they are.
-2. Stop the dev daemon (before the remote changes, so its own trigger cannot
-   race the by-hand run).
+2. Stop the dev daemon through the dev app or `rt daemon stop` (never by
+   killing it, which can leave `rt.sock` behind), before the remote changes so
+   its own trigger cannot race the by-hand run; confirm `rt daemon status`
+   reports it absent.
 3. `gh repo rename mattstack --repo m4ttstack/rt`, then
    `git remote set-url origin https://github.com/m4ttstack/mattstack.git` in
    the shared checkout (linked pool worktrees share its config).
@@ -194,6 +175,35 @@ Run by the controller after the Stage 2a release is installed on this machine.
     200s; `grep -r repo-tools` over `~/.mattstack`, the launchd plists and
     `~/.claude/skills` finds nothing live (the settings fallback candidate in
     code is expected).
+
+### Stage 2c: flip the repo name in code (one PR, after 2b; ships in the next release)
+
+330 files name the repo (`m4ttstack/rt`, `m4ttstack%2Frt`, `m4ttstack-rt`)
+outside dated superpowers docs. About 220 are the generated
+`website/docs/reference/**` "See code" links from `scripts/gen-docs.ts:29`:
+change the generator and regenerate, never hand-edit. The rest, by kind:
+- update feed: `rt-tray/project.yml:73`, `Info.plist:56`, `build.sh:418` and
+  the `check-bundle.sh:552` assertion move to the new URL together, so builds
+  from the next release use it; old installs keep the old URL and follow the
+  redirect Stage 1 proved
+- release code: `RT_REPO` in `lib/release/release-app.ts`, `GH_REPO` in
+  `lib/release/verify.ts`, `RELEASE_REPO` in `lib/release/update-machine.ts`,
+  `scripts/release/appcast.sh:28`'s default, `RELEASES_URL`,
+  `lib/team/invite.ts:69`, `scripts/update-docs.ts`, `scripts/build-dev-app.ts`,
+  `scripts/e2e-cleanroom.sh`, `commands/update.ts`
+- site and packages: `website/docusaurus.config.ts`,
+  `apps/gitq/website/docusaurus.config.ts`, `extensions/vscode/rt-context/package.json`,
+  every `package.json` `repository` field, `README.md`, `rt-tray/vm/README.md`,
+  `marketplace/README.md`, `.github/renovate-global.json5`, `docs/*.md`, the
+  skills under `skills/`, and the READMEs of mattstack-skills and fast-browser
+- tests that pin literal names follow the code
+- dated superpowers docs, `RELEASE_NOTES.md` history, changelogs and imported
+  commit history stay as written
+
+Reads of these names work through GitHub's redirect between 2b and this
+PR. No mattstack.app release is cut between 2b and 2c unless Stage 1 showed
+redirected writes work, because `rt release app` writes trees, commits and
+refs under the repo name.
 
 ### Stage 3: fold in herdr-chat
 
