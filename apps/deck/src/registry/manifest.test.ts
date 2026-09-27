@@ -328,6 +328,38 @@ test('ingest clears stale identity when a re-ingest finds no manifest to supply 
   expect(existsSync(iconPathFor('stale'))).toBe(false);
 });
 
+test('ingestManifest carries requiresTeam onto the record and clears a stale one', async () => {
+  isolate();
+  const { putRecord, getRecord, reloadRegistry } = await import('./records.ts');
+  const { ingestManifest } = await import('./manifest.ts');
+  reloadRegistry();
+  const dir = repo({
+    'mattstack.deck.json': JSON.stringify({
+      name: 'board',
+      displayName: 'Board',
+      icon: './icon.svg',
+      requiresTeam: true,
+    }),
+    'icon.svg': SVG,
+  });
+  putRecord({
+    name: 'board',
+    managedBy: 'rt',
+    port: 11006,
+    kind: 'service',
+    workingDirectory: dir,
+    createdAt: '2026-08-10T00:00:00Z',
+  });
+  ingestManifest('board');
+  expect(getRecord('board')?.requiresTeam).toBe(true);
+  writeFileSync(
+    join(dir, 'mattstack.deck.json'),
+    JSON.stringify({ name: 'board', displayName: 'Board', icon: './icon.svg' })
+  );
+  ingestManifest('board');
+  expect(getRecord('board')?.requiresTeam).toBeUndefined();
+});
+
 test('removeIcon deletes the stored file', async () => {
   isolate();
   const { putRecord, reloadRegistry } = await import('./records.ts');
