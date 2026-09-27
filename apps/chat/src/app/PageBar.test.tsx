@@ -113,7 +113,12 @@ test('a DM shows the pair as its title, wakes: all in its member popover', async
         unread: 0,
         mentions: 0,
         kind: 'dm',
-        participants: { a: 'deck-main', b: 'rt-chat-wt' },
+        participants: {
+          a: 'deck-main',
+          b: 'rt-chat-wt',
+          aName: 'deck-main',
+          bName: 'rt-chat-wt',
+        },
       }}
       buddies={[]}
     />
@@ -154,7 +159,7 @@ test('a DM lists each end and its task in the member roster, join-order gone', a
         unread: 0,
         mentions: 0,
         kind: 'dm',
-        participants: { a: 'jay', b: 'max' },
+        participants: { a: 'jay', b: 'max', aName: 'jay', bName: 'max' },
       }}
       now={now}
       buddies={[
@@ -205,7 +210,12 @@ test('the ⋯ menu offers Close this conversation for a DM, fleet or not', async
     unread: 0,
     mentions: 0,
     kind: 'dm' as const,
-    participants: { a: 'fred', b: 'gitq-main' },
+    participants: {
+      a: 'fred',
+      b: 'gitq-main',
+      aName: 'fred',
+      bName: 'gitq-main',
+    },
   };
   renderWithProviders(<RoomMenu room={dm} onClose={onClose} />);
   await userEvent.click(screen.getByTestId('room-menu'));
@@ -273,6 +283,41 @@ test('add agents sits before mark read, only when wired, disabled while the daem
   expect(onAddAgents).toHaveBeenCalled();
 });
 
+test('a DM title reads the pair by name, never an id', () => {
+  renderWithProviders(
+    <PageBar
+      room={{
+        room: 'dm-2c9b7e41d0a5',
+        memberCount: 3,
+        unread: 0,
+        mentions: 0,
+        kind: 'dm',
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+      }}
+      buddies={[]}
+    />
+  );
+  expect(screen.getByText('kai ↔ remy')).toBeInTheDocument();
+  expect(screen.queryByText(/m2p4/)).toBeNull();
+});
+
+test('member rows show names and stay keyed by id', async () => {
+  renderWithProviders(
+    <PageBar
+      room={{ room: 'rt', memberCount: 2, unread: 0, mentions: 0 }}
+      buddies={[
+        { handle: 'remy', name: 'remy', status: 'idle' },
+        { handle: 'remy.m2p4', name: 'remy', status: 'live' },
+      ]}
+    />
+  );
+  await userEvent.click(screen.getByTestId('members-chip'));
+  const recycled = await screen.findByTestId('members-row-remy.m2p4');
+  expect(recycled).toHaveTextContent('remy');
+  expect(recycled).not.toHaveTextContent('m2p4');
+  expect(screen.getByTestId('members-row-remy')).toBeInTheDocument();
+});
+
 test('the expand-all toggle flips and persists the app-wide preference', async () => {
   renderWithProviders(
     <PageBar
@@ -285,4 +330,47 @@ test('the expand-all toggle flips and persists the app-wide preference', async (
   await userEvent.click(toggle);
   expect(toggle).toHaveAttribute('aria-pressed', 'true');
   expect(window.localStorage.getItem('chat-expand-all')).toBe('true');
+});
+
+const avatars = (el: HTMLElement) =>
+  el.querySelectorAll('svg[shape-rendering="crispEdges"]');
+
+test("a DM title whose pair repeats shows both ends' avatars, still by name", () => {
+  renderWithProviders(
+    <PageBar
+      room={{
+        room: 'dm-2c9b7e41d0a5',
+        memberCount: 3,
+        unread: 0,
+        mentions: 0,
+        kind: 'dm',
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+      }}
+      buddies={[]}
+      withAvatars
+    />
+  );
+  const title = screen.getByTestId('page-bar-title');
+  expect(title).toHaveTextContent('kai ↔ remy');
+  expect(title).not.toHaveTextContent('m2p4');
+  expect(avatars(title)).toHaveLength(2);
+});
+
+test('a DM title whose pair is unique keeps the plain label, no avatars', () => {
+  renderWithProviders(
+    <PageBar
+      room={{
+        room: 'dm-2c9b7e41d0a5',
+        memberCount: 3,
+        unread: 0,
+        mentions: 0,
+        kind: 'dm',
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+      }}
+      buddies={[]}
+    />
+  );
+  const title = screen.getByTestId('page-bar-title');
+  expect(title).toHaveTextContent(/^kai ↔ remy$/);
+  expect(avatars(title)).toHaveLength(0);
 });

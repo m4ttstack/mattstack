@@ -1,5 +1,10 @@
 # rt chat invite: rooms from the viewer, agents from herdr panes
 
+> **Superseded in part:** `2026-09-27-chat-identity-design.md` replaces this
+> document's handle-as-identity statements: a handle is an identity id
+> behind a display name, and every new session is a new identity unless it
+> explicitly continues one.
+
 Extends `2026-08-23-rt-chat-design.md` and `2026-08-24-rt-chat-presence-design.md`.
 Where this document disagrees with either, this one wins; the sections it
 revises are named under **What this changes in the base designs**.

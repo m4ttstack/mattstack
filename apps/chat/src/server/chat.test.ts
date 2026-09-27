@@ -48,7 +48,12 @@ test("rooms returns the daemon's payload, DM rows included", async () => {
           unread: 1,
           mentions: 1,
           kind: 'dm',
-          participants: { a: 'deck-main', b: 'rt-chat-wt' },
+          participants: {
+            a: 'deck-main',
+            b: 'rt-chat-wt',
+            aName: 'deck-main',
+            bName: 'rt-chat-wt',
+          },
         },
       ],
     },
@@ -57,7 +62,12 @@ test("rooms returns the daemon's payload, DM rows included", async () => {
   expect(res.status).toBe(200);
   expect((await res.json()).rooms[1]).toMatchObject({
     kind: 'dm',
-    participants: { a: 'deck-main', b: 'rt-chat-wt' },
+    participants: {
+      a: 'deck-main',
+      b: 'rt-chat-wt',
+      aName: 'deck-main',
+      bName: 'rt-chat-wt',
+    },
   });
 });
 
@@ -73,7 +83,7 @@ test('only DM rows carry lastMessage, one line, capped at 120 chars', async () =
           unread: 1,
           mentions: 0,
           kind: 'dm',
-          participants: { a: 'edie', b: 'stan' },
+          participants: { a: 'edie', b: 'stan', aName: 'edie', bName: 'stan' },
         },
       ],
     },
@@ -86,9 +96,11 @@ test('only DM rows carry lastMessage, one line, capped at 120 chars', async () =
           id: 9,
           room: 'dm-9f3a',
           handle: 'edie',
+          name: 'edie',
           body: `pack compile is green,\n\ncutting ${'x'.repeat(200)}`,
           postedAt: 1,
           mentions: [],
+          mentionNames: [],
         },
       ],
     },
@@ -124,7 +136,7 @@ test('a DM whose tail cannot be read still lists, without lastMessage', async ()
           unread: 1,
           mentions: 0,
           kind: 'dm',
-          participants: { a: 'edie', b: 'stan' },
+          participants: { a: 'edie', b: 'stan', aName: 'edie', bName: 'stan' },
         },
       ],
     },
@@ -163,6 +175,7 @@ test("who passes the daemon's status through and never spawns git", async () => 
         {
           room: 'build',
           handle: 'a',
+          name: 'a',
           joinedAt: 1,
           lastReadId: 0,
           wakeOn: 'mention',
@@ -189,6 +202,7 @@ test("buddies carries each buddy's rooms as tags, with DMs collapsed to `dm`", a
           sessionId: 's1',
           handle: 'a',
           baseHandle: 'a',
+          name: 'a',
           signedInAt: 1,
           lastSeenAt: 1,
           branch: 'fix-auth',
@@ -208,7 +222,7 @@ test("buddies carries each buddy's rooms as tags, with DMs collapsed to `dm`", a
           unread: 0,
           mentions: 0,
           kind: 'dm',
-          participants: { a: 'a', b: 'b' },
+          participants: { a: 'a', b: 'b', aName: 'a', bName: 'b' },
         },
       ],
     },
@@ -221,6 +235,7 @@ test("buddies carries each buddy's rooms as tags, with DMs collapsed to `dm`", a
           {
             room: 'build',
             handle: 'a',
+            name: 'a',
             joinedAt: 1,
             lastReadId: 0,
             wakeOn: 'mention',
@@ -236,6 +251,7 @@ test("buddies carries each buddy's rooms as tags, with DMs collapsed to `dm`", a
           {
             room: 'dm-9f3a2b1c0d4e',
             handle: 'a',
+            name: 'a',
             joinedAt: 1,
             lastReadId: 0,
             wakeOn: 'all',
@@ -262,6 +278,7 @@ test('buddies join the live herdr pane title by sessionId', async () => {
           sessionId: 's1',
           handle: 'a',
           baseHandle: 'a',
+          name: 'a',
           signedInAt: 1,
           lastSeenAt: 1,
           status: 'live',
@@ -303,6 +320,7 @@ test('a failed pane:list degrades buddies to no titles, never a 502', async () =
           sessionId: 's1',
           handle: 'a',
           baseHandle: 'a',
+          name: 'a',
           signedInAt: 1,
           lastSeenAt: 1,
           status: 'live',
@@ -347,7 +365,7 @@ test('a dropped write surfaces as an error, never a silent success', async () =>
   });
   vi.mocked(rt.chatJoin).mockResolvedValueOnce({
     ok: true,
-    data: { handle: 'matt', memberCount: 2, unread: 0 },
+    data: { handle: 'matt', name: 'matt', memberCount: 2, unread: 0 },
   });
   vi.mocked(rt.chatPost).mockResolvedValueOnce({
     ok: false,
@@ -370,11 +388,11 @@ test('posting into a room the human has not joined joins first, then posts', asy
   });
   vi.mocked(rt.chatJoin).mockResolvedValueOnce({
     ok: true,
-    data: { handle: 'matt', memberCount: 2, unread: 0 },
+    data: { handle: 'matt', name: 'matt', memberCount: 2, unread: 0 },
   });
   vi.mocked(rt.chatPost).mockResolvedValueOnce({
     ok: true,
-    data: { id: 1, recipients: [], others: 1 },
+    data: { id: 1, recipients: [], recipientNames: [], others: 1 },
   });
   const res = await routes.request('/api/chat/post', {
     method: 'POST',
@@ -401,14 +419,24 @@ test('posting into a DM never joins: the human is already its silent member and 
           unread: 0,
           mentions: 0,
           kind: 'dm',
-          participants: { a: 'deck-main', b: 'rt-chat-wt' },
+          participants: {
+            a: 'deck-main',
+            b: 'rt-chat-wt',
+            aName: 'deck-main',
+            bName: 'rt-chat-wt',
+          },
         },
       ],
     },
   });
   vi.mocked(rt.chatPost).mockResolvedValueOnce({
     ok: true,
-    data: { id: 2, recipients: ['deck-main', 'rt-chat-wt'], others: 2 },
+    data: {
+      id: 2,
+      recipients: ['deck-main', 'rt-chat-wt'],
+      recipientNames: ['deck-main', 'rt-chat-wt'],
+      others: 2,
+    },
   });
   const res = await routes.request('/api/chat/post', {
     method: 'POST',
@@ -444,7 +472,10 @@ test('rooms includes rooms the FLEET is in that the human has not joined', async
         unread: handle === 'matt' ? 1 : 0,
         mentions: 0,
         ...(room.startsWith('dm-')
-          ? { kind: 'dm' as const, participants: { a: 'a', b: 'b' } }
+          ? {
+              kind: 'dm' as const,
+              participants: { a: 'a', b: 'b', aName: 'a', bName: 'b' },
+            }
           : {}),
       })),
     },
@@ -456,6 +487,7 @@ test('rooms includes rooms the FLEET is in that the human has not joined', async
         sessionId: `s${i + 1}`,
         handle,
         baseHandle: handle,
+        name: handle,
         signedInAt: 1,
         lastSeenAt: 1,
         status: 'live' as const,
@@ -466,6 +498,7 @@ test('rooms includes rooms the FLEET is in that the human has not joined', async
   const member = (room: string, handle: string) => ({
     room,
     handle,
+    name: handle,
     joinedAt: 1,
     lastReadId: 0,
     wakeOn: 'mention' as const,
@@ -497,7 +530,7 @@ test('rooms includes rooms the FLEET is in that the human has not joined', async
   expect(body.rooms[3]).toMatchObject({
     room: 'dm-a1b2',
     kind: 'dm',
-    participants: { a: 'a', b: 'b' },
+    participants: { a: 'a', b: 'b', aName: 'a', bName: 'b' },
     joined: false,
   });
   expect(body.rooms[2]).toMatchObject({
@@ -575,6 +608,7 @@ test('closing a channel the human never joined joins him first, then closes', as
         {
           handle: 'fred',
           baseHandle: 'fred',
+          name: 'fred',
           sessionId: 's1',
           status: 'live',
           signedInAt: 1,
@@ -591,6 +625,7 @@ test('closing a channel the human never joined joins him first, then closes', as
         {
           room: 'build',
           handle: 'fred',
+          name: 'fred',
           joinedAt: 1,
           lastReadId: 0,
           wakeOn: 'mention',
@@ -601,7 +636,7 @@ test('closing a channel the human never joined joins him first, then closes', as
   });
   vi.mocked(rt.chatJoin).mockResolvedValueOnce({
     ok: true,
-    data: { handle: 'matt', memberCount: 2, unread: 0 },
+    data: { handle: 'matt', name: 'matt', memberCount: 2, unread: 0 },
   });
   vi.mocked(rt.chatArchive).mockResolvedValueOnce({
     ok: true,
@@ -648,7 +683,7 @@ test('closing a room already in the human’s listing never joins; a DM never jo
           unread: 0,
           mentions: 0,
           kind: 'dm',
-          participants: { a: 'fred', b: 'matt' },
+          participants: { a: 'fred', b: 'matt', aName: 'fred', bName: 'matt' },
         },
       ],
     },
@@ -674,7 +709,12 @@ test('closing a DM known only through the fleet union never joins', async () => 
             unread: 0,
             mentions: 0,
             kind: 'dm',
-            participants: { a: 'fred', b: 'matt' },
+            participants: {
+              a: 'fred',
+              b: 'matt',
+              aName: 'fred',
+              bName: 'matt',
+            },
           },
         ],
       },
@@ -686,6 +726,7 @@ test('closing a DM known only through the fleet union never joins', async () => 
         {
           handle: 'fred',
           baseHandle: 'fred',
+          name: 'fred',
           sessionId: 's1',
           status: 'live',
           signedInAt: 1,
@@ -702,6 +743,7 @@ test('closing a DM known only through the fleet union never joins', async () => 
         {
           room: 'dm-1',
           handle: 'fred',
+          name: 'fred',
           joinedAt: 1,
           lastReadId: 0,
           wakeOn: 'mention',
@@ -833,11 +875,11 @@ test('POST /api/chat/dm is gone', async () => {
 test('POST /api/chat/rooms joins as the human (creating the room), posts the seed, returns its id', async () => {
   vi.mocked(rt.chatJoin).mockResolvedValueOnce({
     ok: true,
-    data: { handle: 'matt', memberCount: 1, unread: 0 },
+    data: { handle: 'matt', name: 'matt', memberCount: 1, unread: 0 },
   });
   vi.mocked(rt.chatPost).mockResolvedValueOnce({
     ok: true,
-    data: { id: 42, recipients: [], others: 0 },
+    data: { id: 42, recipients: [], recipientNames: [], others: 0 },
   });
   const res = await routes.request('/api/chat/rooms', {
     method: 'POST',
@@ -865,7 +907,7 @@ test('POST /api/chat/rooms joins as the human (creating the room), posts the see
 test('POST /api/chat/rooms without a seed only joins; a bad name is 400; a failed seed is 502 after the room exists', async () => {
   vi.mocked(rt.chatJoin).mockResolvedValueOnce({
     ok: true,
-    data: { handle: 'matt', memberCount: 1, unread: 0 },
+    data: { handle: 'matt', name: 'matt', memberCount: 1, unread: 0 },
   });
   const bare = await routes.request('/api/chat/rooms', {
     method: 'POST',
@@ -883,7 +925,7 @@ test('POST /api/chat/rooms without a seed only joins; a bad name is 400; a faile
   ).toBe(400);
   vi.mocked(rt.chatJoin).mockResolvedValueOnce({
     ok: true,
-    data: { handle: 'matt', memberCount: 1, unread: 0 },
+    data: { handle: 'matt', name: 'matt', memberCount: 1, unread: 0 },
   });
   vi.mocked(rt.chatPost).mockResolvedValueOnce({
     ok: false,
@@ -1005,10 +1047,10 @@ test('fixtures mode pages GET /api/chat/messages like the daemon: the newest `li
         messages: { id: number }[];
       }
     ).messages.map(m => m.id);
-  expect(await ids('?limit=2')).toEqual([605, 606]);
+  expect(await ids('?limit=2')).toEqual([608, 609]);
   expect(await ids('?before=605&limit=2')).toEqual([603, 604]);
   expect(await ids('?before=601&limit=2')).toEqual([]);
-  expect(await ids('')).toEqual([601, 602, 603, 604, 605, 606]);
+  expect(await ids('')).toEqual([601, 602, 603, 604, 605, 606, 607, 608, 609]);
   expect(rt.chatMessages).not.toHaveBeenCalled();
 });
 
@@ -1060,8 +1102,10 @@ test('GET /api/chat/inbox fetches only unread rooms, capped at 50, and builds th
           id: 900,
           room: 'rt',
           handle: 'jay',
+          name: 'jay',
           body: '@matt take a look',
           mentions: ['matt'],
+          mentionNames: ['matt'],
           postedAt: 1,
         },
       ],
@@ -1077,6 +1121,7 @@ test('GET /api/chat/inbox fetches only unread rooms, capped at 50, and builds th
         kind: 'room',
         messageId: 900,
         handle: 'jay',
+        name: 'jay',
         postedAt: 1,
         excerpt: '@matt take a look',
         reason: 'mention',
@@ -1137,4 +1182,129 @@ test('fixtures mode answers GET /api/chat/inbox from fixtureInbox without touchi
   expect(body.elsewhere.map(e => e.room)).toContain('rt');
   expect(rt.chatRooms).not.toHaveBeenCalled();
   expect(rt.chatMessages).not.toHaveBeenCalled();
+});
+
+test('dm/open hands the daemon a name or an id exactly as typed', async () => {
+  vi.mocked(rt.chatDmOpen).mockResolvedValue({
+    ok: true,
+    data: { room: 'dm-2c9b7e41d0a5', created: false },
+  });
+  for (const to of ['remy', 'remy.m2p4']) {
+    const res = await routes.request('/api/chat/dm/open?handle=matt', {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    });
+    expect(res.status).toBe(200);
+  }
+  expect(vi.mocked(rt.chatDmOpen).mock.calls.map(c => c[0])).toEqual([
+    { from: 'matt', to: 'remy' },
+    { from: 'matt', to: 'remy.m2p4' },
+  ]);
+});
+
+test('buddies that share a name keep their own rooms, keyed by id', async () => {
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      buddies: [
+        {
+          sessionId: 's1',
+          handle: 'remy',
+          baseHandle: 'remy',
+          name: 'remy',
+          signedInAt: 1,
+          lastSeenAt: 1,
+          status: 'idle',
+        },
+        {
+          sessionId: 's2',
+          handle: 'remy.m2p4',
+          baseHandle: 'remy',
+          name: 'remy',
+          signedInAt: 2,
+          lastSeenAt: 2,
+          status: 'live',
+        },
+      ],
+    },
+  });
+  vi.mocked(rt.chatRooms).mockImplementation(async ({ handle }) => ({
+    ok: true,
+    data: {
+      rooms:
+        handle === 'remy'
+          ? [{ room: 'rt', memberCount: 2, unread: 0, mentions: 0 }]
+          : [
+              {
+                room: 'dm-2c9b7e41d0a5',
+                memberCount: 3,
+                unread: 0,
+                mentions: 0,
+                kind: 'dm' as const,
+                participants: {
+                  a: 'kai',
+                  b: 'remy.m2p4',
+                  aName: 'kai',
+                  bName: 'remy',
+                },
+              },
+            ],
+    },
+  }));
+  const res = await routes.request('/api/chat/buddies');
+  const { buddies } = await res.json();
+  expect(buddies).toMatchObject([
+    { handle: 'remy', name: 'remy', rooms: ['rt'] },
+    { handle: 'remy.m2p4', name: 'remy', rooms: ['dm'] },
+  ]);
+});
+
+test('a DM tail carries its author name beside the id', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      rooms: [
+        {
+          room: 'dm-2c9b7e41d0a5',
+          memberCount: 3,
+          unread: 1,
+          mentions: 0,
+          kind: 'dm',
+          participants: {
+            a: 'kai',
+            b: 'remy.m2p4',
+            aName: 'kai',
+            bName: 'remy',
+          },
+        },
+      ],
+    },
+  });
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: { buddies: [] },
+  });
+  vi.mocked(rt.chatMessages).mockResolvedValue({
+    ok: true,
+    data: {
+      messages: [
+        {
+          id: 812,
+          room: 'dm-2c9b7e41d0a5',
+          handle: 'remy.m2p4',
+          name: 'remy',
+          body: 'on it',
+          mentions: [],
+          mentionNames: [],
+          postedAt: 1,
+        },
+      ],
+    },
+  });
+  const res = await routes.request('/api/chat/rooms?handle=matt');
+  expect((await res.json()).rooms[0].lastMessage).toEqual({
+    handle: 'remy.m2p4',
+    name: 'remy',
+    body: 'on it',
+  });
 });

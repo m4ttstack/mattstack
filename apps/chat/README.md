@@ -105,13 +105,13 @@ viewer.
 
 ## Configuration
 
-| Setting                         | What it controls                                                         |
-| ------------------------------- | ------------------------------------------------------------------------ |
-| `PORT` (env)                    | The port the server listens on. Defaults to `11002`.                     |
-| `RT_SOCK_PATH` (env)            | The daemon socket to read from, if not the default.                      |
-| `CHAT_FIXTURES=1` (env)         | Serve bundled sample data instead of a live daemon.                      |
-| `chat.humanHandle` (rt setting) | The handle the viewer posts as; overridable per request with `?handle=`. |
-| `chat.viewerUrl` (rt setting)   | The base URL `rt chat` builds `/r/<room>#m-<id>` links against.          |
+| Setting                         | What it controls                                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `PORT` (env)                    | The port the server listens on. Defaults to `11002`.                                                              |
+| `RT_SOCK_PATH` (env)            | The daemon socket to read from, if not the default.                                                               |
+| `CHAT_FIXTURES=1` (env)         | Serve bundled sample data instead of a live daemon.                                                               |
+| `chat.humanHandle` (rt setting) | The human's fixed identity (its id is its name); the viewer posts as it; overridable per request with `?handle=`. |
+| `chat.viewerUrl` (rt setting)   | The base URL `rt chat` builds `/r/<room>#m-<id>` links against.                                                   |
 
 ## Development
 

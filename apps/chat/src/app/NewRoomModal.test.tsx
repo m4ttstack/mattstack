@@ -154,3 +154,69 @@ test('a failed create keeps the draft and reports the error', async () => {
   expect(screen.getByLabelText('Seed')).toHaveValue('keep me');
   expect(onCreated).not.toHaveBeenCalled();
 });
+
+test('picked rows that share a name show avatars and an ordinal in list order; a unique name gets neither', async () => {
+  const pane = (
+    paneId: string,
+    handle: string,
+    name: string,
+    status: 'live' | 'idle'
+  ) => ({
+    paneId,
+    workspace: 'repo-tools',
+    title: name,
+    cwd: '/r/repo-tools',
+    repo: 'repo-tools',
+    branch: 'main',
+    agentStatus: 'idle',
+    presence: { handle, name, status, rooms: [] },
+  });
+  fetchMock.mockImplementation(async (url: string) =>
+    String(url).split('?')[0] === '/api/panes'
+      ? json({
+          available: true,
+          panes: [
+            pane('w2:p1', 'remy.m2p4', 'remy', 'idle'),
+            pane('w2:p2', 'remy', 'remy', 'live'),
+            pane('w2:p3', 'kai', 'kai', 'live'),
+          ],
+        })
+      : json({})
+  );
+  mount();
+  await userEvent.type(screen.getByLabelText('Room'), 'codegen-split');
+  await userEvent.click(screen.getByTestId('new-room-pick'));
+  for (const id of ['w2:p1', 'w2:p2', 'w2:p3'])
+    await userEvent.click(await screen.findByTestId(`pane-check-${id}`));
+  await userEvent.click(screen.getByTestId('pane-use'));
+  await screen.findByTestId('picked-w2:p1');
+  await vi.waitFor(() =>
+    expect(screen.queryByTestId('pane-picker')).toBeNull()
+  );
+
+  const row = (id: string) => screen.getByTestId(`picked-${id}`);
+  const avatars = (id: string) =>
+    row(id).querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+  const labels = (id: string) =>
+    [...row(id).querySelectorAll('[aria-label]')].map(el =>
+      el.getAttribute('aria-label')
+    );
+
+  // The picker hands back live before idle, so the legacy remy is first.
+  expect(labels('w2:p2')).toEqual([
+    'Remove remy (1 of 2)',
+    'note for remy (1 of 2)',
+  ]);
+  expect(labels('w2:p1')).toEqual([
+    'Remove remy (2 of 2)',
+    'note for remy (2 of 2)',
+  ]);
+  expect(avatars('w2:p2')).toBe(1);
+  expect(avatars('w2:p1')).toBe(1);
+  expect(labels('w2:p3')).toEqual(['Remove', 'note for this pane']);
+  expect(avatars('w2:p3')).toBe(0);
+
+  expect(document.body.textContent).not.toContain('m2p4');
+  for (const el of document.body.querySelectorAll('[aria-label]'))
+    expect(el.getAttribute('aria-label')).not.toContain('m2p4');
+});

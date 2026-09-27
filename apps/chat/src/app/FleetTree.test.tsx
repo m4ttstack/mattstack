@@ -25,6 +25,7 @@ function buddy(
     sessionId: `s-${handle}`,
     handle,
     baseHandle: handle,
+    name: handle,
     repo,
     branch: 'main',
     cwd: `/Users/matt/Documents/GitHub/${repo}`,
@@ -51,7 +52,7 @@ function dm(a: string, b: string, over: Partial<FleetRoom> = {}): FleetRoom {
     unread: 0,
     mentions: 0,
     kind: 'dm',
-    participants: { a, b },
+    participants: { a, b, aName: a, bName: b },
     ...over,
   };
 }
@@ -358,6 +359,88 @@ test('rooms and DMs both close, by hover × and by right-click menu', async () =
   expect(onMarkRead).toHaveBeenCalledWith('dm-jay-max');
 });
 
+test('two DM rows with kai stay distinct, read kai ↔ remy, and show different avatars', () => {
+  renderTree({
+    dms: [
+      dm('kai', 'remy', { room: 'dm-e41f7a3c68bd' }),
+      dm('kai', 'remy.m2p4', {
+        room: 'dm-2c9b7e41d0a5',
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+      }),
+      dm('jay', 'max'),
+    ],
+    buddies: [],
+  });
+  const legacy = screen.getByTestId('dm-row-dm-e41f7a3c68bd');
+  const recycled = screen.getByTestId('dm-row-dm-2c9b7e41d0a5');
+  expect(legacy).toHaveTextContent('kai ↔ remy');
+  expect(recycled).toHaveTextContent('kai ↔ remy');
+  expect(recycled).not.toHaveTextContent('m2p4');
+  const fills = (row: HTMLElement) =>
+    [...row.querySelectorAll('svg[shape-rendering="crispEdges"]')].map(svg =>
+      svg.getAttribute('fill')
+    );
+  expect(fills(legacy)).toHaveLength(2);
+  expect(fills(legacy)[0]).toBe(fills(recycled)[0]);
+  expect(fills(legacy)[1]).not.toBe(fills(recycled)[1]);
+  expect(fills(screen.getByTestId('dm-row-dm-jay-max'))).toEqual([]);
+});
+
+test('workstream and offline rows show names; the overflow line reads pairs by name', async () => {
+  renderTree({
+    rooms: [room('rt')],
+    buddies: [
+      buddy('remy.m2p4', 'rt', { name: 'remy', baseHandle: 'remy' }),
+      buddy('kai.x9z1', 'rt', {
+        name: 'kai',
+        baseHandle: 'kai',
+        status: 'offline',
+        signedOutAt: NOW - 5 * M,
+      }),
+    ],
+    dms: [
+      dm('max', 'stan'),
+      dm('jay', 'max'),
+      dm('edie', 'stan'),
+      dm('kai', 'max'),
+      dm('kai', 'remy.m2p4', {
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+        unread: 2,
+      }),
+    ],
+  });
+  expect(screen.getByTestId('ws-remy.m2p4')).toHaveTextContent('remy');
+  expect(screen.getByTestId('ws-remy.m2p4')).not.toHaveTextContent('m2p4');
+  expect(screen.getByTestId('offline-rt')).toHaveTextContent('kai · ');
+  expect(screen.getByTestId('offline-rt')).not.toHaveTextContent('x9z1');
+  expect(screen.getByTestId('dm-more')).toHaveTextContent(
+    '1 more · kai ↔ remy 2'
+  );
+});
+
+test("the overflow line carries each hidden pair's unread as the rows' badge, not trailing text", () => {
+  renderTree({
+    dms: [
+      dm('max', 'stan'),
+      dm('jay', 'max'),
+      dm('edie', 'stan'),
+      dm('kai', 'max'),
+      dm('kai', 'remy.m2p4', {
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+        unread: 2,
+      }),
+      dm('kai', 'wren'),
+    ],
+  });
+  const more = screen.getByTestId('dm-more');
+  const badges = within(more).getAllByTestId('unread-badge');
+  expect(badges).toHaveLength(1);
+  expect(badges[0]).toHaveTextContent(/^2$/);
+  expect(badges[0]).toHaveAttribute('aria-label', '2 unread');
+  expect(within(more).queryByText(/remy 2/)).toBeNull();
+  expect(more).toHaveTextContent('2 more · kai ↔ remy 2, kai ↔ wren');
+});
+
 test('the daemon down withholds every presence claim in the tree', () => {
   renderTree({
     rooms: [room('rt')],
@@ -376,4 +459,69 @@ test('the daemon down withholds every presence claim in the tree', () => {
   expect(screen.getByTestId('dot-max').style.background).toBe('transparent');
   // No pane title leaks anywhere while the daemon is down.
   expect(screen.queryByText(/Boxscore mattstack integration/)).toBeNull();
+});
+
+test('workstream rows that share a name show avatars and an ordinal in render order; a unique name gets neither', async () => {
+  const onFocusPane = vi.fn();
+  const buddies = [
+    buddy('remy.m2p4', 'boxscore', {
+      name: 'remy',
+      baseHandle: 'remy',
+      pane: 'wBT:p2',
+    }),
+    buddy('remy', 'rt', { pane: 'wAR:p1' }),
+    buddy('kai', 'rt', { pane: 'wAR:p2' }),
+  ];
+  const { unmount } = renderTree({
+    rooms: [room('rt'), room('boxscore')],
+    buddies,
+    onFocusPane,
+  });
+  const avatars = (el: HTMLElement) =>
+    el.querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+
+  // rt renders before boxscore, so the legacy remy is first even though the
+  // recycled one signed in earlier.
+  expect(screen.getByTestId('ws-remy')).toHaveAttribute(
+    'aria-label',
+    "Focus remy (1 of 2)'s pane"
+  );
+  expect(screen.getByTestId('ws-remy.m2p4')).toHaveAttribute(
+    'aria-label',
+    "Focus remy (2 of 2)'s pane"
+  );
+  expect(avatars(screen.getByTestId('ws-remy'))).toBe(1);
+  expect(avatars(screen.getByTestId('ws-remy.m2p4'))).toBe(1);
+  expect(screen.getByTestId('ws-kai')).toHaveAttribute(
+    'aria-label',
+    "Focus kai's pane"
+  );
+  expect(avatars(screen.getByTestId('ws-kai'))).toBe(0);
+
+  const noIds = () => {
+    expect(document.body.textContent).not.toContain('m2p4');
+    for (const el of document.body.querySelectorAll('[aria-label]'))
+      expect(el.getAttribute('aria-label')).not.toContain('m2p4');
+  };
+  noIds();
+  unmount();
+
+  renderTree({
+    rooms: [room('rt'), room('boxscore')],
+    buddies,
+    onSelectBuddy: vi.fn(),
+  });
+  expect(screen.getByTestId('ws-remy')).toHaveAttribute(
+    'aria-label',
+    'Message remy (1 of 2)'
+  );
+  expect(screen.getByTestId('ws-remy.m2p4')).toHaveAttribute(
+    'aria-label',
+    'Message remy (2 of 2)'
+  );
+  expect(screen.getByTestId('ws-kai')).toHaveAttribute(
+    'aria-label',
+    'Message kai'
+  );
+  noIds();
 });

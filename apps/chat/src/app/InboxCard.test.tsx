@@ -17,6 +17,7 @@ const jay: RosterBuddy = {
   sessionId: 'jay-1',
   handle: 'jay',
   baseHandle: 'jay',
+  name: 'jay',
   signedInAt: NOW - 3_600_000,
   lastSeenAt: NOW - 40_000,
   status: 'live',
@@ -30,6 +31,7 @@ const mention: InboxCardData = {
   kind: 'room',
   messageId: 412,
   handle: 'jay',
+  name: 'jay',
   postedAt: NOW - 29 * 60_000,
   excerpt: '@matt metrics-hardening is ready for review: PR #12.',
   reason: 'mention',
@@ -40,6 +42,7 @@ const ask: InboxCardData = {
   kind: 'room',
   messageId: 602,
   handle: 'max',
+  name: 'max',
   postedAt: NOW - 77 * 60_000,
   excerpt: 'heads-up: main tsc is red since 85f18ee8.',
   reason: 'open-ask',
@@ -48,9 +51,10 @@ const ask: InboxCardData = {
 const dmTurn: InboxCardData = {
   room: 'dm-1a2b3c',
   kind: 'dm',
-  participants: { a: 'edie', b: 'matt' },
+  participants: { a: 'edie', b: 'matt', aName: 'edie', bName: 'matt' },
   messageId: 720,
   handle: 'edie',
+  name: 'edie',
   postedAt: NOW - 18 * 60_000,
   excerpt: '@matt the loop needs a call.',
   reason: 'dm-turn',
@@ -165,4 +169,34 @@ test('the handle is the shared chip: hue, sprite, repo token and task line', () 
 test('the open card is marked, so the list says which one the reader holds', () => {
   renderCard(mention, { open: true });
   expect(screen.getByTestId('inbox-card-412').dataset.open).toBe('true');
+});
+
+test('a DM card reads names: the author and the pair, never an id', () => {
+  const card: InboxCardData = {
+    room: 'dm-2c9b7e41d0a5',
+    kind: 'dm',
+    participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+    messageId: 812,
+    handle: 'remy.m2p4',
+    name: 'remy',
+    postedAt: NOW - 60_000,
+    excerpt: 'picked up the chat identity lane',
+    reason: 'dm-turn',
+  };
+  renderWithProviders(
+    <InboxCard
+      card={card}
+      now={NOW}
+      onOpen={vi.fn()}
+      onMarkRead={vi.fn()}
+      onOpenRoom={vi.fn()}
+    />
+  );
+  const el = screen.getByTestId('inbox-card-812');
+  expect(el).toHaveTextContent('kai ↔ remy');
+  expect(el).not.toHaveTextContent('m2p4');
+  expect(screen.getByTestId('card-lead-812')).toHaveAttribute(
+    'aria-label',
+    "Read remy's message in kai ↔ remy"
+  );
 });

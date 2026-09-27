@@ -32,6 +32,7 @@ import {
   pendingMessages,
   ackMessage,
   postMessage,
+  peekUnread,
   readUnread,
   recipientsFor,
   releaseClaim,
@@ -39,11 +40,15 @@ import {
   roomDefaultWake,
   stalePendingPairs,
 } from "../chat-store.ts";
+import { mintIdentity } from "../identity-store.ts";
+import { signIn, type RegistryDeps } from "../presence-store.ts";
 
 let n = 0;
 function freshDb() {
   return openStateDb(join(tmpdir(), `chat-test-${process.pid}-${n++}.db`));
 }
+
+const NO_BINDING: RegistryDeps = { resolve: () => null, alive: () => false, resolveAll: () => new Map() };
 
 test("ackMessage records an ack and reports the author it belongs to", () => {
   const db = freshDb();
@@ -563,3 +568,106 @@ test("R057: markRead does not throw when the write races a held lock past busy_t
     release();
   }
 }, 5000);
+
+test("peekUnread never shows the reader its own messages", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  joinRoom({ room: "r", handle: "b" }, db);
+  postMessage({ room: "r", handle: "b", body: "which branch?" }, db);
+  postMessage({ room: "r", handle: "a", body: "picker" }, db);
+  expect(peekUnread({ handle: "a", limit: 20 }, db).map((r) => r.messages.map((m) => m.body))).toEqual([["which branch?"]]);
+});
+
+test("readUnread skips the reader's own messages and advances past what it showed", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  joinRoom({ room: "r", handle: "b" }, db);
+  postMessage({ room: "r", handle: "b", body: "q1" }, db);
+  postMessage({ room: "r", handle: "a", body: "mine" }, db);
+  postMessage({ room: "r", handle: "b", body: "q2" }, db);
+  expect(readUnread({ handle: "a", limit: 20 }, db)[0]!.messages.map((m) => m.body)).toEqual(["q1", "q2"]);
+  expect(readUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
+});
+
+test("a room whose only backlog is the reader's own posts has nothing unread", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  postMessage({ room: "r", handle: "a", body: "notes to self" }, db);
+  expect(peekUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
+  expect(readUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
+  expect(listRooms("a", db).map((r) => [r.unread, r.mentions])).toEqual([[0, 0]]);
+});
+
+test("listRooms reports nothing unread once a trailing own post is the newest message", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  joinRoom({ room: "r", handle: "b" }, db);
+  postMessage({ room: "r", handle: "b", body: "q1" }, db);
+  postMessage({ room: "r", handle: "a", body: "reply" }, db);
+  readUnread({ handle: "a", limit: 20 }, db);
+  expect(listRooms("a", db).map((r) => [r.unread, r.mentions])).toEqual([[0, 0]]);
+});
+
+test("messages carry the author's display name and mention names parallel to mentions", () => {
+  const db = freshDb();
+  const remy = mintIdentity({ base: "remy", name: "remy", sessionId: "s1", now: 1 }, db);
+  joinRoom({ room: "r", handle: remy.id }, db);
+  joinRoom({ room: "r", handle: "kai" }, db);
+  postMessage({ room: "r", handle: remy.id, body: "@kai over to you, @here too" }, db);
+  const [m] = listMessages({ room: "r", limit: 5 }, db);
+  expect(m).toMatchObject({ handle: remy.id, name: "remy", mentions: ["kai", "here"], mentionNames: ["kai", "here"] });
+  const [unread] = readUnread({ handle: "kai", limit: 5 }, db);
+  expect(unread!.messages[0]).toMatchObject({ name: "remy" });
+});
+
+test("a body mention of a live display name is stored as that session's id and wakes it, not an older identity with the name", () => {
+  const db = freshDb();
+  const old = mintIdentity({ base: "remy", name: "remy", sessionId: "s-old", now: 1 }, db);
+  const live = signIn({ sessionId: "s-new", baseHandle: "remy", now: 2 }, db, NO_BINDING)!;
+  expect(live.name).toBe("remy");
+  for (const handle of [old.id, live.handle, "kai"]) joinRoom({ room: "r", handle }, db);
+  const posted = postMessage({ room: "r", handle: "kai", body: "@remy ping" }, db)!;
+  expect(posted.recipients).toEqual([live.handle]);
+  const [m] = listMessages({ room: "r", limit: 5 }, db);
+  expect(m).toMatchObject({ mentions: [live.handle], mentionNames: ["remy"] });
+});
+
+test("an explicit mention by name and by id collapse to one stored id", () => {
+  const db = freshDb();
+  const remy = mintIdentity({ base: "remy", name: "remy", sessionId: "s1", now: 1 }, db);
+  joinRoom({ room: "r", handle: remy.id }, db);
+  joinRoom({ room: "r", handle: "kai" }, db);
+  postMessage({ room: "r", handle: "kai", body: "ping", mentions: ["remy", remy.id] }, db);
+  expect(listMessages({ room: "r", limit: 5 }, db)[0]!.mentions).toEqual([remy.id]);
+});
+
+test("an explicit mention id claims the body's @name it displays as, so a live holder of that name is not also woken", () => {
+  const db = freshDb();
+  const picked = mintIdentity({ base: "remy", name: "remy", sessionId: "s-old", now: 1 }, db);
+  const live = signIn({ sessionId: "s-new", baseHandle: "remy", now: 2 }, db, NO_BINDING)!;
+  expect(live.name).toBe("remy");
+  for (const handle of [picked.id, live.handle, "kai"]) joinRoom({ room: "r", handle }, db);
+  const posted = postMessage({ room: "r", handle: "kai", body: "@remy ping", mentions: [picked.id] }, db)!;
+  expect(posted.recipients).toEqual([picked.id]);
+  expect(listMessages({ room: "r", limit: 5 }, db)[0]!.mentions).toEqual([picked.id]);
+});
+
+test("@here stays the room-wide wake sigil, never resolved to a live identity shadowing the name", () => {
+  const db = freshDb();
+  const shadow = mintIdentity({ base: "here", name: "here", sessionId: "s-here", now: 1 }, db);
+  db.run(
+    "INSERT INTO chat_presence (session_id, handle, base_handle, signed_in_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+    ["s-here", shadow.id, "here", 1, 1],
+  );
+  joinRoom({ room: "r", handle: "kai" }, db);
+  postMessage({ room: "r", handle: "kai", body: "@here ping", mentions: ["here"] }, db);
+  expect(listMessages({ room: "r", limit: 5 }, db)[0]!.mentions).toEqual(["here"]);
+});
+
+test("members carry display names; a legacy handle is its own name", () => {
+  const db = freshDb();
+  const remy = mintIdentity({ base: "remy", name: "remy-2", sessionId: "s1", now: 1 }, db);
+  joinRoom({ room: "r", handle: remy.id }, db);
+  joinRoom({ room: "r", handle: "kai" }, db);
+  expect(listMembers("r", db).map((m) => [m.handle, m.name]).sort()).toEqual([[remy.id, "remy-2"], ["kai", "kai"]].sort());
+});

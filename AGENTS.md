@@ -87,6 +87,10 @@ handlers, or `skills/rt-chat/`, read in this order:
 - `docs/superpowers/specs/2026-08-23-rt-chat-design.md` and
   `2026-08-24-rt-chat-presence-design.md`: the schema (v3 rooms/messages,
   v4 presence/DMs), the wake protocol, the two heartbeats.
+- `docs/superpowers/specs/2026-09-27-chat-identity-design.md`: the identity
+  model (a hidden id behind every display name, minting, continuation, name
+  resolution), which wins wherever an older chat spec treats the handle as
+  the identity.
 - `packages/rt-client/README.md` "Chat": the wrappers, relay and health probe
   the web viewer is built on.
 

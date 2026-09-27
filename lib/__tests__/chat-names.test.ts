@@ -2,14 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { AGENT_NAMES, baseOfHandle, pickAgentName } from "../chat-names.ts";
 
 describe("AGENT_NAMES", () => {
-  test("every name is a short, bare, valid chat name, and none repeats", () => {
-    expect(AGENT_NAMES.length).toBeGreaterThanOrEqual(240);
+  test("a thousand short, bare, valid chat names, none repeated", () => {
+    expect(AGENT_NAMES.length).toBeGreaterThanOrEqual(1000);
     expect(new Set(AGENT_NAMES).size).toBe(AGENT_NAMES.length);
     for (const n of AGENT_NAMES) expect(n).toMatch(/^[a-z]{3,6}$/);
   });
 
-  test("the human's own handle is not in the pool", () => {
-    expect(AGENT_NAMES).not.toContain("matt");
+  test("no fixed or reserved handle is in the pool", () => {
+    for (const reserved of ["matt", "here", "herdr", "shepherd"]) expect(AGENT_NAMES).not.toContain(reserved);
+  });
+
+  test("no name reads as a suffixed display name", () => {
+    for (const n of AGENT_NAMES) expect(baseOfHandle(n)).toBe(n);
   });
 });
 

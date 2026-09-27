@@ -20,7 +20,12 @@ const PANES: ChatPane[] = [
     repo: 'repo-tools',
     branch: 'main',
     agentStatus: 'working',
-    presence: { handle: 'fred', status: 'live', rooms: ['repo-tools'] },
+    presence: {
+      handle: 'fred',
+      name: 'fred',
+      status: 'live',
+      rooms: ['repo-tools'],
+    },
   },
   {
     paneId: 'w1:p2',
@@ -30,7 +35,7 @@ const PANES: ChatPane[] = [
     repo: 'chat',
     branch: 'main',
     agentStatus: 'idle',
-    presence: { handle: 'meg', status: 'live', rooms: ['build'] },
+    presence: { handle: 'meg', name: 'meg', status: 'live', rooms: ['build'] },
   },
   {
     paneId: 'w1:p3',
@@ -40,7 +45,7 @@ const PANES: ChatPane[] = [
     repo: 'gitq',
     branch: 'main',
     agentStatus: 'blocked',
-    presence: { handle: 'june', status: 'idle', rooms: [] },
+    presence: { handle: 'june', name: 'june', status: 'idle', rooms: [] },
   },
   {
     paneId: 'w1:p4',
@@ -118,7 +123,7 @@ test('lists claude panes sorted live, idle, not signed in, with handle or not si
   expect(within(rows[3]!).getByText('…/acme')).toBeInTheDocument();
 });
 
-test('the filter matches handle, workspace, title, repo and path', async () => {
+test('the filter matches name, workspace, title, repo and path', async () => {
   mount();
   await userEvent.click(screen.getByText('open'));
   await screen.findAllByTestId(/^pane-row-/);
@@ -129,6 +134,40 @@ test('the filter matches handle, workspace, title, repo and path', async () => {
   expect(
     screen.getAllByTestId(/^pane-row-/).map(r => r.getAttribute('data-testid'))
   ).toEqual(['pane-row-w1:p3']);
+});
+
+test('the filter finds a pane by its id as well as its name', async () => {
+  route({
+    'GET /api/panes': () =>
+      json({
+        available: true,
+        panes: [
+          ...PANES,
+          {
+            paneId: 'w1:p5',
+            workspace: 'rt',
+            title: 'remy',
+            cwd: '/r/rt',
+            repo: 'rt',
+            branch: 'main',
+            agentStatus: 'idle',
+            presence: {
+              handle: 'remy.m2p4',
+              name: 'remy',
+              status: 'live',
+              rooms: ['rt'],
+            },
+          },
+        ],
+      }),
+  });
+  mount();
+  await userEvent.click(screen.getByText('open'));
+  await screen.findAllByTestId(/^pane-row-/);
+  await userEvent.type(screen.getByTestId('pane-filter'), 'm2p4');
+  expect(
+    screen.getAllByTestId(/^pane-row-/).map(r => r.getAttribute('data-testid'))
+  ).toEqual(['pane-row-w1:p5']);
 });
 
 test("the caller's disable reason renders inline and the row cannot be selected", async () => {
@@ -290,4 +329,112 @@ test('herdr unavailable shows a notice and only cancel', async () => {
   expect(screen.queryByTestId('pane-use')).toBeNull();
   await userEvent.click(screen.getByTestId('pane-cancel'));
   expect(results).toEqual([null]);
+});
+
+test('a pane row reads its display name, and a title equal to it is not repeated', async () => {
+  route({
+    'GET /api/panes': () =>
+      json({
+        available: true,
+        panes: [
+          {
+            paneId: 'w9:p1',
+            workspace: 'repo-tools',
+            title: 'remy',
+            cwd: '/r/rt',
+            repo: 'repo-tools',
+            branch: 'main',
+            agentStatus: 'idle',
+            presence: {
+              handle: 'remy.m2p4',
+              name: 'remy',
+              status: 'live',
+              rooms: [],
+            },
+          },
+          {
+            paneId: 'w9:p2',
+            workspace: 'gitq',
+            title: 'Fix auth',
+            cwd: '/r/gitq',
+            repo: 'gitq',
+            branch: 'main',
+            agentStatus: 'idle',
+            presence: {
+              handle: 'ada.q7t2',
+              name: 'wren',
+              status: 'live',
+              rooms: [],
+            },
+          },
+        ],
+      }),
+  });
+  mount();
+  await userEvent.click(screen.getByText('open'));
+  const row = await screen.findByTestId('pane-row-w9:p1');
+  expect(within(row).getByText('remy')).toBeInTheDocument();
+  expect(row).not.toHaveTextContent('m2p4');
+  expect(row).not.toHaveTextContent('repo-tools · remy');
+  await userEvent.type(screen.getByTestId('pane-filter'), 'wren');
+  expect(
+    screen.getAllByTestId(/^pane-row-/).map(r => r.getAttribute('data-testid'))
+  ).toEqual(['pane-row-w9:p2']);
+});
+
+test('pane rows that share a name show avatars and an ordinal in list order; a unique name gets neither', async () => {
+  const pane = (
+    paneId: string,
+    handle: string,
+    name: string,
+    status: 'live' | 'idle'
+  ): ChatPane => ({
+    paneId,
+    workspace: 'repo-tools',
+    title: name,
+    cwd: '/r/repo-tools',
+    repo: 'repo-tools',
+    branch: 'main',
+    agentStatus: 'idle',
+    presence: { handle, name, status, rooms: [] },
+  });
+  route({
+    'GET /api/panes': () =>
+      json({
+        available: true,
+        panes: [
+          // Idle sorts after live, so the recycled remy lists second.
+          pane('w2:p1', 'remy.m2p4', 'remy', 'idle'),
+          pane('w2:p2', 'remy', 'remy', 'live'),
+          pane('w2:p3', 'kai', 'kai', 'live'),
+        ],
+      }),
+  });
+  mount();
+  await userEvent.click(screen.getByText('open'));
+  await screen.findByTestId('pane-row-w2:p1');
+  const avatars = (paneId: string) =>
+    screen
+      .getByTestId(`pane-row-${paneId}`)
+      .querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+
+  expect(screen.getByTestId('pane-check-w2:p2')).toHaveAttribute(
+    'aria-label',
+    'select remy (1 of 2)'
+  );
+  expect(screen.getByTestId('pane-check-w2:p1')).toHaveAttribute(
+    'aria-label',
+    'select remy (2 of 2)'
+  );
+  expect(avatars('w2:p2')).toBe(1);
+  expect(avatars('w2:p1')).toBe(1);
+  expect(screen.getByTestId('pane-check-w2:p3')).toHaveAttribute(
+    'aria-label',
+    'select kai'
+  );
+  expect(avatars('w2:p3')).toBe(0);
+
+  expect(document.body.textContent).not.toContain('m2p4');
+  for (const el of document.body.querySelectorAll('[aria-label]'))
+    expect(el.getAttribute('aria-label')).not.toContain('m2p4');
 });

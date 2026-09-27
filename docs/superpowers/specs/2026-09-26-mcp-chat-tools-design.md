@@ -1,5 +1,10 @@
 # MCP tools for the rt chat verbs (RT-326 add-on)
 
+> **Superseded in part:** `2026-09-27-chat-identity-design.md` replaces this
+> document's handle-as-identity statements: a handle is an identity id
+> behind a display name, and every new session is a new identity unless it
+> explicitly continues one.
+
 ## Goal
 
 Every `rt chat` verb a skill routinely runs has an MCP tool on the

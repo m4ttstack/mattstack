@@ -141,8 +141,10 @@ export function renderTranscriptWithFakeSocket({
         id: frame.payload.id,
         room,
         handle: 'fixture-agent',
+        name: 'fixture-agent',
         body: `message ${frame.payload.id}`,
         mentions: [],
+        mentionNames: [],
         postedAt: Date.now(),
       },
     ];
@@ -163,12 +165,14 @@ export const longCodeBlockMessage: ChatMessage = {
   id: 999,
   room: 'build',
   handle: 'board-fix-auth',
+  name: 'board-fix-auth',
   body:
     'heads up: I moved the shared fixture to `test/fixtures/home.ts`.\n' +
     '```\n' +
     `TypeError: Cannot find module "../fixtures/home" ${'-'.repeat(150)}\n` +
     '```',
   mentions: [],
+  mentionNames: [],
   postedAt: Date.now(),
 };
 

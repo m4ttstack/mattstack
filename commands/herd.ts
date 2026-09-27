@@ -307,7 +307,7 @@ export function renderStatus(data: HerdStatusData): string {
     // closed gate leaves a form-blocked worker just as stuck as an unread
     // answer does, and the dead-pane retry is what it is waiting on.
     const terminal = j.lastGateStatus === "answered" || j.lastGateStatus === "closed";
-    const notWoken = terminal && j.lastGateDelivery === "dead-pane" ? `  gate ${j.lastGate} ${j.lastGateStatus}, worker not woken: rt chat dm ${j.handle}` : "";
+    const notWoken = terminal && j.lastGateDelivery === "dead-pane" ? `  gate ${j.lastGate} ${j.lastGateStatus}, worker not woken: rt chat dm ${j.handleName ?? j.handle}` : "";
     // Independent of notWoken: a delivered nudge can still sit UNCONSUMED
     // (the pane never read it), and a dead-pane row can be both at once.
     const unconsumed = j.lastGateConsumed === false ? `  gate ${j.lastGate} UNCONSUMED` : "";
@@ -344,6 +344,11 @@ export async function list(args: string[]): Promise<void> {
   for (const h of data.herds) console.log(renderHerdRow(h));
 }
 
+export function renderResumed(herd: string, data: Commands["herd:resume"]["data"]): string {
+  const name = data.status.herd.shepherdName ?? data.handle;
+  return `resumed ${herd} as ${name}: subscription ${data.subscription}, ${data.gates.length} open gate(s), ${data.unread} unread`;
+}
+
 export async function resume(args: string[]): Promise<void> {
   const json = has(args, "--json");
   // HERD_ID deliberately not consulted: every worker pane carries it, and a
@@ -356,7 +361,7 @@ export async function resume(args: string[]): Promise<void> {
     emit(true, data, "");
     return;
   }
-  console.log(`resumed ${herd} as ${data.handle}: subscription ${data.subscription}, ${data.gates.length} open gate(s), ${data.unread} unread`);
+  console.log(renderResumed(herd, data));
   for (const g of data.gates) console.log(`  ${g.id}  ${g.kind}  ${g.subject}`);
 }
 

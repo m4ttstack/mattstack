@@ -43,6 +43,7 @@ import { wrapWithDemand } from "./demand-tracker.ts";
 import type { SystemProcessScanner } from "./system-process-scanner.ts";
 import { findRun, findRunningRunByWorktree, findRunsBySession } from "../runs/store.ts";
 import { presenceForSession } from "../state/presence-store.ts";
+import { identityNames, mintIdentity, resolveHandle } from "../state/identity-store.ts";
 import { resolveInbox } from "../claude-registry.ts";
 import { probeInboxReachability } from "./inbox.ts";
 import { herdJobTreeHold } from "./reconciler/job-release.ts";
@@ -211,7 +212,13 @@ export function buildRoutedHandlers(opts: {
     worktree: worktreeHandlers,
     runWorktree,
     findRunningRunByWorktree,
-    presenceHandleForSession: (session) => presenceForSession(session, opts.stateDb)?.handle ?? null,
+    presenceIdentityForSession: (session) => {
+      const row = presenceForSession(session, opts.stateDb);
+      return row ? { handle: row.handle, baseHandle: row.baseHandle, name: row.name } : null;
+    },
+    mintWorkerId: (job) => mintIdentity({ base: job, name: job, sessionId: null }, opts.stateDb).id,
+    identityNames: (ids) => identityNames(ids, opts.stateDb),
+    resolveHandle: (x) => resolveHandle(x, opts.stateDb),
     probeInbox: async (session) => {
       const binding = resolveInbox(session);
       return binding ? probeInboxReachability(binding.socketPath) : "unreachable";

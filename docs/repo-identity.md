@@ -143,9 +143,16 @@ down the wire, labels go on the screen, and the two never swap in either
 direction: a label is ambiguous by construction and will silently miss as a
 key.
 
-Chat handles specifically: the handle charset `[a-z0-9._-]+` forbids `%` and
-`:`, so a serialized identity leaking into a handle is an invalid-join bug,
-not a cosmetic one. Build handles from the label, slugified.
+Chat handles specifically: a handle is a chat identity id, `<base>.<suffix>`
+(`remy.k3f9`: the display name, a dot, 4 to 6 lowercase base36 characters),
+and a handle minted before ids existed is a bare name that is its own id.
+Both use the charset `[a-z0-9._-]+`, which forbids `%` and `:`, so a
+serialized identity leaking into a base is an invalid-join bug, not a
+cosmetic one. Build bases from the label, slugified. Screens show the
+`name` every chat payload carries beside `handle` (`name ?? handle`);
+maps, keys and "is this me" checks use `handle`. Never split a handle on
+the dot to recover the name: a legacy handle may itself contain a dot. The
+model is `docs/superpowers/specs/2026-09-27-chat-identity-design.md`.
 
 ## The legacy world
 

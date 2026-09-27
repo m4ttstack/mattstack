@@ -192,7 +192,7 @@ function renderRecord(r: AgentRecord): string {
     `${r.id}  ${repoLabel(r.repo)}  ${r.surface}`,
     `provider ${r.provider}`,
     `session ${r.sessionId}`,
-    r.handle && `handle ${r.handle}`,
+    r.handle && `chat ${r.name ?? r.handle}`,
     r.model && `model ${r.model}`,
     r.account && `account ${r.account}`,
     r.yolo && "yolo",
@@ -314,4 +314,4 @@ export async function agent(args: string[]): Promise<void> {
   await handler(rest);
 }
 
-export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount };
+export const __test__ = { parseStartArgs, parseResumeArgs, withCallerAccount, renderRecord };

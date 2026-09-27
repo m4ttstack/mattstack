@@ -112,6 +112,25 @@ socket. The verbs and their payloads are specified in repo-tools
 `docs/superpowers/specs/2026-08-28-rt-chat-delivery-v2-design.md`; the
 agent-facing rules are `skills/rt-chat/SKILL.md`.
 
+### Ids and names
+
+Every handle-bearing field (`handle`, `author`, `holder`, `participants.a`
+and `b`, `mentions`, `recipients`, `shepherdHandle`) carries an identity id
+such as `remy.k3f9`. A handle from before identities is its own id. Each has
+a display-name sibling: `name`, `authorName`, `holderName`, `aName` and
+`bName`, `mentionNames`, `recipientNames`, `shepherdName`, `handleName`.
+Show the name, act on the id, and fall back to the id when a name field is
+missing (an older daemon). Payload `handle`, `from`, `to` and `mentions`
+accept either; the daemon resolves a name to an id.
+
+```ts
+const page = await chatMessages({ room: 'rt' });
+for (const m of page.data?.messages ?? []) console.log(`${m.name ?? m.handle}: ${m.body}`);
+
+// Continue an identity instead of minting a new one; if it is live elsewhere you get a new one named remy-2 (continued false).
+const res = await chatSignIn({ sessionId, continue: 'remy.k3f9' }); // res.data?.continued === true
+```
+
 ## Settings schemas
 
 Every `object` or `array` settings key has a JSON Schema describing the value

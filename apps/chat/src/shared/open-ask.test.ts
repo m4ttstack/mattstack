@@ -6,10 +6,13 @@ import { isOpenAsk } from './open-ask';
 function msg(
   over: Partial<ChatMessage> & { id: number; body: string }
 ): ChatMessage {
+  const handle = over.handle ?? 'jay';
   return {
     room: 'rt',
-    handle: 'jay',
+    handle,
+    name: handle,
     mentions: [],
+    mentionNames: over.mentions ?? [],
     postedAt: over.id * 1000,
     ...over,
   };

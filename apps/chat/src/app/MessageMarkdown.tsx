@@ -85,6 +85,8 @@ const components: Components = {
 export interface MessageMarkdownProps {
   body: string;
   mentions: string[];
+  /** Parallel to `mentions`; unset matches the ids themselves (an older daemon). */
+  mentionNames?: string[];
   humanHandle?: string;
   /** Renders only the body's first markdown block -- a folded read message
       never mounts a table or fenced block that sits later in it.
@@ -97,6 +99,7 @@ export interface MessageMarkdownProps {
 export function MessageMarkdown({
   body,
   mentions,
+  mentionNames,
   humanHandle,
   firstBlockOnly = false,
 }: MessageMarkdownProps) {
@@ -107,13 +110,14 @@ export function MessageMarkdown({
         remarkMentions,
         {
           handles: mentions,
+          names: mentionNames,
           me: humanHandle,
           className: classes.at,
           meClassName: classes.atMe,
         },
       ],
     ],
-    [mentions, humanHandle]
+    [mentions, mentionNames, humanHandle]
   );
   return (
     <Markdown remarkPlugins={remarkPlugins} skipHtml components={components}>
