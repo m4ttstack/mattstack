@@ -23,7 +23,7 @@ import {
 
 import './icons';
 
-import { App } from './App';
+import { App, resultLine } from './App';
 import { PAGE_SIZE } from './Transcript';
 
 const DESKTOP_WIDTH = window.innerWidth;
@@ -159,8 +159,10 @@ test('the phone transcript wrapper is a flex column, so the bare transcript can 
             id: 7,
             room: 'build',
             handle: 'deck-main',
+            name: 'deck-main',
             body: 'seeded body',
             mentions: [],
+            mentionNames: [],
             postedAt: 1,
           },
         ],
@@ -207,6 +209,7 @@ test('the fleet tree lists every buddy, repo or no repo', () => {
             sessionId: 's',
             handle: 'rt-chat-wt',
             baseHandle: 'rt-chat-wt',
+            name: 'rt-chat-wt',
             signedInAt: 1,
             lastSeenAt: 1,
             status: 'live',
@@ -241,8 +244,10 @@ test('seeded messages survive to the opened room, even if the fetch rejects', as
             id: 7,
             room: 'build',
             handle: 'deck-main',
+            name: 'deck-main',
             body: 'seeded body',
             mentions: [],
+            mentionNames: [],
             postedAt: 1,
           },
         ],
@@ -266,6 +271,72 @@ const twoRooms = {
   messages: [],
   members: [],
 };
+
+const kaiRemyDms = {
+  daemonReachable: true,
+  buddies: [],
+  rooms: [
+    {
+      room: 'dm-e41f7a3c68bd',
+      memberCount: 2,
+      unread: 0,
+      mentions: 0,
+      kind: 'dm' as const,
+      participants: { a: 'kai', b: 'remy', aName: 'kai', bName: 'remy' },
+    },
+    {
+      room: 'dm-2c9b7e41d0a5',
+      memberCount: 2,
+      unread: 0,
+      mentions: 0,
+      kind: 'dm' as const,
+      participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+    },
+    {
+      room: 'dm-jay-max',
+      memberCount: 2,
+      unread: 0,
+      mentions: 0,
+      kind: 'dm' as const,
+      participants: { a: 'jay', b: 'max', aName: 'jay', bName: 'max' },
+    },
+  ],
+  messages: [],
+  members: [],
+};
+
+const avatarCount = (el: HTMLElement) =>
+  el.querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+
+test('an open DM whose pair repeats in the sidebar shows avatars in the page bar', () => {
+  window.history.replaceState(null, '', '/r/dm-2c9b7e41d0a5');
+  renderWithProviders(<App initialState={kaiRemyDms} />);
+  const bar = screen.getByTestId('page-bar');
+  expect(bar).toHaveTextContent('kai ↔ remy');
+  expect(bar).not.toHaveTextContent('m2p4');
+  expect(avatarCount(screen.getByTestId('page-bar-title'))).toBe(2);
+});
+
+test('an open DM whose pair is unique keeps a plain page-bar title', () => {
+  window.history.replaceState(null, '', '/r/dm-jay-max');
+  renderWithProviders(<App initialState={kaiRemyDms} />);
+  const title = screen.getByTestId('page-bar-title');
+  expect(title).toHaveTextContent(/^jay ↔ max$/);
+  expect(avatarCount(title)).toBe(0);
+});
+
+test('the phone header shows avatars only for a repeated pair', () => {
+  setViewportWidth(390);
+  window.history.replaceState(null, '', '/r/dm-e41f7a3c68bd');
+  const { unmount } = renderWithProviders(<App initialState={kaiRemyDms} />);
+  const header = screen.getByTestId('phone-header');
+  expect(header).toHaveTextContent('kai ↔ remy');
+  expect(avatarCount(header)).toBe(2);
+  unmount();
+  window.history.replaceState(null, '', '/r/dm-jay-max');
+  renderWithProviders(<App initialState={kaiRemyDms} />);
+  expect(avatarCount(screen.getByTestId('phone-header'))).toBe(0);
+});
 
 test('a malformed room escape renders not-found instead of throwing', () => {
   renderAt('/r/%E0%A4%A');
@@ -307,8 +378,10 @@ test('a #m-<id> anchor scrolls that message into view', () => {
               id: 7,
               room: 'build',
               handle: 'deck-main',
+              name: 'deck-main',
               body: 'anchored',
               mentions: [],
+              mentionNames: [],
               postedAt: 1,
             },
           ],
@@ -353,16 +426,20 @@ test('a same-room hash change scrolls to the new anchor', () => {
               id: 7,
               room: 'build',
               handle: 'deck-main',
+              name: 'deck-main',
               body: 'one',
               mentions: [],
+              mentionNames: [],
               postedAt: 1,
             },
             {
               id: 8,
               room: 'build',
               handle: 'deck-main',
+              name: 'deck-main',
               body: 'two',
               mentions: [],
+              mentionNames: [],
               postedAt: 2,
             },
           ],
@@ -464,6 +541,7 @@ test('DM on a sender’s card opens the pair’s room and focuses the composer t
             sessionId: 's',
             handle: 'fred',
             baseHandle: 'fred',
+            name: 'fred',
             signedInAt: now,
             lastSeenAt: now,
             status: 'live',
@@ -475,6 +553,7 @@ test('DM on a sender’s card opens the pair’s room and focuses the composer t
           {
             room: 'build',
             handle: 'fred',
+            name: 'fred',
             joinedAt: now,
             lastReadId: 0,
             wakeOn: 'mention',
@@ -486,8 +565,10 @@ test('DM on a sender’s card opens the pair’s room and focuses the composer t
             id: 7,
             room: 'build',
             handle: 'fred',
+            name: 'fred',
             body: 'hello',
             mentions: [],
+            mentionNames: [],
             postedAt: now,
           },
         ],
@@ -533,6 +614,7 @@ test('Focus pane on a buddy in a herdr pane posts to that pane’s focus route',
             sessionId: 's',
             handle: 'fred',
             baseHandle: 'fred',
+            name: 'fred',
             signedInAt: now,
             lastSeenAt: now,
             status: 'live',
@@ -545,6 +627,7 @@ test('Focus pane on a buddy in a herdr pane posts to that pane’s focus route',
           {
             room: 'build',
             handle: 'fred',
+            name: 'fred',
             joinedAt: now,
             lastReadId: 0,
             wakeOn: 'mention',
@@ -556,8 +639,10 @@ test('Focus pane on a buddy in a herdr pane posts to that pane’s focus route',
             id: 7,
             room: 'build',
             handle: 'fred',
+            name: 'fred',
             body: 'hello',
             mentions: [],
+            mentionNames: [],
             postedAt: now,
           },
         ],
@@ -588,6 +673,7 @@ test('a buddy with no herdr pane shows no Focus pane button', async () => {
             sessionId: 's',
             handle: 'fred',
             baseHandle: 'fred',
+            name: 'fred',
             signedInAt: now,
             lastSeenAt: now,
             status: 'live',
@@ -599,6 +685,7 @@ test('a buddy with no herdr pane shows no Focus pane button', async () => {
           {
             room: 'build',
             handle: 'fred',
+            name: 'fred',
             joinedAt: now,
             lastReadId: 0,
             wakeOn: 'mention',
@@ -610,8 +697,10 @@ test('a buddy with no herdr pane shows no Focus pane button', async () => {
             id: 7,
             room: 'build',
             handle: 'fred',
+            name: 'fred',
             body: 'hello',
             mentions: [],
+            mentionNames: [],
             postedAt: now,
           },
         ],
@@ -916,6 +1005,7 @@ test("a chat/<room>/msg frame refetches the open room's members", async () => {
                   {
                     room: 'build',
                     handle: 'fred',
+                    name: 'fred',
                     joinedAt: 1,
                     lastReadId: 0,
                     wakeOn: 'mention',
@@ -1161,8 +1251,10 @@ test('add agents invites the picked panes and shows the result line on the trans
             id: 1,
             room: 'build',
             handle: 'meg',
+            name: 'meg',
             body: 'hi',
             mentions: [],
+            mentionNames: [],
             postedAt: 1,
           },
         ],
@@ -1184,6 +1276,7 @@ const inboxPayload = {
       kind: 'room' as const,
       messageId: 412,
       handle: 'meg',
+      name: 'meg',
       postedAt: Date.now() - 60_000,
       excerpt: '@matt is the exporter ready to ship?',
       reason: 'mention' as const,
@@ -1209,8 +1302,10 @@ function serveInbox(payload = inboxPayload) {
             id: 412,
             room: 'build',
             handle: 'meg',
+            name: 'meg',
             body: '@matt is the exporter ready to ship?',
             mentions: ['matt'],
+            mentionNames: ['matt'],
             postedAt: payload.needsYou[0]?.postedAt ?? 1,
           },
         ],
@@ -1364,8 +1459,10 @@ test('phone: mark-all-read while the reader is open still leaves the list reacha
             id: 412,
             room: 'build',
             handle: 'meg',
+            name: 'meg',
             body: '@matt is the exporter ready to ship?',
             mentions: ['matt'],
+            mentionNames: ['matt'],
             postedAt: inboxPayload.needsYou[0]?.postedAt ?? 1,
           },
         ],
@@ -1396,4 +1493,29 @@ test('phone: mark-all-read while the reader is open still leaves the list reacha
   expect(screen.getByTestId('phone-inbox-list')).toHaveStyle({
     visibility: 'visible',
   });
+});
+
+test('the invite result line names a pane by its display name', () => {
+  renderWithProviders(
+    <div data-testid="line">
+      {resultLine(
+        [{ paneId: 'w9:p1', delivered: 'accepted' }],
+        [
+          {
+            paneId: 'w9:p1',
+            workspace: 'repo-tools',
+            agentStatus: 'idle',
+            presence: {
+              handle: 'remy.m2p4',
+              name: 'remy',
+              status: 'live',
+              rooms: [],
+            },
+          },
+        ]
+      )}
+    </div>
+  );
+  expect(screen.getByTestId('line')).toHaveTextContent('remy accepted');
+  expect(screen.getByTestId('line')).not.toHaveTextContent('m2p4');
 });

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   adoptHelperPath,
+  composeCommandPath,
   composeServicePath,
   resolveProgram,
   stablePathDirs,
@@ -98,6 +99,129 @@ describe('composeServicePath', () => {
     } finally {
       process.env.PATH = saved;
     }
+  });
+});
+
+describe('composeCommandPath', () => {
+  const HELPERS = '/App.app/Contents/Helpers';
+
+  test("puts the user's tool dirs ahead of the bundle Helpers dir", () => {
+    const present = new Set([
+      HELPERS,
+      '/home/t/.bun/bin',
+      '/opt/homebrew/bin',
+      '/usr/bin',
+      '/bin',
+    ]);
+
+    const path = composeCommandPath({
+      home: HOME,
+      bundleHelpers: HELPERS,
+      exists: p => present.has(p),
+      inherited: `${HELPERS}:/usr/bin:/bin`,
+    });
+
+    expect(path).toBe(
+      `/home/t/.bun/bin:/opt/homebrew/bin:${HELPERS}:/usr/bin:/bin`
+    );
+  });
+
+  test('a tool only the bundle ships still resolves through Helpers', () => {
+    const present = new Set([HELPERS, '/home/t/.bun/bin', '/usr/bin']);
+    const execs = new Set([
+      '/home/t/.bun/bin/bun',
+      `${HELPERS}/bun`,
+      `${HELPERS}/cloudflared`,
+    ]);
+
+    const path = composeCommandPath({
+      home: HOME,
+      bundleHelpers: HELPERS,
+      exists: p => present.has(p),
+      inherited: '',
+    });
+
+    expect(resolveProgram('bun', path, p => execs.has(p))).toBe(
+      '/home/t/.bun/bin/bun'
+    );
+    expect(resolveProgram('cloudflared', path, p => execs.has(p))).toBe(
+      `${HELPERS}/cloudflared`
+    );
+  });
+
+  test('puts inherited extras ahead of Helpers and the OS dirs last', () => {
+    const present = new Set([
+      HELPERS,
+      '/usr/local/bin',
+      '/usr/bin',
+      '/bin',
+      '/usr/sbin',
+      '/sbin',
+    ]);
+
+    const path = composeCommandPath({
+      home: HOME,
+      bundleHelpers: HELPERS,
+      exists: p => present.has(p),
+      inherited: `${HELPERS}:/usr/bin:/custom/bin`,
+    });
+
+    expect(path).toBe(
+      `/usr/local/bin:/custom/bin:${HELPERS}:/usr/bin:/bin:/usr/sbin:/sbin`
+    );
+  });
+
+  test("an inherited manager dir's bun wins over Helpers/bun", () => {
+    const present = new Set([HELPERS, '/usr/bin']);
+    const execs = new Set(['/home/t/.mise/shims/bun', `${HELPERS}/bun`]);
+
+    const path = composeCommandPath({
+      home: HOME,
+      bundleHelpers: HELPERS,
+      exists: p => present.has(p),
+      inherited: `${HELPERS}:/home/t/.mise/shims:/usr/bin`,
+    });
+
+    expect(resolveProgram('bun', path, p => execs.has(p))).toBe(
+      '/home/t/.mise/shims/bun'
+    );
+  });
+
+  test('outside a bundle the inherited PATH is used as is', () => {
+    const inherited = '/home/t/.nvm/bin:/usr/bin:/bin';
+
+    const path = composeCommandPath({
+      home: HOME,
+      bundleHelpers: null,
+      exists: () => true,
+      inherited,
+    });
+
+    expect(path).toBe(inherited);
+  });
+
+  test('outside a bundle a launchd deck keeps its service path', () => {
+    const present = new Set(['/home/t/.local/bin', '/usr/bin', '/bin']);
+    const opts = {
+      home: HOME,
+      bundleHelpers: null,
+      exists: (p: string) => present.has(p),
+    };
+    const service = composeServicePath(opts);
+
+    expect(composeCommandPath({ ...opts, inherited: service })).toBe(service);
+  });
+
+  test('leaves the service path with Helpers first', () => {
+    const present = new Set([HELPERS, '/home/t/.bun/bin', '/usr/bin']);
+
+    const path = composeServicePath({
+      home: HOME,
+      bundleHelpers: HELPERS,
+      exists: p => present.has(p),
+    });
+
+    expect(path).toBe(`${HELPERS}:/home/t/.bun/bin:/usr/bin`);
   });
 });
 

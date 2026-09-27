@@ -451,6 +451,34 @@ describe("setupIntent", () => {
   test("realIntentDeps() builds without throwing", () => {
     expect(() => realIntentDeps()).not.toThrow();
   });
+
+  test("rt setup intent solo writes the solo intent and prints it", async () => {
+    const deps = baseIntentDeps();
+
+    await setupIntent(["solo", "--json"], {}, deps);
+
+    expect(readIntent(deps.probes)?.mode).toBe("solo");
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo" });
+  });
+
+  test("rt setup intent solo refuses with team-exists when a team clone is on disk, and writes nothing", async () => {
+    const deps = baseIntentDeps({
+      probes: fakeProbes({
+        files: { "/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc": "{}" },
+        dirs: { "/fake-home/.mattstack/teams": ["acme"] },
+      }),
+    });
+
+    await runExpectingExit(() => setupIntent(["solo", "--json"], {}, deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+    expect(deps.lines).toHaveLength(1);
+    const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+    expect(payload.error.code).toBe("team-exists");
+    expect(payload.error.message).toContain("acme");
+    expect(readIntent(deps.probes)).toBeNull();
+    expect(deps.probes.calls.writes[intentPath(deps.probes.home)]).toBeUndefined();
+  });
 });
 
 describe("setupApply — hard-precondition gate", () => {

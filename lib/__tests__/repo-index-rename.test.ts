@@ -268,6 +268,18 @@ describe("repo-index — rename drift (RT-60)", () => {
       expect(listKvValues("worktree-registry")["deleted"]).toBeUndefined();
     });
 
+    test("an evicted repo's name cursor is dropped with its registry", () => {
+      indexRepoAt("deleted", join(scratch, "deleted-repo"), 1_000);
+      setKvValue("worktree-registry", "deleted", [
+        { name: "deleted", path: join(scratch, "deleted-repo"), kind: "main", branch: "main", createdAt: "2026-01-01T00:00:00.000Z" },
+      ]);
+      setKvValue("worktree-name-cursor", "deleted", "arwen");
+
+      pruneRepoIndex();
+
+      expect(listKvValues("worktree-name-cursor")["deleted"]).toBeUndefined();
+    });
+
     test("a missing row whose registry JSON is corrupt is KEPT — corruption is not dead", () => {
       indexRepoAt("hurt", join(scratch, "gone-away"), 1_000);
       getStateDb().query("INSERT INTO kv (ns, k, v, updated_at) VALUES (?, ?, ?, ?)").run("worktree-registry", "hurt", "{not json", Date.now());
@@ -506,6 +518,18 @@ describe("repo-index — rename drift (RT-60)", () => {
       expect(result.registry).toBe("merged");
       expect((listKvValues(WT_NS)["rt"] as Array<{ path: string }>).map((t) => t.path)).toEqual(["/x/main", "/x/t1"]);
       expect(listKvValues(WT_NS)["repo-tools"]).toBeUndefined();
+    });
+
+    test("the name cursor moves with the registry and never overwrites the live name's", () => {
+      setKvValue(WT_NS, "repo-tools", tree("/x/repo-tools"));
+      setKvValue("worktree-name-cursor", "repo-tools", "arwen");
+      migrateRepoData("repo-tools", "rt");
+      expect(listKvValues("worktree-name-cursor")).toEqual({ rt: "arwen" });
+
+      setKvValue(WT_NS, "old", tree("/x/old"));
+      setKvValue("worktree-name-cursor", "old", "bilbo");
+      migrateRepoData("old", "rt");
+      expect(listKvValues("worktree-name-cursor")).toEqual({ rt: "arwen" });
     });
 
     test("no registry under the retired name is 'none', not a failure", () => {

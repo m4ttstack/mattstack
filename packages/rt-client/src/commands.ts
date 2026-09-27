@@ -4,7 +4,7 @@
  * its functions against this map so a new command only needs an entry here
  * plus one function, never a change to the transport itself.
  */
-import type { PullRequest, MRDetail, Pipeline } from "@mattstack/glance";
+import type { PullRequest, MRDetail, Pipeline, PipelineJob } from "@mattstack/glance";
 
 export type Discussion = MRDetail["discussions"][number];
 
@@ -179,10 +179,10 @@ export interface GateSubscription {
   ownerRef: string | null;
 }
 
-export interface HerdInfo { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; herdrSocket: string | null; hidden: boolean; status: "active" | "wrapped"; createdAt: number; wrappedAt: number | null }
+export interface HerdInfo { id: string; repo: string; room: string; workspace: string; shepherdSession: string; shepherdHandle: string; shepherdName: string; herdrSocket: string | null; hidden: boolean; status: "active" | "wrapped"; createdAt: number; wrappedAt: number | null }
 /** A herd row as `herd:list` reports it: the registry row plus how many jobs hang off it. */
 export interface HerdListRow extends HerdInfo { jobs: number }
-export interface HerdJobInfo { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; status: "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal"; disposable: boolean; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
+export interface HerdJobInfo { herd: string; name: string; worktree: string; branch: string | null; tree: string | null; pane: string | null; agentSession: string | null; agentId: string | null; handle: string; handleName: string; status: "spawning" | "active" | "at-gate" | "at-milestone" | "done" | "closed" | "crashed" | "stuck-at-modal"; disposable: boolean; lastGate: string | null; lastReport: number | null; createdAt: number; updatedAt: number }
 /** `lastGateStatus`/`lastGateDelivery` come from the job's `lastGate` row: a TERMINAL gate (answered or closed) whose delivery is `dead-pane` is the "worker not woken" case the shepherd must act on. `lastGateConsumed` is `null` when there is nothing to consume (no last gate, not answered, or not nudged), and otherwise reports whether the nudged pane has read its answer. */
 export interface HerdStatusData {
   herd: HerdInfo;
@@ -206,6 +206,7 @@ export type WakeMode = "mention" | "all" | "none";
 export interface ChatMember {
   room: string;
   handle: string;
+  name: string;
   joinedAt: number;
   lastReadId: number;
   wakeOn: WakeMode;
@@ -219,17 +220,21 @@ export interface ChatMessage {
   id: number;
   room: string;
   handle: string;
+  name: string;
   body: string;
   mentions: string[];
+  /** Parallel to `mentions`: the display name each mentioned id had at post time. */
+  mentionNames: string[];
   replyTo?: number;
   postedAt: number;
+  quiet?: boolean;
 }
 
 /** `claimed` is the only outcome that woke anyone; `previousHolder` marks a takeover of an expired claim. */
 export type ChatClaimOutcome =
-  | { outcome: "claimed"; author: string; room: string; previousHolder?: string }
-  | { outcome: "held"; author: string; room: string }
-  | { outcome: "lost"; holder: string; claimedAt: number; expiresAt: number };
+  | { outcome: "claimed"; author: string; authorName: string; room: string; previousHolder?: string; previousHolderName?: string }
+  | { outcome: "held"; author: string; authorName: string; room: string }
+  | { outcome: "lost"; holder: string; holderName: string; claimedAt: number; expiresAt: number };
 
 export interface RoomSummary {
   room: string;
@@ -239,7 +244,7 @@ export interface RoomSummary {
   lastPostedAt?: number;
   /** Set only by chat:rooms's left join against chat_dms. */
   kind?: "dm";
-  participants?: { a: string; b: string };
+  participants?: { a: string; b: string; aName: string; bName: string };
   /** Set only by chat:rooms's left join against chat_room_defaults; undefined for a room never stamped a default (every DM room included). */
   defaultWake?: WakeMode;
   /** Set only when chat:rooms was asked for archived rooms; absent on an open room. */
@@ -257,6 +262,7 @@ export interface PresenceRow {
   sessionId: string;
   handle: string;
   baseHandle: string;
+  name: string;
   cwd?: string;
   repo?: string;
   branch?: string;
@@ -279,7 +285,7 @@ export interface ChatPane {
   branch?: string;
   agentStatus: AgentStatus;
   sessionId?: string;
-  presence?: { handle: string; status: BuddyStatus; rooms: string[] };
+  presence?: { handle: string; name: string; status: BuddyStatus; rooms: string[] };
   /** herdr's per-pane focus flag; false when herdr itself is backgrounded */
   focused?: boolean;
 }
@@ -373,7 +379,7 @@ export interface AgentRecord {
   id: string; repo: string; cwd: string; provider: string;
   surface: AgentSurface; sessionId: string;
   model?: string; effort?: string; account?: string;
-  label?: string; caller?: string; handle?: string;
+  label?: string; caller?: string; handle?: string; name?: string;
   /** The gate-protocol subject stamped as RT_GATE_SUBJECT at launch. Left
       undefined when the caller passed none (RT_GATE_SUBJECT still falls
       back to "agent:<id>" at launch time); an explicit value is persisted
@@ -649,13 +655,13 @@ export interface Commands {
   "runs:list": { payload: { repo?: string }; data: { runs: RunSummary[] } };
   "runs:get": { payload: { runId: string; repo?: string }; data: RunDetail };
   "runs:abandon": { payload: { runId: string; repo?: string; reason?: string }; data: { ok: boolean } };
-  "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; memberCount: number; unread: number } };
+  "chat:join": { payload: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string }; data: { handle: string; name: string; memberCount: number; unread: number } };
   "chat:leave": { payload: { room: string; handle: string }; data: Record<string, never> };
   /** `others` counts the room's members besides the author, so a caller can tell "woke nobody of 7" from "nobody else is here". */
-  "chat:post": { payload: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean }; data: { id: number; recipients: string[]; others: number } };
-  "chat:ack": { payload: { id: number; handle: string }; data: { author: string; room: string; already: boolean } };
+  "chat:post": { payload: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean }; data: { id: number; recipients: string[]; recipientNames: string[]; others: number } };
+  "chat:ack": { payload: { id: number; handle: string }; data: { author: string; authorName: string; room: string; already: boolean } };
   "chat:claim": { payload: { id: number; handle: string }; data: ChatClaimOutcome };
-  "chat:release": { payload: { id: number; handle: string }; data: { holder: string } };
+  "chat:release": { payload: { id: number; handle: string }; data: { holder: string; holderName: string } };
   "chat:read": { payload: { handle: string; room?: string; limit?: number; sinceMs?: number }; data: { rooms: { room: string; messages: ChatMessage[] }[] } };
   "chat:rooms": { payload: { handle: string; includeArchived?: boolean }; data: { rooms: RoomSummary[] } };
   "chat:who": { payload: { room: string }; data: { members: ChatMember[] } };
@@ -688,8 +694,10 @@ export interface Commands {
       room?: string;
       /** `viaPane` only: skip room derivation/join entirely, same as --no-room on the non-pane path. */
       noRoom?: boolean;
+      /** An id or a name to continue instead of minting a fresh identity. A name live in another session mints a fresh id under that name with a display suffix (`continued: false`); an id live in another session, the human's own id and `herdr` are refused. */
+      continue?: string;
     };
-    data: { handle: string; baseHandle: string; reclaimed: boolean; sessionId: string; room: string | null };
+    data: { handle: string; baseHandle: string; name: string; reclaimed: boolean; continued: boolean; sessionId: string; room: string | null };
   };
   /**
    * `viaPane` mirrors `chat:sign-in`'s: the daemon resolves `pane` to a
@@ -706,7 +714,7 @@ export interface Commands {
   "chat:away": { payload: { sessionId: string; text: string }; data: Record<string, never> };
   "chat:back": { payload: { sessionId: string }; data: Record<string, never> };
   "chat:buddies": { payload: Record<string, never>; data: { buddies: Array<PresenceRow & { status: BuddyStatus }> } };
-  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string }; data: { room: string; id: number; recipients: string[] } };
+  "chat:dm": { payload: { from: string; to: string; body: string; sessionId?: string }; data: { room: string; id: number; recipients: string[]; recipientNames: string[] } };
   "chat:archive": { payload: { room: string; handle: string; archived: boolean }; data: { room: string; archivedAt: number | null } };
   "chat:dm-open": { payload: { from: string; to: string; sessionId?: string }; data: { room: string; created: boolean } };
 
@@ -818,6 +826,11 @@ export interface Commands {
 
   "mr:fetch-job-detail": { payload: { repoName: string; iid: number; jobId: number; pipelineId?: number }; data: MrJobDetail };
   "mr:fetch-job-trace": { payload: { repoName: string; iid: number; jobId: number }; data: string };
+
+  /** GitLab providers only; the daemon refuses any other provider with `unsupported: mr:commit-parents needs a GitLab repo`. */
+  "mr:commit-parents": { payload: { repoName: string; iid: number; sha: string }; data: string[] };
+  /** GitLab providers only; the daemon refuses any other provider with `unsupported: mr:pipeline-failed-jobs needs a GitLab repo`. */
+  "mr:pipeline-failed-jobs": { payload: { repoName: string; iid: number; pipelineId: number }; data: PipelineJob[] };
 
   "endpoint:claim": { payload: { repo: string; worktree: string; role: string; pid?: number }; data: EndpointClaimData };
   "endpoint:lookup": { payload: { repo: string; worktree: string; role: string }; data: EndpointLookupData };
@@ -1056,6 +1069,8 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:upload",
   "mr:fetch-job-detail",
   "mr:fetch-job-trace",
+  "mr:commit-parents",
+  "mr:pipeline-failed-jobs",
   "endpoint:claim",
   "endpoint:lookup",
   "endpoint:release",

@@ -13,8 +13,10 @@
 export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/accounts.ts": () => import("../commands/accounts.ts"),
   "./commands/agent.ts": () => import("../commands/agent.ts"),
+  "./commands/apps.ts": () => import("../commands/apps.ts"),
   "./commands/bg.ts": () => import("../commands/bg.ts"),
   "./commands/chat.ts": () => import("../commands/chat.ts"),
+  "./commands/ci.ts": () => import("../commands/ci.ts"),
   "./commands/commit.ts": () => import("../commands/commit.ts"),
   "./commands/daemon.ts": () => import("../commands/daemon.ts"),
   "./commands/events.ts": () => import("../commands/events.ts"),
@@ -70,6 +72,7 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/deps.ts": () => import("../commands/deps.ts"),
   "./commands/release.ts": () => import("../commands/release.ts"),
   "./commands/repos.ts": () => import("../commands/repos.ts"),
+  "./commands/repos-reidentify.ts": () => import("../commands/repos-reidentify.ts"),
   "./commands/setup.ts": () => import("../commands/setup.ts"),
   "./commands/team.ts": () => import("../commands/team.ts"),
   "./commands/cron.ts": () => import("../commands/cron.ts"),

@@ -57,4 +57,15 @@ let setupFlowChecks: [Check] = [
             c.expectEqual(f.windowMayClose, false, "the gate never opens a non-Done step")
         }
     },
+    Check("upgrade entry: no Back on the team screen, first run keeps it") { c in
+        await MainActor.run {
+            let f = SetupFlowModel()
+            f.jump(to: .team)
+            c.expectEqual(f.canGoBack, true)
+            f.entry = .upgrade
+            c.expectEqual(f.canGoBack, false)
+            f.next()
+            c.expectEqual(f.canGoBack, true, "Back from the checklist to the team screen stays")
+        }
+    },
 ]

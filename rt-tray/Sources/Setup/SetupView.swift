@@ -20,10 +20,10 @@ struct SetupView: View {
             ZStack {
                 switch flow.step {
                 case .welcome: WelcomeScreen().transition(pushTransition)
-                case .team: TeamScreen(model: team).transition(pushTransition)
+                case .team: TeamScreen(model: team, showsSolo: flow.entry == .firstRun).transition(pushTransition)
                 case .checklist: ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt).transition(pushTransition)
                 case .install: InstallScreen(model: install).transition(pushTransition)
-                case .done: DoneScreen(model: done, install: install, readiness: readiness, isOwner: team.choice == .create, onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) }).transition(pushTransition)
+                case .done: DoneScreen(model: done, install: install, readiness: readiness, isOwner: DoneRole.owner(planTeam: readiness.team, choice: team.choice), solo: DoneRole.solo(planTeam: readiness.team, choice: team.choice), onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) }).transition(pushTransition)
                 }
             }
             .animation(.easeInOut(duration: 0.22), value: flow.step)
@@ -130,4 +130,5 @@ struct SetupView: View {
 
 extension Notification.Name {
     static let rtShowSettingsTeam = Notification.Name("rtShowSettingsTeam")
+    static let rtAppsChanged = Notification.Name("rtAppsChanged")
 }

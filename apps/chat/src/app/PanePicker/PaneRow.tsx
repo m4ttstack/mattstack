@@ -10,6 +10,7 @@ import {
 import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { AgentName } from '../AgentName';
 import { DOT_COLOR, headTruncatePath } from '../presence-bits';
 import type { AgentStatus, ChatPane } from './types';
 
@@ -47,6 +48,13 @@ const STATE_TOOLTIP: Partial<Record<AgentStatus, string>> = {
   working: 'the invite queues until its turn ends',
   blocked: 'answer its prompt first',
 };
+
+/** The signed-in identity's display name, or none for a bare pane. */
+export function paneName(pane: ChatPane): string | undefined {
+  return pane.presence
+    ? (pane.presence.name ?? pane.presence.handle)
+    : undefined;
+}
 
 function paneWhere(pane: ChatPane): string {
   return [pane.repo, pane.branch].filter(Boolean).join(' · ');
@@ -92,6 +100,9 @@ export interface PaneRowProps {
   trailing?: ReactNode;
   /** First row in its list: no top border (the list container's own border stands in for it). */
   first?: boolean;
+  /** Set when another listed row shares this name: `remy (1 of 2)`. The
+      row then shows its id-seeded avatar and labels itself by this. */
+  ordinal?: string;
 }
 
 export function PaneRow({
@@ -104,11 +115,12 @@ export function PaneRow({
   extra,
   trailing,
   first,
+  ordinal,
 }: PaneRowProps) {
   const disabled = !!disabledReason;
-  const handle = pane.presence?.handle;
+  const name = paneName(pane);
   const sub =
-    handle && pane.title === handle
+    name && pane.title === name
       ? pane.workspace
       : `${pane.workspace}${pane.title ? ` · ${pane.title}` : ''}`;
   const mobile = useIsMobile();
@@ -140,7 +152,7 @@ export function PaneRow({
           role="checkbox"
           aria-checked={!!selected}
           aria-disabled={disabled}
-          aria-label={`select ${handle ?? pane.paneId}`}
+          aria-label={`select ${ordinal ?? name ?? pane.paneId}`}
           data-testid={`pane-check-${pane.paneId}`}
           onClick={() => {
             if (!disabled) onToggle();
@@ -191,9 +203,17 @@ export function PaneRow({
                   : `1px solid ${BORDER}`,
             }}
           />
-          {handle ? (
+          {name ? (
             <Text component="span" size="sm" fw={600}>
-              {handle}
+              {ordinal && pane.presence ? (
+                <AgentName
+                  handle={pane.presence.handle}
+                  name={name}
+                  withCard={false}
+                />
+              ) : (
+                name
+              )}
             </Text>
           ) : (
             <Text component="span" size="sm" style={{ color: MUTED }}>

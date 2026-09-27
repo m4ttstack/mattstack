@@ -242,4 +242,58 @@ let teamChoiceChecks: [Check] = [
         await MainActor.run { m.choice = .join; m.inviteCode = "ABCD-EFGH" }
         c.expect(await m.validateAndPrepare() != nil)
     },
+    Check("solo: Continue needs no fields, prepare runs home init then setup intent solo, and latches") { c in
+        let rt = ScriptedRt()
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        rt.answers["setup intent solo"] = (0, #"{"contract":1,"mode":"solo"}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .solo }
+        c.expectEqual(await MainActor.run { m.canContinue }, true)
+        let err = await m.validateAndPrepare()
+        c.expect(err == nil, "got \(err ?? "")")
+        try c.require(rt.calls.count == 2, "expected home init then setup intent solo, got \(rt.calls.map(\.args))")
+        c.expectEqual(rt.calls[0].args.prefix(3), ["home", "init", "--dry-run"])
+        c.expectEqual(rt.calls[1].args, ["setup", "intent", "solo", "--json"])
+        _ = await m.validateAndPrepare()
+        c.expectEqual(rt.calls.count, 2, "an unchanged Back then Continue must not re-run the verbs")
+    },
+    Check("solo: a failed setup intent solo surfaces rt's message") { c in
+        let rt = ScriptedRt()
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        rt.answers["setup intent solo"] = (2, #"{"contract":1,"error":{"code":"bad-args","message":"cannot record intent"}}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .solo }
+        c.expectEqual(await m.validateAndPrepare(), "cannot record intent")
+    },
+    Check("entering setup picks the requested choice: Create selects create, Join selects join, a join code wins, and an upgrade never lands on Just me") { c in
+        let m = await MainActor.run { TeamChoiceModel(rt: ScriptedRt(), pasteboard: FakePasteboard(nil)) }
+        await MainActor.run {
+            m.choice = .solo
+            m.enter(.upgrade, choice: .join, joinCode: nil)
+            c.expectEqual(m.choice, .join, "Join a team with no pending code opens on join")
+            m.enter(.upgrade, choice: .create, joinCode: nil)
+            c.expectEqual(m.choice, .create)
+            m.choice = .solo
+            m.enter(.upgrade, choice: nil, joinCode: nil)
+            c.expectEqual(m.choice, .create, "an upgrade with no stated choice leaves Just me")
+            m.enter(.upgrade, choice: .join, joinCode: "CODE")
+            c.expectEqual(m.choice, .join)
+            c.expectEqual(m.inviteCode, "CODE")
+            m.choice = .solo
+            m.enter(.firstRun, choice: nil, joinCode: nil)
+            c.expectEqual(m.choice, .solo, "a first run keeps what the person picked")
+        }
+    },
+    Check("DoneRole reads the plan over the choice model, which a Full Disk Access relaunch resets to .create") { c in
+        let soloPlanTeam = TeamInfo(slug: "", name: nil, mode: .noTeam)
+        c.expectEqual(DoneRole.solo(planTeam: soloPlanTeam, choice: .create), true, "relaunch case: choice model reset to .create, plan still says solo")
+        c.expectEqual(DoneRole.owner(planTeam: soloPlanTeam, choice: .create), false)
+        let createdPlanTeam = TeamInfo(slug: "acme", name: "Acme", mode: .create)
+        c.expectEqual(DoneRole.owner(planTeam: createdPlanTeam, choice: .solo), true)
+        c.expectEqual(DoneRole.solo(planTeam: createdPlanTeam, choice: .solo), false)
+        c.expectEqual(DoneRole.solo(planTeam: nil, choice: .solo), true, "no plan team yet: fall back to the choice")
+        c.expectEqual(DoneRole.owner(planTeam: nil, choice: .create), true)
+        c.expectEqual(DoneRole.solo(planTeam: nil, choice: .create), false)
+        c.expectEqual(DoneRole.owner(planTeam: nil, choice: .join), false)
+    },
 ]

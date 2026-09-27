@@ -1,7 +1,22 @@
 import Foundation
 import Combine
 
-public enum TeamChoice: Equatable, Sendable { case create, join, restore }
+public enum TeamChoice: Equatable, Sendable { case create, join, restore, solo }
+
+/// Derives the Done screen's solo/owner framing from the plan the checklist
+/// loaded rather than from `TeamChoiceModel`, since a Full Disk Access
+/// relaunch (`AppRelaunch.swift`) resumes the wizard at the checklist with a
+/// fresh, default-`.create` choice model — the plan survives the relaunch.
+public enum DoneRole {
+    public static func solo(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
+        guard let planTeam else { return choice == .solo }
+        return planTeam.mode == .noTeam && (planTeam.slug ?? "").isEmpty
+    }
+    public static func owner(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
+        guard let planTeam else { return choice == .create }
+        return planTeam.mode == .create
+    }
+}
 
 public struct GitHubStatus: Codable, Equatable, Sendable {
     public var status: RowStatus
@@ -15,6 +30,7 @@ public struct GitHubStatus: Codable, Equatable, Sendable {
 public final class TeamChoiceModel: ObservableObject {
     public nonisolated static let inviteCodeLength = 77
     public static let explainer = "mattstack keeps your team settings in git. That keeps them safe and gives you a paper trail: skill edits and every change are visible in history. The same goes for your own settings home repo, created by the same step."
+    public static let soloExplainer = "rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."
 
     @Published public var choice: TeamChoice = .create
     @Published public var teamName = ""
@@ -53,6 +69,13 @@ public final class TeamChoiceModel: ObservableObject {
         self.pasteboard = pasteboard
     }
 
+    /// Just me is offered only on a first run, so an upgrade must never be
+    /// left sitting on it.
+    public func enter(_ entry: SetupEntry, choice requested: TeamChoice?, joinCode: String?) {
+        if let requested { choice = requested } else if entry == .upgrade, choice == .solo { choice = .create }
+        if let joinCode { choice = .join; inviteCode = joinCode }
+    }
+
     public var slugPreview: String { Slug.make(teamName) }
     public var ghRepoPreview: String { "\(ghOwner ?? ghHandle ?? "you")/mattstack-team-\(slugPreview)" }
     public var normalizedInviteCode: String {
@@ -74,6 +97,8 @@ public final class TeamChoiceModel: ObservableObject {
         case .restore:
             let repo = restoreRepo.trimmingCharacters(in: .whitespaces)
             return !repo.isEmpty && (restoredRepo == repo || !restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        case .solo:
+            return true
         }
     }
 
@@ -152,6 +177,13 @@ public final class TeamChoiceModel: ObservableObject {
                 restoredRepo = repo
                 restoreAgeKey = ""
                 return nil
+            case .solo:
+                if let e = await homeInitCheck() { return e }
+                let r = try await rt.run(["setup", "intent", "solo", "--json"], stdin: nil)
+                if let e = r.userError { return e.message }
+                guard r.exitCode == 0 else { return r.failureCopy(verb: "setup intent solo") }
+                preparedFingerprint = fingerprint
+                return nil
             }
         } catch {
             return "Could not run rt: \(error)"
@@ -171,6 +203,8 @@ public final class TeamChoiceModel: ObservableObject {
             // (which is wiped after a successful restore) and only ever has to
             // answer "did the inputs change".
             return ["restore", restoreRepo.trimmingCharacters(in: .whitespaces), String(restoreAgeKey.hashValue)].joined(separator: "\u{1}")
+        case .solo:
+            return "solo"
         }
     }
 

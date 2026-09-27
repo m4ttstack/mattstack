@@ -35,6 +35,7 @@ import { runCapture } from "../lib/subprocess.ts";
 import { runPreflight, keepsFastPath, type CheckRow, type PreflightSeams } from "../lib/release/preflight.ts";
 import { runVerify, type VerifyRow, type VerifySeams } from "../lib/release/verify.ts";
 import { runUpdateMachine, CHAT_ROOM, type LegResult, type UpdateMachineOptions, type UpdateMachineSeams } from "../lib/release/update-machine.ts";
+import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import {
   runReleaseApp,
   type ReleaseAppOptions,
@@ -136,7 +137,7 @@ export async function createRealUpdateMachineSeams(options: UpdateMachineOptions
   const needsWorkDir = !options.plan && !options.verifyOnly;
   return {
     repoRoot: top.exitCode === 0 ? top.stdout.trim() : process.cwd(),
-    sharedCheckoutPath: join(homedir(), "Documents", "GitHub", "repo-tools"),
+    sharedCheckoutPath: resolveSharedCheckout(homedir()),
     workDir: needsWorkDir ? mkdtempSync(join(tmpdir(), "rt-update-machine-")) : "",
     uid: process.getuid ? process.getuid() : 501,
     isTTY: interactive(),

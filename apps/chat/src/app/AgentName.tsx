@@ -10,6 +10,7 @@ import { Invadr } from 'invadrs/react';
 
 import classes from './agent-name.module.css';
 import { useBuddies } from './buddies-context';
+import { displayName } from './display-name';
 import { doing, type DoingLine } from './doing';
 import {
   DOT_COLOR,
@@ -91,6 +92,8 @@ type HueStyle = React.CSSProperties & {
 
 export interface AgentNameProps {
   handle: string;
+  /** Display name; unset falls back to the roster row, the context directory, then the id. */
+  name?: string;
   /** `row`: a roster row (sm name, status word, away line). `inline`: a
       message sender (lg name, repo token). `name`: the bare name at the
       surrounding size, for chips and DM pairs. */
@@ -276,7 +279,7 @@ export function AgentCard({
             }}
           />
           <Text size="lg" fw={600} truncate>
-            {buddy.handle}
+            {displayName(buddy)}
           </Text>
         </Group>
         <Text
@@ -391,6 +394,7 @@ export function AgentCard({
     plain text. */
 export function AgentName({
   handle,
+  name,
   variant = 'name',
   withCard = true,
   withAvatar = true,
@@ -405,6 +409,7 @@ export function AgentName({
   const ctx = useBuddies();
   const buddy = buddyProp ?? ctx?.byHandle.get(handle);
   const reachable = reachableProp ?? ctx?.reachable ?? true;
+  const shown = name ?? buddy?.name ?? ctx?.nameOf(handle) ?? handle;
   const repo = repoToken(buddy);
   const showTask = task && task.kind !== 'away';
 
@@ -428,7 +433,7 @@ export function AgentName({
 
                 style={{ flex: 'none' }}
               >
-                {handle}
+                {shown}
               </Text>
               {repo && <RepoToken repo={repo} />}
               {showTask && <TaskLine handle={handle} task={task!} />}
@@ -488,7 +493,7 @@ export function AgentName({
               size ? { flex: 'none', fontSize: size.font } : { flex: 'none' }
             }
           >
-            {handle}
+            {shown}
           </Text>
         </Group>
         {repo && <RepoToken repo={repo} metaFontSize={size?.meta} />}
@@ -508,7 +513,7 @@ export function AgentName({
       >
         {withAvatar && <HandleAvatar handle={handle} variant={variant} />}
         <Text component="span" fw={600} inherit className={classes.name}>
-          {handle}
+          {shown}
         </Text>
       </Group>
     );

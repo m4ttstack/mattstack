@@ -8,8 +8,10 @@ function msg(id: number, body: string): ChatMessage {
     id,
     room: 'build',
     handle: 'fred',
+    name: 'fred',
     body,
     mentions: [],
+    mentionNames: [],
     postedAt: id,
   };
 }

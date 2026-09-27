@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "os";
 import { join } from "path";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "fs";
 import pino from "pino";
 import { AGENT_NAMES } from "../../chat-names.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
-import { getAgent, openStateDb, signIn } from "../../state/index.ts";
+import { getAgent, insertAgent, openStateDb, signIn } from "../../state/index.ts";
+import { pointerPrompt, shellSingleQuote } from "../../agent-argv/index.ts";
 import { createAgentHandlers, extractSessionId, type HeadlessChild } from "../handlers/agent.ts";
 import { createBgClaimsStore, type BgClaimsStore } from "../bg-claims-store.ts";
 import { bgSocketPath } from "../bg-service.ts";
@@ -100,7 +101,7 @@ function fresh(over: {
   herdr?: (method: string, params: any, opts?: any) => Promise<any>;
   runner?: HerdrRunner;
   runnerFactory?: (socket: string) => HerdrRunner;
-  spawn?: (argv: string[], cwd: string, env: Record<string, string>) => HeadlessChild;
+  spawn?: (argv: string[], cwd: string, env: Record<string, string>, opts?: { captureSessionId?: boolean; stdin?: string }) => HeadlessChild;
   emit?: (t: string, p?: unknown) => void;
   insertAgentFn?: (...args: unknown[]) => void;
   bg?: FakeBg;
@@ -237,6 +238,24 @@ test("agent:start herdr rolls back the inserted record when launch fails", async
   expect(list.data.agents).toHaveLength(0);
 });
 
+test("agent:start herdr with a non-slash prompt removes its prompt dir when the launch fails", async () => {
+  const throwingRunner: HerdrRunner = async () => {
+    throw new Error("herdr unavailable");
+  };
+  let capturedId: string | undefined;
+  const h = fresh({
+    runner: throwingRunner,
+    insertAgentFn: (rec: any, db: any) => {
+      capturedId = rec.id;
+      insertAgent(rec, db);
+    },
+  });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  expect(res.ok).toBe(false);
+  expect(capturedId).toBeDefined();
+  expect(existsSync(join(rtDir(), "agent-prompts", capturedId!))).toBe(false);
+});
+
 // Pins S051: a tab-label dedup must never report success with a phantom
 // record nothing is listening on (rt agent resume on it would run
 // `claude --resume` for a session that never started).
@@ -253,7 +272,14 @@ test("agent:start herdr returns ok:false and rolls back when herdr dedups the ta
     }
     return { stdout: "{}", exitCode: 0 };
   };
-  const h = fresh({ runner });
+  let capturedId: string | undefined;
+  const h = fresh({
+    runner,
+    insertAgentFn: (rec: any, db: any) => {
+      capturedId = rec.id;
+      insertAgent(rec, db);
+    },
+  });
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", tab: label });
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -263,6 +289,8 @@ test("agent:start herdr returns ok:false and rolls back when herdr dedups the ta
   const list = await h["agent:list"]({});
   if (!list.ok) throw new Error("unreachable");
   expect(list.data.agents).toHaveLength(0);
+  expect(capturedId).toBeDefined();
+  expect(existsSync(join(rtDir(), "agent-prompts", capturedId!))).toBe(false);
 });
 
 // Pins the guard: a no-op insert (standing in for runCriticalWrite giving up
@@ -427,8 +455,9 @@ test("agent:start herdr reserves a handle not held by live presence, never passe
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.handle).toBeTruthy();
-  expect(AGENT_NAMES).toContain(res.data.handle!);
-  expect(res.data.handle).not.toBe(held);
+  expect(AGENT_NAMES).toContain(res.data.name!);
+  expect(res.data.name).not.toBe(held);
+  expect(res.data.handle!.startsWith(`${res.data.name}.`)).toBe(true);
 
   const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
   expect(cmd).not.toContain("'--name'");
@@ -456,6 +485,7 @@ test("agent:start headless never reserves a handle or passes --name/inline --set
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.handle).toBeUndefined();
+  expect(res.data.name).toBeUndefined();
   expect(argv).not.toContain("--name");
   expect(argv).not.toContain('{"crossSessionInbound":"accept"}');
 });
@@ -752,6 +782,7 @@ test("agent:start with handle records it, reserves no pool handle, and keeps inb
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", handle: "job-a" });
   if (!res.ok) throw new Error(res.error);
   expect(res.data.handle).toBe("job-a");
+  expect(res.data.name).toBe("job-a");
   const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
   expect(paneRun).toContain('{"crossSessionInbound":"accept"}');
   expect(paneRun).not.toContain("'--name'");
@@ -1204,4 +1235,156 @@ test("headless claude launch never requests session-id capture", async () => {
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "headless", prompt: "go" });
   expect(res.ok).toBe(true);
   expect(capturedOpts?.captureSessionId).toBeFalsy();
+});
+
+const BRIEF = "# job\nrun `bun run test` then pkill nothing\nit's \"quoted\"";
+
+function promptPathFromPointer(text: string): string {
+  const m = /Your instructions for this session are in (.+)\. Read that whole file now/.exec(text);
+  if (!m) throw new Error(`no prompt pointer found in: ${text}`);
+  return m[1]!;
+}
+
+test("agent:start herdr puts only a pointer in the pane command; the prompt sits in an 0600 file, and its dir is granted via --add-dir before --session-id", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: BRIEF, surface: "herdr" });
+  if (!res.ok) throw new Error(res.error);
+  const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  const dir = join(rtDir(), "agent-prompts", res.data.id);
+  const file = promptPathFromPointer(cmd);
+  expect(cmd).not.toContain("bun run test");
+  expect(cmd).toContain(pointerPrompt(file));
+  expect(cmd).toContain(`'--add-dir' '${dir}' '--session-id'`);
+  expect(readFileSync(file, "utf8")).toBe(BRIEF);
+  expect(statSync(file).mode & 0o777).toBe(0o600);
+  expect(statSync(dir).mode & 0o777).toBe(0o700);
+  expect(statSync(join(rtDir(), "agent-prompts")).mode & 0o777).toBe(0o700);
+});
+
+test("agent:start herdr with no prompt emits no pointer", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "herdr" });
+  if (!res.ok) throw new Error(res.error);
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("Your instructions");
+});
+
+test("agent:start herdr with a slash-command prompt passes it through unchanged: no pointer, no prompt file", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const slash = "/board:review https://x/mr/1 --state /s.json";
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: slash, surface: "herdr" });
+  if (!res.ok) throw new Error(res.error);
+  const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  expect(cmd).toContain(shellSingleQuote(slash));
+  expect(cmd).not.toContain("Your instructions");
+  expect(existsSync(join(rtDir(), "agent-prompts", res.data.id))).toBe(false);
+});
+
+test("agent:resume with a new prompt goes through the pointer; without one it emits none", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "first", surface: "herdr", label: "R" });
+  if (!started.ok) throw new Error(started.error);
+  const dir = join(rtDir(), "agent-prompts", started.data.id);
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, prompt: BRIEF })).ok).toBe(true);
+  const withPrompt = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  const file = promptPathFromPointer(withPrompt);
+  expect(withPrompt).not.toContain("bun run test");
+  expect(withPrompt).toContain(pointerPrompt(file));
+  expect(withPrompt).toContain(`'--add-dir' '${dir}' '--resume'`);
+  expect(readFileSync(file, "utf8")).toBe(BRIEF);
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, tab: "again" })).ok).toBe(true);
+  expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("Your instructions");
+});
+
+test("a resume with a new prompt writes a new file, leaving the first launch's file byte-identical", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "first", surface: "herdr", label: "R" });
+  if (!started.ok) throw new Error(started.error);
+  const firstCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  const firstFile = promptPathFromPointer(firstCmd);
+  const firstBytesBefore = readFileSync(firstFile);
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, prompt: BRIEF })).ok).toBe(true);
+  const secondCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  const secondFile = promptPathFromPointer(secondCmd);
+  expect(secondFile).not.toBe(firstFile);
+  expect(readFileSync(secondFile, "utf8")).toBe(BRIEF);
+  expect(readFileSync(firstFile)).toEqual(firstBytesBefore);
+  expect(readFileSync(firstFile, "utf8")).toBe("first");
+});
+
+// Pins the rollback: a failed prompt-file write rolls the record back and
+// launches nothing.
+test("agent:start herdr rolls back the record when agent-prompts is a file, not a dir", async () => {
+  mkdirSync(rtDir(), { recursive: true });
+  rmSync(join(rtDir(), "agent-prompts"), { recursive: true, force: true });
+  writeFileSync(join(rtDir(), "agent-prompts"), "not a directory");
+  try {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: BRIEF, surface: "herdr" });
+    expect(res.ok).toBe(false);
+    expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(false);
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error("unreachable");
+    expect(list.data.agents).toHaveLength(0);
+  } finally {
+    rmSync(join(rtDir(), "agent-prompts"), { force: true });
+  }
+});
+
+test("agent:start headless feeds the prompt on stdin and keeps it out of argv", async () => {
+  let seen: { argv: string[]; stdin?: string } | undefined;
+  const h = fresh({ spawn: (argv, _cwd, _env, opts) => { seen = { argv, stdin: opts?.stdin }; return { exited: new Promise(() => {}), stdout: async () => "{}", sessionId: () => Promise.resolve(undefined) }; } });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", surface: "headless", prompt: BRIEF });
+  expect(res.ok).toBe(true);
+  expect(seen!.argv.some((a) => a.includes("bun run test"))).toBe(false);
+  expect(seen!.stdin).toBe(BRIEF);
+});
+
+// The real ps view: the built pane command runs through a shell against
+// stand-in claude and cswap binaries that record their own `ps -o args`.
+test("a launched agent's own ps args carry the pointer and no prompt text, with and without cswap", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-ps-args-")));
+  try {
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    for (const name of ["claude", "cswap"]) {
+      writeFileSync(join(bin, name), `#!/bin/sh\nps -ww -o args= -p $$ > "${root}/${name}.args"\n`);
+      chmodSync(join(bin, name), 0o755);
+    }
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    for (const account of [undefined, "acct@example.com"]) {
+      calls.length = 0;
+      const res = await h["agent:start"]({ repo: REPO, cwd: root, prompt: BRIEF, surface: "herdr", ...(account && { account }), tab: `t-${account ?? "plain"}` });
+      if (!res.ok) throw new Error(res.error);
+      const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+      const proc = Bun.spawn(["/bin/sh", "-c", cmd], { env: { PATH: `${bin}:/usr/bin:/bin`, HOME: process.env.HOME! }, stdout: "ignore", stderr: "ignore" });
+      expect(await proc.exited).toBe(0);
+      const args = readFileSync(join(root, `${account ? "cswap" : "claude"}.args`), "utf8");
+      expect(args).toContain("Your instructions for this session are in");
+      expect(args).not.toContain("bun run test");
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("agent:get and agent:list carry the reserved identity's display name beside its id", async () => {
+  const h = fresh({ runner: okRunner([]) });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!res.ok) throw new Error(res.error);
+  const got = await h["agent:get"]({ id: res.data.id });
+  if (!got.ok) throw new Error(got.error);
+  expect(got.data).toMatchObject({ handle: res.data.handle, name: res.data.name });
+  const listed = await h["agent:list"]({});
+  if (!listed.ok) throw new Error(listed.error);
+  expect(listed.data.agents.find((a) => a.id === res.data.id)).toMatchObject({ handle: res.data.handle, name: res.data.name });
 });

@@ -15,7 +15,7 @@ served_deck_port() {
   printf '%s' "$p"
 }
 
-served_snapshot() {  # <dir>: status.json, routes.json and launchd.json for one verdict pass
+served_snapshot() {  # <dir>: status.json, apps.json, routes.json and launchd.json for one verdict pass
   local dir="$1" port n
   port=$(served_deck_port)
   if [ -n "$port" ] && "$SERVED_CURL" -sf --max-time 10 "http://127.0.0.1:$port/api/v1/status" > "$dir/status.raw" 2>/dev/null \
@@ -23,6 +23,12 @@ served_snapshot() {  # <dir>: status.json, routes.json and launchd.json for one 
     cp "$dir/status.raw" "$dir/status.json"
   else
     echo null > "$dir/status.json"
+  fi
+  if [ -n "$port" ] && "$SERVED_CURL" -sf --max-time 10 "http://127.0.0.1:$port/api/v1/apps" > "$dir/apps.raw" 2>/dev/null \
+     && "$SERVED_JQ" -e 'type == "object"' "$dir/apps.raw" >/dev/null 2>&1; then
+    cp "$dir/apps.raw" "$dir/apps.json"
+  else
+    echo null > "$dir/apps.json"
   fi
   if ! "$SERVED_JQ" -e 'type == "array"' "$HOME/.portless/routes.json" > /dev/null 2>&1; then
     echo null > "$dir/routes.json"
@@ -64,6 +70,7 @@ assert_served_apps() {  # <log-name> <timeout-s> [<launchd.json from record_serv
     verdict=$("$SERVED_JQ" -r -n \
       --slurpfile catalog "$dir/catalog.json" --slurpfile status "$dir/status.json" \
       --slurpfile launchd "$dir/launchd.json" --slurpfile routes "$dir/routes.json" \
+      --slurpfile apps "$dir/apps.json" \
       --slurpfile before "$before" \
       --arg helpers "$SERVED_APP/Contents/Helpers" --arg home "$HOME" \
       -f "$SERVED_JQ_DIR/served-verdict.jq" 2> "$dir/verdict.stderr") \
@@ -82,7 +89,7 @@ assert_served_apps() {  # <log-name> <timeout-s> [<launchd.json from record_serv
 }
 
 assert_mattstack_routes() {  # <trusted|untrusted> <log-name>
-  local mode="$1" hosts h
+  local mode="$1" hosts h app disabled
   cp "$HOME/.portless/routes.json" "$LOGS/$2-routes.json" 2>/dev/null
   hosts=$("$SERVED_JQ" -r '.[].hostname | select(endswith(".mattstack"))' "$HOME/.portless/routes.json" 2>/dev/null)
   if [ -z "$hosts" ]; then
@@ -90,6 +97,15 @@ assert_mattstack_routes() {  # <trusted|untrusted> <log-name>
     return
   fi
   for h in $hosts; do
+    app="${h%.mattstack}"
+    # A disabled app keeps its portless alias with an idle upstream: deck's
+    # own apps.json (from assert_served_apps' snapshot) is the one place that
+    # says so, so a missing or null snapshot leaves every app untouched here.
+    disabled=$("$SERVED_JQ" -r --arg n "$app" '(.apps // [])[] | select(.name == $n) | .enabled == false' "$LOGS/assert-served/apps.json" 2>/dev/null)
+    if [ "$disabled" = "true" ]; then
+      ok "$h: disabled, route kept, upstream idle"
+      continue
+    fi
     if [ "$mode" = untrusted ]; then
       # Serving and being trusted are separate claims: curl without --insecure
       # uses the same trust store a browser does.

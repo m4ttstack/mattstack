@@ -20,6 +20,7 @@ import { reverseLookupByName } from "../repo-name-lookup.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { explainError } from "../explain-error.ts";
 import { chatToolDefs } from "./chat-tools.ts";
+import { ciToolDefs } from "./ci-tools.ts";
 import { whoamiToolDefs } from "./whoami-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
@@ -247,7 +248,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "chat_post",
-      description: "Post a message to an rt chat room as the signed-in handle. Requires a signed-in chat session; call chat_sign_in first.",
+      description: "Post a message to an rt chat room as the signed-in identity. mentions are names or ids; a name reaches whoever holds it now. Requires a signed-in chat session; call chat_sign_in first.",
       inputSchema: {
         type: "object",
         properties: {
@@ -273,7 +274,7 @@ export function mcpTools(): McpToolDef[] {
     },
     {
       name: "chat_dm",
-      description: "Send a direct message to another rt chat handle. Requires a signed-in chat session; call chat_sign_in first.",
+      description: "Send a direct message to another rt chat identity. to is a name or an id: a name reaches whoever holds it now, and the id from a delivery's reply hint reaches that exact sender even after the name has changed hands. Requires a signed-in chat session; call chat_sign_in first.",
       inputSchema: {
         type: "object",
         properties: { to: { type: "string" }, body: { type: "string" } },
@@ -793,5 +794,6 @@ export function mcpTools(): McpToolDef[] {
     ...herdToolDefs(),
     ...chatToolDefs(),
     ...whoamiToolDefs(),
+    ...ciToolDefs(),
   ];
 }

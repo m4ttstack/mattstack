@@ -84,3 +84,10 @@ test("migration verbs are on the index; the authoring tools are not", async () =
     expect(name in index, name).toBe(false);
   }
 });
+
+describe("index.ts ci lease surface", () => {
+  test("exports the lock-busy error as a CiLeaseError subclass", () => {
+    expect(typeof rtClient.CiLeaseLockBusyError).toBe("function");
+    expect(new rtClient.CiLeaseLockBusyError("x")).toBeInstanceOf(rtClient.CiLeaseError);
+  });
+});

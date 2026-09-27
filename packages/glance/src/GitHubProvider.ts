@@ -164,7 +164,7 @@ type GHReview = Pick<components['schemas']['pull-request-review'], 'state'> & {
 
 type GHCheckRun = Pick<
   components['schemas']['check-run'],
-  'name' | 'status' | 'conclusion' | 'started_at' | 'completed_at'
+  'name' | 'status' | 'conclusion' | 'started_at' | 'completed_at' | 'head_sha'
 > & {
   id: number;
   // Schema allows `html_url: null`; this file has never observed that case.
@@ -499,7 +499,8 @@ function mapStateToGraphQLStates(
  */
 function toPipeline(
   checkRuns: GHCheckRun[],
-  prHtmlUrl: string
+  prHtmlUrl: string,
+  headRef: string | null
 ): Pipeline | null {
   if (checkRuns.length === 0) return null;
 
@@ -533,6 +534,9 @@ function toPipeline(
   return {
     id: `github:checks:${prHtmlUrl}`,
     status: overallStatus,
+    sha: checkRuns[0]?.head_sha ?? null,
+    ref: headRef,
+    mergeRequestEventType: null,
     createdAt: null,
     webUrl: `${prHtmlUrl}/checks`,
     jobs
@@ -3169,7 +3173,7 @@ export class GitHubProvider implements GitProvider {
     // Conflicts: GitHub's mergeable_state "dirty" indicates conflicts
     const conflicts = pr.mergeable === false || pr.mergeable_state === 'dirty';
 
-    const pipeline = toPipeline(checkRuns, pr.html_url);
+    const pipeline = toPipeline(checkRuns, pr.html_url, pr.head?.ref ?? null);
 
     return {
       id: `github:pr:${pr.id}`,

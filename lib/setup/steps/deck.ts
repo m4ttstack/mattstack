@@ -19,15 +19,15 @@ import { join } from "path";
 import { bundledToolPath } from "../../deps/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
+import type { Probes } from "../probes.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 interface DeckApiFile {
   port?: unknown;
 }
 
-/** Exported for `lib/setup/uninstall.ts`'s deck.managed-remove, which needs the same "is deck actually up" check before asking it to unmanage anything. */
-export function readDeckApiPort(ctx: ApplyContext): number | null {
-  const raw = ctx.p.readFile(join(ctx.p.home, ".mattstack", "deck", "api.json"));
+export function readDeckApiPortFrom(p: Pick<Probes, "readFile" | "home">): number | null {
+  const raw = p.readFile(join(p.home, ".mattstack", "deck", "api.json"));
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as DeckApiFile;
@@ -37,9 +37,18 @@ export function readDeckApiPort(ctx: ApplyContext): number | null {
   }
 }
 
-export async function deckIsHealthy(ctx: ApplyContext, port: number): Promise<boolean> {
-  const res = await ctx.p.fetch(`http://127.0.0.1:${port}/healthz`);
+/** Exported for `lib/setup/uninstall.ts`'s deck.managed-remove, which needs the same "is deck actually up" check before asking it to unmanage anything. */
+export function readDeckApiPort(ctx: ApplyContext): number | null {
+  return readDeckApiPortFrom(ctx.p);
+}
+
+export async function deckHealthyAt(p: Pick<Probes, "fetch">, port: number): Promise<boolean> {
+  const res = await p.fetch(`http://127.0.0.1:${port}/healthz`);
   return res.status === 200;
+}
+
+export async function deckIsHealthy(ctx: ApplyContext, port: number): Promise<boolean> {
+  return deckHealthyAt(ctx.p, port);
 }
 
 /** deck's own frozen error vocabulary for `adopt` — matched as substrings since the real CLI wraps them in a sentence, not a bare code. */
@@ -50,7 +59,7 @@ function matchFrozenError(text: string): (typeof FROZEN_ADOPT_ERRORS)[number] | 
 }
 
 /** deck's registrar id for mattstack's rows. Deck refuses a structural change to a row from any caller but its registrar, and an unnamed caller is "user". */
-const MATTSTACK_REGISTRAR = "rt";
+export const MATTSTACK_REGISTRAR = "rt";
 
 type AdoptResult = { kind: "renamed" } | { kind: "skip"; detail: string } | { kind: "failed"; outcome: StepOutcome };
 
@@ -99,6 +108,48 @@ async function repointBoard(ctx: ApplyContext, port: number): Promise<string> {
   return "repointed";
 }
 
+interface DeckAppRow {
+  name: string;
+  managedBy: string;
+  requiresTeam?: boolean;
+  enabled?: boolean;
+}
+
+const DECK_API_TIMEOUT_MS = 120_000;
+
+async function applyAppDefaults(ctx: ApplyContext, port: number): Promise<{ ok: boolean; detail: string }> {
+  // An intent is only on disk during a first run or an upgrade; a completed apply clears it. Without one this is a re-run, and a user's own toggles stand.
+  if (ctx.intent === null) return { ok: true, detail: "app defaults untouched (not an install)" };
+  const res = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps`, { timeoutMs: DECK_API_TIMEOUT_MS });
+  if (res.status !== 200) return { ok: false, detail: `app defaults not applied (deck answered ${res.status})` };
+  let apps: DeckAppRow[];
+  try {
+    apps = (JSON.parse(res.body) as { apps?: DeckAppRow[] }).apps ?? [];
+  } catch {
+    return { ok: false, detail: "app defaults not applied (unreadable app list)" };
+  }
+  const targets = apps
+    .filter((a) => a.managedBy === MATTSTACK_REGISTRAR && a.requiresTeam === true)
+    .map((a) => a.name)
+    .sort();
+  if (targets.length === 0) return { ok: true, detail: "no team-only apps" };
+  const enabled = ctx.team.slug !== "";
+  const headers = { "content-type": "application/json", "x-local-caller": MATTSTACK_REGISTRAR };
+  const failed: string[] = [];
+  for (const name of targets) {
+    const r = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps/${name}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ enabled }),
+      timeoutMs: DECK_API_TIMEOUT_MS,
+    });
+    if (r.status < 200 || r.status >= 300) failed.push(`${name} (${r.status})`);
+  }
+  if (failed.length) return { ok: false, detail: `app defaults not applied; failed: ${failed.join(", ")}` };
+  const names = targets.join(", ");
+  return { ok: true, detail: enabled ? `team apps on: ${names}` : `solo: ${names} off` };
+}
+
 async function deckManagedRun(ctx: ApplyContext): Promise<StepOutcome> {
   const deckBin = bundledToolPath(ctx.p, "deck");
   if (deckBin === null) return { state: "skipped", detail: "deck not bundled yet" };
@@ -119,8 +170,9 @@ async function deckManagedRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   const adopted = await adoptBoard(ctx, deckBin);
   if (adopted.kind === "failed") return adopted.outcome;
-  if (adopted.kind === "skip") return { state: "done", detail: `deck ready; ${adopted.detail}` };
-  return { state: "done", detail: `deck ready; board adopted from legacy mrs, ${await repointBoard(ctx, port)}` };
+  const adoptDetail = adopted.kind === "skip" ? adopted.detail : `board adopted from legacy mrs, ${await repointBoard(ctx, port)}`;
+  const defaults = await applyAppDefaults(ctx, port);
+  return { state: defaults.ok ? "done" : "failed", detail: `deck ready; ${adoptDetail}; ${defaults.detail}` };
 }
 
 async function deckManagedRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

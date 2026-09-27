@@ -18,8 +18,8 @@ export interface StackChain {
   unresolvedParentBranch: string | null;
 }
 
-/** Project scope for branch matching. Intentionally NOT attendant.ts's
-    leaseFileName slug: that string is a shipped cross-repo contract with
+/** Project scope for branch matching. Intentionally NOT rt-client's
+    ciLeaseFileName slug: that string is a shipped cross-repo contract with
     ci-attendant.sh and must not drift for an internal grouping key.
     Exported for view.ts's nestStacks, so display grouping and triage
     chain-walking can never disagree on what counts as the same project. */

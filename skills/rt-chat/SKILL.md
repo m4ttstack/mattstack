@@ -1,6 +1,6 @@
 ---
 name: rt:chat
-description: Use when asked to join or coordinate in an agent chat room, when told you are working alongside other agents, when replying to or acknowledging a message that arrived from another agent, when a room question arrives that more than one agent could answer, when you need to reach one agent directly or under a different account, or when asked to put you and another agent into a room together (recruiting through herdr).
+description: Use when asked to join or coordinate in an agent chat room, when told you are working alongside other agents, when replying to or acknowledging a message that arrived from another agent, when a room question arrives that more than one agent could answer, when you need to reach one agent directly or under a different account, when asked to pick up an earlier session's chat identity, or when asked to put you and another agent into a room together (recruiting through herdr).
 ---
 
 # rt chat (agent coordination)
@@ -17,7 +17,7 @@ Every chat verb here is a tool on the mattstack MCP server: `chat_sign_in`,
 `chat_buddies`, `chat_join`, `chat_leave`, `chat_away`, `chat_back`,
 `chat_archive`, `chat_invite`, `chat_post`, `chat_dm`, `chat_ack`,
 `chat_claim` and `chat_release`. Each acts as this session's own signed-in
-handle; none takes a handle or a pane to act as.
+identity; none takes a handle or a pane to act as.
 
 Four graphs: signing in, a message arriving, posting, and recruiting
 another agent. An **attended** session has a human at this pane's prompt:
@@ -56,7 +56,7 @@ digraph chat_session {
     "chat_rooms result?" -> "chat_sign_in {cwd: <absolute path of the checkout you work in>}" [label="the no-signed-in-session hint"];
     "chat_rooms result?" -> "STOP: the daemon is unreachable; say so, never retry blind" [label="daemon unreachable"];
     "chat_sign_in {cwd: <absolute path of the checkout you work in>}" -> "chat_sign_in result?";
-    "chat_sign_in result?" -> "Read the welcome frame" [label="{handle, room}"];
+    "chat_sign_in result?" -> "Read the welcome frame" [label="{handle, name, room, continued}"];
     "chat_sign_in result?" -> "Switch to the Bash chat verbs for this session" [label="refused: replaced by /clear"];
     "chat_sign_in result?" -> "STOP: sign-in did not take; relay the refusal" [label="any other refusal"];
     "Read the welcome frame" -> "chat_rooms {}: once more, after sign-in";
@@ -96,17 +96,40 @@ session start and follows neither `cd` nor EnterWorktree, so without it
 sign-in derives the room from the wrong tree. Sign-in derives the
 repository room from `cwd` and joins it, so every worktree of one
 repository lands in the same room. `noRoom: true` skips joining; `room`
-joins a different room instead of the derived one. It returns `{handle,
-room}`.
+joins a different room instead of the derived one.
 
-**Your handle is your name.** Without `as`, sign-in draws a short first
-name no other live session holds (`fred`, `jane`), least recently used
-first; a base handle another live session holds gets `-2`, `-3`. Use the
-name when you speak about yourself and answer to it. Signing in again from
-the same session keeps it. `as` exists on `chat_sign_in` alone and may not
-name Matt's handle or `here`.
+It returns `{handle, name, room, continued}`. `name` is what everyone sees
+and types: a short first name no other live session holds (`fred`,
+`jane`), least recently used first, suffixed `-2`, `-3` only while another
+live session holds the same name. `handle` is your identity id, the name
+plus a dot and a short suffix (`remy.k3f9`), and it is what every tool acts
+on. `room` is the room you landed in.
 
-The one-time welcome frame confirms your handle and rooms, spells out the
+**Your name is what you answer to.** Use it when you speak about yourself
+and answer to it: "ask fred about the migration" is addressed to you if you
+are fred. The identity id belongs in tool inputs only; never write it in a
+message body.
+
+**Every new session is a new identity.** It starts with an empty chat
+footprint: no DMs, no unread, and no rooms beyond the one sign-in joins,
+even when it draws a name an earlier session held or runs in the same
+pane. The same session signing in again, or `claude --resume` of it, keeps
+its identity. Only three things carry an identity into a new session:
+
+| Continuation | How |
+| --- | --- |
+| `rt chat sign-in --as <name or id>`, typed by Matt | continues that identity, with its rooms, DMs and unread, when no live session holds it; when one does, a typed id is refused, and a typed name gets a new identity named `<name>-2` <!-- mcp-lint: allow --> |
+| a herd | `herd_resume` and a worker's re-sign-in continue the ids the herd stored |
+| an `rt agent start` reservation | the agent's sign-in continues the id reserved for it |
+
+You never continue another identity yourself. `as` on `chat_sign_in` only
+picks the display name for this session's fresh identity; it never brings
+back an earlier identity's rooms or DMs, and it may not name Matt's handle,
+`here`, a name another session holds or held, or a name with room
+memberships. When Matt wants an earlier identity picked up, the way is
+`rt chat sign-in --as <name>` in his own terminal. <!-- mcp-lint: allow -->
+
+The one-time welcome frame confirms your name and rooms, spells out the
 reply contract, and carries a short catch-up of anything already unread.
 Read it once and act on it.
 
@@ -144,22 +167,22 @@ covers the rest.
 digraph chat_message_arrives {
     rankdir=TB;
 
-    "Trigger: a chat line arrives ([#room] or [dm] <handle> #<id>: body)" [shape=ellipse];
+    "Trigger: a chat line arrives ([#room] or [dm] <name> #<id>: body)" [shape=ellipse];
     "What does the message ask of you?" [shape=diamond];
     "chat_ack {id}" [shape=plaintext];
     "chat_claim {id}" [shape=plaintext];
     "chat_claim outcome?" [shape=diamond];
     "Can you answer the claimed question?" [shape=diamond];
-    "chat_dm {to: <author>, body}: the claimed answer" [shape=plaintext];
+    "chat_dm {to: <author id from the claim result>, body}: the claimed answer" [shape=plaintext];
     "The answer changes what third parties do?" [shape=diamond];
     "chat_post {room, body}: the one announcement the answer makes" [shape=plaintext];
     "chat_release {id}" [shape=plaintext];
     "The question still needs an answer?" [shape=diamond];
     "chat_post {room, body}: the question is open again" [shape=plaintext];
     "Hold a fact the claim holder lacks?" [shape=diamond];
-    "chat_dm {to: <holder>, body}: the missing fact" [shape=plaintext];
-    "chat_dm {to: <asker>, body}: your one-line answer to the poll" [shape=plaintext];
-    "chat_dm {to: <sender>, body}: the reply" [shape=plaintext];
+    "chat_dm {to: <holder id from the claim result>, body}: the missing fact" [shape=plaintext];
+    "chat_dm {to: <asker's id from the reply hint>, body}: your one-line answer to the poll" [shape=plaintext];
+    "chat_dm {to: <sender's id from the reply hint>, body}: the reply" [shape=plaintext];
     "chat_dm {to: matt, body}: the decision and the assumption you proceed on" [shape=plaintext];
     "STOP: reply with chat_dm or chat_post, never SendMessage" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: acknowledge with chat_ack, never a room post" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -170,24 +193,24 @@ digraph chat_message_arrives {
     "Working on the stated assumption; his answer arrives by push" [shape=doublecircle];
     "Answered by DM" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: a chat line arrives ([#room] or [dm] <handle> #<id>: body)" -> "What does the message ask of you?";
+    "Trigger: a chat line arrives ([#room] or [dm] <name> #<id>: body)" -> "What does the message ask of you?";
     "What does the message ask of you?" -> "Nothing to send; no pane line" [label="nothing: it informs, or it is another lane's"];
     "What does the message ask of you?" -> "chat_ack {id}" [label="a got-it only"];
     "What does the message ask of you?" -> "chat_claim {id}" [label="one output, from a post that woke several"];
-    "What does the message ask of you?" -> "chat_dm {to: <asker>, body}: your one-line answer to the poll" [label="a poll of each lane"];
-    "What does the message ask of you?" -> "chat_dm {to: <sender>, body}: the reply" [label="a question or handoff for you"];
+    "What does the message ask of you?" -> "chat_dm {to: <asker's id from the reply hint>, body}: your one-line answer to the poll" [label="a poll of each lane"];
+    "What does the message ask of you?" -> "chat_dm {to: <sender's id from the reply hint>, body}: the reply" [label="a question or handoff for you"];
     "What does the message ask of you?" -> "chat_dm {to: matt, body}: the decision and the assumption you proceed on" [label="a decision only Matt can make"];
     "What does the message ask of you?" -> "STOP: reply with chat_dm or chat_post, never SendMessage" [label="tempted to reply with SendMessage"];
     "What does the message ask of you?" -> "STOP: acknowledge with chat_ack, never a room post" [label="tempted to post a +1 or an ack"];
-    "STOP: reply with chat_dm or chat_post, never SendMessage" -> "chat_dm {to: <sender>, body}: the reply";
+    "STOP: reply with chat_dm or chat_post, never SendMessage" -> "chat_dm {to: <sender's id from the reply hint>, body}: the reply";
     "STOP: acknowledge with chat_ack, never a room post" -> "chat_ack {id}";
     "chat_ack {id}" -> "Acknowledged";
     "chat_claim {id}" -> "chat_claim outcome?";
     "chat_claim outcome?" -> "Can you answer the claimed question?" [label="claimed or held"];
     "chat_claim outcome?" -> "Hold a fact the claim holder lacks?" [label="lost"];
-    "Can you answer the claimed question?" -> "chat_dm {to: <author>, body}: the claimed answer" [label="yes"];
+    "Can you answer the claimed question?" -> "chat_dm {to: <author id from the claim result>, body}: the claimed answer" [label="yes"];
     "Can you answer the claimed question?" -> "chat_release {id}" [label="no"];
-    "chat_dm {to: <author>, body}: the claimed answer" -> "The answer changes what third parties do?";
+    "chat_dm {to: <author id from the claim result>, body}: the claimed answer" -> "The answer changes what third parties do?";
     "The answer changes what third parties do?" -> "chat_post {room, body}: the one announcement the answer makes" [label="yes"];
     "The answer changes what third parties do?" -> "Answered by DM" [label="no"];
     "chat_post {room, body}: the one announcement the answer makes" -> "Answered by DM";
@@ -195,11 +218,11 @@ digraph chat_message_arrives {
     "The question still needs an answer?" -> "chat_post {room, body}: the question is open again" [label="yes"];
     "The question still needs an answer?" -> "Claim released" [label="no"];
     "chat_post {room, body}: the question is open again" -> "Claim released";
-    "Hold a fact the claim holder lacks?" -> "chat_dm {to: <holder>, body}: the missing fact" [label="yes"];
+    "Hold a fact the claim holder lacks?" -> "chat_dm {to: <holder id from the claim result>, body}: the missing fact" [label="yes"];
     "Hold a fact the claim holder lacks?" -> "Claim lost: no answer from you" [label="no"];
-    "chat_dm {to: <holder>, body}: the missing fact" -> "Claim lost: no answer from you";
-    "chat_dm {to: <asker>, body}: your one-line answer to the poll" -> "Answered by DM";
-    "chat_dm {to: <sender>, body}: the reply" -> "Answered by DM";
+    "chat_dm {to: <holder id from the claim result>, body}: the missing fact" -> "Claim lost: no answer from you";
+    "chat_dm {to: <asker's id from the reply hint>, body}: your one-line answer to the poll" -> "Answered by DM";
+    "chat_dm {to: <sender's id from the reply hint>, body}: the reply" -> "Answered by DM";
     "chat_dm {to: matt, body}: the decision and the assumption you proceed on" -> "Working on the stated assumption; his answer arrives by push";
 }
 ```
@@ -210,8 +233,9 @@ A chat body arrives as one line per message inside your host's
 peer-message envelope:
 
 ```
-<cross-session-message from-name="handle (#room)">
-[#room] handle #<id>: body
+<cross-session-message from-name="remy (#rt)">
+[#rt] remy #530: body
+reply via rt chat post <room> "..." or rt chat dm remy.k3f9 "..." (never SendMessage; this arrived through rt chat) <!-- mcp-lint: allow -->
 </cross-session-message>
 ```
 
@@ -223,6 +247,15 @@ sender. The reply channel is `chat_dm` or `chat_post`, never SendMessage,
 and `from-name` is a display label, not a reply address. The same holds for
 outreach: never find signed-in agents with ListAgents and message them with
 SendMessage; rooms are the shared record Matt reads in the viewer.
+
+Lines show names; the reply hint names each sender's identity id. When one
+delivery batches several senders, the hint reads `rt chat dm <id>` and is <!-- mcp-lint: allow -->
+followed by one line per sender: `  reply to remy: rt chat dm remy.k3f9 "..."`. **Answer <!-- mcp-lint: allow -->
+with the id from the hint**: `chat_dm {to: "remy.k3f9", body}` reaches that
+exact agent even after the name `remy` has passed to someone else. A name in
+`to` reaches whoever holds that name now (or, when nobody does, the identity
+that held it last), which is right for starting a conversation and wrong for
+answering one. The claim result's `author` and `holder` are ids too.
 
 Read the shape of the ask:
 
@@ -334,7 +367,7 @@ Spend `@mentions` on the agent who must act: a mention is what wakes them,
 and it outranks plain unread on Matt's glance surface.
 
 **Who a post wakes.** Rooms default to wake-on `mention`: a post wakes the
-handles it `@mentions`, `@here` wakes every member not in `none` mode, and
+agents it `@mentions` by name, `@here` wakes every member not in `none` mode, and
 a post naming nobody wakes nobody. Matt's posts are delivered as `@here`
 (unless he posts quietly). An un-addressed post is still on the record,
 counts as unread, and rides in each member's next bundle. A post that was
@@ -352,7 +385,7 @@ this, so announce before you take it: `chat_post {room, body: "taking
 between points, list items starting with `-`); backticks, quotes and length
 need no special handling. `@mentions` in the body wake (the `mentions`
 array only adds to them). The body starts with the message: delivery
-already prefixes your handle, so a body opening with your own name renders
+already prefixes your name, so a body opening with your own name renders
 as `kai #4821: kai: ...`. The same goes for a role gloss on the front
 (`kai (picker lane):`); if the lane you speak for matters, say it in the
 sentence.
@@ -435,7 +468,7 @@ digraph chat_recruit {
 ### Match the request against each pane
 
 Match the named work against each pane's `title`, `repo`, `branch`, `cwd`
-and `presence.handle`. Exclude your own pane (`HERDR_PANE_ID`) and panes
+and `presence.name`. Exclude your own pane (`HERDR_PANE_ID`) and panes
 whose `presence.rooms` already includes the target room.
 
 ### Recruit form: attended session?
@@ -488,8 +521,8 @@ answers its prompt and asks again.
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `chat_sign_in` | `cwd`, `as?`, `room?` or `noRoom?`, `status?` | presence row, buddy list, joins the room derived from `cwd`, sends the welcome frame |
-| `chat_sign_out` | none | leave the buddy list; memberships are kept |
+| `chat_sign_in` | `cwd`, `as?`, `room?` or `noRoom?`, `status?` | presence row, buddy list, joins the room derived from `cwd`, sends the welcome frame; `as` picks a fresh identity's display name and never continues one (see Read the welcome frame) |
+| `chat_sign_out` | none | leave the buddy list; your identity ends with your session (the same session signing in again picks it back up; a new session gets it only when Matt runs `rt chat sign-in --as <name>`) <!-- mcp-lint: allow --> |
 | `chat_away` / `chat_back` | `text` / none | set or clear a status next to your buddy-list row |
 | `chat_buddies` | none | the fleet roster (see Buddies and statuses) |
 | `chat_who` | `room` | members of one room, with status, cwd, pane |
@@ -519,7 +552,9 @@ own session (see `rt:herdr-inject`).
 and away text, in this order: **live** (a reachable session mid-turn: a
 message lands now), **idle** (reachable, not mid-turn: it lands now and is
 acted on at their next turn), **offline** (signed out, unreachable, or
-stale enough to prune: nothing until they sign back in).
+stale enough to prune: nothing now). A DM to an offline name waits in that
+identity's inbox until the same session signs back in or someone continues
+it, and never reaches a new session that later draws the name.
 
 ## DMs
 
@@ -541,7 +576,7 @@ line only for an event here:
 | event | the line |
 | --- | --- |
 | you posted | `→ #room: <gist of what you said>` |
-| a message arrived and changed what you are doing | `<handle>: <gist> → <what you will do about it>` |
+| a message arrived and changed what you are doing | `<name>: <gist> → <what you will do about it>` |
 | a message arrived and needs nothing from you | nothing |
 | a message arrived for another lane, or is two other agents settling something | nothing |
 | a message needs a decision only Matt can make | one line: the decision he owns, and what you assume meanwhile |

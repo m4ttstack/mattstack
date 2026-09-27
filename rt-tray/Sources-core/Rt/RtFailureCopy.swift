@@ -37,3 +37,28 @@ public extension RtClientError {
         }
     }
 }
+
+public struct RtJSONFailure: Error, Equatable {
+    public let copy: String
+}
+
+public extension RtRunning {
+    /// Same failure shape everywhere a JSON verb is called: `userError`
+    /// (exit 2) wins outright; any other non-zero exit, or a 0-exit reply
+    /// that doesn't decode, falls to `failureCopy(verb:)` (rt's own
+    /// stderr-derived copy, never a bare "unexpected reply" for an actual
+    /// failure, since that sentence is `failureCopy`'s own 0-exit case);
+    /// a thrown `RtClientError` (spawn failure) uses its `.copy`.
+    func runJSON<T: Decodable>(_ args: [String], verb: String, as type: T.Type) async -> Result<T, RtJSONFailure> {
+        do {
+            let r = try await run(args, stdin: nil)
+            if let e = r.userError { return .failure(RtJSONFailure(copy: e.message)) }
+            guard r.exitCode == 0, let decoded = try? r.decode(T.self) else {
+                return .failure(RtJSONFailure(copy: r.failureCopy(verb: verb)))
+            }
+            return .success(decoded)
+        } catch {
+            return .failure(RtJSONFailure(copy: (error as? RtClientError)?.copy ?? "rt \(verb) failed to start."))
+        }
+    }
+}

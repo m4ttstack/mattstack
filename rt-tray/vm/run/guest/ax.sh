@@ -142,6 +142,37 @@ ax_click() {  # <axid>
   ax_log "clicked $1"
 }
 
+# The status item's menu exists only while it is open, and an osascript run
+# ends before the next one starts, so opening it and picking the item happen
+# in one script. ax_click cannot reach it: menus are not under window 1.
+ax_click_menu_item() {  # <axid> [<fallback name>]
+  local id nm; id=$(ax_esc "$1"); nm=$(ax_esc "${2:-}")
+  ax_osa "tell application \"System Events\" to tell process \"$AX_APP\"
+      click menu bar item 1 of menu bar 2
+      delay 0.5
+      set r to missing value
+      set items_ to menu items of menu 1 of menu bar item 1 of menu bar 2
+      repeat with m in items_
+        try
+          if (value of attribute \"AXIdentifier\" of m) is \"$id\" then set r to m
+        end try
+        if r is not missing value then exit repeat
+      end repeat
+      if r is missing value and \"$nm\" is not \"\" then
+        repeat with m in items_
+          if (name of m as text) is \"$nm\" then set r to m
+          if r is not missing value then exit repeat
+        end repeat
+      end if
+      if r is missing value then
+        key code 53
+        error \"menu item not found: $id\"
+      end if
+      click r
+    end tell" >/dev/null || ax_fail "menu item $1"
+  ax_log "clicked menu item $1"
+}
+
 ax_click_button_named() {  # <name> [<process>]
   # $AX_APP is escaped once already (line 15); only an explicit $2 (raw) needs ax_esc here.
   local p="${2:-$AX_APP}" pe nm
@@ -149,6 +180,12 @@ ax_click_button_named() {  # <name> [<process>]
   nm=$(ax_esc "$1")
   ax_osa "tell application \"System Events\" to tell process \"$pe\" to click (first button of window 1 whose name is \"$nm\")" >/dev/null || return 1
   ax_log "clicked button '$1' in $p"
+}
+
+ax_click_toolbar_button() {  # <name>
+  local nm; nm=$(ax_esc "$1")
+  ax_osa "tell application \"System Events\" to tell process \"$AX_APP\" to click button \"$nm\" of toolbar 1 of window 1" >/dev/null || return 1
+  ax_log "clicked toolbar button '$1'"
 }
 
 ax_set_field() {  # <axid> <text>   (text never logged)
