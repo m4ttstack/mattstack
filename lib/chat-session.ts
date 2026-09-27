@@ -17,6 +17,8 @@ export interface ChatSession {
   sessionId: string;
   handle: string;
   baseHandle: string;
+  /** Absent in files written before identities existed; read it through sessionName. */
+  name?: string;
   signedInAt: number;
   room?: string;
   lastCwd?: string;
@@ -73,6 +75,11 @@ export function deleteChatSession(sessionId: string): void {
   } catch {
     // already gone, or an invalid id — nothing to remove either way
   }
+}
+
+/** The display name a session file stands for; an older file without `name` is a legacy id, whose name is itself. */
+export function sessionName(s: Pick<ChatSession, "handle" | "name">): string {
+  return typeof s.name === "string" && s.name ? s.name : s.handle;
 }
 
 /**

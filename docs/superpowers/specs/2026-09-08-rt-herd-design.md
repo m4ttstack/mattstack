@@ -1,5 +1,10 @@
 # rt herd: shepherdr on gates and chat, with nothing to remember
 
+> **Superseded in part:** `2026-09-27-chat-identity-design.md` replaces this
+> document's handle-as-identity statements: a handle is an identity id
+> behind a display name, and every new session is a new identity unless it
+> explicitly continues one.
+
 **Date:** 2026-09-08
 **Tickets:** SKILLS-59 (field report), SKILLS-58 (gate decisions through the bus), SKILLS-35 (watch loop drops events)
 **Repos:** rt (the facility), mattstack-skills (shepherdr engine and job template)

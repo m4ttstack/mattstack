@@ -265,6 +265,7 @@ function MessageBody({
           <MessageMarkdown
             body={message.body}
             mentions={message.mentions}
+            mentionNames={message.mentionNames}
             humanHandle={humanHandle}
             firstBlockOnly={readFolded}
           />
@@ -397,6 +398,7 @@ function MessageRow({
       <div className={prose.hdr}>
         <AgentName
           handle={message.handle}
+          name={message.name}
           variant="inline"
           hue={speakerHue(message.handle, humanHandle, 'body')}
           task={task}

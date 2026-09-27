@@ -54,15 +54,9 @@ import {
 import { readDeckSecrets, type RtSecretsDeps } from '../edge/rt-secrets.ts';
 import { gitProvenance, untrackedEnvPresent } from '../edge/source.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
-import { statusIconUrl } from '../registry/bundled-identity.ts';
 import { convert } from '../registry/convert.ts';
 import { migrate } from '../registry/migrate.ts';
-import {
-  getRecord,
-  listRecords,
-  type AppRecord,
-  type SyncIssue,
-} from '../registry/records.ts';
+import { getRecord, listRecords } from '../registry/records.ts';
 import { readLinkedManifest } from '../registry/serve-shape.ts';
 import {
   commandRunStatus,
@@ -91,7 +85,7 @@ import {
   type Drivers,
 } from './register.ts';
 import { logsDir, runModeFromEnv } from './state.ts';
-import { buildStatus, type StatusRow } from './status.ts';
+import { buildStatus, rowFor, safeRecord, type StatusRow } from './status.ts';
 
 export interface ApiDeps extends Drivers {
   port: number;
@@ -117,17 +111,25 @@ export interface ApiDeps extends Drivers {
   readyFetch?: typeof fetch;
   /** Tests inject an absolute fake path; production resolves cloudflared on the service PATH. */
   resolveCloudflared?: () => string | null;
-  /**
-   * Settles when the first boot sweep has finished. The sweep creates every
-   * catalog row, and the launcher treats its first 200 from /api/apps as the
-   * whole catalog, so /api/apps must not answer 200 before this settles.
-   */
-  bootSweep?: Promise<void>;
-  /** How long /api/apps waits on `bootSweep` before answering 503. */
+  /** How long /api/apps and /api/v1/apps wait on `bootSweep` before answering 503. */
   bootSweepWaitMs?: number;
 }
 
 const BOOT_SWEEP_WAIT_MS = 10_000;
+
+function bootSweepPending(headers: Record<string, string>): Response {
+  return new Response(
+    JSON.stringify({ error: 'deck is still starting its apps' }),
+    {
+      status: 503,
+      headers: {
+        'content-type': 'application/json',
+        'retry-after': '1',
+        ...headers,
+      },
+    }
+  );
+}
 
 async function settlesWithin(
   promise: Promise<unknown> | undefined,
@@ -231,97 +233,14 @@ async function body(req: Request): Promise<Record<string, unknown>> {
   }
 }
 
-/**
- * An AppRecord with everything an API response must not carry stripped out:
- * env VALUES (real secrets once the add-app form populates them) and the
- * local-only command/workingDirectory. Redaction is unconditional, because
- * GETs are always allowed through, public host or not, so there is no caller
- * policy to gate on. envKeys names the variables an app has, never the values.
- */
-export interface SafeRecord {
-  name: string;
-  managedBy: string;
-  port: number;
-  kind: AppRecord['kind'];
-  label?: string;
-  grandfathered?: boolean;
-  createdAt: string;
-  issues: SyncIssue[];
-  envKeys: string[];
-}
-
-function safeRecord(record: AppRecord): SafeRecord {
-  return {
-    name: record.name,
-    managedBy: record.managedBy,
-    port: record.port,
-    kind: record.kind,
-    ...(record.label !== undefined && { label: record.label }),
-    ...(record.grandfathered !== undefined && {
-      grandfathered: record.grandfathered,
-    }),
-    createdAt: record.createdAt,
-    issues: record.issues ?? [],
-    envKeys: Object.keys(record.env ?? {}),
-  };
-}
-
-/**
- * A record's live (route-joined, health-probed) StatusRow when one exists. A
- * record with no route yet (just-registered, before the edge driver's alias
- * lands) has no row to join against; synthesize a "not yet live" stand-in using
- * ONLY the same safe, non-secret StatusRow fields — never spread the raw
- * AppRecord, which carries command/env/workingDirectory. Shared by the list and
- * single-record endpoints so the two shapes cannot drift apart.
- *
- * `redact` mirrors buildStatus: the row's `record` shape feeds the board's
- * local-only edit dialog, so through a public host command/workingDirectory
- * must be null here exactly as they are on a joined row.
- */
-function rowFor(
-  record: AppRecord,
-  byName: Map<string, StatusRow>,
-  redact: boolean
-): StatusRow {
-  return (
-    byName.get(record.name) ?? {
-      name: record.name,
-      // Same ownership rule as buildStatus: a managed record is a mattstack
-      // product and surfaces as name.mattstack even before its route lands.
-      displayTld:
-        record.managedBy != null && record.managedBy !== 'user'
-          ? MATTSTACK_TLD
-          : 'localhost',
-      port: record.port,
-      url: null,
-      publicUrl: null,
-      health: null,
-      service: null,
-      published: false,
-      hasPassword: false,
-      isTunnel: false,
-      override: null,
-      publicFollowsOverride: false,
-      self: false,
-      managedBy: record.managedBy,
-      icon: statusIconUrl(record),
-      issues: record.issues ?? [],
-      record: {
-        kind: record.kind,
-        command: redact ? null : (record.command ?? null),
-        workingDirectory: redact ? null : (record.workingDirectory ?? null),
-      },
-      oauth: getOAuth(record.name),
-    }
-  );
-}
-
 function rowsByName(rows: StatusRow[]): Map<string, StatusRow> {
   return new Map(rows.map(r => [r.name, r]));
 }
 
 export function startApi(deps: ApiDeps) {
   const selfLabel = selfLabelCache(deps.deckOwner);
+  const bootSweepSettled = () =>
+    settlesWithin(deps.bootSweep, deps.bootSweepWaitMs ?? BOOT_SWEEP_WAIT_MS);
   return Bun.serve({
     port: deps.port,
     hostname: '127.0.0.1',
@@ -402,25 +321,8 @@ export function startApi(deps: ApiDeps) {
         if (req.method === 'OPTIONS')
           return new Response(null, { status: 204, headers: cors });
         if (pathname === '/api/apps' && req.method === 'GET') {
-          if (
-            !(await settlesWithin(
-              deps.bootSweep,
-              deps.bootSweepWaitMs ?? BOOT_SWEEP_WAIT_MS
-            ))
-          ) {
-            return new Response(
-              JSON.stringify({ error: 'deck is still starting its apps' }),
-              {
-                status: 503,
-                headers: {
-                  'content-type': 'application/json',
-                  'retry-after': '1',
-                  vary: 'origin',
-                  ...cors,
-                },
-              }
-            );
-          }
+          if (!(await bootSweepSettled()))
+            return bootSweepPending({ vary: 'origin', ...cors });
           const base = deckBaseFor(host); // https://deck.<tld> from the request host
           const apps = (
             await buildDiscoveryApps(statusOpts, serveShapeDeps)
@@ -461,6 +363,7 @@ export function startApi(deps: ApiDeps) {
           return json(await buildStatus(statusOpts));
         }
         if (pathname === '/api/v1/apps' && req.method === 'GET') {
+          if (!(await bootSweepSettled())) return bootSweepPending({});
           // Every registered record, through the shared safe-row join.
           const byName = rowsByName((await buildStatus(statusOpts)).apps);
           const apps: StatusRow[] = listRecords().map(record =>

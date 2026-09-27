@@ -14,6 +14,8 @@ import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
 import type { BuddyStatus } from '@mattstack/rt-client';
 
+import { AgentName } from './AgentName';
+import { useBuddies } from './buddies-context';
 import { doing, type DoingLine } from './doing';
 import { HUMAN_HANDLE } from './human';
 import { STATUS_WORD } from './statusDetail';
@@ -47,6 +49,7 @@ const BAD_TEXT = 'var(--mantine-color-bad-text)';
 
 export interface ComposerBuddy {
   handle: string;
+  name?: string;
   status: BuddyStatus;
   branch?: string;
   cwd?: string;
@@ -145,6 +148,8 @@ function Dot({ status }: { status: 'live' | 'idle' }) {
  */
 function BuddyOption({
   handle,
+  name,
+  withAvatar,
   status,
   inRoom,
   room,
@@ -152,6 +157,9 @@ function BuddyOption({
   onSelect,
 }: {
   handle: string;
+  name: string;
+  /** Set when another option reads the same name: the id-seeded avatar tells them apart. */
+  withAvatar: boolean;
   status: 'live' | 'idle';
   inRoom: boolean;
   room: string;
@@ -186,9 +194,20 @@ function BuddyOption({
     >
       <Dot status={status} />
       <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-        <Text component="span" size="sm" fw={600} truncate>
-          {handle}
-        </Text>
+        {withAvatar ? (
+          <Text component="span" size="sm" fw={600} truncate>
+            <AgentName
+              handle={handle}
+              name={name}
+              withCard={false}
+              withAvatar
+            />
+          </Text>
+        ) : (
+          <Text component="span" size="sm" fw={600} truncate>
+            {name}
+          </Text>
+        )}
         {subtext && (
           <Text
             component="span"
@@ -293,6 +312,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     const [focused, setFocused] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     useAutoGrowTextarea(textareaRef, value);
+    const ctx = useBuddies();
+    const nameOf = (handle: string) =>
+      buddies.find(b => b.handle === handle)?.name ??
+      ctx?.nameOf(handle) ??
+      handle;
 
     const showPopover = token !== null && daemonReachable;
 
@@ -301,7 +325,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       : buddies.filter(b => b.status !== 'offline');
     const query = (token?.query ?? '').toLowerCase();
     const filtered = query
-      ? relevant.filter(b => b.handle.toLowerCase().startsWith(query))
+      ? relevant.filter(b => nameOf(b.handle).toLowerCase().startsWith(query))
       : relevant;
     const options = STATUS_ORDER.flatMap(status =>
       filtered.filter(
@@ -309,6 +333,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
           b.status === status
       )
     );
+    const optionNameCounts = new Map<string, number>();
+    for (const b of options) {
+      const shown = nameOf(b.handle);
+      optionNameCounts.set(shown, (optionNameCounts.get(shown) ?? 0) + 1);
+    }
     const hereCount = roomMembers.filter(h => h !== humanHandle).length;
     const showHere = !isDm && (query === '' || 'here'.startsWith(query));
 
@@ -340,7 +369,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     }
 
     function insertMention(handle: string) {
-      const caret = replaceToken(`@${handle} `);
+      const caret = replaceToken(`@${nameOf(handle)} `);
       setMentions(prev => (prev.includes(handle) ? prev : [...prev, handle]));
       closePopover();
       focusAt(caret);
@@ -415,17 +444,29 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     function insertMentionAtCaret(handle: string) {
       const el = textareaRef.current;
       const caret = el?.selectionStart ?? value.length;
-      // A repeat pick focuses instead of stacking another `@handle`: the
-      // draft already carries the mention.
-      const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(`@${escaped}(?![A-Za-z0-9._-])`).test(value)) {
+      const shown = nameOf(handle);
+      const escaped = shown.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const textHas = new RegExp(`(?:^|\\s)@${escaped}(?![A-Za-z0-9._-])`).test(
+        value
+      );
+      if (textHas && mentions.includes(handle)) {
+        focusAt(caret);
+        return;
+      }
+      // An `@name` already typed can only be adopted when the name maps to
+      // one agent; a shared name may belong to the other one.
+      if (
+        textHas &&
+        buddies.filter(b => nameOf(b.handle) === shown).length === 1
+      ) {
+        setMentions(prev => (prev.includes(handle) ? prev : [...prev, handle]));
         focusAt(caret);
         return;
       }
       const before = value.slice(0, caret);
       const after = value.slice(caret);
       const needsSpace = before.length > 0 && !/\s$/.test(before);
-      const inserted = `${needsSpace ? ' ' : ''}@${handle} `;
+      const inserted = `${needsSpace ? ' ' : ''}@${shown} `;
       setValue(before + inserted + after);
       setMentions(prev => (prev.includes(handle) ? prev : [...prev, handle]));
       focusAt(before.length + inserted.length);
@@ -447,8 +488,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
         ? placeholderProp
         : isDm
           ? phone
-            ? `Message ${roomMembers.join(' ↔ ')}`
-            : `Message ${roomMembers.join(' ↔ ')} (both will wake)`
+            ? `Message ${roomMembers.map(nameOf).join(' ↔ ')}`
+            : `Message ${roomMembers.map(nameOf).join(' ↔ ')} (both will wake)`
           : phone
             ? `Message #${room}`
             : `Message #${room} (@ to mention)`;
@@ -570,6 +611,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                 <BuddyOption
                   key={b.handle}
                   handle={b.handle}
+                  name={nameOf(b.handle)}
+                  withAvatar={(optionNameCounts.get(nameOf(b.handle)) ?? 0) > 1}
                   status={b.status as 'live' | 'idle'}
                   inRoom={roomMembers.includes(b.handle)}
                   room={room}

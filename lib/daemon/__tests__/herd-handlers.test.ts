@@ -46,7 +46,14 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
   // which call came first (chat identity before the trust wait).
   const order: string[] = [];
   const chat = {
-    "chat:sign-in": async (p: any) => { chatCalls.push({ verb: "sign-in", payload: p }); order.push("chat:sign-in"); return { ok: true as const, data: { handle: p.baseHandle ?? "shepherd", baseHandle: p.baseHandle ?? "shepherd", sessionId: p.sessionId, room: p.room ?? null } }; },
+    "chat:sign-in": async (p: any) => {
+      chatCalls.push({ verb: "sign-in", payload: p });
+      order.push("chat:sign-in");
+      const handle = p.continue ?? p.baseHandle ?? "shepherd";
+      const name = handle.replace(/\.[a-z0-9]+$/, "");
+      return { ok: true as const, data: { handle, baseHandle: name, name, continued: p.continue !== undefined, reclaimed: false, sessionId: p.sessionId, room: p.room ?? null } };
+    },
+    "chat:sign-out": async (p: any) => { chatCalls.push({ verb: "sign-out", payload: p }); return { ok: true as const, data: { sessionId: p.sessionId } }; },
     "chat:join": async (p: any) => { chatCalls.push({ verb: "join", payload: p }); order.push("chat:join"); return { ok: true as const, data: { handle: p.handle, memberCount: 1, unread: 0 } }; },
     "chat:post": async (p: any) => { chatCalls.push({ verb: "post", payload: p }); return { ok: true as const, data: { id: chatCalls.length, recipients: p.mentions ?? [], others: 0 } }; },
     "chat:archive": async (p: any) => { chatCalls.push({ verb: "archive", payload: p }); return { ok: true as const, data: { room: p.room, archivedAt: 1 } }; },
@@ -146,7 +153,10 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
     store, gateStore, gate, chat, agent, worktree,
     runWorktree: () => null,
     findRunningRunByWorktree: () => ({ kind: "none" }),
-    presenceHandleForSession: () => null,
+    presenceIdentityForSession: () => null,
+    mintWorkerId: (job: string) => `${job}.w001`,
+    identityNames: (ids: Iterable<string>) => new Map([...ids].map((id) => [id, id.replace(/\.[a-z0-9]+$/, "")])),
+    resolveHandle: (x: string) => x,
     herdr: herdrFn,
     herdrRunnerFor: (socket: string | null) => {
       const allHerds = store.list();
@@ -239,7 +249,7 @@ describe("herd:start", () => {
   });
 
   test("a session that already holds a handle is not re-signed-in; the herd uses that handle", async () => {
-    const { h, store, chatCalls } = harness({ presenceHandleForSession: (s) => (s === "sess-shep" ? "kai" : null) });
+    const { h, store, chatCalls } = harness({ presenceIdentityForSession: (s) => (s === "sess-shep" ? { handle: "kai", baseHandle: "kai", name: "kai" } : null) });
     const res = await h["herd:start"](START);
     if (!res.ok) throw new Error(res.error);
     expect(res.data.handle).toBe("kai");
@@ -465,30 +475,76 @@ describe("herd:resume / status / close", () => {
     expect((await h["herd:resume"]({ herd: "nope", session: "s" })).ok).toBe(false);
   });
 
-  test("resume signs the new session in under the stored handle's base and joins the room", async () => {
+  test("resume signs the prior shepherd session out, then continues the stored shepherd id", async () => {
     const { h, store, chatCalls, herd, room } = await started();
-    store.setShepherd(herd, { session: "sess-shep", handle: "shepherd-3" });
+    store.setShepherd(herd, { session: "sess-shep", handle: "shepherd.k3f9" });
     chatCalls.length = 0;
     const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
     if (!res.ok) throw new Error(res.error);
     const identity = chatCalls.filter((c) => c.verb !== "rooms");
-    expect(identity.map((c) => c.verb)).toEqual(["sign-in", "join"]);
-    expect(identity[0]!.payload).toMatchObject({ sessionId: "sess-shep-2", baseHandle: "shepherd", noRoom: true });
-    expect(identity[1]!.payload).toMatchObject({ room, handle: "shepherd" });
+    expect(identity.map((c) => c.verb)).toEqual(["sign-out", "sign-in", "join"]);
+    expect(identity[0]!.payload).toEqual({ sessionId: "sess-shep" });
+    expect(identity[1]!.payload).toMatchObject({ sessionId: "sess-shep-2", continue: "shepherd.k3f9", noRoom: true });
+    expect(identity[1]!.payload.baseHandle).toBeUndefined();
+    expect(identity[2]!.payload).toMatchObject({ room, handle: "shepherd.k3f9" });
+    expect(res.data.handle).toBe("shepherd.k3f9");
+    expect(store.get(herd)!.shepherdHandle).toBe("shepherd.k3f9");
+    expect(readChatSession("sess-shep-2")).toMatchObject({ handle: "shepherd.k3f9", name: "shepherd" });
+  });
+
+  test("resume never continues a stored legacy id that now resolves to another identity; it signs in fresh under the id's base name", async () => {
+    const { h, store, chatCalls, herd } = await started({ resolveHandle: (x) => (x === "shepherd" ? "shepherd.zz99" : x) });
+    chatCalls.length = 0;
+    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    if (!res.ok) throw new Error(res.error);
+    const signIn = chatCalls.find((c) => c.verb === "sign-in")!.payload;
+    expect(signIn).toMatchObject({ sessionId: "sess-shep-2", baseHandle: "shepherd", noRoom: true });
+    expect(signIn.continue).toBeUndefined();
+    expect(res.data.handle).not.toBe("shepherd.zz99");
+    expect(store.get(herd)!.shepherdHandle).toBe(res.data.handle);
+  });
+
+  test("resume strips a legacy id's numeric suffix for the fresh sign-in's base name", async () => {
+    const { h, store, chatCalls, herd } = await started({ resolveHandle: (x) => (x === "shepherd-2" ? "shepherd.zz99" : x) });
+    store.setShepherd(herd, { session: "sess-shep", handle: "shepherd-2" });
+    chatCalls.length = 0;
+    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    if (!res.ok) throw new Error(res.error);
+    const signIn = chatCalls.find((c) => c.verb === "sign-in")!.payload;
+    expect(signIn).toMatchObject({ baseHandle: "shepherd" });
+    expect(signIn.continue).toBeUndefined();
+  });
+
+  test("resume continues the shepherd id even when the new session already holds its own", async () => {
+    const { h, store, chatCalls, herd } = await started({ presenceIdentityForSession: (s) => (s === "sess-shep-2" ? { handle: "kai.k3f9", baseHandle: "kai", name: "kai" } : null) });
+    chatCalls.length = 0;
+    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    if (!res.ok) throw new Error(res.error);
+    expect(chatCalls.find((c) => c.verb === "sign-in")!.payload).toMatchObject({ sessionId: "sess-shep-2", continue: "shepherd" });
     expect(res.data.handle).toBe("shepherd");
     expect(store.get(herd)!.shepherdHandle).toBe("shepherd");
   });
 
-  test("resume on a session that already holds a handle joins as that handle without signing in", async () => {
-    const { h, store, chatCalls, herd, room } = await started({ presenceHandleForSession: (s) => (s === "sess-shep-2" ? "kai" : null) });
+  test("resume from the shepherd's own session signs nothing out", async () => {
+    const { h, chatCalls, herd } = await started();
     chatCalls.length = 0;
-    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    const res = await h["herd:resume"]({ herd, session: "sess-shep" });
     if (!res.ok) throw new Error(res.error);
-    const identity = chatCalls.filter((c) => c.verb !== "rooms");
-    expect(identity.map((c) => c.verb)).toEqual(["join"]);
-    expect(identity[0]!.payload).toMatchObject({ room, handle: "kai" });
-    expect(res.data.handle).toBe("kai");
-    expect(store.get(herd)!.shepherdHandle).toBe("kai");
+    expect(chatCalls.filter((c) => c.verb === "sign-out")).toEqual([]);
+    expect(chatCalls.find((c) => c.verb === "sign-in")!.payload).toMatchObject({ sessionId: "sess-shep", continue: "shepherd" });
+  });
+
+  test("status and list carry the shepherd's and each job's display name next to the ids", async () => {
+    const { h, store, herd } = await started();
+    store.setShepherd(herd, { session: "sess-shep", handle: "shepherd.k3f9" });
+    store.upsertJob({ herd, name: "job-a", worktree: "/w/job-a", handle: "job-a.w001", status: "active", pane: "w9:p1" });
+    const status = await h["herd:status"]({ herd });
+    if (!status.ok) throw new Error(status.error);
+    expect(status.data.herd).toMatchObject({ shepherdHandle: "shepherd.k3f9", shepherdName: "shepherd" });
+    expect(status.data.jobs[0]).toMatchObject({ handle: "job-a.w001", handleName: "job-a" });
+    const list = await h["herd:list"]({});
+    if (!list.ok) throw new Error(list.error);
+    expect(list.data.herds.find((r) => r.id === herd)).toMatchObject({ shepherdHandle: "shepherd.k3f9", shepherdName: "shepherd" });
   });
 
   test("status reports lifecycleConnected, hiddenUp null for a visible herd, and the shepherd's subscription row", async () => {
@@ -962,16 +1018,17 @@ describe("herd:spawn", () => {
     expect(worktreeCalls[0]).toMatchObject({ verb: "provision", p: { repoName: "gh:m4ttstack/rt", branch: "job-a", disposal: "job" } });
     expect(agentCalls[0]).toMatchObject({
       repo: "gh:m4ttstack/rt", cwd: "/w/job-a", surface: "herdr", model: "opus", account: "2",
-      workspace: `herd: ${herd}`, tab: "job-a", label: "job-a", caller: `herd:${herd}`, handle: "job-a",
+      workspace: `herd: ${herd}`, tab: "job-a", label: "job-a", caller: `herd:${herd}`, handle: "job-a.w001",
       subject: herdSubject(herd, "job-a"),
       env: { HERD_ID: herd, HERD_JOB: "job-a", HERD_ROOM: room },
     });
     expect(agentCalls[0].prompt).toContain("do the thing");
     expect(agentCalls[0].herdrSocket).toBeUndefined();
     const signIn = chatCalls.filter((c) => c.verb === "sign-in")[1]!;
-    expect(signIn.payload).toMatchObject({ sessionId: "sess-w1", baseHandle: "job-a", pane: "w9:p1", noRoom: true });
-    expect(chatCalls.filter((c) => c.verb === "join")[1]!.payload).toMatchObject({ room, handle: "job-a", pane: "w9:p1" });
-    expect(store.getJob(herd, "job-a")).toMatchObject({ worktree: "/w/job-a", branch: "job-a", tree: "job-a", pane: "w9:p1", agentSession: "sess-w1", agentId: "ag-1", handle: "job-a", status: "spawning", disposable: false });
+    expect(signIn.payload).toMatchObject({ sessionId: "sess-w1", continue: "job-a.w001", pane: "w9:p1", noRoom: true });
+    expect(signIn.payload.baseHandle).toBeUndefined();
+    expect(chatCalls.filter((c) => c.verb === "join")[1]!.payload).toMatchObject({ room, handle: "job-a.w001", pane: "w9:p1" });
+    expect(store.getJob(herd, "job-a")).toMatchObject({ worktree: "/w/job-a", branch: "job-a", tree: "job-a", pane: "w9:p1", agentSession: "sess-w1", agentId: "ag-1", handle: "job-a.w001", status: "spawning", disposable: false });
     expect(res.data).toMatchObject({ pane: "w9:p1", worktree: "/w/job-a", tree: "job-a", sessionId: "sess-w1", wasOnDeck: false });
     expect(readFileSync(join(dir, "herds", herd, "job-a", "job.md"), "utf8")).toContain("do the thing");
   });
@@ -980,15 +1037,15 @@ describe("herd:spawn", () => {
     const { h, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
     if (!res.ok) throw new Error(res.error);
-    expect(readChatSession("sess-w1")).toMatchObject({ sessionId: "sess-w1", handle: "job-a", baseHandle: "job-a" });
+    expect(readChatSession("sess-w1")).toMatchObject({ sessionId: "sess-w1", handle: "job-a.w001", baseHandle: "job-a", name: "job-a" });
   });
 
   test("an existing file naming the same handle is kept, room and all", async () => {
-    writeChatSession({ sessionId: "sess-w1", handle: "job-a", baseHandle: "job-a", signedInAt: 1, room: "r" });
+    writeChatSession({ sessionId: "sess-w1", handle: "job-a.w001", baseHandle: "job-a", name: "job-a", signedInAt: 1, room: "r" });
     const { h, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
     if (!res.ok) throw new Error(res.error);
-    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a", room: "r", signedInAt: 1 });
+    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a.w001", room: "r", signedInAt: 1 });
   });
 
   test("a stale file naming another handle is rewritten to the signed-in handle, keeping its room", async () => {
@@ -996,7 +1053,7 @@ describe("herd:spawn", () => {
     const { h, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "b" });
     if (!res.ok) throw new Error(res.error);
-    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a", baseHandle: "job-a", room: "r" });
+    expect(readChatSession("sess-w1")).toMatchObject({ handle: "job-a.w001", baseHandle: "job-a", name: "job-a", room: "r" });
   });
 
   test("--dir skips provisioning; a respawn closes the old pane first and reuses the stored job.md", async () => {
@@ -1227,10 +1284,10 @@ describe("herd:spawn", () => {
   test("a sign-in that hands back a renamed handle is what the join, the row, and the response carry", async () => {
     const calls: Array<{ verb: string; payload: any }> = [];
     const chat = {
-      "chat:sign-in": async (p: any) => { calls.push({ verb: "sign-in", payload: p }); return { ok: true as const, data: { handle: "job-a-2", baseHandle: p.baseHandle, sessionId: p.sessionId, room: null } }; },
+      "chat:sign-in": async (p: any) => { calls.push({ verb: "sign-in", payload: p }); return { ok: true as const, data: { handle: "job-a-2", baseHandle: "job-a", name: "job-a-2", continued: false, reclaimed: false, sessionId: p.sessionId, room: null } }; },
       "chat:join": async (p: any) => { calls.push({ verb: "join", payload: p }); return { ok: true as const, data: { handle: p.handle, memberCount: 1, unread: 0 } }; },
     } as unknown as HerdDeps["chat"];
-    const hx = harness({ chat, presenceHandleForSession: () => "shepherd" });
+    const hx = harness({ chat, presenceIdentityForSession: () => ({ handle: "shepherd", baseHandle: "shepherd", name: "shepherd" }) });
     const s = await hx.h["herd:start"](START);
     if (!s.ok) throw new Error(s.error);
     const res = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", brief: "b", dir: "/t" });
@@ -1265,6 +1322,19 @@ describe("herd:spawn", () => {
     expect((await h["herd:spawn"]({ herd, job: "Bad", brief: "b" })).ok).toBe(false);
     expect((await h["herd:spawn"]({ herd, job: "job-b" })).ok).toBe(false);
     expect((await h["herd:spawn"]({ herd: "nope", job: "job-a", brief: "b" })).ok).toBe(false);
+  });
+
+  test("every spawn of a job mints a fresh worker id, so a respawn never inherits the last worker's DMs", async () => {
+    let n = 0;
+    const hx = harness({ mintWorkerId: (job) => `${job}.w00${++n}` });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const first = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", brief: "b", dir: "/t" });
+    if (!first.ok) throw new Error(first.error);
+    const second = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", dir: "/t" });
+    if (!second.ok) throw new Error(second.error);
+    expect(hx.agentCalls.map((c) => c.handle)).toEqual(["job-a.w001", "job-a.w002"]);
+    expect(hx.store.getJob(s.data.herd, "job-a")!.handle).toBe("job-a.w002");
   });
 });
 

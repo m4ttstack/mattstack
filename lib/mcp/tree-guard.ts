@@ -8,10 +8,17 @@
  * /var vs /private/var, a user symlink) would otherwise be refused even
  * though it names the same tree. `findTreeByRealpath` is the fallback that
  * catches that case by realpathing each stored record before comparing.
+ *
+ * A linked worktree the registry never adopted (the reconciler skips repos
+ * with no pool) is found by listing each registered checkout's worktrees
+ * with that checkout as git's cwd, never the candidate path: a candidate
+ * directory's own .git must not decide whether it is admitted.
  */
 import { realpathSync } from "fs";
-import { isAbsolute } from "path";
+import { dirname, isAbsolute } from "path";
+import { listWorktreeRoots } from "../git-worktrees.ts";
 import { loadRepoIndex } from "../repo-index.ts";
+import { childEnv } from "../subprocess.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
 import { listKvValues } from "../state/index.ts";
 
@@ -19,6 +26,18 @@ export interface TreeGuardDeps {
   repoIndex: () => Record<string, string>;
   treeByPath: (p: string) => { repoName: string; tree: string } | null;
   realpath: (p: string) => string;
+  worktreeRoots: (checkout: string) => string[];
+}
+
+// Each of these outranks cwd, so git would answer for (and push from) a repo
+// other than the tree the guard approved. git reads an empty value as a path,
+// not as unset, so they are deleted rather than blanked.
+const CWD_OVERRIDES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"];
+
+export function gitChildEnv(base: Record<string, string | undefined>, extra: Record<string, string>): Record<string, string | undefined> {
+  const env = { ...base };
+  for (const name of CWD_OVERRIDES) delete env[name];
+  return { ...env, ...extra };
 }
 
 /** Namespace `findTreeByPath` (lib/worktree/registry.ts) and `migrateWorktreeRegistry` (lib/repo-index.ts) also key on; kept here since registry.ts does not export it. */
@@ -49,10 +68,25 @@ export const realTreeGuardDeps: TreeGuardDeps = {
     findTreeByPath(p) ??
     findTreeByRealpath(p, listKvValues<Array<{ name: string; path: string }>>(WORKTREE_REGISTRY_NS), realpathSync),
   realpath: (p) => realpathSync(p),
+  // A stale checkout whose own .git is gone must not resolve to an enclosing
+  // repo, or that unregistered repo's worktrees would be admitted.
+  worktreeRoots: (checkout) =>
+    listWorktreeRoots(checkout, {
+      env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(checkout) }),
+      timeoutMs: 10_000,
+    }),
 };
 
 export const UNREGISTERED_TREE =
   "tree must be the absolute path of the root of a checkout or worktree of a repo registered with rt, not a directory inside one (rt repos register in its checkout first)";
+
+function tryRealpath(p: string, realpath: (p: string) => string): string | null {
+  try {
+    return realpath(p);
+  } catch {
+    return null;
+  }
+}
 
 export function checkRegisteredTree(
   tree: unknown,
@@ -65,16 +99,16 @@ export function checkRegisteredTree(
   } catch {
     return { ok: false, error: `tree ${tree} does not exist` };
   }
-  for (const [repoName, checkout] of Object.entries(deps.repoIndex())) {
-    let real: string;
-    try {
-      real = deps.realpath(checkout);
-    } catch {
-      continue;
-    }
-    if (real === path) return { ok: true, path, repoName };
+  const checkouts = Object.entries(deps.repoIndex());
+  for (const [repoName, checkout] of checkouts) {
+    if (tryRealpath(checkout, deps.realpath) === path) return { ok: true, path, repoName };
   }
   const hit = deps.treeByPath(path);
   if (hit) return { ok: true, path, repoName: hit.repoName };
+  for (const [repoName, checkout] of checkouts) {
+    for (const root of deps.worktreeRoots(checkout)) {
+      if (tryRealpath(root, deps.realpath) === path) return { ok: true, path, repoName };
+    }
+  }
   return { ok: false, error: UNREGISTERED_TREE };
 }

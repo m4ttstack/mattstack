@@ -24,7 +24,7 @@ import { dirname, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
 import {
-  deleteAgent, finishAgent, getAgent, insertAgent, isValidChatName, listAgents, markAgentResumed,
+  deleteAgent, finishAgent, getAgent, identityName, insertAgent, isValidChatName, listAgents, markAgentResumed,
   newAgentId, reserveAgentHandle, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
 import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
@@ -268,6 +268,10 @@ async function renamePane(runner: HerdrRunner, paneId: string, label: string, lo
 
 /** Paint budget for the folder-trust check on a freshly launched pane. */
 const TRUST_PAINT_MS = 3_000;
+
+function withName(rec: AgentRecord, db: Database): AgentRecord & { name?: string } {
+  return rec.handle === undefined ? rec : { ...rec, name: identityName(rec.handle, db) };
+}
 
 export function createAgentHandlers(opts: {
   db: Database;
@@ -603,7 +607,7 @@ export function createAgentHandlers(opts: {
         if (surface === "herdr" && rec.paneId && rec.tabId && rec.workspaceId) {
           updateAgentPane(rec.id, { paneId: rec.paneId, tabId: rec.tabId, workspaceId: rec.workspaceId }, db);
         }
-        return res;
+        return res.ok ? { ok: true, data: withName(res.data, db) } : res;
       } catch (err) {
         deleteAgent(rec.id, db);
         const message = err instanceof Error ? err.message : String(err);
@@ -676,7 +680,7 @@ export function createAgentHandlers(opts: {
         if (surface === "herdr" && attempt.paneId && attempt.tabId && attempt.workspaceId) {
           updateAgentPane(rec.id, { paneId: attempt.paneId, tabId: attempt.tabId, workspaceId: attempt.workspaceId }, db);
         }
-        return { ok: true, data: { ...(getAgent(rec.id, db) ?? attempt) } };
+        return { ok: true, data: withName(getAgent(rec.id, db) ?? attempt, db) };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -685,12 +689,12 @@ export function createAgentHandlers(opts: {
     "agent:get": async (rawPayload: unknown): Promise<CommandResult<"agent:get">> => {
       const payload = rawPayload as Commands["agent:get"]["payload"];
       const rec = getAgent(payload.id, db);
-      return rec ? { ok: true, data: rec } : { ok: false, error: `no agent record for "${payload.id}"` };
+      return rec ? { ok: true, data: withName(rec, db) } : { ok: false, error: `no agent record for "${payload.id}"` };
     },
 
     "agent:list": async (rawPayload: unknown): Promise<CommandResult<"agent:list">> => {
       const payload = rawPayload as Commands["agent:list"]["payload"];
-      return { ok: true, data: { agents: listAgents({ ...(payload.repo !== undefined && { repo: payload.repo }) }, db) } };
+      return { ok: true, data: { agents: listAgents({ ...(payload.repo !== undefined && { repo: payload.repo }) }, db).map((r) => withName(r, db)) } };
     },
   };
 }

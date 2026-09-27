@@ -17,15 +17,15 @@ session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
 session_file="$home/.mattstack/rt/chat/sessions/$session_id.json"
 [ -f "$session_file" ] || exit 0
 
-fields="$(jq -r '[(.handle // empty), (.room // empty)] | @tsv' < "$session_file" 2>/dev/null)"
+fields="$(jq -r '[(.name // .handle // empty), (.room // empty)] | @tsv' < "$session_file" 2>/dev/null)"
 [ -n "$fields" ] || exit 0
-IFS=$'\t' read -r handle room <<< "$fields"
-[ -n "$handle" ] || exit 0
+IFS=$'\t' read -r name room <<< "$fields"
+[ -n "$name" ] || exit 0
 
 if [ -n "$room" ]; then
-  message="rt chat: you are signed in as ${handle} (room #${room}); chat messages arrive in your context automatically."
+  message="rt chat: you are signed in as ${name} (room #${room}); chat messages arrive in your context automatically."
 else
-  message="rt chat: you are signed in as ${handle}; chat messages arrive in your context automatically."
+  message="rt chat: you are signed in as ${name}; chat messages arrive in your context automatically."
 fi
 
 jq -nc --arg msg "$message" '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $msg}}' 2>/dev/null

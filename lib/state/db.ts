@@ -21,8 +21,8 @@ import { rtDir } from "../rt-paths.ts";
 
 export type DbFlavor = "cli" | "daemon";
 
-/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
-export const SCHEMA_VERSION = 13;
+/** PRAGMA user_version target for the combined schema below (v1 + v2 + v3 + v4 + v6 + v7 + v8 + v9 + v12 + v13 + v14; v10 and v11 are DML-only migrations, not DDL blocks in SCHEMAS). */
+export const SCHEMA_VERSION = 14;
 
 // busy_timeout is per-process, not per-store (spec "The database"): a CLI
 // command may block briefly; the daemon's event loop must never block long,
@@ -333,6 +333,24 @@ CREATE TABLE IF NOT EXISTS git_badges (
 );
 `;
 
+// Tables (v14): chat identities (lib/state/identity-store.ts is the only
+// writer). A handle with no row here is a legacy id and its own display name.
+const V14_SCHEMA = `
+CREATE TABLE IF NOT EXISTS chat_identities (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,   -- display name, suffix included (remy-2)
+  base_name   TEXT NOT NULL,   -- remy
+  minted_at   INTEGER NOT NULL,
+  minted      INTEGER NOT NULL DEFAULT 1,  -- 0 for an adopted legacy handle
+  session_id  TEXT             -- null for a reservation not yet signed in
+);
+CREATE INDEX IF NOT EXISTS chat_identities_name ON chat_identities(name, minted_at);
+CREATE INDEX IF NOT EXISTS chat_identities_session ON chat_identities(session_id);
+CREATE INDEX IF NOT EXISTS chat_messages_handle ON chat_messages(handle);
+CREATE INDEX IF NOT EXISTS chat_members_handle ON chat_members(handle);
+CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
+`;
+
 /**
  * Every schema block, in version order. `runMigrations` execs
  * `SCHEMAS.join("")` unconditionally on EVERY open (R015/R056): every
@@ -342,7 +360,7 @@ CREATE TABLE IF NOT EXISTS git_badges (
  * A future schema block joins this array; leaving one out is caught by the
  * dynamic table-presence test in db-schema-convergence.test.ts.
  */
-const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA];
+const SCHEMAS = [V1_SCHEMA, V2_SCHEMA, V3_SCHEMA, V4_SCHEMA, V6_SCHEMA, V7_SCHEMA, V8_SCHEMA, V9_SCHEMA, V12_SCHEMA, V13_SCHEMA, V14_SCHEMA];
 
 /** project_mr_demands.sections (v6): SQLite's ALTER TABLE ADD COLUMN has no
     IF NOT EXISTS, so unlike every statement in the V*_SCHEMA strings above it

@@ -122,7 +122,7 @@ export async function paneRow(pane: HerdrPane, ctx: PaneRowContext, presenceRef:
     agentStatus: pane.agent_status,
     sessionId,
     presence: presence
-      ? { handle: presence.handle, status: presence.status, rooms: listRooms(presence.handle, ctx.db).map((r) => r.room) }
+      ? { handle: presence.handle, name: presence.name, status: presence.status, rooms: listRooms(presence.handle, ctx.db).map((r) => r.room) }
       : undefined,
     focused: pane.focused ?? false,
   };

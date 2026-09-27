@@ -4,7 +4,7 @@ import { execSync } from "child_process";
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { insertAgent, openStateDb, postMessage } from "../../state/index.ts";
+import { identityName, insertAgent, isValidChatName, openStateDb, postMessage, reserveAgentHandle } from "../../state/index.ts";
 import { createChatHandlers, inviteText, renderWelcome, type InboxDeps } from "../handlers/chat.ts";
 import { herdrRequest } from "../../herdr/client.ts";
 import { bgSocketPath } from "../bg-service.ts";
@@ -39,11 +39,27 @@ afterEach(() => {
 });
 
 let n = 0;
+
+// A `continue` naming no identity row (by id or name) is adopted as a legacy
+// id first, so each handle equals its name and the raw-handle db probes below
+// keep working. Tests that need a minted id pass `baseHandle` or nothing.
+function adoptingLegacy<H extends ReturnType<typeof createChatHandlers>>(h: H, db: Database): H {
+  const signIn = h["chat:sign-in"];
+  h["chat:sign-in"] = (async (p: { continue?: string }) => {
+    const want = p?.continue;
+    if (typeof want === "string" && isValidChatName(want) && !db.query("SELECT 1 FROM chat_identities WHERE id = ?1 OR name = ?1").get(want)) {
+      db.run("INSERT INTO chat_identities (id, name, base_name, minted_at, session_id) VALUES (?1, ?1, ?1, 0, NULL)", [want]);
+    }
+    return signIn(p as never);
+  }) as H["chat:sign-in"];
+  return h;
+}
+
 function freshHandlers(emitEvent: (topic: string, payload?: unknown) => number = () => 0) {
   const db = openStateDb(join(tmpdir(), `chat-h-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
   // underlying table directly get it back alongside the handler map.
-  return Object.assign(createChatHandlers({ db, emitEvent }), { db });
+  return Object.assign(adoptingLegacy(createChatHandlers({ db, emitEvent }), db), { db });
 }
 
 function snapshotChatTables(db: Database) {
@@ -363,68 +379,157 @@ test("chat_mention disabled in prefs suppresses the notification entirely", asyn
 
 // ─── Presence ─────────────────────────────────────────────────────────────
 
-test("sign-in assigns and a second same-base session gets the suffix", async () => {
+test("sign-in mints a fresh id per session; a second session asking for the same base gets the display suffix", async () => {
   const h = freshHandlers();
   const first = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "x" });
-  if (!first.ok) throw new Error("unreachable");
-  expect(first.data).toMatchObject({ handle: "x" });
+  if (!first.ok) throw new Error(first.error);
+  expect(first.data).toMatchObject({ name: "x", baseHandle: "x", continued: false });
+  expect(first.data.handle).toMatch(/^x\.[a-z0-9]{4,6}$/);
   const second = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "x" });
-  if (!second.ok) throw new Error("unreachable");
-  expect(second.data).toMatchObject({ handle: "x-2" });
+  if (!second.ok) throw new Error(second.error);
+  expect(second.data.name).toBe("x-2");
+  expect(second.data.handle).not.toBe(first.data.handle);
 });
 
-test("sign-in without a baseHandle draws a first name from the pool", async () => {
+test("sign-in without a baseHandle draws a pool name as the display name behind a new id", async () => {
   const h = freshHandlers();
   const res = await h["chat:sign-in"]({ sessionId: "s1" });
-  if (!res.ok) throw new Error("unreachable");
-  expect(AGENT_NAMES).toContain(res.data.baseHandle);
-  expect(res.data.handle).toBe(res.data.baseHandle);
+  if (!res.ok) throw new Error(res.error);
+  expect(AGENT_NAMES).toContain(res.data.name);
+  expect(res.data.baseHandle).toBe(res.data.name);
+  expect(res.data.handle.startsWith(`${res.data.name}.`)).toBe(true);
 });
 
-test("a herdr pane redraws its earlier pool handle on the next session; a different pane draws fresh", async () => {
+test("the same session signing in again keeps its id", async () => {
+  const h = freshHandlers();
+  const first = await h["chat:sign-in"]({ sessionId: "s1" });
+  if (!first.ok) throw new Error(first.error);
+  const again = await h["chat:sign-in"]({ sessionId: "s1" });
+  if (!again.ok) throw new Error(again.error);
+  expect(again.data.handle).toBe(first.data.handle);
+});
+
+test("a new session in a pane that signed in before gets a new id, never the old one", async () => {
   const h = freshHandlers();
   const first = await h["chat:sign-in"]({ sessionId: "s1", pane: "wAR:p3" });
-  if (!first.ok) throw new Error("unreachable");
-  const drawn = first.data.baseHandle;
-  expect(AGENT_NAMES).toContain(drawn);
-
+  if (!first.ok) throw new Error(first.error);
   await h["chat:sign-out"]({ sessionId: "s1" });
-
   const again = await h["chat:sign-in"]({ sessionId: "s2", pane: "wAR:p3" });
-  if (!again.ok) throw new Error("unreachable");
-  expect(again.data.baseHandle).toBe(drawn);
-
-  const elsewhere = await h["chat:sign-in"]({ sessionId: "s3", pane: "wZZ:p9" });
-  if (!elsewhere.ok) throw new Error("unreachable");
-  expect(elsewhere.data.baseHandle).not.toBe(drawn);
+  if (!again.ok) throw new Error(again.error);
+  expect(again.data.handle).not.toBe(first.data.handle);
+  expect(again.data.continued).toBe(false);
 });
 
-test("an explicit baseHandle still wins over a pane's pinned handle", async () => {
+test("continue on a name nobody holds live continues that identity: same id, its rooms come along", async () => {
   const h = freshHandlers();
-  const first = await h["chat:sign-in"]({ sessionId: "s1", pane: "wAR:p3" });
-  if (!first.ok) throw new Error("unreachable");
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  await h["chat:join"]({ room: "build", handle: a.data.handle });
   await h["chat:sign-out"]({ sessionId: "s1" });
-
-  const explicit = await h["chat:sign-in"]({ sessionId: "s2", pane: "wAR:p3", baseHandle: "kai" });
-  if (!explicit.ok) throw new Error("unreachable");
-  expect(explicit.data.baseHandle).toBe("kai");
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: "remy" });
+  if (!b.ok) throw new Error(b.error);
+  expect(b.data).toMatchObject({ handle: a.data.handle, name: "remy", continued: true });
+  const rooms = await h["chat:rooms"]({ handle: b.data.handle });
+  if (!rooms.ok) throw new Error(rooms.error);
+  expect(rooms.data.rooms.map((r) => r.room)).toEqual(["build"]);
 });
 
-test("renderWelcome carries the handle, room list, the automatic-delivery sentence, the two-line reply contract, the read/skill pointers, and catch-up capped at 10 lines per room", () => {
+test("continue by id works the same as continue by name", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  await h["chat:sign-out"]({ sessionId: "s1" });
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: a.data.handle });
+  if (!b.ok) throw new Error(b.error);
+  expect(b.data).toMatchObject({ handle: a.data.handle, continued: true });
+});
+
+test("continue on a name another live session holds mints a new id with the next display suffix", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: "remy" });
+  if (!b.ok) throw new Error(b.error);
+  expect(b.data.handle).not.toBe(a.data.handle);
+  expect(b.data).toMatchObject({ name: "remy-2", continued: false });
+});
+
+test("continue naming an id live in another session is refused with the reclaimed wording", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: a.data.handle });
+  expect(b.ok).toBe(false);
+  if (b.ok) throw new Error("unreachable");
+  expect(b.error).toContain("handle reclaimed");
+  const again = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!again.ok) throw new Error(again.error);
+  expect(again.data.handle).toBe(a.data.handle);
+});
+
+test("continue on a live suffixed name suffixes from the identity's base name, not from the suffixed name", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: "remy" });
+  if (!b.ok) throw new Error(b.error);
+  expect(b.data.name).toBe("remy-2");
+  const c = await h["chat:sign-in"]({ sessionId: "s3", continue: "remy-2" });
+  if (!c.ok) throw new Error(c.error);
+  expect(c.data).toMatchObject({ name: "remy-3", continued: false });
+  expect([a.data.handle, b.data.handle]).not.toContain(c.data.handle);
+});
+
+test("continue naming the human's handle is refused", async () => {
+  setSetting("chat.humanHandle", "matt", "user");
+  const h = freshHandlers();
+  const res = await h["chat:sign-in"]({ sessionId: "s1", continue: "matt" });
+  expect(res.ok).toBe(false);
+});
+
+test("continue with an invalid name is refused with a reason", async () => {
+  const h = freshHandlers();
+  const res = await h["chat:sign-in"]({ sessionId: "s1", continue: "Bad Name" });
+  expect(res.ok).toBe(false);
+  if (res.ok) throw new Error("unreachable");
+  expect(res.error).toContain("handle");
+});
+
+test("baseHandle naming an offline identity mints a fresh id and inherits none of its rooms (the MCP as path)", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  await h["chat:join"]({ room: "build", handle: a.data.handle });
+  await h["chat:sign-out"]({ sessionId: "s1" });
+  const b = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "remy" });
+  if (!b.ok) throw new Error(b.error);
+  expect(b.data).toMatchObject({ name: "remy", continued: false });
+  expect(b.data.handle).not.toBe(a.data.handle);
+  const rooms = await h["chat:rooms"]({ handle: b.data.handle });
+  if (!rooms.ok) throw new Error(rooms.error);
+  expect(rooms.data.rooms).toEqual([]);
+});
+
+test("renderWelcome carries the name, room list, the automatic-delivery sentence, the two-line reply contract, the read/skill pointers, catch-up capped at 10 lines per room, and the catch-up senders' ids", () => {
   const manyLines = Array.from({ length: 12 }, (_, i) => `agent: msg ${i}`);
   const text = renderWelcome("kai", ["build", "general"], [
     { room: "build", lines: manyLines },
     { room: "general", lines: [] },
-  ]);
-  expect(text).toContain("kai");
+  ], [{ handle: "agent.k3f9", name: "agent" }]);
+  expect(text).toContain("You're signed in to rt chat as kai.");
   expect(text).toContain("#build");
   expect(text).toContain("#general");
   expect(text).toContain("Messages will arrive in your context automatically; you never need to poll or arm anything.");
   expect(text).toContain('Reply in a room with: rt chat post <room> "..."');
-  expect(text).toContain('Reply privately with: rt chat dm <handle> "..."');
+  expect(text).toContain('Reply privately with: rt chat dm <id> "..." (every delivery names the sender\'s id)');
   expect(text).toContain("rt chat read shows a room's history.");
   expect(text).toContain("rt:chat skill");
   expect(text.split("\n").filter((l) => l.includes("msg "))).toHaveLength(10);
+  expect(text).toContain('Reply to a catch-up sender with:\n  reply to agent: rt chat dm agent.k3f9 "..."');
+});
+
+test("renderWelcome with nothing to catch up has no sender hints", () => {
+  expect(renderWelcome("kai", [], [])).not.toContain("Reply to a catch-up sender");
 });
 
 function paneSnapshotHandler(paneId: string, sessionId: string, cwd?: string): FakeHerdrHandler {
@@ -479,7 +584,8 @@ test("chat:sign-in viaPane resolves the pane's Claude session via herdr, signs i
   await Bun.sleep(0);
   expect(calls).toHaveLength(1);
   expect(calls[0]![0]).toBe(inboxSock);
-  expect(calls[0]![1]).toContain(res.data.handle);
+  expect(calls[0]![1]).toContain(`You're signed in to rt chat as ${res.data.name}.`);
+  expect(calls[0]![1]).not.toContain(res.data.handle);
   expect(calls[0]![1]).toContain('Reply in a room with: rt chat post <room> "..."');
 });
 
@@ -503,9 +609,9 @@ test("chat:sign-in viaPane joins the SAME room the CLI's own codec would derive 
   // the real repo initRepo() created, through the real runCapture.
   const exec: typeof runCapture = async (argv, opts) =>
     argv.includes("--abbrev-ref") ? { stdout: "feat/pane-sign-in\n", stderr: "", exitCode: 0 } : runCapture(argv, opts);
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr, repoIndex, exec });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr, repoIndex, exec }), db);
 
-  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, baseHandle: "kai" });
+  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai" });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   const expectedRoom = deriveRoomForCwd(repoDir);
@@ -539,9 +645,9 @@ test("chat:sign-in viaPane degrades to no room, without failing sign-in, when ro
     if (argv.includes("--abbrev-ref")) return { stdout: "main\n", stderr: "", exitCode: 0 };
     throw new Error("EACCES: permission denied, mkdir '/read-only-home/.mattstack'");
   };
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr, exec });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr, exec }), db);
 
-  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, baseHandle: "kai" });
+  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai" });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.room).toBeNull();
@@ -559,9 +665,9 @@ test("chat:sign-in viaPane with a cwd that isn't a git work tree at all joins no
 
   const db = openStateDb(join(tmpdir(), `chat-viapane-stray-${process.pid}-${n++}.db`));
   const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr }), db);
 
-  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, baseHandle: "kai" });
+  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai" });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.room).toBeNull();
@@ -579,9 +685,9 @@ test("chat:sign-in viaPane --no-room skips the join even with a real repo cwd", 
   stops.push(stop);
   const db = openStateDb(join(tmpdir(), `chat-viapane-noroom-${process.pid}-${n++}.db`));
   const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr }), db);
 
-  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, baseHandle: "kai", noRoom: true });
+  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai", noRoom: true });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.room).toBeNull();
@@ -598,9 +704,9 @@ test("chat:sign-in viaPane --room overrides the derived room with the explicit o
   stops.push(stop);
   const db = openStateDb(join(tmpdir(), `chat-viapane-explicit-${process.pid}-${n++}.db`));
   const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr }), db);
 
-  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, baseHandle: "kai", room: "warroom" });
+  const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai", room: "warroom" });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.room).toBe("warroom");
@@ -682,7 +788,8 @@ test("chat:sign-in draws baseHandle from the registry's USER-chosen name when no
   const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps });
   const res = await h["chat:sign-in"]({ sessionId: "s1" });
   if (!res.ok) throw new Error("unreachable");
-  expect(res.data).toMatchObject({ handle: "kai", baseHandle: "kai" });
+  expect(res.data).toMatchObject({ name: "kai", baseHandle: "kai", continued: false });
+  expect(res.data.handle.startsWith("kai.")).toBe(true);
 });
 
 test("chat:sign-in skips a DERIVED registry name (chat-c6 style) and draws from the pool instead", async () => {
@@ -694,21 +801,60 @@ test("chat:sign-in skips a DERIVED registry name (chat-c6 style) and draws from 
   const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps });
   const res = await h["chat:sign-in"]({ sessionId: "s1" });
   if (!res.ok) throw new Error("unreachable");
-  expect(res.data.handle).not.toBe("chat-c6");
+  expect(res.data.name).not.toBe("chat-c6");
 });
 
-test("chat:sign-in adopts the handle rt agent start reserved for this session", async () => {
-  const reserved = AGENT_NAMES[3]!;
+test("chat:sign-in continues the identity rt agent start reserved for this session", async () => {
   const inboxDeps: InboxDeps = {
     resolve: (sessionId) => (sessionId === "s1" ? { pid: process.pid, socketPath: fakeSocketPath(), status: "idle", name: "chat-c6", nameSource: "derived" } : null),
     deliver: async () => ({ ok: true }),
   };
   const db = openStateDb(join(tmpdir(), `chat-h-reg-${process.pid}-${n++}.db`));
+  const reserved = reserveAgentHandle(db);
   insertAgent({ id: "ag-1", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: reserved }, db);
   const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps });
   const res = await h["chat:sign-in"]({ sessionId: "s1" });
-  if (!res.ok) throw new Error("unreachable");
-  expect(res.data).toMatchObject({ handle: reserved, baseHandle: reserved });
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data).toMatchObject({ handle: reserved, continued: true });
+  expect(res.data.name).toBe(identityName(reserved, db));
+});
+
+test("a legacy reservation never continues a newer offline identity that shares its name", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const newer = await h["chat:sign-in"]({ sessionId: "s0", baseHandle: "kai" });
+  if (!newer.ok) throw new Error(newer.error);
+  await h["chat:sign-out"]({ sessionId: "s0" });
+  insertAgent({ id: "ag-1", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: "kai" }, h.db);
+  const res = await h["chat:sign-in"]({ sessionId: "s1" });
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.handle).not.toBe(newer.data.handle);
+  expect(res.data).toMatchObject({ name: "kai", continued: false });
+});
+
+test("a legacy reservation no other identity shares is continued as its own id", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  insertAgent({ id: "ag-1", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: "kai" }, h.db);
+  const res = await h["chat:sign-in"]({ sessionId: "s1" });
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data).toMatchObject({ handle: "kai", name: "kai", continued: true });
+  const rooms = await h["chat:rooms"]({ handle: "kai" });
+  if (!rooms.ok) throw new Error(rooms.error);
+  expect(rooms.data.rooms.map((r) => r.room)).toEqual(["build"]);
+});
+
+test("a reservation live in another session signs in fresh under its base name, suffixed", async () => {
+  const h = freshHandlers();
+  const reserved = reserveAgentHandle(h.db);
+  const base = identityName(reserved, h.db);
+  const holder = await h["chat:sign-in"]({ sessionId: "s1", continue: reserved });
+  if (!holder.ok) throw new Error(holder.error);
+  insertAgent({ id: "ag-2", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s2", createdAt: 1, handle: reserved }, h.db);
+  const res = await h["chat:sign-in"]({ sessionId: "s2" });
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.handle).not.toBe(reserved);
+  expect(res.data).toMatchObject({ baseHandle: base, name: `${base}-2`, continued: false });
 });
 
 test("chat:sign-in prefers a user-chosen session name over the handle rt agent start reserved", async () => {
@@ -717,11 +863,11 @@ test("chat:sign-in prefers a user-chosen session name over the handle rt agent s
     deliver: async () => ({ ok: true }),
   };
   const db = openStateDb(join(tmpdir(), `chat-h-reg-${process.pid}-${n++}.db`));
-  insertAgent({ id: "ag-1", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: AGENT_NAMES[3]! }, db);
+  insertAgent({ id: "ag-1", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: reserveAgentHandle(db) }, db);
   const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps });
   const res = await h["chat:sign-in"]({ sessionId: "s1" });
   if (!res.ok) throw new Error("unreachable");
-  expect(res.data.baseHandle).toBe("kai");
+  expect(res.data).toMatchObject({ name: "kai", continued: false });
 });
 
 test("sign-in rejects an invalid baseHandle with a reason rather than normalizing it", async () => {
@@ -738,7 +884,7 @@ test("sign-in rejects an invalid baseHandle with a reason rather than normalizin
 // later sign-in under that base handle with a UNIQUE constraint failure.
 test("sign-in rejects a missing sessionId rather than storing a NULL-keyed row", async () => {
   const h = freshHandlers();
-  const res = await h["chat:sign-in"]({ baseHandle: "x" } as any);
+  const res = await h["chat:sign-in"]({ continue: "x" } as any);
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
   expect(res.error).toContain("sessionId");
@@ -746,7 +892,7 @@ test("sign-in rejects a missing sessionId rather than storing a NULL-keyed row",
 
 test("sign-in rejects an empty-string sessionId the same way", async () => {
   const h = freshHandlers();
-  const res = await h["chat:sign-in"]({ sessionId: "", baseHandle: "x" });
+  const res = await h["chat:sign-in"]({ sessionId: "", continue: "x" });
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
   expect(res.error).toContain("sessionId");
@@ -754,8 +900,8 @@ test("sign-in rejects an empty-string sessionId the same way", async () => {
 
 test("a rejected sign-in never wedges the next sign-in under the same base handle", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ baseHandle: "x" } as any); // rejected, must not persist a row
-  const ok = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "x" });
+  await h["chat:sign-in"]({ continue: "x" } as any); // rejected, must not persist a row
+  const ok = await h["chat:sign-in"]({ sessionId: "s1", continue: "x" });
   expect(ok.ok).toBe(true);
   if (!ok.ok) throw new Error("unreachable");
   expect(ok.data).toMatchObject({ handle: "x" });
@@ -769,9 +915,9 @@ test("chat:sign-out is a no-op success for a session that never signed in", asyn
 
 test("chat:sign-out is a no-op success once the session's presence row was reclaimed", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "x" });
   h.db.run("UPDATE chat_presence SET last_seen_at = last_seen_at - 7200000");
-  await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: "s2", continue: "x" });
   const res = await h["chat:sign-out"]({ sessionId: "s1" });
   expect(res.ok).toBe(true);
 });
@@ -784,7 +930,7 @@ test("chat:sign-out viaPane resolves the pane's Claude session via herdr (the sa
   const db = openStateDb(join(tmpdir(), `chat-viapane-out-${process.pid}-${n++}.db`));
   const h = createChatHandlers({ db, emitEvent: () => 0, herdr });
 
-  await h["chat:sign-in"]({ sessionId: uuid, baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: uuid, continue: "x" });
 
   const res = await h["chat:sign-out"]({ pane: "w1:p1", viaPane: true });
   expect(res.ok).toBe(true);
@@ -827,7 +973,7 @@ test("chat:sign-in viaPane with a bg: ref resolves the session against the bg so
   const db = openStateDb(join(tmpdir(), `chat-viapane-bg-${process.pid}-${n++}.db`));
   const h = createChatHandlers({ db, emitEvent: () => 0, herdr: dualSocketHerdr(visibleSock, bgSock) });
 
-  const res = await h["chat:sign-in"]({ pane: "bg:w1:p1", viaPane: true, baseHandle: "kai" });
+  const res = await h["chat:sign-in"]({ pane: "bg:w1:p1", viaPane: true, continue: "kai" });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.sessionId).toBe(uuid);
@@ -847,7 +993,7 @@ test("chat:sign-out viaPane with a bg: ref resolves against the bg socket", asyn
   const db = openStateDb(join(tmpdir(), `chat-viapane-bg-out-${process.pid}-${n++}.db`));
   const h = createChatHandlers({ db, emitEvent: () => 0, herdr: dualSocketHerdr(visibleSock, bgSock) });
 
-  await h["chat:sign-in"]({ sessionId: uuid, baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: uuid, continue: "x" });
   const res = await h["chat:sign-out"]({ pane: "bg:w1:p1", viaPane: true });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
@@ -856,7 +1002,7 @@ test("chat:sign-out viaPane with a bg: ref resolves against the bg socket", asyn
 
 test("chat:away sets status_text and chat:back clears it, both refusing an unsigned session", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "x" });
   const away = await h["chat:away"]({ sessionId: "s1", text: "lunch" });
   expect(away.ok).toBe(true);
   const buddies = await h["chat:buddies"]({});
@@ -879,7 +1025,7 @@ test("chat:away sets status_text and chat:back clears it, both refusing an unsig
 
 test("a signed-out session refuses away/back without the reclaimed wording", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "x" });
   await h["chat:sign-out"]({ sessionId: "s1" });
 
   const away = await h["chat:away"]({ sessionId: "s1", text: "x" });
@@ -895,7 +1041,7 @@ test("a signed-out session refuses away/back without the reclaimed wording", asy
 
 test("chat:buddies reports the roster with a status per row, offline with no resolvable registry binding", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "x" });
   const res = await h["chat:buddies"]({});
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.buddies).toHaveLength(1);
@@ -908,9 +1054,9 @@ test("chat:buddies and chat:who read the registry mirror through the injected re
   const db = openStateDb(join(tmpdir(), `chat-h-registry-${process.pid}-${n++}.db`));
   const busyBinding = { pid: process.pid, socketPath: fakeSocketPath(), status: "busy" as const };
   const registryDeps = { resolve: () => busyBinding, alive: () => true, resolveAll: () => new Map([["s1", busyBinding]]) };
-  const h = createChatHandlers({ db, emitEvent: () => 0, registryDeps });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, registryDeps }), db);
 
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "x" });
   const buddies = await h["chat:buddies"]({});
   if (!buddies.ok) throw new Error("unreachable");
   expect(buddies.data.buddies[0]).toMatchObject({ handle: "x", status: "live" });
@@ -923,8 +1069,8 @@ test("chat:buddies and chat:who read the registry mirror through the injected re
 
 test("chat:dm creates once, posts with the recipient in mentions, and reports recipients", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "s2", continue: "b" });
   const res = await h["chat:dm"]({ from: "a", to: "b", body: "ping" });
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
@@ -937,7 +1083,7 @@ test("chat:dm creates once, posts with the recipient in mentions, and reports re
 
 test("chat:dm rejects an invalid recipient handle with a reason rather than normalizing it", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
   const res = await h["chat:dm"]({ from: "a", to: "a:b", body: "hi" });
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -954,9 +1100,9 @@ test("chat:dm rejects an invalid sender handle with a reason rather than routing
 
 test("chat:dm refuses a reclaimed sender", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
   h.db.run("UPDATE chat_presence SET last_seen_at = last_seen_at - 7200000");
-  await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "s2", continue: "a" });
   const res = await h["chat:dm"]({ from: "a", to: "b", body: "ping", sessionId: "s1" });
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -967,7 +1113,7 @@ test("chat:dm refuses when chat.humanHandle is empty, naming the setting rather 
   const h = freshHandlers();
   setSetting("chat.humanHandle", "", "user");
   try {
-    await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "a" });
+    await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
     const res = await h["chat:dm"]({ from: "a", to: "b", body: "hi" });
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable");
@@ -979,7 +1125,7 @@ test("chat:dm refuses when chat.humanHandle is empty, naming the setting rather 
 
 test("dm posts to the human notify when the recipient is matt, titled by sender not the hashed room id", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "agent" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
   await h["chat:dm"]({ from: "agent", to: "matt", body: "ping" });
   const notifications = peekNotifications();
   expect(notifications).toHaveLength(1);
@@ -988,8 +1134,8 @@ test("dm posts to the human notify when the recipient is matt, titled by sender 
 
 test("chat:rooms marks a dm and chat:who carries presence statuses", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "s2", continue: "b" });
   const dm = await h["chat:dm"]({ from: "a", to: "b", body: "hi" });
   if (!dm.ok) throw new Error("unreachable");
 
@@ -1022,8 +1168,8 @@ test("chat:rooms carries a room's stamped default wake mode, and leaves it undef
 
 test("chat:who on an agent-agent dm room excludes the silent human row", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "s2", continue: "b" });
   const dm = await h["chat:dm"]({ from: "a", to: "b", body: "hi" });
   if (!dm.ok) throw new Error("unreachable");
   const who = await h["chat:who"]({ room: dm.data.room });
@@ -1033,7 +1179,7 @@ test("chat:who on an agent-agent dm room excludes the silent human row", async (
 
 test("chat:who on a human dm room still lists the human as a participant", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "agent" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "agent" });
   const dm = await h["chat:dm"]({ from: "agent", to: "matt", body: "hi" });
   if (!dm.ok) throw new Error("unreachable");
   const who = await h["chat:who"]({ room: dm.data.room });
@@ -1237,9 +1383,9 @@ test("chat:dm-open refuses a reclaimed sender the same way chat:dm does", async 
   // first session goes stale, a second session claims the handle, and the
   // stale session's own id no longer owns it.
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "s1", continue: "a" });
   h.db.run("UPDATE chat_presence SET last_seen_at = last_seen_at - 7200000");
-  await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "s2", continue: "a" });
   const res = await h["chat:dm-open"]({ from: "a", to: "b", sessionId: "s1" });
   expect(res.ok).toBe(false);
 });
@@ -1264,7 +1410,7 @@ test("chat:post warns through the injected logger (ctx.log), not a module-privat
 
 test("chat:sign-out deletes the session's chat session file", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "so-signed-in", baseHandle: "x" });
+  await h["chat:sign-in"]({ sessionId: "so-signed-in", continue: "x" });
   writeChatSession({ sessionId: "so-signed-in", handle: "x", baseHandle: "x", signedInAt: 1 });
   const res = await h["chat:sign-out"]({ sessionId: "so-signed-in" });
   expect(res.ok).toBe(true);
@@ -1294,4 +1440,152 @@ test("chat:sign-out with an unsafe session id does not throw and deletes nothing
   } finally {
     rmSync(escapePath, { force: true });
   }
+});
+
+test("every handle-bearing input accepts a live display name and acts on its id", async () => {
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "kai" });
+  if (!remy.ok || !kai.ok) throw new Error("sign-in failed");
+  await h["chat:join"]({ room: "build", handle: "remy" });
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const who = await h["chat:who"]({ room: "build" });
+  if (!who.ok) throw new Error(who.error);
+  expect(who.data.members.map((m) => m.handle).sort()).toEqual([kai.data.handle, remy.data.handle].sort());
+
+  const posted = await h["chat:post"]({ room: "build", handle: "kai", body: "look", mentions: ["remy"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual([remy.data.handle]);
+
+  const dm = await h["chat:dm"]({ from: "kai", to: "remy", body: "psst", sessionId: "s2" });
+  if (!dm.ok) throw new Error(dm.error);
+  expect(dm.data.recipients).toEqual([remy.data.handle]);
+
+  const rooms = await h["chat:rooms"]({ handle: "remy" });
+  if (!rooms.ok) throw new Error(rooms.error);
+  expect(rooms.data.rooms.map((r) => r.room)).toContain("build");
+});
+
+test("a body @mention of a live name wakes that session's id", async () => {
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "kai" });
+  if (!remy.ok || !kai.ok) throw new Error("sign-in failed");
+  await h["chat:join"]({ room: "build", handle: remy.data.handle });
+  await h["chat:join"]({ room: "build", handle: kai.data.handle });
+  await h["chat:join"]({ room: "build", handle: "remy.old" });
+  const posted = await h["chat:post"]({ room: "build", handle: kai.data.handle, body: "@remy look" });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual([remy.data.handle]);
+});
+
+test("a live name beats a legacy handle of the same spelling", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "kai" });
+  if (!kai.ok) throw new Error(kai.error);
+  expect(kai.data.name).toBe("kai");
+  await h["chat:join"]({ room: "build", handle: kai.data.handle });
+  await h["chat:join"]({ room: "build", handle: "eli" });
+  const posted = await h["chat:post"]({ room: "build", handle: "eli", body: "ping", mentions: ["kai"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual([kai.data.handle]);
+});
+
+test("a legacy handle containing a dot resolves to itself (step 4), never as a name", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "old.pal" });
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const posted = await h["chat:post"]({ room: "build", handle: "kai", body: "hi", mentions: ["old.pal"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual(["old.pal"]);
+});
+
+test("an unknown name stays itself, today's behaviour for a handle nobody holds", async () => {
+  const h = freshHandlers();
+  const joined = await h["chat:join"]({ room: "build", handle: "nobody" });
+  if (!joined.ok) throw new Error(joined.error);
+  expect(joined.data.handle).toBe("nobody");
+});
+
+test("the human's @here is never resolved as a name", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "a" });
+  await h["chat:join"]({ room: "build", handle: "b" });
+  const posted = await h["chat:post"]({ room: "build", handle: "a", body: "all hands", mentions: ["here"] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data.recipients).toEqual(["b"]);
+});
+
+test("responses carry display names next to every id", async () => {
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "kai" });
+  const eli = await h["chat:sign-in"]({ sessionId: "s3", baseHandle: "eli" });
+  if (!remy.ok || !kai.ok || !eli.ok) throw new Error("sign-in failed");
+
+  const joined = await h["chat:join"]({ room: "build", handle: remy.data.handle });
+  if (!joined.ok) throw new Error(joined.error);
+  expect(joined.data).toMatchObject({ handle: remy.data.handle, name: "remy" });
+  await h["chat:join"]({ room: "build", handle: kai.data.handle });
+  await h["chat:join"]({ room: "build", handle: eli.data.handle });
+
+  const posted = await h["chat:post"]({ room: "build", handle: kai.data.handle, body: "who takes this?", mentions: [remy.data.handle] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data).toMatchObject({ recipients: [remy.data.handle], recipientNames: ["remy"] });
+
+  const acked = await h["chat:ack"]({ id: posted.data.id, handle: remy.data.handle });
+  if (!acked.ok) throw new Error(acked.error);
+  expect(acked.data).toMatchObject({ author: kai.data.handle, authorName: "kai" });
+
+  const claimed = await h["chat:claim"]({ id: posted.data.id, handle: remy.data.handle });
+  if (!claimed.ok) throw new Error(claimed.error);
+  expect(claimed.data).toMatchObject({ outcome: "claimed", author: kai.data.handle, authorName: "kai" });
+  const held = await h["chat:claim"]({ id: posted.data.id, handle: remy.data.handle });
+  if (!held.ok) throw new Error(held.error);
+  expect(held.data).toMatchObject({ outcome: "held", authorName: "kai" });
+  const lost = await h["chat:claim"]({ id: posted.data.id, handle: eli.data.handle });
+  if (!lost.ok) throw new Error(lost.error);
+  expect(lost.data).toMatchObject({ outcome: "lost", holder: remy.data.handle, holderName: "remy" });
+
+  const released = await h["chat:release"]({ id: posted.data.id, handle: remy.data.handle });
+  expect(released).toEqual({ ok: true, data: { holder: remy.data.handle, holderName: "remy" } });
+
+  const dm = await h["chat:dm"]({ from: kai.data.handle, to: remy.data.handle, body: "hi", sessionId: "s2" });
+  if (!dm.ok) throw new Error(dm.error);
+  expect(dm.data).toMatchObject({ recipients: [remy.data.handle], recipientNames: ["remy"] });
+
+  const rooms = await h["chat:rooms"]({ handle: kai.data.handle });
+  if (!rooms.ok) throw new Error(rooms.error);
+  const dmRow = rooms.data.rooms.find((r) => r.room === dm.data.room)!;
+  const p = dmRow.participants!;
+  expect(new Map([[p.a, p.aName], [p.b, p.bName]])).toEqual(new Map([[kai.data.handle, "kai"], [remy.data.handle, "remy"]]));
+
+  const who = await h["chat:who"]({ room: "build" });
+  if (!who.ok) throw new Error(who.error);
+  expect(who.data.members.map((m) => m.name).sort()).toEqual(["eli", "kai", "remy"]);
+});
+
+test("the desk alert for a DM to the human is titled and worded with the sender's name", async () => {
+  setSetting("chat.humanHandle", "matt", "user");
+  drainNotifications();
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!remy.ok) throw new Error(remy.error);
+  await h["chat:dm"]({ from: remy.data.handle, to: "matt", body: "ping", sessionId: "s1" });
+  const [notice] = peekNotifications();
+  expect(notice).toMatchObject({ title: "DM from remy", message: "remy: ping" });
+});
+
+test("chat:invite attributes the note to the inviter's name, never its id", async () => {
+  const { h, seen } = inviteHarness((method, params) => {
+    if (method === "agent.get") return agent("idle");
+    if (method === "agent.prompt") return { type: "agent_prompted", agent: { ...agent("working").agent, text: params.text } };
+    return new HerdrFakeError("invalid_request", method);
+  });
+  const remy = await h["chat:sign-in"]({ sessionId: "s-inv", baseHandle: "remy" });
+  if (!remy.ok) throw new Error(remy.error);
+  await h["chat:invite"]({ paneId: "w1:p1", room: "build", from: remy.data.handle, note: "you own vite" });
+  const prompt = seen.find((s) => s.method === "agent.prompt")!;
+  expect(prompt.params.text).toBe("/chat:join build note from remy: you own vite");
 });

@@ -16,7 +16,7 @@ export const IDENTITY_MANIFEST = "mattstack.deck.json";
 const MAX_ICON_BYTES = 64 * 1024;
 const SVG_ROOT = /^\s*(?:<\?xml\b[^>]*\?>\s*|<!--[\s\S]*?-->\s*|<!DOCTYPE\b[^>]*>\s*)*<svg[\s>]/i;
 const NAME_RE = /^[a-z0-9][a-z0-9.-]*$/;
-const IDENTITY_KEYS = new Set(["name", "displayName", "description", "icon", "badge"]);
+const IDENTITY_KEYS = new Set(["name", "displayName", "description", "icon", "badge", "requiresTeam"]);
 
 export interface AppIdentity {
   name: string;
@@ -24,6 +24,7 @@ export interface AppIdentity {
   description?: string;
   icon: string;
   badge?: string;
+  requiresTeam?: boolean;
 }
 
 /** The icon path's segments below the identity dir. */
@@ -80,7 +81,7 @@ export function readDeclaredIdentity(dir: string): AppIdentity | null {
   if (!existsSync(path)) throw new Error(`no ${IDENTITY_MANIFEST} in ${dir}`);
   const m = readManifestObject(path);
   if (m.displayName === undefined || m.icon === undefined) return null;
-  const { name, displayName, description, icon, badge } = m;
+  const { name, displayName, description, icon, badge, requiresTeam } = m;
   if (typeof name !== "string" || !NAME_RE.test(name)) throw new Error(`${path}: name must match ${NAME_RE}`);
   // Stricter than deck: Resources/apps/<name> with a dot reads to codesign as
   // a nested bundle, and that would only surface at the outer seal.
@@ -91,6 +92,7 @@ export function readDeclaredIdentity(dir: string): AppIdentity | null {
   if (badge !== undefined && (typeof badge !== "string" || !badge.startsWith("/") || badge.startsWith("//"))) {
     throw new Error(`${path}: badge must be a path on the app's own origin, like /api/badge`);
   }
+  if (requiresTeam !== undefined && typeof requiresTeam !== "boolean") throw new Error(`${path}: requiresTeam must be a boolean`);
   try {
     iconFile(dir, icon);
   } catch (err) {
@@ -102,14 +104,16 @@ export function readDeclaredIdentity(dir: string): AppIdentity | null {
     ...(description !== undefined ? { description } : {}),
     icon,
     ...(badge !== undefined ? { badge } : {}),
+    ...(requiresTeam !== undefined ? { requiresTeam } : {}),
   };
 }
 
 export function serializeIdentity(id: AppIdentity): string {
-  const out: Record<string, string> = { name: id.name, displayName: id.displayName };
+  const out: Record<string, string | boolean> = { name: id.name, displayName: id.displayName };
   if (id.description !== undefined) out.description = id.description;
   out.icon = id.icon;
   if (id.badge !== undefined) out.badge = id.badge;
+  if (id.requiresTeam !== undefined) out.requiresTeam = id.requiresTeam;
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 

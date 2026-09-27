@@ -69,6 +69,7 @@ type ServiceSpec = Parameters<
 const { agentsDir } = await import('../services/launchd.ts');
 const { catalogReport } = await import('../registry/catalog-report.ts');
 const { updatePlatformSettings } = await import('./platform-settings.ts');
+const { PLATFORM_REFUSAL } = await import('../registry/lifecycle.ts');
 
 /** agentsDir() falls back to the real ~/Library/LaunchAgents when its env
     seam is unset, so a recursive rm checks it first. */
@@ -1420,6 +1421,148 @@ test('reresolve: reinstalls only the app whose resolved command differs from its
   expect(counting.installCalls).toEqual([changedSpec.label]);
 });
 
+test('reresolve: a disabled rt row loses its plist and is reported under disabled; enabling it again installs it', async () => {
+  const counting = new CountingManager();
+  const reresolveDrivers = { manager: counting, edge: drivers.edge };
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    reresolveDrivers
+  );
+  const label = `${LABEL_PREFIX}board`;
+  expect(counting.installed.has(label)).toBe(true);
+  counting.installCalls = [];
+  counting.uninstallCalls = [];
+
+  putRecord({ ...getRecord('board')!, enabled: false });
+  const off = await reresolveManagedApps(reresolveDrivers);
+  expect(off.body).toMatchObject({ ok: true, disabled: ['board'], failed: [] });
+  expect(counting.uninstallCalls).toEqual([label]);
+  expect(counting.installed.has(label)).toBe(false);
+
+  putRecord({ ...getRecord('board')!, enabled: undefined });
+  const on = await reresolveManagedApps(reresolveDrivers);
+  expect(on.body).toMatchObject({
+    ok: true,
+    disabled: [],
+    restarted: ['board'],
+  });
+  expect(counting.installed.has(label)).toBe(true);
+});
+
+test('reresolve: a sweep parked in an install finishes before an enabled PATCH sweeps, so the off row ends with no plist', async () => {
+  class ParkedManager extends PlistManager {
+    park: PromiseWithResolvers<void> | null = null;
+    entered = Promise.withResolvers<void>();
+    override async install(spec: ServiceSpec): Promise<void> {
+      if (this.park) {
+        const park = this.park;
+        this.park = null;
+        this.entered.resolve();
+        await park.promise;
+      }
+      return super.install(spec);
+    }
+  }
+  const manager = new ParkedManager();
+  const sweepDrivers = { manager, edge: drivers.edge };
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    sweepDrivers
+  );
+  const label = `${LABEL_PREFIX}board`;
+  rmSync(join(agentsDir(), `${label}.plist`), { force: true });
+  manager.park = Promise.withResolvers<void>();
+  const park = manager.park;
+
+  const sweep = reresolveManagedApps(sweepDrivers);
+  await manager.entered.promise;
+  const patch = editApp('board', { enabled: false }, 'rt', false, sweepDrivers);
+  await Bun.sleep(20);
+  park.resolve();
+  await sweep;
+  const off = await patch;
+
+  expect(off.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBe(false);
+  expect(existsSync(join(agentsDir(), `${label}.plist`))).toBe(false);
+});
+
+test('editApp: an enabled PATCH waits on the boot sweep before looking its row up', async () => {
+  const boot = Promise.withResolvers<void>();
+  const h = bundleHelpers('board');
+  const patch = editApp('board', { enabled: false }, 'rt', false, {
+    ...drivers,
+    bootSweep: boot.promise,
+  });
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
+  boot.resolve();
+  const off = await patch;
+  expect(off.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBe(false);
+});
+
+test('reresolve: a sweep that throws does not block the next one', async () => {
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
+  putRecord({ ...getRecord('board')!, enabled: false });
+  setServeShapeDeps({
+    helpersDir: h.dir,
+    devMode: () => {
+      throw new Error('boom');
+    },
+  });
+  await expect(reresolveManagedApps(drivers)).rejects.toThrow('boom');
+  setServeShapeDeps({ helpersDir: h.dir });
+  const next = await reresolveManagedApps(drivers);
+  expect(next.body).toMatchObject({ ok: true, disabled: ['board'] });
+});
+
+test('restartManagedApps skips a disabled row', async () => {
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
+  putRecord({ ...getRecord('board')!, enabled: false });
+  drivers.manager.kickstarts = [];
+  const r = await restartManagedApps(drivers);
+  expect(drivers.manager.kickstarts).toEqual([]);
+  expect(r.body).toMatchObject({ restarted: [], failed: [] });
+});
+
 test('reresolve: an installed plist whose environment lags the rendered one is reinstalled', async () => {
   const counting = new CountingManager();
   const reresolveDrivers = { manager: counting, edge: drivers.edge };
@@ -1947,7 +2090,117 @@ test('reinstallSupervised in prod reinstalls the catalog app and skips an rt row
   expect(counting.installCalls).toEqual([`${LABEL_PREFIX}chat`]);
 });
 
+test('reinstallSupervised skips a disabled catalog row', async () => {
+  const counting = new CountingManager();
+  const h = bundleHelpers('chat');
+  setServeShapeDeps({
+    devMode: () => false,
+    helpersDir: h.dir,
+    catalog: CHAT_ONLY,
+  });
+  rtRow('chat', 11002, { enabled: false });
+
+  const res = await reinstallSupervised({
+    manager: counting,
+    edge: drivers.edge,
+  });
+
+  expect(res).toEqual({ reinstalled: [], failed: [] });
+  expect(counting.installCalls).toEqual([]);
+});
+
 // ─── editApp: never uninstall a shape the patch can't replace ─────────────
+
+test('editApp: enabled alone flips the record and re-sweeps; mixed with other fields it is refused', async () => {
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
+  const manager = drivers.manager;
+  const label = `${LABEL_PREFIX}board`;
+  expect(manager.installed.has(label)).toBe(true);
+
+  const off = await editApp('board', { enabled: false }, 'rt', false, drivers);
+  expect(off.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBe(false);
+  expect(manager.installed.has(label)).toBe(false);
+
+  const mixed = await editApp(
+    'board',
+    { enabled: true, port: 11007 },
+    'rt',
+    false,
+    drivers
+  );
+  expect(mixed).toEqual({
+    status: 400,
+    body: { error: 'enabled must be patched on its own' },
+  });
+  const notRegistrar = await editApp(
+    'board',
+    { enabled: true },
+    'user',
+    false,
+    drivers
+  );
+  expect(notRegistrar.status).toBe(409);
+  const bad = await editApp(
+    'board',
+    { enabled: 'yes' as never },
+    'rt',
+    false,
+    drivers
+  );
+  expect(bad).toEqual({
+    status: 400,
+    body: { error: 'enabled must be a boolean' },
+  });
+
+  const on = await editApp('board', { enabled: true }, 'rt', false, drivers);
+  expect(on.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBeUndefined();
+  expect(manager.installed.has(label)).toBe(true);
+
+  putRecord({
+    name: 'deck',
+    managedBy: PLATFORM_NAME,
+    port: 11999,
+    kind: 'service',
+    label: PLATFORM_LABEL,
+    command: ['/bundle/deck'],
+    createdAt: AT,
+  });
+  const platform = await editApp(
+    'deck',
+    { enabled: false },
+    PLATFORM_NAME,
+    true,
+    drivers
+  );
+  expect(platform).toEqual({
+    status: 409,
+    body: {
+      error: 'managed',
+      managedBy: PLATFORM_NAME,
+      message: PLATFORM_REFUSAL,
+    },
+  });
+  expect(getRecord('deck')?.enabled).toBeUndefined();
+
+  await registerApp({ ...input, name: 'mine', managedBy: 'user' }, drivers);
+  const user = await editApp('mine', { enabled: false }, 'user', true, drivers);
+  expect(user).toEqual({
+    status: 409,
+    body: { error: 'enabled applies to mattstack apps only' },
+  });
+  expect(getRecord('mine')?.enabled).toBeUndefined();
+});
 
 test('edit: unlinking a slim row with no bundle installed is rejected before any teardown', async () => {
   setServeShapeDeps({ helpersDir: null });

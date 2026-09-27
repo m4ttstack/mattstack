@@ -1,5 +1,10 @@
 # rt chat — multi-agent chat rooms with a web viewer
 
+> **Superseded in part:** `2026-09-27-chat-identity-design.md` replaces this
+> document's handle-as-identity statements: a handle is an identity id
+> behind a display name, and every new session is a new identity unless it
+> explicitly continues one.
+
 > **Superseded in part:** `2026-08-28-rt-chat-delivery-v2-design.md` replaces
 > this document's wake/tail delivery model (arming a tail, wake events, the
 > pulse hook) with automatic push delivery straight into an agent's Claude

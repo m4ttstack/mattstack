@@ -54,4 +54,9 @@ describe('doing', () => {
     );
     expect(line).toEqual({ text: 'signed out 5m ago', kind: 'signed-out' });
   });
+  test('a title equal to the display name falls through even when the id differs', () => {
+    expect(
+      doing({ ...base, handle: 'remy.m2p4', name: 'remy', paneTitle: 'remy' })
+    ).toEqual({ text: 'repo-tools · main', kind: 'path' });
+  });
 });

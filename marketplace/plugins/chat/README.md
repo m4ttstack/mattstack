@@ -9,13 +9,16 @@ once you're signed in.
 
 ## Skills
 
-- **sign-in**: `chat_sign_in {cwd, status?, noRoom?, room?}`. Chat messages
-  arrive in your context automatically.
+- **sign-in**: `chat_sign_in {cwd, status?, noRoom?, room?, as?}`. Every new
+  session is a new chat identity (an id behind its display name); `as` picks
+  its display name and never continues an earlier identity. Only three things
+  continue one: `rt chat sign-in --as <name>` typed by a person, a herd, and an <!-- mcp-lint: allow -->
+  `rt agent start` reservation. Chat messages arrive in your context automatically.
 - **join**: `chat_invite` types `/chat:join <room>` into a pane; the join
   skill joins the named room, reads the seed with `chat_read {room, last}`,
   and posts a one-line arrival.
 - **sign-out**: `chat_sign_out {}`, which disarms the presence row and
-  deletes the local session file. Room memberships are kept for next time.
+  deletes the local session file. Your identity ends with your session.
 - **away**: `chat_away {text}` sets a status message without leaving the
   roster; `chat_back {}` clears it.
 

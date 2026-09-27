@@ -37,6 +37,7 @@ import {
   clearIssues,
   deleteRecord,
   getRecord,
+  isEnabled,
   isMattstackOwned,
   listRecords,
   putRecord,
@@ -72,6 +73,7 @@ import {
 import { renderedEnvironment } from '../services/plist.ts';
 import { getPlatformSettings } from './platform-settings.ts';
 import { logsDir } from './state.ts';
+import { safeRecord } from './status.ts';
 import { reconcileMattstackTld } from './tld-reconcile.ts';
 
 export interface Drivers {
@@ -84,6 +86,14 @@ export interface Drivers {
   tunnel?: TunnelDriver;
   /** Live launchd view in production; absent means a hand-installed deck under its record's label. */
   deckOwner?: DeckOwner;
+  /**
+   * Settles when the first boot sweep has finished; production caps it with
+   * bootSweepGate so it always settles. The sweep creates every catalog row,
+   * and the launcher treats its first 200 from /api/apps as the whole
+   * catalog, so /api/apps and an `enabled` PATCH wait on it before reading
+   * the rows.
+   */
+  bootSweep?: Promise<void>;
 }
 
 export interface RegisterInput {
@@ -502,6 +512,7 @@ export async function restartManagedApps(
   for (const record of managed) {
     if (record.kind !== 'service' || !record.label) continue;
     if (notServedHere(record, serveShapeDeps)) continue;
+    if (!isEnabled(record)) continue;
     try {
       // kickstart signals failure via its boolean return (label not
       // installed), not by throwing — same contract the single-app
@@ -630,13 +641,26 @@ function adoptedCatalogRow(record: AppRecord): AppRecord {
  * is re-resolved and diffed against its installed plist (ProgramArguments,
  * WorkingDirectory, EnvironmentVariables), so a flip and a flip-back both
  * read as "unchanged".
+ *
+ * Calls run one at a time: a sweep walks a snapshot of the records, so an
+ * overlapping sweep could reinstall a row another sweep just turned off.
  */
-export async function reresolveManagedApps(
-  drivers: Drivers
-): Promise<FlowResult> {
+export function reresolveManagedApps(drivers: Drivers): Promise<FlowResult> {
+  const run = sweepTail.then(() => sweepManagedApps(drivers));
+  sweepTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+let sweepTail: Promise<void> = Promise.resolve();
+
+async function sweepManagedApps(drivers: Drivers): Promise<FlowResult> {
   const restarted: string[] = [];
   const unchanged: string[] = [];
   const notServed: string[] = [];
+  const disabled: string[] = [];
   const failed: SweepFailure[] = [];
   const flavor = resolveFlavor(serveShapeDeps);
   const ensured = flavor.catalog
@@ -670,6 +694,19 @@ export async function reresolveManagedApps(
       clearIssues(record.name, 'launchd');
       clearIssues(record.name, 'dev-link');
       notServed.push(record.name);
+      continue;
+    }
+    if (!isEnabled(record)) {
+      const issue = await runDriver('launchd', () =>
+        drivers.manager.uninstall(record.label!)
+      );
+      if (issue) {
+        addIssue(record.name, issue);
+        failed.push({ name: record.name, error: issue.message });
+        continue;
+      }
+      clearIssues(record.name, 'launchd');
+      disabled.push(record.name);
       continue;
     }
     const shape = serveShape(record, serveShapeDeps);
@@ -749,6 +786,7 @@ export async function reresolveManagedApps(
       restarted,
       unchanged,
       notServed,
+      disabled,
       created: ensured.created,
       adopted: ensured.adopted,
       failed,
@@ -812,13 +850,47 @@ export async function editApp(
     env?: Record<string, string>;
     port?: number;
     dev?: { workingDirectory: string } | null;
+    enabled?: boolean;
   },
   caller: string,
   force: boolean,
   drivers: Drivers
 ): Promise<FlowResult> {
+  if (patch.enabled !== undefined) await drivers.bootSweep;
   const record = getRecord(name);
   if (!record) return { status: 404, body: { error: 'unknown app' } };
+
+  if (patch.enabled !== undefined) {
+    if (Object.keys(patch).length !== 1)
+      return {
+        status: 400,
+        body: { error: 'enabled must be patched on its own' },
+      };
+    if (typeof patch.enabled !== 'boolean')
+      return { status: 400, body: { error: 'enabled must be a boolean' } };
+    if (isPlatformManagedBy(record.managedBy))
+      return {
+        status: 409,
+        body: {
+          error: 'managed',
+          managedBy: PLATFORM_NAME,
+          message: PLATFORM_REFUSAL,
+        },
+      };
+    if (record.managedBy === 'user')
+      return {
+        status: 409,
+        body: { error: 'enabled applies to mattstack apps only' },
+      };
+    const verdict = authorizeStructural(record, caller, force);
+    if (!verdict.ok) return { status: verdict.status, body: verdict.body };
+    putRecord({ ...record, enabled: patch.enabled ? undefined : false });
+    await reresolveManagedApps(drivers);
+    return {
+      status: 200,
+      body: { record: safeRecord(getRecord(record.name)!) },
+    };
+  }
 
   // Computed from the patch's own keys, not a hand-listed set of the other
   // fields: a future patch field must not be silently swept into this carve-out.
@@ -1100,6 +1172,7 @@ export async function reinstallSupervised(
     )
       continue;
     if (notServedHere(record, serveShapeDeps)) continue;
+    if (!isEnabled(record)) continue;
     const shape = serveShape(record, serveShapeDeps);
     if (!shape) {
       failed.push(record.name);

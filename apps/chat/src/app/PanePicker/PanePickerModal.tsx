@@ -11,8 +11,9 @@ import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
 
+import { sameNameOrdinals } from '../display-name';
 import { NewPaneForm } from './NewPaneForm';
-import { PaneRow } from './PaneRow';
+import { paneName, PaneRow } from './PaneRow';
 import type { ChatPane, PickPanesOptions } from './types';
 
 const ORDER: Record<string, number> = { live: 0, idle: 1 };
@@ -32,6 +33,7 @@ export function matchesFilter(pane: ChatPane, q: string): boolean {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
   return [
+    pane.presence?.name,
     pane.presence?.handle,
     pane.workspace,
     pane.title,
@@ -89,6 +91,7 @@ export function PanePickerModal({
     () => panes.filter(p => matchesFilter(p, filter)),
     [panes, filter]
   );
+  const ordinals = sameNameOrdinals(visible, paneName);
 
   function reasonFor(pane: ChatPane): string | null {
     if (notReady.has(pane.paneId))
@@ -270,6 +273,7 @@ export function PanePickerModal({
                     onToggle={() => toggle(pane)}
                     onPeek={() => peek(pane)}
                     peek={peeks[pane.paneId]}
+                    ordinal={ordinals.get(pane)}
                   />
                 ))}
               </Stack>

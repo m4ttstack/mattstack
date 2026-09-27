@@ -41,6 +41,14 @@ describe("mcpTools", () => {
     expect(res.error).toContain("rt chat sign-in");
   });
 
+  test("chat_post and chat_dm say a name or an id works, and that the reply hint's id reaches the exact sender", () => {
+    const post = mcpTools().find((t) => t.name === "chat_post")!;
+    const dm = mcpTools().find((t) => t.name === "chat_dm")!;
+    expect(post.description).toContain("names or ids");
+    expect(dm.description).toContain("a name or an id");
+    expect(dm.description).toContain("reply hint");
+  });
+
   test("roster matches the published tool names", () => {
     expect(mcpTools().map((t) => t.name).sort()).toEqual([...NAMES].sort());
   });
@@ -1313,7 +1321,7 @@ describe("chat helpers", () => {
     const { requireChatHandle } = await import("../shared.ts");
     const seen: Array<string | undefined> = [];
     const read = (id: string | undefined) => { seen.push(id); return id === "s1" ? { sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 } : null; };
-    expect(requireChatHandle({ CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv, read)).toEqual({ handle: "ann" });
+    expect(requireChatHandle({ CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv, read)).toEqual({ handle: "ann", name: "ann" });
     expect("error" in requireChatHandle({} as NodeJS.ProcessEnv, read)).toBe(true);
     expect(seen).toEqual(["s1", undefined]);
   });

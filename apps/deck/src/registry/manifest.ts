@@ -100,6 +100,7 @@ export function ingestManifest(name: string): void {
           description: deck.manifest.description,
           icon: deck.manifest.icon,
           badge: deck.manifest.badge,
+          requiresTeam: deck.manifest.requiresTeam,
         }
       : readManifest(appDir); // deprecated mattstack.json fallback (identity only)
   if (!manifest) {
@@ -110,7 +111,8 @@ export function ingestManifest(name: string): void {
       record.displayName !== undefined ||
       record.description !== undefined ||
       record.icon !== undefined ||
-      record.badge !== undefined
+      record.badge !== undefined ||
+      record.requiresTeam !== undefined
     ) {
       removeIcon(name);
       const {
@@ -118,6 +120,7 @@ export function ingestManifest(name: string): void {
         description: _description,
         icon: _icon,
         badge: _badge,
+        requiresTeam: _requiresTeam,
         ...rest
       } = record;
       putRecord(rest);
@@ -129,7 +132,11 @@ export function ingestManifest(name: string): void {
   try {
     mkdirSync(iconsDir(), { recursive: true });
     writeFileSync(iconPathFor(name), svg);
-    const { badge: _staleBadge, ...base } = record;
+    const {
+      badge: _staleBadge,
+      requiresTeam: _staleRequiresTeam,
+      ...base
+    } = record;
     putRecord({
       ...base,
       displayName: manifest.displayName,
@@ -137,6 +144,9 @@ export function ingestManifest(name: string): void {
       icon: { ext: 'svg' },
       ...('badge' in manifest && manifest.badge
         ? { badge: manifest.badge }
+        : {}),
+      ...('requiresTeam' in manifest && manifest.requiresTeam !== undefined
+        ? { requiresTeam: manifest.requiresTeam }
         : {}),
     });
   } catch {

@@ -12,6 +12,7 @@ import {
   isValidSessionId,
   readChatSession,
   sessionFilePath,
+  sessionName,
   writeChatSession,
   type ChatSession,
 } from "../chat-session.ts";
@@ -125,5 +126,13 @@ describe("chat-session", () => {
   test("currentSessionId falls back to the environment variable when --session's value looks like a flag", () => {
     process.env.CLAUDE_CODE_SESSION_ID = "env-id";
     expect(currentSessionId(["sign-in", "--session", "--no-room"])).toBe("env-id");
+  });
+
+  test("writeChatSession round-trips name, and sessionName falls back to the handle for an older file", () => {
+    writeChatSession({ sessionId: "s1", handle: "remy.k3f9", baseHandle: "remy", name: "remy", signedInAt: 1 });
+    const read = readChatSession("s1")!;
+    expect(read.name).toBe("remy");
+    expect(sessionName(read)).toBe("remy");
+    expect(sessionName({ handle: "kai" })).toBe("kai");
   });
 });

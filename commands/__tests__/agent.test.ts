@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { __test__ } from "../agent.ts";
+import type { AgentRecord } from "../../packages/rt-client/src/index.ts";
 
 const { parseStartArgs, parseResumeArgs } = __test__;
 
@@ -122,4 +123,11 @@ describe("withCallerAccount", () => {
   test("a default-profile caller leaves the account unset", async () => {
     expect(await withCallerAccount({}, () => "claude", async () => undefined)).toEqual({});
   });
+});
+
+test("renderRecord shows the chat name, never the id", () => {
+  const rec = { id: "ag-1", repo: "gh:m4ttstack/rt", cwd: "/tmp", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: "remy.k3f9", name: "remy" } as AgentRecord;
+  const line = __test__.renderRecord(rec);
+  expect(line).toContain("chat remy");
+  expect(line).not.toContain("remy.k3f9");
 });
