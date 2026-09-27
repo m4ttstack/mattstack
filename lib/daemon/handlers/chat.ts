@@ -13,7 +13,7 @@ import {
   isValidChatName,
   joinRoom,
   leaveRoom,
-  mergeMentions,
+  resolveMentions,
   postMessage,
   readUnread,
   peekUnread,
@@ -817,7 +817,7 @@ function postAndNotify(
   // join-creates, so the human is typically not a member yet, and a
   // member with wake_on='none' must still get a desk alert.
   const humanHandle = getSetting<string>("chat.humanHandle").value;
-  const allMentions = mergeMentions(body, mentions).map((m) => (m === "here" ? m : resolveHandle(m, db)));
+  const allMentions = resolveMentions(body, mentions, db);
   if (humanHandle && allMentions.includes(humanHandle)) {
     try {
       const authorName = identityName(handle, db);

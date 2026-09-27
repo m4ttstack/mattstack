@@ -10,7 +10,7 @@
 import { Database } from "bun:sqlite";
 import { getStateDb } from "./db.ts";
 import { persistOrWarn, runCriticalWrite } from "./busy.ts";
-import { identityNames, resolveHandle } from "./identity-store.ts";
+import { identityName, identityNames, resolveHandle } from "./identity-store.ts";
 import { presenceForHandle } from "./presence-store.ts";
 // Intra-lib/state exception (see presence-store.ts's note on the same
 // pattern): dm-store.ts is the only module that touches chat_dms, so
@@ -417,10 +417,17 @@ export function parseMentions(body: string): string[] {
   return [...found];
 }
 
-/** Unions an explicit recipient list into a body's parsed @mentions — the one merge rule storage (postMessage) and the daemon's desk-notify check both need, so the two can never diverge. */
-export function mergeMentions(body: string, explicit?: string[]): string[] {
-  const parsed = parseMentions(body);
-  return explicit ? [...new Set([...parsed, ...explicit])] : parsed;
+/**
+ * A body's @mentions and an explicit list, resolved to ids: the one rule
+ * storage (postMessage) and the daemon's desk-notify check both need, so the
+ * two can never diverge. An explicit id claims the body's `@<its name>`, or a
+ * picked identity's name would also wake whoever holds that name live.
+ */
+export function resolveMentions(body: string, explicit: string[] | undefined, db: Database = getStateDb()): string[] {
+  const picked = (explicit ?? []).map((m) => resolveHandle(m, db));
+  const claimed = new Set(picked.map((id) => identityName(id, db)));
+  const parsed = parseMentions(body).filter((m) => !claimed.has(m)).map((m) => resolveHandle(m, db));
+  return [...new Set([...parsed, ...picked])];
 }
 
 /**
@@ -461,7 +468,7 @@ export function postMessage(
 
   const run = db.transaction((): { id: number; recipients: string[] } => {
     const now = Date.now();
-    const mentions = [...new Set(mergeMentions(body, args.mentions).map((m) => resolveHandle(m, db)))];
+    const mentions = resolveMentions(body, args.mentions, db);
     db.query(REVIVE_ROOM_SQL).run(room);
     const result = db.query(INSERT_MESSAGE_SQL).run(room, handle, body, JSON.stringify(mentions), null, now, quiet ? 1 : 0);
     const recipients = recipientsFor(room, handle, mentions, db);

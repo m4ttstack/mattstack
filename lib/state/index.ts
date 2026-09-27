@@ -113,7 +113,7 @@ export {
   joinRoom,
   leaveRoom,
   parseMentions,
-  mergeMentions,
+  resolveMentions,
   postMessage,
   readUnread,
   peekUnread,

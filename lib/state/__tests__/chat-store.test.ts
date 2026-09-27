@@ -641,6 +641,17 @@ test("an explicit mention by name and by id collapse to one stored id", () => {
   expect(listMessages({ room: "r", limit: 5 }, db)[0]!.mentions).toEqual([remy.id]);
 });
 
+test("an explicit mention id claims the body's @name it displays as, so a live holder of that name is not also woken", () => {
+  const db = freshDb();
+  const picked = mintIdentity({ base: "remy", name: "remy", sessionId: "s-old", now: 1 }, db);
+  const live = signIn({ sessionId: "s-new", baseHandle: "remy", now: 2 }, db, NO_BINDING)!;
+  expect(live.name).toBe("remy");
+  for (const handle of [picked.id, live.handle, "kai"]) joinRoom({ room: "r", handle }, db);
+  const posted = postMessage({ room: "r", handle: "kai", body: "@remy ping", mentions: [picked.id] }, db)!;
+  expect(posted.recipients).toEqual([picked.id]);
+  expect(listMessages({ room: "r", limit: 5 }, db)[0]!.mentions).toEqual([picked.id]);
+});
+
 test("@here stays the room-wide wake sigil, never resolved to a live identity shadowing the name", () => {
   const db = freshDb();
   const shadow = mintIdentity({ base: "here", name: "here", sessionId: "s-here", now: 1 }, db);
