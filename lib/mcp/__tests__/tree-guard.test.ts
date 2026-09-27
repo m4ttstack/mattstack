@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { listWorktreeRoots } from "../../git-worktrees.ts";
-import { checkRegisteredTree, findTreeByRealpath, type TreeGuardDeps } from "../tree-guard.ts";
+import { checkRegisteredTree, findTreeByRealpath, realTreeGuardDeps, type TreeGuardDeps } from "../tree-guard.ts";
 
 const deps: TreeGuardDeps = {
   repoIndex: () => ({ "remote:gitlab.com%2Facme%2Fapp": "/real/app" }),
@@ -134,6 +134,34 @@ describe("checkRegisteredTree on a git worktree the registry never adopted", () 
     expect(asked).toEqual([]);
     checkRegisteredTree("/real/app/.worktrees/nested/src", deps);
     expect(asked).toEqual(["/link/app", "/real/lib"]);
+  });
+});
+
+describe("realTreeGuardDeps.worktreeRoots", () => {
+  test("clears GIT_DIR from the inherited environment, so it lists the checkout it was asked about, not the repo GIT_DIR names", () => {
+    // Resolve symlinks (macOS /var → /private/var) so paths match what
+    // `git worktree list --porcelain` returns.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "tree-guard-envclear-")));
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" });
+    const prevGitDir = process.env.GIT_DIR;
+    try {
+      const repoA = join(root, "app-a");
+      const repoB = join(root, "app-b");
+      mkdirSync(repoA);
+      mkdirSync(repoB);
+      git(repoA, "init");
+      git(repoA, "commit", "--allow-empty", "-m", "init");
+      git(repoB, "init");
+      git(repoB, "commit", "--allow-empty", "-m", "init");
+
+      process.env.GIT_DIR = join(repoB, ".git");
+      expect(realTreeGuardDeps.worktreeRoots(repoA)).toEqual([repoA]);
+    } finally {
+      if (prevGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = prevGitDir;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

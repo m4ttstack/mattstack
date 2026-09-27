@@ -18,6 +18,7 @@ import { realpathSync } from "fs";
 import { isAbsolute } from "path";
 import { listWorktreeRoots } from "../git-worktrees.ts";
 import { loadRepoIndex } from "../repo-index.ts";
+import { childEnv } from "../subprocess.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
 import { listKvValues } from "../state/index.ts";
 
@@ -26,6 +27,17 @@ export interface TreeGuardDeps {
   treeByPath: (p: string) => { repoName: string; tree: string } | null;
   realpath: (p: string) => string;
   worktreeRoots: (checkout: string) => string[];
+}
+
+// Each of these outranks cwd, so git would answer for (and push from) a repo
+// other than the tree the guard approved. git reads an empty value as a path,
+// not as unset, so they are deleted rather than blanked.
+const CWD_OVERRIDES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"];
+
+export function gitChildEnv(base: Record<string, string | undefined>, extra: Record<string, string>): Record<string, string | undefined> {
+  const env = { ...base };
+  for (const name of CWD_OVERRIDES) delete env[name];
+  return { ...env, ...extra };
 }
 
 /** Namespace `findTreeByPath` (lib/worktree/registry.ts) and `migrateWorktreeRegistry` (lib/repo-index.ts) also key on; kept here since registry.ts does not export it. */
@@ -56,7 +68,8 @@ export const realTreeGuardDeps: TreeGuardDeps = {
     findTreeByPath(p) ??
     findTreeByRealpath(p, listKvValues<Array<{ name: string; path: string }>>(WORKTREE_REGISTRY_NS), realpathSync),
   realpath: (p) => realpathSync(p),
-  worktreeRoots: listWorktreeRoots,
+  worktreeRoots: (checkout) =>
+    listWorktreeRoots(checkout, { env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0" }), timeoutMs: 10_000 }),
 };
 
 export const UNREGISTERED_TREE =
