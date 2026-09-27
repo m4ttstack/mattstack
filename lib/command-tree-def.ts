@@ -559,6 +559,7 @@ const interceptSubcommands: Record<string, CommandNode> = {
     description: "Shim + rule health for command interception",
     module: "./commands/intercept.ts",
     fn: "interceptStatus",
+    agentSafe: true,
     args: [
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit machine-readable JSON instead of a table" },
     ],
