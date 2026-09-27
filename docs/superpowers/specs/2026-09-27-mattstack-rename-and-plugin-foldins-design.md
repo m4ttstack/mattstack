@@ -61,7 +61,14 @@ machine.
 
 What moves: the repo index row, `~/.mattstack/rt/repos/<identity>/` (worktree
 registry, endpoint claims, run history), `rt.repoTracking`, the `repos.<identity>`
-settings sections in each store, and the daemon's run, herd and chat rows.
+settings sections in each store, `herds.repo` in `~/.mattstack/rt/herds.db`,
+and every identity-keyed table and kv namespace in `state.db`: the
+`events-cursor` namespace, `run_history`, `endpoint_claims`, `project_mrs`,
+`project_mrs_meta`, `project_mr_demands`, `project_mr_sections`,
+`discussions` and `agents`. `branch_cache` and `git_badges` are regenerable
+caches and are dropped for the old identity rather than moved. Pipeline runs
+under `~/.mattstack/runs/<label>/` and `chat_presence.repo` key on display
+labels, not identities, and do not move.
 What does not: the worktree pool directory. `gh-m4ttstack-rt` is a derived
 directory name, never parsed back and never a key (`lib/rt-paths.ts`); the
 registry stores absolute tree paths, so existing trees keep working where
@@ -217,8 +224,9 @@ commits, public, with its own purity workflow and one open PR (#14).
 - Import with git-filter-repo into `plugins/herdr-chat` (drop `.github`; scan
   the clone with both purity lists first; any scrub rules stay outside the
   repo), merge commit.
-- CI: a path-scoped job builds and tests the plugin (`cargo build --release`,
-  `cargo test`) only when `plugins/herdr-chat/` changes;
+- CI: a path-scoped job on `macos-latest` (the plugin declares
+  `platforms = ["macos"]`) builds and tests it (`cargo build --release --locked`,
+  `cargo test --locked`) only when `plugins/herdr-chat/` changes;
   `scripts/ci/test-scope.ts` gets an explicit `plugins/` rule so a
   herdr-chat-only diff skips rt's unit shards.
 - Install path becomes `herdr plugin install m4ttstack/mattstack/plugins/herdr-chat`
