@@ -44,7 +44,10 @@ const RENAME_IDENTITY_SQL = `UPDATE chat_identities SET name = ?, base_name = ? 
 // them already holds would inherit that handle's footprint.
 const KNOWN_ID_SQL = `
 SELECT 1 AS known FROM chat_identities WHERE id = $id
+UNION ALL SELECT 1 FROM chat_presence WHERE handle = $id
 UNION ALL SELECT 1 FROM chat_members WHERE handle = $id
+UNION ALL SELECT 1 FROM chat_messages WHERE handle = $id
+UNION ALL SELECT 1 FROM chat_dms WHERE a = $id OR b = $id
 LIMIT 1;`;
 
 // Well under SQLite's bound-parameter limit on every build bun ships.
@@ -53,6 +56,21 @@ const NAME_LOOKUP_CHUNK = 500;
 /** True when `x` is a known id: a chat_identities row, or a handle in chat_presence, chat_members, chat_messages or chat_dms. */
 export function isKnownId(x: string, db: Database = getStateDb()): boolean {
   return db.query(KNOWN_ID_SQL).get({ $id: x }) !== null;
+}
+
+const SELECT_LIVE_BY_NAME_SQL = `
+SELECT p.handle AS id FROM chat_presence p LEFT JOIN chat_identities i ON i.id = p.handle
+WHERE p.signed_out_at IS NULL AND COALESCE(i.name, p.handle) = ?
+ORDER BY p.signed_in_at DESC LIMIT 1;`;
+const SELECT_LATEST_BY_NAME_SQL = `SELECT id FROM chat_identities WHERE name = ? ORDER BY minted_at DESC, rowid DESC LIMIT 1;`;
+
+/** Spec "Resolving a typed name": minted id (chat_identities row), else live display name, else most recent minted identity by name, else `x` as a legacy id. */
+export function resolveHandle(x: string, db: Database = getStateDb()): string {
+  if (db.query(SELECT_MINTED_SQL).get(x)) return x;
+  const live = db.query(SELECT_LIVE_BY_NAME_SQL).get(x) as { id: string } | null;
+  if (live) return live.id;
+  const latest = db.query(SELECT_LATEST_BY_NAME_SQL).get(x) as { id: string } | null;
+  return latest?.id ?? x;
 }
 
 function base36Suffix(seed: string, length: number): string {

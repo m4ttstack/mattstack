@@ -157,6 +157,7 @@ export {
   isKnownId,
   mintIdentity,
   renameIdentity,
+  resolveHandle,
   type IdentityRow,
 } from "./identity-store.ts";
 

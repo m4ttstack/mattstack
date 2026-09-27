@@ -15,6 +15,7 @@ import {
   identityNames,
   isKnownId,
   mintIdentity,
+  resolveHandle,
 } from "../identity-store.ts";
 
 let n = 0;
@@ -103,4 +104,76 @@ test("isKnownId: a minted id and a member handle are known; a stranger is not", 
   expect(isKnownId(remy.id, db)).toBe(true);
   expect(isKnownId("kai", db)).toBe(true);
   expect(isKnownId("nobody", db)).toBe(false);
+});
+
+function seat(db: Database, sessionId: string, handle: string, base: string, at: number, signedOutAt: number | null = null): void {
+  db.run(
+    "INSERT INTO chat_presence (session_id, handle, base_handle, signed_in_at, last_seen_at, signed_out_at) VALUES (?, ?, ?, ?, ?, ?)",
+    [sessionId, handle, base, at, at, signedOutAt],
+  );
+}
+
+test("isKnownId sees a handle in chat_presence, chat_messages and either side of chat_dms", () => {
+  const db = fresh();
+  seat(db, "s1", "pres", "pres", 1);
+  db.run("INSERT INTO chat_messages (room, handle, body, posted_at) VALUES ('r', 'author', 'hi', 1)");
+  db.run("INSERT INTO chat_dms (room, a, b, created_at) VALUES ('dm-1', 'left', 'right', 1)");
+  for (const x of ["pres", "author", "left", "right"]) expect(isKnownId(x, db)).toBe(true);
+  expect(isKnownId("nobody", db)).toBe(false);
+});
+
+test("resolveHandle: a minted id, then a live display name, then the newest identity by name, then the input", () => {
+  const db = fresh();
+  const old = mintIdentity({ base: "remy", name: "remy", sessionId: "s-old", now: 1 }, db);
+  const newer = mintIdentity({ base: "remy", name: "remy", sessionId: "s-new", now: 2 }, db);
+  expect(resolveHandle("remy", db)).toBe(newer.id);
+  seat(db, "s-old", old.id, "remy", 3);
+  expect(resolveHandle("remy", db)).toBe(old.id);
+  expect(resolveHandle(newer.id, db)).toBe(newer.id);
+  expect(resolveHandle("nobody", db)).toBe("nobody");
+});
+
+test("resolveHandle: @kai reaches the live kai.x7p2 while a legacy kai has memberships", () => {
+  const db = fresh();
+  member(db, "kai");
+  const live = mintIdentity({ base: "kai", name: "kai", sessionId: "s1", now: 5 }, db);
+  seat(db, "s1", live.id, "kai", 5);
+  expect(resolveHandle("kai", db)).toBe(live.id);
+});
+
+test("resolveHandle: with no live kai, an offline minted kai.x7p2 beats the legacy kai", () => {
+  const db = fresh();
+  member(db, "kai");
+  const minted = mintIdentity({ base: "kai", name: "kai", sessionId: "s1", now: 5 }, db);
+  expect(resolveHandle("kai", db)).toBe(minted.id);
+  expect(resolveHandle("legacy-only", db)).toBe("legacy-only");
+});
+
+test("resolveHandle: a signed-out session's display name is not live", () => {
+  const db = fresh();
+  const old = mintIdentity({ base: "remy", name: "remy", sessionId: "s-old", now: 1 }, db);
+  const newer = mintIdentity({ base: "remy", name: "remy", sessionId: "s-new", now: 2 }, db);
+  seat(db, "s-old", old.id, "remy", 3, 4);
+  expect(resolveHandle("remy", db)).toBe(newer.id);
+});
+
+test("resolveHandle: a suffixed display name resolves to the session showing it", () => {
+  const db = fresh();
+  const first = mintIdentity({ base: "remy", name: "remy", sessionId: "s1", now: 1 }, db);
+  const second = mintIdentity({ base: "remy", name: "remy-2", sessionId: "s2", now: 1 }, db);
+  seat(db, "s1", first.id, "remy", 1);
+  seat(db, "s2", second.id, "remy", 1);
+  expect(resolveHandle("remy", db)).toBe(first.id);
+  expect(resolveHandle("remy-2", db)).toBe(second.id);
+});
+
+test("resolveHandle: an adopted legacy kai never matches as a minted id, but is the newest holder of the name once offline", () => {
+  const db = fresh();
+  member(db, "kai");
+  const minted = mintIdentity({ base: "kai", name: "kai", sessionId: "s-new", now: 5 }, db);
+  bindIdentitySession("kai", "s-legacy", db);
+  seat(db, "s-new", minted.id, "kai", 5);
+  expect(resolveHandle("kai", db)).toBe(minted.id);
+  db.run("DELETE FROM chat_presence WHERE session_id = 's-new'");
+  expect(resolveHandle("kai", db)).toBe("kai");
 });
