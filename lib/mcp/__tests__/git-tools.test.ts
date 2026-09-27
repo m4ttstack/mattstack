@@ -378,7 +378,7 @@ describe("gitRebase", () => {
 describe("gitToolDefs guard", () => {
   test("every git tool refuses an unregistered tree before running git", async () => {
     const calls: string[] = [];
-    const guard: TreeGuardDeps = { repoIndex: () => ({}), treeByPath: () => null, realpath: (p) => p };
+    const guard: TreeGuardDeps = { repoIndex: () => ({}), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [] };
     let synced = false;
     for (const [name, input] of [["git_push", {}], ["git_pull", {}], ["git_rebase", { onto: "x" }], ["branch_sync", {}]] as const) {
       const tool = gitToolDefs({ git: fakeGit({}, calls), guard, sync: async () => { synced = true; return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === name)!;
@@ -389,6 +389,42 @@ describe("gitToolDefs guard", () => {
     expect(calls).toEqual([]);
     expect(synced).toBe(false);
   });
+});
+
+describe("gitToolDefs guard on a worktree nested in its checkout", () => {
+  const guard: TreeGuardDeps = {
+    repoIndex: () => ({ r: "/real/app" }),
+    treeByPath: () => null,
+    realpath: (p) => p.replace("/link/", "/real/"),
+    worktreeRoots: (checkout) => (checkout === "/real/app" ? ["/real/app", "/real/app/.worktrees/nested"] : []),
+  };
+  const run = async (name: string, input: Record<string, unknown>, tree: string) => {
+    const cwds: string[] = [];
+    const synced: string[] = [];
+    const inner = fakeGit({});
+    const git: GitRunner = async (args, cwd) => { cwds.push(cwd); return inner(args, cwd); };
+    const tool = gitToolDefs({ git, guard, sync: async (cwd) => { synced.push(cwd); return { code: 0, stdout: "", stderr: "" }; } }).find((t) => t.name === name)!;
+    const r = await tool.handler({ tree, ...input }, {} as NodeJS.ProcessEnv);
+    return { r, cwds, synced };
+  };
+  for (const [name, input] of [["git_push", {}], ["git_pull", {}], ["git_rebase", { onto: "x" }], ["branch_sync", {}]] as const) {
+    test(`${name} runs git in the nested worktree, reached directly or through a symlink`, async () => {
+      for (const tree of ["/real/app/.worktrees/nested", "/link/app/.worktrees/nested"]) {
+        const { cwds } = await run(name, input, tree);
+        expect(cwds.length, tree).toBeGreaterThan(0);
+        expect([...new Set(cwds)], tree).toEqual(["/real/app/.worktrees/nested"]);
+      }
+    });
+    test(`${name} refuses a subdirectory of the nested worktree and of the checkout before running git`, async () => {
+      for (const tree of ["/real/app/.worktrees/nested/src", "/real/app/src"]) {
+        const { r, cwds, synced } = await run(name, input, tree);
+        expect(r.ok, tree).toBe(false);
+        expect(r.error, tree).toContain("registered");
+        expect(cwds, tree).toEqual([]);
+        expect(synced, tree).toEqual([]);
+      }
+    });
+  }
 });
 
 describe("branchSyncPreflight", () => {
@@ -672,7 +708,7 @@ describe("branchSyncPreflight", () => {
 });
 
 describe("branch_sync tool", () => {
-  const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p };
+  const guard: TreeGuardDeps = { repoIndex: () => ({ r: "/t" }), treeByPath: () => null, realpath: (p) => p, worktreeRoots: () => [] };
   const clean: Script = {
     [GIT_PATHS]: { stdout: "/t/.git/rebase-merge\n/t/.git/rebase-apply\n" },
     ...on("feat/x"), "symbolic-ref --quiet refs/remotes/origin/HEAD": { stdout: "refs/remotes/origin/develop\n" },
