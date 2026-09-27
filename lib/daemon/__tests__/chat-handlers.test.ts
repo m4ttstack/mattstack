@@ -819,6 +819,44 @@ test("chat:sign-in continues the identity rt agent start reserved for this sessi
   expect(res.data.name).toBe(identityName(reserved, db));
 });
 
+test("a legacy reservation never continues a newer offline identity that shares its name", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  const newer = await h["chat:sign-in"]({ sessionId: "s0", baseHandle: "kai" });
+  if (!newer.ok) throw new Error(newer.error);
+  await h["chat:sign-out"]({ sessionId: "s0" });
+  insertAgent({ id: "ag-1", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: "kai" }, h.db);
+  const res = await h["chat:sign-in"]({ sessionId: "s1" });
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.handle).not.toBe(newer.data.handle);
+  expect(res.data).toMatchObject({ name: "kai", continued: false });
+});
+
+test("a legacy reservation no other identity shares is continued as its own id", async () => {
+  const h = freshHandlers();
+  await h["chat:join"]({ room: "build", handle: "kai" });
+  insertAgent({ id: "ag-1", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s1", createdAt: 1, handle: "kai" }, h.db);
+  const res = await h["chat:sign-in"]({ sessionId: "s1" });
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data).toMatchObject({ handle: "kai", name: "kai", continued: true });
+  const rooms = await h["chat:rooms"]({ handle: "kai" });
+  if (!rooms.ok) throw new Error(rooms.error);
+  expect(rooms.data.rooms.map((r) => r.room)).toEqual(["build"]);
+});
+
+test("a reservation live in another session signs in fresh under its base name, suffixed", async () => {
+  const h = freshHandlers();
+  const reserved = reserveAgentHandle(h.db);
+  const base = identityName(reserved, h.db);
+  const holder = await h["chat:sign-in"]({ sessionId: "s1", continue: reserved });
+  if (!holder.ok) throw new Error(holder.error);
+  insertAgent({ id: "ag-2", repo: "r", cwd: "/tmp/x", provider: "claude", surface: "herdr", sessionId: "s2", createdAt: 1, handle: reserved }, h.db);
+  const res = await h["chat:sign-in"]({ sessionId: "s2" });
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.handle).not.toBe(reserved);
+  expect(res.data).toMatchObject({ baseHandle: base, name: `${base}-2`, continued: false });
+});
+
 test("chat:sign-in prefers a user-chosen session name over the handle rt agent start reserved", async () => {
   const inboxDeps: InboxDeps = {
     resolve: (sessionId) => (sessionId === "s1" ? { pid: process.pid, socketPath: fakeSocketPath(), status: "idle", name: "kai", nameSource: "user" } : null),

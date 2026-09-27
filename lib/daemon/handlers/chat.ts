@@ -937,7 +937,7 @@ export function createChatHandlers(opts: {
       // recipients — unreachable except by the exact typo'd name.
       if (roomArchivedAt(room, db) === undefined) {
         const nearby = closestRoomNames(room, handle, db);
-        return { ok: false, error: `unknown room "${room}"${nearby.length ? ` — did you mean: ${nearby.join(", ")}` : ""}` };
+        return { ok: false, error: `unknown room "${room}"${nearby.length ? `... did you mean: ${nearby.join(", ")}` : ""}` };
       }
       // The human's post is the coordinator's: it wakes the whole room without
       // him having to mention anyone. Stored as an explicit @here so the live
@@ -1176,9 +1176,15 @@ export function createChatHandlers(opts: {
       }
       // The identity `rt agent start` (or herd:spawn) reserved rides on the
       // agent record, never on the session name (that becomes the pane title).
+      // A legacy reservation with no identity row resolves by name, which can
+      // reach a newer identity sharing it; only an id resolving to itself is
+      // this session's to continue.
       if (continueId === undefined && resolvedBase === undefined) {
         const reserved = getAgent(sessionId, db)?.handle;
-        if (reserved && isValidChatName(reserved)) continueId = reserved;
+        if (reserved && isValidChatName(reserved)) {
+          if (resolveHandle(reserved, db) === reserved) continueId = reserved;
+          else resolvedBase = baseOfHandle(reserved);
+        }
       }
 
       const signInWith = (request: { baseHandle?: string; continueId?: string }) =>
@@ -1188,16 +1194,16 @@ export function createChatHandlers(opts: {
         try {
           data = signInWith({ baseHandle: resolvedBase, continueId });
         } catch (err) {
-          // A typed NAME live in another session retries under its base name, suffixed (remy-2); a typed ID is refused as-is, since a minted id reaches agents only through reply hints and a suffix would silently hand it a different identity.
-          const typedTheId = requested === continueId && continueId !== undefined && identityName(continueId, db) !== continueId;
-          if (requested === undefined || continueId === undefined || typedTheId || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
+          // A typed NAME or a reservation live in another session retries under its base name, suffixed (remy-2); a typed ID is refused as-is, since a minted id reaches agents only through reply hints and a suffix would silently hand it a different identity.
+          const typedTheId = requested !== undefined && requested === continueId && identityName(continueId, db) !== continueId;
+          if (continueId === undefined || typedTheId || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
           data = signInWith({ baseHandle: getIdentity(continueId, db)?.baseName ?? baseOfHandle(continueId) });
         }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
-      // R057: signIn retries a busy write, but still reports undefined once
-      // its retry budget is exhausted.
+      // signIn retries a busy write, but still reports undefined once its
+      // retry budget is exhausted.
       if (!data) return { ok: false, error: "chat: sign-in failed, database busy" };
 
       if (derivedRoom) {
