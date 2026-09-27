@@ -354,6 +354,69 @@ describe("assembleBrief", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.brief).toContain("```\n<!-- author -->\n```");
   });
+
+  test("an author note in a non-first strategy's body is stripped", () => {
+    const strategiesWithNote = [
+      "## trivial",
+      "",
+      "```",
+      "Do the trivial thing.",
+      "```",
+      "",
+      "## other",
+      "",
+      "```",
+      "<!-- author -->",
+      "Note text.",
+      "<!-- /author -->",
+      "Do other thing.",
+      "```",
+      "",
+    ].join("\n");
+
+    const result = assembleBrief({
+      template: HAPPY_TEMPLATE,
+      job: "j",
+      fills: { goal: "g", paths: "p" },
+      method: { kind: "strategy", strategies: strategiesWithNote, name: "other" },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.brief).not.toContain("Note text");
+    expect(result.brief).not.toContain("<!-- author -->");
+    expect(result.brief).toContain("Do other thing.");
+  });
+
+  test("an unclosed note in a non-first strategy's body reports the strategies.md line", () => {
+    const strategiesUnclosed = [
+      "## trivial",
+      "",
+      "```",
+      "Do the trivial thing.",
+      "```",
+      "",
+      "## other",
+      "",
+      "```",
+      "Do other thing.",
+      "<!-- author -->",
+      "Note text.",
+      "```",
+      "",
+    ].join("\n");
+
+    const result = assembleBrief({
+      template: HAPPY_TEMPLATE,
+      job: "j",
+      fills: { goal: "g", paths: "p" },
+      method: { kind: "strategy", strategies: strategiesUnclosed, name: "other" },
+    });
+
+    // "<!-- author -->" sits on line 11 of strategiesUnclosed, counting from
+    // "## trivial" as line 1.
+    expect(result).toEqual({ ok: false, error: "author note opened at method line 11 is never closed (<!-- /author --> missing)" });
+  });
 });
 
 describe("stripAuthorNotes", () => {
@@ -425,5 +488,25 @@ describe("stripAuthorNotes", () => {
   test("a nested opener fails naming both lines", () => {
     const doc = lines("<!-- author -->", "a", "<!-- author -->", "b", "<!-- /author -->", "<!-- /author -->");
     expect(stripAuthorNotes(doc, "template")).toEqual({ ok: false, error: "author note opened at template line 3 is inside the one opened at line 1; author notes do not nest" });
+  });
+
+  test("a startLine offset shifts every reported line number", () => {
+    const unclosed = lines("A", "", "<!-- author -->", "note", "");
+    expect(stripAuthorNotes(unclosed, "method", 10)).toEqual({
+      ok: false,
+      error: "author note opened at method line 12 is never closed (<!-- /author --> missing)",
+    });
+
+    const stray = lines("A", "<!-- /author -->", "");
+    expect(stripAuthorNotes(stray, "method", 10)).toEqual({
+      ok: false,
+      error: "<!-- /author --> at method line 11 has no matching <!-- author -->",
+    });
+
+    const nested = lines("<!-- author -->", "a", "<!-- author -->", "b", "<!-- /author -->", "<!-- /author -->");
+    expect(stripAuthorNotes(nested, "method", 10)).toEqual({
+      ok: false,
+      error: "author note opened at method line 12 is inside the one opened at line 10; author notes do not nest",
+    });
   });
 });

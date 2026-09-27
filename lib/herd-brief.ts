@@ -26,25 +26,25 @@ export type StripResult = { ok: true; text: string } | { ok: false; error: strin
 
 /** Removes author-note blocks (marker lines included). Markers inside a
     fenced code block are text. A document with no markers is returned as
-    is, so unmarked templates stay byte-identical. */
-export function stripAuthorNotes(doc: string, source: "template" | "method"): StripResult {
+    is. `startLine` is the 1-based line number of doc's own first line
+    within the source document, so a strategy body's errors report lines
+    from strategies.md rather than from the extracted body. */
+export function stripAuthorNotes(doc: string, source: "template" | "method", startLine = 1): StripResult {
   const lines = doc.split("\n");
   const kept: string[] = [];
   let fence: string | null = null;
   let openAt = 0;
   let precededByBlank = false;
   let dropNextBlank = false;
-  let sawMarker = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
-    const lineNo = i + 1;
+    const lineNo = startLine + i;
     if (fence === null) {
       const bare = line.replace(/\s+$/, "");
       if (bare === AUTHOR_OPEN) {
         if (openAt > 0) return { ok: false, error: `author note opened at ${source} line ${lineNo} is inside the one opened at line ${openAt}; author notes do not nest` };
         openAt = lineNo;
         precededByBlank = kept.length === 0 || kept[kept.length - 1]!.trim() === "";
-        sawMarker = true;
         continue;
       }
       if (bare === AUTHOR_CLOSE) {
@@ -68,7 +68,7 @@ export function stripAuthorNotes(doc: string, source: "template" | "method"): St
     kept.push(line);
   }
   if (openAt > 0) return { ok: false, error: `author note opened at ${source} line ${openAt} is never closed (${AUTHOR_CLOSE} missing)` };
-  return { ok: true, text: sawMarker ? kept.join("\n") : doc };
+  return { ok: true, text: kept.join("\n") };
 }
 
 function normalizeMarkerName(raw: string): string {
@@ -121,22 +121,26 @@ function isDecorative(lines: LineInfo[], startLineIdx: number, matchStart: numbe
   return spans.some(([s, e]) => matchStart >= s && matchEnd <= e);
 }
 
-function parseStrategies(strategies: string): { name: string; body: string }[] {
-  const found: { name: string; body: string }[] = [];
+function parseStrategies(strategies: string): { name: string; body: string; bodyLine: number }[] {
+  const found: { name: string; body: string; bodyLine: number }[] = [];
   let match: RegExpExecArray | null;
   STRATEGY_RE.lastIndex = 0;
   while ((match = STRATEGY_RE.exec(strategies))) {
     const name = match[1];
     const body = match[2];
     if (name === undefined || body === undefined) continue; // regex guarantees both groups when the overall match succeeds
-    found.push({ name: name.trim(), body });
+    // match[0]'s only "```\n" before the body is the opening fence: the
+    // heading and blank lines before it never contain backticks.
+    const bodyStart = match.index + match[0].indexOf("```\n") + 4;
+    const bodyLine = strategies.slice(0, bodyStart).split("\n").length;
+    found.push({ name: name.trim(), body, bodyLine });
   }
   return found;
 }
 
-function resolveMethodBody(method: BriefInputs["method"]): { ok: true; body: string } | { ok: false; error: string } {
+function resolveMethodBody(method: BriefInputs["method"]): { ok: true; body: string; bodyLine: number } | { ok: false; error: string } {
   if (method.kind === "file") {
-    return { ok: true, body: method.content };
+    return { ok: true, body: method.content, bodyLine: 1 };
   }
   const strategies = parseStrategies(method.strategies);
   const found = strategies.find((s) => s.name === method.name);
@@ -144,7 +148,7 @@ function resolveMethodBody(method: BriefInputs["method"]): { ok: true; body: str
     const available = strategies.map((s) => s.name).join(", ");
     return { ok: false, error: `unknown strategy '${method.name}'; available: ${available}` };
   }
-  return { ok: true, body: found.body };
+  return { ok: true, body: found.body, bodyLine: found.bodyLine };
 }
 
 /** Splits the template into the piece before the Method placeholder and the
@@ -223,7 +227,7 @@ export function assembleBrief(inputs: BriefInputs): BriefResult {
   if (!resolved.ok) {
     return { ok: false, error: resolved.error };
   }
-  const methodBody = stripAuthorNotes(resolved.body, "method");
+  const methodBody = stripAuthorNotes(resolved.body, "method", resolved.bodyLine);
   if (!methodBody.ok) {
     return { ok: false, error: methodBody.error };
   }
