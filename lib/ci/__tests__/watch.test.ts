@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isMergeRefPipeline, shaMatches, watchPipeline, type WatchDeps, type WatchMr, type WatchPipeline } from "../watch.ts";
+import { HEAD_LAG_GRACE_MS, isMergeRefPipeline, shaMatches, watchPipeline, type WatchDeps, type WatchMr, type WatchPipeline } from "../watch.ts";
 
 const SHA = "a".repeat(40);
 const OLD = "b".repeat(40);
@@ -36,6 +36,11 @@ describe("sha matching", () => {
     expect(isMergeRefPipeline(pipe({ ref: "refs/merge-requests/4/train" }), 4)).toBe(true);
     expect(isMergeRefPipeline(pipe({ mergeRequestEventType: "detached" }), 4)).toBe(false);
   });
+  test("merge-ref detection: merge_train event type, a /merge ref, and a ref for a different iid", () => {
+    expect(isMergeRefPipeline(pipe({ mergeRequestEventType: "merge_train" }), 4)).toBe(true);
+    expect(isMergeRefPipeline(pipe({ ref: "refs/merge-requests/4/merge" }), 4)).toBe(true);
+    expect(isMergeRefPipeline(pipe({ ref: "refs/merge-requests/9/merge" }), 4)).toBe(false);
+  });
 });
 
 describe("watchPipeline", () => {
@@ -50,7 +55,8 @@ describe("watchPipeline", () => {
   });
   test("running at maxWait returns running", async () => {
     const { deps } = fake([mr(SHA, pipe({ status: "running" }))]);
-    expect(await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "running" });
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps);
+    expect(r).toMatchObject({ state: "running", waitedSeconds: 60, polls: 3 });
   });
   for (const s of ["success", "success_with_warnings", "failed", "canceled", "skipped", "manual"]) {
     test(`terminal ${s} returns`, async () => {
@@ -66,6 +72,20 @@ describe("watchPipeline", () => {
     const other = "c".repeat(40);
     const { deps } = fake([mr(other, pipe({ sha: other }))]);
     expect(await watchPipeline(base, deps)).toMatchObject({ state: "superseded", headSha: other });
+  });
+  test("the head moving away from the pushed sha pins the exact 120s grace", async () => {
+    const other = "c".repeat(40);
+    const graceSeconds = HEAD_LAG_GRACE_MS / 1_000;
+    const moved = () => [mr(SHA, pipe({ status: "running" })), mr(other, pipe({ sha: other }))];
+    // the head is seen at SHA on the first 1s poll, then at `other` from the second poll on;
+    // the mismatch clock starts there, so maxWaitSeconds is measured from that same offset.
+    const inside = fake(moved());
+    const rInside = await watchPipeline({ sha: SHA, maxWaitSeconds: 1 + graceSeconds - 1, intervalSeconds: 1 }, inside.deps);
+    expect(rInside).toMatchObject({ state: "waiting" });
+
+    const after = fake(moved());
+    const rAfter = await watchPipeline({ sha: SHA, maxWaitSeconds: 1 + graceSeconds + 1, intervalSeconds: 1 }, after.deps);
+    expect(rAfter).toMatchObject({ state: "superseded", headSha: other });
   });
   test("merged-results pipeline matched through its merge commit's parents", async () => {
     const { deps } = fake([mr(SHA, pipe({ sha: "m".repeat(40), mergeRequestEventType: "merged_result", status: "failed" }))], {
@@ -100,10 +120,26 @@ describe("watchPipeline", () => {
     expect(await watchPipeline(base, deps)).toMatchObject({ state: "success" });
     expect(calls.parents).toBe(2);
   });
+  test("a successful parent fetch is cached once per pipeline id across several polls", async () => {
+    const { deps, calls } = fake([mr(SHA, pipe({ sha: "m".repeat(40), mergeRequestEventType: "merged_result", status: "running" }))], {
+      commitParents: async () => { calls.parents++; return [SHA]; },
+    });
+    await watchPipeline({ ...base, maxWaitSeconds: 90 }, deps);
+    expect(calls.parents).toBe(1);
+  });
   test("lease lost ends the watch with the holder", async () => {
     const other = { ...LEASE, owner: "session:b" };
     const { deps } = fake([mr(SHA, pipe({}))], { leaseCheck: () => ({ ok: false, holder: other }) });
     expect(await watchPipeline(base, deps)).toMatchObject({ state: "lease_lost", holder: { owner: "session:b" } });
+  });
+  test("lease lost reports lease: null, not the previous poll's lease", async () => {
+    const other = { ...LEASE, owner: "session:b" };
+    let n = 0;
+    const { deps } = fake([mr(SHA, pipe({ status: "running" }))], {
+      leaseCheck: () => { n++; return n === 1 ? { ok: true, lease: LEASE } : { ok: false, holder: other }; },
+    });
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 90 }, deps);
+    expect(r).toMatchObject({ state: "lease_lost", holder: { owner: "session:b" }, lease: null });
   });
   test("the lease is checked on every poll", async () => {
     const { deps, calls } = fake([mr(SHA, pipe({ status: "running" }))]);
@@ -118,6 +154,14 @@ describe("watchPipeline", () => {
     const r = await watchPipeline({ ...base, signal: ac.signal }, deps);
     expect(r).toMatchObject({ state: "aborted" });
     expect(calls.heartbeats).toBe(1);
+  });
+  test("an already-aborted signal returns aborted before any heartbeat", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const { deps, calls } = fake([mr(SHA, pipe({ status: "running" }))]);
+    const r = await watchPipeline({ ...base, signal: ac.signal }, deps);
+    expect(r).toMatchObject({ state: "aborted" });
+    expect(calls.heartbeats).toBe(0);
   });
   test("failed pipeline: blocking failures get trace tails, capped at five", async () => {
     const jobs = Array.from({ length: 7 }, (_, i) => ({ id: `gitlab:job:${i + 1}`, name: `j${i}`, stage: "test", status: "failed", allowFailure: i === 0, webUrl: null }));
@@ -135,6 +179,31 @@ describe("watchPipeline", () => {
     const r = await watchPipeline(base, deps) as { failedJobs: Array<{ jobId: number }> };
     expect(fetched).toBe(1);
     expect(r.failedJobs[0]!.jobId).toBe(5);
+  });
+  test("a failed jobs fetch that returns null degrades to an empty list and a distinct hint, without throwing", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs: [] }))], { failedJobs: async () => null });
+    const r = await watchPipeline(base, deps) as { state: string; failedJobs: unknown[]; blockingFailures: number; next: string };
+    expect(r.state).toBe("failed");
+    expect(r.failedJobs).toEqual([]);
+    expect(r.blockingFailures).toBe(0);
+    expect(r.next).toContain("could not be read");
+  });
+  test("a null trace tail leaves the failed job row without a traceTail key", async () => {
+    const jobs = [{ id: "gitlab:job:1", name: "j", stage: "test", status: "failed", allowFailure: false, webUrl: null }];
+    const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs }))], { traceTail: async () => null });
+    const r = await watchPipeline(base, deps) as { failedJobs: Array<Record<string, unknown>> };
+    expect(r.failedJobs).toHaveLength(1);
+    expect("traceTail" in r.failedJobs[0]!).toBe(false);
+  });
+  test("blockingFailures counts only the rows actually returned", async () => {
+    const jobs = [
+      { id: "gitlab:job:bad", name: "unparseable", stage: "test", status: "failed", allowFailure: false, webUrl: null },
+      { id: "gitlab:job:5", name: "ok", stage: "test", status: "failed", allowFailure: false, webUrl: null },
+    ];
+    const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs }))]);
+    const r = await watchPipeline(base, deps) as { failedJobs: Array<{ jobId: number }>; blockingFailures: number };
+    expect(r.failedJobs).toHaveLength(1);
+    expect(r.blockingFailures).toBe(1);
   });
   test("a read error is returned as an error", async () => {
     const { deps } = fake([], { readMr: async () => ({ ok: false, error: "daemon down" }) });

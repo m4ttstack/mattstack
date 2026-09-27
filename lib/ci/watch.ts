@@ -113,15 +113,21 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const pid = idNumber(p.id);
     if (pid === null) return false;
     if (input.priorPipelineId !== undefined) return pid > input.priorPipelineId;
-    if (firstSeenPipelineId === undefined) return false;
+    // firstSeenPipelineId is assigned unconditionally right before every call to matches(),
+    // so it is never undefined here; the type stays wide because a closure defeats TS's flow analysis.
     if (pid !== firstSeenPipelineId) return true;
     return "unprovable";
   }
 
-  async function failures(p: WatchPipeline, withTraces: boolean): Promise<Pick<WatchResult, "failedJobs" | "blockingFailures">> {
+  async function failures(p: WatchPipeline, withTraces: boolean): Promise<Pick<WatchResult, "failedJobs" | "blockingFailures"> & { fetchFailed: boolean }> {
     let jobs = p.jobs;
     const pid = idNumber(p.id);
-    if (jobs.length === 0 && pid !== null && p.status !== "success") jobs = (await deps.failedJobs(pid)) ?? [];
+    let fetchFailed = false;
+    if (jobs.length === 0 && pid !== null && p.status !== "success") {
+      const fetched = await deps.failedJobs(pid);
+      fetchFailed = fetched === null;
+      jobs = fetched ?? [];
+    }
     const failed = jobs.filter((j) => j.status === "failed");
     const out: WatchResult["failedJobs"] = [];
     let traced = 0;
@@ -136,14 +142,15 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       }
       out.push(row);
     }
-    return { failedJobs: out, blockingFailures: failed.filter((j) => !j.allowFailure).length };
+    // Counted from the returned rows, not the raw failed list, so blockingFailures never exceeds failedJobs.length.
+    return { failedJobs: out, blockingFailures: out.filter((j) => !j.allowFailure).length, fetchFailed };
   }
 
   for (;;) {
     if (input.signal?.aborted) return result("aborted", last.mr, "the call was cancelled; call again to resume");
     const lc = deps.leaseCheck();
     polls++;
-    if (!lc.ok) return result("lease_lost", last.mr, "another owner attends this MR now; stand down", { holder: lc.holder });
+    if (!lc.ok) return result("lease_lost", last.mr, "another owner attends this MR now; stand down", { holder: lc.holder, lease: null });
     lease = lc.lease;
 
     const read = await deps.readMr();
@@ -164,8 +171,12 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
       if (p && m === true) {
         if (TERMINAL.has(p.status)) {
           const f = await failures(p, p.status === "failed");
-          const next = p.status === "failed" ? "read more of a job's log with mr_job_trace" : "done";
-          return result(p.status as WatchState, mr, next, f);
+          const next = p.status !== "failed"
+            ? "done"
+            : f.fetchFailed
+              ? "the failed jobs could not be read; read them with mr_pipeline or mr_job_trace"
+              : "read more of a job's log with mr_job_trace";
+          return result(p.status as WatchState, mr, next, { failedJobs: f.failedJobs, blockingFailures: f.blockingFailures });
         }
         last = { state: "running", mr, hint: "the pipeline for the pushed sha is still running; call again" };
       } else {
