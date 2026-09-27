@@ -192,6 +192,13 @@ describe("ci_watch", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/lease lock busy/);
   });
+  test("a cached pipeline missing sha, ref and mergeRequestEventType reads as a branch pipeline with no match, and never throws", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const bare = { id: "gitlab:pipeline:10", status: "running", webUrl: null, createdAt: null, jobs: [] };
+    const r = await watchTool({}, bare).handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 0 }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "waiting", pipeline: { sha: null, ref: null, mergeRequestEventType: null } } });
+    expect((r as any).body.next).toContain("no pipeline for the pushed sha yet");
+  });
   test("daemon error surfaces", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
     const r = await watchTool({ projectMrs: (async () => ({ ok: false, error: "daemon down" })) as any }).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);

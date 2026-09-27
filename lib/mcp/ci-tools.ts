@@ -10,7 +10,8 @@ import {
   type CiLeaseHolder, type CiLeaseOpts, type Commands,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
-import { watchPipeline, type WatchDeps, type WatchMr } from "../ci/watch.ts";
+import { watchPipeline, type WatchDeps, type WatchPipeline } from "../ci/watch.ts";
+import type { Pipeline as GlancePipeline } from "@mattstack/glance";
 import { explainError } from "../explain-error.ts";
 import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
 import { tailTrace } from "./mr-read-tools.ts";
@@ -61,6 +62,23 @@ const realWatchDeps: CiWatchToolDeps = { projectMrs: readProjectMRs, command: rt
 
 const WATCH_LIVE_MAX_AGE_MS = 5_000;
 const TRACE_TAIL = 40;
+
+// glance's Pipeline carries sha/ref/mergeRequestEventType as optional (a cache entry
+// or an older provider snapshot may lack them); WatchPipeline requires string | null,
+// never undefined, so a missing field maps to null rather than an unmatchable pipeline.
+function toWatchPipeline(p: GlancePipeline | null | undefined): WatchPipeline | null {
+  if (!p) return null;
+  return {
+    id: p.id,
+    status: p.status,
+    sha: p.sha ?? null,
+    ref: p.ref ?? null,
+    mergeRequestEventType: p.mergeRequestEventType ?? null,
+    webUrl: p.webUrl,
+    createdAt: p.createdAt,
+    jobs: p.jobs.map((j) => ({ id: j.id, name: j.name, stage: j.stage, status: j.status, allowFailure: j.allowFailure, webUrl: j.webUrl })),
+  };
+}
 
 /** Shared claim/heartbeat/release/read shape: validate mrUrl and the session
     owner, then run the lease op, turning any thrown error (a busy lock or an
@@ -192,7 +210,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             const entry = Object.values(res.data.mrs).find((e) => e.pr.iid === target.iid);
             if (!entry) return { ok: false, error: `no MR !${target.iid} in the daemon's open-MR cache for ${target.identity}` };
             const pr = entry.pr;
-            return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline: (pr.pipeline ?? null) as WatchMr["pipeline"] } };
+            return { ok: true, mr: { iid: pr.iid, sha: pr.sha ?? null, webUrl: pr.webUrl ?? null, pipeline: toWatchPipeline(pr.pipeline) } };
           },
           commitParents: async (s) => {
             const r = await w.command<Commands["mr:commit-parents"]["data"]>("mr:commit-parents", { repoName: target.identity, iid: target.iid, sha: s }, { timeoutMs: 30_000 });
