@@ -1,10 +1,3 @@
-/**
- * 2026-09-27: a new pane drew "remy", last held weeks earlier, and its
- * welcome handed it the old remy's DM with kai. The spec's first test,
- * against the real handlers and store: session B draws remy after A is
- * pruned and inherits nothing; kai's DM to "remy" reaches B; a reply sent
- * with A's reply-hint id still reaches A.
- */
 import { beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
