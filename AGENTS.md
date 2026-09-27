@@ -38,7 +38,8 @@ their gates and rt's static gates; `bun run check` is what `checks.yml`'s
 vitest packages: the `test` script names rt's directories one by one, and
 `scripts/ci/test-scope.ts` skips the macOS shards on a PR that touches only
 apps trees. Deck serves the apps from this checkout in dev mode
-(`deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`), and the
+(`deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`, or the older
+`~/Documents/GitHub/repo-tools` folder on a machine that has not moved it), and the
 release builds them at the tagged commit (`scripts/build-apps.ts`, the
 `build-apps` job in `release.yml`); `rt-tray/deps.lock` lists them as
 `source: "tree"` rows, which is deck's served-app catalog (the rows that
@@ -433,7 +434,8 @@ something that does nothing.
 The dev app (`/Applications/mattstack-dev.app`) takes code from three places.
 
 - **Served apps (board, console, chat, boxscore) and deck run from
-  source** in the shared `~/Documents/GitHub/mattstack` checkout. To deploy:
+  source** in the shared `~/Documents/GitHub/mattstack` checkout (or the older
+  `~/Documents/GitHub/repo-tools` folder on a machine that has not moved it). To deploy:
   merge, check `git branch --show-current` is `main`, pull, then
   `deck restart <app>` (or the deck row's deploy button for deck itself);
   `rt release update-machine` also re-registers and restarts them, as its

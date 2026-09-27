@@ -382,7 +382,8 @@ why.
      (`open` hands off to LaunchServices and returns before the app is
      actually up).
    - **Shared checkout sync**: the shared `~/Documents/GitHub/mattstack`
-     checkout that served-suite registers apps from; this leg refuses
+     checkout (or the older `~/Documents/GitHub/repo-tools` folder on a
+     machine that has not moved it) that served-suite registers apps from; this leg refuses
      unless it is on `main`, then `git pull --ff-only` and `bun install
      --frozen-lockfile`.
    - **Daemon**: announces in #rt first (the dev daemon serves other
@@ -394,7 +395,8 @@ why.
      mismatch, never a silent pass).
    - **Served suite**: re-registers board, console, chat, boxscore, and
      deck with `deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`
-     when their registry `dev.workingDirectory` differs from that path,
+     (or the older `~/Documents/GitHub/repo-tools` folder on a machine that
+     has not moved it) when their registry `dev.workingDirectory` differs from that path,
      then `deck restart --managed`, then polls each managed app's pid
      for a bit (a `deck restart` is a kickstart, not a readiness
      guarantee) via `launchctl print
