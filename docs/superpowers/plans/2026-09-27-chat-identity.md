@@ -73,9 +73,11 @@ export function identityNames(ids: Iterable<string>, db?: Database): Map<string,
 /** True when `x` is a known id: a chat_identities row, or a handle in chat_presence, chat_members, chat_messages or chat_dms. */
 export function isKnownId(x: string, db?: Database): boolean;
 
-/** Spec "Resolving a typed name": known id, else live display name, else most recent identity by name, else `x`. */
+/** Spec "Resolving a typed name": minted id (chat_identities row), else live display name, else most recent minted identity by name, else `x` as a legacy id. */
 export function resolveHandle(x: string, db?: Database): string;
 ```
+
+Lane 1a may also export `getIdentity`, `renameIdentity`, `fixedIdentityRefusal`, `HERD_SYSTEM_ID` and `SignInResult`; the store reads `chat.humanHandle` through `getSetting`.
 
 `lib/state/presence-store.ts`:
 
@@ -129,7 +131,9 @@ Payload fields `handle`, `from`, `to`, `mentions[]` accept an id or a name; the 
 
 Session file `~/.mattstack/rt/chat/sessions/<sessionId>.json`: `{ "handle": "<id>", "baseHandle": "<base>", "name": "<display>" }`.
 
-Delivery frame (agent-facing): header and lines show names; the reply hint line names the sender's id, e.g. `Reply privately with: rt chat dm remy.k3f9 "..."` (lane 1b owns the exact wording in `lib/daemon/inbox.ts`).
+Delivery frame (agent-facing): header and lines show names; the reply hint names each sender's id, one hint per distinct sender when a delivery batches several, e.g. `Reply privately with: rt chat dm remy.k3f9 "..."` (lane 1b owns the exact wording in `lib/daemon/inbox.ts`).
+
+CLI and MCP sign-in output: `rt chat sign-in --json` (with or without `--pane`) prints `{ ok, handle, name, room, continued }`; the MCP `chat_sign_in` tool returns `{ handle, name, room, continued }`. An invite's `note from <x>` shows the sender's name.
 
 ### herdr-chat JSON (lane 3 produces; lane 4 consumes)
 
@@ -139,6 +143,8 @@ Delivery frame (agent-facing): header and lines show names; the reply hint line 
 | `peek.buddies[]` | adds `"name"` |
 | `jump` | adds `"name"` |
 | `targets.people[]` | unchanged format `"@<display name>"` |
+| `peek.rooms[]` | adds `"label"`: the room name, or `"kai ↔ remy"` (participant names) for a DM room |
+| `targets` | adds `"labels"`: an object from each target string to its display text (DM rooms read `kai ↔ remy`; others map to themselves) |
 | `quick-send --to @x` | `x` may be a name or an id |
 | `jump --handle x` | `x` may be a name or an id |
 
@@ -146,7 +152,11 @@ Delivery frame (agent-facing): header and lines show names; the reply hint line 
 
 ### flock (lane 4)
 
-`ChatStatus.name: String?`, `ChatBuddy.name: String?`, `ChatJump.name: String?`. Display `name ?? handle`. Act on `handle`.
+`ChatStatus.name: String?`, `ChatBuddy.name: String?`, `ChatJump.name: String?`. Display `name ?? handle`. Act on `handle`. `ChatPeekRoom.label: String?` and `ChatTargets.labels: [String: String]?`: room and quick-send chips show the label when present, else the raw target.
+
+### Chat viewer
+
+When two DM rows would read the same pair label, both rows show their participants' avatars so they are distinguishable; otherwise DM rows are unchanged.
 
 ## Lane dependencies
 
@@ -179,8 +189,8 @@ Delivery frame (agent-facing): header and lines show names; the reply hint line 
 
 ### Task I4: UI validation (mandatory)
 
-- [ ] **Step 1:** Delegate to `fast-browser:browser-driver`: open the chat viewer from `deck list`'s localhost URL for chat in a dev instance seeded with a legacy `remy` and a new `remy.k3f9` in `#rt` and one DM each with kai. Screenshot light and dark.
-- [ ] **Step 2:** Check by eye: no `.k3f9` anywhere, two DM rows both labelled `kai ↔ remy` with different hues, mention highlight on `@remy`. Report plainly what looks wrong.
+- [ ] **Step 1:** Delegate to `fast-browser:browser-driver`: open the chat viewer from `deck list`'s localhost URL for chat in a dev instance seeded with a legacy `remy` and a new `remy.m2p4` in `#rt` (lane 2's fixture id, chosen because its hue and avatar both differ from `remy`) and one DM each with kai. Screenshot light and dark.
+- [ ] **Step 2:** Check by eye: no `.m2p4` anywhere, two DM rows both labelled `kai ↔ remy` with different hues, mention highlight on `@remy`. Report plainly what looks wrong.
 - [ ] **Step 3:** flock: after lane 4's dev build, screenshot the chat popover, peek and quick-send in both schemes; same checks.
 
 ### Task I5: Ship order on merge day

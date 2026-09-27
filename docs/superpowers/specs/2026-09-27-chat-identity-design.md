@@ -80,10 +80,20 @@ set it:
 2. **`rt agent start` reservations.** `reserveAgentHandle` mints the id at
    reservation (an identities row with no session) and stores it on
    `agents.handle`; the agent's sign-in passes `continue`.
-3. **`--as <x>`** (CLI) and `as` (MCP `chat_sign_in`). `x` resolves as in
+3. **`--as <x>`** (CLI only). `x` resolves as in
    "Resolving a typed name" below. If that identity has no live session,
    the caller continues it. If it is live in another session, the caller
    gets a new id with the next free display suffix (`remy-2`).
+
+The MCP `chat_sign_in` tool's `as` never continues: it picks a display
+name for a fresh id and keeps its current refusals (held names, names
+with memberships, the human). Every MCP tool runs unprompted on every
+estate machine, so inheriting another identity's inbox stays a
+CLI-typed or daemon-internal act.
+
+A `continue` value resolves through `resolveHandle`; if the result is a
+known id (legacy handles included) with no live session, it is continued,
+otherwise the caller mints under that display name.
 
 Continuing an id that is live in another session is refused (the same
 rule `assertSessionOwnsHandle` enforces today), except `herd:resume`,
@@ -96,13 +106,19 @@ Every input that names someone (`rt chat dm <x>`, `chat_dm {to}`, `@x`
 mentions, `--as x`, herdr-chat `jump --handle x` and `quick-send --to @x`,
 the viewer's DM open) resolves in this order:
 
-1. `x` is a known id: that id.
+1. `x` is a minted id (a `chat_identities` row): that id. Minted ids
+   reach agents only through reply hints.
 2. A live session's display name is `x`: its id. Live display names are
    unique, so this is exact.
 3. The most recently minted identity named `x`: its id. A DM to someone
    who has left waits in their own inbox and never reaches a newcomer.
-4. Otherwise `x` itself, treated as a legacy id (today's behaviour for an
-   unknown handle, unchanged).
+4. Otherwise `x` itself, as a legacy id (today's behaviour, unchanged;
+   this covers legacy handles that contain a dot).
+
+Legacy handles come last on purpose: every old pool name is still a
+handle in `chat_members`, so letting "any known id" win first would send
+`@kai` to the old kai instead of the live one. Every minted identity is
+newer than every legacy handle, so step 3 always beats step 4.
 
 **Replies bind to the id.** Delivery frames keep showing names
 (`from-name="remy (#rt)"`, `[#rt] remy #530:`), but the reply hint they
