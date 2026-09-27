@@ -24,10 +24,10 @@ import (
 const emptyCommitSummary = "Empty commit message"
 
 const (
-	// tabs(3, pad+label+underline), then the filter box(3) from
+	// tabs(2, label+underline), then the filter box(3) from
 	// historyFilterTopRow.
-	historyFilterTopRow = tabsStripRows
-	historyFixedTopRows = historyFilterTopRow + 3
+	historyFilterTopRow = 2
+	historyFixedTopRows = 5
 	historyFilesMin     = 24
 	historyFilesMax     = 40
 	historyFilesNarrow  = 12

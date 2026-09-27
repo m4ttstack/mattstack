@@ -708,12 +708,12 @@ func (m *Mission) filterDisplayText() string {
 }
 
 // sidebarFixedTopRows is the constant row count above the (scrollable)
-// Changes list: tabs(3, pad+label+underline) + the filter box(3) + the
-// master row(1) (docs/design/mission/
+// Changes list: tabs(2, label+underline) + the filter box(3) + the master
+// row(1) (docs/design/mission/
 // README.md's Terminal geometry table). Unlike the old content-driven top
 // block, this never varies with the Changes count -- the list itself is now
 // a fixed-height scrolling region, not a block that grows the whole sidebar.
-const sidebarFixedTopRows = tabsStripRows + 4
+const sidebarFixedTopRows = 6
 
 func (m *Mission) sidebarFixedTop(width int) string {
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -892,8 +892,22 @@ func (m *Mission) keybarMode() string {
 	return "changes"
 }
 
+// tabCap is the hovered inactive tab's columns, the span of the top bar's
+// closing half-row that becomes the tab button's top padding; empty when no
+// tab is hovered.
+func (m *Mission) tabCap() colSpan {
+	if !m.hoverTab {
+		return colSpan{}
+	}
+	half := sidebarWidth / 2
+	if m.historyTab() {
+		return colSpan{0, half}
+	}
+	return colSpan{half, sidebarWidth}
+}
+
 func (m *Mission) View() tea.View {
-	top := renderTopBar(m.model, m.spin.View(), m.width, m.hoverZone, m.openZone())
+	top := renderTopBarCapped(m.model, m.spin.View(), m.width, m.hoverZone, m.openZone(), m.tabCap())
 	diffW := m.diffWidth()
 	keybar := renderKeybar(m.width, m.keybarMode())
 	l := m.layout()
@@ -1089,12 +1103,12 @@ func topbarHit(width, x int) zoneID {
 // list begins, scrolled or not.
 func (m *Mission) sidebarHit(x, y, listRegionH int) hit {
 	row := 0
-	// Every tab-strip row is the tabs button; hover and click must cover
+	// Both tab-strip rows are the tabs button; hover and click must cover
 	// exactly the same rows (renderTabsRow's own invariant comment).
-	if y < row+tabsStripRows {
+	if y < row+2 {
 		return tabsHit(sidebarWidth, x)
 	}
-	row += tabsStripRows
+	row += 2
 	if y < row+3 {
 		return hit{kind: hitFilterRow}
 	}

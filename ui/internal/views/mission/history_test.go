@@ -126,18 +126,9 @@ func TestTabStripMarksHistoryActive(t *testing.T) {
 		t.Fatalf("the v2 marker must be gone:\n%s", plain)
 	}
 	lines := strings.Split(out, "\n")
-	if len(lines) != 3 {
-		t.Fatalf("tab strip should be 3 rows (pad, label, underline), got %d", len(lines))
+	if len(lines) != 2 {
+		t.Fatalf("tab strip should stay 2 rows, got %d", len(lines))
 	}
-	if strings.TrimSpace(ansi.Strip(lines[0])) != "" || lipgloss.Width(lines[0]) != sidebarWidth {
-		t.Fatalf("the pad row above the labels should be a blank full-width row: %q", lines[0])
-	}
-	for x, bg := range cellBackgrounds(lines[0]) {
-		if bg != bgSGR(theme.Bg) {
-			t.Fatalf("pad col %d should rest on Bg, got %q", x, bg)
-		}
-	}
-	lines = lines[1:]
 	if w := lipgloss.Width(lines[1]); w != sidebarWidth {
 		t.Fatalf("underline should span %d cells, got %d", sidebarWidth, w)
 	}
@@ -159,14 +150,6 @@ func TestTabHoverOnlyOnInactiveHalf(t *testing.T) {
 	half := sidebarWidth / 2
 	hover := bgSGR(theme.HoverBg)
 	lines := strings.Split(renderTabsRow(3, "history", true, sidebarWidth), "\n")
-	if len(lines) != tabsStripRows {
-		t.Fatalf("tab strip should be %d rows, got %d", tabsStripRows, len(lines))
-	}
-	pad := []rune(ansi.Strip(lines[0]))
-	if string(pad[:half]) != strings.Repeat("▄", half) || strings.TrimSpace(string(pad[half:])) != "" {
-		t.Fatalf("the pad row should cap only the hovered Changes half with ▄: %q", string(pad))
-	}
-	lines = lines[1:]
 	cells := cellBackgrounds(lines[0])
 	if len(cells) != sidebarWidth {
 		t.Fatalf("label row should be %d cells, got %d", sidebarWidth, len(cells))
@@ -696,13 +679,17 @@ func TestHitTestResolvesCommitRowsAndTab(t *testing.T) {
 	if h := m.hitTest(2, y+historyRowHeight); h.kind != hitCommitRow || h.idx != 1 {
 		t.Fatalf("the next commit's summary row should be commit 1, got %+v", h)
 	}
-	for row, name := range []string{"pad", "label", "underline"} {
-		if h := m.hitTest(1, l.topH+row); h.kind != hitTab || h.idx != 0 {
-			t.Fatalf("the inactive Changes half's %s row is part of its button, got %+v", name, h)
-		}
-		if h := m.hitTest(sidebarWidth-2, l.topH+row); h.kind != hitNone {
-			t.Fatalf("the active History half's %s row must be inert, got %+v", name, h)
-		}
+	if h := m.hitTest(1, l.topH); h.kind != hitTab || h.idx != 0 {
+		t.Fatalf("the inactive Changes half should resolve to hitTab idx 0, got %+v", h)
+	}
+	if h := m.hitTest(sidebarWidth-2, l.topH); h.kind != hitNone {
+		t.Fatalf("the active History half must be inert, got %+v", h)
+	}
+	if h := m.hitTest(2, l.topH+1); h.kind != hitTab || h.idx != 0 {
+		t.Fatalf("the inactive half's underline row is part of its button, got %+v", h)
+	}
+	if h := m.hitTest(sidebarWidth-2, l.topH+1); h.kind != hitNone {
+		t.Fatalf("the active half's underline must stay inert, got %+v", h)
 	}
 	if h := m.hitTest(2, l.topH+historyFilterTopRow); h.kind != hitFilterRow {
 		t.Fatalf("the filter box sits directly under the tabs underline, got %+v", h)
@@ -1085,7 +1072,7 @@ func TestHistoryViewportKeepsTwoWholeCommitsEachSide(t *testing.T) {
 func TestHistoryViewportShrinksMarginsOnAShortList(t *testing.T) {
 	instantSelectTick(t)
 	m := groupedMission(t, 30, false)
-	m.height = 20
+	m.height = 19
 	if h := m.layout().listRegionH; h != 9 {
 		t.Fatalf("setup: the list should be 9 rows, got %d", h)
 	}

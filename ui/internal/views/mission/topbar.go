@@ -41,6 +41,18 @@ func fg(c color.Color) lipgloss.Style {
 // whose content genuinely varies in length across states). spin is the
 // spinner's current frame, painted wherever something is busy.
 func renderTopBar(m Model, spin string, width int, hover, open zoneID) string {
+	return renderTopBarCapped(m, spin, width, hover, open, colSpan{})
+}
+
+// colSpan is a half-open column range [from, to); the zero value is empty.
+type colSpan struct{ from, to int }
+
+// renderTopBarCapped is renderTopBar with tabCap's columns of the repo
+// segment's closing half-row filled HoverBg underneath: the hovered tab
+// button directly below borrows that half-row as its top padding, so the
+// button has half a row above its label and half below, with no gap
+// against the bar.
+func renderTopBarCapped(m Model, spin string, width int, hover, open zoneID, tabCap colSpan) string {
 	if width <= 0 {
 		return ""
 	}
@@ -52,7 +64,7 @@ func renderTopBar(m Model, spin string, width int, hover, open zoneID) string {
 	segW := remaining / 3
 	lastW := remaining - segW*2
 
-	repo := renderRepoSegment(m, sidebarWidth, hover == zoneRepo, open == zoneRepo)
+	repo := renderRepoSegment(m, sidebarWidth, hover == zoneRepo, open == zoneRepo, tabCap)
 	worktree := renderWorktreeSegment(m, spin, segW, hover == zoneWorktree, open == zoneWorktree)
 	branch := renderBranchSegment(m, segW, hover == zoneBranch, open == zoneBranch)
 	action := renderActionSegment(m.Action, spin, lastW, hover == zoneAction, open == zoneAction)
@@ -96,12 +108,15 @@ type segmentSpec struct {
 	// the action segment's ahead/behind pills stay flush -- 0, the
 	// zero-value default.
 	trailingPad int
+	// trailingCap is the columns of the closing half-row whose lower half
+	// is HoverBg instead of Bg (renderTopBarCapped).
+	trailingCap colSpan
 }
 
 // chevronTrailingPad is the foldout segments' own trailingPad value.
 const chevronTrailingPad = 2
 
-func renderRepoSegment(m Model, width int, hovered, isOpen bool) string {
+func renderRepoSegment(m Model, width int, hovered, isOpen bool, tabCap colSpan) string {
 	label := m.Current.RepoLabel
 	if label == "" {
 		label = m.Current.Repo
@@ -116,6 +131,7 @@ func renderRepoSegment(m Model, width int, hovered, isOpen bool) string {
 		bottomBold:  true,
 		trailing:    segmentBase(hovered, isOpen).Foreground(theme.Dimmer).Render(theme.GlyphChevron),
 		trailingPad: chevronTrailingPad,
+		trailingCap: tabCap,
 	}, hovered, isOpen)
 }
 
@@ -365,6 +381,12 @@ func renderSegment(width int, spec segmentSpec, hovered, isOpen bool) string {
 	// the lower half is theme.Bg, so the band ends the way it started
 	// instead of dropping to a full-height row.
 	row3 := padStyle.Render(strings.Repeat(theme.GlyphHalfBlockUpper, width))
+	if c := spec.trailingCap; c.from >= 0 && c.from < c.to && c.to <= width {
+		upper := func(bg color.Color, n int) string {
+			return lipgloss.NewStyle().Background(bg).Foreground(segmentBaseColor(hovered, isOpen)).Render(strings.Repeat(theme.GlyphHalfBlockUpper, n))
+		}
+		row3 = upper(theme.Bg, c.from) + upper(theme.HoverBg, c.to-c.from) + upper(theme.Bg, width-c.to)
+	}
 
 	return pad + "\n" + row1 + "\n" + row2 + "\n" + row3
 }
