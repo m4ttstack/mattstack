@@ -175,6 +175,13 @@ that dies mid-upload leaves a draft that `gh release view` renders exactly like 
 release while the public API and mattstack.dev keep serving the previous tag; completing its
 assets by hand does not publish it, the flip does.
 
+Counters: the first `rt release verify <tag> --json` is not a rerun, so `Verify reruns = 4?` is
+yes after the fourth rerun. `Publish recoveries = 1?` counts delete-and-rerun pairs done and
+`Draft flips = 1?` counts flips done, so each is yes after the first. `Docs deploy attempts = 2?`
+counts every deploy run, the first included. `Update-machine runs = 2?` counts every `--yes` run
+in this release, the first included. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
+once Matt has answered iterate twice.
+
 ### Gate: approve the update-machine legs
 
 Show the `--plan` output. Say plainly that `--yes` skips every per-leg confirm: the prod app

@@ -138,6 +138,10 @@ digraph prepare_release {
 CI reads `RELEASE_NOTES.md` at the tagged commit as the release body, so the notes commit is the
 tag target. This stage never tags: the tag comes after the rehearsal, at the exercised sha.
 
+Counters: `Notes revision rounds = 3?` counts the revise answers received at the approval gate
+so far. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
+once Matt has answered iterate twice.
+
 ### Choose the version bump
 
 From `git log --pretty=%s <last-tag>..HEAD`: any `feat(` or a new module or file is a minor bump;

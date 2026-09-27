@@ -135,6 +135,11 @@ as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
 `MATTSTACK_VMTEST_ORG_CONFIRM=matts-hasura-demo` (the README's default org does not exist).
 `<scratch>` is this session's scratchpad.
 
+Counters: the first dispatch is not a rerun, so `Rehearsal reruns = 2?` is yes after the second
+`gh run rerun <run-id> --failed` has also gone red. `Walkthrough runs = 2?` counts every
+walkthrough run, the first included, so it is yes after the second one fails. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
+once Matt has answered iterate twice.
+
 ### Watch the rehearsal run to completion
 
 On the reuse path, the run is the one `gh run list` found with `headSha` equal to the exercised

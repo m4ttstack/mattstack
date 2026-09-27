@@ -115,6 +115,10 @@ the diff since the last tag touches only served-app directories (`apps/board`, `
 tool row, fast-browser, any rt file, or several served apps released together (when Matt wants
 that) take the full path.
 
+Counters say what one count is. `Preflight runs = 3?` counts every preflight run in this release,
+the first one and the reruns after cuts included. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
+once Matt has answered iterate twice.
+
 ### Find where this release stands
 
 Read three facts after the fetch, all against origin rather than the local checkout (which may
@@ -235,6 +239,9 @@ Attended, a gate is an AskUserQuestion form in the pane; inside a herd, `herd_as
 pipeline run, `gate_ask`. The first option is the recommendation, labels are 2 to 6 words, each
 description is one sentence, and the question quotes the refusal or failing output. Record the
 answer before acting on it.
+
+A hold ends at `Held: release paused, resume point named`: name the resume point (the node to
+re-enter and what it needs) in the gate answer and the turn's final message, never in a #rt post.
 
 Take means Matt made the move (or ruled it made) and the graph continues past the failed step; the
 agent never makes an off-graph move itself. Iterate means Matt fixed the cause and the failed step
