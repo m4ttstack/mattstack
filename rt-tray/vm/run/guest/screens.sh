@@ -52,11 +52,16 @@ screen_readiness() {
   ax_shot 03-readiness-initial
   # Accounts → the forge token (the guest has no gh/glab; the PAT is typed, never logged, masked on screen).
   if ax_find "setup.checklist.row.account.$FORGE" >/dev/null 2>&1; then
-    [ -n "$PAT" ] || ax_fail "account.$FORGE row present but \$$PAT_ENV is empty on the host"
-    ax_click "setup.checklist.row.account.$FORGE.action"
-    ax_set_field setup.checklist.connect.field.token "$PAT"
-    ax_click setup.checklist.connect.submit
-    ax_wait_status "account.$FORGE" ready 60 || ax_fail "$FORGE row not ready"
+    if [ "$SCENARIO" = solo ] && [ -z "$PAT" ]; then
+      # solo marks this row required: false; the walkthrough runs without a token.
+      ax_log "account.$FORGE row is optional on solo and no token is set on the host; leaving it unconnected"
+    else
+      [ -n "$PAT" ] || ax_fail "account.$FORGE row present but \$$PAT_ENV is empty on the host"
+      ax_click "setup.checklist.row.account.$FORGE.action"
+      ax_set_field setup.checklist.connect.field.token "$PAT"
+      ax_click setup.checklist.connect.submit
+      ax_wait_status "account.$FORGE" ready 60 || ax_fail "$FORGE row not ready"
+    fi
   else
     # Name what's actually there instead of letting a wrong row guess surface
     # only as a much later checklist-continue timeout.
