@@ -1,6 +1,7 @@
 # jq -r -n --slurpfile catalog <catalog.jq output> --slurpfile status <deck
 #   /api/v1/status or null> --slurpfile launchd <{name: launchctl-print.jq}>
 #   --slurpfile routes <~/.portless/routes.json or null>
+#   --slurpfile apps <deck /api/v1/apps or null>
 #   --slurpfile before <{name: launchctl-print.jq} taken before an update, or null>
 #   --arg helpers <app>/Contents/Helpers --arg home <$HOME>
 # Prints one "ok<TAB>msg" or "bad<TAB>msg" line per assertion.
@@ -11,6 +12,7 @@ def deck_label($n): "com.mattstack.deck." + $n;
 ($catalog[0] // {apps: [], tools: []}) as $cat
 | ($status[0]) as $st
 | ($launchd[0] // {}) as $ld
+| ($apps[0].apps // []) as $adm
 | ($before[0]) as $bef
 | ([($routes[0] // [])[]?.hostname]) as $hosts
 | if ($cat.apps | length) == 0 then
@@ -26,6 +28,10 @@ def deck_label($n): "com.mattstack.deck." + $n;
       | ($ld[$a.name] // {loaded: false}) as $job
       | if $a.status != "bundled" then
           bad("\($a.name): deps.lock serves it but its row is \($a.status), so this bundle does not ship it")
+        elif ([$adm[] | select(.name == $a.name and .enabled == false)] | length) > 0 then
+          # A disabled app keeps its portless alias (deck never drops the hostname on disable), so
+          # only the health/route/launchd checks below are skipped here, never assert_mattstack_routes.
+          ok("\($a.name): disabled, not served (deck /api/v1/apps enabled false)")
         elif $row == null then
           bad("\($a.name): no row in deck /api/v1/status (not registered, or no route)")
         else
