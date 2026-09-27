@@ -92,7 +92,7 @@ its identity. Only three things carry an identity into a new session:
 
 | Continuation | How |
 | --- | --- |
-| `rt chat sign-in --as <name or id>`, typed by Matt | continues that identity, with its rooms, DMs and unread, when no live session holds it; when one does, the session gets a new identity named `<name>-2` <!-- mcp-lint: allow --> |
+| `rt chat sign-in --as <name or id>`, typed by Matt | continues that identity, with its rooms, DMs and unread, when no live session holds it; when one does, a typed id is refused, and a typed name gets a new identity named `<name>-2` <!-- mcp-lint: allow --> |
 | a herd | `herd_resume` and a worker's re-sign-in continue the ids the herd stored |
 | an `rt agent start` reservation | the agent's sign-in continues the id reserved for it |
 
