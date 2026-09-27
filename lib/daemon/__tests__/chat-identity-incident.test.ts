@@ -111,3 +111,45 @@ test("a recycled pool name never inherits the previous holder's rooms, DMs or ca
   await Bun.sleep(20);
   expect(framesOf("sess-b").some((f) => f.includes("for the old remy"))).toBe(false);
 });
+
+test("a catch-up from a legacy sender whose name a live identity now holds points at the room, never at rt chat dm <name>", async () => {
+  const db = openStateDb(join(tmpdir(), `chat-incident-legacy-${process.pid}-${Date.now()}.db`));
+  const sockets = new Map([["sess-remy", fakeSocketPath()], ["sess-remy-2", fakeSocketPath()], ["sess-kai", fakeSocketPath()], ["sess-new-kai", fakeSocketPath()]]);
+  const frames = new Map<string, string[]>();
+  const framesOf = (session: string): string[] => frames.get(session) ?? [];
+  const inboxDeps: InboxDeps = {
+    resolve: (sessionId) => {
+      const socketPath = sockets.get(sessionId);
+      return socketPath ? { pid: process.pid, socketPath, status: "idle" } : null;
+    },
+    deliver: async (socketPath, content) => {
+      const session = [...sockets].find(([, path]) => path === socketPath)![0];
+      frames.set(session, [...framesOf(session), content]);
+      return { ok: true };
+    },
+  };
+  const h = createChatHandlers({ db, emitEvent: () => 0, inboxDeps, retryDelayMs: 0 });
+
+  db.run("INSERT INTO chat_members (room, handle, joined_at, last_read_id, wake_on) VALUES ('legacy', 'kai', 1, 0, 'mention')");
+  const remy = await h["chat:sign-in"]({ sessionId: "sess-remy", continue: "remy" });
+  if (!remy.ok) throw new Error(remy.error);
+  await h["chat:sign-out"]({ sessionId: "sess-remy" });
+  const oldKai = await h["chat:sign-in"]({ sessionId: "sess-kai", continue: "kai" });
+  if (!oldKai.ok) throw new Error(oldKai.error);
+  expect(oldKai.data.handle).toBe("kai");
+  const dm = await h["chat:dm"]({ from: "kai", to: remy.data.handle, body: "legacy kai was here", sessionId: "sess-kai" });
+  if (!dm.ok) throw new Error(dm.error);
+  await h["chat:sign-out"]({ sessionId: "sess-kai" });
+  db.run("UPDATE chat_presence SET signed_out_at = ? WHERE session_id = 'sess-kai'", [Date.now() - 2 * DAY_MS]);
+  const newKai = await h["chat:sign-in"]({ sessionId: "sess-new-kai", baseHandle: "kai" });
+  if (!newKai.ok) throw new Error(newKai.error);
+  expect(newKai.data).toMatchObject({ name: "kai" });
+  expect(newKai.data.handle).not.toBe("kai");
+
+  const back = await h["chat:sign-in"]({ sessionId: "sess-remy-2", continue: remy.data.handle });
+  if (!back.ok) throw new Error(back.error);
+  await waitFor(() => framesOf("sess-remy-2").some((f) => f.includes("legacy kai was here")));
+  const welcome = framesOf("sess-remy-2").find((f) => f.includes("legacy kai was here"))!;
+  expect(welcome).not.toContain("rt chat dm kai ");
+  expect(welcome).toContain(`reply to kai: rt chat post ${dm.data.room} "..."`);
+});

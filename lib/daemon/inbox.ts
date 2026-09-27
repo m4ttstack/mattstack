@@ -138,14 +138,25 @@ export function renderDeliveries(items: DeliveryItem[]): string {
     .join("\n");
 }
 
+/**
+ * A message's sender as a reply hint sees it. `passedOn` marks a legacy
+ * handle that `rt chat dm` would now resolve to another identity holding the
+ * same name, so the only safe reply is a post in `room`.
+ */
+export interface HintSender { handle: string; name: string; room?: string; passedOn?: boolean }
+
 /** Distinct repliable senders: the herd's system poster has no reader, so a dm to it is never offered. */
-function distinctSenders(senders: Array<{ handle: string; name: string }>): Array<{ handle: string; name: string }> {
+function distinctSenders(senders: HintSender[]): HintSender[] {
   return [...new Map(senders.filter((s) => s.handle !== SYSTEM_HANDLE).map((s) => [s.handle, s])).values()];
 }
 
 /** One reply line per distinct sender: the lines above show names, and a name can change hands before the reply is sent. */
-export function senderHints(senders: Array<{ handle: string; name: string }>): string[] {
-  return distinctSenders(senders).map((s) => `  reply to ${s.name}: rt chat dm ${s.handle} "..."`);
+export function senderHints(senders: HintSender[]): string[] {
+  return distinctSenders(senders).map((s) =>
+    s.passedOn
+      ? `  reply to ${s.name}: rt chat post ${s.room ?? "<room>"} "..." (the name ${s.name} now reaches another agent)`
+      : `  reply to ${s.name}: rt chat dm ${s.handle} "..."`,
+  );
 }
 
 /**
@@ -171,10 +182,12 @@ export function wrapCrossSession(label: string, body: string): string {
  * only agent-facing text that shows an id: a reply must reach the exact
  * sender even after its display name has passed to someone else.
  */
-export function replySteer(senders: Array<{ handle: string; name: string }>): string {
+export function replySteer(senders: HintSender[]): string {
   const distinct = distinctSenders(senders);
   const tail = "(never SendMessage; this arrived through rt chat)";
-  if (distinct.length === 1) return `reply via rt chat post <room> "..." or rt chat dm ${distinct[0]!.handle} "..." ${tail}`;
+  const only = distinct.length === 1 ? distinct[0]! : undefined;
+  if (only?.passedOn) return `reply via rt chat post ${only.room ?? "<room>"} "..." ${tail}`;
+  if (only) return `reply via rt chat post <room> "..." or rt chat dm ${only.handle} "..." ${tail}`;
   return [`reply via rt chat post <room> "..." or rt chat dm <id> "..." ${tail}`, ...senderHints(distinct)].join("\n");
 }
 

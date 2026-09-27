@@ -57,6 +57,22 @@ test("replySteer gives one hint per distinct sender when a bundle has several", 
   );
 });
 
+test("replySteer offers only the room post for a sender whose handle now reaches another identity", () => {
+  const steer = replySteer([{ handle: "kai", name: "kai", room: "dm-1a2b", passedOn: true }]);
+  expect(steer).toBe('reply via rt chat post dm-1a2b "..." (never SendMessage; this arrived through rt chat)');
+  expect(steer).not.toContain("rt chat dm");
+});
+
+test("senderHints points a passed-on sender at its room and keeps the dm hint for the rest", () => {
+  expect(senderHints([
+    { handle: "kai", name: "kai", room: "rt", passedOn: true },
+    { handle: "remy.k3f9", name: "remy", room: "rt" },
+  ])).toEqual([
+    '  reply to kai: rt chat post rt "..." (the name kai now reaches another agent)',
+    '  reply to remy: rt chat dm remy.k3f9 "..."',
+  ]);
+});
+
 test("senderHints lists distinct senders in first-seen order", () => {
   expect(senderHints([{ handle: "a.0001", name: "a" }, { handle: "b", name: "b" }, { handle: "a.0001", name: "a" }])).toEqual([
     '  reply to a: rt chat dm a.0001 "..."',

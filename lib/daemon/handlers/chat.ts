@@ -59,7 +59,7 @@ import { injectIntoPane, herdrError } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import type { HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
-import { deliverToInbox, deliveryLabel, renderDeliveries, replySteer, senderHints, wrapCrossSession } from "../inbox.ts";
+import { deliverToInbox, deliveryLabel, renderDeliveries, replySteer, senderHints, wrapCrossSession, type HintSender } from "../inbox.ts";
 import { repoForCwd, branchForCwd } from "../../repo-for-cwd.ts";
 import { deriveRoomForCwdAsync } from "../../chat-room.ts";
 import { baseOfHandle } from "../../chat-names.ts";
@@ -230,7 +230,8 @@ async function deliverPost(
   const others = pending.filter((m) => m.handle !== recipient);
   if (others.length === 0) return { delivered: false, count: 0 };
   const items = others.map((m) => ({ room: msg.room, dm: msg.dm, handle: m.handle, name: m.name, body: m.body, id: m.id }));
-  const content = wrapCrossSession(deliveryLabel(items), `${renderDeliveries(items)}\n${replySteer(items)}`);
+  const hintSenders = items.map((m) => ({ ...m, passedOn: resolveHandle(m.handle, db) !== m.handle }));
+  const content = wrapCrossSession(deliveryLabel(items), `${renderDeliveries(items)}\n${replySteer(hintSenders)}`);
   let result = await deps.deliver(binding.socketPath, content);
   if (!result.ok) {
     await Bun.sleep(retryDelayMs);
@@ -688,7 +689,7 @@ export function renderWelcome(
   name: string,
   rooms: string[],
   catchup: Array<{ room: string; lines: string[] }>,
-  senders: Array<{ handle: string; name: string }> = [],
+  senders: HintSender[] = [],
 ): string {
   const lines: string[] = [
     "[rt chat] This frame is for THIS session, from the rt daemon (not another agent).",
@@ -1224,7 +1225,9 @@ export function createChatHandlers(opts: {
       // confirms the frame was sent.
       const peeked = peekUnread({ handle: data.handle, limit: WELCOME_CATCHUP_LIMIT }, db);
       const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.name}: ${m.body}`) }));
-      const senders = peeked.flatMap((r) => r.messages.map((m) => ({ handle: m.handle, name: m.name })));
+      const senders = peeked.flatMap((r) =>
+        r.messages.map((m) => ({ handle: m.handle, name: m.name, room: r.room, passedOn: resolveHandle(m.handle, db) !== m.handle })),
+      );
       const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
       const welcomeContent = wrapCrossSession("rt chat", renderWelcome(data.name, rooms, catchup, senders));
       const welcomeSessionId = sessionId;
