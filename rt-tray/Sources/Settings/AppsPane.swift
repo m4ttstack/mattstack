@@ -14,6 +14,7 @@ struct AppsPane: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Toggle(app.displayName, isOn: Binding(get: { app.enabled }, set: { on in Task { await model.setEnabled(app.name, on) } }))
                             .toggleStyle(.switch)
+                            .disabled(model.inFlight.contains(app.name))
                             .accessibilityIdentifier(AXID.settingsAppToggle(app.name))
                         if let description = app.description {
                             Text(description).font(.caption).foregroundStyle(.secondary)
