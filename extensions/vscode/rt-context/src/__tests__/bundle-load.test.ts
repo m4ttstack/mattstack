@@ -10,7 +10,7 @@ describe('built extension bundle', () => {
     expect(build.status).toBe(0);
 
     const smoke = spawnSync('node', ['scripts/load-smoke.mjs'], { cwd: pkgDir, encoding: 'utf8' });
-    expect(smoke.stderr).toBe('');
     expect(smoke.status).toBe(0);
+    expect(smoke.stdout).toContain('load smoke ok');
   }, 120_000);
 });

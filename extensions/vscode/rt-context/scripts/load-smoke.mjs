@@ -36,9 +36,10 @@ try {
   });
   if (run.status !== 0) {
     console.error(`load smoke failed: ${bundle} does not load in node ${process.version}`);
-    process.exit(run.status ?? 1);
+    process.exitCode = run.status ?? 1;
+  } else {
+    console.log(`load smoke ok: ${bundle} loads in node ${process.version}`);
   }
-  console.log(`load smoke ok: ${bundle} loads in node ${process.version}`);
 } finally {
   rmSync(stubRoot, { recursive: true, force: true });
 }
