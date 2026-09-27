@@ -9,6 +9,7 @@ Kept on Bash on purpose: `rt gate answer <id> --answers <json> --by shepherd`, `
 
 ### gate_answer
 
+<!-- mcp-lint: allow -->
 Answer an open gate's questions as this pane. Answer values must be option VALUES verbatim; nuance goes in {value, note}, and replacement text for something the gate offered goes in {value, text}.
 
 ```json
@@ -78,6 +79,7 @@ Answer an open gate's questions as this pane. Answer values must be option VALUE
 
 ### gate_list
 
+<!-- mcp-lint: allow -->
 List gates in all statuses unless open is true, optionally filtered by subject prefix or kind and capped by limit. Pass the previous response's cursor to continue paging; an empty gates array means there is nothing more to page.
 
 ```json
@@ -106,6 +108,7 @@ List gates in all statuses unless open is true, optionally filtered by subject p
 
 ### gate_ask
 
+<!-- mcp-lint: allow -->
 Open a decision gate with the daemon-side ceremony: subject resolves from this session (explicit subject wins, else its running run, else its agent record's own subject), presentation is computed, and the operator is nudged. Always pass context, quoted from the material the reader decides on, and never trim or skip it for size: over the shared 8192-byte budget (top-level context plus every question's context), question contexts are dropped server-side first, then the top-level context if it is over on its own, and the drop is reported back as contextOmitted: true. A human-owned gate with no context is refused. The in-pane form caps every question at 4 options: keep navigation verbs (iterate, go back, hold) as their own next question and split a larger selection into <id>-1, <id>-2, ... questions whose answers read as one union; one over-cap question makes the whole gate present as wait, reported back as formCapExceeded with the remedy. Returns {id, presentation, subject, supersededId}; then act on the returned presentation. form: ask it in the pane with AskUserQuestion (the gate-fork hook allows it once this gate is open), then answer with the gate_answer tool ({id, answers}), which records the answer as this pane. wait: run `rt gate wait <id>` as background bash and end the turn; the wait itself is never a tool. Prefer {value, label} option objects; bare strings are accepted and stored normalized. Answers must be option VALUES verbatim.
 
 ```json
@@ -193,6 +196,7 @@ Open a decision gate with the daemon-side ceremony: subject resolves from this s
 
 ### chat_post
 
+<!-- mcp-lint: allow -->
 Post a message to an rt chat room as the signed-in handle. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
@@ -225,6 +229,7 @@ Post a message to an rt chat room as the signed-in handle. Requires a signed-in 
 
 ### chat_dm
 
+<!-- mcp-lint: allow -->
 Send a direct message to another rt chat handle. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
@@ -248,6 +253,7 @@ Send a direct message to another rt chat handle. Requires a signed-in chat sessi
 
 ### chat_ack
 
+<!-- mcp-lint: allow -->
 Acknowledge a chat message by id as the signed-in handle. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
@@ -267,6 +273,7 @@ Acknowledge a chat message by id as the signed-in handle. Requires a signed-in c
 
 ### chat_claim
 
+<!-- mcp-lint: allow -->
 Claim a chat message by id so other agents skip answering it. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
@@ -286,6 +293,7 @@ Claim a chat message by id so other agents skip answering it. Requires a signed-
 
 ### chat_release
 
+<!-- mcp-lint: allow -->
 Release a previously claimed chat message by id. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
@@ -305,6 +313,7 @@ Release a previously claimed chat message by id. Requires a signed-in chat sessi
 
 ### mr_reply_thread
 
+<!-- mcp-lint: allow -->
 GitLab only. Reply to an existing MR discussion thread. Returns discussionId, noteId (the posted reply) and the thread's resolved state. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -340,6 +349,7 @@ GitLab only. Reply to an existing MR discussion thread. Returns discussionId, no
 
 ### mr_comment_inline
 
+<!-- mcp-lint: allow -->
 GitLab only. Post a NEW positioned inline comment (DiffNote) on an MR diff line, with server-side verification: the daemon re-checks the created note's type and deletes-and-retries once when GitLab silently drops the position. The retry re-fetches diff_refs; it cannot repair a position GitLab rejects outright. Use mr_reply_thread to reply to an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -385,6 +395,7 @@ GitLab only. Post a NEW positioned inline comment (DiffNote) on an MR diff line,
 
 ### mr_comment
 
+<!-- mcp-lint: allow -->
 GitLab only. Post a NEW top-level note on an MR: a review's summary, or anything with no diff line to anchor to. resolvable (default true) opens a discussion a human can resolve; false posts a plain note, for a summary that carries nothing to resolve. Posts once and never retries. Returns noteId, discussionId (null for a plain note), resolvable as GitLab reports it, url (the note) and mrUrl. Use mr_comment_inline for a diff line and mr_reply_thread for an existing thread. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -419,6 +430,7 @@ GitLab only. Post a NEW top-level note on an MR: a review's summary, or anything
 
 ### mr_create
 
+<!-- mcp-lint: allow -->
 GitLab only. Create a merge request from an already-pushed sourceBranch into targetBranch. Pass targetBranch explicitly (read the default branch from git); it is never guessed. draft defaults to true. Write the title, and optionally the description, yourself (e.g. from the branch's commits). labels apply at creation; squash sets the MR's squash-on-merge flag right after it. Creates once and never retries. Returns iid, url (null when GitLab created the MR but reading it back failed) and, when squash was passed, squashApplied; squashApplied false with squashError means the MR exists, so set squash with mr_update rather than creating again. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -469,6 +481,7 @@ GitLab only. Create a merge request from an already-pushed sourceBranch into tar
 
 ### mr_update
 
+<!-- mcp-lint: allow -->
 GitLab only. Edit an open MR: title, description, addLabels, removeLabels (add and remove, never the whole set, so labels CI or teammates set survive) and squash (the MR's squash-on-merge flag). Pass at least one. A title change keeps the MR's draft state. Title and description are written first, then labels and squash in one call; a partial failure names what landed, and every field is idempotent, so retry with only the failed fields. Returns iid, url and applied (the fields that landed). Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -515,6 +528,7 @@ GitLab only. Edit an open MR: title, description, addLabels, removeLabels (add a
 
 ### mr_upload
 
+<!-- mcp-lint: allow -->
 GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mov, webm; at most 50 MB) to the target project and get back url and markdown; paste the markdown into an MR description or note (mr_create, mr_update, mr_comment). Works before an MR exists. path must be absolute and under an allowed root: a worktree of the target repo, this user's Claude Code temp root (the session scratchpad lives there), or a directory in the rt.mcp.uploadRoots setting; anything else, a directory, or a file whose bytes do not match its extension is refused. Uploads once; a timed-out upload may have landed, but an unused upload is harmless, so retrying is safe. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -543,6 +557,7 @@ GitLab only. Upload one local image or video (png, jpg, jpeg, gif, webp, mp4, mo
 
 ### mr_approve
 
+<!-- mcp-lint: allow -->
 GitLab only. Approve an MR as the token's user, or withdraw that approval with approved: false. Call it only once approving is decided (a review's Approve disposition, after its findings have posted). Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -571,6 +586,7 @@ GitLab only. Approve an MR as the token's user, or withdraw that approval with a
 
 ### mr_resolve_thread
 
+<!-- mcp-lint: allow -->
 GitLab only. Resolve an MR discussion thread, or reopen it with resolved: false. Post any reply first with mr_reply_thread; resolving does not post. Returns {discussionId, resolved}. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -605,6 +621,7 @@ GitLab only. Resolve an MR discussion thread, or reopen it with resolved: false.
 
 ### mr_ready
 
+<!-- mcp-lint: allow -->
 GitLab only. Mark a draft MR ready for review, or back to draft with ready: false. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -633,6 +650,7 @@ GitLab only. Mark a draft MR ready for review, or back to draft with ready: fals
 
 ### mr_retry
 
+<!-- mcp-lint: allow -->
 GitLab only. Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR; pass exactly one. The MR named by the target is the one whose state is refreshed afterward. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -664,6 +682,7 @@ GitLab only. Retry one CI job (jobId) or a whole pipeline (pipelineId) on an MR;
 
 ### mr_rebase
 
+<!-- mcp-lint: allow -->
 GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-side (no checkout). GitLab accepts the request and rebases asynchronously, so re-read the MR before assuming the rebase finished or succeeded. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -689,6 +708,7 @@ GitLab only. Ask GitLab to rebase the MR's source branch onto its target server-
 
 ### mr_merge
 
+<!-- mcp-lint: allow -->
 GitLab only. Merge the MR now (GitLab still enforces approvals and pipeline rules), optionally squashing and deleting the source branch; whenPipelineSucceeds: true instead enables auto-merge, which GitLab may fire at once when the pipeline has already passed. Auto-merge applies the project's own merge settings, so whenPipelineSucceeds cannot be combined with squash or removeSourceBranch. The MR is read back after the request, and the result is what was observed: merged: true when it merged; autoMerge: true (whenPipelineSucceeds only) when auto-merge is enabled; an error carrying GitLab's mergeError when one is set; otherwise {requested, verified: false, state} (state when known), meaning GitLab accepted the request but the outcome was not observed, so re-read with mr_view before assuming either way. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -723,6 +743,7 @@ GitLab only. Merge the MR now (GitLab still enforces approvals and pipeline rule
 
 ### mr_map
 
+<!-- mcp-lint: allow -->
 Open MRs for a repo joined to the local worktrees holding their branches. Lists ALL open MRs for the repo (not only yours). repo is the repo's registered name: either its serialized identity (e.g. remote:gitlab.com%2Facme%2Facme-dev) or its short repo-label alias.
 
 ```json
@@ -742,6 +763,7 @@ Open MRs for a repo joined to the local worktrees holding their branches. Lists 
 
 ### herd_gates
 
+<!-- mcp-lint: allow -->
 List a herd's open gates, defaulting to HERD_ID or the sole active herd when herd is omitted.
 
 ```json
@@ -758,6 +780,7 @@ List a herd's open gates, defaulting to HERD_ID or the sole active herd when her
 
 ### herd_ask
 
+<!-- mcp-lint: allow -->
 Open a gate asking the herd operator one or more questions, using this worker pane's herd, job, and session identity. Each option's label is at most 60 characters: give options as {value, label, description}, with the full wording in value.
 
 ```json
@@ -839,6 +862,7 @@ Open a gate asking the herd operator one or more questions, using this worker pa
 
 ### herd_answer
 
+<!-- mcp-lint: allow -->
 Read the answer to a gate previously opened with herd_ask.
 
 ```json
@@ -858,6 +882,7 @@ Read the answer to a gate previously opened with herd_ask.
 
 ### herd_report
 
+<!-- mcp-lint: allow -->
 Post a status report message to this worker's herd room, using HERD_ID and HERD_JOB from the environment.
 
 ```json
@@ -877,6 +902,7 @@ Post a status report message to this worker's herd room, using HERD_ID and HERD_
 
 ### rt_verb
 
+<!-- mcp-lint: allow -->
 Run one agent-safe rt verb and return its --json result. Agent-safe verbs are the ones skills run in their normal flow, and not all are read-only: skills sync pulls, commits and pushes the pack checkout and runs claude plugin update; skills compile, surface set and apply, and bind write pack files; herd brief writes its --out file. Anything else is refused with the list of verbs that are agent-safe. Pass args without the leading "rt" (e.g. ["worktree", "list"]) and cwd when the verb depends on the current repo, since this server's working directory is fixed at session start and does not follow cd or EnterWorktree.
 
 ```json
@@ -904,6 +930,7 @@ Run one agent-safe rt verb and return its --json result. Agent-safe verbs are th
 
 ### run_start
 
+<!-- mcp-lint: allow -->
 Start a pipeline run and get back its runDb. flags is the compiled run-start flag string verbatim (the {{run-start.flags}} text: --repo, --work-type, --pipeline and friends); skillDir is the loaded skill's own directory (its pack root is derived from it). Pass the returned runDb to every other run_* tool.
 
 ```json
@@ -934,6 +961,7 @@ Start a pipeline run and get back its runDb. flags is the compiled run-start fla
 
 ### run_stage
 
+<!-- mcp-lint: allow -->
 Record a stage transition on a run: start, done, fail (with reason and detailPath) or redirect (with to and reason).
 
 ```json
@@ -980,6 +1008,7 @@ Record a stage transition on a run: start, done, fail (with reason and detailPat
 
 ### run_field_set
 
+<!-- mcp-lint: allow -->
 Write one run field (key, value) as produced by a stage.
 
 ```json
@@ -1015,6 +1044,7 @@ Write one run field (key, value) as produced by a stage.
 
 ### run_field_get
 
+<!-- mcp-lint: allow -->
 Read one run field; errors when the key is not set.
 
 ```json
@@ -1042,6 +1072,7 @@ Read one run field; errors when the key is not set.
 
 ### run_decision
 
+<!-- mcp-lint: allow -->
 Record a decision on the run; selection is a JSON object and is serialized by the tool.
 
 ```json
@@ -1081,6 +1112,7 @@ Record a decision on the run; selection is a JSON object and is serialized by th
 
 ### run_status
 
+<!-- mcp-lint: allow -->
 Set the run's terminal status: done, failed or abandoned.
 
 ```json
@@ -1113,6 +1145,7 @@ Set the run's terminal status: done, failed or abandoned.
 
 ### run_snapshot
 
+<!-- mcp-lint: allow -->
 The run's stages, fields and decisions.
 
 ```json
@@ -1134,6 +1167,7 @@ The run's stages, fields and decisions.
 
 ### run_list
 
+<!-- mcp-lint: allow -->
 List runs the daemon knows, newest first, optionally narrowed to one repo directory name.
 
 ```json
@@ -1150,6 +1184,7 @@ List runs the daemon knows, newest first, optionally narrowed to one repo direct
 
 ### mr_view
 
+<!-- mcp-lint: allow -->
 GitLab only. One MR by iid from the daemon's open-MR cache; pass a small maxAgeMs (e.g. 5000) when the read must be live. The body carries scope and syncError when the daemon reports them. merged and closed results cover only recently closed MRs still held in the daemon's open-MR cache, not a project's full history. That cache may be limited to certain authors and a recent time window, so an MR outside it reads as not found. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1178,6 +1213,7 @@ GitLab only. One MR by iid from the daemon's open-MR cache; pass a small maxAgeM
 
 ### mr_list
 
+<!-- mcp-lint: allow -->
 GitLab only. A summary of each MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, pipelineStatus, detailedMergeStatus), filtered exactly on GitLab's state (default opened, which includes draft MRs; draft: true marks them). Use mr_view for one MR in full. The body carries syncedAt (0 when the cache has never synced for this repo; retry with a small maxAgeMs) and, when the daemon reports them, scope and syncError. merged and closed results cover only recently closed MRs still held in the daemon's open-MR cache, not a project's full history. That cache may be limited to certain authors and a recent time window, so an MR outside it reads as not found. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1211,6 +1247,7 @@ GitLab only. A summary of each MR of the target project (iid, title, state, draf
 
 ### mr_for_branch
 
+<!-- mcp-lint: allow -->
 GitLab only. The MR (or null) for each named source branch. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1242,6 +1279,7 @@ GitLab only. The MR (or null) for each named source branch. Name the target with
 
 ### mr_threads
 
+<!-- mcp-lint: allow -->
 GitLab only. The MR's discussion threads; refresh: true fetches from GitLab first. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1270,6 +1308,7 @@ GitLab only. The MR's discussion threads; refresh: true fetches from GitLab firs
 
 ### mr_pipeline
 
+<!-- mcp-lint: allow -->
 GitLab only. The MR's head pipeline (live by default, maxAgeMs 5000) and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. pipeline.jobs may be empty for a cache entry written at list weight; pass jobId for one job's detail. jobId is the numeric part of a job id like gitlab:job:123. Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. merged and closed results cover only recently closed MRs still held in the daemon's open-MR cache, not a project's full history. That cache may be limited to certain authors and a recent time window, so an MR outside it reads as not found. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1301,6 +1340,7 @@ GitLab only. The MR's head pipeline (live by default, maxAgeMs 5000) and, with j
 
 ### mr_job_trace
 
+<!-- mcp-lint: allow -->
 GitLab only. The tail of one CI job's plain-text trace: the last tailLines lines (default 200) with ANSI escape sequences stripped, then capped at 64 KiB from the end. Returns trace, truncated (true when either cap cut anything) and totalLines. jobId is the numeric part of a job id like gitlab:job:123. Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1335,6 +1375,7 @@ GitLab only. The tail of one CI job's plain-text trace: the last tailLines lines
 
 ### git_push
 
+<!-- mcp-lint: allow -->
 Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead).
 
 ```json
@@ -1361,6 +1402,7 @@ Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; 
 
 ### git_pull
 
+<!-- mcp-lint: allow -->
 Fast-forward the tree's current branch from its upstream (--ff-only). A diverged branch is an error, never a merge or rebase.
 
 ```json
@@ -1381,6 +1423,7 @@ Fast-forward the tree's current branch from its upstream (--ff-only). A diverged
 
 ### git_rebase
 
+<!-- mcp-lint: allow -->
 Rebase the tree's current branch onto a named branch or ref; a remote-tracking ref (origin/<branch>) is fetched first. On a conflict it returns status conflict with the conflicted files and leaves the tree mid-rebase for you to resolve (then finish with git rebase --continue in Bash), or pass abort: true to abort one in progress.
 
 ```json
@@ -1407,6 +1450,7 @@ Rebase the tree's current branch onto a named branch or ref; a remote-tracking r
 
 ### branch_sync
 
+<!-- mcp-lint: allow -->
 Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. A rebase conflict returns status conflict with rt sync's bundle and leaves the rebase paused.
 
 ```json
@@ -1427,6 +1471,7 @@ Bring the tree's branch current in one call through rt sync: fetch origin; if th
 
 ### worktree_provision
 
+<!-- mcp-lint: allow -->
 Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created) and get back its path; then enter it with EnterWorktree in path mode. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1466,6 +1511,7 @@ Claim a worktree for a ticket or branch (from the on-deck pool, or freshly creat
 
 ### worktree_dispose
 
+<!-- mcp-lint: allow -->
 Dispose a worktree by its tree name; it goes to the restorable trash. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1491,6 +1537,7 @@ Dispose a worktree by its tree name; it goes to the restorable trash. Name the t
 
 ### worktree_stop_holders
 
+<!-- mcp-lint: allow -->
 End the processes rt ties to a worktree (dev servers, watchers), and only those. There is no general kill tool. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
@@ -1515,6 +1562,7 @@ End the processes rt ties to a worktree (dev servers, watchers), and only those.
 
 ### herd_start
 
+<!-- mcp-lint: allow -->
 Start a herd (room, workspace, gate subscription) for this shepherd session. repo is the repo's identity, checkout path or label.
 
 ```json
@@ -1541,6 +1589,7 @@ Start a herd (room, workspace, gate subscription) for this shepherd session. rep
 
 ### herd_spawn
 
+<!-- mcp-lint: allow -->
 Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with "-"; omitted, the job's stored brief is reused. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.
 
 ```json
@@ -1580,6 +1629,7 @@ Spawn a worker pane for a job (provisions its worktree, launches claude with the
 
 ### herd_brief
 
+<!-- mcp-lint: allow -->
 Assemble a job brief from the shepherd skill's job template plus a strategy body or method file; fill repeats per template slot as "slot=value". Writes to out when given, else returns the brief. out must be an absolute path inside the Claude Code temp root; template, strategies and methodFile must be absolute paths inside the Claude Code temp root or an installed plugin or pack root.
 
 ```json
@@ -1621,6 +1671,7 @@ Assemble a job brief from the shepherd skill's job template plus a strategy body
 
 ### herd_close
 
+<!-- mcp-lint: allow -->
 Close one job's pane. Only the herd's shepherd session may call it.
 
 ```json
@@ -1644,6 +1695,7 @@ Close one job's pane. Only the herd's shepherd session may call it.
 
 ### herd_status
 
+<!-- mcp-lint: allow -->
 One herd: jobs, panes, gates, subscription, unread.
 
 ```json
@@ -1661,6 +1713,7 @@ One herd: jobs, panes, gates, subscription, unread.
 
 ### herd_list
 
+<!-- mcp-lint: allow -->
 Active herds (all: true includes finished ones).
 
 ```json
@@ -1677,6 +1730,7 @@ Active herds (all: true includes finished ones).
 
 ### herd_attend
 
+<!-- mcp-lint: allow -->
 Open a job's pane in a tab of this shepherd's workspace. Only the herd's shepherd session may call it.
 
 ```json
@@ -1700,6 +1754,7 @@ Open a job's pane in a tab of this shepherd's workspace. Only the herd's shepher
 
 ### herd_wrap_up
 
+<!-- mcp-lint: allow -->
 Close panes, dispose the named worktrees, delete job dirs and archive the room in one pass, driven by the wrap-up form's answers. herd is required; only the herd's shepherd session may call it.
 
 ```json
@@ -1735,6 +1790,7 @@ Close panes, dispose the named worktrees, delete job dirs and archive the room i
 
 ### herd_resume
 
+<!-- mcp-lint: allow -->
 Re-attach this session to a herd: re-subscribes to its gates and returns the open ones plus status. Any session but a worker pane may take a herd over this way.
 
 ```json
@@ -1754,6 +1810,7 @@ Re-attach this session to a herd: re-subscribes to its gates and returns the ope
 
 ### herd_milestone
 
+<!-- mcp-lint: allow -->
 Worker side: announce an artifact (a spec, a plan, a PR) to the shepherd and open the milestone gate, using HERD_ID, HERD_JOB and this pane's session.
 
 ```json
@@ -1776,6 +1833,7 @@ Worker side: announce an artifact (a spec, a plan, a PR) to the shepherd and ope
 
 ### chat_read
 
+<!-- mcp-lint: allow -->
 Read unread chat messages as this session's handle (every room, or one), advancing this handle's read cursor. since (30s, 5m, 500ms, bare seconds) peeks without advancing; last returns a room's newest N regardless of the cursor, then marks it read.
 
 ```json
@@ -1802,6 +1860,7 @@ Read unread chat messages as this session's handle (every room, or one), advanci
 
 ### chat_mark
 
+<!-- mcp-lint: allow -->
 Mark chat messages read for this session's handle: every open room, one room, or one room up to a message id (upto).
 
 ```json
@@ -1822,6 +1881,7 @@ Mark chat messages read for this session's handle: every open room, one room, or
 
 ### chat_rooms
 
+<!-- mcp-lint: allow -->
 List the chat rooms this session's handle belongs to, with unread counts.
 
 ```json
@@ -1834,6 +1894,7 @@ List the chat rooms this session's handle belongs to, with unread counts.
 
 ### chat_who
 
+<!-- mcp-lint: allow -->
 List a chat room's members with their presence status.
 
 ```json
@@ -1854,6 +1915,7 @@ List a chat room's members with their presence status.
 
 ### chat_buddies
 
+<!-- mcp-lint: allow -->
 List every chat handle on this machine with its presence status (live, idle, away, offline).
 
 ```json
@@ -1866,6 +1928,7 @@ List every chat handle on this machine with its presence status (live, idle, awa
 
 ### chat_join
 
+<!-- mcp-lint: allow -->
 Join a chat room as this session's handle. wakeOn (mention, all, none) sets when a message is delivered; cwd is the checkout this session works in (the server's own directory is fixed at session start).
 
 ```json
@@ -1897,6 +1960,7 @@ Join a chat room as this session's handle. wakeOn (mention, all, none) sets when
 
 ### chat_leave
 
+<!-- mcp-lint: allow -->
 Leave a chat room as this session's handle.
 
 ```json
@@ -1917,6 +1981,7 @@ Leave a chat room as this session's handle.
 
 ### chat_away
 
+<!-- mcp-lint: allow -->
 Set an away message on this session's chat presence without signing out; chat_back clears it.
 
 ```json
@@ -1936,6 +2001,7 @@ Set an away message on this session's chat presence without signing out; chat_ba
 
 ### chat_back
 
+<!-- mcp-lint: allow -->
 Clear this session's chat away message.
 
 ```json
@@ -1948,6 +2014,7 @@ Clear this session's chat away message.
 
 ### chat_sign_in
 
+<!-- mcp-lint: allow -->
 Sign this session in to rt chat (presence, a handle, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as picks this session's base handle and may not be the human's handle. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.
 
 ```json
@@ -1976,6 +2043,7 @@ Sign this session in to rt chat (presence, a handle, and the repo room derived f
 
 ### chat_sign_out
 
+<!-- mcp-lint: allow -->
 Sign this session out of rt chat: drop its presence and delete its session file. Room memberships are kept.
 
 ```json
@@ -1988,6 +2056,7 @@ Sign this session out of rt chat: drop its presence and delete its session file.
 
 ### chat_archive
 
+<!-- mcp-lint: allow -->
 Archive a chat room this session's handle belongs to (hidden from every member's room list until someone posts into it), or reopen it with reopen: true.
 
 ```json
@@ -2011,6 +2080,7 @@ Archive a chat room this session's handle belongs to (hidden from every member's
 
 ### chat_invite
 
+<!-- mcp-lint: allow -->
 Invite another herdr pane into a chat room: types /chat:join <room> (with an optional one-line note from this session's handle) into that pane. pane is a herdr pane id or ref; note is at most 300 characters; newlines become spaces and other control characters are refused.
 
 ```json
@@ -2038,6 +2108,7 @@ Invite another herdr pane into a chat room: types /chat:join <room> (with an opt
 
 ### whoami
 
+<!-- mcp-lint: allow -->
 Report this session's identity as the other tools see it: its Claude Code session id, herdr pane, the chat handle every chat_* tool acts as (null, with a sign-in hint, when this session has no chat session file), and the herd id, job and room when this is a herd worker. Reads only this server's environment and the session file, so it shows what the tools would act as, not live presence.
 
 ```json

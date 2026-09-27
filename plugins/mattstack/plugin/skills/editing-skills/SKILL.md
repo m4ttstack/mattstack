@@ -88,12 +88,12 @@ it does gives a real-looking command that updates nothing.
    refuses that flag on compile. An `rt_verb` check or sync that comes
    back `failed (exit 1)` is drift (check) or a refusal (sync), and only
    the tail of its output comes back with it. Read what moved with the
-   bare Bash `rt skills check --pack <pack>`. For a sync, run `git status`
+   bare Bash `rt skills check --pack <pack>`. For a sync, run `git status` <!-- mcp-lint: allow -->
    in the pack checkout first: a modified `plugin.json` plus compiled
    output is the `content drift survives recompile` handoff below, and a
    re-run would only refuse on the clean-checkout guard; a clean tree
    means another step refused or failed, and the bare Bash
-   `rt skills sync --pack <pack>` prints each step's reason. Sync runs the whole
+   `rt skills sync --pack <pack>` prints each step's reason. Sync runs the whole <!-- mcp-lint: allow -->
    deterministic tail as code -- a fast-forward pull in both checkouts,
    engine cache update, check, patch-bump, compile, recheck, a commit + push
    scoped to the pack, pack cache update, verify -- and reports
@@ -149,7 +149,7 @@ Writing a fill:
   host-anchored path; the file must exist at compile time, and a compiled
   verb's output is not addressable this way). Nothing else
   placeholder-shaped belongs in a fill.
-- The bare Bash `rt skills check --pack <pack>` names what moved on each stale line
+- The bare Bash `rt skills check --pack <pack>` names what moved on each stale line <!-- mcp-lint: allow -->
   (source, fill, include, vendored, frontmatter, structure); through
   `rt_verb`, a stale check returns only `failed (exit 1)` and a tail. A stage's slot
   binds with `rt_verb {args: ["skills", "bind", "<stage>", "<slot>", "<plugin:fill>", "--pack", "<pack>"]}`,

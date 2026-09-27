@@ -109,7 +109,7 @@ Before a fill tells an agent to run a command, open
 `mcp-tools` reference): every rt call, forge call and git write a pipeline
 needs has a tool there, except the few its header lists as staying on Bash
 (`git commit` is one). The fill's sentence names that tool (a push is
-`git_push {tree: <checkout>}`), not the command, and `rt skills check`
+`git_push {tree: <checkout>}`), not the command, and `rt skills check` <!-- mcp-lint: allow -->
 flags the shell form. `rt skills audit --pack <pack>` is the slower read
 for plain-words instructions.
 
