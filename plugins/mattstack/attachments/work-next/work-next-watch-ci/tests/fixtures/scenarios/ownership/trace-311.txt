@@ -1,1 +1,0 @@
-FAIL app.test.js > renders correctly

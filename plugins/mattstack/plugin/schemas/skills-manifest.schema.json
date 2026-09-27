@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://mattstack.dev/schemas/skills-manifest.schema.json",
   "title": "mattstack bindings manifest (.mattstack/skills.jsonc)",
-  "description": "Consumer-repo manifest: enabled stack skills, per-work-type pipelines, and slot bindings for parameterized skills. JSONC: JSON plus full-line // comments; no trailing commas.",
+  "description": "Consumer-repo manifest: enabled stack skills, the pipeline stage roster, and slot bindings for parameterized skills. JSONC: JSON plus full-line // comments; no trailing commas.",
   "type": "object",
   "required": ["version"],
   "additionalProperties": false,
@@ -31,7 +31,7 @@
         "items": { "$ref": "#/definitions/skillName" },
         "minItems": 1
       },
-      "description": "Per-work-type pipelines (work type -> ordered stage skills). Schema-complete in phase 1; consumed by the orchestrator in a later phase."
+      "description": "Stage roster for compile (work type -> stage skills). The work orchestrator's order is fixed; a pack lists all eight stage-* engines."
     },
     "bindings": {
       "type": "object",

@@ -1,6 +1,6 @@
 ---
 name: stage-gates
-description: "Pipeline stage: apply the domain's mandatory gates for the paths this unit of work touches, before implementation. Reached only through a resolved pipeline; not for direct invocation."
+description: "Pipeline stage: apply the domain's mandatory gates for the paths this unit of work touches, before implementation. Reached only through the work orchestrator; not for direct invocation."
 disable-model-invocation: true
 type: pipeline-step
 slots:
@@ -15,26 +15,50 @@ metadata:
 
 {{stage.fields}}
 
-## Run state
+Run state: the orchestrator opens and closes this stage, so never write
+`run_stage` `start` or `done` here. Read consumes with `run_field_get`; on
+failure write `run_stage {action: fail, stage: "gates", reason}` naming
+which gate failed and what it found.
 
-Contracts v2 and v3 (authoritative text: the parameterized-skills skill's convention reference).
+```dot
+digraph gates {
+    rankdir=TB;
 
-- First action: `run_stage` with `action: "start"`, `stage: "gates"` and the run's `runDb`.
-- Read consumed fields with `run_field_get` before deriving or asking for them.
-- Write each declared produce the moment it exists with `run_field_set` (`key`, `value`, `stage: "gates"`).
-- Last action on success: `run_stage` with `action: "done"`; on failure `run_stage` with `action: "fail"` and a `reason` naming which gate failed and what it found, before you report it.
+    "Gates stage entered" [shape=ellipse];
+    "Domain rules inlined?" [shape=diamond];
+    "Say in one line there are no domain gates" [shape=box];
+    "STOP: never invent a gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Apply every triggered pre-implementation gate" [shape=box];
+    "run_field_set {key: extra.gates, value: <the gates that fired>, stage: gates}" [shape=plaintext];
+    "Any gate failed?" [shape=diamond];
+    "run_stage {action: fail, stage: gates, reason}" [shape=plaintext];
+    "Stage failed" [shape=doublecircle];
+    "Gates done: return to the orchestrator" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-Apply every triggered pre-implementation gate NOW, before the implement
-stage, and note which gates fired with `run_field_set`
-(`key: "extra.gates"`, `value` = the gates that fired, `stage: "gates"`).
-Ship-time gates run again inside the ship stage's domain flow; firing
-here does not discharge them.
+    "Gates stage entered" -> "Domain rules inlined?";
+    "Domain rules inlined?" -> "Say in one line there are no domain gates" [label="no"];
+    "Domain rules inlined?" -> "Apply every triggered pre-implementation gate" [label="yes"];
+    "Say in one line there are no domain gates" -> "Gates done: return to the orchestrator";
+    "Say in one line there are no domain gates" -> "STOP: never invent a gate" [label="tempted to add one"];
+    "STOP: never invent a gate" -> "Gates done: return to the orchestrator";
+    "Apply every triggered pre-implementation gate" -> "run_field_set {key: extra.gates, value: <the gates that fired>, stage: gates}";
+    "run_field_set {key: extra.gates, value: <the gates that fired>, stage: gates}" -> "Any gate failed?";
+    "Any gate failed?" -> "run_stage {action: fail, stage: gates, reason}" [label="yes"];
+    "Any gate failed?" -> "Gates done: return to the orchestrator" [label="no"];
+    "run_stage {action: fail, stage: gates, reason}" -> "Stage failed";
+}
+```
+
+### Apply every triggered pre-implementation gate
+
+Each gate the domain rules below trigger for the paths this work touches,
+now, before implement. Ship-time gates run again inside the ship stage's
+domain flow: firing here does not discharge them.
 
 ## Domain rules
 
+The domain rules below supply the gates and the paths that trigger them.
+Where a domain step names a move the graph above marks STOP (inventing a
+gate), the STOP node wins.
+
 {{slot:domain}}
-
-When nothing is inlined above, follow the generic path below.
-
-Unbound (generic fallback): there are no domain gates. Say so in one line
-and finish. Never invent a gate.

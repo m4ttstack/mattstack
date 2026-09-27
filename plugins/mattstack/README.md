@@ -143,12 +143,13 @@ public doors of this plugin.
 The do-a-unit-of-work pipeline is built on the primitive. `work` and its
 eight stage skills all set `disable-model-invocation`; they are reached only
 through a pack's compiled `work` verb (`/<pack>:work`), which the pack's
-surface config makes public, and the eight stages appear only as entries in
-a manifest's `pipelines.<work-type>` array. Two of the stages also ship a
-standalone counterpart for running that one step outside a full pipeline.
+surface config makes public, and a pack rosters the eight stages by listing
+all of them in its manifest's `pipelines` array; the stage order is fixed in
+`work`'s graph. Two of the stages also ship a standalone counterpart for
+running that one step outside a full pipeline.
 
-- **mattstack:work** -- run one unit of work through the pipeline the
-  compiler baked in from the consumer's manifest.
+- **mattstack:work** -- run one unit of work through the eight stages its
+  graph walks, gating each decision through gate-protocol.
 - **mattstack:stage-provision** -- provision the environment: ticket + repo
   in, branch + worktree out.
 - **mattstack:stage-plan** -- approach triage; prints the APPROACH

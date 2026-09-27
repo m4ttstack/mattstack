@@ -7,8 +7,17 @@
     "enabled": ["mattstack:shepherdr", "mattstack:model-tiering", "mattstack:execution-strategy", "mattstack:cswap-accounts"]
   },
   "pipelines": {
-    // Illustrative only in phase 1: stage skills ship with the orchestrator later.
-    "feature": ["provision", "implement", "ship"]
+    // The stage roster: work walks all eight in a fixed order.
+    "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ]
   },
   "bindings": {
     "mattstack:shepherdr": {

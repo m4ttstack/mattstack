@@ -89,6 +89,15 @@ else
   fail exclusion-filter-mixed "$(cat "$TMP/out")"
 fi
 
+# exclusion-filter-keeps-failures: a summary that reports passes AND a
+# nonzero failure count is a real failure, not a passing line -> REAL
+rc=$(run_triage verdicts --pipeline 27 --no-base --out-dir "$TMP/t27")
+grep -q 'verdict: REAL' "$TMP/out" && ok exclusion-keeps-mixed || fail exclusion-keeps-mixed "$(cat "$TMP/out")"
+
+# exclusion-filter-zero-errors: "1 failed, 0 errors" keeps its failure -> REAL
+rc=$(run_triage verdicts --pipeline 28 --no-base --out-dir "$TMP/t28")
+grep -q 'verdict: REAL' "$TMP/out" && ok exclusion-keeps-zero-errors || fail exclusion-keeps-zero-errors "$(cat "$TMP/out")"
+
 # ansi-stripped: ANSI-wrapped FAIL still hits REAL; saved .log has no raw ESC
 rc=$(run_triage verdicts --pipeline 25 --no-base --out-dir "$TMP/t5")
 grep -q 'verdict: REAL' "$TMP/out" && ok ansi-real || fail ansi-real "$(cat "$TMP/out")"
@@ -183,6 +192,12 @@ cat >"$TMP/cfg-baseref.json" <<'EOF'
 EOF
 rc=$(run_triage_git other ownership --ref feat-y --base other --config "$TMP/cfg-baseref.json" --out-dir "$TMP/t15")
 grep -q 'also failing on other' "$TMP/out" && ok base-flag-overrides || fail base-flag-overrides "$(cat "$TMP/out")"
+
+# base-lookup-failed: the only base pipeline's jobs lookup fails, so no
+# base was actually compared -> UNKNOWN, never "yours"
+rc=$(run_triage_git blind-base ownership --ref feat-blind --out-dir "$TMP/t23")
+grep -q 'ownership: UNKNOWN (no base pipelines scanned)' "$TMP/out" \
+  && ok base-lookup-failed || fail base-lookup-failed "$(cat "$TMP/out")"
 
 # self-excluded: the triaged pipeline (33) also appears in its own base
 # listing (target-branch feat-self -> feat-self) and must be dropped, so

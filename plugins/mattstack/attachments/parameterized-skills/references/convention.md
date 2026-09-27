@@ -20,7 +20,7 @@ their own. A SKILL.md that declares both `metadata.slots` and
 `metadata.provides` is invalid under this convention. The cap constrains
 slot chains only: a prose REQUIRED SUB-SKILL reference is not a slot
 binding and does not count toward it (precedent: the pipeline stages,
-which the orchestrator reaches by manifest entry, not by slot).
+which the orchestrator reaches by `{{verb.path}}`, not by slot).
 
 ## Slot declaration (wrapper SKILL.md)
 
@@ -250,12 +250,13 @@ Degradation is loud and deterministic; prose never guesses.
 
 ## Pipeline stages (v1.1)
 
-A **stage skill** is a skill the `work` orchestrator can place in a
-pipeline. Its marker is `metadata.stage` -- NOT `provides`, because a stage
-skill is usually itself a wrapper with a `domain` slot, and a SKILL.md may
-never declare both `slots` and `provides`. Pipeline membership is not slot
-binding, so composition depth stays capped at 1: orchestrator -> stage
-(pipeline entry) -> stage's slot-bound inner skill.
+A **stage skill** is one of the eight engines the `work` orchestrator
+walks in its fixed graph. Its marker is `metadata.stage` -- NOT
+`provides`, because a stage skill is usually itself a wrapper with a
+`domain` slot, and a SKILL.md may never declare both `slots` and
+`provides`. Pipeline membership is not slot binding, so composition depth
+stays capped at 1: orchestrator -> stage (graph node) -> stage's
+slot-bound inner skill.
 
 ```yaml
 ---
@@ -278,14 +279,17 @@ metadata:
   `stage` is present.
 - Stage skills that are only ever reached through a pipeline set
   `disable-model-invocation: true` (selection hygiene).
-- A domain team's custom stage is just a skill with these keys; it needs
-  nothing from this repo beyond the convention.
+- A team customizes a stage through its `domain` fill; `work` walks only
+  the eight mattstack stages, so a new stage skill is never reached.
 
 ## Pipeline resolution
 
-The compiler reads `pipelines` from the manifest and bakes the stage list
-into the compiled `work` skill via `{{pipeline.stages}}`. Nothing resolves
-pipelines at run time.
+The `work` orchestrator walks a fixed eight-stage graph and reaches each
+stage through `{{verb.path:stage-<stage>}}`. A manifest's `pipelines`
+array rosters the stage engines for compile and must list all eight; its
+order and work-type key are not read by `work`. `{{pipeline.stages}}` and
+`{{work-type}}` remain compiler placeholders that no mattstack engine uses.
+Nothing resolves pipelines at run time.
 
 ## Compile-native vs runtime-native
 
