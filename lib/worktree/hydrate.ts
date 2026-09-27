@@ -9,7 +9,7 @@ import { isAbsolute, join, relative, dirname } from "path";
 import { mkdirSync } from "fs";
 import { loadRegistry, saveRegistry, usedNames, type TreeRecord } from "./registry.ts";
 import { runGit, listWorktreesAsync, ensureInfoExclude } from "./git-async.ts";
-import { pickName } from "./names.ts";
+import { nextTreeName } from "./names.ts";
 import { loadWorktreeRepoConfig } from "./config.ts";
 import { withTreeLock } from "./locks.ts";
 import { scrapTree, type CreateDeps } from "./create.ts";
@@ -72,7 +72,7 @@ export async function hydrateTree(deps: CreateDeps & { golden: TreeRecord; clone
 
   const cfg = await loadWorktreeRepoConfig(repoName, repoPath);
   const existing = loadRegistry(repoName);
-  const name = pickName(cfg.namePool, usedNames(existing));
+  const name = nextTreeName(repoName, cfg.namePool, usedNames(existing));
   const path = join(cfg.root, name);
 
   const rel = relative(repoPath, cfg.root);

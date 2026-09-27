@@ -28,7 +28,7 @@ import {
   ensureInfoExclude,
   listWorktreesAsync,
 } from "./git-async.ts";
-import { pickName } from "./names.ts";
+import { nextTreeName } from "./names.ts";
 import { loadWorktreeRepoConfig, evaluateReadyGate, type WorktreeRepoConfig } from "./config.ts";
 import { runReadySteps } from "./ready.ts";
 import { withTreeLock } from "./locks.ts";
@@ -58,7 +58,7 @@ export async function createTree(deps: CreateDeps): Promise<CreateResult> {
   const cfg = await loadWorktreeRepoConfig(repoName, repoPath);
   const existing = loadRegistry(repoName);
   const golden = deps.target === "golden";
-  const name = golden ? GOLDEN_NAME : pickName(cfg.namePool, usedNames(existing));
+  const name = golden ? GOLDEN_NAME : nextTreeName(repoName, cfg.namePool, usedNames(existing));
   const path = golden ? goldenRoot(repoName) : join(cfg.root, name);
 
   // The default pool root (RT-52) lives outside the clone, so info/exclude is
