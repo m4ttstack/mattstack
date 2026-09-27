@@ -68,6 +68,14 @@ or "just sed the jsonc" — is the bug this contract exists to prevent.
 7. Repo-scoped sections key on the RAW `host/path` identity, never the
    serialized `remote:…` wire form — the rt:repo-identity skill owns that
    boundary.
+8. A `repoOnly` key (`rt.roles`, `rt.intercepts`, `rt.worktrees`,
+   `rt.worktreeReadyApproval`, `rt.hooks`, `rt.sync`, `rt.branchNaming`,
+   `rt.presets`, `rt.variations`, `rt.dopplerTemplate`, `rt.ignoredMrs`)
+   lives only in repo sections: every write names the repo (`--repo`,
+   `repoIdentity`), and a global value is refused on read and write. The
+   same value for several repos is one write per repo; a team convention
+   goes in each repo's section of the team store. `rt.gitStatus` is the one
+   per-repo key that also takes a global value.
 
 `rt settings explain <key>` shows per-scope provenance and is the first
 move on any "why is this value what it is" question.

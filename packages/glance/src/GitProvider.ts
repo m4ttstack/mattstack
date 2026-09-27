@@ -18,7 +18,7 @@ import type {
   UserRef,
   WatchEventsOptions,
 } from './types.ts';
-import type { RealtimeWatcherOptions } from './RealtimeWatcher.ts';
+import type { RealtimeWatcherOptions, WatcherSubscribeCallbacks } from './RealtimeWatcher.ts';
 
 /** MR/PR state filter values. */
 export type MRState = 'opened' | 'merged' | 'closed';
@@ -664,6 +664,26 @@ export interface GitProvider {
     currentUserNumericId: number | null,
     onUpdate: (pr: PullRequest) => void,
     options?: RealtimeWatcherOptions,
+  ): () => void;
+
+  /**
+   * Push-only subscription for a set of already-fetched MRs: no fetch and no
+   * poll, just the transport's connect, disconnect and per-message event
+   * callbacks. Built for `createRealtimeWatcher`'s `subscribe`, so a caller
+   * that batches its own fetch (the group dashboard) gets push without one
+   * `watchMR` loop per MR.
+   *
+   * Optional: absent on providers with no push channel (GitHub today).
+   * GitLab multiplexes it over the same shared cable as `watchMR`.
+   *
+   * @param prs - MRs to subscribe, as returned by a fetch (`id` locates the
+   *   provider's own subscription key)
+   * @returns dispose, which unsubscribes this call's MRs only
+   */
+  subscribePullRequestEvents?(
+    projectPath: string,
+    prs: ReadonlyArray<Pick<PullRequest, 'id' | 'iid'>>,
+    callbacks: WatcherSubscribeCallbacks,
   ): () => void;
 
   /**

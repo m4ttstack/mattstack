@@ -26,6 +26,12 @@ mock.module('../src/core/git-shell.ts', () => ({
     resetHard: async (_cwd: string, ref: string) => {
       gitShellCalls.push({ method: 'resetHard', args: [ref] });
     },
+    isDirty: async () => false,
+    getBranchHead: async (_cwd: string, branch: string) => `sha-post-${branch}`,
+    worktreeList: async () => [],
+    updateRefCas: async (_cwd: string, branch: string, newSha: string, expectedOldSha: string) => {
+      gitShellCalls.push({ method: 'updateRefCas', args: [branch, newSha, expectedOldSha] });
+    },
   },
 }));
 
@@ -100,8 +106,9 @@ describe('canUndo', () => {
 });
 
 describe('undo', () => {
-  test('resets branches to snapshot SHAs', async () => {
+  test('moves each branch by CAS from its current head to its snapshot SHA, never checking out', async () => {
     const entry = makeEntry('cascade-rebase', {
+      main: 'sha-pre-main',
       'feat/a': 'sha-pre-a',
       'feat/b': 'sha-pre-b',
     });
@@ -110,13 +117,11 @@ describe('undo', () => {
 
     expect(result.success).toBe(true);
     expect(result.restoredBranches).toEqual(['feat/a', 'feat/b']);
-
-    const checkouts = gitShellCalls.filter((c) => c.method === 'checkoutBranch');
-    const resets = gitShellCalls.filter((c) => c.method === 'resetHard');
-    expect(checkouts).toHaveLength(3); // 2 branches + return to original
-    expect(resets).toHaveLength(2);
-    expect(resets[0]!.args[0]).toBe('sha-pre-a');
-    expect(resets[1]!.args[0]).toBe('sha-pre-b');
+    expect(gitShellCalls.filter((c) => c.method === 'updateRefCas').map((c) => c.args)).toEqual([
+      ['feat/a', 'sha-pre-a', 'sha-post-feat/a'],
+      ['feat/b', 'sha-pre-b', 'sha-post-feat/b'],
+    ]);
+    expect(gitShellCalls.some((c) => c.method === 'checkoutBranch' || c.method === 'resetHard')).toBe(false);
   });
 
   test('restores the stack tree from snapshot', async () => {

@@ -295,7 +295,6 @@ export class GitHubEventsPoller {
 
   async tick(): Promise<GitHubTickResult> {
     const coldStart = this.startedWithoutCursor && !this.hasTicked;
-    this.hasTicked = true;
 
     // Cold start caps at one page (see class doc comment); a warm tick
     // walks up to maxPagesPerTick, itself clamped to the page-4 ceiling.
@@ -305,6 +304,9 @@ export class GitHubEventsPoller {
     const fresh: GitHubEvent[] = [];
     let requests = 0;
     let notModified = false;
+    // Committed only after every page is fetched: an etag saved from page 1
+    // of a tick that later throws would 304 the retry past the unseen pages.
+    let etag = this.etag;
 
     for (let page = 1; page <= pageLimit; page++) {
       const etagToSend = page === 1 ? this.etag : null;
@@ -319,7 +321,7 @@ export class GitHubEventsPoller {
         break;
       }
 
-      if (page === 1 && res.etag != null) this.etag = res.etag;
+      if (page === 1 && res.etag != null) etag = res.etag;
       if (res.pollIntervalSec != null) this.serverPollIntervalMs = res.pollIntervalSec * 1000;
 
       // Scan the whole page (mirrors EventsPoller.ts's `continue`-not-break
@@ -338,6 +340,9 @@ export class GitHubEventsPoller {
       }
       if (hitSeen) break;
     }
+
+    this.hasTicked = true;
+    this.etag = etag;
 
     if (notModified) {
       return {

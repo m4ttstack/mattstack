@@ -10,7 +10,11 @@ import type {
 import { isTransitionalMergeStatus } from './types.ts';
 import type { FetchPullRequestsWarning, GitProvider } from './GitProvider.ts';
 import { repoIdProvider, warningTarget } from './GitProvider.ts';
-import { createRealtimeWatcher, type WatcherStatus } from './RealtimeWatcher.ts';
+import {
+  createRealtimeWatcher,
+  type WatcherStatus,
+  type WatcherSubscribeCallbacks
+} from './RealtimeWatcher.ts';
 
 /**
  * Derives a fully-rendered, headless-UI-ready props object from a raw PullRequest.
@@ -489,14 +493,17 @@ function createSingleDashboard(
         (pr: PullRequest) => {
           _isInitialLoading = false;
           listener(getMRDashboardProps(pr, connectionState));
+        },
+        {
+          onStatusChange: (s) => {
+            connectionState = s.connection;
+            statusListener?.(s);
+          }
         }
       );
     },
     onStatusChange(listener: (status: WatcherStatus) => void) {
-      statusListener = (s) => {
-        connectionState = s.connection;
-        listener(s);
-      };
+      statusListener = listener;
     },
     dispose() {
       disposeWatcher?.();
@@ -701,27 +708,49 @@ function createDashboardGroup(
 
     if (!listener || currentIids.length === 0) return;
 
+    // The watcher subscribes after its init fetch, from that fetch's PRs. A
+    // later fetch that returns MRs no subscription covers adds a subscription
+    // for just those: providers key channels by MR, so re-subscribing a
+    // covered MR and disposing the old subscription would unsubscribe it.
+    // Only the first subscription reports connection changes; the added ones
+    // ride the same cable and forward events only.
+    let fetchedPrs: PullRequest[] = [];
+    let push: {
+      callbacks: WatcherSubscribeCallbacks;
+      subscribed: Set<number>;
+      disposers: (() => void)[];
+    } | null = null;
+
+    const attachPush = (prs: PullRequest[], first: boolean) => {
+      const p = push!;
+      const callbacks = first
+        ? p.callbacks
+        : { onEvent: p.callbacks.onEvent, onConnected: () => {}, onDisconnected: () => {} };
+      p.disposers.push(provider.subscribePullRequestEvents!(projectPath, prs, callbacks));
+      for (const pr of prs) p.subscribed.add(pr.iid);
+    };
+
     disposeWatcher = createRealtimeWatcher<Map<number, PullRequest>>({
       fetch: batchFetch,
 
-      subscribe: ({ onConnected }) => {
-        const subs: (() => void)[] = [];
-        for (const iid of currentIids) {
-          const dispose = provider.watchMR(
-            projectPath, iid, userId,
-            () => { /* data comes from batched fetch, not individual watchers */ }
-          );
-          subs.push(dispose);
+      subscribe: (callbacks) => {
+        if (!provider.subscribePullRequestEvents) {
+          callbacks.onConnected();
+          return () => {};
         }
-        onConnected();
-
+        push = { callbacks, subscribed: new Set(), disposers: [] };
+        attachPush(fetchedPrs, true);
         return () => {
-          for (const d of subs) d();
+          for (const dispose of push?.disposers ?? []) dispose();
+          push = null;
         };
       },
 
       onUpdate: (freshMap) => {
         _isInitialLoading = false;
+        fetchedPrs = [...freshMap.values()];
+        const uncovered = push ? fetchedPrs.filter(pr => !push!.subscribed.has(pr.iid)) : [];
+        if (uncovered.length > 0) attachPush(uncovered, false);
         for (const [iid, pr] of freshMap) {
           state.set(iid, getMRDashboardProps(pr, connectionState));
         }
