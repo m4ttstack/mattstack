@@ -44,21 +44,47 @@ machine on the old identity forever while every fresh clone elsewhere derives
 the new one.
 
 So Stage 2 builds a real re-key: an `rt repos reidentify <old> <new>` verb
-that moves every store listed above from one serialized identity to another,
-verify-persisted row by row (the same write-then-reread discipline as
-`identity-migrate.ts`), refusing when the new identity already holds rows,
-with a `--dry-run` that prints the per-store counts. It ships in a release
-before the rename, so every machine running that release can re-key itself.
-The daemon runs it on its own the first time it sees a tracked repo whose
-remote now derives a different identity and GitHub reports the old name
-redirecting to the new one; on this machine the controller runs it by hand
-as part of Stage 2.
+that moves every identity-keyed store from one serialized identity to
+another, verify-persisted row by row (the same write-then-reread discipline
+as `identity-migrate.ts`), with a `--dry-run` that prints per-store counts.
+It works store by store and is idempotent: a store with rows under the old
+identity and none under the new moves; a store with nothing under the old
+and rows under the new is already done; a store holding rows under both
+refuses and names the store. The run exits 0 when every store is moved or
+already done. This matters because the settings live in two scopes: the user
+store (`~/.mattstack/user/settings.user.jsonc`) is re-keyed once and reaches
+Matt's other machines through the home repo, while the machine store is per
+machine.
+
+What moves: the repo index row, `~/.mattstack/rt/repos/<identity>/` (worktree
+registry, endpoint claims, run history), `rt.repoTracking`, the `repos.<identity>`
+settings sections in each store, and the daemon's run, herd and chat rows.
+What does not: the worktree pool directory. `gh-m4ttstack-rt` is a derived
+directory name, never parsed back and never a key (`lib/rt-paths.ts`); the
+registry stores absolute tree paths, so existing trees keep working where
+they are and new trees land under `gh-m4ttstack-mattstack/`. Moving the pool
+directory would break every live pane in those trees.
+
+The verb ships in a release before the rename, so every machine running that
+release can re-key itself. The daemon runs it on its own for a tracked repo
+whose remote, read fresh from `git config --get remote.origin.url` (the
+derived identity is memoized per process, so a cached derivation never sees
+a `set-url`), now derives a different identity while GitHub reports the old
+name redirecting to the new one. On this machine the controller runs it by
+hand as part of Stage 2b, with the daemon stopped.
+
+The new node sets `omitBehavior: { exempt: "agent-facing; identities are not enumerable" }`
+for the picker-conformance gate, and a new command module is registered in
+`lib/module-registry.ts`.
 
 ## Stages
 
-Four stages, in order, each its own PR with CI green and an Opus review
-before it merges; the machine steps are checked lists run by the controller
-after the PR they depend on merges.
+Stages run in order, each PR with CI green and an Opus review before it
+merges; the machine steps are checked lists run by the controller after the
+PR they depend on merges. Stage 2 has three parts because the release code
+itself talks to the repo by name: 2a ships the re-key and everything that is
+safe before the rename, 2b renames, and 2c flips the names the release uses
+once the new name exists.
 
 ### Stage 1: prove the update redirect
 
@@ -78,56 +104,75 @@ before anything irreversible happens.
 - Gate: both resolve. If either does not, stop and bring it back to Matt; the
   rename does not happen.
 
-### Stage 2a: the re-key verb and the sweep (one PR, one release)
+### Stage 2a: the re-key verb and the folder paths (one PR, one release)
+
+Nothing in this PR names the repo `m4ttstack/mattstack`; the repo does not
+have that name yet, and the release that ships this PR runs through the old
+name.
 
 **The re-key.** `rt repos reidentify <old> <new>` as described above, with
-tests that seed every store under one identity, run the verb, and assert
-every row reads under the other and none under the old; a refusal test when
-the new identity already holds rows; the daemon's automatic trigger behind
-the redirect check.
+tests that seed every store under one identity and assert every row reads
+under the other and none under the old; the per-store idempotence cases
+(moved, already done, both populated refuses); the daemon's automatic
+trigger reading the remote fresh and gated on the redirect check.
 
-**The sweep.** 330 files name the repo (`m4ttstack/rt`, `m4ttstack%2Frt`,
-`m4ttstack-rt`) and 31 name the folder (`Documents/GitHub/repo-tools`),
-outside dated superpowers docs. About 220 of the first are the generated
+**The folder paths.** 31 files name `Documents/GitHub/repo-tools` outside
+dated superpowers docs:
+- `commands/settings.ts:412-416` gains `~/Documents/GitHub/mattstack` first and
+  keeps `repo-tools` as a fallback candidate, so a machine that has not moved
+  its folder still resolves
+- `commands/release.ts:139` (`sharedCheckoutPath`) and
+  `lib/release/update-machine.ts` resolve the shared checkout the same way
+  (new path, then the fallback) rather than hard-coding either
+- `lib/command-tree-def.ts` placeholders, AGENTS.md, `docs/*.md`, the skills
+  under `skills/` and tests that pin the path follow
+
+**One doc line.** AGENTS.md and the rt-release skill gain: the repo was
+renamed from `m4ttstack/rt`, and that name is never recreated.
+
+This PR ships in a mattstack.app release before Stage 2b.
+
+### Stage 2c: flip the repo name in code (one PR, after 2b; ships in the next release)
+
+330 files name the repo (`m4ttstack/rt`, `m4ttstack%2Frt`, `m4ttstack-rt`)
+outside dated superpowers docs. About 220 are the generated
 `website/docs/reference/**` "See code" links from `scripts/gen-docs.ts:29`:
 change the generator and regenerate, never hand-edit. The rest, by kind:
-- update feed: `rt-tray/project.yml`, `Info.plist`, `build.sh` and the
-  `check-bundle.sh` assertion move to the new URL together, so builds after
-  this release use it; old installs keep the old URL and follow the redirect
-- release code: `lib/release/release-app.ts`, `lib/release/verify.ts`,
-  `lib/release/update-machine.ts`, `scripts/release/appcast.sh`,
-  `scripts/update-docs.ts`, `scripts/gen-docs.ts`, `scripts/build-dev-app.ts`,
-  `scripts/e2e-cleanroom.sh`, `commands/update.ts`, `commands/release.ts:139`
-  (`sharedCheckoutPath`), `lib/team/invite.ts`
-- checkout lookup: `commands/settings.ts:412-416` gains
-  `~/Documents/GitHub/mattstack` first and keeps `repo-tools` as a fallback
-  candidate, so a machine that has not moved its folder still resolves;
-  `lib/command-tree-def.ts` placeholders follow
+- update feed: `rt-tray/project.yml:73`, `Info.plist:56`, `build.sh:418` and
+  the `check-bundle.sh:552` assertion move to the new URL together, so builds
+  from the next release use it; old installs keep the old URL and follow the
+  redirect Stage 1 proved
+- release code: `RT_REPO` in `lib/release/release-app.ts`, `GH_REPO` in
+  `lib/release/verify.ts`, `RELEASE_REPO` in `lib/release/update-machine.ts`,
+  `scripts/release/appcast.sh:28`'s default, `RELEASES_URL`,
+  `lib/team/invite.ts:69`, `scripts/update-docs.ts`, `scripts/build-dev-app.ts`,
+  `scripts/e2e-cleanroom.sh`, `commands/update.ts`
 - site and packages: `website/docusaurus.config.ts`,
   `apps/gitq/website/docusaurus.config.ts`, `extensions/vscode/rt-context/package.json`,
   every `package.json` `repository` field, `README.md`, `rt-tray/vm/README.md`,
-  `marketplace/README.md`, `.github/renovate-global.json5`, AGENTS.md,
-  `docs/*.md`, the skills under `skills/`, and the READMEs of mattstack-skills
-  and fast-browser
-- AGENTS.md and the rt-release skill gain one line: `m4ttstack/rt` is never
-  recreated
+  `marketplace/README.md`, `.github/renovate-global.json5`, `docs/*.md`, the
+  skills under `skills/`, and the READMEs of mattstack-skills and fast-browser
 - tests that pin literal names follow the code
 - dated superpowers docs, `RELEASE_NOTES.md` history, changelogs and imported
   commit history stay as written
 
-This PR ships in a mattstack.app release before Stage 2b.
+Every one of these already works through GitHub's redirect between 2b and
+this PR, so nothing forces an immediate release.
 
 ### Stage 2b: rename the repo and the folder (machine list)
 
 Run by the controller after the Stage 2a release is installed on this machine.
 
 1. Announce in #rt: the shared checkout folder moves; sessions whose cwd is
-   in it must `/cd` afterwards. Worktrees under `~/.mattstack` are unaffected.
-2. `gh repo rename mattstack --repo m4ttstack/rt`.
-3. `git remote set-url origin https://github.com/m4ttstack/mattstack.git` in
-   the shared checkout and in every rt pool worktree.
-4. Stop the dev daemon; `rt repos reidentify github.com/m4ttstack/rt github.com/m4ttstack/mattstack --dry-run`,
-   read the counts, then run it for real.
+   in it must `/cd` afterwards. Worktrees under `~/.mattstack` stay where
+   they are.
+2. Stop the dev daemon (before the remote changes, so its own trigger cannot
+   race the by-hand run).
+3. `gh repo rename mattstack --repo m4ttstack/rt`, then
+   `git remote set-url origin https://github.com/m4ttstack/mattstack.git` in
+   the shared checkout (linked pool worktrees share its config).
+4. `rt repos reidentify github.com/m4ttstack/rt github.com/m4ttstack/mattstack --dry-run`,
+   read the per-store counts, then run it for real.
 5. Move the folder: `mv ~/Documents/GitHub/repo-tools ~/Documents/GitHub/mattstack`;
    `rt repos locate ~/Documents/GitHub/mattstack` (same identity now, new path);
    `rt settings source-path ~/Documents/GitHub/mattstack` (the dev app's `rt`
@@ -191,14 +236,17 @@ commits, public, with its own purity workflow and one open PR (#14).
 - CI: all five of the skills repo's checks become one path-scoped plugin job
   that runs when `plugins/mattstack/` changes: purity (via rt's scoped gate),
   the graphviz digraph check, `tests/certify.sh`, `rt skills check --pack-dir
-  plugins/mattstack --strict` (now against the same tree, no pinned rt
-  checkout), and the `cmp` of `attachments/mcp-tools/reference.md` against
-  `rt mcp tools --json`. The job also runs the two rt tests that hash-pin
-  plugin content (`lib/mcp/__tests__/tools-payload-hash.test.ts`,
-  `lib/skills/__tests__/mcp-lint-rules-hash.test.ts`), which read the plugin
-  files in-tree. `scripts/ci/test-scope.ts`'s `plugins/` rule sends a
-  `plugins/mattstack`-only diff to this job and not to the unit shards; a diff
-  that also touches rt code runs both.
+  plugins/mattstack --strict --mattstack-dir <empty root>` (the form the skills
+  workflow uses today, since the runner has no Claude CLI; now against the
+  same tree, no pinned rt checkout), and the `cmp` of
+  `attachments/mcp-tools/reference.md` against `rt mcp tools --json`. In-tree,
+  that `cmp` covers what `lib/mcp/__tests__/tools-payload-hash.test.ts` pinned
+  across repos, so the payload pin retires;
+  `lib/skills/__tests__/mcp-lint-rules-hash.test.ts` stays in rt's suite
+  because it guards strict-lint packs outside the tree.
+  `scripts/ci/test-scope.ts`'s `plugins/` rule sends a `plugins/mattstack`-only
+  diff to this job and not to the unit shards; a diff that also touches rt
+  code runs both.
 - Publishing: `scripts/release/marketplace.sh` copies only `$SRC/plugins` (the
   in-tree `chat` plugin lives at `marketplace/plugins/chat`) and refuses
   symlinks, so it gains a second copy from `$ROOT/plugins/mattstack` into the
@@ -210,7 +258,9 @@ commits, public, with its own purity workflow and one open PR (#14).
 - Dev marketplace (`~/Documents/GitHub/mattstack-marketplace`): the
   `mattstack` entry becomes a `git-subdir` source,
   `{ "source": "git-subdir", "url": "file:///Users/matt/Documents/GitHub/mattstack", "path": "plugins/mattstack", "ref": "main" }`.
-  A probe confirms Claude Code installs from it before the switch.
+  A probe confirms Claude Code installs from it before the switch (the
+  installed Claude Code supports `git-subdir` with a sparse checkout); if the
+  probe fails, Stage 4 stops and goes back to Matt.
 - `rt skills` follows the new shape. `lib/skills/packs.ts` (`pluginDirOf`)
   learns `git-subdir` sources: the pack's directory is the `file://` URL's
   path joined with `path`, not a path relative to the marketplace.
@@ -232,12 +282,14 @@ commits, public, with its own purity workflow and one open PR (#14).
 
 | Risk | Guard |
 |---|---|
-| Installed apps stop seeing updates after the rename | Stage 1 proves the redirect first; the Stage 2a release moves the feed to the new URL |
+| Installed apps stop seeing updates after the rename | Stage 1 proves the redirect first; the release after Stage 2c moves the feed to the new URL |
 | Someone recreates `m4ttstack/rt` and breaks every redirect | AGENTS.md and the rt-release skill say the old name is never reused |
 | Per-repo state reads as empty after the remote changes | `rt repos reidentify` moves every store, ships before the rename, and runs automatically on other machines; Stage 2b verifies the rt pool and tracking survive |
 | The dev app and daemon point at a missing folder | Stage 2b step 5 moves `rt settings source-path` with the folder |
 | Sessions whose cwd is the shared checkout break on the folder move | Announce first; they `/cd` |
-| A plugin-only PR skips a test that pins plugin content | The plugin job runs the hash-pin tests; test-scope routes `plugins/` diffs there |
+| A plugin-only PR skips a check that pins plugin content | The plugin job runs the reference `cmp` and strict check; test-scope routes `plugins/` diffs there |
+| The 2a release, or an app installed from it, reaches for a repo name that does not exist yet | 2a changes no repo name; the name flips land in 2c after the rename |
+| Moving the pool directory breaks live panes | reidentify leaves `gh-m4ttstack-rt/` in place; new trees go under the new segment |
 | A plugin's purity terms turn rt's own gate red | Extra terms are scoped to the plugin's directory |
 | `rt skills sync` pulls the shared checkout | In-tree engines skip every git step in sync |
 | herdr cannot build from a subdirectory, or the clone is too heavy | Proved on this machine before the old repo is archived; cost recorded in the README |
