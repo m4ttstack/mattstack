@@ -107,6 +107,11 @@ digraph gitq_absorb {
     "absorb off-script gate: the restack refused" [shape=box];
     "Answer to \"the restack refused\" (absorb)?" [shape=diamond];
     "Runs after \"the restack refused\" = 2 (absorb)?" [shape=diamond];
+    "gitq absorb preview exit (absorb)?" [shape=diamond];
+    "absorb off-script gate: the preview refused" [shape=box];
+    "Answer to \"the preview refused\" (absorb)?" [shape=diamond];
+    "Runs after \"the preview refused\" = 2 (absorb)?" [shape=diamond];
+    "Held (absorb): the preview refusal waits on the human" [shape=doublecircle];
 
     "Trigger: /gitq:absorb <repoPath> <stackName> [--state <path> --status-bin <path>]" -> "gitq --version (absorb)";
     "gitq --version (absorb)" -> "gitq on PATH (absorb)?";
@@ -117,7 +122,16 @@ digraph gitq_absorb {
     "<status-bin> job-status <state> done \"absorbed <n> files into <m> branches\"" -> "Report what landed where (absorb)";
     "Report what landed where (absorb)" -> "Changes absorbed (absorb)";
     "<status-bin> job-status <state> working \"absorbing into <stackName>\"" -> "gitq -C <repoPath> absorb --stack <stackName> --preview --json";
-    "gitq -C <repoPath> absorb --stack <stackName> --preview --json" -> "Preview result (absorb)?";
+    "gitq -C <repoPath> absorb --stack <stackName> --preview --json" -> "gitq absorb preview exit (absorb)?";
+    "gitq absorb preview exit (absorb)?" -> "Preview result (absorb)?" [label="0"];
+    "gitq absorb preview exit (absorb)?" -> "absorb off-script gate: the preview refused" [label="1 with a gitq: line"];
+    "absorb off-script gate: the preview refused" -> "Answer to \"the preview refused\" (absorb)?";
+    "Answer to \"the preview refused\" (absorb)?" -> "Runs after \"the preview refused\" = 2 (absorb)?" [label="take: the human fixed it, run it again"];
+    "Answer to \"the preview refused\" (absorb)?" -> "Runs after \"the preview refused\" = 2 (absorb)?" [label="iterate: run it again with the note"];
+    "Answer to \"the preview refused\" (absorb)?" -> "Held (absorb): the preview refusal waits on the human" [label="hold"];
+    "Answer to \"the preview refused\" (absorb)?" -> "<status-bin> job-status <state> error \"<reason>\" (absorb)" [label="hand back"];
+    "Runs after \"the preview refused\" = 2 (absorb)?" -> "gitq -C <repoPath> absorb --stack <stackName> --preview --json" [label="no"];
+    "Runs after \"the preview refused\" = 2 (absorb)?" -> "<status-bin> job-status <state> error \"<reason>\" (absorb)" [label="yes: budget spent"];
     "Preview result (absorb)?" -> "<status-bin> job-status <state> done \"nothing to absorb\"" [label="attributed and unattributed both empty"];
     "Preview result (absorb)?" -> "<status-bin> job-status <state> error \"<reason>\" (absorb)" [label="unapplied not empty"];
     "Preview result (absorb)?" -> "STOP: an unapplied edit is reported, never re-aimed by a rerun" [label="tempted to rerun without --at so it lands somewhere"];
@@ -241,7 +255,7 @@ the flow graph branches on the recorded answer.
 digraph gitq_absorb_gate {
     rankdir=TB;
 
-    "Trigger: a absorb gate box is reached" [shape=ellipse];
+    "Trigger: an absorb gate box is reached" [shape=ellipse];
     "gate_ask {questions, context} (absorb)" [shape=plaintext];
     "gate_ask result (absorb)?" [shape=diamond];
     "STOP: a form only after gate_ask opened the gate (absorb)" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -255,7 +269,7 @@ digraph gitq_absorb_gate {
     "Ask the same questions in the pane as plain text (absorb)" [shape=box];
     "Answer recorded (absorb)" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: a absorb gate box is reached" -> "gate_ask {questions, context} (absorb)";
+    "Trigger: an absorb gate box is reached" -> "gate_ask {questions, context} (absorb)";
     "gate_ask {questions, context} (absorb)" -> "gate_ask result (absorb)?";
     "gate_ask result (absorb)?" -> "AskUserQuestion {the gate's questions} (absorb)" [label="presentation: form"];
     "gate_ask result (absorb)?" -> "rt gate wait <id> as a background Bash task (absorb)" [label="presentation: wait"];
@@ -277,9 +291,10 @@ digraph gitq_absorb_gate {
 
 Pass each gate's questions as `{id, label, multi: false, options}` with
 `{value, label, description}` options, and put the quoted material in
-`context`, never trimmed. Each option's `value` is its edge keyword
-(`take`, `iterate`, `hold`, `hand back`), so the answer maps straight onto
-the gate's answer diamond. An answer that carries a branch, a resolution or
+`context`, never trimmed. Each first-question option's `value` is its edge
+keyword (`take`, `iterate`, `hold`, `hand back`), so the answer maps
+straight onto the gate's answer diamond; the one second question, at
+`absorb gate: surprising attribution`, says how its values map. An answer that carries a branch, a resolution or
 a note brings it in the answer's `note` or `text`.
 
 ### End the turn until the answer arrives (absorb)
@@ -304,6 +319,21 @@ one-sentence descriptions, as plain text in the reply. Never put up an
 AskUserQuestion form here: no gate is open, so the pane's hook refuses it.
 
 ## Steps
+
+### absorb off-script gate: the preview refused
+
+Opens when the preview exits 1 with a `gitq:` line on stderr and nothing on
+stdout: a stack name gitq does not track, or an `--at` that is malformed or
+names a branch outside the stack. Nothing has been committed. Fixing what
+the refusal names is the human's call; an `--at` target stays theirs to
+correct, never yours to pick.
+
+Context: the `gitq:` stderr line verbatim, plus the `--at` the preview
+carried, if any.
+
+| Question | Options (recommended first) |
+|---|---|
+| The absorb preview refused. What next? | `take: fixed it, run again`: you fixed what the refusal names, and I run the preview again. `iterate: run again with a note`: I act on your note, then run the preview again. `hold: leave it with you`: nothing is committed, and this run ends with no status written. `hand back: stop with an error`: I mark the run failed with the refusal as the reason. |
 
 ### Name the unattributed files to the human (absorb)
 
@@ -361,8 +391,10 @@ it looks wrong (what the branch's own commits are about).
 The second question splits take onto its two edges: `as previewed` is
 `take: apply as previewed`, and `--at the branch I name` is
 `take: --at the branch the human named`, with the branch taken from the
-answer's `note` or `text`. An iterate note steers the next preview; it never
-licenses redirecting a file yourself.
+answer's `note` or `text`. When the answer picks `--at the branch I name`
+but names no branch, never infer one: count the answer as an iterate round
+and ask again. An iterate note steers the next preview; it never licenses
+redirecting a file yourself.
 
 After two iterate rounds the budget is spent: the next iterate answer writes
 the error "attribution not settled after 2 rounds". On hand back the reason
@@ -505,8 +537,10 @@ error write's reason is the string the board shows:
   headed to <branch>", or its budget spent, reason "attribution not settled
   after 2 rounds": nothing was committed; quote the rows in question.
 - A refusal handed back or its budget spent: quote the `gitq:` line, or the
-  failing entries and the `recovery` text. After a restack refusal, say the
-  commits are on their branches and gitq:sync restacks them.
+  failing entries and the `recovery` text. After a preview refusal, nothing
+  was committed. After a restack refusal, or a hand back at the
+  `gitq continue refused` gate, say the absorbed commits are on their
+  branches and gitq:sync restacks them.
 - A hand back at the judgment gate, reason "conflict on <file> needs human
   judgment: <why>": lay out the conflict and both sides so the human can
   resolve it by hand. A hand back at the other conflict gates names the
@@ -527,6 +561,12 @@ carried an `--at` the preview did not (the attribution gate's `--at` take),
 read `result.unattributed` from an exit 0 apply instead, and on the restack
 route list what `git -C <repoPath> status --porcelain` still shows.
 
+When an exit 0 apply's `result.unapplied` is non-empty (the gate's `--at`
+take skipped a preview with that `--at`, and gitq exits 0 when the target
+does not replay), name each of those files as not replaying onto the `--at`
+branch and still dirty, and give both fixes for the human to choose: a
+different `--at` target, or splitting the edit.
+
 ## What the graph cannot show
 
 - Every gitq call runs as `gitq -C <repoPath> ...`; conflicted files are
@@ -539,6 +579,9 @@ route list what `git -C <repoPath> status --porcelain` still shows.
   `--at` as the apply; `unapplied` is non-empty only on such a preview.
   `Preview result (absorb)?` reads `unapplied` first: a non-empty
   `unapplied` is the error edge even when other files were attributed.
+- The report that ends at `Nothing absorbed: reported (absorb)` names every
+  `unattributed` file after `nothing attributable`, so the human sees what
+  stayed in the worktree; after `nothing to absorb` there is none to name.
 - `gitq continue` and `gitq abort` always carry `--stack <stackName>`.
   Without it gitq refuses when several stacks are parked, and acts on
   another stack's lease when that is the only one parked.
@@ -553,7 +596,8 @@ route list what `git -C <repoPath> status --porcelain` still shows.
 - Every path but a hold or the missing-gitq stop ends through a `done` or
   `error` write, so the board badge never sticks. On a hold, tell the human
   in the pane what is waiting on them. At the attribution gate nothing is
-  committed and the worktree is as found. After a refusal, quote it. When a
+  committed and the worktree is as found, and after a preview refusal the
+same holds. After a refusal, quote it. When a
   cascade is paused, that is where it sits (`<rebaseDir>`, branch,
   conflicted files), and gitq:sync reaches its take-over gate and resumes
   it.
