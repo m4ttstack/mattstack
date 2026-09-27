@@ -14,6 +14,8 @@
  */
 import type { Logger } from "pino";
 import { readRelocationPrompt, readTrustPrompt, type TrustPrompt } from "./trust-dialog.ts";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 
 /** `no-dialog` is "the screen showed no modal", which each caller reads in its
     own context: for a registered pane it means nothing to do, for one that
@@ -42,6 +44,9 @@ export interface TrustDriveDeps {
       parser when omitted. driveRelocationAccept substitutes its own so the
       same cursor-verified walk drives the relocation prompt. */
   read?: (screen: string) => TrustPrompt | null;
+  /** A dialog that names the folder it asks about is accepted only for a
+      path this admits; with no predicate such a dialog is never accepted. */
+  trustsPath?: (path: string) => boolean;
 }
 
 const SETTLE_MS = 1_500;
@@ -59,15 +64,22 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
   const stepMs = deps.stepMs ?? STEP_MS;
   const attempts = deps.attempts ?? ATTEMPTS;
 
-  /** The modal currently on screen, or null when none is; `false` means the
-      screen could not be read at all, which is never evidence of either. */
+  let pinned: string | undefined;
   const look = async (): Promise<TrustPrompt | null | false> => {
     const screen = await herdr<{ read: { text: string } }>("pane.read", { pane_id: pane, source: "visible" }, sock);
     if (!screen.ok) {
       log?.warn({ ...context, pane, err: screen.message }, "trust: pane read failed; dialog not checked");
       return false;
     }
-    return (deps.read ?? readTrustPrompt)(screen.result.read.text);
+    const prompt = (deps.read ?? readTrustPrompt)(screen.result.read.text);
+    if (prompt?.kind !== "accept" || prompt.path === undefined) return prompt;
+    const admitted = pinned === undefined ? deps.trustsPath?.(prompt.path) === true : prompt.path === pinned;
+    if (!admitted) {
+      log?.warn({ ...context, pane, path: prompt.path, pinned }, "trust: the dialog names a folder this spawn did not launch; leaving it for the human");
+      return { kind: "undrivable" };
+    }
+    pinned = prompt.path;
+    return prompt;
   };
 
   const press = async (key: "up" | "down" | "enter"): Promise<boolean> => {
@@ -116,6 +128,13 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
   if (after === null) return "accepted";
   log?.warn({ ...context, pane }, "trust: dialog still up after the accept keys; the pane is stuck at the modal");
   return "stuck";
+}
+
+export function cwdPath(cwd: string): (path: string) => boolean {
+  const logical = resolve(cwd);
+  let physical: string | undefined;
+  try { physical = realpathSync(logical); } catch { physical = undefined; }
+  return (path) => path === logical || path === physical;
 }
 
 /** `unregistered` is the refusal that makes this driver safe to leave on:

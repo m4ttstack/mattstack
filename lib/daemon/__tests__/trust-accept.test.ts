@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import pino from "pino";
-import { acceptTrustOnPane, driveRelocationAccept, driveTrustAccept, type TrustDriveOutcome } from "../trust-accept.ts";
+import { acceptTrustOnPane, driveRelocationAccept, driveTrustAccept, cwdPath, type TrustDriveOutcome } from "../trust-accept.ts";
+import { FIXTURE_PATH, workspaceScreen } from "./trust-workspace-fixtures.ts";
+import { mkdtempSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const log = pino({ level: "silent" });
 
@@ -286,5 +290,86 @@ describe("driveRelocationAccept", () => {
     const p = pane({ screen });
     expect(await driveRelocation(p as never)).toBe("stuck");
     expect(p.calls.some((c) => c.method === "pane.send_keys")).toBe(false);
+  });
+});
+
+/** A pane showing the 2.1.283 dialog: arrows move between No and Yes, Enter on Yes clears it. */
+function workspacePane(opts: { path?: string; swapPathAfterFirstRead?: string } = {}) {
+  const state = { cursor: "no" as "no" | "yes", cleared: false, reads: 0, path: opts.path ?? FIXTURE_PATH };
+  const keys: string[] = [];
+  const herdr = (async (method: string, params: any) => {
+    if (method === "pane.read") {
+      state.reads++;
+      if (state.reads === 2 && opts.swapPathAfterFirstRead) state.path = opts.swapPathAfterFirstRead;
+      return { ok: true, result: { read: { text: state.cleared ? CLEARED : workspaceScreen({ path: state.path, cursor: state.cursor }) } } };
+    }
+    if (method === "pane.send_keys") {
+      for (const k of params.keys as string[]) {
+        keys.push(k);
+        if (k === "down") state.cursor = "yes";
+        if (k === "up") state.cursor = "no";
+        if (k === "enter" && state.cursor === "yes") state.cleared = true;
+      }
+      return { ok: true, result: {} };
+    }
+    return { ok: false, code: "invalid_request", message: method };
+  }) as never;
+  return { herdr, keys };
+}
+
+describe("driveTrustAccept: a dialog that names its folder", () => {
+  const driveWs = (p: ReturnType<typeof workspacePane>, trustsPath?: (path: string) => boolean) =>
+    driveTrustAccept({ herdr: p.herdr, sock: {}, pane: "w1:p1", log, context: {}, settleMs: 1, stepMs: 1, ...(trustsPath && { trustsPath }) });
+
+  test("an admitted path walks off No and enters on Yes", async () => {
+    const p = workspacePane();
+    expect(await driveWs(p, (path) => path === FIXTURE_PATH)).toBe("accepted");
+    expect(p.keys).toEqual(["down", "enter"]);
+  });
+
+  test("a path the predicate refuses sends no key", async () => {
+    const p = workspacePane({ path: "/somewhere/else" });
+    expect(await driveWs(p, (path) => path === FIXTURE_PATH)).toBe("stuck");
+    expect(p.keys).toEqual([]);
+  });
+
+  test("no predicate: a path-naming dialog is never accepted", async () => {
+    const p = workspacePane();
+    expect(await driveWs(p)).toBe("stuck");
+    expect(p.keys).toEqual([]);
+  });
+
+  test("a path that changes between reads stops the walk before enter", async () => {
+    const p = workspacePane({ swapPathAfterFirstRead: "/also/admitted" });
+    expect(await driveWs(p, () => true)).toBe("stuck");
+    expect(p.keys).not.toContain("enter");
+  });
+
+  test("acceptTrustOnPane passes the predicate through", async () => {
+    const p = workspacePane();
+    const herdr = (async (method: string, params: any) => {
+      if (method === "agent.get" || method === "agent.wait") return { ok: true, result: { agent: { agent_status: "blocked" } } };
+      return (p.herdr as any)(method, params);
+    }) as never;
+    const outcome = await acceptTrustOnPane({ herdr, sock: {}, pane: "w1:p1", log, context: {}, settleMs: 1, stepMs: 1, trustsPath: (path) => path === FIXTURE_PATH });
+    expect(outcome).toBe("accepted");
+  });
+});
+
+describe("cwdPath", () => {
+  test("admits the cwd itself, with or without a trailing slash", () => {
+    expect(cwdPath("/tmp/not-there")("/tmp/not-there")).toBe(true);
+    expect(cwdPath("/tmp/not-there/")("/tmp/not-there")).toBe(true);
+    expect(cwdPath("/tmp/not-there")("/tmp/other")).toBe(false);
+  });
+
+  test("admits the physical path claude prints for a symlinked cwd", () => {
+    const root = mkdtempSync(join(tmpdir(), "rt-cwdpath-"));
+    const real = join(root, "real");
+    mkdirSync(real);
+    const link = join(root, "link");
+    symlinkSync(real, link);
+    expect(cwdPath(link)(realpathSync(real))).toBe(true);
+    expect(cwdPath(link)(link)).toBe(true);
   });
 });
