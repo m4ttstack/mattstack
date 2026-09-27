@@ -46,6 +46,10 @@ export interface AppRecord {
   icon?: { ext: 'svg' };
   /** Badge path from mattstack.deck.json, relative to the app's URL. */
   badge?: string;
+  /** From mattstack.deck.json: the app only means something on a team. */
+  requiresTeam?: boolean;
+  /** Absent means enabled. A disabled app keeps its record but is neither served nor listed for the launcher. */
+  enabled?: boolean;
   /** Action commands from mattstack.deck.json (shell strings), excluding `start`. Dev-mode-gated at the API for managed apps; never gated for user apps. */
   commands?: Record<string, string>;
   /** Declared serve-shape overlays; each may carry only `port` and/or `start`. */
@@ -70,6 +74,10 @@ export function isMattstackOwned(
   record: Pick<AppRecord, 'managedBy'>
 ): boolean {
   return record.managedBy != null && record.managedBy !== 'user';
+}
+
+export function isEnabled(record: Pick<AppRecord, 'enabled'>): boolean {
+  return record.enabled !== false;
 }
 
 interface RegistryFile {

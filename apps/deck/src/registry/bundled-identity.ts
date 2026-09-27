@@ -10,6 +10,7 @@ export interface AppIdentity {
   displayName: string;
   description?: string;
   badge?: string;
+  requiresTeam?: boolean;
   /** The svg served at /api/apps/<name>/icon; null when the row advertises no icon. */
   iconFile: string | null;
 }
@@ -38,6 +39,7 @@ export function readBundledIdentity(
     displayName: m.displayName,
     ...(m.description !== undefined ? { description: m.description } : {}),
     ...(m.badge !== undefined ? { badge: m.badge } : {}),
+    ...(m.requiresTeam !== undefined ? { requiresTeam: m.requiresTeam } : {}),
     iconFile,
   };
 }
@@ -62,6 +64,9 @@ function storedIdentity(record: AppRecord): AppIdentity {
       ? { description: record.description }
       : {}),
     ...(record.badge ? { badge: record.badge } : {}),
+    ...(record.requiresTeam !== undefined
+      ? { requiresTeam: record.requiresTeam }
+      : {}),
     iconFile: record.icon ? iconPathFor(record.name) : null,
   };
 }
@@ -83,10 +88,17 @@ export function effectiveIdentity(
   return bundled ?? stored;
 }
 
+export function requiresTeamFor(record: AppRecord): boolean {
+  return effectiveIdentity(record).requiresTeam === true;
+}
+
 /** The icon URL a status row carries, relative to deck's own origin. */
-export function statusIconUrl(record: AppRecord): string | null {
+export function statusIconUrl(
+  record: AppRecord,
+  identity?: AppIdentity
+): string | null {
   if (isPlatformManagedBy(record.managedBy)) return '/favicon.svg';
-  return effectiveIdentity(record).iconFile
+  return (identity ?? effectiveIdentity(record)).iconFile
     ? `/api/apps/${record.name}/icon`
     : null;
 }
