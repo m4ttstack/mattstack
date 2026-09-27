@@ -58,6 +58,11 @@ export async function reposReidentify(args: string[], _ctx: CommandContext = {},
     deps.print(JSON.stringify(envelope({ ok: true, via: outcome.via, data: report })));
     return;
   }
-  deps.print(`${dryRun ? "would move" : "moved"} ${report.from.serialized} to ${report.to.serialized} (${outcome.via})`);
+  // A typo in <old> reads as an all-none report, which must not look like a move.
+  if (report.stores.every((s) => s.status === "none")) {
+    deps.print(`nothing under ${report.from.serialized} to move (${outcome.via})`);
+  } else {
+    deps.print(`${dryRun ? "would move" : "moved"} ${report.from.serialized} to ${report.to.serialized} (${outcome.via})`);
+  }
   for (const line of table(report.stores)) deps.print(line);
 }

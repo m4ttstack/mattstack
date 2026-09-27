@@ -9,15 +9,18 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
-import { migrateRepoData, migrationIncomplete, REPO_INDEX_NS } from "./repo-index.ts";
+import { isDeepStrictEqual } from "util";
+import { migrateRepoData, migrationIncomplete, refreshRepoIndexMirror, REPO_INDEX_NS } from "./repo-index.ts";
 import { moveRepoTrackingEntry } from "./repo-tracking.ts";
 import { repoDataDir, rtDir } from "./rt-paths.ts";
 import { normalizeRemote, parseIdentity, serializeIdentity } from "./settings/identity.ts";
+import { getSetting } from "./settings/resolve.ts";
+import { setSetting } from "./settings/write.ts";
 import { CURSOR_NS } from "./state/cursors-store.ts";
 import { dropTableRows, moveKvKey, moveTableRows, type StoreReport } from "./state/reidentify.ts";
 import { machineSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { listTeams } from "../packages/rt-client/src/settings/stores.ts";
-import { renameRepoSection } from "../packages/rt-client/src/settings/write.ts";
+import { renameRepoSection, storeUnparseable } from "../packages/rt-client/src/settings/write.ts";
 
 export interface IdentityPair {
   serialized: string;
@@ -126,6 +129,37 @@ function herdsReport(from: string, to: string, dryRun: boolean): StoreReport {
   }
 }
 
+/**
+ * `rt code`'s per-repo editor choice, keyed by serialized identity inside the
+ * machine-scoped `rt.workspacePrefs` blob. The whole blob is rewritten with
+ * only the one editors key changed, so every other pref survives.
+ */
+function workspaceEditorsReport(from: string, to: string, dryRun: boolean): StoreReport {
+  const store = "settings:workspacePrefs.editors";
+  if (storeUnparseable(machineSettingsPath())) {
+    return { store, status: "refused", count: 0, detail: `unparseable store ${machineSettingsPath()}` };
+  }
+  const prefs = getSetting<unknown>("rt.workspacePrefs").value;
+  if (prefs === null || typeof prefs !== "object" || Array.isArray(prefs)) return { store, status: "none", count: 0 };
+  const editors = (prefs as { editors?: unknown }).editors;
+  if (editors === null || typeof editors !== "object" || Array.isArray(editors)) return { store, status: "none", count: 0 };
+  const map = editors as Record<string, unknown>;
+  const hasFrom = Object.prototype.hasOwnProperty.call(map, from);
+  const hasTo = Object.prototype.hasOwnProperty.call(map, to);
+  if (!hasFrom && hasTo) return { store, status: "already", count: 0 };
+  if (!hasFrom) return { store, status: "none", count: 0 };
+  if (hasTo && !isDeepStrictEqual(map[from], map[to])) return { store, status: "refused", count: 1, detail: "both populated" };
+  if (dryRun) return { store, status: "moved", count: 1 };
+  const nextEditors: Record<string, unknown> = { ...map, [to]: map[from] };
+  delete nextEditors[from];
+  setSetting("rt.workspacePrefs", { ...(prefs as Record<string, unknown>), editors: nextEditors }, "machine");
+  const after = (getSetting<{ editors?: Record<string, unknown> } | undefined>("rt.workspacePrefs").value?.editors ?? {}) as Record<string, unknown>;
+  if (!isDeepStrictEqual(after[to], map[from]) || Object.prototype.hasOwnProperty.call(after, from)) {
+    return { store, status: "refused", count: 1, detail: "rt.workspacePrefs did not persist the move" };
+  }
+  return { store, status: "moved", count: 1 };
+}
+
 function settingsReport(label: string, path: string, from: string, to: string, dryRun: boolean): StoreReport {
   const r = renameRepoSection(path, from, to, { dryRun });
   return { store: `settings:${label}`, status: r.status, count: r.keys, ...(r.detail ? { detail: r.detail } : {}) };
@@ -153,6 +187,7 @@ export async function reidentify(fromArg: string, toArg: string, opts: { dryRun?
   add("herds.repo", () => herdsReport(f, t, dryRun));
   add("settings:user", () => settingsReport("user", userSettingsPath(), from.raw, to.raw, dryRun));
   add("settings:machine", () => settingsReport("machine", machineSettingsPath(), from.raw, to.raw, dryRun));
+  add("settings:workspacePrefs.editors", () => workspaceEditorsReport(f, t, dryRun));
   let teams: string[] = [];
   try {
     const listed = teamsOrRefusal();
@@ -162,6 +197,10 @@ export async function reidentify(fromArg: string, toArg: string, opts: { dryRun?
     stores.push({ store: "settings:teams", status: "refused", count: 0, detail: String(err) });
   }
   for (const team of teams) add(`settings:team:${team}`, () => settingsReport(`team:${team}`, teamSettingsPath(team), from.raw, to.raw, dryRun));
+
+  // repos.json mirrors the index for out-of-process readers (gitq, rt-client's
+  // fallback); only a write through the index refreshes it otherwise.
+  if (!dryRun) refreshRepoIndexMirror();
 
   return { from, to, dryRun, stores, ok: stores.every((s) => s.status !== "refused") };
 }

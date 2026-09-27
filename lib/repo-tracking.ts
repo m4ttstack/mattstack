@@ -424,9 +424,10 @@ export function moveRepoTrackingEntry(from: string, to: string, opts: { dryRun?:
   const hasTo = Object.prototype.hasOwnProperty.call(raw, to);
   if (!hasFrom && hasTo) return { store, status: "already", count: 0 };
   if (!hasFrom) return { store, status: "none", count: 0 };
-  // Equal entries under both keys are what an interrupted move leaves behind.
-  const interrupted = hasTo && isDeepStrictEqual(raw[from], raw[to]);
-  if (hasTo && !interrupted) return { store, status: "refused", count: 1, detail: "both populated" };
+  // The write is one blob, so a move cannot leave half of itself behind; equal
+  // entries under both keys come from re-registering under the new identity.
+  const sameValue = hasTo && isDeepStrictEqual(raw[from], raw[to]);
+  if (hasTo && !sameValue) return { store, status: "refused", count: 1, detail: "both populated" };
   if (opts.dryRun) return { store, status: "moved", count: 1 };
   const next: Record<string, unknown> = { ...raw, [to]: raw[from] };
   delete next[from];
