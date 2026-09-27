@@ -97,6 +97,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
 import { dirname } from "path";
+import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
 import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
@@ -541,7 +542,8 @@ export type SectionRename = "moved" | "already" | "none" | "refused";
  * Moves one `repos.<oldId>` section onto `repos.<newId>` in a single store
  * file, keeping every other key and comment. The rename is two edits on the
  * same jsonc document (set the new section, remove the old), then a re-read
- * proves both landed.
+ * proves both landed. A write that throws comes back as `refused`, so one
+ * store's failure never stops a caller walking the others.
  */
 export function renameRepoSection(
   storePath: string,
@@ -552,16 +554,23 @@ export function renameRepoSection(
   if (!existsSync(storePath)) return { status: "none", keys: 0 };
   const before = readStore(storePath);
   const oldSection = before.repos[oldId];
-  const hasNew = before.repos[newId] !== undefined;
-  if (oldSection === undefined && hasNew) return { status: "already", keys: 0 };
+  const newSection = before.repos[newId];
+  if (oldSection === undefined && newSection !== undefined) return { status: "already", keys: 0 };
   if (oldSection === undefined) return { status: "none", keys: 0 };
   const keys = Object.keys(oldSection).length;
-  if (hasNew) return { status: "refused", keys, detail: "both populated" };
+  // Equal sections on both ids are what a rename interrupted between its two
+  // writes leaves behind; only the removal is left to do.
+  const interrupted = newSection !== undefined && isDeepStrictEqual(oldSection, newSection);
+  if (newSection !== undefined && !interrupted) return { status: "refused", keys, detail: "both populated" };
   if (opts.dryRun) return { status: "moved", keys };
-  writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
-  removeFromStore(storePath, () => [["repos", oldId]]);
+  try {
+    if (!interrupted) writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
+    removeFromStore(storePath, () => [["repos", oldId]]);
+  } catch (err) {
+    return { status: "refused", keys, detail: String(err) };
+  }
   const after = readStore(storePath);
-  if (JSON.stringify(after.repos[newId]) !== JSON.stringify(oldSection) || after.repos[oldId] !== undefined) {
+  if (!isDeepStrictEqual(after.repos[newId], oldSection) || after.repos[oldId] !== undefined) {
     return { status: "refused", keys, detail: `${storePath} did not persist the rename` };
   }
   return { status: "moved", keys };

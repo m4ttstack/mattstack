@@ -47,6 +47,34 @@ describe("reidentify primitives", () => {
     expect(getKvValue<unknown>("probe", NEW, null)).toBe("n");
   });
 
+  test("moveKvKey finishes an interrupted move when both keys hold equal values", () => {
+    setKvValue("probe", OLD, { a: [1, 2] });
+    setKvValue("probe", NEW, { a: [1, 2] });
+    expect(moveKvKey("probe", OLD, NEW, { dryRun: true }).status).toBe("moved");
+    expect(hasKvValue("probe", OLD)).toBe(true);
+    expect(moveKvKey("probe", OLD, NEW)).toMatchObject({ status: "moved", count: 1 });
+    expect(hasKvValue("probe", OLD)).toBe(false);
+    expect(getKvValue<unknown>("probe", NEW, null)).toEqual({ a: [1, 2] });
+  });
+
+  test("moveKvKey refuses an unparseable old value and writes nothing", () => {
+    getStateDb().run("INSERT INTO kv (ns, k, v, updated_at) VALUES (?, ?, ?, ?)", ["probe", OLD, "{not json", Date.now()]);
+    const r = moveKvKey("probe", OLD, NEW);
+    expect(r).toMatchObject({ status: "refused", detail: `unparseable value under ${OLD}` });
+    expect(hasKvValue("probe", OLD)).toBe(true);
+    expect(hasKvValue("probe", NEW)).toBe(false);
+  });
+
+  test("moveTableRows reports a throwing write as refused", () => {
+    const db = getStateDb();
+    db.run(`CREATE TABLE IF NOT EXISTS probe_checked (repo TEXT NOT NULL CHECK (repo <> '${NEW}'))`);
+    db.run("INSERT INTO probe_checked (repo) VALUES (?)", [OLD]);
+    const r = moveTableRows("probe_checked", "repo", OLD, NEW, { db });
+    expect(r.status).toBe("refused");
+    expect(r.detail).toContain("CHECK constraint failed");
+    expect((db.query("SELECT COUNT(*) AS c FROM probe_checked WHERE repo = ?").get(OLD) as { c: number }).c).toBe(1);
+  });
+
   test("moveKvKey dry run reports moved without writing", () => {
     setKvValue("probe", OLD, 1);
     expect(moveKvKey("probe", OLD, NEW, { dryRun: true }).status).toBe("moved");

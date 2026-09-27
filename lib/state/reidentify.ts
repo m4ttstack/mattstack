@@ -4,10 +4,12 @@
  *
  * `setKvValue`/`persistOrWarn` swallow SQLITE_BUSY, so every move re-reads
  * before it reports success; a write that did not land is a refusal, never a
- * silent partial.
+ * silent partial. A write that throws is a refusal too: one store's failure
+ * must never stop the caller from moving the others.
  */
 
 import type { Database } from "bun:sqlite";
+import { isDeepStrictEqual } from "util";
 import { deleteKvValue, getKvValue, getStateDb, hasKvValue, setKvValue } from "./index.ts";
 
 export type StoreStatus = "moved" | "already" | "none" | "refused";
@@ -20,6 +22,15 @@ export interface StoreReport {
 }
 
 const BOTH = "both populated";
+const UNREADABLE = Symbol("unreadable");
+
+function attempt(store: string, count: number, write: () => StoreReport): StoreReport {
+  try {
+    return write();
+  } catch (err) {
+    return { store, status: "refused", count, detail: String(err) };
+  }
+}
 
 export function moveKvKey(ns: string, from: string, to: string, opts: { dryRun?: boolean } = {}): StoreReport {
   const store = `kv:${ns}`;
@@ -27,16 +38,24 @@ export function moveKvKey(ns: string, from: string, to: string, opts: { dryRun?:
   const hasTo = hasKvValue(ns, to);
   if (!hasFrom && hasTo) return { store, status: "already", count: 0 };
   if (!hasFrom) return { store, status: "none", count: 0 };
-  if (hasTo) return { store, status: "refused", count: 1, detail: BOTH };
+  const value = getKvValue<unknown>(ns, from, UNREADABLE);
+  if (value === UNREADABLE) return { store, status: "refused", count: 1, detail: `unparseable value under ${from}` };
+  // Equal values under both keys are what a move interrupted before its
+  // delete leaves behind; only the delete is left to do.
+  const interrupted = hasTo && isDeepStrictEqual(value, getKvValue<unknown>(ns, to, UNREADABLE));
+  if (hasTo && !interrupted) return { store, status: "refused", count: 1, detail: BOTH };
   if (opts.dryRun) return { store, status: "moved", count: 1 };
-  const value = getKvValue<unknown>(ns, from, undefined);
-  setKvValue(ns, to, value);
-  if (JSON.stringify(getKvValue<unknown>(ns, to, undefined)) !== JSON.stringify(value)) {
-    return { store, status: "refused", count: 1, detail: `${to} did not persist` };
-  }
-  deleteKvValue(ns, from);
-  if (hasKvValue(ns, from)) return { store, status: "refused", count: 1, detail: `${from} did not delete` };
-  return { store, status: "moved", count: 1 };
+  return attempt(store, 1, () => {
+    if (!interrupted) {
+      setKvValue(ns, to, value);
+      if (!isDeepStrictEqual(getKvValue<unknown>(ns, to, UNREADABLE), value)) {
+        return { store, status: "refused", count: 1, detail: `${to} did not persist` };
+      }
+    }
+    deleteKvValue(ns, from);
+    if (hasKvValue(ns, from)) return { store, status: "refused", count: 1, detail: `${from} did not delete` };
+    return { store, status: "moved", count: 1 };
+  });
 }
 
 function tableExists(db: Database, table: string): boolean {
@@ -65,11 +84,13 @@ export function moveTableRows(
   if (fromCount === 0) return { store, status: "none", count: 0 };
   if (toCount > 0) return { store, status: "refused", count: fromCount, detail: BOTH };
   if (opts.dryRun) return { store, status: "moved", count: fromCount };
-  db.run(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [to, from]);
-  if (countWhere(db, table, col, from) !== 0 || countWhere(db, table, col, to) !== fromCount) {
-    return { store, status: "refused", count: fromCount, detail: "rows did not persist under the new identity" };
-  }
-  return { store, status: "moved", count: fromCount };
+  return attempt(store, fromCount, () => {
+    db.run(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [to, from]);
+    if (countWhere(db, table, col, from) !== 0 || countWhere(db, table, col, to) !== fromCount) {
+      return { store, status: "refused", count: fromCount, detail: "rows did not persist under the new identity" };
+    }
+    return { store, status: "moved", count: fromCount };
+  });
 }
 
 export function dropTableRows(table: string, col: string, from: string, opts: { dryRun?: boolean; db?: Database } = {}): StoreReport {
@@ -79,7 +100,9 @@ export function dropTableRows(table: string, col: string, from: string, opts: { 
   const fromCount = countWhere(db, table, col, from);
   if (fromCount === 0) return { store, status: "none", count: 0 };
   if (opts.dryRun) return { store, status: "moved", count: fromCount };
-  db.run(`DELETE FROM ${table} WHERE ${col} = ?`, [from]);
-  if (countWhere(db, table, col, from) !== 0) return { store, status: "refused", count: fromCount, detail: "rows did not delete" };
-  return { store, status: "moved", count: fromCount };
+  return attempt(store, fromCount, () => {
+    db.run(`DELETE FROM ${table} WHERE ${col} = ?`, [from]);
+    if (countWhere(db, table, col, from) !== 0) return { store, status: "refused", count: fromCount, detail: "rows did not delete" };
+    return { store, status: "moved", count: fromCount };
+  });
 }

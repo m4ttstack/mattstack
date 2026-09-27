@@ -45,6 +45,21 @@ describe("renameRepoSection", () => {
     expect(readStore(file).repos[OLD]).toEqual({ x: 1 });
   });
 
+  test("finishes an interrupted rename when both sections are equal", () => {
+    const file = store(`{ "repos": { "${OLD}": { "x": { "y": 1 } }, "${NEW}": { "x": { "y": 1 } } } }\n`);
+    expect(renameRepoSection(file, OLD, NEW)).toEqual({ status: "moved", keys: 1 });
+    const s = readStore(file);
+    expect(s.repos[OLD]).toBeUndefined();
+    expect(s.repos[NEW]).toEqual({ x: { y: 1 } });
+  });
+
+  test("reports a store the writer refuses to edit as refused", () => {
+    const file = store(`{ "a": 1, "a": 2, "repos": { "${OLD}": { "x": 1 } } }\n`);
+    const r = renameRepoSection(file, OLD, NEW);
+    expect(r.status).toBe("refused");
+    expect(readStore(file).repos[OLD]).toEqual({ x: 1 });
+  });
+
   test("dry run reports without writing", () => {
     const file = store(`{ "repos": { "${OLD}": { "x": 1 } } }\n`);
     expect(renameRepoSection(file, OLD, NEW, { dryRun: true })).toEqual({ status: "moved", keys: 1 });
