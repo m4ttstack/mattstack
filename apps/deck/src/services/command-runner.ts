@@ -10,10 +10,17 @@ import {
 import { join } from 'path';
 
 import { isAlive, logsDir } from '../api/state.ts';
+import { composeCommandPath } from './exec-env.ts';
 
 export type SpawnFn = (
   argv: string[],
-  opts: { cwd: string; stdout: number; stderr: number; detached: boolean }
+  opts: {
+    cwd: string;
+    stdout: number;
+    stderr: number;
+    detached: boolean;
+    env: Record<string, string | undefined>;
+  }
 ) => { exited: Promise<number>; pid?: number };
 
 // A detached run outlives the deck that started it, and with it the in-memory
@@ -74,10 +81,9 @@ export function resetRuns(): void {
   runs.clear();
 }
 
-// Explicit env: Bun otherwise spawns with the PATH the process started on,
-// never the one adoptHelperPath composes.
+// Explicit env: Bun otherwise spawns with the PATH the process started on.
 const defaultSpawn: SpawnFn = (argv, opts) =>
-  Bun.spawn(argv, { ...opts, env: process.env }) as unknown as {
+  Bun.spawn(argv, opts) as unknown as {
     exited: Promise<number>;
     pid: number;
   };
@@ -115,6 +121,7 @@ export function startCommandRun(
       stdout: out,
       stderr: errFd,
       detached: input.detached ?? false,
+      env: { ...process.env, PATH: composeCommandPath() },
     });
   } catch (err) {
     // A synchronous spawn failure must not leave the app permanently busy or
