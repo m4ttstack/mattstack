@@ -222,13 +222,17 @@ function commitCreate(tmp: string, path: string): boolean {
   }
 }
 
-/** One read of the lease file: ENOENT (or any other read failure) means the create route is safe; a file that exists, parseable or not, takes the replace route. Both fields must come from this single read, or a lockless creator landing in the gap between two separate reads can make `fresh` say create while `existing` still says the file was absent. */
-function readLeaseState(path: string): { existing: CiLease | null; fresh: boolean } {
+/** One read of the lease file: only ENOENT means the create route is safe; a file that exists, parseable or not, takes the replace route; any other read failure throws, since an unreadable file would make the create route's link fail EEXIST forever. Both fields must come from this single read, or a lockless creator landing in the gap between two separate reads can make `absent` say create while `existing` still says the file was absent. */
+function readLeaseState(path: string): { existing: CiLease | null; absent: boolean } {
+  let raw: string;
   try {
-    return { existing: parseLease(readFileSync(path, "utf8")), fresh: false };
-  } catch {
-    return { existing: null, fresh: true };
+    raw = readFileSync(path, "utf8");
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { existing: null, absent: true };
+    throw new CiLeaseError(`lease file unreadable: ${path} (${code ?? String(e)})`);
   }
+  return { existing: parseLease(raw), absent: false };
 }
 
 export function readCiLease(mrUrl: string, opts: CiLeaseOpts = {}): { lease: CiLease | null; stale: CiLease | null } {
@@ -272,7 +276,7 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
   return withLock(p.lock, opts, (stillMine) => {
     for (;;) {
       const now = clock(opts);
-      const { existing, fresh } = readLeaseState(p.lease);
+      const { existing, absent } = readLeaseState(p.lease);
       opts.onLeaseRead?.();
       if (existing && isLeaseFresh(existing, now) && leaseOwner(existing) !== req.owner) {
         return { claimed: false, holder: existing };
@@ -290,7 +294,7 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
       };
       const tmp = writeTmp(p.lease, lease);
       checkStillMine(tmp, stillMine);
-      if (fresh) {
+      if (absent) {
         if (!commitCreate(tmp, p.lease)) continue;
       } else {
         commitReplace(tmp, p.lease);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, readdirSync, utimesSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, readdirSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -95,6 +95,22 @@ describe("claim rules", () => {
     utimesSync(lockPath, old, old);
     const r = claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, { dir, now: () => t, lockStaleMs: 50 });
     expect(r.claimed).toBe(true);
+    expect(readdirSync(dir)).toEqual(["grp-proj-42.json"]);
+  });
+  test.skipIf(process.getuid?.() === 0)("an unreadable lease file fails the claim fast and leaves no lock behind", () => {
+    writeFileSync(file(), JSON.stringify({ mr: MR, holder: "watch-ci", startedAt: t, heartbeatAt: t, ttlSeconds: 600 }));
+    chmodSync(file(), 0o000);
+    const started = Date.now();
+    let err: unknown;
+    try {
+      claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, opts());
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(CiLeaseError);
+    expect((err as Error).message).toContain(file());
+    expect((err as Error).message).toContain("EACCES");
+    expect(Date.now() - started).toBeLessThan(1_000);
     expect(readdirSync(dir)).toEqual(["grp-proj-42.json"]);
   });
 });
