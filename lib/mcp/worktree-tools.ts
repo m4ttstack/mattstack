@@ -24,6 +24,7 @@ export function worktreeToolDefs(deps: { command: typeof rtCommand } = { command
         required: ["repoName"],
         additionalProperties: false,
       },
+      shellForms: ["rt worktree provision", "git worktree add"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "ticket", type: "string" }, { name: "ticketTitle", type: "string" }, { name: "branch", type: "string" }, { name: "disposal", type: "string" }, { name: "owner", type: "string" }]);
         if (bad) return err(bad);
@@ -41,6 +42,7 @@ export function worktreeToolDefs(deps: { command: typeof rtCommand } = { command
       name: "worktree_dispose",
       description: `Dispose a worktree by its tree name; it goes to the restorable trash. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_PROP, tree: { type: "string", description: "The tree name as worktree list prints it." } }, required: ["repoName", "tree"], additionalProperties: false },
+      shellForms: ["rt worktree dispose"],
       async handler(input) {
         const bad = checkRequired(input, [{ name: "tree", type: "string" }]);
         if (bad) return err(bad);
@@ -53,6 +55,7 @@ export function worktreeToolDefs(deps: { command: typeof rtCommand } = { command
       name: "worktree_stop_holders",
       description: `End the processes rt ties to a worktree (dev servers, watchers), and only those. There is no general kill tool. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_PROP, tree: { type: "string" } }, required: ["repoName", "tree"], additionalProperties: false },
+      shellForms: [{ id: "pkill", pattern: /\bpkill\b|\bkill\s+(-\w+\s+)?\$/, example: "pkill -f <path>", note: "ends only the processes rt ties to the tree" }],
       async handler(input) {
         const bad = checkRequired(input, [{ name: "tree", type: "string" }]);
         if (bad) return err(bad);

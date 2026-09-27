@@ -9,10 +9,16 @@ import type { RtResponse } from "../../packages/rt-client/src/index.ts";
 import { readChatSession, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
 
+/** A string is a literal command prefix; an object carries a pattern a prefix
+    cannot express, and an example line the pattern must hit. */
+export type ShellForm = string | { id: string; pattern: RegExp; example: string; note?: string };
+export type ShellForms = ShellForm[] | { none: string };
+
 export interface McpToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  shellForms: ShellForms;
   handler(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<{ ok: boolean; body: unknown; error?: string }>;
 }
 

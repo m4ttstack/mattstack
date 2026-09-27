@@ -15,7 +15,9 @@ const STRATEGY_RE = /^## ([^\n]+)\n+```\n([\s\S]*?)\n```/gm;
 const INDENTED_LINE_RE = /^ {4,}/;
 // No \n exclusion: word-wrapped prose (the real job-template.md) puts a
 // slot's < and > on different physical lines.
-const MARKER_RE = /<([^<>]+)>/g;
+// An HTML comment matches whole, with no group, so a < or > inside it never
+// opens or closes a marker.
+const MARKER_RE = /<!--[\s\S]*?-->|<([^<>]+)>/g;
 const DECORATIVE_SPAN_RE = /`[^`]*`|"[^"]*"/g;
 
 const AUTHOR_OPEN = "<!-- author -->";
@@ -192,13 +194,12 @@ function substituteMarkers(doc: string, fills: Record<string, string>): { text: 
   let m: RegExpExecArray | null;
   while ((m = MARKER_RE.exec(doc))) {
     const raw = m[1];
-    if (raw === undefined) continue; // regex guarantees this group when the overall match succeeds
     const matchStart = m.index;
     const matchEnd = matchStart + m[0].length;
     const startLineIdx = lineIndexForOffset(lines, matchStart);
 
     out += doc.slice(cursor, matchStart);
-    if (isDecorative(lines, startLineIdx, matchStart, matchEnd, spans)) {
+    if (raw === undefined || isDecorative(lines, startLineIdx, matchStart, matchEnd, spans)) {
       out += m[0];
     } else {
       const name = normalizeMarkerName(raw);

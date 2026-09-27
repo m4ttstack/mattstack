@@ -109,6 +109,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_read",
       description: "Read unread chat messages as this session's handle (every room, or one), advancing this handle's read cursor. since (30s, 5m, 500ms, bare seconds) peeks without advancing; last returns a room's newest N regardless of the cursor, then marks it read.",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, limit: { type: "number" }, since: { type: "string" }, last: { type: "number" } }, additionalProperties: false },
+      shellForms: ["rt chat read"],
       async handler(input, env) {
         const id = handleOf(env);
         if ("error" in id) return err(id.error);
@@ -151,6 +152,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_mark",
       description: "Mark chat messages read for this session's handle: every open room, one room, or one room up to a message id (upto).",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, upto: { type: "number" } }, additionalProperties: false },
+      shellForms: ["rt chat mark"],
       async handler(input, env) {
         const id = handleOf(env);
         if ("error" in id) return err(id.error);
@@ -167,6 +169,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_rooms",
       description: "List the chat rooms this session's handle belongs to, with unread counts.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      shellForms: ["rt chat rooms"],
       async handler(_input, env) {
         const id = handleOf(env);
         if ("error" in id) return err(id.error);
@@ -177,6 +180,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_who",
       description: "List a chat room's members with their presence status.",
       inputSchema: { type: "object", properties: { ...ROOM_PROP }, required: ["room"], additionalProperties: false },
+      shellForms: ["rt chat who"],
       async handler(input) {
         const bad = checkChatName("room", input.room);
         if (bad) return err(bad);
@@ -188,6 +192,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_buddies",
       description: "List every chat handle on this machine with its presence status (live, idle, away, offline).",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      shellForms: ["rt chat buddies"],
       async handler() {
         return fromResponse(await deps.buddies());
       },
@@ -196,6 +201,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_join",
       description: "Join a chat room as this session's handle. wakeOn (mention, all, none) sets when a message is delivered; cwd is the checkout this session works in (the server's own directory is fixed at session start).",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, wakeOn: { type: "string", enum: ["mention", "all", "none"] }, cwd: { type: "string" } }, required: ["room"], additionalProperties: false },
+      shellForms: ["rt chat join"],
       async handler(input, env) {
         const id = handleOf(env);
         if ("error" in id) return err(id.error);
@@ -217,6 +223,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_leave",
       description: "Leave a chat room as this session's handle.",
       inputSchema: { type: "object", properties: { ...ROOM_PROP }, required: ["room"], additionalProperties: false },
+      shellForms: ["rt chat leave"],
       async handler(input, env) {
         const id = handleOf(env);
         if ("error" in id) return err(id.error);
@@ -229,6 +236,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_away",
       description: "Set an away message on this session's chat presence without signing out; chat_back clears it.",
       inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false },
+      shellForms: ["rt chat away"],
       async handler(input, env) {
         const sessionId = env.CLAUDE_CODE_SESSION_ID;
         if (!sessionId) return err(NO_SESSION);
@@ -245,6 +253,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_back",
       description: "Clear this session's chat away message.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      shellForms: ["rt chat back"],
       async handler(_input, env) {
         const sessionId = env.CLAUDE_CODE_SESSION_ID;
         if (!sessionId) return err(NO_SESSION);
@@ -259,6 +268,12 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         properties: { cwd: { type: "string" }, as: { type: "string" }, room: { type: "string" }, noRoom: { type: "boolean" }, status: { type: "string" } },
         additionalProperties: false,
       },
+      shellForms: [{
+        id: "rt chat sign-in",
+        pattern: /(?<![\w-])rt\s+chat\s+sign-in(?![\w-])/,
+        example: "rt chat sign-in",
+        note: "after a /clear the tool refuses and Bash is correct; mark that line <!-- mcp-lint: allow -->",
+      }],
       async handler(input, env) {
         const sessionId = env.CLAUDE_CODE_SESSION_ID;
         if (!sessionId) return err(NO_SESSION);
@@ -322,6 +337,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_sign_out",
       description: "Sign this session out of rt chat: drop its presence and delete its session file. Room memberships are kept.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      shellForms: ["rt chat sign-out"],
       async handler(_input, env) {
         const sessionId = env.CLAUDE_CODE_SESSION_ID;
         if (!sessionId) return err(NO_SESSION);
@@ -335,6 +351,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_archive",
       description: "Archive a chat room this session's handle belongs to (hidden from every member's room list until someone posts into it), or reopen it with reopen: true.",
       inputSchema: { type: "object", properties: { ...ROOM_PROP, reopen: { type: "boolean" } }, required: ["room"], additionalProperties: false },
+      shellForms: ["rt chat archive"],
       async handler(input, env) {
         const id = handleOf(env);
         if ("error" in id) return err(id.error);
@@ -353,6 +370,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
       name: "chat_invite",
       description: "Invite another herdr pane into a chat room: types /chat:join <room> (with an optional one-line note from this session's handle) into that pane. pane is a herdr pane id or ref; note is at most 300 characters; newlines become spaces and other control characters are refused.",
       inputSchema: { type: "object", properties: { pane: { type: "string" }, ...ROOM_PROP, note: { type: "string" } }, required: ["pane", "room"], additionalProperties: false },
+      shellForms: ["rt chat invite"],
       async handler(input, env) {
         const id = handleOf(env);
         if ("error" in id) return err(id.error);

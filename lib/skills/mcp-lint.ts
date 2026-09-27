@@ -1,34 +1,96 @@
 import { lstatSync, readdirSync, readFileSync } from "fs";
 import { join, sep } from "path";
+import type { ShellForms } from "../mcp/shared.ts";
 import { HEADER_COMMENT } from "./compile.ts";
 
-export interface LintRule { id: string; pattern: RegExp; tool: string; note: string }
-export interface LintHit { file: string; line: number; text: string; rule: string; tool: string; note: string }
-
-// The replacement table, as patterns over code-shaped text (fenced blocks and
-// inline spans). Order matters only for which rule names a line first.
-export const MCP_LINT_RULES: LintRule[] = [
-  { id: "run-db-env", pattern: /\b(export|unset)\s+RT_RUN_DB\b/, tool: "run_start", note: "keep the runDb run_start returns and pass it on every run_* call" },
-  { id: "subst", pattern: /\b[A-Za-z_][A-Za-z0-9_]*=\$\(\s*(rt|glab)\b/, tool: "mr_for_branch", note: "a tool returns the value; nothing needs a shell variable (the tool depends on the inner call: glab mr list is mr_for_branch or mr_list, rt runs is run_*)" },
-  { id: "rt-runs", pattern: /\brt runs\b/, tool: "run_stage", note: "run_start, run_stage, run_field_set, run_field_get, run_decision, run_status, run_snapshot, run_list" },
-  { id: "rt-sync", pattern: /\brt sync\b/, tool: "branch_sync", note: "one call: fetch, cherry-gated reset, rebase, force-with-lease push" },
-  { id: "rt-worktree", pattern: /\brt worktree (provision|dispose)\b/, tool: "worktree_provision", note: "worktree_provision or worktree_dispose" },
-  { id: "rt-herd", pattern: /\brt herd\b/, tool: "herd_spawn", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone" },
-  { id: "gate-ask", pattern: /\brt gate ask\b/, tool: "gate_ask", note: "read the questions file and pass its questions, kind and context" },
-  { id: "glab", pattern: /\bglab\b/, tool: "mr_view", note: "mr_view, mr_list, mr_for_branch, mr_threads, mr_pipeline, mr_job_trace, mr_merge, or an mr_* write" },
-  { id: "git-push", pattern: /\bgit push\b/, tool: "git_push", note: "setUpstream: true for a first push, forceWithLease: true after a rebase" },
-  { id: "git-rebase", pattern: /\bgit rebase\b(?!\s+--(continue|skip)\b)/, tool: "git_rebase", note: "onto: \"origin/<default>\" (it fetches), or abort: true" },
-  { id: "git-pull", pattern: /\bgit pull\b/, tool: "git_pull", note: "fast-forward only" },
-  { id: "worktree-add", pattern: /\bgit worktree add\b/, tool: "worktree_provision", note: "sibling worktrees are never created by hand" },
-  { id: "pkill", pattern: /\bpkill\b|\bkill\s+(-\w+\s+)?\$/, tool: "worktree_stop_holders", note: "ends only the processes rt ties to the tree" },
-];
+export interface LintRule { id: string; pattern: RegExp; tool: string | null; note?: string; example: string; source: "tool" | "leaf" | "script" }
+export interface LintHit { file: string; line: number; text: string; rule: string; tool: string | null; note?: string }
 
 // Written in one bare form by the skills; each stays on Bash on purpose.
 export const KEPT_ON_BASH: RegExp[] = [
-  /\brt gate answer\b.*--by shepherd\b/,
+  /\brt\s+gate\s+answer\b.*--by[=\s]+shepherd\b/,
   /\brt gate wait\b/,
   /\brt events wait\b/,
 ];
+
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const GIT_ARG = `(?:"[^"]*"|'[^']*'|[^\\s;&|]+)`;
+
+/** Global options git takes before its subcommand. Each alternative opens on a
+    distinct prefix and GIT_ARG holds no whitespace, so the repeat cannot
+    backtrack catastrophically. */
+export const GIT_GLOBAL_OPTS = `(?:\\s+(?:-[Cc]\\s+${GIT_ARG}|--(?:git-dir|work-tree)(?:=|\\s+)${GIT_ARG}))*`;
+
+function wordsPattern(command: string): string {
+  const [head, ...rest] = command.trim().split(/\s+/).map(escape);
+  if (head === "git" && rest.length > 0) return `git${GIT_GLOBAL_OPTS}\\s+${rest.join("\\s+")}`;
+  return [head, ...rest].join("\\s+");
+}
+
+/** The trailing guard stops `rt herd wrap` from matching `rt herd wrap-up`. */
+export function commandPattern(command: string): RegExp {
+  return new RegExp(`(?<![\\w-])${wordsPattern(command)}(?![\\w-])`);
+}
+
+/** The matched command's own arguments: up to the next shell separator or a
+    whitespace-led comment. Quotes are not tracked. */
+const OWN_ARGS = `(?:(?!\\s#)[^;&|\\n])*`;
+
+/** A denied flag among the command's own arguments takes the leaf off
+    rt_verb: that call would be refused, so Bash (where the permission prompt
+    applies) is the correct call and must not also be flagged. */
+function leafPattern(command: string, deniedFlags: readonly string[]): RegExp {
+  const denies = deniedFlags.map((f) => `(?!${OWN_ARGS}\\s${escape(f)}(?![\\w-]))`).join("");
+  return new RegExp(`(?<![\\w-])${wordsPattern(command)}${denies}(?![\\w-])`);
+}
+
+export interface LeafInput {
+  path: readonly string[];
+  deniedFlags?: readonly string[];
+  noCwd?: boolean;
+}
+
+export function deriveRules(tools: ReadonlyArray<{ name: string; shellForms: ShellForms }>, leaves: ReadonlyArray<LeafInput>): LintRule[] {
+  const rules: LintRule[] = [];
+  for (const t of tools) {
+    if (!Array.isArray(t.shellForms)) continue;
+    for (const f of t.shellForms) {
+      rules.push(typeof f === "string"
+        ? { id: f, pattern: commandPattern(f), tool: t.name, example: f, source: "tool" }
+        : { id: f.id, pattern: f.pattern, tool: t.name, note: f.note, example: f.example, source: "tool" });
+    }
+  }
+  const named = new Set(rules.map((r) => r.id));
+  for (const leaf of leaves) {
+    const id = `rt ${leaf.path.join(" ")}`;
+    if (named.has(id)) continue;
+    const deniedFlags = leaf.deniedFlags ?? [];
+    const notes = [`args: ${JSON.stringify(leaf.path).replace(/,/g, ", ")}`];
+    if (leaf.noCwd) notes.push("rt_verb runs it with no cwd, so pass --pack");
+    rules.push({
+      id,
+      pattern: deniedFlags.length > 0 ? leafPattern(id, deniedFlags) : commandPattern(id),
+      tool: "rt_verb",
+      note: notes.join("; "),
+      example: id,
+      source: "leaf",
+    });
+  }
+  return rules;
+}
+
+/** The earliest match wins; among matches starting at the same position, the
+    longest wins; only an exact tie on both falls back to rule order. */
+export function pickRule(code: string, rules: readonly LintRule[]): LintRule | null {
+  let best: { rule: LintRule; start: number; len: number } | null = null;
+  for (const rule of rules) {
+    const m = rule.pattern.exec(code);
+    if (!m) continue;
+    if (!best || m.index < best.start || (m.index === best.start && m[0].length > best.len)) best = { rule, start: m.index, len: m[0].length };
+  }
+  return best?.rule ?? null;
+}
 
 const FENCE = /^\s*(```|~~~)/;
 const INLINE = /`([^`\n]+)`/g;
@@ -51,16 +113,12 @@ function codeOn(lines: string[]): Array<{ line: number; text: string }> {
   return out;
 }
 
-/** `tools` is the set of tool names the server publishes: a rule naming any
-    other tool stays silent, since agents cannot call it yet. Omitted, every
-    rule applies. */
-export function lintSkillText(text: string, file: string, tools?: ReadonlySet<string>): LintHit[] {
-  const rules = tools ? MCP_LINT_RULES.filter((r) => tools.has(r.tool)) : MCP_LINT_RULES;
+export function lintSkillText(text: string, file: string, rules: readonly LintRule[]): LintHit[] {
   const hits: LintHit[] = [];
   for (const { line, text: code } of codeOn(text.split("\n"))) {
     if (KEPT_ON_BASH.some((k) => k.test(code))) continue;
-    const rule = rules.find((r) => r.pattern.test(code));
-    if (rule) hits.push({ file, line, text: code.trim(), rule: rule.id, tool: rule.tool, note: rule.note });
+    const rule = pickRule(code, rules);
+    if (rule) hits.push({ file, line, text: code.trim(), rule: rule.id, tool: rule.tool, ...(rule.note ? { note: rule.note } : {}) });
   }
   return hits;
 }
@@ -76,7 +134,7 @@ function walkLintedRoots(dir: string): string[] {
       const p = join(d, name);
       let isDir = false;
       try { isDir = lstatSync(p).isDirectory(); } catch { continue; }
-      if (isDir) { if (name !== "node_modules" && name !== ".git") visit(p); } else out.push(p);
+      if (isDir) { if (name !== "node_modules" && name !== "venv" && name !== "__pycache__" && !name.startsWith(".")) visit(p); } else out.push(p);
     }
   };
   for (const root of LINTED_ROOTS) {
@@ -97,7 +155,7 @@ const DISK: LintDeps = { list: walkLintedRoots, read: readOrNull };
     would point the author at a generated file the next compile rewrites. A
     compiled verb dir also holds vendored files that carry no header, so the
     header on its SKILL.md marks the whole subtree as output. */
-function lintedSources(dir: string, deps: LintDeps): Array<{ path: string; text: string }> {
+function lintedSources(dir: string, deps: LintDeps, exts: readonly string[]): Array<{ path: string; text: string }> {
   const roots = LINTED_ROOTS.map((r) => join(dir, r) + sep);
   const texts = new Map<string, string | null>();
   const read = (path: string): string | null => {
@@ -111,7 +169,7 @@ function lintedSources(dir: string, deps: LintDeps): Array<{ path: string; text:
     return read(join(root, segments[0]!, "SKILL.md"))?.includes(HEADER_COMMENT) ?? false;
   };
   const out: Array<{ path: string; text: string }> = [];
-  for (const path of deps.list(dir).filter((p) => p.endsWith(".md") && roots.some((r) => p.startsWith(r))).sort()) {
+  for (const path of deps.list(dir).filter((p) => exts.some((e) => p.endsWith(e)) && roots.some((r) => p.startsWith(r))).sort()) {
     if (compiledVerbDir(path)) continue;
     const text = read(path);
     if (text !== null && !text.includes(HEADER_COMMENT)) out.push({ path, text });
@@ -120,13 +178,43 @@ function lintedSources(dir: string, deps: LintDeps): Array<{ path: string; text:
 }
 
 export function lintedMarkdownFiles(dir: string, deps: LintDeps = DISK): string[] {
-  return lintedSources(dir, deps).map((s) => s.path);
+  return lintedSources(dir, deps, [".md"]).map((s) => s.path);
 }
 
-export function lintPackDir(dir: string, deps: LintDeps = DISK, tools?: ReadonlySet<string>): LintHit[] {
-  return lintedSources(dir, deps).flatMap((s) => lintSkillText(s.text, s.path, tools));
+export function lintPackDir(dir: string, rules: readonly LintRule[], deps: LintDeps = DISK): LintHit[] {
+  return lintedSources(dir, deps, [".md"]).flatMap((s) => lintSkillText(s.text, s.path, rules));
+}
+
+export const SCRIPT_ONLY_RULES: LintRule[] = [
+  { id: "gh", pattern: /\bgh\s+(pr|api)\b/, tool: null, note: "GitHub has no MCP tool yet; listed so a script's forge calls stay visible", example: "gh pr view 3", source: "script" },
+];
+
+const SCRIPT_EXTS = [".sh", ".py", ".ts"];
+const SCRIPT_ALLOW = /(#|\/\/).*mcp-lint:\s*allow/;
+const COMMENT = /^\s*(#|\/\/)/;
+
+export function lintScriptText(text: string, file: string, rules: readonly LintRule[]): LintHit[] {
+  const hits: LintHit[] = [];
+  text.split("\n").forEach((raw, i) => {
+    const code = raw.replace(/\r$/, "");
+    if (COMMENT.test(code) || SCRIPT_ALLOW.test(code)) return;
+    if (KEPT_ON_BASH.some((k) => k.test(code))) return;
+    const rule = pickRule(code, rules);
+    if (rule) hits.push({ file, line: i + 1, text: code.trim(), rule: rule.id, tool: rule.tool, ...(rule.note ? { note: rule.note } : {}) });
+  });
+  return hits;
+}
+
+/** Advisory by contract: packs ship domain scripts on purpose, so these hits
+    never reach --strict, strictLint or the sync refusal. The subst rule is
+    dropped here: a script capturing a command's output in a variable is the
+    normal shape, and the inner call is what names the right tool. */
+export function lintPackScripts(dir: string, rules: readonly LintRule[], deps: LintDeps = DISK): LintHit[] {
+  const all = [...rules.filter((r) => r.id !== "subst"), ...SCRIPT_ONLY_RULES];
+  return lintedSources(dir, deps, SCRIPT_EXTS).flatMap((s) => lintScriptText(s.text, s.path, all));
 }
 
 export function formatHit(h: LintHit): string {
-  return `${h.file}:${h.line}: \`${h.text}\` shells out for ${h.rule}; use the ${h.tool} tool (${h.note})`;
+  const use = h.tool ? `use the ${h.tool} tool` : "no MCP tool covers it yet";
+  return `${h.file}:${h.line}: \`${h.text}\` shells out for ${h.rule}; ${use}${h.note ? ` (${h.note})` : ""}`;
 }

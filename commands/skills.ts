@@ -40,7 +40,9 @@ import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.t
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
-import { formatHit, lintPackDir, type LintHit } from "../lib/skills/mcp-lint.ts";
+import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
+import { listAgentSafe } from "../lib/command-tree-resolve.ts";
+import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
@@ -1014,6 +1016,7 @@ export type CheckPayload = {
   installed: InstalledInfo | null;
   drift: boolean;
   mcpLint: LintHit[];
+  scriptLint: LintHit[];
   strictLint: boolean;
 };
 
@@ -1102,10 +1105,12 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // nothing to compare against, so it would only cost a real filesystem scan
   // for a null result.
   const installed = resolved.pluginRoots.list.length === 0 ? null : installedInfoFor(resolved, discoverPacks());
-  const mcpLint = lintPackDir(resolved.packDir, undefined, new Set(mcpTools().map((t) => t.name)));
+  const rules = deriveRules(mcpTools(), listAgentSafe(TREE).map((l) => ({ path: l.path, deniedFlags: l.node.agentDeniedFlags, noCwd: l.node.agentNoCwd })));
+  const mcpLint = lintPackDir(resolved.packDir, rules);
+  const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
-  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, strictLint };
+  return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint };
 }
 
 export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; mattstackDir?: string }): Promise<CheckPayload> {
@@ -1155,14 +1160,16 @@ export async function skillsCheck(args: string[]): Promise<void> {
         ? "strict: --strict and rt skills sync fail on them"
         : flags.strict ? "--strict fails on them" : "advisory; --strict fails on them";
       console.log(payload.mcpLint.length > 0 ? `mcp lint: ${payload.mcpLint.length} hits (${policy})` : "mcp lint: clean");
+      for (const hit of payload.scriptLint) console.log(`(advisory) ${formatHit(hit)}`);
+      if (payload.scriptLint.length > 0) console.log(`mcp lint (pack scripts, advisory): ${payload.scriptLint.length} ${payload.scriptLint.length === 1 ? "hit" : "hits"}`);
     }
 
     if (payload.drift) process.exitCode = 1;
     if (flags.strict && payload.mcpLint.length > 0) process.exitCode = 1;
 
     if (flags.json) {
-      const { pack, packDir, verbs, chainErrors, installed, mcpLint, strictLint } = payload;
-      console.log(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, strictLint }));
+      const { pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint } = payload;
+      console.log(JSON.stringify({ pack, packDir, verbs, chainErrors, installed, mcpLint, scriptLint, strictLint }));
     }
   });
 }
