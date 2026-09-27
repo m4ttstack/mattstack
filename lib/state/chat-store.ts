@@ -10,6 +10,7 @@
 import { Database } from "bun:sqlite";
 import { getStateDb } from "./db.ts";
 import { persistOrWarn, runCriticalWrite } from "./busy.ts";
+import { identityNames, resolveHandle } from "./identity-store.ts";
 import { presenceForHandle } from "./presence-store.ts";
 // Intra-lib/state exception (see presence-store.ts's note on the same
 // pattern): dm-store.ts is the only module that touches chat_dms, so
@@ -21,6 +22,7 @@ export type WakeMode = "mention" | "all" | "none";
 export interface ChatMember {
   room: string;
   handle: string;
+  name: string;
   joinedAt: number;
   lastReadId: number;
   wakeOn: WakeMode;
@@ -42,8 +44,12 @@ export interface ChatMessage {
   id: number;
   room: string;
   handle: string;
+  /** The author's display name. */
+  name: string;
   body: string;
   mentions: string[];
+  /** Display names parallel to `mentions`. */
+  mentionNames: string[];
   replyTo?: number;
   postedAt: number;
   /** Set only on a quiet post, so an ordinary message's shape is unchanged. */
@@ -64,10 +70,11 @@ interface MembershipRow extends MemberRow {
   archived_at: number | null;
 }
 
-function rowToMember(row: MemberRow): ChatMember {
+function rowToMember(row: MemberRow, name: string): ChatMember {
   const member: ChatMember = {
     room: row.room,
     handle: row.handle,
+    name,
     joinedAt: row.joined_at,
     lastReadId: row.last_read_id,
     wakeOn: row.wake_on,
@@ -88,18 +95,27 @@ interface MessageRow {
   quiet: number;
 }
 
-function rowToMessage(row: MessageRow): ChatMessage {
+function rowToMessage(row: MessageRow, mentions: string[], names: Map<string, string>): ChatMessage {
   const message: ChatMessage = {
     id: row.id,
     room: row.room,
     handle: row.handle,
+    name: names.get(row.handle)!,
     body: row.body,
-    mentions: row.mentions ? (JSON.parse(row.mentions) as string[]) : [],
+    mentions,
+    mentionNames: mentions.map((m) => names.get(m)!),
     postedAt: row.posted_at,
   };
   if (row.reply_to !== null) message.replyTo = row.reply_to;
   if (row.quiet) message.quiet = true;
   return message;
+}
+
+/** One name lookup for every author and mention in `rows`. */
+function toMessages(rows: MessageRow[], db: Database): ChatMessage[] {
+  const parsed = rows.map((row) => ({ row, mentions: row.mentions ? (JSON.parse(row.mentions) as string[]) : [] }));
+  const names = identityNames(parsed.flatMap(({ row, mentions }) => [row.handle, ...mentions]), db);
+  return parsed.map(({ row, mentions }) => rowToMessage(row, mentions, names));
 }
 
 /** Escapes SQLite LIKE wildcards so a handle containing `_` or `%` can't match beyond itself. */
@@ -361,7 +377,8 @@ export function roomDefaultWake(room: string, db: Database = getStateDb()): Wake
 
 export function listMembers(room: string, db: Database = getStateDb()): ChatMember[] {
   const rows = db.query(SELECT_ROOM_MEMBERS_SQL).all(room) as MemberRow[];
-  return rows.map(rowToMember);
+  const names = identityNames(rows.map((row) => row.handle), db);
+  return rows.map((row) => rowToMember(row, names.get(row.handle)!));
 }
 
 function getRoomMaxId(room: string, db: Database): number {
@@ -441,10 +458,10 @@ export function postMessage(
   db: Database = getStateDb(),
 ): { id: number; recipients: string[] } | undefined {
   const { room, handle, body, quiet } = args;
-  const mentions = mergeMentions(body, args.mentions);
 
   const run = db.transaction((): { id: number; recipients: string[] } => {
     const now = Date.now();
+    const mentions = [...new Set(mergeMentions(body, args.mentions).map((m) => resolveHandle(m, db)))];
     db.query(REVIVE_ROOM_SQL).run(room);
     const result = db.query(INSERT_MESSAGE_SQL).run(room, handle, body, JSON.stringify(mentions), null, now, quiet ? 1 : 0);
     const recipients = recipientsFor(room, handle, mentions, db);
@@ -484,7 +501,7 @@ export function readUnread(
         const highestReturned = rows[rows.length - 1]!.id;
         db.query(UPDATE_LAST_READ_SQL).run(highestReturned, member.room, handle);
       }
-      results.push({ room: member.room, messages: rows.map(rowToMessage) });
+      results.push({ room: member.room, messages: toMessages(rows, db) });
     }
 
     return results;
@@ -513,7 +530,7 @@ export function peekUnread(
     const cursor = member.last_read_id <= maxId ? member.last_read_id : maxId;
     const rows = db.query(SELECT_UNREAD_SQL).all(member.room, cursor, handle, limit) as MessageRow[];
     if (rows.length === 0) continue;
-    results.push({ room: member.room, messages: rows.map(rowToMessage) });
+    results.push({ room: member.room, messages: toMessages(rows, db) });
   }
   return results;
 }
@@ -528,7 +545,7 @@ export function listMessages(
       ? db.query(SELECT_MESSAGES_BEFORE_SQL).all(room, before, limit)
       : db.query(SELECT_MESSAGES_SQL).all(room, limit)
   ) as MessageRow[];
-  return rows.reverse().map(rowToMessage);
+  return toMessages(rows.reverse(), db);
 }
 
 /**
@@ -596,7 +613,7 @@ export function pendingMessages(room: string, handle: string, upToId: number, db
   const member = db.query(SELECT_ROOM_MEMBER_SQL).get(room, handle) as MemberRow | null;
   if (!member) return [];
   const rows = db.query(SELECT_PENDING_SQL).all(room, member.last_read_id, upToId) as MessageRow[];
-  return rows.map(rowToMessage);
+  return toMessages(rows, db);
 }
 
 export interface StalePendingRow {
