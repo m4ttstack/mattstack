@@ -114,7 +114,7 @@ const DISK: LintDeps = { list: walkLintedRoots, read: readOrNull };
     would point the author at a generated file the next compile rewrites. A
     compiled verb dir also holds vendored files that carry no header, so the
     header on its SKILL.md marks the whole subtree as output. */
-function lintedSources(dir: string, deps: LintDeps): Array<{ path: string; text: string }> {
+function lintedSources(dir: string, deps: LintDeps, exts: readonly string[]): Array<{ path: string; text: string }> {
   const roots = LINTED_ROOTS.map((r) => join(dir, r) + sep);
   const texts = new Map<string, string | null>();
   const read = (path: string): string | null => {
@@ -128,7 +128,7 @@ function lintedSources(dir: string, deps: LintDeps): Array<{ path: string; text:
     return read(join(root, segments[0]!, "SKILL.md"))?.includes(HEADER_COMMENT) ?? false;
   };
   const out: Array<{ path: string; text: string }> = [];
-  for (const path of deps.list(dir).filter((p) => p.endsWith(".md") && roots.some((r) => p.startsWith(r))).sort()) {
+  for (const path of deps.list(dir).filter((p) => exts.some((e) => p.endsWith(e)) && roots.some((r) => p.startsWith(r))).sort()) {
     if (compiledVerbDir(path)) continue;
     const text = read(path);
     if (text !== null && !text.includes(HEADER_COMMENT)) out.push({ path, text });
@@ -137,11 +137,38 @@ function lintedSources(dir: string, deps: LintDeps): Array<{ path: string; text:
 }
 
 export function lintedMarkdownFiles(dir: string, deps: LintDeps = DISK): string[] {
-  return lintedSources(dir, deps).map((s) => s.path);
+  return lintedSources(dir, deps, [".md"]).map((s) => s.path);
 }
 
 export function lintPackDir(dir: string, rules: readonly LintRule[], deps: LintDeps = DISK): LintHit[] {
-  return lintedSources(dir, deps).flatMap((s) => lintSkillText(s.text, s.path, rules));
+  return lintedSources(dir, deps, [".md"]).flatMap((s) => lintSkillText(s.text, s.path, rules));
+}
+
+export const SCRIPT_ONLY_RULES: LintRule[] = [
+  { id: "gh", pattern: /\bgh\s+(pr|api)\b/, tool: null, note: "GitHub has no MCP tool yet; listed so a script's forge calls stay visible", example: "gh pr view 3", source: "script" },
+];
+
+const SCRIPT_EXTS = [".sh", ".py", ".ts"];
+const SCRIPT_ALLOW = /mcp-lint:\s*allow/;
+const COMMENT = /^\s*(#|\/\/)/;
+
+export function lintScriptText(text: string, file: string, rules: readonly LintRule[]): LintHit[] {
+  const hits: LintHit[] = [];
+  text.split("\n").forEach((raw, i) => {
+    const code = raw.replace(/\r$/, "");
+    if (COMMENT.test(code) || SCRIPT_ALLOW.test(code)) return;
+    if (KEPT_ON_BASH.some((k) => k.test(code))) return;
+    const rule = pickRule(code, rules);
+    if (rule) hits.push({ file, line: i + 1, text: code.trim(), rule: rule.id, tool: rule.tool, ...(rule.note ? { note: rule.note } : {}) });
+  });
+  return hits;
+}
+
+/** Advisory by contract: packs ship domain scripts on purpose, so these hits
+    never reach --strict, strictLint or the sync refusal. */
+export function lintPackScripts(dir: string, rules: readonly LintRule[], deps: LintDeps = DISK): LintHit[] {
+  const all = [...rules, ...SCRIPT_ONLY_RULES];
+  return lintedSources(dir, deps, SCRIPT_EXTS).flatMap((s) => lintScriptText(s.text, s.path, all));
 }
 
 export function formatHit(h: LintHit): string {

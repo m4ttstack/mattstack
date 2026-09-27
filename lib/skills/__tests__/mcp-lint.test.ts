@@ -6,7 +6,7 @@ import { listAgentSafe } from "../../command-tree-resolve.ts";
 import { TREE } from "../../command-tree-def.ts";
 import { mcpTools } from "../../mcp/tools.ts";
 import { HEADER_COMMENT } from "../compile.ts";
-import { commandPattern, deriveRules, formatHit, KEPT_ON_BASH, lintedMarkdownFiles, lintPackDir, lintSkillText, pickRule } from "../mcp-lint.ts";
+import { commandPattern, deriveRules, formatHit, KEPT_ON_BASH, lintedMarkdownFiles, lintPackDir, lintPackScripts, lintScriptText, lintSkillText, pickRule, SCRIPT_ONLY_RULES } from "../mcp-lint.ts";
 
 const md = (...lines: string[]) => lines.join("\n");
 const LEAVES = listAgentSafe(TREE).map((l) => l.path);
@@ -199,5 +199,55 @@ describe("lintPackDir on disk", () => {
     } finally {
       rmSync(pack, { recursive: true, force: true });
     }
+  });
+});
+
+describe("lintScriptText", () => {
+  const SCRIPT_RULES = [...RULES, ...SCRIPT_ONLY_RULES];
+  test("scans whole lines, not code spans", () => {
+    expect(lintScriptText("set -e\ngit push origin HEAD\n", "s.sh", SCRIPT_RULES).map((h) => [h.line, h.tool])).toEqual([[2, "git_push"]]);
+  });
+  test("skips comment lines and allow-marked lines", () => {
+    const text = ["# never git push here", "  // git push is the tool's job", "git push # mcp-lint: allow", "glab mr view 1  // mcp-lint: allow"].join("\n");
+    expect(lintScriptText(text, "s.sh", SCRIPT_RULES)).toEqual([]);
+  });
+  test("gh pr and gh api are flagged with no tool named", () => {
+    const hits = lintScriptText("gh pr view 3\ngh api repos/x\ngh auth status\n", "s.sh", SCRIPT_RULES);
+    expect(hits.map((h) => [h.line, h.tool])).toEqual([[1, null], [2, null]]);
+    expect(formatHit(hits[0]!)).toContain("no MCP tool covers it yet");
+  });
+  test("the kept-on-Bash list still wins", () => {
+    expect(lintScriptText("rt gate wait abc\n", "s.sh", SCRIPT_RULES)).toEqual([]);
+  });
+  test("CRLF lines still match", () => {
+    expect(lintScriptText("git push\r\n", "s.sh", SCRIPT_RULES).length).toBe(1);
+  });
+});
+
+describe("lintPackScripts", () => {
+  test("walks .sh, .py and .ts under the linted roots only", () => {
+    const files: Record<string, string> = {
+      "/p/skills/a/scripts/x.sh": "git push",
+      "/p/attachments/b/y.py": "subprocess.run(['glab', 'mr', 'view'])",
+      "/p/plugin/skills/c/z.ts": "await $`rt chat dm x hi`",
+      "/p/skills/a/SKILL.md": "`git push`",
+      "/p/scripts/gen.ts": "git push",
+      "/p/skills/a/notes.txt": "git push",
+    };
+    const hits = lintPackScripts("/p", RULES, { list: () => Object.keys(files), read: (p) => files[p] ?? null });
+    expect(hits.map((h) => h.file).sort()).toEqual(["/p/attachments/b/y.py", "/p/plugin/skills/c/z.ts", "/p/skills/a/scripts/x.sh"]);
+  });
+  test("skips a compiled verb dir's vendored scripts", () => {
+    const files: Record<string, string> = {
+      "/p/skills/verb/SKILL.md": `---\nname: verb\n---\n${HEADER_COMMENT}\n`,
+      "/p/skills/verb/parts/a/scripts/pick.py": "git push",
+      "/p/attachments/a/scripts/pick.py": "git push",
+    };
+    const hits = lintPackScripts("/p", RULES, { list: () => Object.keys(files), read: (p) => files[p] ?? null });
+    expect(hits.map((h) => h.file)).toEqual(["/p/attachments/a/scripts/pick.py"]);
+  });
+  test("an unreadable script is skipped and no scripts is empty", () => {
+    expect(lintPackScripts("/p", RULES, { list: () => ["/p/skills/a/x.sh"], read: () => null })).toEqual([]);
+    expect(lintPackScripts("/p", RULES, { list: () => [], read: () => null })).toEqual([]);
   });
 });

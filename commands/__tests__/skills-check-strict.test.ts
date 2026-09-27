@@ -138,3 +138,42 @@ describe("skills check --strict", () => {
     }
   });
 });
+
+describe("pack script scan", () => {
+  function withScript(dir: string): void {
+    mkdirSync(join(dir, "skills", "x", "scripts"), { recursive: true });
+    writeFileSync(join(dir, "skills", "x", "scripts", "go.sh"), "#!/bin/sh\ngit push origin HEAD\n");
+  }
+  test("reports script hits as scriptLint, apart from mcpLint", async () => {
+    const dir = makePack({ name: "acme", version: "1.0.0" }, "No commands here.");
+    withScript(dir);
+    try {
+      const payload = await checkPack({ packDir: dir });
+      expect(payload.mcpLint).toEqual([]);
+      expect(payload.scriptLint.map((h) => h.tool)).toEqual(["git_push"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("never fails --strict, even for a strictLint pack", async () => {
+    const dir = makePack({ name: "acme", version: "1.0.0", strictLint: true }, "No commands here.");
+    withScript(dir);
+    try {
+      const { exitCode, logs } = await runCheck(["--pack-dir", dir, "--strict"]);
+      expect(exitCode).toBe(0);
+      expect(logs.some((l) => l.startsWith("mcp lint (pack scripts, advisory): 1 hit"))).toBe(true);
+      expect(logs).toContain("mcp lint: clean");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("--json always carries scriptLint", async () => {
+    const dir = makePack({ name: "acme", version: "1.0.0" }, "No commands here.");
+    try {
+      const { logs } = await runCheck(["--pack-dir", dir, "--json"]);
+      expect(JSON.parse(logs.at(-1)!).scriptLint).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
