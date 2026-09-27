@@ -34,7 +34,7 @@ export interface CursorStore {
   set(repoName: string, cursor: EventCursor): void;
 }
 
-const CURSOR_NS = "events-cursor";
+export const CURSOR_NS = "events-cursor";
 
 /**
  * One-shot: re-key legacy NAME-keyed `events-cursor` kv rows onto serialized

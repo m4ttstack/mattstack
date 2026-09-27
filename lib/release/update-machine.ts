@@ -41,7 +41,7 @@ export interface UpdateMachineOptions {
 export interface UpdateMachineSeams {
   /** This rt checkout's root, for reading its own rt-tray/deps.lock (the deck version pin). */
   repoRoot: string;
-  /** The shared ~/Documents/GitHub/repo-tools checkout the dev daemon and deck's from-source apps run from. */
+  /** The shared checkout (`~/Documents/GitHub/mattstack`, or the older `repo-tools` folder) the dev daemon and deck's from-source apps run from. */
   sharedCheckoutPath: string;
   /** A scratch directory for the downloaded dmg and the dev-bundle clone; empty when no mutating leg will run. */
   workDir: string;

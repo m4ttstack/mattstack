@@ -26,6 +26,7 @@ import {
   saveNotificationPrefs,
   NOTIFICATION_TYPES,
 } from "../lib/notifier.ts";
+import { SHARED_CHECKOUT_CANDIDATES } from "../lib/release/shared-checkout.ts";
 import { getSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import {
@@ -409,10 +410,14 @@ function detectSourcePath(): string | null {
   // Fall back to common checkout locations
   const home = Bun.env.HOME!;
   for (const guess of [
-    `${home}/Documents/GitHub/repo-tools`,
+    ...SHARED_CHECKOUT_CANDIDATES.map((rel) => `${home}/${rel}`),
+    `${home}/GitHub/mattstack`,
     `${home}/GitHub/repo-tools`,
+    `${home}/code/mattstack`,
     `${home}/code/repo-tools`,
+    `${home}/src/mattstack`,
     `${home}/src/repo-tools`,
+    `${home}/repos/mattstack`,
     `${home}/repos/repo-tools`,
   ]) {
     if (existsSync(`${guess}/cli.ts`)) return guess;
