@@ -31,7 +31,7 @@ import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, 
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { defaultHerdrRunner, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
-import { acceptTrustOnPane, type TrustOutcome } from "../trust-accept.ts";
+import { acceptTrustOnPane, cwdPath, type TrustOutcome } from "../trust-accept.ts";
 import { repoLabel } from "../../repo-label.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { rtDir } from "../../rt-paths.ts";
@@ -377,6 +377,7 @@ export function createAgentHandlers(opts: {
           herdr: opts.herdr ?? herdrRequest,
           sock: extra.herdrSocket ? { sockPath: extra.herdrSocket } : {},
           pane: out.paneId, log, context: { agent: rec.id, cwd: rec.cwd },
+          trustsPath: cwdPath(rec.cwd),
           // A short settle budget by default: a launch that carries a prompt
           // starts working and never settles, and an interactive `rt agent
           // start` holds its caller open while it waits. The budget is only

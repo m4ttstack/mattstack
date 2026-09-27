@@ -10,6 +10,7 @@ import { createPaneHandlers } from "../handlers/pane.ts";
 import type { TrayClient, TrayReply } from "../../daemon-client.ts";
 import { bgSocketPath, type BgService } from "../bg-service.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
+import { workspaceScreen } from "./trust-workspace-fixtures.ts";
 
 /** A resolvable, alive binding for each named session id -- buddyStatus now reads offline for anything not covered here, so a test whose point is a live/idle join must supply one. */
 function fakeRegistryDeps(bindings: Record<string, InboxBinding["status"]>): RegistryDeps {
@@ -247,7 +248,9 @@ function spawnFake(script: { statuses: string[]; screen?: string; agentGetFailur
       case "pane.send_keys": {
         const key = ((params as { keys?: string[] }).keys ?? [])[0];
         if ((key === "up" || key === "down") && screen === ELEVATED_TRUST) screen = ELEVATED_TRUST_ON_YES;
-        else if (key === "enter" && screen !== ELEVATED_TRUST) screen = "";
+        else if ((key === "up" || key === "down") && screen.includes(" ❯ No, exit")) {
+          screen = screen.replace(" ❯ No, exit", "   No, exit").replace("   Yes, I trust this folder", " ❯ Yes, I trust this folder");
+        } else if (key === "enter" && screen !== ELEVATED_TRUST) screen = "";
         return { type: "ok" };
       }
       case "agent.get":
@@ -324,6 +327,15 @@ test("pane:spawn answers the trust dialog once, then sends the opening prompt", 
   expect(calls.filter((c) => c === "pane.send_keys")).toHaveLength(1);
   expect(seen.find((s) => s.method === "pane.send_keys")!.params.keys).toEqual(["enter"]);
   expect(seen.find((s) => s.method === "agent.prompt")!.params).toMatchObject({ target: "w2:p7", text: "read AGENTS.md", wait: { until: ["working"], timeout_ms: 5000 } });
+});
+
+test("pane:spawn accepts the 2.1.283 workspace dialog for the folder it spawned", async () => {
+  const { handler, calls } = spawnFake({ statuses: ["blocked", "idle"], screen: workspaceScreen({ path: "/repos/chat", cursor: "no" }) });
+  const { pane, seen } = harness(handler);
+  const res = await pane["pane:spawn"]({ cwd: "/repos/chat", prompt: "read AGENTS.md" });
+  if (!res.ok) throw new Error(res.error);
+  expect(calls.filter((c) => c === "pane.send_keys")).toHaveLength(2);
+  expect(seen.filter((s) => s.method === "pane.send_keys").map((s) => s.params.keys)).toEqual([["down"], ["enter"]]);
 });
 
 test("pane:spawn walks the elevated trust dialog up to Yes one key per call, never a batch", async () => {
