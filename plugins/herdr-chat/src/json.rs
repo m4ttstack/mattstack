@@ -16,6 +16,7 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub handle: Option<String>,
+    pub name: Option<String>,
     pub state: String,
     pub pane: Option<String>,
     pub signed_in: bool,
@@ -222,6 +223,7 @@ mod tests {
     fn status_serializes_signed_in_as_camel_case() {
         let out = serde_json::to_string(&Status {
             handle: Some("kay".to_string()),
+            name: Some("kay".to_string()),
             state: "live".to_string(),
             pane: Some("w1:p1".to_string()),
             signed_in: true,
@@ -230,7 +232,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             out,
-            r##"{"handle":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
+            r##"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
         );
     }
 
@@ -238,6 +240,7 @@ mod tests {
     fn a_missing_handle_is_null_rather_than_absent() {
         let out = serde_json::to_string(&Status {
             handle: None,
+            name: None,
             state: "not signed in".to_string(),
             pane: None,
             signed_in: false,
@@ -246,7 +249,24 @@ mod tests {
         .unwrap();
         assert_eq!(
             out,
-            r#"{"handle":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+            r#"{"handle":null,"name":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+        );
+    }
+
+    #[test]
+    fn status_serializes_the_display_name_beside_the_id() {
+        let out = serde_json::to_string(&Status {
+            handle: Some("remy.k3f9".to_string()),
+            name: Some("remy".to_string()),
+            state: "live".to_string(),
+            pane: Some("w1:p1".to_string()),
+            signed_in: true,
+            rooms: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"handle":"remy.k3f9","name":"remy","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]}"#
         );
     }
 

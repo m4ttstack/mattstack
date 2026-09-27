@@ -155,6 +155,7 @@ mod tests {
         ]);
         let s = run_json(&r, Sign::In, Some("w1:p1")).unwrap();
         assert_eq!(s.handle.as_deref(), Some("kay"));
+        assert_eq!(s.name.as_deref(), Some("kay"));
         assert!(s.signed_in);
         assert_eq!(s.rooms, vec!["#rt".to_string()]);
     }
