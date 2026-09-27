@@ -1212,6 +1212,12 @@ test("headless claude launch never requests session-id capture", async () => {
 
 const BRIEF = "# job\nrun `bun run test` then pkill nothing\nit's \"quoted\"";
 
+function promptPathFromPointer(text: string): string {
+  const m = /Your instructions for this session are in (.+)\. Read that whole file now/.exec(text);
+  if (!m) throw new Error(`no prompt pointer found in: ${text}`);
+  return m[1]!;
+}
+
 test("agent:start herdr puts only a pointer in the pane command; the prompt sits in an 0600 file, and its dir is granted via --add-dir before --session-id", async () => {
   const calls: string[][] = [];
   const h = fresh({ runner: okRunner(calls) });
@@ -1219,7 +1225,7 @@ test("agent:start herdr puts only a pointer in the pane command; the prompt sits
   if (!res.ok) throw new Error(res.error);
   const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
   const dir = join(rtDir(), "agent-prompts", res.data.id);
-  const file = join(dir, "prompt.md");
+  const file = promptPathFromPointer(cmd);
   expect(cmd).not.toContain("bun run test");
   expect(cmd).toContain(pointerPrompt(file));
   expect(cmd).toContain(`'--add-dir' '${dir}' '--session-id'`);
@@ -1255,10 +1261,10 @@ test("agent:resume with a new prompt goes through the pointer; without one it em
   const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "first", surface: "herdr", label: "R" });
   if (!started.ok) throw new Error(started.error);
   const dir = join(rtDir(), "agent-prompts", started.data.id);
-  const file = join(dir, "prompt.md");
   calls.length = 0;
   expect((await h["agent:resume"]({ id: started.data.id, prompt: BRIEF })).ok).toBe(true);
   const withPrompt = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  const file = promptPathFromPointer(withPrompt);
   expect(withPrompt).not.toContain("bun run test");
   expect(withPrompt).toContain(pointerPrompt(file));
   expect(withPrompt).toContain(`'--add-dir' '${dir}' '--resume'`);
@@ -1266,6 +1272,24 @@ test("agent:resume with a new prompt goes through the pointer; without one it em
   calls.length = 0;
   expect((await h["agent:resume"]({ id: started.data.id, tab: "again" })).ok).toBe(true);
   expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("Your instructions");
+});
+
+test("a resume with a new prompt writes a new file, leaving the first launch's file byte-identical", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "first", surface: "herdr", label: "R" });
+  if (!started.ok) throw new Error(started.error);
+  const firstCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  const firstFile = promptPathFromPointer(firstCmd);
+  const firstBytesBefore = readFileSync(firstFile);
+  calls.length = 0;
+  expect((await h["agent:resume"]({ id: started.data.id, prompt: BRIEF })).ok).toBe(true);
+  const secondCmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  const secondFile = promptPathFromPointer(secondCmd);
+  expect(secondFile).not.toBe(firstFile);
+  expect(readFileSync(secondFile, "utf8")).toBe(BRIEF);
+  expect(readFileSync(firstFile)).toEqual(firstBytesBefore);
+  expect(readFileSync(firstFile, "utf8")).toBe("first");
 });
 
 // Pins the rollback: a failed prompt-file write rolls the record back and

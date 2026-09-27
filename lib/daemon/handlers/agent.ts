@@ -19,7 +19,7 @@
  * resolveHookSettingsPath below.
  */
 
-import { chmodSync, mkdirSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, readdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
@@ -166,6 +166,25 @@ function agentPromptDir(id: string): string {
   return join(agentPromptsRoot(), id);
 }
 
+/** Every launch (start, and each resume) gets its own file: a resume must never
+    rewrite the file an already-launched pane may still be reading. The name is
+    the next free prompt-<n>.md in the dir, found by scanning it, so a launch
+    never collides with or overwrites one from an earlier launch of the same agent. */
+function nextPromptFileName(dir: string): string {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    entries = [];
+  }
+  let n = 1;
+  for (const entry of entries) {
+    const m = /^prompt-(\d+)\.md$/.exec(entry);
+    if (m) n = Math.max(n, Number(m[1]) + 1);
+  }
+  return `prompt-${n}.md`;
+}
+
 /** Herdr prompt handling: a slash-command prompt (the board's /board:review
     etc.) passes through unchanged, since Claude Code only expands a slash
     command when it is the literal first message; any other prompt is moved
@@ -176,7 +195,7 @@ function resolveHerdrPrompt(rec: AgentRecord, prompt: string | undefined): { pro
   mkdirSync(agentPromptsRoot(), { recursive: true, mode: 0o700 });
   chmodSync(agentPromptsRoot(), 0o700);
   const dir = agentPromptDir(rec.id);
-  const path = writePromptFile(dir, "prompt.md", prompt);
+  const path = writePromptFile(dir, nextPromptFileName(dir), prompt);
   return { prompt: pointerPrompt(path), addDirs: [dir] };
 }
 

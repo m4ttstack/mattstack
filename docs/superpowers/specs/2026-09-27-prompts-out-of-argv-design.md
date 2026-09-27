@@ -62,16 +62,17 @@ The one place every herdr and headless agent launch passes through.
   operator note appended to the slash command, capped at 2000 characters by
   the board.
 - herdr surface, any other prompt: write it with
-  `writePromptFile(join(rtDir(), "agent-prompts", rec.id), "prompt.md", prompt)`
-  and put `pointerPrompt(path)` in `inv.prompt`. The per-agent directory
+  `writePromptFile(join(rtDir(), "agent-prompts", rec.id), nextPromptFileName(dir), prompt)`
+  and put `pointerPrompt(path)` in `inv.prompt`. `nextPromptFileName` scans the
+  per-agent directory for the highest existing `prompt-<n>.md` and returns the
+  next integer, so each launch (start, and each resume) gets its own file
+  rather than overwriting the previous launch's. The per-agent directory
   (rather than a flat `agent-prompts/<id>.md`) means the launch can also grant
   read access to exactly that directory, and nothing else, via `addDirs:
   [dir]` on the invocation -- `claudeArgs` emits this as `--add-dir <dir>`
   immediately before `--session-id`/`--resume`, so an unattended pane (a herd
   worker under non-auto permissions) can read its own pointer's target with
-  no permission prompt. `agent-prompts` itself is also kept 0700. A resume
-  with a new prompt overwrites the same file; the previous launch has already
-  read it.
+  no permission prompt. `agent-prompts` itself is also kept 0700.
 - headless surface: `inv.prompt` still carries the text (the builders use it
   to validate that a headless launch has a prompt), and `launch()` passes the
   same text to `spawnHeadless` as its stdin. `defaultSpawnHeadless` writes it
