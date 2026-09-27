@@ -6,6 +6,8 @@ struct DoneScreen: View {
     @ObservedObject var install: InstallRunModel
     @ObservedObject var readiness: ReadinessModel
     let isOwner: Bool
+    /// A solo install turns board off, so the screen points at console.
+    let solo: Bool
     let onInvite: () -> Void
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
@@ -52,7 +54,7 @@ struct DoneScreen: View {
                 Section("Where things live") {
                     LabeledContent("Menu bar") { Text("the m icon, top right") }
                     LabeledContent("Terminal") { Text("run rt in a new terminal window") }
-                    LabeledContent("Board") { Link("board.mattstack", destination: URL(string: "https://board.mattstack")!) }
+                    LabeledContent(homeApp.title) { Link(homeApp.host, destination: homeApp.url) }
                 }
                 if !model.blockedRows.isEmpty {
                     Section(FinishGate.beforeYouFinishTitle) {
@@ -87,7 +89,7 @@ struct DoneScreen: View {
             }
             .formStyle(.grouped)
             HStack {
-                Button("Open the board", action: openBoard).accessibilityIdentifier(AXID.doneOpenBoard)
+                Button("Open the \(homeApp.title.lowercased())", action: openHomeApp).accessibilityIdentifier(AXID.doneOpenBoard)
                 if isOwner { Button("Invite teammates…", action: onInvite).accessibilityIdentifier(AXID.doneInvite) }
                 Spacer()
             }
@@ -114,7 +116,7 @@ struct DoneScreen: View {
                 return failure
             }
         }
-        // .contain: without it, the plain HStack's buttons (Open the board,
+        // .contain: without it, the plain HStack's buttons (Open the board or console,
         // Invite teammates…) report THIS screen-level identifier instead of
         // their own -- same fix as InstallScreen's stepRow and ChecklistScreen.
         .accessibilityElement(children: .contain)
@@ -151,14 +153,19 @@ struct DoneScreen: View {
         return verify?.detail.map { "\($0) · \(n) steps done" } ?? "\(n) steps done"
     }
 
-    /// Stub mode never opens a real browser tab -- there's no real board to
+    private var homeApp: (title: String, host: String, url: URL) {
+        solo ? ("Console", "console.mattstack", URL(string: "https://console.mattstack")!)
+             : ("Board", "board.mattstack", URL(string: "https://board.mattstack")!)
+    }
+
+    /// Stub mode never opens a real browser tab -- there's no real app to
     /// show, and a UI test driving this button shouldn't launch one.
-    private func openBoard() {
+    private func openHomeApp() {
         guard !BundleFlavor.isStubActive else {
-            TrayLog.info("open board skipped (stub mode)")
+            TrayLog.info("open \(homeApp.host) skipped (stub mode)")
             return
         }
-        NSWorkspace.shared.open(URL(string: "https://board.mattstack")!)
+        NSWorkspace.shared.open(homeApp.url)
     }
 }
 

@@ -96,6 +96,22 @@ test("team create answers the contract's flat shape, not nested under team", asy
   expect((created.lines[0] as Record<string, unknown>).team).toBeUndefined();
 });
 
+test("apps list: solo scenario has team-gated apps disabled", async () => {
+  const solo = await run("solo", ["apps", "list", "--json"]);
+  expect(solo.code).toBe(0);
+  const board = solo.lines[0].apps.find((a: { name: string }) => a.name === "board");
+  expect(board.enabled).toBe(false);
+  const happy = await run("join-happy", ["apps", "list", "--json"]);
+  const boardHappy = happy.lines[0].apps.find((a: { name: string }) => a.name === "board");
+  expect(boardHappy.enabled).toBe(true);
+});
+
+test("setup intent solo answers the contract shape", async () => {
+  const r = await run("join-happy", ["setup", "intent", "solo", "--json"]);
+  expect(r.code).toBe(0);
+  expect(r.lines[0]).toMatchObject({ contract: 1, mode: "solo" });
+});
+
 test("uninstall real run's done event matches apply's shape with failedStep: null", async () => {
   const real = await run("uninstall", ["uninstall", "--json"]);
   expect(real.code).toBe(0);

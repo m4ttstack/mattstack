@@ -214,6 +214,13 @@ final class WindowModel: ObservableObject {
         await task.value
     }
 
+    /// A settled catalog is never refetched by the poller, so a change deck
+    /// made on request (an app turned on or off) has to unsettle it.
+    func invalidateCatalog() async {
+        catalogSettledPid = nil
+        await refreshCatalogFromDeck()
+    }
+
     func refreshCatalogFromDeck() async {
         let pid: String?
         if case .healthy(let healthyPid) = await backends.deckProbe() { pid = healthyPid } else { pid = nil }

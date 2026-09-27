@@ -1,15 +1,19 @@
 #!/bin/bash
 # Assert the installed state in the guest, through rt and tray.sock (never UI text).
-# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted]
+# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted] [--solo]
 #
 # --expect-untrusted is the declined-certificate scenario: the install ran, the
 # user said no to macOS's trust prompt, and the claim under test is that the
 # proxy still serves, the checklist says so, and the trust verb clears it.
+#
+# --solo is the just-me scenario: no team was created or joined, so no
+# access.* or team.* rows should exist, rt team status reports mode solo,
+# and every team-only app in the catalog is off.
 set -uo pipefail
 GUEST_RUN="${GUEST_RUN:-/Volumes/My Shared Files/run}"; LOGS="$GUEST_RUN/logs"
 mkdir -p "$LOGS" || { echo "assert-installed.sh: cannot write $LOGS" >&2; exit 2; }
-EXPECT=""; HEADLESS=0; UNTRUSTED=0
-while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; *) shift;; esac; done
+EXPECT=""; HEADLESS=0; UNTRUSTED=0; SOLO=0
+while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; --solo) SOLO=1; shift;; *) shift;; esac; done
 export PATH="$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 fails=0
 ok()   { echo "ASSERT ok   $1"; }
@@ -42,6 +46,13 @@ else
   bad "rt verify --ci exited $? (see logs/verify.json)"
 fi
 grep -E '"status": *"(fail|warn)"' -B2 "$LOGS/verify.json" | grep '"name"' | sed 's/^/  verify: /' || true
+
+# solo: no access/team rows, rt team status mode solo, every team-only app off
+if [ "$SOLO" = 1 ]; then
+  if rt setup status --json | tail -1 | "$JQ" -e '[.groups[].rows[].id | select(startswith("access.") or startswith("team."))] | length == 0' >/dev/null; then ok "solo: no access or team rows"; else bad "solo: access or team rows present"; fi
+  if rt team status --json | tail -1 | "$JQ" -e '.mode == "solo"' >/dev/null; then ok "solo: team status reports mode solo"; else bad "solo: team status did not report mode solo"; fi
+  if rt apps list --json | tail -1 | "$JQ" -e '[.apps[] | select(.requiresTeam) | .enabled] | all(. == false)' >/dev/null; then ok "solo: every team-only app is off"; else bad "solo: a team-only app is on"; fi
+fi
 
 # tray.sock /version
 if [ -S "$SOCK" ]; then

@@ -22,6 +22,8 @@ final class SetupCoordinator {
     private let install: InstallRunModel
     private let statusInstall: InstallRunModel
     private let teamSettings: TeamSettingsModel
+    private let appsSettings: AppsSettingsModel
+    private let settingsRefresher: SettingsRefresher
     private var setupWindow: SetupWindowController?
     /// "Setup status…" reuses this SAME controller across repeat opens —
     /// never a fresh one per click. A second `SetupWindowController` here
@@ -59,23 +61,32 @@ final class SetupCoordinator {
         // live `rt setup apply` the onboarding window owns.
         statusInstall = InstallRunModel(stream: { _ in AsyncThrowingStream { $0.finish() } }, needs: needs)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
+        appsSettings = AppsSettingsModel(rt: rt)
+        appsSettings.onAppsChanged = { NotificationCenter.default.post(name: .rtAppsChanged, object: nil) }
+        settingsRefresher = SettingsRefresher(team: teamSettings, apps: appsSettings)
     }
 
     var setupIsComplete: Bool {
         !FirstRunDetector.needsSetup(home: AppHome.current) { FileManager.default.fileExists(atPath: $0) }
     }
 
-    func showSetup(step: SetupStep? = nil, joinCode: String? = nil) {
+    func showSetup(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
         if setupWindow == nil {
             let env = SetupEnvironment(rt: rt, readiness: readiness, install: install, permissions: permissions,
                                        isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
                                        bundlePath: Bundle.main.bundlePath)
-            setupWindow = SetupWindowController(environment: env)
+            let wc = SetupWindowController(environment: env)
+            wc.onClose = { [weak self, weak wc] entry in
+                guard let self, let wc else { return }
+                let applied = wc.flow.step == .done && self.install.phase == .succeeded
+                Task { @MainActor in await self.settingsRefresher.setupWindowClosed(entry: entry, applied: applied) }
+            }
+            setupWindow = wc
         }
         // Re-entering an already-complete setup must never trap the user
         // behind a titlebar with no close button.
         setupWindow?.allowsCloseAlways = setupIsComplete
-        setupWindow?.show(step: step, joinCode: joinCode)
+        setupWindow?.show(step: step, joinCode: joinCode, entry: entry, choice: choice)
     }
 
     /// "Setup status…": screen 3 as a read-only health view over
@@ -98,20 +109,30 @@ final class SetupCoordinator {
 
     func showSettings(pane: SettingsPane? = nil) {
         if settingsWindow == nil {
-            let env = SettingsEnvironment(rt: rt, permissions: permissions, readiness: readiness, updater: updater, team: teamSettings,
+            let env = SettingsEnvironment(rt: rt, permissions: permissions, readiness: readiness, updater: updater, apps: appsSettings, team: teamSettings,
                                           waivers: WaiverClient(rt: rt),
                                           isDevBuild: BundleFlavor.isDevBuild,
                                           version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
+                                          // An unfinished first run is only brought forward: re-entering it
+                                          // as an upgrade would jump a live run back to Team, and a second
+                                          // Install there SIGTERMs its running `rt setup apply`.
                                           onJoinAnotherTeam: { [weak self] in
                                               guard let self else { return }
+                                              guard self.setupIsComplete else { self.showSetup(); return }
                                               let code = self.pendingTeamJoinCode
                                               self.pendingTeamJoinCode = nil
-                                              self.showSetup(step: .team, joinCode: code)
+                                              self.showSetup(step: .team, joinCode: code, entry: .upgrade, choice: .join)
+                                          },
+                                          onCreateTeam: { [weak self] in
+                                              guard let self else { return }
+                                              guard self.setupIsComplete else { self.showSetup(); return }
+                                              self.showSetup(step: .team, entry: .upgrade, choice: .create)
                                           },
                                           onQuitForUninstall: { NSApp.terminate(nil) })
             settingsWindow = SettingsWindowController(env: env)
         }
         settingsWindow?.show(pane: pane)
+        Task { @MainActor in await settingsRefresher.reload() }
     }
 
     /// A join link while setup is already complete is "join a DIFFERENT

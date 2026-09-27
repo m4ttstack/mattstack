@@ -173,7 +173,14 @@ function plan(): unknown {
           alternatives: [],
           create: { label: "Create a token on GitLab…", url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=read_api%2Cread_user%2Cread_repository" } }),
   ];
-  const access = [row("access.team-repo", "access", "Team repo reachable", "github.com/acme/mattstack-team-acme", true, "ready", "ls-remote ok", null)];
+  if (scenario === "solo") {
+    accounts[0] = row("account.github", "account", "GitHub", "Opens pull requests from rt.", false, "missing", null,
+      { type: "connect", label: "Connect", integration: "github",
+        fields: [{ name: "token", label: "Personal access token", secret: true }], alternatives: [] },
+      undefined, "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.");
+  }
+  const access = scenario === "solo" ? [] :
+    [row("access.team-repo", "access", "Team repo reachable", "github.com/acme/mattstack-team-acme", true, "ready", "ls-remote ok", null)];
   const tools = [
     row("tool.herdr", "tool", "herdr", "Runs the agents that do the work.", true, "ready", "0.9.2", null),
     row("tool.fast-browser", "tool", "Fast Browser", "Browser automation for evidence.", true, "needs-you", "extension not loaded",
@@ -181,6 +188,10 @@ function plan(): unknown {
     row("tool.chrome", "tool", "Google Chrome", "Evidence capture.", false, "skipped", null,
         { type: "open-url", label: "Download", url: "https://www.google.com/chrome/" }, "manual", "Works without this."),
   ];
+  if (scenario === "solo") {
+    tools[1]!.required = false;
+    tools[1]!.optionalNote = "Works without this; only the browser skills need it.";
+  }
   // Scenarios other than perm-denied-then-granted are installable out of the box so
   // flows can reach Install without connecting anything; perm-denied-then-granted
   // gates only on perm.fda so the second plan() call can flip canInstall to true.
@@ -195,7 +206,7 @@ function plan(): unknown {
   const requiredMissing = [...mac, ...accounts, ...access, ...tools].filter((r) => r.required && r.status !== "ready").map((r) => r.id);
   const finishBlockedBy = gated.filter((r) => r.status !== "ready" && !r.waived).map((r) => r.id);
   return {
-    team: { slug: "acme", name: "Acme", mode },
+    team: scenario === "solo" ? { slug: "", name: "", mode: "none" } : { slug: "acme", name: "Acme", mode },
     groups: [
       { id: "mac", title: "Your Mac", rows: mac },
       { id: "accounts", title: "Accounts", rows: accounts },
@@ -270,6 +281,7 @@ if (a0 === "setup" && (a1 === "plan" || a1 === "status")) emit(plan());
 else if (a0 === "setup" && a1 === "apply") await apply();
 else if (a0 === "setup" && a1 === "github" && a2 === "status") emit({ integration: "github", status: "ready", detail: "gh authenticated as matt", scopesSeen: ["repo", "read:org"], handle: "matt", owners: ["matt", "acme"] });
 else if (a0 === "setup" && a1 === "intent" && a2 === "restore") emit({ ok: true, intent: "restore", repo: args[3] });
+else if (a0 === "setup" && a1 === "intent" && a2 === "solo") emit({ mode: "solo" });
 else if (a0 === "setup" && (a1 === "waive" || a1 === "unwaive")) {
   if (a2 !== EXTENSION_ID) fail("not-finish-gated", `${a2} is not a finish-gated row; finish-gated rows: ${EXTENSION_ID}`);
   const wasWaived = stateGet("waived") > 0;
@@ -305,7 +317,14 @@ else if (a0 === "team" && a1 === "join") {
   if (scenario === "join-no-access") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "denied", peering: "idle", intent: "written", message: "Joining Acme. Your GitHub account cannot see acme/team yet: ask matt or your org admin to grant read access." });
   else emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "ok", peering: "idle", intent: "written", message: "Joining Acme (owner matt)" });
 }
-else if (a0 === "team" && a1 === "status") emit({ slug: "acme", name: "Acme", remote: "git@github.com:acme/mattstack-team-acme.git", lastPush: "2026-08-21T03:00:00Z", members: [{ username: "matt" }, { username: "bob" }] });
+else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { slug: "acme", name: "Acme", remote: "git@github.com:acme/mattstack-team-acme.git", lastPush: "2026-08-21T03:00:00Z", members: [{ username: "matt" }, { username: "bob" }] });
+else if (a0 === "apps" && a1 === "list") emit({ apps: [
+  { name: "board", displayName: "Board", description: "Open MRs ready for review.", enabled: scenario !== "solo", requiresTeam: true },
+  { name: "boxscore", displayName: "boxscore", description: "Team scoreboard.", enabled: scenario !== "solo", requiresTeam: true },
+  { name: "console", displayName: "Console", description: "Settings and logs for this Mac.", enabled: true, requiresTeam: false },
+  { name: "chat", displayName: "Chat", description: "Rooms and DMs for the agents on this Mac.", enabled: true, requiresTeam: false },
+] });
+else if (a0 === "apps" && (a1 === "enable" || a1 === "disable")) emit({ name: a2, enabled: a1 === "enable" });
 else if (a0 === "team" && a1 === "invite") emit({ code: "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567", expiresAt: "2026-08-28T00:00:00Z",
   pasteBlock: "Install mattstack from https://github.com/m4ttstack/rt/releases, then open mattstack://join/ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567 or paste the code into Setup → Join a team.",
   forgeAccess: "granted", manualSteps: [], link: "https://mattstack.dev/join#ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567" });

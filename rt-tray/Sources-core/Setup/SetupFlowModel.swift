@@ -16,6 +16,10 @@ public enum SetupStep: Int, CaseIterable, Sendable {
     public var indicator: String { "Step \(rawValue + 1) of \(SetupStep.allCases.count)" }
 }
 
+/// Distinguishes onboarding from re-entering setup to upgrade an existing
+/// solo install to a team (Settings' Create/Join, a join link post-install).
+public enum SetupEntry: Equatable, Sendable { case firstRun, upgrade }
+
 /// Custom page model: push transitions, Back never dismisses, the window
 /// only closes once setup is done.
 @MainActor
@@ -41,6 +45,10 @@ public final class SetupFlowModel: ObservableObject {
     /// close and minimize buttons off `windowMayClose` whenever this moves.
     /// One boolean for both, so the buttons can never disagree with Finish.
     @Published public var finishGateOpen = true
+    /// An upgrade re-enters at `.team` with nothing behind it to walk back
+    /// into, so Back is off there even though the step itself allows it on
+    /// first run.
+    @Published public var entry: SetupEntry = .firstRun
     public init(readOnly: Bool = false) { self.readOnly = readOnly }
 
     public var showsBack: Bool { !readOnly }
@@ -52,6 +60,7 @@ public final class SetupFlowModel: ObservableObject {
         switch step {
         case .welcome, .done: return false
         case .install: return !isInstalling
+        case .team: return entry == .firstRun
         default: return true
         }
     }

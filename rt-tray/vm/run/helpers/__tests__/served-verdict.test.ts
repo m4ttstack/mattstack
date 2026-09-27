@@ -40,6 +40,7 @@ interface Case {
   launchd?: Record<string, Job>;
   routes?: unknown;
   before?: unknown;
+  deckApps?: unknown;
 }
 
 function verdict(c: Case = {}): { kind: string; msg: string }[] {
@@ -60,6 +61,7 @@ function verdict(c: Case = {}): { kind: string; msg: string }[] {
     "--slurpfile", "launchd", file("launchd.json", launchd),
     "--slurpfile", "routes", file("routes.json", routes),
     "--slurpfile", "before", file("before.json", c.before ?? null),
+    ...(c.deckApps === undefined ? [] : ["--slurpfile", "apps", file("apps.json", c.deckApps)]),
     "--arg", "helpers", HELPERS, "--arg", "home", HOME,
     "-f", VERDICT,
   ]);
@@ -181,6 +183,13 @@ describe("served-verdict.jq", () => {
     const lines = verdict({ before });
     expect(bads(lines)).toEqual([]);
     expect(lines).toContainEqual({ kind: "ok", msg: "chat: had no pre-update pid to compare" });
+  });
+
+  test("deck /api/v1/apps marking an app disabled passes without further checks", () => {
+    const deckApps = { apps: [{ name: "board", enabled: false }] };
+    const lines = verdict({ deckApps });
+    expect(bads(lines)).toEqual([]);
+    expect(lines).toContainEqual({ kind: "ok", msg: "board: disabled, not served (deck /api/v1/apps enabled false)" });
   });
 
   test("an app without its .mattstack route fails", () => {
