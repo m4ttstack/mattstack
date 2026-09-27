@@ -1,5 +1,41 @@
 # @mattstack/glance
 
+## Unreleased
+
+### Minor Changes
+
+- `GitProvider.subscribePullRequestEvents?(projectPath, prs, callbacks)`, an
+  optional push-only subscription for already-fetched MRs (no fetch, no
+  poll). GitLab implements it over the same shared ActionCable connection as
+  `watchMR`; GitHub leaves it absent.
+- `RealtimeWatcherOptions.onStatusChange`, so a `watchMR` caller can follow
+  connection and health transitions. The `createRealtimeWatcher` params
+  field still wins when both are set.
+- Group dashboards (`createDashboard` with an array of IIDs) subscribe once
+  for the whole group instead of calling `watchMR` per MR: on GitLab, cable
+  events trigger one batched refetch and connection changes reach the
+  group's state; an MR a later fetch adds joins push without disturbing the
+  others. On GitHub, group dashboards now report connected and poll instead
+  of calling `watchMR`, which throws there.
+
+### Patch Changes
+
+- The single-MR dashboard's `connection` follows the cable instead of staying
+  `connecting` forever.
+- The realtime watcher reports `disconnected` after a connected push channel
+  drops, where it used to report `connecting`. `ConnectionStatusBadge` in
+  glance-react shows the difference.
+- A watcher attached while the shared GitLab cable is connecting or down is
+  told it is connected only on the next welcome.
+- `GitHubEventsPoller` commits its cold-start flag and page-1 etag only after
+  every page of a tick is fetched: a cold tick that throws stays cold, and a
+  tick that throws on page 2 no longer 304s the retry past unseen events.
+- The live integration script (`tests/integration.live.ts`) mutates only the
+  sandboxes named by `GLANCE_HARNESS_GITHUB_SANDBOX` (`owner/repo`) and
+  `GLANCE_HARNESS_GITLAB_SANDBOX` (`group/project!iid`); each mutating step
+  refuses, sending no request, while its variable is unset, and any refusal
+  makes the run exit non-zero.
+
 ## 0.27.0
 
 ### Minor Changes
