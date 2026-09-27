@@ -1,3 +1,5 @@
+import { SYSTEM_HANDLE } from "./handlers/herd.ts";
+
 // 1000ms once let one slow-but-alive recipient (heavy load, not actually
 // gone) register as a dropped push -- the failure that started the silent
 // deadlock this file's delivery fix addresses. 3000ms gives a busy inbox
@@ -122,18 +124,28 @@ export async function deliverToInbox(
   return Promise.race([attempt, timeout]);
 }
 
+export interface DeliveryItem { room: string; dm: boolean; handle: string; name: string; body: string; id: number }
+
 /**
  * The `#<id>` is what `rt chat ack <messageId>` takes. It rides next to the
- * handle rather than at the end of the line because a batch collapses to one
+ * sender rather than at the end of the line because a batch collapses to one
  * truncated row in the terminal: an id at the end of a long body would be cut
  * off exactly when a bundle makes it necessary to tell the messages apart.
  */
-export function renderDeliveries(
-  items: Array<{ room: string; dm: boolean; handle: string; body: string; id: number }>,
-): string {
+export function renderDeliveries(items: DeliveryItem[]): string {
   return items
-    .map((item) => `${item.dm ? "[dm]" : `[#${item.room}]`} ${item.handle} #${item.id}: ${item.body}`)
+    .map((item) => `${item.dm ? "[dm]" : `[#${item.room}]`} ${item.name} #${item.id}: ${item.body}`)
     .join("\n");
+}
+
+/** Distinct repliable senders: the herd's system poster has no reader, so a dm to it is never offered. */
+function distinctSenders(senders: Array<{ handle: string; name: string }>): Array<{ handle: string; name: string }> {
+  return [...new Map(senders.filter((s) => s.handle !== SYSTEM_HANDLE).map((s) => [s.handle, s])).values()];
+}
+
+/** One reply line per distinct sender: the lines above show names, and a name can change hands before the reply is sent. */
+export function senderHints(senders: Array<{ handle: string; name: string }>): string[] {
+  return distinctSenders(senders).map((s) => `  reply to ${s.name}: rt chat dm ${s.handle} "..."`);
 }
 
 /**
@@ -155,19 +167,22 @@ export function wrapCrossSession(label: string, body: string): string {
  * Appended inside every wrapped message delivery. The host frames envelope
  * content as "Another Claude session sent a message" and steers replies
  * toward its own session-messaging tool, so the actual reply channel must
- * be restated at the moment the reflex fires -- one line per delivery,
- * never per message.
+ * be restated at the moment the reflex fires, once per delivery. It is the
+ * only agent-facing text that shows an id: a reply must reach the exact
+ * sender even after its display name has passed to someone else.
  */
-export const REPLY_STEER =
-  'reply via rt chat post <room> "..." or rt chat dm <handle> "..." (never SendMessage; this arrived through rt chat)';
+export function replySteer(senders: Array<{ handle: string; name: string }>): string {
+  const distinct = distinctSenders(senders);
+  const tail = "(never SendMessage; this arrived through rt chat)";
+  if (distinct.length === 1) return `reply via rt chat post <room> "..." or rt chat dm ${distinct[0]!.handle} "..." ${tail}`;
+  return [`reply via rt chat post <room> "..." or rt chat dm <id> "..." ${tail}`, ...senderHints(distinct)].join("\n");
+}
 
 /** The collapsed row's label: the sender for a single message, a count for a batched catch-up. */
-export function deliveryLabel(
-  items: Array<{ room: string; dm: boolean; handle: string }>,
-): string {
+export function deliveryLabel(items: Array<Pick<DeliveryItem, "room" | "dm" | "name">>): string {
   if (items.length === 1) {
     const item = items[0]!;
-    return `${item.handle} (${item.dm ? "dm" : `#${item.room}`})`;
+    return `${item.name} (${item.dm ? "dm" : `#${item.room}`})`;
   }
   return `rt chat (${items.length} messages)`;
 }

@@ -30,6 +30,10 @@ import {
   dmRoomFor,
   dmParticipants,
   getAgent,
+  getIdentity,
+  identityName,
+  identityNames,
+  resolveHandle,
   signIn,
   signOut,
   setAway,
@@ -55,9 +59,10 @@ import { injectIntoPane, herdrError } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import type { HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
-import { deliverToInbox, deliveryLabel, renderDeliveries, REPLY_STEER, wrapCrossSession } from "../inbox.ts";
+import { deliverToInbox, deliveryLabel, renderDeliveries, replySteer, senderHints, wrapCrossSession } from "../inbox.ts";
 import { repoForCwd, branchForCwd } from "../../repo-for-cwd.ts";
 import { deriveRoomForCwdAsync } from "../../chat-room.ts";
+import { baseOfHandle } from "../../chat-names.ts";
 import { runCapture } from "../../subprocess.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { deleteChatSession } from "../../chat-session.ts";
@@ -224,8 +229,8 @@ async function deliverPost(
   // advances the cursor past them.
   const others = pending.filter((m) => m.handle !== recipient);
   if (others.length === 0) return { delivered: false, count: 0 };
-  const items = others.map((m) => ({ room: msg.room, dm: msg.dm, handle: m.handle, body: m.body, id: m.id }));
-  const content = wrapCrossSession(deliveryLabel(items), `${renderDeliveries(items)}\n${REPLY_STEER}`);
+  const items = others.map((m) => ({ room: msg.room, dm: msg.dm, handle: m.handle, name: m.name, body: m.body, id: m.id }));
+  const content = wrapCrossSession(deliveryLabel(items), `${renderDeliveries(items)}\n${replySteer(items)}`);
   let result = await deps.deliver(binding.socketPath, content);
   if (!result.ok) {
     await Bun.sleep(retryDelayMs);
@@ -266,7 +271,7 @@ async function deliverReceipt(
   if (!presence || presence.signedOutAt !== undefined) return;
   const binding = deps.resolve(presence.sessionId);
   if (!binding || !inboxAlive(binding)) return;
-  const result = await deps.deliver(binding.socketPath, wrapCrossSession(`${from} (${kind})`, text));
+  const result = await deps.deliver(binding.socketPath, wrapCrossSession(`${identityName(from, db)} (${kind})`, text));
   if (!result.ok) log.warn({ to, from, id: messageId, err: result.error }, `chat: ${kind} receipt push failed`);
 }
 
@@ -282,7 +287,7 @@ function deliverAck(
   args: { author: string; acker: string; messageId: number; body: string },
 ): Promise<void> {
   const { author, acker, messageId, body } = args;
-  const text = `${acker} acknowledged your message #${messageId}: "${previewBody(body)}"`;
+  const text = `${identityName(acker, db)} acknowledged your message #${messageId}: "${previewBody(body)}"`;
   return deliverReceipt(db, deps, log, { to: author, from: acker, kind: "ack", text, messageId });
 }
 
@@ -300,12 +305,13 @@ async function deliverClaim(
 ): Promise<void> {
   const { author, claimer, messageId, body, previousHolder } = args;
   const preview = previewBody(body);
-  const takeover = previousHolder ? ` (took over from ${previousHolder})` : "";
+  const claimerName = identityName(claimer, db);
+  const takeover = previousHolder ? ` (took over from ${identityName(previousHolder, db)})` : "";
   await deliverReceipt(db, deps, log, {
     to: author,
     from: claimer,
     kind: "claim",
-    text: `${claimer} claimed your message #${messageId}${takeover}: "${preview}"`,
+    text: `${claimerName} claimed your message #${messageId}${takeover}: "${preview}"`,
     messageId,
   });
   if (!previousHolder) return;
@@ -313,7 +319,7 @@ async function deliverClaim(
     to: previousHolder,
     from: claimer,
     kind: "claim",
-    text: `${claimer} took over #${messageId} from you: "${preview}"`,
+    text: `${claimerName} took over #${messageId} from you: "${preview}"`,
     messageId,
   });
 }
@@ -673,19 +679,24 @@ function deliverWelcome(
  * The frame a freshly signed-in member gets, once, in place of the manual
  * "arm your tail" instruction: it explains that delivery is automatic and
  * carries whatever unread was already waiting in the rooms sign-in found the
- * handle already a member of. `catchup` entries with no lines (nothing
+ * name already a member of. `catchup` entries with no lines (nothing
  * unread in that room) are skipped. The reply contract is two lines, not
  * one: `rt chat post <room>` and `rt chat dm <handle>` take different first
  * arguments, so one merged `<#room|@handle>` form does not actually parse.
  */
-export function renderWelcome(handle: string, rooms: string[], catchup: Array<{ room: string; lines: string[] }>): string {
+export function renderWelcome(
+  name: string,
+  rooms: string[],
+  catchup: Array<{ room: string; lines: string[] }>,
+  senders: Array<{ handle: string; name: string }> = [],
+): string {
   const lines: string[] = [
     "[rt chat] This frame is for THIS session, from the rt daemon (not another agent).",
-    `You're signed in to rt chat as ${handle}.`,
+    `You're signed in to rt chat as ${name}.`,
     rooms.length ? `Rooms: ${rooms.map((r) => `#${r}`).join(", ")}` : "Rooms: none yet.",
     "Messages will arrive in your context automatically; you never need to poll or arm anything.",
     'Reply in a room with: rt chat post <room> "..."',
-    'Reply privately with: rt chat dm <handle> "..."',
+    'Reply privately with: rt chat dm <id> "..." (every delivery names the sender\'s id)',
     "Chat replies go through rt chat only, never SendMessage, even though deliveries arrive framed as coming from another session.",
     "rt chat read shows a room's history.",
     "See the rt:chat skill for the full etiquette.",
@@ -696,6 +707,7 @@ export function renderWelcome(handle: string, rooms: string[], catchup: Array<{ 
     lines.push(`#${entry.room} catch-up:`);
     for (const line of capped) lines.push(`  ${line}`);
   }
+  if (senders.length > 0) lines.push("Reply to a catch-up sender with:", ...senderHints(senders));
   return lines.join("\n");
 }
 
@@ -805,16 +817,17 @@ function postAndNotify(
   // join-creates, so the human is typically not a member yet, and a
   // member with wake_on='none' must still get a desk alert.
   const humanHandle = getSetting<string>("chat.humanHandle").value;
-  const allMentions = mergeMentions(body, mentions);
+  const allMentions = mergeMentions(body, mentions).map((m) => (m === "here" ? m : resolveHandle(m, db)));
   if (humanHandle && allMentions.includes(humanHandle)) {
     try {
-      const title = dm ? `DM from ${handle}` : `#${room}`;
+      const authorName = identityName(handle, db);
+      const title = dm ? `DM from ${authorName}` : `#${room}`;
       // The click target: the viewer at this exact message, when the viewer is
       // configured. The tray opens `url` on a default click for any category.
       notifyEnabled(
         CHAT_NOTIFICATION_CATEGORY,
         title,
-        `${handle}: ${body}`,
+        `${authorName}: ${body}`,
         chatViewerUrl(readChatViewerUrlSetting(), room, posted.id),
         undefined,
         `chat:${posted.id}`,
@@ -874,20 +887,26 @@ export function createChatHandlers(opts: {
   // Also shared with the delivery sweep when the caller passes one in, so a
   // sweep re-delivery chains behind rather than races an in-flight post.
   const deliveryChains = opts.deliveryChains ?? new Map<string, Promise<void>>();
+  const resolveMention = (m: string): string => (m === "here" ? m : resolveHandle(m, db));
+  const namesOf = (ids: string[]): string[] => {
+    const names = identityNames(ids, db);
+    return ids.map((id) => names.get(id) ?? id);
+  };
 
   return {
     "chat:join": async (rawPayload: unknown): Promise<CommandResult<"chat:join">> => {
       if (!rawPayload || typeof rawPayload !== "object") return { ok: false, error: "chat:join requires an object payload" };
       const payload = rawPayload as Commands["chat:join"]["payload"];
-      const { room, handle, wakeOn, cwd, pane } = payload;
-      if (!isValidChatName(handle)) return { ok: false, error: `invalid handle "${handle}"` };
+      const { room, wakeOn, cwd, pane } = payload;
+      if (!isValidChatName(payload.handle)) return { ok: false, error: `invalid handle "${payload.handle}"` };
       if (!isValidChatName(room)) return { ok: false, error: `invalid room "${room}"` };
       if (wakeOn !== undefined && !isValidWakeOn(wakeOn)) {
         return { ok: false, error: `invalid wakeOn "${wakeOn}"; must be one of ${VALID_WAKE_ON.join(", ")}` };
       }
+      const handle = resolveHandle(payload.handle, db);
       try {
         const data = joinRoom({ room, handle, wakeOn, cwd, pane }, db);
-        return { ok: true, data };
+        return { ok: true, data: { ...data, name: identityName(data.handle, db) } };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -895,28 +914,30 @@ export function createChatHandlers(opts: {
 
     "chat:leave": async (rawPayload: unknown): Promise<CommandResult<"chat:leave">> => {
       const payload = rawPayload as Commands["chat:leave"]["payload"];
-      leaveRoom(payload.room, payload.handle, db);
+      leaveRoom(payload.room, resolveHandle(payload.handle, db), db);
       return { ok: true, data: {} };
     },
 
     "chat:post": async (rawPayload: unknown): Promise<CommandResult<"chat:post">> => {
       const payload = rawPayload as Commands["chat:post"]["payload"];
-      const { room, handle, body, mentions, quiet } = payload;
+      const { room, body, quiet } = payload;
       if (!isValidChatName(room)) return { ok: false, error: `invalid room "${room}"` };
-      if (!isValidChatName(handle)) return { ok: false, error: `invalid handle "${handle}"` };
+      if (!isValidChatName(payload.handle)) return { ok: false, error: `invalid handle "${payload.handle}"` };
       if (!isValidBody(body)) return { ok: false, error: `body must be a non-empty string under ${MAX_BODY_BYTES} bytes` };
-      if (mentions !== undefined && !Array.isArray(mentions)) return { ok: false, error: "mentions must be an array of handles" };
+      if (payload.mentions !== undefined && !Array.isArray(payload.mentions)) return { ok: false, error: "mentions must be an array of handles" };
       // Rejected rather than coerced: a truthy non-boolean (the string
       // "false", say) would silently suppress every wake this post owes.
       if (quiet !== undefined && typeof quiet !== "boolean") return { ok: false, error: "quiet must be a boolean" };
-      const invalidMention = mentions?.find((m) => !isValidChatName(m));
+      const invalidMention = payload.mentions?.find((m) => !isValidChatName(m));
       if (invalidMention !== undefined) return { ok: false, error: `invalid handle "${invalidMention}"` };
+      const handle = resolveHandle(payload.handle, db);
+      const mentions = payload.mentions?.map(resolveMention);
       // A typo'd room previously no-op'd through postMessage's REVIVE (a
       // no-op for a room with no chat_rooms row) and returned ok with no
       // recipients — unreachable except by the exact typo'd name.
       if (roomArchivedAt(room, db) === undefined) {
         const nearby = closestRoomNames(room, handle, db);
-        return { ok: false, error: `unknown room "${room}"${nearby.length ? ` — did you mean: ${nearby.join(", ")}` : ""}` };
+        return { ok: false, error: `unknown room "${room}"${nearby.length ? `... did you mean: ${nearby.join(", ")}` : ""}` };
       }
       // The human's post is the coordinator's: it wakes the whole room without
       // him having to mention anyone. Stored as an explicit @here so the live
@@ -926,14 +947,15 @@ export function createChatHandlers(opts: {
       const posted = postAndNotify(db, emitEvent, { room, handle, body, mentions: effectiveMentions, quiet }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
       if (!posted) return { ok: false, error: "chat: post failed (retry budget exhausted)" };
       const others = listMembers(room, db).filter((m) => m.handle !== handle).length;
-      return { ok: true, data: { ...posted, others } };
+      return { ok: true, data: { ...posted, recipientNames: namesOf(posted.recipients), others } };
     },
 
     "chat:ack": async (rawPayload: unknown): Promise<CommandResult<"chat:ack">> => {
       const payload = rawPayload as Commands["chat:ack"]["payload"];
-      const { id, handle } = payload;
-      if (!isValidChatName(handle)) return { ok: false, error: `invalid handle "${handle}"` };
+      const { id } = payload;
+      if (!isValidChatName(payload.handle)) return { ok: false, error: `invalid handle "${payload.handle}"` };
       if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id must be a positive message id" };
+      const handle = resolveHandle(payload.handle, db);
       const res = ackMessage({ messageId: id, handle }, db);
       if (!res.ok) {
         const why =
@@ -956,14 +978,15 @@ export function createChatHandlers(opts: {
           });
         });
       }
-      return { ok: true, data: { author: res.author, room: res.room, already: res.already } };
+      return { ok: true, data: { author: res.author, authorName: identityName(res.author, db), room: res.room, already: res.already } };
     },
 
     "chat:claim": async (rawPayload: unknown): Promise<CommandResult<"chat:claim">> => {
       const payload = rawPayload as Commands["chat:claim"]["payload"];
-      const { id, handle } = payload;
-      if (!isValidChatName(handle)) return { ok: false, error: `invalid handle "${handle}"` };
+      const { id } = payload;
+      if (!isValidChatName(payload.handle)) return { ok: false, error: `invalid handle "${payload.handle}"` };
       if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id must be a positive message id" };
+      const handle = resolveHandle(payload.handle, db);
       const res = claimMessage({ messageId: id, handle }, db);
       if (!res.ok) {
         const why = {
@@ -975,23 +998,30 @@ export function createChatHandlers(opts: {
         return { ok: false, error: why };
       }
       if (res.outcome === "lost") {
-        return { ok: true, data: { outcome: "lost", holder: res.holder, claimedAt: res.claimedAt, expiresAt: res.expiresAt } };
+        return { ok: true, data: { outcome: "lost", holder: res.holder, holderName: identityName(res.holder, db), claimedAt: res.claimedAt, expiresAt: res.expiresAt } };
       }
-      if (res.outcome === "held") return { ok: true, data: { outcome: "held", author: res.author, room: res.room } };
+      if (res.outcome === "held") return { ok: true, data: { outcome: "held", author: res.author, authorName: identityName(res.author, db), room: res.room } };
       const { author, room, body, previousHolder } = res;
+      const authorName = identityName(author, db);
       queueMicrotask(() => {
         deliverClaim(db, inboxDeps, log, { author, claimer: handle, messageId: id, body, previousHolder }).catch((err) => {
           log.warn({ err, id, handle }, "chat: claim delivery failed");
         });
       });
-      return { ok: true, data: previousHolder ? { outcome: "claimed", author, room, previousHolder } : { outcome: "claimed", author, room } };
+      return {
+        ok: true,
+        data: previousHolder
+          ? { outcome: "claimed", author, authorName, room, previousHolder, previousHolderName: identityName(previousHolder, db) }
+          : { outcome: "claimed", author, authorName, room },
+      };
     },
 
     "chat:release": async (rawPayload: unknown): Promise<CommandResult<"chat:release">> => {
       const payload = rawPayload as Commands["chat:release"]["payload"];
-      const { id, handle } = payload;
-      if (!isValidChatName(handle)) return { ok: false, error: `invalid handle "${handle}"` };
+      const { id } = payload;
+      if (!isValidChatName(payload.handle)) return { ok: false, error: `invalid handle "${payload.handle}"` };
       if (!Number.isInteger(id) || id <= 0) return { ok: false, error: "id must be a positive message id" };
+      const handle = resolveHandle(payload.handle, db);
       const res = releaseClaim({ messageId: id, handle }, db);
       if (!res.ok) {
         const why = {
@@ -1001,12 +1031,13 @@ export function createChatHandlers(opts: {
         }[res.reason];
         return { ok: false, error: why };
       }
-      return { ok: true, data: { holder: res.holder } };
+      return { ok: true, data: { holder: res.holder, holderName: identityName(res.holder, db) } };
     },
 
     "chat:read": async (rawPayload: unknown): Promise<CommandResult<"chat:read">> => {
       const payload = rawPayload as Commands["chat:read"]["payload"];
-      const { handle, room, limit, sinceMs } = payload;
+      const { room, limit, sinceMs } = payload;
+      const handle = resolveHandle(payload.handle, db);
       const rooms = readUnread({ handle, room, limit: clampLimit(limit, 20), sinceMs }, db);
       const readerPresence = presenceForHandle(handle, db);
       if (readerPresence) touchLastSeen(readerPresence.sessionId, Date.now(), db);
@@ -1015,11 +1046,14 @@ export function createChatHandlers(opts: {
 
     "chat:rooms": async (rawPayload: unknown): Promise<CommandResult<"chat:rooms">> => {
       const payload = rawPayload as Commands["chat:rooms"]["payload"];
-      const rooms = listRooms(payload.handle, db, { includeArchived: payload.includeArchived === true }).map((room) => {
+      const listed = listRooms(resolveHandle(payload.handle, db), db, { includeArchived: payload.includeArchived === true })
+        .map((room) => ({ room, dm: dmParticipants(room.room, db) }));
+      const names = identityNames(listed.flatMap(({ dm }) => (dm ? [dm.a, dm.b] : [])), db);
+      const rooms = listed.map(({ room, dm }) => {
         const defaultWake = roomDefaultWake(room.room, db);
         const withDefault = defaultWake ? { ...room, defaultWake } : room;
-        const dm = dmParticipants(room.room, db);
-        return dm ? { ...withDefault, kind: "dm" as const, participants: dm } : withDefault;
+        if (!dm) return withDefault;
+        return { ...withDefault, kind: "dm" as const, participants: { ...dm, aName: names.get(dm.a) ?? dm.a, bName: names.get(dm.b) ?? dm.b } };
       });
       return { ok: true, data: { rooms } };
     },
@@ -1062,7 +1096,7 @@ export function createChatHandlers(opts: {
       if (upto !== undefined && (!Number.isSafeInteger(upto) || upto <= 0)) {
         return { ok: false, error: "upto must be a positive message id" };
       }
-      markRead(handle, room, upto, db);
+      markRead(resolveHandle(handle, db), room, upto, db);
       return { ok: true, data: {} };
     },
 
@@ -1078,6 +1112,8 @@ export function createChatHandlers(opts: {
       const { baseHandle, cwd, repo, branch, pane, statusText, viaPane, room: explicitRoom, noRoom } = payload;
       if (baseHandle !== undefined && !isValidChatName(baseHandle)) return { ok: false, error: `invalid handle "${baseHandle}"` };
       if (explicitRoom !== undefined && !isValidChatName(explicitRoom)) return { ok: false, error: `invalid room "${explicitRoom}"` };
+      const requested = payload.continue;
+      if (requested !== undefined && !isValidChatName(requested)) return { ok: false, error: `invalid handle "${requested}"` };
 
       let sessionId = payload.sessionId;
       let signInCwd = cwd;
@@ -1128,25 +1164,46 @@ export function createChatHandlers(opts: {
       }
       if (!sessionId) return { ok: false, error: "chat: sign-in requires a sessionId or --pane" };
 
-      // No explicit baseHandle: prefer a name someone CHOSE for this session
-      // (registry nameSource "user": --name at launch, /rename) so chat and
-      // SendMessage identities match. Claude Code's auto-derived fallback
-      // names (nameSource "derived", chat-c6 style) are not names anyone
-      // picked: skip them and let the pool draw a real first name instead.
+      let continueId: string | undefined;
       let resolvedBase = baseHandle;
-      if (resolvedBase === undefined) {
+      if (requested !== undefined) continueId = resolveHandle(requested, db);
+      // No explicit request: prefer a name someone CHOSE for this session
+      // (registry nameSource "user": --name at launch, /rename). Claude Code's
+      // auto-derived names (nameSource "derived") are skipped for a pool draw.
+      if (continueId === undefined && resolvedBase === undefined) {
         const binding = inboxDeps.resolve(sessionId);
         if (binding?.name && binding.nameSource === "user" && isValidChatName(binding.name)) resolvedBase = binding.name;
       }
-      // The handle `rt agent start` reserved rides on the agent record, never
-      // on the session name (a session name becomes the pane's title).
-      if (resolvedBase === undefined) {
+      // The identity `rt agent start` (or herd:spawn) reserved rides on the
+      // agent record, never on the session name (that becomes the pane title).
+      // A legacy reservation with no identity row resolves by name, which can
+      // reach a newer identity sharing it; only an id resolving to itself is
+      // this session's to continue.
+      if (continueId === undefined && resolvedBase === undefined) {
         const reserved = getAgent(sessionId, db)?.handle;
-        if (reserved && isValidChatName(reserved)) resolvedBase = reserved;
+        if (reserved && isValidChatName(reserved)) {
+          if (resolveHandle(reserved, db) === reserved) continueId = reserved;
+          else resolvedBase = baseOfHandle(reserved);
+        }
       }
-      const data = signIn({ sessionId, baseHandle: resolvedBase, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
-      // R057: signIn now retries a busy write rather than throwing, but still
-      // reports undefined once its retry budget is exhausted.
+
+      const signInWith = (request: { baseHandle?: string; continueId?: string }) =>
+        signIn({ sessionId, ...request, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
+      let data: ReturnType<typeof signIn>;
+      try {
+        try {
+          data = signInWith({ baseHandle: resolvedBase, continueId });
+        } catch (err) {
+          // A typed NAME or a reservation live in another session retries under its base name, suffixed (remy-2); a typed ID is refused as-is, since a minted id reaches agents only through reply hints and a suffix would silently hand it a different identity.
+          const typedTheId = requested !== undefined && requested === continueId && identityName(continueId, db) !== continueId;
+          if (continueId === undefined || typedTheId || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
+          data = signInWith({ baseHandle: getIdentity(continueId, db)?.baseName ?? baseOfHandle(continueId) });
+        }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      // signIn retries a busy write, but still reports undefined once its
+      // retry budget is exhausted.
       if (!data) return { ok: false, error: "chat: sign-in failed, database busy" };
 
       if (derivedRoom) {
@@ -1166,9 +1223,10 @@ export function createChatHandlers(opts: {
       // cursor only actually advances, per room, once deliverWelcomeOnce
       // confirms the frame was sent.
       const peeked = peekUnread({ handle: data.handle, limit: WELCOME_CATCHUP_LIMIT }, db);
-      const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.handle}: ${m.body}`) }));
+      const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.name}: ${m.body}`) }));
+      const senders = peeked.flatMap((r) => r.messages.map((m) => ({ handle: m.handle, name: m.name })));
       const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
-      const welcomeContent = wrapCrossSession("rt chat", renderWelcome(data.handle, rooms, catchup));
+      const welcomeContent = wrapCrossSession("rt chat", renderWelcome(data.name, rooms, catchup, senders));
       const welcomeSessionId = sessionId;
       queueMicrotask(() => {
         deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcomeContent, catchupCursors).catch((err) => {
@@ -1231,7 +1289,9 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(from)) return { ok: false, error: `invalid handle "${from}"` };
       if (!isValidChatName(to)) return { ok: false, error: `invalid handle "${to}"` };
       if (!isValidBody(body)) return { ok: false, error: `body must be a non-empty string under ${MAX_BODY_BYTES} bytes` };
-      const err = assertionError(() => assertSessionOwnsHandle(from, sessionId, db));
+      const fromId = resolveHandle(from, db);
+      const toId = resolveHandle(to, db);
+      const err = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
       if (err) return { ok: false, error: err };
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
@@ -1239,16 +1299,16 @@ export function createChatHandlers(opts: {
       }
       let room: string;
       try {
-        ({ room } = dmRoomFor(from, to, humanHandle, db));
+        ({ room } = dmRoomFor(fromId, toId, humanHandle, db));
       } catch (dmErr) {
         return { ok: false, error: dmErr instanceof Error ? dmErr.message : String(dmErr) };
       }
       // Recipient travels in `mentions`, not the body, so the transcript
       // shows the text as typed and the desk still notifies when `to` is
       // the human.
-      const posted = postAndNotify(db, emitEvent, { room, handle: from, body, mentions: [to] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
+      const posted = postAndNotify(db, emitEvent, { room, handle: fromId, body, mentions: [toId] }, inboxDeps, herdr, deliveryChains, log, retryDelayMs);
       if (!posted) return { ok: false, error: "chat: dm failed (retry budget exhausted)" };
-      return { ok: true, data: { room, id: posted.id, recipients: posted.recipients } };
+      return { ok: true, data: { room, id: posted.id, recipients: posted.recipients, recipientNames: namesOf(posted.recipients) } };
     },
 
     "chat:invite": async (rawPayload: unknown): Promise<CommandResult<"chat:invite">> => {
@@ -1257,7 +1317,7 @@ export function createChatHandlers(opts: {
       if (!isValidChatName(room)) return { ok: false, error: `invalid room "${room}"` };
       if (!isValidChatName(from)) return { ok: false, error: `invalid handle "${from}"` };
       const resolved = resolvePaneRef(paneId);
-      const res = await injectIntoPane({ paneId: resolved.paneId, text: inviteText(room, from, note), callerPane, herdr, sockPath: resolved.sockPath });
+      const res = await injectIntoPane({ paneId: resolved.paneId, text: inviteText(room, identityName(from, db), note), callerPane, herdr, sockPath: resolved.sockPath });
       if (!res.ok) return res;
       // Round-trip: echo the ref the caller addressed, not the bare id.
       return { ok: true, data: { ...res.data, paneId } };
@@ -1281,14 +1341,16 @@ export function createChatHandlers(opts: {
       const { from, to, sessionId } = payload;
       if (!isValidChatName(from)) return { ok: false, error: `invalid handle "${from}"` };
       if (!isValidChatName(to)) return { ok: false, error: `invalid handle "${to}"` };
-      const err = assertionError(() => assertSessionOwnsHandle(from, sessionId, db));
+      const fromId = resolveHandle(from, db);
+      const toId = resolveHandle(to, db);
+      const err = assertionError(() => assertSessionOwnsHandle(fromId, sessionId, db));
       if (err) return { ok: false, error: err };
       const humanHandle = getSetting<string>("chat.humanHandle").value;
       if (!isValidChatName(humanHandle)) {
         return { ok: false, error: `chat: chat.humanHandle setting is empty or invalid ("${humanHandle}")` };
       }
       try {
-        return { ok: true, data: dmRoomFor(from, to, humanHandle, db) };
+        return { ok: true, data: dmRoomFor(fromId, toId, humanHandle, db) };
       } catch (dmErr) {
         return { ok: false, error: dmErr instanceof Error ? dmErr.message : String(dmErr) };
       }

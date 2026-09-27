@@ -80,7 +80,7 @@ test("pane:list lists only claude panes, joined to presence by session id, with 
   expect(res.data.panes.map((p) => p.paneId)).toEqual(["w1:p1", "w1:p2"]);
   const first = res.data.panes[0]!;
   expect(first).toMatchObject({ workspace: "acme", title: "Evaluate codegen", cwd: "/tmp/acme", repo: "acme", branch: "main", agentStatus: "idle", sessionId: "sess-signed" });
-  expect(first.presence).toMatchObject({ handle: "meg", rooms: ["build"], status: "live" });
+  expect(first.presence).toMatchObject({ name: "meg", rooms: ["build"], status: "live" });
   expect(res.data.panes.find((p) => p.paneId === "w1:p1")?.focused).toBe(true);
   expect(res.data.panes.find((p) => p.paneId === "w1:p2")?.focused).toBe(false);
 });
@@ -94,7 +94,7 @@ test("pane:list falls back to the presence row's pane id when herdr has no sessi
   if (!signed.ok) throw new Error(signed.error);
   const res = await pane["pane:list"]({});
   if (!res.ok) throw new Error(res.error);
-  expect(res.data.panes.find((p) => p.paneId === "w1:p2")!.presence?.handle).toBe("fred");
+  expect(res.data.panes.find((p) => p.paneId === "w1:p2")!.presence?.name).toBe("fred");
 });
 
 test("pane:list derives repo and branch for an unsigned pane without touching the presence table", async () => {
@@ -631,7 +631,7 @@ test("pane:list joins presence bound from a bg pane to the bg row, never the vis
   if (!res.ok) throw new Error(res.error);
   const bgRow = res.data.panes.find((p) => p.paneId === "bg:wb:p1")!;
   const visibleRow = res.data.panes.find((p) => p.paneId === "wb:p1")!;
-  expect(bgRow.presence?.handle).toBe("worker");
+  expect(bgRow.presence?.name).toBe("worker");
   expect(visibleRow.presence).toBeUndefined();
 });
 
@@ -728,4 +728,17 @@ test("pane:announce-relocation refuses an empty sessionId, a relative cwd, and a
     .toEqual({ ok: false, error: "cwd must be an absolute path" });
   expect(await pane["pane:announce-relocation"]({ sessionId: "s1", tool: "EnterWorktree", cwd: "/repo", path: "" }))
     .toEqual({ ok: false, error: "path must be a non-empty string" });
+});
+
+test("pane:list presence carries the display name beside the id", async () => {
+  const { chat, pane } = harness(
+    (method) => (method === "session.snapshot" ? SNAPSHOT : new HerdrFakeError("invalid_request", method)),
+    { registryDeps: fakeRegistryDeps({ "sess-signed": "busy" }) },
+  );
+  const signed = await chat["chat:sign-in"]({ sessionId: "sess-signed", baseHandle: "meg", cwd: "/tmp/acme", pane: "w1:p1" });
+  if (!signed.ok) throw new Error(signed.error);
+  expect(signed.data.handle).not.toBe("meg");
+  const res = await pane["pane:list"]({});
+  if (!res.ok) throw new Error(res.error);
+  expect(res.data.panes.find((p) => p.paneId === "w1:p1")!.presence).toMatchObject({ handle: signed.data.handle, name: "meg" });
 });

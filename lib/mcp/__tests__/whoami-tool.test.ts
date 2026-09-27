@@ -19,7 +19,7 @@ describe("whoami", () => {
     expect(r.body).toEqual({
       sessionId: "s1",
       pane: "p1",
-      chat: { handle: "arwen", baseHandle: "arwen", room: "rt" },
+      chat: { handle: "arwen", name: "arwen", baseHandle: "arwen", room: "rt" },
       herd: { id: "hd-1", job: "j", room: "herd-room" },
     });
     expect(asked).toEqual(["s1"]);
@@ -48,7 +48,13 @@ describe("whoami", () => {
   test("a session file missing optional fields reports them as null", async () => {
     const { t } = tool({ s1: { sessionId: "s1", handle: "arwen", signedInAt: 1 } as ChatSession });
     const r = await t.handler({}, { CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv);
-    expect((r.body as { chat: unknown }).chat).toEqual({ handle: "arwen", baseHandle: null, room: null });
+    expect((r.body as { chat: unknown }).chat).toEqual({ handle: "arwen", name: "arwen", baseHandle: null, room: null });
+  });
+
+  test("a minted identity reports its name and its id", async () => {
+    const { t } = tool({ s1: { sessionId: "s1", handle: "arwen.k3f9", baseHandle: "arwen", name: "arwen", signedInAt: 1, room: "rt" } });
+    const r = await t.handler({}, { CLAUDE_CODE_SESSION_ID: "s1" } as NodeJS.ProcessEnv);
+    expect((r.body as { chat: unknown }).chat).toEqual({ handle: "arwen.k3f9", name: "arwen", baseHandle: "arwen", room: "rt" });
   });
 
   test("takes no input", () => {

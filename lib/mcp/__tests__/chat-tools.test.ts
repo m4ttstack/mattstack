@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { chatToolDefs, type ChatToolDeps } from "../chat-tools.ts";
-import { SIGN_IN_HINT } from "../shared.ts";
+import { requireChatHandle, SIGN_IN_HINT } from "../shared.ts";
 
 const SESSION = { sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 };
 const ENV = { CLAUDE_CODE_SESSION_ID: "s1", HERDR_PANE_ID: "w1:p2" } as NodeJS.ProcessEnv;
@@ -226,10 +226,10 @@ describe("chat_sign_in", () => {
   test("spawns the CLI with a fixed argv built from named inputs, in the given cwd", async () => {
     const f = fake();
     const r = await f.tool("chat_sign_in").handler({ cwd: "/work", as: "ann", room: "build", status: "rebasing" }, ENV);
-    expect(r).toEqual({ ok: true, body: { handle: "ann", room: "rt" } });
+    expect(r).toEqual({ ok: true, body: { handle: "ann", name: "ann", room: "rt", continued: false } });
     expect(f.calls).toEqual([{
       fn: "spawnRt",
-      a: { path: ["chat", "sign-in"], rest: ["--session", "s1", "--as", "ann", "--room", "build", "--status", "rebasing"] },
+      a: { path: ["chat", "sign-in"], rest: ["--session", "s1", "--name", "ann", "--room", "build", "--status", "rebasing"] },
       o: { cwd: "/work" },
     }]);
   });
@@ -333,6 +333,22 @@ describe("chat_sign_in", () => {
     expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
   });
 
+  test("the held refusal names the holder by display name, never by id", async () => {
+    const f = fake({ buddiesRows: [{ sessionId: "s2", handle: "bob.k3f9", baseHandle: "bob", name: "bob" }] });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("another session holds or held (bob)");
+    expect(r.error).not.toContain("bob.k3f9");
+  });
+
+  test("as refuses a display name another session holds, with no spawn", async () => {
+    const f = fake({ buddiesRows: [{ sessionId: "s2", handle: "bob.k3f9", baseHandle: "bob", name: "bob-2" }] });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob-2" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("another session holds or held (bob-2)");
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
+  });
+
   test("as allows retaking this session's own prior base handle without calling buddies", async () => {
     const f = fake();
     const r = await f.tool("chat_sign_in").handler({ as: "ann" }, ENV);
@@ -381,6 +397,22 @@ describe("chat_sign_in", () => {
     const r = await f.tool("chat_sign_in").handler({ as: "ann" }, ENV);
     expect(r.ok).toBe(true);
     expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "spawnRt"]);
+  });
+
+  test("as never continues: an offline identity's unused name spawns a fresh sign-in by --name, never --as", async () => {
+    const f = fake();
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(true);
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "rooms", "spawnRt"]);
+    const rest = f.calls.find((c) => c.fn === "spawnRt")!.a.rest as string[];
+    expect(rest).toEqual(["--session", "s1", "--name", "bob"]);
+    expect(rest).not.toContain("--as");
+  });
+
+  test("the sign-in result carries the name and continued flag the CLI printed", async () => {
+    const f = fake({ spawn: { ok: true, body: { ok: true, handle: "ann.k3f9", name: "ann", room: null, continued: true } } });
+    const r = await f.tool("chat_sign_in").handler({ as: "ann" }, ENV);
+    expect(r).toEqual({ ok: true, body: { handle: "ann.k3f9", name: "ann", room: null, continued: true } });
   });
 });
 
@@ -493,5 +525,19 @@ describe("chat_invite", () => {
   test("a bg pane ref passes the shape check", async () => {
     const f = fake();
     expect((await f.tool("chat_invite").handler({ pane: "bg:w2:p1", room: "build" }, ENV)).ok).toBe(true);
+  });
+});
+
+describe("requireChatHandle", () => {
+  test("returns the id to act as and the name to show", () => {
+    expect(requireChatHandle(ENV, () => ({ sessionId: "s1", handle: "ann.k3f9", baseHandle: "ann", name: "ann", signedInAt: 1 }))).toEqual({ handle: "ann.k3f9", name: "ann" });
+    expect(requireChatHandle(ENV, () => ({ sessionId: "s1", handle: "ann", baseHandle: "ann", signedInAt: 1 }))).toEqual({ handle: "ann", name: "ann" });
+  });
+
+  test("the not-a-member refusal names the session by name", async () => {
+    const f = fake({ who: { members: [] } });
+    const r = await f.tool("chat_read").handler({ room: "build", last: 5 }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBe("ann is not a member of #build; join it first");
   });
 });

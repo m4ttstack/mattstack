@@ -88,6 +88,7 @@ async function stopDaemonForHome(_home: string): Promise<void> {
 interface SignInResult {
   ok: true;
   handle: string;
+  name: string;
   room: string | null;
 }
 
@@ -185,13 +186,13 @@ describe("rt chat presence + roster (e2e)", () => {
     cleanupHome();
   });
 
-  test("two sign-ins from one worktree before either registers yield x/x-2", async () => {
+  test("a second session asking for a live name gets a new identity with the next display suffix", async () => {
     await startDaemonForHome(home);
-
     const a = await signIn(home, "sess-a1", "x");
-    expect(a.handle).toBe("x");
+    expect(a.name).toBe("x");
     const b = await signIn(home, "sess-b1", "x");
-    expect(b.handle).toBe("x-2");
+    expect(b.name).toBe("x-2");
+    expect(b.handle).not.toBe(a.handle);
   }, 30_000);
 
   test("a DM to matt produces a desk notification", async () => {
@@ -209,7 +210,7 @@ describe("rt chat presence + roster (e2e)", () => {
   test("downgrading user_version to 3 and restarting the daemon replays the schema without losing data", async () => {
     await startDaemonForHome(home);
     const seeded = await signIn(home, "sess-migrate", "before-migration");
-    expect(seeded.handle).toBe("before-migration");
+    expect(seeded.name).toBe("before-migration");
     await stopDaemonForHome(home);
 
     expect(readUserVersion(home)).toBe(SCHEMA_VERSION);
@@ -224,11 +225,11 @@ describe("rt chat presence + roster (e2e)", () => {
     }
     // The replay is IF NOT EXISTS everywhere — a data-preserving no-op, so
     // the row survives with its columns intact, not merely as a row.
-    const preserved = readPresenceRow(home, "before-migration");
+    const preserved = readPresenceRow(home, seeded.handle);
     expect(preserved?.session_id).toBe("sess-migrate");
     expect(preserved?.signed_out_at).toBeNull();
 
     const after = await signIn(home, "sess-post-migrate", "after-migration");
-    expect(after.handle).toBe("after-migration");
+    expect(after.name).toBe("after-migration");
   }, 30_000);
 });

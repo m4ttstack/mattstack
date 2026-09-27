@@ -14,7 +14,7 @@
  *   rt chat who [room]
  *   rt chat mark [room] [--upto <messageId>]      advance the cursor to <messageId>, or clear the room when omitted
  *   rt chat prune [--json]                          delete messages past the retention floor (also runs daily in the daemon)
- *   rt chat sign-in [--as <h>] [--status <text>] [--no-room] [--room <name>] [--session <id>]
+ *   rt chat sign-in [--as <h> | --name <x>] [--status <text>] [--no-room] [--room <name>] [--session <id>]
  *   rt chat sign-in --pane <id> [--as <h>] [--status <text>]   sign in a herdr pane's session, no CLAUDE_CODE_SESSION_ID needed
  *   rt chat sign-out [--quiet] [--session <id>]
  *   rt chat sign-out --pane <id>                   sign out a herdr pane's session daemon-side, no CLAUDE_CODE_SESSION_ID needed
@@ -60,6 +60,7 @@ import {
   deleteChatSession,
   isValidSessionId,
   readChatSession,
+  sessionName,
   writeChatSession,
 } from "../lib/chat-session.ts";
 import { chatViewerUrl, readChatViewerUrlSetting } from "../lib/chat-viewer-url.ts";
@@ -97,7 +98,7 @@ import type {
 
 // ─── arg parsing (commands/events.ts conventions) ────────────────────────────
 
-const FLAGS_WITH_VALUES = new Set(["--as", "--wake-on", "--limit", "--since", "--room", "--sock", "--session", "--status", "--file", "--last", "--note", "--pane", "--upto"]);
+const FLAGS_WITH_VALUES = new Set(["--as", "--name", "--wake-on", "--limit", "--since", "--room", "--sock", "--session", "--status", "--file", "--last", "--note", "--pane", "--upto"]);
 
 function positional(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i++) {
@@ -184,7 +185,7 @@ function unwrap<T>(res: RtResponse<T>, label: string): T {
 // chain below BEFORE any session file exists — see resolveBaseHandle.
 //
 // Sign-in itself stops after chat.handle and draws a first name from
-// lib/chat-names.ts instead (see resolveSignInBaseHandle): the pane title
+// lib/chat-names.ts instead (see resolveSignInRequest): the pane title
 // of every Claude pane is the same "Claude Code", and a directory handle
 // is nothing a human would call an agent by. The directory chain stays
 // for the unsigned path, where a name that changed on every call would
@@ -261,22 +262,30 @@ function herdrPaneHandle(): string | null {
 }
 
 /**
- * Sign-in's chain: `--as` → chat.handle → the base this session already
- * signed in as (a repeat sign-in keeps its name) → undefined, which asks the
- * daemon to draw a first name (it holds the buddy list and the
- * least-recently-used ledger, so the draw is made where both live).
+ * Sign-in's request. `--as` continues the identity it names: the daemon
+ * resolves a name or an id, and gives a new id with a suffixed name when
+ * that identity is live in another session. `chat.handle` asks for a fresh
+ * identity with that display name. Neither means a pool draw. A repeat
+ * sign-in from the same session keeps its id daemon-side, by session id.
+ * `--name` asks for a fresh identity with that display name and never
+ * continues one (the MCP chat_sign_in `as` spawns it).
  */
-function resolveSignInBaseHandle(args: string[], sessionId: string | undefined): string | undefined {
+function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?: string } {
   const explicit = flagValue(args, "--as");
+  if (explicit !== undefined && flagValue(args, "--name") !== undefined) {
+    fail("sign-in takes --as or --name, not both: --as continues an identity, --name starts a fresh one");
+  }
   if (explicit) {
     requireValidName("handle", explicit);
-    return explicit;
+    return { continue: explicit };
+  }
+  const named = flagValue(args, "--name");
+  if (named) {
+    requireValidName("handle", named);
+    return { baseHandle: named };
   }
   const fromSetting = readChatHandleSetting();
-  if (fromSetting) return fromSetting;
-  const prior = readChatSession(sessionId);
-  if (prior && typeof prior.baseHandle === "string" && isValidChatName(prior.baseHandle)) return prior.baseHandle;
-  return undefined;
+  return fromSetting ? { baseHandle: fromSetting } : {};
 }
 
 function readChatHandleSetting(): string | undefined {
@@ -289,7 +298,7 @@ function readChatHandleSetting(): string | undefined {
 }
 
 /**
- * `--pane` sign-in's baseHandle chain is `--as` only, never chat.handle: that
+ * `--pane` sign-in's request is `--as` only, never chat.handle: that
  * setting names the INVOKING process's own preferred handle, and this
  * process isn't the one signing in -- a different pane's session is. Falling
  * through to it would hand the invoker's name to whatever pane happened to
@@ -297,16 +306,15 @@ function readChatHandleSetting(): string | undefined {
  * fallback either, for the same reason: this process has no session of its
  * own to have a prior handle for.
  */
-function resolvePaneBaseHandle(args: string[]): string | undefined {
+function resolvePaneRequest(args: string[]): { continue?: string } {
+  if (flagValue(args, "--name") !== undefined) fail("sign-in --pane takes --as only, not --name");
   const explicit = flagValue(args, "--as");
-  if (explicit) {
-    requireValidName("handle", explicit);
-    return explicit;
-  }
-  return undefined;
+  if (!explicit) return {};
+  requireValidName("handle", explicit);
+  return { continue: explicit };
 }
 
-/** The --as-first chain (positions 1-6): what sign-in assigns a baseHandle from, and what resolveHandle falls back to for an unsigned-in session. */
+/** The --as-first chain (positions 1-6): what resolveHandle falls back to for an unsigned-in session. Sign-in never reads it; its request comes from resolveSignInRequest. */
 function resolveBaseHandle(args: string[]): string {
   const explicit = flagValue(args, "--as");
   if (explicit) {
@@ -338,8 +346,8 @@ function resolveBaseHandle(args: string[]): string {
 
 /**
  * Position 0 (the session file) wins over every other position, for every
- * verb but sign-in itself (which calls resolveBaseHandle directly, before a
- * session file exists for this sign-in). `--as` alongside an active session
+ * verb but sign-in itself (whose request comes from resolveSignInRequest,
+ * before a session file exists for this sign-in). `--as` alongside an active session
  * is refused rather than silently overridden — a second identity is exactly
  * the desync the base resolution order exists to prevent.
  */
@@ -347,12 +355,18 @@ function resolveHandle(args: string[]): string {
   const session = readChatSession(currentSessionId(args));
   if (session) {
     if (flagValue(args, "--as") !== undefined) {
-      fail(`signed in as ${session.handle} — sign out to change identity (rt chat sign-out)`);
+      fail(`signed in as ${sessionName(session)}: sign out to change identity (rt chat sign-out)`);
     }
     return session.handle;
   }
 
   return resolveBaseHandle(args);
+}
+
+/** What to print for this caller: the session's name when signed in, else the unsigned handle itself. */
+function resolveSelfName(args: string[]): string {
+  const session = readChatSession(currentSessionId(args));
+  return session ? sessionName(session) : resolveBaseHandle(args);
 }
 
 function safeCwd(): string | undefined {
@@ -369,11 +383,11 @@ function pluralize(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-function renderJoin(room: string, handle: string, data: { memberCount: number; unread: number }): string {
+function renderJoin(room: string, name: string, data: { memberCount: number; unread: number }): string {
   const parts = [pluralize(data.memberCount, "member")];
   if (data.memberCount === 1) parts.push("you are alone here");
   else if (data.unread > 0) parts.push(`${data.unread} unread`);
-  return `✓ joined #${room} as ${handle} — ${parts.join(", ")}`;
+  return `✓ joined #${room} as ${name} · ${parts.join(", ")}`;
 }
 
 function renderSignIn(
@@ -410,7 +424,7 @@ function relativeAgo(ms: number): string {
 
 /** A DM room's display name — the handler's `a ↔ b` pair, never the hashed `dm-<hash>` room id (that id is a store key, not something anyone should read). */
 function roomHeading(r: RoomSummary): string {
-  if (r.kind === "dm" && r.participants) return `${r.participants.a} ↔ ${r.participants.b}`;
+  if (r.kind === "dm" && r.participants) return `${r.participants.aName ?? r.participants.a} ↔ ${r.participants.bName ?? r.participants.b}`;
   return `#${r.room}`;
 }
 
@@ -459,7 +473,7 @@ function truncate(s: string, max: number): string {
 
 function renderMessage(m: ChatMessage, full: boolean): string {
   const time = new Date(m.postedAt).toISOString().slice(11, 16);
-  return `  [${time}] ${m.handle}: ${full ? m.body : truncate(m.body, 200)}`;
+  return `  [${time}] ${m.name ?? m.handle}: ${full ? m.body : truncate(m.body, 200)}`;
 }
 
 /**
@@ -494,7 +508,7 @@ function renderWhoSection(heading: string, members: ChatMember[]): string {
     const cwd = m.cwd ? `  ${m.cwd}` : "";
     const pane = m.pane ? `  [${m.pane}]` : "";
     const status = STATUS_WORD[m.status];
-    return `  ${m.handle}  ${status}${cwd}${pane}`;
+    return `  ${m.name ?? m.handle}  ${status}${cwd}${pane}`;
   });
   return [heading, ...(lines.length > 0 ? lines : ["  (no members)"])].join("\n");
 }
@@ -525,11 +539,13 @@ const BUDDY_SECTIONS: BuddyStatus[] = ["live", "idle", "offline"];
 function renderBuddies(buddies: Array<PresenceRow & { status: BuddyStatus }>): string {
   if (buddies.length === 0) return "(nobody signed in)";
 
+  const nameOf = (b: PresenceRow): string => b.name ?? b.handle;
+
   // Columns span every non-offline row (offline collapses to its own line,
   // so it never stretches the other rows' alignment). Each column's width is
   // the longest cell plus a fixed gap to the next column.
   const regular = buddies.filter((b) => b.status !== "offline");
-  const handleWidth = Math.max(0, ...regular.map((b) => b.handle.length));
+  const handleWidth = Math.max(0, ...regular.map((b) => nameOf(b).length));
   const nameColWidth = handleWidth + 2 /* "● " */ + 2 /* gap */;
   const deetsWidth = Math.max(0, ...regular.map((b) => buddyDeets(b).length));
   const deetsColWidth = deetsWidth > 0 ? deetsWidth + 3 : 0;
@@ -539,13 +555,13 @@ function renderBuddies(buddies: Array<PresenceRow & { status: BuddyStatus }>): s
     const rows = buddies.filter((b) => b.status === status);
     if (rows.length === 0) continue;
     if (status === "offline") {
-      const entries = rows.map((b) => `${b.handle} (${relativeAgo(b.signedOutAt ?? b.lastSeenAt)} ago)`).join(", ");
+      const entries = rows.map((b) => `${nameOf(b)} (${relativeAgo(b.signedOutAt ?? b.lastSeenAt)} ago)`).join(", ");
       lines.push(`  offline (last 24h): ${entries}`);
       continue;
     }
     const bullet = status === "idle" ? "○" : "●"; // filled = live
     for (const b of rows) {
-      const name = `${bullet} ${b.handle}`.padEnd(nameColWidth);
+      const name = `${bullet} ${nameOf(b)}`.padEnd(nameColWidth);
       const deets = buddyDeets(b).padEnd(deetsColWidth);
       let line = `${name}${deets}${buddyStatusWord(b)}`;
       if (b.statusText) line += `   ${b.statusText}`;
@@ -581,7 +597,7 @@ async function runJoin(args: string[]): Promise<void> {
     console.log(JSON.stringify({ ok: true, room, ...data }));
     return;
   }
-  console.log(renderJoin(room, data.handle, data));
+  console.log(renderJoin(room, data.name ?? data.handle, data));
 }
 
 async function runLeave(args: string[]): Promise<void> {
@@ -599,7 +615,7 @@ async function runLeave(args: string[]): Promise<void> {
     console.log(JSON.stringify({ ok: true }));
     return;
   }
-  console.log(`✓ left #${room} (${handle})`);
+  console.log(`✓ left #${room} (${resolveSelfName(args)})`);
 }
 
 async function runArchive(args: string[]): Promise<void> {
@@ -719,7 +735,7 @@ async function runPost(args: string[]): Promise<void> {
   // wake-on mention puts the correction: the poster, still in the turn that
   // posted, reads that nobody will act and picks a mention, @here, or a DM.
   if (quiet) console.log("posted quietly (on the record, unread for every member, nobody woken)");
-  else if (data.recipients.length > 0) console.log(`delivered to ${data.recipients.join(", ")}`);
+  else if (data.recipients.length > 0) console.log(`delivered to ${(data.recipientNames ?? data.recipients).join(", ")}`);
   else console.log(`on the record for ${data.others} member${data.others === 1 ? "" : "s"}, woke nobody: @handle or @here wakes someone, rt chat dm reaches one`);
   if (url) console.log(`posted → ${url}`);
 }
@@ -745,8 +761,9 @@ async function runAck(args: string[]): Promise<void> {
     console.log(JSON.stringify({ ok: true, id, author: data.author, room: data.room, already: data.already }));
     return;
   }
-  if (data.already) console.log(`already acked #${id} (${data.author} was not woken again)`);
-  else console.log(`acked #${id} → ${data.author}`);
+  const author = data.authorName ?? data.author;
+  if (data.already) console.log(`already acked #${id} (${author} was not woken again)`);
+  else console.log(`acked #${id} → ${author}`);
 }
 
 function parseMessageId(raw: string | undefined, verb: string): number {
@@ -782,15 +799,15 @@ async function runClaim(args: string[]): Promise<void> {
   }
   if (data.outcome === "lost") {
     const now = Date.now();
-    console.log(`#${id} already claimed by ${data.holder} ${humanDuration(now - data.claimedAt)} ago (claimable again in ${humanDuration(data.expiresAt - now)})`);
+    console.log(`#${id} already claimed by ${data.holderName ?? data.holder} ${humanDuration(now - data.claimedAt)} ago (claimable again in ${humanDuration(data.expiresAt - now)})`);
     return;
   }
   if (data.outcome === "held") {
     console.log(`you already hold #${id}`);
     return;
   }
-  const takeover = data.previousHolder ? ` (took over from ${data.previousHolder})` : "";
-  console.log(`claimed #${id} → ${data.author}${takeover}`);
+  const takeover = data.previousHolder ? ` (took over from ${data.previousHolderName ?? data.previousHolder})` : "";
+  console.log(`claimed #${id} → ${data.authorName ?? data.author}${takeover}`);
 }
 
 async function runRelease(args: string[]): Promise<void> {
@@ -804,7 +821,7 @@ async function runRelease(args: string[]): Promise<void> {
     console.log(JSON.stringify({ ok: true, id, holder: data.holder }));
     return;
   }
-  console.log(`released #${id} (was held by ${data.holder})`);
+  console.log(`released #${id} (was held by ${data.holderName ?? data.holder})`);
 }
 
 async function runRead(args: string[]): Promise<void> {
@@ -972,7 +989,7 @@ async function runDm(args: string[]): Promise<void> {
     console.log(JSON.stringify({ ok: true, ...data }));
     return;
   }
-  console.log(`dm → ${to} #${data.id}`);
+  console.log(`dm → ${data.recipientNames?.[0] ?? to} #${data.id}`);
   const url = chatViewerUrl(readChatViewerUrlSetting(), data.room, data.id);
   if (url) console.log(`posted → ${url}`);
 }
@@ -1004,13 +1021,13 @@ async function runInvite(args: string[]): Promise<void> {
 // ─── sign-in / sign-out (presence) ───────────────────────────────────────────
 
 /**
- * baseHandle resolves through resolveSignInBaseHandle, where the session
- * file counts only as "the name this session already had"; the daemon
- * assigns the final (possibly suffixed) handle. The room is derived BEFORE
- * the sign-in call, since it
- * depends only on cwd + the identity codec, and is written into the session
- * file alongside the assigned handle so a later chatJoin failure still
- * leaves a session file that agrees with what was actually attempted.
+ * The request resolves through resolveSignInRequest; a repeat sign-in from
+ * the same session keeps its id daemon-side, by session id, rather than
+ * anything read here. The daemon assigns the final (possibly suffixed)
+ * handle. The room is derived BEFORE the sign-in call, since it depends
+ * only on cwd + the identity codec, and is written into the session file
+ * alongside the assigned handle so a later chatJoin failure still leaves a
+ * session file that agrees with what was actually attempted.
  *
  * getRepoRoot/getRepoIdentityForRoot/parseIdentity run ONCE here — reusing
  * the parsed identity for both the display `repo` label and the room name,
@@ -1028,8 +1045,8 @@ async function runSignIn(args: string[]): Promise<void> {
   if (!sessionId) fail("no session id — pass --session <id> or run under CLAUDE_CODE_SESSION_ID");
   requireValidSessionId(sessionId);
 
-  const requestedBase = resolveSignInBaseHandle(args, sessionId);
-  if (requestedBase !== undefined) requireValidName("handle", requestedBase);
+  const request = resolveSignInRequest(args);
+  if (request.baseHandle !== undefined) requireValidName("handle", request.baseHandle);
 
   const cwd = safeCwd();
   const root = cwd ? getRepoRoot(cwd) : null;
@@ -1052,10 +1069,11 @@ async function runSignIn(args: string[]): Promise<void> {
     }
   }
 
-  const signInRes = await chatSignIn({ sessionId, baseHandle: requestedBase, cwd, repo, branch, pane, statusText });
-  const { handle, baseHandle } = unwrap(signInRes, "sign-in");
+  const signInRes = await chatSignIn({ sessionId, ...request, cwd, repo, branch, pane, statusText });
+  const { handle, baseHandle, name, continued } = unwrap(signInRes, "sign-in");
+  const displayName = name ?? handle;
 
-  writeChatSession({ sessionId, handle, baseHandle, signedInAt: Date.now(), room: roomName ?? undefined });
+  writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: roomName ?? undefined });
 
   let joinedRoom: { name: string; memberCount: number } | null = null;
   if (roomName) {
@@ -1065,10 +1083,10 @@ async function runSignIn(args: string[]): Promise<void> {
   }
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, handle, room: roomName }));
+    console.log(JSON.stringify({ ok: true, handle, name: displayName, room: roomName, continued: continued === true }));
     return;
   }
-  console.log(renderSignIn(handle, { repo, branch, pane }, root !== null, noRoomFlag, joinedRoom));
+  console.log(renderSignIn(displayName, { repo, branch, pane }, root !== null, noRoomFlag, joinedRoom));
 }
 
 /**
@@ -1089,29 +1107,30 @@ async function runSignIn(args: string[]): Promise<void> {
  * (daemon-side) is that pane's own notice of what it just joined.
  */
 async function runSignInViaPane(args: string[], paneId: string): Promise<void> {
-  const requestedBase = resolvePaneBaseHandle(args);
+  const request = resolvePaneRequest(args);
   const statusText = flagValue(args, "--status");
   const noRoomFlag = args.includes("--no-room");
   const explicitRoom = flagValue(args, "--room");
   if (explicitRoom) requireValidName("room", explicitRoom);
 
   const signInRes = await chatSignIn({
-    baseHandle: requestedBase,
+    ...request,
     pane: paneId,
     viaPane: true,
     statusText,
     room: explicitRoom,
     noRoom: noRoomFlag,
   });
-  const { handle, baseHandle, sessionId, room } = unwrap(signInRes, "sign-in");
+  const { handle, baseHandle, name, continued, sessionId, room } = unwrap(signInRes, "sign-in");
+  const displayName = name ?? handle;
 
-  writeChatSession({ sessionId, handle, baseHandle, signedInAt: Date.now(), room: room ?? undefined });
+  writeChatSession({ sessionId, handle, baseHandle, name: displayName, signedInAt: Date.now(), room: room ?? undefined });
 
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, handle, room }));
+    console.log(JSON.stringify({ ok: true, handle, name: displayName, room, continued: continued === true }));
     return;
   }
-  console.log(`signed in as ${handle} · pane ${paneId} · ${room ? `joined #${room}` : "no room joined"}`);
+  console.log(`signed in as ${displayName} · pane ${paneId} · ${room ? `joined #${room}` : "no room joined"}`);
 }
 
 /**
@@ -1162,7 +1181,7 @@ async function runSignOut(args: string[]): Promise<void> {
     if (!res.ok) payload.daemonError = res.error ?? "sign-out failed";
     console.log(JSON.stringify(payload));
   } else if (!quiet) {
-    console.log(session ? `✓ signed out (${session.handle})` : "✓ signed out");
+    console.log(session ? `✓ signed out (${sessionName(session)})` : "✓ signed out");
   }
 }
 
@@ -1192,7 +1211,7 @@ async function runSignOutViaPane(args: string[], paneId: string): Promise<void> 
     console.log(JSON.stringify({ ok: true }));
     return;
   }
-  console.log(session ? `✓ signed out (${session.handle}) · pane ${paneId}` : `✓ signed out · pane ${paneId}`);
+  console.log(session ? `✓ signed out (${sessionName(session)}) · pane ${paneId}` : `✓ signed out · pane ${paneId}`);
 }
 
 /**
@@ -1317,7 +1336,7 @@ export async function chat(args: string[]): Promise<void> {
 // ─── test seam ───────────────────────────────────────────────────────────────
 
 export const __test__ = {
-  resolveSignInBaseHandle,
+  resolveSignInRequest,
   slugify,
   findGitRoot,
   resolveMainWorktreePath,
