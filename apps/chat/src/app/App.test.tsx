@@ -23,7 +23,7 @@ import {
 
 import './icons';
 
-import { App } from './App';
+import { App, resultLine } from './App';
 import { PAGE_SIZE } from './Transcript';
 
 const DESKTOP_WIDTH = window.innerWidth;
@@ -1427,4 +1427,24 @@ test('phone: mark-all-read while the reader is open still leaves the list reacha
   expect(screen.getByTestId('phone-inbox-list')).toHaveStyle({
     visibility: 'visible',
   });
+});
+
+test('the invite result line names a pane by its display name', () => {
+  renderWithProviders(
+    <div data-testid="line">
+      {resultLine(
+        [{ paneId: 'w9:p1', delivered: 'accepted' }],
+        [
+          {
+            paneId: 'w9:p1',
+            workspace: 'repo-tools',
+            agentStatus: 'idle',
+            presence: { handle: 'remy.m2p4', name: 'remy', status: 'live', rooms: [] },
+          },
+        ]
+      )}
+    </div>
+  );
+  expect(screen.getByTestId('line')).toHaveTextContent('remy accepted');
+  expect(screen.getByTestId('line')).not.toHaveTextContent('m2p4');
 });

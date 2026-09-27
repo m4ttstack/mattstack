@@ -35,6 +35,7 @@ import { BuddiesProvider } from './buddies-context';
 import { AppMark } from './chrome/AppMark';
 import { Composer, type ComposerHandle } from './Composer';
 import { PageShellDemoPage } from './demo/PageShellDemoPage';
+import { dmPairLabel } from './display-name';
 import type { FleetRoom } from './FleetTree';
 import { HUMAN_HANDLE } from './human';
 import {
@@ -229,14 +230,19 @@ function useMessages(
 
 /**
  * Fetches one room's member list whenever `room` changes, mirroring
- * `useMessages`'s seed/refetch shape. `FleetTree` only ever needs "is this
- * handle in the open room", so the member rows collapse to handles here
- * rather than carrying their own `ChatMember` shape further than this hook.
+ * `useMessages`'s seed/refetch shape. Callers key by handle (`FleetTree`'s
+ * "is this handle in the open room", the composer's mention insert) and show
+ * by name (`memberNames`), so both fall out of this one fetch rather than
+ * carrying the full `ChatMember` shape further than this hook.
  */
 function useRoomMembers(
   room: string | undefined,
   seed: ChatMember[] | undefined
-): { members: string[]; refetchMembers: () => void } {
+): {
+  members: string[];
+  memberNames: ReadonlyMap<string, string>;
+  refetchMembers: () => void;
+} {
   const [members, setMembers] = useState<ChatMember[]>(seed ?? []);
   // Same one-shot rule as useMessages: pending until the first defined room.
   const seedPending = useRef(seed !== undefined);
@@ -272,7 +278,16 @@ function useRoomMembers(
     if (room && frame.topic === `chat/${room}/msg`) fetchMembers();
   });
 
-  return { members: members.map(m => m.handle), refetchMembers: fetchMembers };
+  const memberNames = useMemo(
+    () => new Map(members.map(m => [m.handle, m.name ?? m.handle])),
+    [members]
+  );
+
+  return {
+    members: members.map(m => m.handle),
+    memberNames,
+    refetchMembers: fetchMembers,
+  };
 }
 
 /**
@@ -307,7 +322,7 @@ function usePanesAvailable(): boolean | undefined {
 /**
  * The transcript-edge line after a create-room or add-agents: `invited N`,
  * one span per pane coloured by its delivery, then the standing note that
- * members surface as they sign in. A pane is named by its live handle, else
+ * members surface as they sign in. A pane is named by its display name, else
  * its workspace, else the bare id.
  */
 export function resultLine(
@@ -317,6 +332,7 @@ export function resultLine(
   const label = (r: InviteResult) => {
     const pane = panes.find(p => p.paneId === r.paneId);
     const name =
+      pane?.presence?.name ??
       pane?.presence?.handle ??
       (pane?.workspace ? `${pane.workspace} pane` : r.paneId);
     if (r.delivered === 'accepted')
@@ -406,7 +422,7 @@ function FleetDot({ color, hollow }: { color?: string; hollow?: boolean }) {
 function roomHeaderTitle(room: RoomSummary | undefined): string {
   if (!room) return '';
   return room.kind === 'dm' && room.participants
-    ? `${room.participants.a} ↔ ${room.participants.b}`
+    ? dmPairLabel(room.participants)
     : `#${room.room}`;
 }
 
@@ -1274,10 +1290,11 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
     : '/';
 
   const messages = useMessages(activeRoom, initialState?.messages);
-  const { members: roomMembers, refetchMembers } = useRoomMembers(
-    activeRoom,
-    initialState?.members
-  );
+  const {
+    members: roomMembers,
+    memberNames: roomMemberNames,
+    refetchMembers,
+  } = useRoomMembers(activeRoom, initialState?.members);
   const activeRoomSummary = rooms.find(r => r.room === activeRoom);
 
   // The reader's room is the OPEN CARD's, which is rarely the room the rest
@@ -1372,6 +1389,7 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
     <BuddiesProvider
       buddies={buddies}
       roomMembers={roomMembers}
+      memberNames={roomMemberNames}
       now={Date.now()}
       reachable={daemon.reachable}
       actions={buddyActions}

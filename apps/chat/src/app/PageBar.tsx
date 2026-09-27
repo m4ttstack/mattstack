@@ -15,6 +15,7 @@ import { AnimatedChevron, Icon } from '@mattstack/app-kit/icons';
 import type { BuddyStatus, RoomSummary } from '@mattstack/rt-client';
 
 import { AgentName } from './AgentName';
+import { dmPairLabel } from './display-name';
 import { doing, type DoingInput } from './doing';
 import { postMarkRead } from './mark-read';
 import { STATUS_WORD } from './statusDetail';
@@ -110,7 +111,7 @@ function roomTitle(room: RoomSummary): string {
   // gets a neutral label rather than leaking the hash.
   if (room.kind === 'dm') {
     return room.participants
-      ? `${room.participants.a} ↔ ${room.participants.b}`
+      ? dmPairLabel(room.participants)
       : 'Direct message';
   }
   return room.room;
@@ -342,6 +343,7 @@ function RoomMembers({
                       >
                         <AgentName
                           handle={b.handle}
+                          name={b.name}
                           variant="row"
                           reachable={reachable}
                           now={now}

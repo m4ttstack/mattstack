@@ -359,6 +359,65 @@ test('rooms and DMs both close, by hover × and by right-click menu', async () =
   expect(onMarkRead).toHaveBeenCalledWith('dm-jay-max');
 });
 
+test('two DM rows with kai stay distinct, read kai ↔ remy, and show different avatars', () => {
+  renderTree({
+    dms: [
+      dm('kai', 'remy', { room: 'dm-e41f7a3c68bd' }),
+      dm('kai', 'remy.m2p4', {
+        room: 'dm-2c9b7e41d0a5',
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+      }),
+      dm('jay', 'max'),
+    ],
+    buddies: [],
+  });
+  const legacy = screen.getByTestId('dm-row-dm-e41f7a3c68bd');
+  const recycled = screen.getByTestId('dm-row-dm-2c9b7e41d0a5');
+  expect(legacy).toHaveTextContent('kai ↔ remy');
+  expect(recycled).toHaveTextContent('kai ↔ remy');
+  expect(recycled).not.toHaveTextContent('m2p4');
+  const fills = (row: HTMLElement) =>
+    [...row.querySelectorAll('svg[shape-rendering="crispEdges"]')].map(svg =>
+      svg.getAttribute('fill')
+    );
+  expect(fills(legacy)).toHaveLength(2);
+  expect(fills(legacy)[0]).toBe(fills(recycled)[0]);
+  expect(fills(legacy)[1]).not.toBe(fills(recycled)[1]);
+  expect(fills(screen.getByTestId('dm-row-dm-jay-max'))).toEqual([]);
+});
+
+test('workstream and offline rows show names; the overflow line reads pairs by name', async () => {
+  renderTree({
+    rooms: [room('rt')],
+    buddies: [
+      buddy('remy.m2p4', 'rt', { name: 'remy', baseHandle: 'remy' }),
+      buddy('kai.x9z1', 'rt', {
+        name: 'kai',
+        baseHandle: 'kai',
+        status: 'offline',
+        signedOutAt: NOW - 5 * M,
+      }),
+    ],
+    dms: [
+      dm('max', 'stan'),
+      dm('jay', 'max'),
+      dm('edie', 'stan'),
+      dm('kai', 'max'),
+      dm('kai', 'remy.m2p4', {
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+        unread: 2,
+      }),
+    ],
+  });
+  expect(screen.getByTestId('ws-remy.m2p4')).toHaveTextContent('remy');
+  expect(screen.getByTestId('ws-remy.m2p4')).not.toHaveTextContent('m2p4');
+  expect(screen.getByTestId('offline-rt')).toHaveTextContent('kai · ');
+  expect(screen.getByTestId('offline-rt')).not.toHaveTextContent('x9z1');
+  expect(screen.getByTestId('dm-more')).toHaveTextContent(
+    '1 more · kai ↔ remy 2'
+  );
+});
+
 test('the daemon down withholds every presence claim in the tree', () => {
   renderTree({
     rooms: [room('rt')],

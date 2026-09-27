@@ -391,3 +391,34 @@ test('the fleet drawer names the daemon health and closes on its own close contr
   await userEvent.click(screen.getByLabelText('Close'));
   expect(onClose).toHaveBeenCalled();
 });
+
+test('a drawer tap on a recycled name opens the DM by id and is labelled by name', async () => {
+  const onOpenDm = vi.fn();
+  renderWithProviders(
+    <FleetDrawer
+      opened
+      onClose={vi.fn()}
+      rooms={[{ room: 'rt', memberCount: 1, unread: 0, mentions: 0 }]}
+      buddies={[
+        {
+          sessionId: 's-remy2',
+          handle: 'remy.m2p4',
+          baseHandle: 'remy',
+          name: 'remy',
+          repo: 'rt',
+          signedInAt: 1,
+          lastSeenAt: 1,
+          status: 'live',
+          rooms: ['rt'],
+          pane: 'wC4:p2',
+        },
+      ]}
+      onSelectRoom={vi.fn()}
+      onOpenDm={onOpenDm}
+    />
+  );
+  const row = screen.getByTestId('ws-remy.m2p4');
+  expect(row).toHaveAttribute('aria-label', 'Message remy');
+  await userEvent.click(row);
+  expect(onOpenDm).toHaveBeenCalledWith('remy.m2p4');
+});
