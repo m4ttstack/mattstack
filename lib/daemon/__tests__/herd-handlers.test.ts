@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, existsSync, statSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import pino from "pino";
@@ -974,6 +974,9 @@ describe("herd:spawn", () => {
     expect(store.getJob(herd, "job-a")).toMatchObject({ worktree: "/w/job-a", branch: "job-a", tree: "job-a", pane: "w9:p1", agentSession: "sess-w1", agentId: "ag-1", handle: "job-a", status: "spawning", disposable: false });
     expect(res.data).toMatchObject({ pane: "w9:p1", worktree: "/w/job-a", tree: "job-a", sessionId: "sess-w1", wasOnDeck: false });
     expect(readFileSync(join(dir, "herds", herd, "job-a", "job.md"), "utf8")).toContain("do the thing");
+    const jobMd = join(dir, "herds", herd, "job-a", "job.md");
+    expect(statSync(jobMd).mode & 0o777).toBe(0o600);
+    expect(statSync(join(dir, "herds", herd, "job-a")).mode & 0o777).toBe(0o700);
   });
 
   test("a spawned worker gets a chat session file, so the chat_* MCP tools resolve its handle", async () => {
