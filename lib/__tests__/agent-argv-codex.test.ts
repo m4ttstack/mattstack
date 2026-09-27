@@ -8,7 +8,7 @@ describe("buildCodexArgv", () => {
 
   test("headless start: exec --json, no session id emitted", () => {
     const argv = buildCodexArgv({ session: { kind: "start", sessionId: UUID }, headless: true, prompt: "do it" }, bins);
-    expect(argv).toEqual(["/abs/codex", "exec", "--json", "do it"]);
+    expect(argv).toEqual(["/abs/codex", "exec", "--json", "-"]);
     expect(argv).not.toContain(UUID);
   });
 
@@ -20,13 +20,19 @@ describe("buildCodexArgv", () => {
     expect(argv).toEqual([
       "/abs/codex", "exec", "--json",
       "-m", "gpt-6-astra", "-c", "model_reasoning_effort=high",
-      "--dangerously-bypass-approvals-and-sandbox", "--search", "do it",
+      "--dangerously-bypass-approvals-and-sandbox", "--search", "-",
     ]);
   });
 
   test("headless resume: exec resume --json <flags> <id> <prompt>", () => {
     const argv = buildCodexArgv({ model: "gpt-6-astra", session: { kind: "resume", sessionId: UUID }, headless: true, prompt: "q" }, bins);
-    expect(argv).toEqual(["/abs/codex", "exec", "resume", "--json", "-m", "gpt-6-astra", UUID, "q"]);
+    expect(argv).toEqual(["/abs/codex", "exec", "resume", "--json", "-m", "gpt-6-astra", UUID, "-"]);
+  });
+
+  test("headless never carries the prompt text; `-` tells codex to read stdin", () => {
+    const argv = buildCodexArgv({ session: { kind: "resume", sessionId: UUID }, headless: true, prompt: "secret brief" }, bins);
+    expect(argv.at(-1)).toBe("-");
+    expect(argv).not.toContain("secret brief");
   });
 
   test("non-headless resume emits no --json", () => {

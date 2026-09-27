@@ -11,8 +11,8 @@ import { runCapture } from "../lib/subprocess.ts";
 const AUDIT_TIMEOUT_MS = 600_000;
 
 // Paths only: a pack runs to tens of thousands of lines, and the prompt is
-// one argv token, so inlining file text would hit ARG_MAX. The run reads the
-// files itself (Read is the one tool it is allowed).
+// fed on stdin, but inlining tens of thousands of lines would still swamp the
+// run's context. The run reads the files itself (Read is the one tool it is allowed).
 export function buildAuditPrompt(paths: string[], tools: Array<{ name: string; description: string }>): string {
   const toolList = tools.map((t) => `- ${t.name}: ${t.description}`).join("\n");
   const fileList = paths.map((p) => `- ${p}`).join("\n");
@@ -38,6 +38,11 @@ const AUDIT_LOCKDOWN = "--tools=Read --allowedTools=Read --strict-mcp-config --p
 
 export function buildAuditInvocation(prompt: string, sessionId: string): AgentInvocation {
   return { headless: true, prompt, session: { kind: "start", sessionId }, yolo: false, extraArgs: AUDIT_LOCKDOWN };
+}
+
+export function buildAuditRun(prompt: string, sessionId: string, claude: string, packDir: string) {
+  const argv = buildClaudeArgv(buildAuditInvocation(prompt, sessionId), { claude }) as [string, ...string[]];
+  return { argv, opts: { cwd: packDir, timeoutMs: AUDIT_TIMEOUT_MS, stderr: "pipe" as const, stdin: prompt } };
 }
 
 export function auditJsonPayload(
@@ -92,8 +97,8 @@ export async function skillsAudit(args: string[]): Promise<void> {
   const { resolved, claude } = inputs;
   const files = lintedMarkdownFiles(resolved.packDir).map((p) => relative(resolved.packDir, p));
   const prompt = buildAuditPrompt(files, mcpToolsPayload().tools.map((t) => ({ name: t.name, description: t.description })));
-  const argv = buildClaudeArgv(buildAuditInvocation(prompt, randomUUID()), { claude });
-  const r = await runCapture(argv as [string, ...string[]], { cwd: resolved.packDir, timeoutMs: AUDIT_TIMEOUT_MS, stderr: "pipe" });
+  const run = buildAuditRun(prompt, randomUUID(), claude, resolved.packDir);
+  const r = await runCapture(run.argv, run.opts);
   let text = r.stdout;
   try {
     const parsed = JSON.parse(r.stdout) as { result?: string };
