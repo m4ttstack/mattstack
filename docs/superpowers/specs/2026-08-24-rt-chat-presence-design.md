@@ -1,5 +1,10 @@
 # rt chat presence — sign-in, the buddy list, and DMs
 
+> **Superseded in part:** `2026-09-27-chat-identity-design.md` replaces this
+> document's handle-as-identity statements: a handle is an identity id
+> behind a display name, and every new session is a new identity unless it
+> explicitly continues one.
+
 > **Superseded in part:** `2026-08-28-rt-chat-delivery-v2-design.md` replaces
 > this document's armed/deaf presence model (arming a tail, the `deaf`
 > buddy status, the pulse hook) with automatic push delivery and a

@@ -123,7 +123,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
           // chat:messages checks no membership, so last could otherwise read any room including other agents' DMs.
           const who = await deps.who({ room });
           if (!who.ok) return fromResponse(who);
-          if (!(who.data?.members ?? []).some((m) => m.handle === id.handle)) return err(`${id.handle} is not a member of #${room}; join it first`);
+          if (!(who.data?.members ?? []).some((m) => m.handle === id.handle)) return err(`${id.name} is not a member of #${room}; join it first`);
           const page = await deps.messages({ room, limit: input.last as number });
           if (!page.ok) return fromResponse(page);
           const messages = page.data?.messages ?? [];
@@ -262,7 +262,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
     },
     {
       name: "chat_sign_in",
-      description: "Sign this session in to rt chat (presence, a handle, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as picks this session's base handle and may not be the human's handle. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.",
+      description: "Sign this session in to rt chat (presence, an identity, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as picks the display name for a fresh identity and never continues an existing one: it may not be the human's handle, a name another session holds or held, or a name with room memberships. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.",
       inputSchema: {
         type: "object",
         properties: { cwd: { type: "string" }, as: { type: "string" }, room: { type: "string" }, noRoom: { type: "boolean" }, status: { type: "string" } },
@@ -306,8 +306,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
             // the own-seat exemption the session file gives above.
             const ownRow = rows.some((b) => b.sessionId === sessionId && b.baseHandle === input.as);
             if (!ownRow) {
-              const held = rows.find((b) => (b.baseHandle === input.as || b.handle === input.as) && b.sessionId !== sessionId);
-              if (held) return err(`"as" names a handle another session holds or held (${held.handle}); omit as, or pick an unused name`);
+              const held = rows.find((b) => (b.baseHandle === input.as || b.handle === input.as || b.name === input.as) && b.sessionId !== sessionId);
+              if (held) return err(`"as" names a handle another session holds or held (${held.name ?? held.handle}); omit as, or pick an unused name`);
               // includeArchived: archived rooms, DMs included, keep their history, and the buddies roster only covers about a day past sign-out.
               const rooms = await deps.rooms({ handle: input.as, includeArchived: true });
               if (!rooms.ok) return fromResponse(rooms);
@@ -319,7 +319,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         }
         if (!deps.sessionAlive(sessionId)) return err(REPLACED);
         const rest = ["--session", sessionId];
-        if (typeof input.as === "string") rest.push("--as", input.as);
+        if (typeof input.as === "string") rest.push("--name", input.as);
         if (typeof input.room === "string") rest.push("--room", input.room);
         if (input.noRoom === true) rest.push("--no-room");
         if (typeof input.status === "string") rest.push("--status", input.status);
@@ -329,8 +329,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         if (body === null || typeof body !== "object" || typeof (body as { handle?: unknown }).handle !== "string") {
           return err("rt chat sign-in returned no handle");
         }
-        const { handle, room } = body as { handle: string; room?: unknown };
-        return ok({ handle, room: room ?? null });
+        const { handle, name, room, continued } = body as { handle: string; name?: unknown; room?: unknown; continued?: unknown };
+        return ok({ handle, name: typeof name === "string" && name ? name : handle, room: room ?? null, continued: continued === true });
       },
     },
     {
@@ -361,7 +361,7 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         // The daemon checks no membership, and archiving hides the room from everyone in it.
         const who = await deps.who({ room });
         if (!who.ok) return fromResponse(who);
-        if (!(who.data?.members ?? []).some((m) => m.handle === id.handle)) return err(`${id.handle} is not a member of #${room}; only a member may archive or reopen it`);
+        if (!(who.data?.members ?? []).some((m) => m.handle === id.handle)) return err(`${id.name} is not a member of #${room}; only a member may archive or reopen it`);
         const res = await deps.archive({ room, handle: id.handle, archived: input.reopen !== true });
         return res.ok ? ok({ room: res.data?.room ?? room, archivedAt: res.data?.archivedAt ?? null }) : fromResponse(res);
       },

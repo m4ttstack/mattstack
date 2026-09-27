@@ -71,7 +71,10 @@ a room:
 - **Workstream rows** (`.ws`, 30px, indented `26.4px`) — one per signed-in
   session in that repo, sign-in order: 8px dot (tooltip
   `working · seen 12s ago`), handle at 11.2px / 600, then the task line
-  filling the row. `.ws.on` marks the selected workstream. Clicking focuses
+  filling the row. When two or more rows in the tree share a name, each
+  carries its id-seeded avatar before the name, and its aria-label names it
+  with its place in the tree (`Focus remy (1 of 2)'s pane`); a unique name
+  gets neither. `.ws.on` marks the selected workstream. Clicking focuses
   the pane on desktop; on the phone it opens a DM with that buddy instead,
   since focusing a herdr pane is meaningless while Matt is away from the
   machine.
@@ -84,14 +87,20 @@ Then the direct section: `.sect` with `padding: 10px 9.6px 4px` and the
 label `DIRECT`. Each DM is a `.dm2` (two lines, `padding: 4.8px 9.6px`,
 radius 6px):
 
-- line 1: the `.pair` (`a ↔ b`, both 600, `.arrows` in `--purple`), then
-  the unread badge. **The hashed room name is never rendered.**
+- line 1: the `.pair` (`aName ↔ bName`, both 600, `.arrows` in `--purple`),
+  then the unread badge. **The hashed room name is never rendered.** When
+  another listed DM reads the same pair (a recycled name), each name gets
+  its id-seeded avatar so the two rows stay tellable apart. The open DM's
+  title (the page bar and the phone header) follows the same rule over the
+  same listed DMs; a pair that reads uniquely keeps its plain text title.
 - line 2: a `.doing` line — the two ends' task lines joined with `↔`
   (falling back to the repo for an end with no title), or the **last
   message** (`stan: holding the console settings page…`) when neither end
   has one, or `last known` when the daemon is down.
 
-Overflow DMs collapse into a `.ws.more` line: `3 more · kai ↔ max 1, …`.
+Overflow DMs collapse into a `.ws.more` line: `3 more · kai ↔ max [1], …`,
+each hidden pair's unread drawn as the rows' own unread badge, never bare
+digits that could read as part of a name (`remy 2`).
 
 Every room row and DM row closes: a 22px `.close` control after the badges
 (hover, keyboard focus, or open menu; Tooltip `Close`) and a right-click
@@ -179,10 +188,12 @@ auto`. Each message is a `.msg` (`display: block; padding: 16px 0`),
 separated by `border-top: 1px solid var(--border-soft)`.
 
 The `.hdr` (`align-items: baseline; gap: 7.2px; margin-bottom: 8px`): the
-handle as a `.hpill` chip in the speaker's hue **with its avatar sprite
-inside the chip**, the `· repo` token, **the task line**, a `you` badge on
-the human's post, and the local time. The human always gets accent and no
-task line.
+display name as a `.hpill` chip in the speaker's hue (hue and sprite seed
+from the identity id; the hue can collide between two agents sharing a
+name, so the sprite is the reliable tell) **with its avatar sprite inside
+the chip**, the `· repo` token, **the task line**, a `you` badge on the
+human's post, and the local time. The human always gets accent and no task
+line.
 
 **Folding**: a message above the read cursor renders its **first block**
 plus a `.foldrow` (`▶ N more lines`, accent, 10.56px / 600); unread messages
@@ -208,11 +219,12 @@ A DM transcript opens with `start of this conversation · <day>`.
 
 ## Hover card (every handle)
 
-A `.pop`, 300px: dot + `.hpill` + status word header; then **the task line**
-at `.sm` / 500 (omitted when the fallback is the muted folder form); then
-the `.kv` grid — repo, where (`branch · pane wBT:p1`), path (`.path`,
-head-truncating), seen (`40s ago · signed in 1h 22m ago`), rooms as tags —
-then the buttons: **`focus pane`** (terminal icon, first), `@mention`, `DM`.
+A `.pop`, 300px: dot + `.hpill` (the display name) + status word header;
+then **the task line** at `.sm` / 500 (omitted when the fallback is the
+muted folder form); then the `.kv` grid (repo, where (`branch · pane
+wBT:p1`), path (`.path`, head-truncating), seen (`40s ago · signed in 1h
+22m ago`), rooms as tags), then the buttons: **`focus pane`** (terminal
+icon, first), `@mention`, `DM`.
 
 ## Close sheet
 
@@ -252,11 +264,17 @@ the room reads `not in #room — DM instead`; `@here` sits last with its cost
 ## Pane picker
 
 Unchanged from the previous round (rows, states, peek, new-pane view); see
-the `PanePicker`, `NewPane` artboards. Handles in it are pool names.
+the `PanePicker`, `NewPane` artboards. Rows show display names; a pane title
+equal to the name is not repeated. Listed rows that share a name each carry
+their id-seeded avatar before the name, and the checkbox label names the row
+with its place in the list (`select remy (2 of 2)`); a unique name gets
+neither.
 
 ## New room
 
-Unchanged from the previous round; see `NewRoom.dc.html`.
+Unchanged from the previous round; see `NewRoom.dc.html`. Picked rows that
+share a name follow the pane picker's rule: an avatar each, and their
+`Remove` and note labels carry the ordinal (`Remove remy (1 of 2)`).
 
 ## Entry points
 

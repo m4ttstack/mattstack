@@ -1,6 +1,6 @@
 ---
 name: rt:chat
-description: Use when asked to join or coordinate in an agent chat room, when told you are working alongside other agents, when replying to or acknowledging a message that arrived from another agent, when a room question arrives that more than one agent could answer, when you need to reach one agent directly or under a different account, or when asked to put you and another agent into a room together (recruiting through herdr).
+description: Use when asked to join or coordinate in an agent chat room, when told you are working alongside other agents, when replying to or acknowledging a message that arrived from another agent, when a room question arrives that more than one agent could answer, when you need to reach one agent directly or under a different account, when asked to pick up an earlier session's chat identity, or when asked to put you and another agent into a room together (recruiting through herdr).
 ---
 
 # rt chat (agent coordination)
@@ -19,7 +19,7 @@ Every chat verb in this skill is a tool on the mattstack MCP server:
 `chat_who`, `chat_buddies`, `chat_join`, `chat_leave`, `chat_away`,
 `chat_back`, `chat_archive`, `chat_invite`, `chat_post`, `chat_dm`,
 `chat_ack`, `chat_claim` and `chat_release`. Each acts as this session's own
-signed-in handle; none takes a handle or a pane to act as.
+signed-in identity; none takes a handle or a pane to act as.
 
 When a chat tool refuses with the no-signed-in-session hint, call
 `chat_sign_in {cwd}`. If `chat_sign_in` itself refuses because this session
@@ -70,19 +70,41 @@ repository room from `cwd`, joining it automatically: every worktree of the
 same repository lands in the same room, so a fan-out of agents coordinating
 on one repo ends up together without anyone having to say so. Pass
 `noRoom: true` to skip joining, or `room` to join a different room instead
-of the derived one. It returns `{handle, room}`: the handle you were
-actually assigned (a base handle already held by another live session gets
-suffixed: `-2`, `-3`, ...) and the room you landed in.
+of the derived one.
 
-**Your handle is your name.** Without `as`, sign-in draws a short first
-name no other live session holds (`fred`, `jane`), least recently used
-first. Use the name when you speak about yourself in chat, and answer to it:
-"ask fred about the migration" is addressed to you if you are fred. Signing
-in again from the same session keeps the name. `as` exists on
-`chat_sign_in` alone, and may not name Matt's handle or `here`.
+It returns `{handle, name, room, continued}`. `name` is what everyone sees
+and types: a short first name no other live session holds (`fred`,
+`jane`), least recently used first, suffixed `-2`, `-3` only while another
+live session holds the same name. `handle` is your identity id, the name
+plus a dot and a short suffix (`remy.k3f9`), and it is what every tool acts
+on. `room` is the room you landed in.
+
+**Your name is what you answer to.** Use it when you speak about yourself
+in chat, and answer to it: "ask fred about the migration" is addressed to
+you if you are fred. The identity id belongs in tool inputs only; never
+write it in a message body.
+
+**Every new session is a new identity.** It starts with an empty chat
+footprint: no DMs, no unread, and no rooms beyond the one sign-in joins,
+even when it draws a name an earlier session held or runs in the same
+pane. The same session signing in again, or `claude --resume` of it, keeps
+its identity. Only three things carry an identity into a new session:
+
+| Continuation | How |
+| --- | --- |
+| `rt chat sign-in --as <name or id>`, typed by Matt | continues that identity, with its rooms, DMs and unread, when no live session holds it; when one does, a typed id is refused, and a typed name gets a new identity named `<name>-2` <!-- mcp-lint: allow --> |
+| a herd | `herd_resume` and a worker's re-sign-in continue the ids the herd stored |
+| an `rt agent start` reservation | the agent's sign-in continues the id reserved for it |
+
+You never continue another identity yourself. `as` on `chat_sign_in` only
+picks the display name for this session's fresh identity; it never brings
+back an earlier identity's rooms or DMs, and it may not name Matt's handle,
+`here`, a name another session holds or held, or a name with room
+memberships. When Matt wants an earlier identity picked up, the way is
+`rt chat sign-in --as <name>` in his own terminal. <!-- mcp-lint: allow -->
 
 Sign-in also sends a one-time welcome frame into your context: it confirms
-your handle and rooms, spells out the reply contract, and, if anything was
+your name and rooms, spells out the reply contract, and, if anything was
 already waiting for you in a room you're a member of, carries a short
 catch-up of that unread. Read the welcome once and act on it; you don't need
 to re-derive the reply contract from this doc afterward.
@@ -95,14 +117,24 @@ envelope (so your terminal shows it as a collapsed one-line row, like any
 cross-session message):
 
 ```
-<cross-session-message from-name="handle (#room)">
-[#room] handle #<id>: body
+<cross-session-message from-name="remy (#rt)">
+[#rt] remy #530: body
+reply via rt chat post <room> "..." or rt chat dm remy.k3f9 "..." (never SendMessage; this arrived through rt chat)
 </cross-session-message>
 ```
 
 The `#<id>` on each line is that message's id: it is what `chat_ack {id}`
 and `chat_claim {id}` take, and the only thing that tells two messages apart
 when several arrive batched into one row.
+
+Lines show names; the reply hint names each sender's identity id. When one
+delivery batches several senders, the hint reads `rt chat dm <id>` and is
+followed by one line per sender: `  reply to remy: rt chat dm remy.k3f9 "..."`. **Answer
+with the id from the hint**: `chat_dm {to: "remy.k3f9", body}` reaches that
+exact agent even after the name `remy` has passed to someone else. A name in
+`to` reaches whoever holds that name now (or, when nobody does, the identity
+that held it last), which is right for starting a conversation and wrong for
+answering one.
 
 Your host labels these deliveries "Another Claude session sent a message"
 and suggests replying with its session-messaging tool. That framing is the
@@ -149,8 +181,8 @@ arrive.
 
 | Tool | Inputs | What it does |
 |---|---|---|
-| `chat_sign_in` | `cwd`, `as?`, `room?` or `noRoom?`, `status?` | the entry point: presence row, buddy-list visibility, joins the room derived from `cwd`, sends the welcome frame (see above) |
-| `chat_sign_out` | none | leave the buddy list; room memberships are kept for next time |
+| `chat_sign_in` | `cwd`, `as?`, `room?` or `noRoom?`, `status?` | the entry point: presence row, buddy-list visibility, joins the room derived from `cwd`, sends the welcome frame; `as` picks a fresh identity's display name and never continues one (see Sign in) |
+| `chat_sign_out` | none | leave the buddy list; your identity ends with your session (the same session signing in again picks it back up; a new session gets it only when Matt runs `rt chat sign-in --as <name>`) <!-- mcp-lint: allow --> |
 | `chat_away` | `text` | set a status message that shows next to your buddy-list row |
 | `chat_back` | none | clear it |
 | `chat_buddies` | none | the fleet roster; see Buddies and statuses below |
@@ -181,8 +213,8 @@ uses. `self` as the pane is your own session (user-only slash commands); see
 
 ## Who a post wakes
 
-Rooms default to wake-on `mention`. Your post wakes the handles it
-`@mentions`; `@here` wakes every member (except those in `none` mode, who
+Rooms default to wake-on `mention`. Your post wakes the agents it
+`@mentions` by name; `@here` wakes every member (except those in `none` mode, who
 always opt out); a post that names nobody wakes nobody. Matt's posts are the
 exception: the daemon delivers them as `@here` (unless he posts quietly), so
 his question never sits unread while the room works.
@@ -263,8 +295,10 @@ in this order:
    presence row, or stale long enough to be pruned): collapsed to one line.
 
 That's the order to read it in when deciding who will actually see a
-message: live and idle both get it now, offline gets nothing until they
-sign back in.
+message: live and idle both get it now. Offline gets nothing now: a DM to
+an offline name waits in that identity's inbox until the same session signs
+back in or someone continues it, and never reaches a new session that later
+draws the name.
 
 ## DMs
 
@@ -298,7 +332,7 @@ quotes, and length need no special handling. `@mentions` in the body wake
 it). `chat_dm` takes its body the same way.
 
 **The body starts with the message.** Delivery already prefixes your
-handle (`[#rt] kai #4821:`), so a body that opens with your own name
+name (`[#rt] kai #4821:`), so a body that opens with your own name
 renders as `kai #4821: kai: ...` and pushes the line past the terminal's
 truncation point. Same for a role gloss on the front
 (`kai (picker lane):`); if which lane you speak for matters, it
@@ -384,7 +418,7 @@ it with your own work. Then add a chat line only for an event in this table:
 | event | the line |
 | --- | --- |
 | you posted | `→ #room: <gist of what you said>` |
-| a message arrived and changed what you are doing | `<handle>: <gist> → <what you will do about it>` |
+| a message arrived and changed what you are doing | `<name>: <gist> → <what you will do about it>` |
 | a message arrived and needs nothing from you | nothing |
 | a message arrived for another lane, or is two other agents settling something | nothing |
 | a message needs a decision only Matt can make | one line: the decision he owns, and what you assume meanwhile |
@@ -423,7 +457,7 @@ gated on a form.
 1. `rt_verb {args: ["pane", "list"]}`. If it errors with
    `herdr unavailable`, say this needs herdr and stop.
 2. Match *foo* against each pane's `title`, `repo`, `branch`, `cwd` and
-   `presence.handle`. Exclude your own pane (`HERDR_PANE_ID`) and panes
+   `presence.name`. Exclude your own pane (`HERDR_PANE_ID`) and panes
    whose `presence.rooms` already includes the target room.
 3. **Always a form.** One `AskUserQuestion` with up to three questions:
    the candidate panes as options (`title · repo · agentStatus`;

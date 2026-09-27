@@ -10,6 +10,7 @@
 import { Database } from "bun:sqlite";
 import { getStateDb } from "./db.ts";
 import { persistOrWarn, runCriticalWrite } from "./busy.ts";
+import { identityName, identityNames, resolveHandle } from "./identity-store.ts";
 import { presenceForHandle } from "./presence-store.ts";
 // Intra-lib/state exception (see presence-store.ts's note on the same
 // pattern): dm-store.ts is the only module that touches chat_dms, so
@@ -21,6 +22,7 @@ export type WakeMode = "mention" | "all" | "none";
 export interface ChatMember {
   room: string;
   handle: string;
+  name: string;
   joinedAt: number;
   lastReadId: number;
   wakeOn: WakeMode;
@@ -42,8 +44,12 @@ export interface ChatMessage {
   id: number;
   room: string;
   handle: string;
+  /** The author's display name. */
+  name: string;
   body: string;
   mentions: string[];
+  /** Display names parallel to `mentions`. */
+  mentionNames: string[];
   replyTo?: number;
   postedAt: number;
   /** Set only on a quiet post, so an ordinary message's shape is unchanged. */
@@ -64,10 +70,11 @@ interface MembershipRow extends MemberRow {
   archived_at: number | null;
 }
 
-function rowToMember(row: MemberRow): ChatMember {
+function rowToMember(row: MemberRow, name: string): ChatMember {
   const member: ChatMember = {
     room: row.room,
     handle: row.handle,
+    name,
     joinedAt: row.joined_at,
     lastReadId: row.last_read_id,
     wakeOn: row.wake_on,
@@ -88,18 +95,27 @@ interface MessageRow {
   quiet: number;
 }
 
-function rowToMessage(row: MessageRow): ChatMessage {
+function rowToMessage(row: MessageRow, mentions: string[], names: Map<string, string>): ChatMessage {
   const message: ChatMessage = {
     id: row.id,
     room: row.room,
     handle: row.handle,
+    name: names.get(row.handle)!,
     body: row.body,
-    mentions: row.mentions ? (JSON.parse(row.mentions) as string[]) : [],
+    mentions,
+    mentionNames: mentions.map((m) => names.get(m)!),
     postedAt: row.posted_at,
   };
   if (row.reply_to !== null) message.replyTo = row.reply_to;
   if (row.quiet) message.quiet = true;
   return message;
+}
+
+/** One name lookup for every author and mention in `rows`. */
+function toMessages(rows: MessageRow[], db: Database): ChatMessage[] {
+  const parsed = rows.map((row) => ({ row, mentions: row.mentions ? (JSON.parse(row.mentions) as string[]) : [] }));
+  const names = identityNames(parsed.flatMap(({ row, mentions }) => [row.handle, ...mentions]), db);
+  return parsed.map(({ row, mentions }) => rowToMessage(row, mentions, names));
 }
 
 /** Escapes SQLite LIKE wildcards so a handle containing `_` or `%` can't match beyond itself. */
@@ -118,8 +134,8 @@ const REVIVE_ROOM_SQL = `UPDATE chat_rooms SET archived_at = NULL WHERE name = ?
 const SELECT_ROOM_MEMBER_COUNT_SQL = `SELECT COUNT(*) AS n FROM chat_members WHERE room = ?;`;
 const SELECT_ROOM_MAX_ID_SQL = `SELECT COALESCE(MAX(id), 0) AS maxId FROM chat_messages WHERE room = ?;`;
 const SELECT_ROOM_LAST_POSTED_SQL = `SELECT MAX(posted_at) AS lastPostedAt FROM chat_messages WHERE room = ?;`;
-const SELECT_ROOM_UNREAD_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ?;`;
-const SELECT_ROOM_UNREAD_MENTIONS_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ? AND mentions LIKE ? ESCAPE '\\';`;
+const SELECT_ROOM_UNREAD_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ? AND handle <> ?;`;
+const SELECT_ROOM_UNREAD_MENTIONS_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ? AND handle <> ? AND mentions LIKE ? ESCAPE '\\';`;
 const UPSERT_ROOM_SQL = `INSERT INTO chat_rooms (name, created_at) VALUES (?, ?) ON CONFLICT(name) DO NOTHING;`;
 const SELECT_ROOM_DEFAULT_WAKE_SQL = `SELECT wake_on FROM chat_room_defaults WHERE room = ?;`;
 const INSERT_ROOM_DEFAULT_WAKE_SQL = `INSERT INTO chat_room_defaults (room, wake_on) VALUES (?, ?) ON CONFLICT(room) DO NOTHING;`;
@@ -147,7 +163,7 @@ WHERE id IN (
   WHERE rn > ? AND posted_at < ?
 );
 `;
-const SELECT_UNREAD_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id > ? ORDER BY id ASC LIMIT ?;`;
+const SELECT_UNREAD_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id > ? AND handle <> ? ORDER BY id ASC LIMIT ?;`;
 const SELECT_SINCE_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND posted_at >= ? ORDER BY id ASC LIMIT ?;`;
 const SELECT_MESSAGES_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? ORDER BY id DESC LIMIT ?;`;
 const SELECT_MESSAGES_BEFORE_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id < ? ORDER BY id DESC LIMIT ?;`;
@@ -315,9 +331,9 @@ export function listRooms(
   const rows = opts.includeArchived ? all : all.filter((r) => r.archived_at === null);
   return rows.map((row) => {
     const memberCount = (db.query(SELECT_ROOM_MEMBER_COUNT_SQL).get(row.room) as { n: number }).n;
-    const unread = (db.query(SELECT_ROOM_UNREAD_SQL).get(row.room, row.last_read_id) as { n: number }).n;
+    const unread = (db.query(SELECT_ROOM_UNREAD_SQL).get(row.room, row.last_read_id, handle) as { n: number }).n;
     const mentions = (
-      db.query(SELECT_ROOM_UNREAD_MENTIONS_SQL).get(row.room, row.last_read_id, `%"${escapeLike(handle)}"%`) as { n: number }
+      db.query(SELECT_ROOM_UNREAD_MENTIONS_SQL).get(row.room, row.last_read_id, handle, `%"${escapeLike(handle)}"%`) as { n: number }
     ).n;
     const lastPosted = (db.query(SELECT_ROOM_LAST_POSTED_SQL).get(row.room) as { lastPostedAt: number | null }).lastPostedAt;
 
@@ -361,7 +377,8 @@ export function roomDefaultWake(room: string, db: Database = getStateDb()): Wake
 
 export function listMembers(room: string, db: Database = getStateDb()): ChatMember[] {
   const rows = db.query(SELECT_ROOM_MEMBERS_SQL).all(room) as MemberRow[];
-  return rows.map(rowToMember);
+  const names = identityNames(rows.map((row) => row.handle), db);
+  return rows.map((row) => rowToMember(row, names.get(row.handle)!));
 }
 
 function getRoomMaxId(room: string, db: Database): number {
@@ -400,10 +417,17 @@ export function parseMentions(body: string): string[] {
   return [...found];
 }
 
-/** Unions an explicit recipient list into a body's parsed @mentions — the one merge rule storage (postMessage) and the daemon's desk-notify check both need, so the two can never diverge. */
-export function mergeMentions(body: string, explicit?: string[]): string[] {
-  const parsed = parseMentions(body);
-  return explicit ? [...new Set([...parsed, ...explicit])] : parsed;
+/**
+ * A body's @mentions and an explicit list, resolved to ids: the one rule
+ * storage (postMessage) and the daemon's desk-notify check both need, so the
+ * two can never diverge. An explicit id claims the body's `@<its name>`, or a
+ * picked identity's name would also wake whoever holds that name live.
+ */
+export function resolveMentions(body: string, explicit: string[] | undefined, db: Database = getStateDb()): string[] {
+  const picked = (explicit ?? []).map((m) => resolveHandle(m, db));
+  const claimed = new Set(picked.map((id) => identityName(id, db)));
+  const parsed = parseMentions(body).filter((m) => !claimed.has(m)).map((m) => resolveHandle(m, db));
+  return [...new Set([...parsed, ...picked])];
 }
 
 /**
@@ -441,17 +465,19 @@ export function postMessage(
   db: Database = getStateDb(),
 ): { id: number; recipients: string[] } | undefined {
   const { room, handle, body, quiet } = args;
-  const mentions = mergeMentions(body, args.mentions);
 
   const run = db.transaction((): { id: number; recipients: string[] } => {
     const now = Date.now();
+    const mentions = resolveMentions(body, args.mentions, db);
     db.query(REVIVE_ROOM_SQL).run(room);
     const result = db.query(INSERT_MESSAGE_SQL).run(room, handle, body, JSON.stringify(mentions), null, now, quiet ? 1 : 0);
     const recipients = recipientsFor(room, handle, mentions, db);
     return { id: Number(result.lastInsertRowid), recipients };
   });
 
-  return runCriticalWrite("postMessage", () => run(), { room, handle });
+  // BEGIN IMMEDIATE: the mention resolution read and the message insert must
+  // hold the write lock together or SQLITE_BUSY_SNAPSHOT bypasses busy_timeout.
+  return runCriticalWrite("postMessage", () => (db.inTransaction ? run() : run.immediate()), { room, handle });
 }
 
 export function readUnread(
@@ -476,7 +502,7 @@ export function readUnread(
       const rows = (
         sinceMs !== undefined
           ? db.query(SELECT_SINCE_SQL).all(member.room, sinceMs, limit)
-          : db.query(SELECT_UNREAD_SQL).all(member.room, cursor, limit)
+          : db.query(SELECT_UNREAD_SQL).all(member.room, cursor, handle, limit)
       ) as MessageRow[];
       if (rows.length === 0) continue;
 
@@ -484,7 +510,7 @@ export function readUnread(
         const highestReturned = rows[rows.length - 1]!.id;
         db.query(UPDATE_LAST_READ_SQL).run(highestReturned, member.room, handle);
       }
-      results.push({ room: member.room, messages: rows.map(rowToMessage) });
+      results.push({ room: member.room, messages: toMessages(rows, db) });
     }
 
     return results;
@@ -511,9 +537,9 @@ export function peekUnread(
   for (const member of members) {
     const maxId = getRoomMaxId(member.room, db);
     const cursor = member.last_read_id <= maxId ? member.last_read_id : maxId;
-    const rows = db.query(SELECT_UNREAD_SQL).all(member.room, cursor, limit) as MessageRow[];
+    const rows = db.query(SELECT_UNREAD_SQL).all(member.room, cursor, handle, limit) as MessageRow[];
     if (rows.length === 0) continue;
-    results.push({ room: member.room, messages: rows.map(rowToMessage) });
+    results.push({ room: member.room, messages: toMessages(rows, db) });
   }
   return results;
 }
@@ -528,7 +554,7 @@ export function listMessages(
       ? db.query(SELECT_MESSAGES_BEFORE_SQL).all(room, before, limit)
       : db.query(SELECT_MESSAGES_SQL).all(room, limit)
   ) as MessageRow[];
-  return rows.reverse().map(rowToMessage);
+  return toMessages(rows.reverse(), db);
 }
 
 /**
@@ -596,7 +622,7 @@ export function pendingMessages(room: string, handle: string, upToId: number, db
   const member = db.query(SELECT_ROOM_MEMBER_SQL).get(room, handle) as MemberRow | null;
   if (!member) return [];
   const rows = db.query(SELECT_PENDING_SQL).all(room, member.last_read_id, upToId) as MessageRow[];
-  return rows.map(rowToMessage);
+  return toMessages(rows, db);
 }
 
 export interface StalePendingRow {

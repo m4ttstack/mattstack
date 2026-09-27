@@ -188,6 +188,7 @@ async function unjoinedFleetRooms(
 
 interface DmLastMessage {
   handle: string;
+  name: string;
   body: string;
 }
 
@@ -221,6 +222,7 @@ async function withDmLastMessage(
     if (!message) return;
     byRoom.set(room.room, {
       handle: message.handle,
+      name: message.name ?? message.handle,
       // Collapsed, not just cut: a body's newlines and fences would otherwise
       // reach the client as a "one-line" preview that is nothing of the sort.
       body: message.body.replace(/\s+/g, ' ').trim().slice(0, DM_PREVIEW_CAP),
