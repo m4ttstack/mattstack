@@ -47,7 +47,10 @@ it does gives a real-looking command that updates nothing.
 ## The pipeline (all three cases)
 
 1. **Craft gate first**: follow superpowers:writing-skills (TDD for docs --
-   baseline a fresh agent before writing, verify after). For parameterized
+   baseline a fresh agent before writing, verify after). For a process skill
+   (a trigger, steps, an end) also follow mattstack:process-digraphs: the
+   skill carries a digraph map with one section per judgment step, and
+   certify renders and structure-checks it. For parameterized
    wrapper skills also read
    `${CLAUDE_SKILL_DIR}/../../../attachments/parameterized-skills/SKILL.md`.
    The verify (GREEN) step asks one more question: did the fresh agent run a

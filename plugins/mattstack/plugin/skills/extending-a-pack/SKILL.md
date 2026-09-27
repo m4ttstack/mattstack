@@ -80,6 +80,11 @@ needs has a tool there, except the few its header lists as staying on Bash
 flags the shell form. `rt skills audit --pack <pack>` is the slower read
 for plain-words instructions.
 
+A fill or pack skill that describes a process of its own (a trigger, steps,
+an end) gets a digraph map per mattstack:process-digraphs. A fill that only
+adds rules to an engine's steps keys its sections to that step's node text,
+and never adds a move the engine's graph marks STOP.
+
 ## 3. Bind, certify, check
 
 Call `rt_verb {args: ["skills", "bind", "<stage-or-verb>", "<slot>", "<pack>:<fill>", "--pack", "<pack>"]}`:
