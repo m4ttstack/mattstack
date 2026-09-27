@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -120,6 +120,8 @@ describe("writeTaskFile", () => {
     expect(path).toEndWith(".md");
     expect(existsSync(path)).toBe(true);
     expect(readFileSync(path, "utf8")).toBe("task body");
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(statSync(join(dataDir, "agent-tasks")).mode & 0o777).toBe(0o700);
   });
 });
 

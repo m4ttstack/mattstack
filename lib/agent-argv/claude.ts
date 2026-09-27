@@ -4,8 +4,8 @@
  * Session uuids are validated here because the claude CLI fails soft:
  * `--session-id ""` is silently ignored (random id minted) and
  * `-p --resume ""` silently resumes the most recent session in cwd
- * (spike 2026-08-25). Headless without a prompt blocks on stdin, so it is
- * refused at build time.
+ * (spike 2026-08-25). A headless prompt never enters argv: the caller feeds it
+ * on stdin, and a headless invocation without one is refused at build time.
  *
  * Two output shapes: argv arrays for daemon-side Bun.spawn (absolute bins ...
  * executable lookup uses the process-start PATH), and a single shell string
@@ -44,7 +44,7 @@ function claudeArgs(inv: AgentInvocation): string[] {
     throw new Error(`invalid session uuid "${inv.session.sessionId}" ... refusing to spawn`);
   }
   if (inv.headless && !inv.prompt) {
-    throw new Error("headless launch requires a prompt (claude -p with no prompt blocks on stdin)");
+    throw new Error("headless launch requires a prompt (claude -p reads it from stdin)");
   }
   const args: string[] = [];
   if (inv.headless) args.push("-p", "--output-format", "json");
@@ -60,10 +60,15 @@ function claudeArgs(inv: AgentInvocation): string[] {
     args.push("--settings", JSON.stringify(CROSS_SESSION_INBOUND_SETTINGS));
   }
   if (inv.settingsPath) args.push("--settings", inv.settingsPath);
+  // --add-dir is variadic: the token right after its value must be another
+  // flag, never the positional prompt, or claude would swallow the prompt as
+  // one more directory to add.
+  if (inv.addDirs) for (const dir of inv.addDirs) args.push("--add-dir", dir);
   if (inv.session.kind === "start") args.push("--session-id", inv.session.sessionId);
   else args.push("--resume", inv.session.sessionId);
   if (inv.extraArgs) args.push(...inv.extraArgs.split(/\s+/).filter(Boolean));
-  if (inv.prompt) args.push(inv.prompt);
+  // A headless prompt is the caller's stdin: `claude -p` reads it there.
+  if (inv.prompt && !inv.headless) args.push(inv.prompt);
   return args;
 }
 

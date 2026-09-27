@@ -36,7 +36,7 @@ function codexFlags(inv: AgentInvocation): string[] {
 
 export function buildCodexArgv(inv: AgentInvocation, bins?: { codex?: string }): string[] {
   if (inv.headless && !inv.prompt) {
-    throw new Error("headless launch requires a prompt (codex exec with no prompt blocks on stdin)");
+    throw new Error("headless launch requires a prompt (codex exec reads it from stdin)");
   }
   const bin = bins?.codex ?? resolveCodexBin();
   const flags = codexFlags(inv);
@@ -48,7 +48,11 @@ export function buildCodexArgv(inv: AgentInvocation, bins?: { codex?: string }):
   const args = inv.session.kind === "start"
     ? [bin, "exec", ...jsonFlag, ...flags]
     : [bin, "exec", "resume", ...jsonFlag, ...flags, inv.session.sessionId];
-  if (inv.prompt) args.push(inv.prompt);
+  // `codex exec resume` reads stdin only for a literal `-` (plain `codex exec`
+  // also accepts it), so headless always passes `-` and the caller feeds the
+  // prompt on stdin.
+  if (inv.headless) args.push("-");
+  else if (inv.prompt) args.push(inv.prompt);
   return args;
 }
 

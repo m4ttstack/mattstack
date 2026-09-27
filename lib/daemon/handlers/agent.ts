@@ -19,7 +19,7 @@
  * resolveHookSettingsPath below.
  */
 
-import { mkdirSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
@@ -27,7 +27,7 @@ import {
   deleteAgent, finishAgent, getAgent, identityName, insertAgent, isValidChatName, listAgents, markAgentResumed,
   newAgentId, reserveAgentHandle, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
-import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
+import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { defaultHerdrRunner, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
@@ -111,12 +111,12 @@ export function extractSessionId(stream: ReadableStream<Uint8Array>): Promise<st
 
 function defaultSpawnHeadless(
   argv: string[], cwd: string, env: Record<string, string> = {},
-  opts: { captureSessionId?: boolean } = {},
+  opts: { captureSessionId?: boolean; stdin?: string } = {},
 ): HeadlessChild {
   const proc = Bun.spawn(argv as [string, ...string[]], {
     cwd,
     env: { ...process.env, ...env },
-    stdin: "ignore",
+    stdin: opts.stdin !== undefined ? new Blob([opts.stdin]) : "ignore",
     stdout: "pipe",
     stderr: "ignore",
   });
@@ -153,6 +153,61 @@ function fromSetting<T = string>(key: string, log: Logger): T | undefined {
     parses it today; whoever adds a consumer must branch on rec.provider. */
 function agentResultPath(id: string): string {
   return join(rtDir(), "agents", `${id}.json`);
+}
+
+/** Owner-only: a prompt in argv is matched by any `pkill -f` pattern it quotes. */
+function agentPromptsRoot(): string {
+  return join(rtDir(), "agent-prompts");
+}
+
+/** Per-agent, so an unattended pane's --add-dir grant (see resolveHerdrPrompt)
+    admits only its own prompt file, never every agent's. */
+function agentPromptDir(id: string): string {
+  return join(agentPromptsRoot(), id);
+}
+
+/** A rolled-back agent:start must not leave its prompt dir behind: nothing else
+    ever removes it. Best effort: a cleanup failure must not mask the rollback's
+    own error, so it only logs. */
+function removeAgentPromptDir(id: string, log: Logger): void {
+  try {
+    rmSync(agentPromptDir(id), { recursive: true, force: true });
+  } catch (err) {
+    log.warn({ err, id }, "agent: failed to remove prompt dir after rollback");
+  }
+}
+
+/** Every launch (start, and each resume) gets its own file: a resume must never
+    rewrite the file an already-launched pane may still be reading. The name is
+    the next free prompt-<n>.md in the dir, found by scanning it, so a launch
+    never collides with or overwrites one from an earlier launch of the same agent. */
+function nextPromptFileName(dir: string): string {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    entries = [];
+  }
+  let n = 1;
+  for (const entry of entries) {
+    const m = /^prompt-(\d+)\.md$/.exec(entry);
+    if (m) n = Math.max(n, Number(m[1]) + 1);
+  }
+  return `prompt-${n}.md`;
+}
+
+/** Herdr prompt handling: a slash-command prompt (the board's /board:review
+    etc.) passes through unchanged, since Claude Code only expands a slash
+    command when it is the literal first message; any other prompt is moved
+    into an owner-only file behind a pointer, with its directory named for
+    --add-dir so the launched pane can read it with no permission prompt. */
+function resolveHerdrPrompt(rec: AgentRecord, prompt: string | undefined): { prompt?: string; addDirs?: string[] } {
+  if (prompt === undefined || rec.surface !== "herdr" || prompt.startsWith("/")) return { prompt };
+  mkdirSync(agentPromptsRoot(), { recursive: true, mode: 0o700 });
+  chmodSync(agentPromptsRoot(), 0o700);
+  const dir = agentPromptDir(rec.id);
+  const path = writePromptFile(dir, nextPromptFileName(dir), prompt);
+  return { prompt: pointerPrompt(path), addDirs: [dir] };
 }
 
 /** Deterministic from the id alone, mirroring agentResultPath above. */
@@ -237,8 +292,8 @@ const agentOwner = (id: string): string => `agent:${id}`;
     message on a codex launch sends the reader to the wrong CLI's docs. */
 function headlessStdinBlurb(provider: AgentProvider): string {
   return provider === "codex"
-    ? "codex exec with no prompt blocks on stdin"
-    : "claude -p with no prompt blocks on stdin";
+    ? "codex exec reads it from stdin"
+    : "claude -p reads it from stdin";
 }
 
 /** herdr only learns codex's session id after the pane finishes its first
@@ -286,7 +341,7 @@ export function createAgentHandlers(opts: {
   herdr?: typeof herdrRequest;
   /** Shortened budgets for tests; the driver's own defaults otherwise. */
   trustBudgets?: { registerBudgetMs?: number; waitBudgetMs?: number; settleMs?: number; stepMs?: number };
-  spawnHeadless?: (argv: string[], cwd: string, env: Record<string, string>, opts?: { captureSessionId?: boolean }) => HeadlessChild;
+  spawnHeadless?: (argv: string[], cwd: string, env: Record<string, string>, opts?: { captureSessionId?: boolean; stdin?: string }) => HeadlessChild;
   insertAgentFn?: typeof insertAgent;
   /** The daemon-owned background herdr server `--bg` launches onto (spec "The bg service"). Omitted, `bg: true` is refused. */
   bg?: Pick<BgService, "ensure" | "reprobe">;
@@ -329,6 +384,7 @@ export function createAgentHandlers(opts: {
       RT_DAEMON_SOCK: DAEMON_SOCK_PATH,
     };
     const settingsPath = resolveHookSettingsPath(rec, log);
+    const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
 
     const inv: AgentInvocation = {
       session,
@@ -339,12 +395,13 @@ export function createAgentHandlers(opts: {
       ...(rec.handle !== undefined && { inboundAccept: true }),
       ...(rec.extraArgs !== undefined && { extraArgs: rec.extraArgs }),
       ...(rec.yolo !== undefined && { yolo: rec.yolo }),
-      ...(prompt !== undefined && { prompt }),
+      ...(resolvedPrompt !== undefined && { prompt: resolvedPrompt }),
       // Headless has no pane shell line for buildPaneCommand to interpolate
       // env into (see the payload.env rejection above); its gate env instead
       // rides the spawnHeadless call itself, below.
       ...(rec.surface === "herdr" && { env: { ...extra.env, ...gateEnv } }),
       ...(settingsPath !== undefined && { settingsPath }),
+      ...(addDirs !== undefined && { addDirs }),
     };
 
     if (rec.surface === "herdr") {
@@ -436,7 +493,7 @@ export function createAgentHandlers(opts: {
     // The caller inserts rec before invoking launch() for every headless
     // path (start and resume alike), so the row already exists here --
     // finishAgent below can never race an insert that hasn't happened yet.
-    const child = spawnHeadless(argv, rec.cwd, gateEnv, { captureSessionId: rec.provider === "codex" });
+    const child = spawnHeadless(argv, rec.cwd, gateEnv, { captureSessionId: rec.provider === "codex", ...(prompt !== undefined && { stdin: prompt }) });
     if (rec.provider === "codex") {
       // Same provisional-sessionId caveat as the herdr branch above: the
       // record this handler returns still carries rt's placeholder uuid, and
@@ -586,6 +643,7 @@ export function createAgentHandlers(opts: {
         });
         if (!res.ok) {
           deleteAgent(rec.id, db);
+          removeAgentPromptDir(rec.id, log);
           return res;
         }
         // A herd-spawned hidden worker rides the bg socket via herdrSocket,
@@ -610,6 +668,7 @@ export function createAgentHandlers(opts: {
         return res.ok ? { ok: true, data: withName(res.data, db) } : res;
       } catch (err) {
         deleteAgent(rec.id, db);
+        removeAgentPromptDir(rec.id, log);
         const message = err instanceof Error ? err.message : String(err);
         if (payload.bg && opts.bg && isCommandNotFoundShape(message)) {
           // Advisory only: the failure this branch handles is exactly the
