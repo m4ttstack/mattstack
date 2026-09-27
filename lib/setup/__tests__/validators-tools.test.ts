@@ -393,6 +393,15 @@ describe("toolRows — tool.fast-browser", () => {
     expect(seenTimeouts.doctor).toBe(45_000);
     expect(seenTimeouts.herdr).toBe(5000);
   });
+
+  test("solo: the binary row is optional and the extension row never gates Finish", async () => {
+    const rows = await toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS, solo: true }, NOOP_SEAMS);
+    const fb = rows.find((r) => r.id === "tool.fast-browser")!;
+    expect(fb.required).toBe(false);
+    expect(fb.optionalNote).toBe("Works without this; only the browser skills need it.");
+    const ext = rows.find((r) => r.id === "tool.fast-browser-extension")!;
+    expect(ext.finishGated).toBe(false);
+  });
 });
 
 describe("toolRows - tool.fast-browser-extension", () => {

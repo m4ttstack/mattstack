@@ -263,12 +263,15 @@ const FAST_BROWSER_SETUP_ACTION: Action = { type: "run", label: "Run setup", ver
  * follow-ups don't.
  */
 const FASTBROWSER_SETUP_NOTE = "Installed by Install (fastbrowser.setup).";
+/** Solo has no browser-skill user yet, so the truer statement on every branch is that the machine works without it, not that Install will finish the job. */
+const FASTBROWSER_SOLO_NOTE = "Works without this; only the browser skills need it.";
 
-function fastBrowserRow(probe: FastBrowserProbe): Row {
-  const base = { id: "tool.fast-browser", kind: "tool" as const, title: "Fast Browser", why: "Backs rt's macro-first browser automation.", required: true, recheck: "on-activate" as const };
+function fastBrowserRow(probe: FastBrowserProbe, solo: boolean): Row {
+  const soloNote = solo ? { optionalNote: FASTBROWSER_SOLO_NOTE } : {};
+  const base = { id: "tool.fast-browser", kind: "tool" as const, title: "Fast Browser", why: "Backs rt's macro-first browser automation.", required: !solo, recheck: "on-activate" as const, ...soloNote };
   if (!probe.resolvable) return row({ ...base, status: "missing", detail: "fast-browser not found", action: { type: "link-bundled", label: "Use mattstack's", tool: "fast-browser" } });
 
-  const pending = { required: false, optionalNote: FASTBROWSER_SETUP_NOTE };
+  const pending = { required: false, optionalNote: FASTBROWSER_SETUP_NOTE, ...soloNote };
   if (probe.failure) return row({ ...base, ...pending, status: "error", detail: probe.failure });
 
   const runtime = checkState(probe.doctor, "runtime-checksum");
@@ -308,7 +311,7 @@ function doctorRemedy(check: FastBrowserCheck | undefined): Action {
  * extension directory before Install does. It gates Finish instead
  * (`finishGated`), unless the user waives it on this Mac.
  */
-function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe): Row {
+function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe, solo: boolean): Row {
   const base = {
     id: "tool.fast-browser-extension",
     kind: "tool" as const,
@@ -316,7 +319,7 @@ function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe): Row {
     why: "Fast Browser drives your real Chrome session through this extension.",
     required: false,
     optionalNote: "You load this into Chrome yourself; Install cannot do it for you.",
-    finishGated: true,
+    finishGated: !solo,
     recheck: "on-activate" as const,
   };
 
@@ -726,15 +729,16 @@ export async function toolRows(
   // Optional, not required: the existing test call sites pass only
   // { hasBrew, secrets }, and tests are inside the root tsconfig, so a required
   // field turns `bunx tsc --noEmit` red while `bun test` stays green.
-  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string },
+  opts: { hasBrew: boolean; secrets: SecretPresence; teamSlug?: string; solo?: boolean },
   seams: ToolsSeams = REAL_SEAMS,
 ): Promise<Row[]> {
   const fastBrowser = await probeFastBrowser(p, seams);
+  const solo = opts.solo === true;
   const rows: Row[] = [
     await herdrRow(p, opts),
     await claudeRow(p, opts),
-    fastBrowserRow(fastBrowser),
-    fastBrowserExtensionRow(p, fastBrowser),
+    fastBrowserRow(fastBrowser, solo),
+    fastBrowserExtensionRow(p, fastBrowser, solo),
     editorRow(seams),
     chromeRow(p, reqs),
   ];
