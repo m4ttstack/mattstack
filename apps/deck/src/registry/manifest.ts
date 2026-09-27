@@ -111,7 +111,8 @@ export function ingestManifest(name: string): void {
       record.displayName !== undefined ||
       record.description !== undefined ||
       record.icon !== undefined ||
-      record.badge !== undefined
+      record.badge !== undefined ||
+      record.requiresTeam !== undefined
     ) {
       removeIcon(name);
       const {

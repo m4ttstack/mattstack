@@ -360,6 +360,24 @@ test('ingestManifest carries requiresTeam onto the record and clears a stale one
   expect(getRecord('board')?.requiresTeam).toBeUndefined();
 });
 
+test('ingest clears a stale requiresTeam when the manifest is gone entirely', async () => {
+  isolate();
+  const { putRecord, getRecord, reloadRegistry } = await import('./records.ts');
+  reloadRegistry();
+  const appDir = repo({});
+  putRecord({
+    name: 'solo',
+    managedBy: 'rt',
+    port: 6300,
+    kind: 'service',
+    workingDirectory: appDir,
+    createdAt: 'x',
+    requiresTeam: true,
+  });
+  ingestManifest('solo');
+  expect(getRecord('solo')?.requiresTeam).toBeUndefined();
+});
+
 test('removeIcon deletes the stored file', async () => {
   isolate();
   const { putRecord, reloadRegistry } = await import('./records.ts');
