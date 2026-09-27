@@ -465,6 +465,11 @@ describe("stripAuthorNotes", () => {
     expect(stripAuthorNotes(tilde, "template")).toEqual({ ok: true, text: tilde });
   });
 
+  test("a fence line with an info string does not close an open fence", () => {
+    const doc = lines("```", "```bash", "<!-- author -->", "```", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: doc });
+  });
+
   test("an opener on the first line is recognized behind a byte order mark", () => {
     const doc = lines("\uFEFF<!-- author -->", "note", "<!-- /author -->", "", "# T", "");
     expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("# T", "") });

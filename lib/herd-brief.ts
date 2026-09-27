@@ -61,7 +61,7 @@ export function stripAuthorNotes(doc: string, source: "template" | "method", sta
     const fenceMatch = FENCE_RE.exec(line);
     if (fence === null) {
       if (fenceMatch) fence = fenceMatch[1]!;
-    } else if (fenceMatch && fenceMatch[1]![0] === fence[0] && fenceMatch[1]!.length >= fence.length) {
+    } else if (fenceMatch && fenceMatch[1]![0] === fence[0] && fenceMatch[1]!.length >= fence.length && line.slice(fenceMatch[0].length).trim() === "") {
       fence = null;
     }
     if (openAt > 0) continue;
