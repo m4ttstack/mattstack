@@ -13,26 +13,30 @@ function handlers(provider: Record<string, unknown>) {
 
 describe("mr:commit-parents", () => {
   test("returns the provider's parents", async () => {
-    const provider = { fetchCommitParents: async (_p: string, sha: string) => (sha === "m1" ? ["t", "h"] : []) };
+    const provider = { fetchCommitParents: async (_p: string, sha: string) => (sha === "abc1234" ? ["t", "h"] : []) };
     const h = handlers(provider);
-    expect(await h["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "m1" })).toEqual({ ok: true, data: ["t", "h"] });
+    expect(await h["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "abc1234" })).toEqual({ ok: true, data: ["t", "h"] });
   });
 
   test("refuses a provider without the method", async () => {
     const h = handlers({});
-    const r = await h["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "m1" });
+    const r = await h["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "abc1234" });
     expect(r).toMatchObject({ ok: false });
     expect(String((r as { ok: false; error: string }).error)).toContain("unsupported");
   });
 
   test("validates sha", async () => {
-    const r = await handlers({})["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "" });
-    expect(r).toMatchObject({ ok: false });
+    const empty = await handlers({})["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha: "" });
+    expect(empty).toMatchObject({ ok: false });
+    for (const sha of ["m1", "abc; rm"]) {
+      const r = await handlers({ fetchCommitParents: async () => ["t"] })["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha });
+      expect(r).toMatchObject({ ok: false });
+    }
   });
 
   test("refuses a display name instead of failing open", async () => {
     const h = handlers({ fetchCommitParents: async () => ["t"] });
-    const r = await h["mr:commit-parents"]!({ repoName: "proj", iid: 4, sha: "m1" });
+    const r = await h["mr:commit-parents"]!({ repoName: "proj", iid: 4, sha: "abc1234" });
     expect(r).toEqual({ ok: false, error: "repo-unknown" });
   });
 });

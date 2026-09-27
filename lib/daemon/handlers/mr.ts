@@ -373,7 +373,7 @@ export function createMRHandlers(
 
     "mr:commit-parents": async (payload) => {
       const p = payload as { iid?: number; sha?: string } | undefined;
-      if (typeof p?.iid !== "number" || typeof p.sha !== "string" || !p.sha.trim()) {
+      if (typeof p?.iid !== "number" || typeof p.sha !== "string" || !/^[0-9a-f]{7,40}$/i.test(p.sha)) {
         return { ok: false, error: "missing repoName/iid/sha" };
       }
       const decoded = decodeIndexedRepo(payload);
