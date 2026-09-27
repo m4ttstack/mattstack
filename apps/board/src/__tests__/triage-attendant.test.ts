@@ -10,7 +10,6 @@ import {
   DEFAULT_CI_LEASE_TTL_SECONDS,
   readCiLease,
 } from '@mattstack/rt-client';
-
 import { createBoardAttendants } from '../triage/attendant.ts';
 
 const MR = 'https://gitlab.example.com/acme/webapp/-/merge_requests/4821';
@@ -136,10 +135,7 @@ describe('createBoardAttendants', () => {
 
   test('a busy lock makes claim return false instead of throwing', () => {
     const lockPath = join(dir, ciLeaseFileName(MR).replace(/\.json$/, '.lock'));
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ token: 'x', at: Date.now() })
-    );
+    writeFileSync(lockPath, JSON.stringify({ token: 'x', at: Date.now() }));
     const port = createBoardAttendants({ dir, now: () => t, lockWaitMs: 5 });
     expect(() => port.claim(MR, 42, 'feat')).not.toThrow();
     expect(port.claim(MR, 42, 'feat')).toBe(false);
@@ -151,10 +147,7 @@ describe('createBoardAttendants', () => {
       { dir, now: () => t }
     );
     const lockPath = join(dir, ciLeaseFileName(MR).replace(/\.json$/, '.lock'));
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ token: 'x', at: Date.now() })
-    );
+    writeFileSync(lockPath, JSON.stringify({ token: 'x', at: Date.now() }));
     const port = createBoardAttendants({ dir, now: () => t, lockWaitMs: 5 });
     expect(() => port.heartbeat(MR, 42)).not.toThrow();
     expect(() => port.release(MR, 42)).not.toThrow();

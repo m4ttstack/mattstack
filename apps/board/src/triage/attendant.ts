@@ -10,7 +10,6 @@ import {
   releaseCiLease,
   type CiLeaseOpts,
 } from '@mattstack/rt-client';
-
 import type { AttendantsPort } from './run.ts';
 
 /** Holds the MR's CI lease for the doctor pane, which never claims; the

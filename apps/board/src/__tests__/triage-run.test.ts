@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
 import { boardDoctorOwner, readCiLease } from '@mattstack/rt-client';
-
 import type { DoctorState } from '../doctor-state.ts';
 import { createBoardAttendants } from '../triage/attendant.ts';
 import type { AuditEntry } from '../triage/audit.ts';
@@ -521,7 +520,8 @@ describe('runTriage attendant lease (BOARD-10)', () => {
   test('a throw AFTER launchDoctor resolves (post-launch bookkeeping) keeps the claim and the in-flight row across the next pass', async () => {
     // createBoardAttendants runs through rt-client's real ciLeaseFileName,
     // which needs a parseable /merge_requests/<iid> segment.
-    const mrUrl = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1821';
+    const mrUrl =
+      'https://gitlab.example.com/acme/webapp/-/merge_requests/1821';
     const dir = mkdtempSync(join(tmpdir(), 'attendants-run-'));
     const now = () => 1_000_000_000;
     try {
