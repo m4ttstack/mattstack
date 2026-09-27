@@ -100,7 +100,7 @@ pub struct OriginStatus {
 /// matches (the header then reads "signed out") -- the pane is identified
 /// either way.
 pub fn origin_status(pane: Option<&str>, buddies: &[rt::Buddy]) -> OriginStatus {
-    let matched = pane.and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)));
+    let matched = pane.and_then(|p| rt::buddy_in_pane(buddies, p));
     OriginStatus {
         pane: pane.map(str::to_string),
         handle: matched.map(|b| b.handle.clone()),
@@ -118,7 +118,7 @@ pub fn origin_status(pane: Option<&str>, buddies: &[rt::Buddy]) -> OriginStatus 
 pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::Status, String> {
     let pane = pane.ok_or_else(|| "pane is required".to_string())?;
     let buddies = rt::buddies(r)?;
-    let matched = buddies.iter().find(|b| b.pane.as_deref() == Some(pane));
+    let matched = rt::buddy_in_pane(&buddies, pane);
     let base = origin_status(Some(pane), &buddies);
     let signed_in = base.status.as_deref().is_some_and(|s| s != "offline");
     let rooms = match (signed_in, matched.and_then(|b| b.session_id.as_deref())) {
@@ -181,7 +181,7 @@ pub fn run(r: &dyn Runner) -> Result<(), String> {
     if status.status.as_deref().is_some_and(|s| s != "offline") {
         if let Some(session) = origin
             .as_deref()
-            .and_then(|p| buddies.iter().find(|b| b.pane.as_deref() == Some(p)))
+            .and_then(|p| rt::buddy_in_pane(&buddies, p))
             .and_then(|b| b.session_id.as_deref())
         {
             status.rooms = room_tokens(&rt::rooms_for_session(r, session).unwrap_or_default());
@@ -512,6 +512,7 @@ mod tests {
             session_id: session.map(str::to_string),
             pane: pane.map(str::to_string),
             rooms: Vec::new(),
+            signed_in_at: None,
         }
     }
 
@@ -532,6 +533,42 @@ mod tests {
         assert_eq!(s.handle.as_deref(), Some("eli"));
         assert_eq!(s.status.as_deref(), Some("live"));
         assert_eq!(s.pane.as_deref(), Some("w9R:p5"));
+    }
+
+    #[test]
+    fn origin_status_prefers_the_pane_s_live_identity_over_an_earlier_signed_out_one() {
+        let buddies = vec![
+            rt::Buddy {
+                signed_in_at: Some(100),
+                ..buddy("ida", "offline", Some("w1:p2"), Some("s-ida"))
+            },
+            rt::Buddy {
+                signed_in_at: Some(200),
+                ..named("tony.ncu0", "tony", "live", Some("w1:p2"))
+            },
+        ];
+        let s = origin_status(Some("w1:p2"), &buddies);
+        assert_eq!(s.handle.as_deref(), Some("tony.ncu0"));
+        assert_eq!(s.name.as_deref(), Some("tony"));
+        assert_eq!(s.status.as_deref(), Some("live"));
+    }
+
+    #[test]
+    fn origin_status_names_the_latest_identity_when_every_row_in_the_pane_is_signed_out() {
+        let buddies = vec![
+            rt::Buddy {
+                signed_in_at: Some(200),
+                ..buddy("tony.ncu0", "offline", Some("w1:p2"), None)
+            },
+            rt::Buddy {
+                signed_in_at: Some(100),
+                ..buddy("ida", "offline", Some("w1:p2"), None)
+            },
+        ];
+        assert_eq!(
+            origin_status(Some("w1:p2"), &buddies).handle.as_deref(),
+            Some("tony.ncu0")
+        );
     }
 
     #[test]

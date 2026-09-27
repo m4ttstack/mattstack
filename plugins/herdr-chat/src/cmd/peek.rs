@@ -419,6 +419,7 @@ mod tests {
             session_id: None,
             pane: None,
             rooms: Vec::new(),
+            signed_in_at: None,
         }
     }
 
