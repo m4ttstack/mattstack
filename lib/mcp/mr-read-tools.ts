@@ -100,6 +100,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_view",
       description: `GitLab only. One MR by iid from the daemon's open-MR cache; pass a small maxAgeMs (e.g. 5000) when the read must be live. The body carries scope and syncError when the daemon reports them. ${CACHE_NOTE}. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, maxAgeMs: { type: "number" } }, additionalProperties: false },
+      shellForms: ["glab mr view", { id: "glab", pattern: /\bglab\b/, example: "glab api projects/1", note: "mr_view, mr_list, mr_for_branch, mr_threads, mr_pipeline, mr_job_trace, mr_merge, or an mr_* write" }],
       async handler(input) {
         const bad = checkMaxAge(input);
         if (bad) return err(bad);
@@ -116,6 +117,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_list",
       description: `GitLab only. A summary of each MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, pipelineStatus, detailedMergeStatus), filtered exactly on GitLab's state (default opened, which includes draft MRs; draft: true marks them). Use mr_view for one MR in full. The body carries syncedAt (0 when the cache has never synced for this repo; retry with a small maxAgeMs) and, when the daemon reports them, scope and syncError. ${CACHE_NOTE}. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, state: { type: "string", enum: [...STATES] }, maxAgeMs: { type: "number" } }, additionalProperties: false },
+      shellForms: ["glab mr list"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "state", type: "string" }]) ?? checkMaxAge(input);
         if (bad) return err(bad);
@@ -134,6 +136,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_for_branch",
       description: `GitLab only. The MR (or null) for each named source branch. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, branches: { type: "array", items: { type: "string" }, minItems: 1 } }, required: ["branches"], additionalProperties: false },
+      shellForms: [{ id: "subst", pattern: /\b[A-Za-z_][A-Za-z0-9_]*=\$\(\s*(rt|glab)\b/, example: "IID=$(glab mr list --json)", note: "a tool returns the value; nothing needs a shell variable" }],
       async handler(input) {
         const bad = checkStringArray(input, "branches");
         if (bad) return err(bad);
@@ -147,6 +150,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_threads",
       description: `GitLab only. The MR's discussion threads; refresh: true fetches from GitLab first. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, refresh: { type: "boolean" } }, additionalProperties: false },
+      shellForms: { none: "discussions have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkOptional(input, [{ name: "refresh", type: "boolean" }]);
         if (bad) return err(bad);
@@ -163,6 +167,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_pipeline",
       description: `GitLab only. The MR's head pipeline (live by default, maxAgeMs 5000) and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. pipeline.jobs may be empty for a cache entry written at list weight; pass jobId for one job's detail. ${JOB_ID_NOTE}. ${CACHE_NOTE}. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, maxAgeMs: { type: "number" }, jobId: { type: "number" } }, additionalProperties: false },
+      shellForms: ["glab ci view", "glab ci status"],
       async handler(input) {
         const bad = checkMaxAge(input) ?? checkPositiveInts(input, ["jobId"]);
         if (bad) return err(bad);
@@ -188,6 +193,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_job_trace",
       description: `GitLab only. The tail of one CI job's plain-text trace: the last tailLines lines (default ${TRACE_TAIL_LINES}) with ANSI escape sequences stripped, then capped at 64 KiB from the end. Returns trace, truncated (true when either cap cut anything) and totalLines. ${JOB_ID_NOTE}. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, jobId: { type: "number" }, tailLines: { type: "number" } }, required: ["jobId"], additionalProperties: false },
+      shellForms: ["glab ci trace"],
       async handler(input) {
         if (input.jobId === undefined) return err('"jobId" is required');
         const bad = checkPositiveInts(input, ["jobId", "tailLines"]);

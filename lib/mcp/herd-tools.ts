@@ -64,6 +64,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_start",
       description: "Start a herd (room, workspace, gate subscription) for this shepherd session. repo is the repo's identity, checkout path or label.",
       inputSchema: { type: "object", properties: { name: { type: "string" }, repo: { type: "string" }, hidden: { type: "boolean" } }, required: ["name", "repo"], additionalProperties: false },
+      shellForms: ["rt herd start"],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "name", type: "string" }, { name: "repo", type: "string" }]) ?? checkOptional(input, [{ name: "hidden", type: "boolean" }]);
@@ -81,6 +82,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_spawn",
       description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, disposable: { type: "boolean" } }, required: ["job"], additionalProperties: false },
+      shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /\brt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone" }],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         // The server does not enforce additionalProperties, and a caller-chosen dir would land the worker in a folder whose
@@ -122,6 +124,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_brief",
       description: "Assemble a job brief from the shepherd skill's job template plus a strategy body or method file; fill repeats per template slot as \"slot=value\". Writes to out when given, else returns the brief. out must be an absolute path inside the Claude Code temp root; template, strategies and methodFile must be absolute paths inside the Claude Code temp root or an installed plugin or pack root.",
       inputSchema: { type: "object", properties: { job: { type: "string" }, template: { type: "string" }, strategy: { type: "string" }, strategies: { type: "string" }, methodFile: { type: "string" }, fill: { type: "array", items: { type: "string" } }, out: { type: "string" } }, required: ["job", "template"], additionalProperties: false },
+      shellForms: ["rt herd brief"],
       async handler(input) {
         const bad = checkRequired(input, [{ name: "job", type: "string" }, { name: "template", type: "string" }]) ?? checkOptional(input, [{ name: "strategy", type: "string" }, { name: "strategies", type: "string" }, { name: "methodFile", type: "string" }, { name: "out", type: "string" }]) ?? checkStringArray(input, "fill");
         if (bad) return err(bad);
@@ -149,6 +152,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_close",
       description: "Close one job's pane. Only the herd's shepherd session may call it.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" } }, required: ["job"], additionalProperties: false },
+      shellForms: ["rt herd close"],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "job", type: "string" }]);
@@ -164,6 +168,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_status",
       description: "One herd: jobs, panes, gates, subscription, unread.",
       inputSchema: { type: "object", properties: { ...HERD_PROP }, additionalProperties: false },
+      shellForms: ["rt herd status"],
       async handler(input, env) {
         const h = await herdFor(input, env);
         if ("error" in h) return err(h.error);
@@ -174,6 +179,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_list",
       description: "Active herds (all: true includes finished ones).",
       inputSchema: { type: "object", properties: { all: { type: "boolean" } }, additionalProperties: false },
+      shellForms: ["rt herd list"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "all", type: "boolean" }]);
         if (bad) return err(bad);
@@ -184,6 +190,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_attend",
       description: "Open a job's pane in a tab of this shepherd's workspace. Only the herd's shepherd session may call it.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" } }, required: ["job"], additionalProperties: false },
+      shellForms: ["rt herd attend"],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "job", type: "string" }]);
@@ -200,6 +207,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_wrap_up",
       description: "Close panes, dispose the named worktrees, delete job dirs and archive the room in one pass, driven by the wrap-up form's answers. herd is required; only the herd's shepherd session may call it.",
       inputSchema: { type: "object", properties: { herd: { type: "string", description: "Herd id." }, closePanes: { type: "boolean" }, dispose: { type: "array", items: { type: "string" } }, deleteJobDirs: { type: "boolean" }, archiveRoom: { type: "boolean" } }, required: ["herd"], additionalProperties: false },
+      shellForms: ["rt herd wrap-up"],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "herd", type: "string" }]) ?? checkOptional(input, [{ name: "closePanes", type: "boolean" }, { name: "deleteJobDirs", type: "boolean" }, { name: "archiveRoom", type: "boolean" }]) ?? checkStringArray(input, "dispose");
@@ -217,6 +225,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_resume",
       description: "Re-attach this session to a herd: re-subscribes to its gates and returns the open ones plus status. Any session but a worker pane may take a herd over this way.",
       inputSchema: { type: "object", properties: { herd: { type: "string" } }, required: ["herd"], additionalProperties: false },
+      shellForms: ["rt herd resume"],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         const bad = checkRequired(input, [{ name: "herd", type: "string" }]);
@@ -231,6 +240,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_milestone",
       description: "Worker side: announce an artifact (a spec, a plan, a PR) to the shepherd and open the milestone gate, using HERD_ID, HERD_JOB and this pane's session.",
       inputSchema: { type: "object", properties: { artifact: { type: "string" }, summary: { type: "string" } }, required: ["artifact"], additionalProperties: false },
+      shellForms: ["rt herd milestone"],
       async handler(input, env) {
         const w = requireWorkerEnv(env);
         if ("error" in w) return err(w.error);

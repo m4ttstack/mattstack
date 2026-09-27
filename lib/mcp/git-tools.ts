@@ -355,6 +355,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
       name: "git_push",
       description: "Push the tree's current branch as exactly one ref (HEAD to refs/heads/<branch>; no tags, no submodules) to the same-named branch on its upstream's remote, or to origin/<branch> with setUpstream: true, which also makes that the upstream. Force is only ever --force-with-lease --force-if-includes. Refuses a detached HEAD; main, master and origin's default branch, and any push when origin's default cannot be read; a branch with no upstream unless setUpstream: true; an upstream with a different branch name, or one that is its own remote's default branch, or whose remote's default branch cannot be read (setUpstream: true pushes as origin/<branch> instead).",
       inputSchema: { type: "object", properties: { ...TREE_PROP, forceWithLease: { type: "boolean" }, setUpstream: { type: "boolean" } }, required: ["tree"], additionalProperties: false },
+      shellForms: ["git push", "rt git push"],
       handler: guarded(async (path, input) => {
         const bad = checkOptional(input, [{ name: "forceWithLease", type: "boolean" }, { name: "setUpstream", type: "boolean" }]);
         if (bad) return err(bad);
@@ -365,12 +366,14 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
       name: "git_pull",
       description: "Fast-forward the tree's current branch from its upstream (--ff-only). A diverged branch is an error, never a merge or rebase.",
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
+      shellForms: ["git pull", "rt git pull"],
       handler: guarded(async (path) => gitPull(path, deps.git)),
     },
     {
       name: "git_rebase",
       description: "Rebase the tree's current branch onto a named branch or ref; a remote-tracking ref (origin/<branch>) is fetched first. On a conflict it returns status conflict with the conflicted files and leaves the tree mid-rebase for you to resolve (then finish with git rebase --continue in Bash), or pass abort: true to abort one in progress.",
       inputSchema: { type: "object", properties: { ...TREE_PROP, onto: { type: "string" }, abort: { type: "boolean" } }, required: ["tree"], additionalProperties: false },
+      shellForms: ["rt git rebase", { id: "git-rebase", pattern: /\bgit rebase\b(?!\s+--(continue|skip)\b)/, example: "git rebase origin/main", note: 'onto: "origin/<default>" (it fetches), or abort: true' }],
       handler: guarded(async (path, input) => {
         const bad = checkOptional(input, [{ name: "onto", type: "string" }, { name: "abort", type: "boolean" }]);
         if (bad) return err(bad);
@@ -381,6 +384,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
       name: "branch_sync",
       description: "Bring the tree's branch current in one call through rt sync: fetch origin; if the branch diverged from origin only because GitLab rebased it (every local commit has a patch-equivalent on origin), reset to origin; rebase onto the default branch; push with --force-with-lease when anything changed. A branch only ahead of origin is not refused, but like any branch it is pushed only when the reset or rebase actually changed it; a branch already at the default branch's tip is left alone, so use git_push to publish new commits. Refuses up front, naming the commits where there are any: a diverged branch whose local commits have no equivalent on origin (the reset would lose them); a branch only behind origin (run git_pull first); origin commits a kept local rewrite would force-push over; a rebase already in progress; a detached HEAD; main, master or the default branch; a branch name rt sync cannot pass safely or that is ambiguous with a tag or other ref; a local ref shadowing origin/<branch> or origin/<default>; a push destination redirected by git config; a gitq stack member, or a branch whose stack membership cannot be verified. A rebase conflict returns status conflict with rt sync's bundle and leaves the rebase paused.",
       inputSchema: { type: "object", properties: { ...TREE_PROP }, required: ["tree"], additionalProperties: false },
+      shellForms: ["rt sync"],
       handler: guarded(async (path) => {
         const pre = await branchSyncPreflight(path, deps.git);
         if (!pre.ok) return err(pre.error);
