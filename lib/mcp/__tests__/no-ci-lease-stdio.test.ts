@@ -87,8 +87,14 @@ async function request(server: Server, method: string, params?: object, timeoutM
   }
 }
 
-/** Spawns `bun cli.ts mcp serve` from source under an isolated env and completes the initialize handshake. */
-async function startServer(sessionId: string, home: string, attDir: string): Promise<Server> {
+/**
+ * Spawns `bun cli.ts mcp serve` from source under an isolated env and
+ * completes the initialize handshake. `liveProcs` gets the process the
+ * instant it exists, before the handshake, so a throw partway through this
+ * function (a second server's spawn or handshake failing) still leaves the
+ * first server registered for the caller's afterEach to kill.
+ */
+async function startServer(sessionId: string, home: string, attDir: string, liveProcs: Array<ReturnType<typeof spawnServer>>): Promise<Server> {
   const proc = spawnServer({
     ...childEnv(),
     HOME: home,
@@ -97,6 +103,7 @@ async function startServer(sessionId: string, home: string, attDir: string): Pro
     CI: "true",
     CLAUDE_CODE_SESSION_ID: sessionId,
   });
+  liveProcs.push(proc);
 
   const server: Server = { proc, nextId: 1, pending: new Map(), stderrChunks: [] };
 
@@ -153,11 +160,11 @@ async function stop(server: Server): Promise<void> {
 
 describe("ci_lease_* over mcp stdio (two sessions)", () => {
   const homes: string[] = [];
-  const liveServers: Server[] = [];
+  const liveProcs: Array<ReturnType<typeof spawnServer>> = [];
 
   afterEach(async () => {
-    for (const s of liveServers.splice(0)) {
-      try { s.proc.kill(); } catch { /* already gone */ }
+    for (const p of liveProcs.splice(0)) {
+      try { p.kill(); } catch { /* already gone */ }
     }
     for (const h of homes.splice(0)) {
       rmSync(h, { recursive: true, force: true });
@@ -169,9 +176,8 @@ describe("ci_lease_* over mcp stdio (two sessions)", () => {
     const attDir = join(home, "att");
     homes.push(home);
 
-    const a = await startServer("sess-a", home, attDir);
-    const b = await startServer("sess-b", home, attDir);
-    liveServers.push(a, b);
+    const a = await startServer("sess-a", home, attDir, liveProcs);
+    const b = await startServer("sess-b", home, attDir, liveProcs);
 
     expect(await call(a, "ci_lease_claim", { mrUrl: MR })).toMatchObject({ claimed: true });
     expect(await call(b, "ci_lease_claim", { mrUrl: MR })).toMatchObject({
@@ -193,6 +199,5 @@ describe("ci_lease_* over mcp stdio (two sessions)", () => {
 
     await stop(a);
     await stop(b);
-    liveServers.length = 0;
   }, 30_000);
 });

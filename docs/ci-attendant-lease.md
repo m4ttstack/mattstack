@@ -29,12 +29,21 @@ over them.
 
 One JSON file per MR, under `MATTSTACK_ATTENDANTS_DIR` if set, otherwise
 `$HOME/.mattstack/ci-attendants` (`HOME` is read fresh on every call, not
-cached). The file name is derived from the MR URL: take the URL's path up to
-`/-/merge_requests/<iid>` (or `/pull/<n>` on GitHub), lowercase it, collapse
-every run of non-alphanumeric characters to a single dash, trim leading and
-trailing dashes, and append `-<iid>.json`. A trailing slash, a `/diffs`
-suffix or a query string on the MR URL does not change the file name; a URL
-with no merge request or pull number is refused outright.
+cached). The file name is derived from the MR (or PR) URL's path. If the
+path contains `/-/` (every GitLab merge request URL does), only the part
+before it is used; otherwise the whole path is used, which is what happens
+for a GitHub pull request URL, since GitHub's paths never contain `/-/`.
+Either way, that path is lowercased, every run of non-alphanumeric
+characters is collapsed to a single dash, and leading and trailing dashes
+are trimmed, then `-<iid>.json` is appended, where `<iid>` is the same
+merge request or pull number parsed out of the URL. On GitLab this gives the
+number once:
+`https://gitlab.example.com/grp/proj/-/merge_requests/42` becomes
+`grp-proj-42.json`. On GitHub the number is already part of the path used
+for the slug, so it appears twice:
+`https://github.com/o/r/pull/7` becomes `o-r-pull-7-7.json`. A trailing
+slash, a `/diffs` suffix or a query string on the MR URL does not change the
+file name; a URL with no merge request or pull number is refused outright.
 
 A per-MR lock file sits alongside it, named the same way but ending in
 `.lock` instead of `.json`, so a directory scan for lease files never picks
@@ -65,10 +74,13 @@ things:
 
 - **No lease file, or one that cannot be parsed:** the claim wins outright.
 - **A stale lease** (its `heartbeatAt` is more than `ttlSeconds` in the
-  past): the claim wins, and the response reports the stale lease's owner as
-  `previousOwner` so the new holder knows who was last attending.
-- **A fresh lease owned by the caller:** the claim re-claims it, refreshing
-  `heartbeatAt` and keeping the original `startedAt`.
+  past) **owned by someone else:** the claim wins, and the response reports
+  the stale lease's owner as `previousOwner` so the new holder knows who
+  was last attending.
+- **A lease, fresh or stale, owned by the caller:** the claim re-claims it,
+  refreshing `heartbeatAt` and keeping the original `startedAt`, and reports
+  no `previousOwner` (the caller was already the owner, so there is nobody
+  to report).
 - **A fresh lease owned by anyone else:** the claim is refused. The response
   carries the current holder's lease so the caller can see who has it and
   since when.
