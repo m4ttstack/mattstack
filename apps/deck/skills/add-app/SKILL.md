@@ -132,6 +132,7 @@ digraph deck_add_app {
     "Forced remove result (deck)?" [shape=diamond];
     "Rows left to remove (deck)?" [shape=diamond];
     "Domain listed for unbind (deck)?" [shape=diamond];
+    "Unbind was part of a teardown (deck)?" [shape=diamond];
     "Report the teardown (deck)" [shape=box];
     "Teardown finished (deck)" [shape=doublecircle];
 
@@ -278,7 +279,7 @@ digraph deck_add_app {
     "Bind-failure rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
 
     "deck domain unbind" -> "deck domain unbind result (deck)?";
-    "deck domain unbind result (deck)?" -> "Public edge torn down (deck)" [label="torn down"];
+    "deck domain unbind result (deck)?" -> "Unbind was part of a teardown (deck)?" [label="torn down"];
     "deck domain unbind result (deck)?" -> "deck off-script gate: deck domain unbind refused" [label="refused or errored"];
     "deck domain unbind result (deck)?" -> "STOP: --force only on the user's word (deck domain unbind)" [label="tempted to add --force unasked"];
     "STOP: --force only on the user's word (deck domain unbind)" -> "deck off-script gate: deck domain unbind refused";
@@ -290,12 +291,14 @@ digraph deck_add_app {
     "Unbind rounds = 2 (deck)?" -> "deck domain unbind" [label="no: unbind again with the note"];
     "Unbind rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
     "deck domain unbind --force" -> "Forced unbind result (deck)?";
-    "Forced unbind result (deck)?" -> "Public edge torn down (deck)" [label="torn down"];
+    "Forced unbind result (deck)?" -> "Unbind was part of a teardown (deck)?" [label="torn down"];
     "Forced unbind result (deck)?" -> "Report the refusal to the user (deck)" [label="refused or errored"];
+    "Unbind was part of a teardown (deck)?" -> "Report the teardown (deck)" [label="yes: reached from Domain listed for unbind"];
+    "Unbind was part of a teardown (deck)?" -> "Public edge torn down (deck)" [label="no"];
 
     "deck status (teardown)" -> "deck gate: confirm the teardown";
     "deck gate: confirm the teardown" -> "Teardown answer (deck)?";
-    "Teardown answer (deck)?" -> "Row to remove (deck)?" [label="take: remove exactly the listed rows and unbind the listed domain"];
+    "Teardown answer (deck)?" -> "Rows left to remove (deck)?" [label="take: remove exactly the listed rows and unbind the listed domain"];
     "Teardown answer (deck)?" -> "Teardown rounds = 2 (deck)?" [label="iterate: the user edits the list"];
     "Teardown answer (deck)?" -> "Held (deck): the teardown waits on the user" [label="hold"];
     "Teardown answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
@@ -305,6 +308,7 @@ digraph deck_add_app {
     "Row to remove (deck)?" -> "deck remove <name>" [label="the user's app"];
     "Row to remove (deck)?" -> "Tell the user deck's own row is never removed (deck)" [label="deck's own row"];
     "Row to remove (deck)?" -> "STOP: never remove deck's own row; it stops the platform" [label="tempted to remove deck's own row anyway"];
+    "STOP: never remove deck's own row; it stops the platform" -> "Tell the user deck's own row is never removed (deck)";
     "Tell the user deck's own row is never removed (deck)" -> "Rows left to remove (deck)?";
     "deck remove <name>" -> "deck remove result (deck)?";
     "deck remove result (deck)?" -> "Rows left to remove (deck)?" [label="removed"];
@@ -324,7 +328,7 @@ digraph deck_add_app {
     "Forced remove result (deck)?" -> "Rows left to remove (deck)?" [label="removed"];
     "Forced remove result (deck)?" -> "Relay the 409 message verbatim (deck)" [label="409: another registrar owns the app"];
     "Forced remove result (deck)?" -> "Report the refusal to the user (deck)" [label="refused or errored"];
-    "Rows left to remove (deck)?" -> "Row to remove (deck)?" [label="yes: the next confirmed row"];
+    "Rows left to remove (deck)?" -> "Row to remove (deck)?" [label="yes: a confirmed row not yet walked"];
     "Rows left to remove (deck)?" -> "Domain listed for unbind (deck)?" [label="no: every confirmed row walked"];
     "Domain listed for unbind (deck)?" -> "deck domain unbind" [label="yes"];
     "Domain listed for unbind (deck)?" -> "Report the teardown (deck)" [label="no"];
@@ -681,10 +685,11 @@ Context, quoted and never trimmed: deck's refusal text.
 
 ### Report the teardown (deck)
 
-Reached once every confirmed row has been walked and the confirmed list
-names no domain to unbind. The per-row loop is bounded by that list:
-`Rows left to remove (deck)?` answers yes only for a confirmed row not yet
-walked, so each row is walked once and nothing outside the list is touched.
+Reached once the confirmed list has no rows left and names no domain to
+unbind, or once the listed domain is unbound. The per-row loop is bounded
+by that list: `Rows left to remove (deck)?` answers yes only for a
+confirmed row not yet walked, so each row is walked once and nothing
+outside the list is touched.
 
 Report each confirmed row and what happened to it: removed, kept as deck's
 own row, or kept because another registrar owns it (with the 409 message
@@ -717,9 +722,6 @@ changed beyond what the report names.
   used up, so the list bounds it. A list that names the domain then walks
   the unbind branch once. Deck's own row always reaches the tell box, never
   `deck remove`.
-- A teardown that unbinds ends where the unbind branch ends, not at
-  `Report the teardown (deck)`, so its closing message carries that
-  section's report: each row's result and the `deck uninstall` pointer.
 - When `Domain bound for access (deck)?` answers no, the run binds a domain
   first and ends in the domain flow. Its closing message tells the user to
   ask for the access move again once the domain is bound.
