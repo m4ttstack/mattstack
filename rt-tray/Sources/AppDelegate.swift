@@ -110,6 +110,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // Test harness only: XCUITest can't toggle the real system appearance,
+        // so under stub mode it asks for a scheme via RT_STUB_APPEARANCE instead
+        // of -AppleInterfaceStyle, which this app does not otherwise honor.
+        if BundleFlavor.isStubActive {
+            switch ProcessInfo.processInfo.environment["RT_STUB_APPEARANCE"] {
+            case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+            case "light": NSApp.appearance = NSAppearance(named: .aqua)
+            default: break
+            }
+        }
+        #endif
         if LaunchGuard.isTranslocatedOrOnRemovableVolume(bundlePath: Bundle.main.bundlePath) {
             showMoveToApplicationsAlert()
             return

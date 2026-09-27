@@ -187,7 +187,7 @@ final class SetupFlowUITests: XCTestCase {
     func testJustMeScreensLightAndDark() {
         for scheme in ["Light", "Dark"] {
             prepare("solo")
-            app.launchArguments += ["-AppleInterfaceStyle", scheme]
+            app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
             app.launch()
             waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
             waitFor("setup.team.screen"); el("setup.team.card.solo").click(); shoot("team-\(scheme)")
