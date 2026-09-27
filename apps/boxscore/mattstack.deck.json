@@ -5,6 +5,7 @@
   "icon": "./public/favicon.svg",
   "port": 11005,
   "includeInBundle": true,
+  "requiresTeam": true,
   "bundle": {
     "build": "bun run build:binary",
     "artifact": "dist-bin/boxscore"
