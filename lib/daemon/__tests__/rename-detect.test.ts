@@ -107,10 +107,10 @@ describe("detectRenamedRepos and the identity memo", () => {
 
 describe("realRenameDetectDeps.renamedTo", () => {
   test("follows the 301 to /repositories/<id> and reads full_name", async () => {
-    const seen: { url: string; redirect?: RequestInit["redirect"] }[] = [];
+    const seen: { url: string; redirect?: RequestInit["redirect"]; signal?: RequestInit["signal"] }[] = [];
     const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      seen.push({ url, redirect: init?.redirect });
+      seen.push({ url, redirect: init?.redirect, signal: init?.signal });
       if (url === "https://api.github.com/repos/acme/old") {
         return new Response(null, { status: 301, headers: { location: "https://api.github.com/repositories/123" } });
       }
@@ -125,6 +125,7 @@ describe("realRenameDetectDeps.renamedTo", () => {
     expect(await real.renamedTo("acme", "old")).toBe("acme/new");
     expect(seen.map((s) => s.url)).toEqual(["https://api.github.com/repos/acme/old", "https://api.github.com/repositories/123"]);
     expect(seen[0]!.redirect).toBe("manual");
+    expect(seen.every((s) => s.signal instanceof AbortSignal)).toBe(true);
   });
 
   test("any status but 301, or a thrown fetch, is null", async () => {
@@ -132,6 +133,44 @@ describe("realRenameDetectDeps.renamedTo", () => {
     expect(await ok.renamedTo("acme", "old")).toBeNull();
     const down = realRenameDetectDeps(silent as never, (async () => { throw new Error("offline"); }) as unknown as typeof fetch);
     expect(await down.renamedTo("acme", "old")).toBeNull();
+  });
+});
+
+describe("startRenameDetector: overlap and stop", () => {
+  const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test("an interval tick never starts a pass while one is still running", async () => {
+    let runs = 0;
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    const stop = startRenameDetector(Promise.resolve(), async () => { runs++; await held; }, 5);
+    try {
+      await tick(40);
+      expect(runs).toBe(1);
+      release();
+      await tick(40);
+      expect(runs).toBeGreaterThan(1);
+    } finally {
+      stop();
+    }
+  });
+
+  test("a pass in flight when stop() lands never applies", async () => {
+    const d = deps({});
+    let askedGitHub!: () => void;
+    const asked = new Promise<void>((r) => { askedGitHub = r; });
+    let answer!: (v: string | null) => void;
+    d.renamedTo = () => {
+      askedGitHub();
+      return new Promise((r) => { answer = r; });
+    };
+    let pass: Promise<unknown> = Promise.resolve();
+    const stop = startRenameDetector(Promise.resolve(), (isStopped) => (pass = detectRenamedRepos(d, { stopped: isStopped })), 60 * 60 * 1000);
+    await asked;
+    stop();
+    answer("acme/new");
+    expect(await pass).toEqual([]);
+    expect(d.calls).toEqual([]);
   });
 });
 

@@ -36,7 +36,12 @@ function githubParts(serialized: string): { owner: string; repo: string } | null
   return m ? { owner: m[1]!, repo: m[2]! } : null;
 }
 
-async function detectOne(deps: RenameDetectDeps, entry: { repoName: string; path: string }): Promise<DetectedRename | null> {
+interface PassOpts {
+  /** Checked right before each apply: a pass still in flight after stop() must not touch state. */
+  stopped?: () => boolean;
+}
+
+async function detectOne(deps: RenameDetectDeps, entry: { repoName: string; path: string }, opts: PassOpts): Promise<DetectedRename | null> {
   const old = githubParts(entry.repoName);
   if (!old) return null;
   const remote = await deps.readRemote(entry.path);
@@ -49,6 +54,7 @@ async function detectOne(deps: RenameDetectDeps, entry: { repoName: string; path
   if (!next) return null;
   const current = await deps.renamedTo(old.owner, old.repo);
   if (!current || current.toLowerCase() !== `${next.owner}/${next.repo}`.toLowerCase()) return null;
+  if (opts.stopped?.()) return null;
   const result = await deps.reidentify(entry.repoName, to);
   // Stores may have moved even on a refusal; a memoized derivation for an
   // unmoved checkout would keep answering the identity they left.
@@ -59,11 +65,12 @@ async function detectOne(deps: RenameDetectDeps, entry: { repoName: string; path
   return { from: entry.repoName, to, applied };
 }
 
-export async function detectRenamedRepos(deps: RenameDetectDeps): Promise<DetectedRename[]> {
+export async function detectRenamedRepos(deps: RenameDetectDeps, opts: PassOpts = {}): Promise<DetectedRename[]> {
   const out: DetectedRename[] = [];
   for (const entry of deps.entries()) {
+    if (opts.stopped?.()) break;
     try {
-      const found = await detectOne(deps, entry);
+      const found = await detectOne(deps, entry, opts);
       if (found) out.push(found);
     } catch (err) {
       deps.log.warn({ err, repo: entry.repoName }, "rename-detect: skipped a repo");
@@ -75,17 +82,27 @@ export async function detectRenamedRepos(deps: RenameDetectDeps): Promise<Detect
 /**
  * Starts the periodic pass once `after` settles either way, so the first
  * pass never runs against rows the boot identity migration has yet to re-key.
- * Returns a stop function.
+ * A tick that lands while a pass is still running is skipped, never queued.
+ * Returns a stop function; `run` receives the stopped probe to pass on.
  */
-export function startRenameDetector(after: Promise<unknown>, run: () => Promise<unknown>, intervalMs: number): () => void {
+export function startRenameDetector(after: Promise<unknown>, run: (isStopped: () => boolean) => Promise<unknown>, intervalMs: number): () => void {
   let timer: ReturnType<typeof setInterval> | undefined;
   let stopped = false;
+  let running = false;
+  const isStopped = () => stopped;
+  const pass = (): void => {
+    if (stopped || running) return;
+    running = true;
+    void run(isStopped)
+      .catch(() => {})
+      .finally(() => { running = false; });
+  };
   void after
     .catch(() => {})
     .then(() => {
       if (stopped) return;
-      void run();
-      timer = setInterval(() => void run(), intervalMs);
+      pass();
+      timer = setInterval(pass, intervalMs);
       timer.unref?.();
     });
   return () => {
@@ -108,10 +125,10 @@ export function realRenameDetectDeps(
     },
     renamedTo: async (owner, repo) => {
       try {
-        const res = await fetchImpl(`https://api.github.com/repos/${owner}/${repo}`, { redirect: "manual", headers });
+        const res = await fetchImpl(`https://api.github.com/repos/${owner}/${repo}`, { redirect: "manual", headers, signal: AbortSignal.timeout(10_000) });
         const location = res.status === 301 ? res.headers.get("location") : null;
         if (!location) return null;
-        const moved = await fetchImpl(location, { headers });
+        const moved = await fetchImpl(location, { headers, signal: AbortSignal.timeout(10_000) });
         if (!moved.ok) return null;
         const body = (await moved.json()) as { full_name?: unknown };
         return typeof body.full_name === "string" ? body.full_name : null;
