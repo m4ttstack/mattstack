@@ -26,6 +26,8 @@ export interface CiLeaseOpts {
   onLockWait?: () => void;
   /** Test seam: fires inside breakIfStale after a lock is judged stale, before it is renamed aside. */
   onStaleLockObserved?: () => void;
+  /** Test seam: fires in claimCiLease right after the lease file's one read, before the write. */
+  onLeaseRead?: () => void;
 }
 
 export class CiLeaseError extends Error {}
@@ -189,7 +191,12 @@ function writeTmp(path: string, lease: CiLease): string {
 }
 
 function commitReplace(tmp: string, path: string): void {
-  renameSync(tmp, path);
+  try {
+    renameSync(tmp, path);
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* already gone */ }
+    throw e;
+  }
 }
 
 /** Runs `stillMine`, cleaning up `tmp` first when the lock was lost so a retry never leaves it orphaned. */
@@ -215,12 +222,12 @@ function commitCreate(tmp: string, path: string): boolean {
   }
 }
 
-function fileExists(path: string): boolean {
+/** One read of the lease file: ENOENT (or any other read failure) means the create route is safe; a file that exists, parseable or not, takes the replace route. Both fields must come from this single read, or a lockless creator landing in the gap between two separate reads can make `fresh` say create while `existing` still says the file was absent. */
+function readLeaseState(path: string): { existing: CiLease | null; fresh: boolean } {
   try {
-    readFileSync(path);
-    return true;
+    return { existing: parseLease(readFileSync(path, "utf8")), fresh: false };
   } catch {
-    return false;
+    return { existing: null, fresh: true };
   }
 }
 
@@ -265,7 +272,8 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
   return withLock(p.lock, opts, (stillMine) => {
     for (;;) {
       const now = clock(opts);
-      const existing = readFileLease(p.lease);
+      const { existing, fresh } = readLeaseState(p.lease);
+      opts.onLeaseRead?.();
       if (existing && isLeaseFresh(existing, now) && leaseOwner(existing) !== req.owner) {
         return { claimed: false, holder: existing };
       }
@@ -280,7 +288,6 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
         heartbeatAt: now,
         ttlSeconds: req.ttlSeconds ?? DEFAULT_CI_LEASE_TTL_SECONDS,
       };
-      const fresh = !fileExists(p.lease);
       const tmp = writeTmp(p.lease, lease);
       checkStillMine(tmp, stillMine);
       if (fresh) {

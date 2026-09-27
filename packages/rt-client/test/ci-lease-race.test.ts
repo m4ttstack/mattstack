@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ciLeaseFileName, claimCiLease, heartbeatCiLease, readCiLease } from "../src/ci-lease.ts";
+import { CiLeaseError, ciLeaseFileName, claimCiLease, heartbeatCiLease, readCiLease } from "../src/ci-lease.ts";
 
 const MR = "https://gitlab.example.com/grp/proj/-/merge_requests/42";
 const CLAIMER = join(import.meta.dir, "fixtures", "ci-lease-claimer.ts");
@@ -56,6 +56,21 @@ describe("compare-and-set under concurrency", () => {
       expect(rtWins).toBe(1);
     }
   });
+
+  test("a lockless creator that appears between the read and the create link makes the claim re-read and refuse", () => {
+    const scriptLease = { mr: MR, holder: "watch-ci", sessionLabel: "watch-ci", pid: 999, startedAt: Date.now(), heartbeatAt: Date.now(), ttlSeconds: 600 };
+    let fired = false;
+    const r = claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, {
+      dir,
+      onLeaseRead: () => {
+        if (fired) return;
+        fired = true;
+        writeFileSync(join(dir, ciLeaseFileName(MR)), JSON.stringify(scriptLease));
+      },
+    });
+    expect(r).toMatchObject({ claimed: false, holder: { pid: 999 } });
+    expect(JSON.parse(readFileSync(join(dir, ciLeaseFileName(MR)), "utf8"))).toEqual(scriptLease);
+  });
 });
 
 describe("stale lock breaking", () => {
@@ -69,7 +84,14 @@ describe("stale lock breaking", () => {
   test("a fresh lock blocks until its wait deadline", () => {
     const lock = lockPath();
     writeFileSync(lock, JSON.stringify({ token: "live", at: Date.now() + 60_000 }));
-    expect(() => claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, { dir, lockWaitMs: 150 })).toThrow(/busy/);
+    let err: unknown;
+    try {
+      claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, { dir, lockWaitMs: 150 });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(CiLeaseError);
+    expect((err as Error).message).toMatch(/busy/);
     expect(JSON.parse(readFileSync(lock, "utf8")).token).toBe("live");
   });
 
@@ -79,10 +101,7 @@ describe("stale lock breaking", () => {
     const heartbeats = [111, 222];
     let call = 0;
     let waits = 0;
-    // Simulate a breaker taking the lock right as our body computes its write,
-    // then releasing it (as a real holder finishing its own operation would)
-    // partway through our contested retry, driven by the onLockWait tick so
-    // the outcome is deterministic instead of timing-dependent.
+    // Simulates a breaker taking the lock, then releasing it before the deadline.
     const r = heartbeatCiLease(MR, "session:a", {
       dir,
       lockWaitMs: 2_000,
@@ -94,12 +113,15 @@ describe("stale lock breaking", () => {
       },
       onLockWait: () => {
         waits++;
+        if (waits === 1) expect(JSON.parse(readFileSync(lock, "utf8")).token).toBe("next-holder");
         if (waits === 2) unlinkSync(lock);
       },
     });
+    expect(waits).toBeGreaterThanOrEqual(2);
     expect(r).toMatchObject({ ok: true, lease: { heartbeatAt: 222 } });
     expect(existsSync(lock)).toBe(false);
     expect(readdirSync(dir).filter((f) => /\.tmp$|\.lock$|\.broken$/.test(f))).toEqual([]);
+    expect(readCiLease(MR, { dir, now: () => 222 }).lease?.heartbeatAt).toBe(222);
   });
 
   test("a taker restores a lock that changed underneath a stale judgment", () => {
@@ -112,8 +134,7 @@ describe("stale lock breaking", () => {
           dir,
           lockStaleMs: 1_000,
           lockWaitMs: 150,
-          // Fires exactly once, between the stale judgment's token read and the
-          // rename-aside: simulates a racer replacing the lock in that window.
+          // Simulates a racer replacing the lock while it is judged stale.
           onStaleLockObserved: () => {
             if (fired) return;
             fired = true;
@@ -124,7 +145,7 @@ describe("stale lock breaking", () => {
         return e as Error;
       }
     })();
-    expect(r).toBeInstanceOf(Error);
+    expect(r).toBeInstanceOf(CiLeaseError);
     expect(JSON.parse(readFileSync(lock, "utf8")).token).toBe("fresh-token");
     expect(readdirSync(dir).some((f) => f.endsWith(".broken"))).toBe(false);
     expect(existsSync(join(dir, ciLeaseFileName(MR)))).toBe(false);
