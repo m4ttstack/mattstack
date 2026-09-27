@@ -496,19 +496,35 @@ test('discovery hides an rt app the prod catalog does not serve, and shows it in
 
 test('a disabled managed app is absent from discovery; a record without enabled is present', async () => {
   const chatDir = manifestDir();
-  putRecord({ name: 'chat', managedBy: 'rt', port: 11002, kind: 'service', workingDirectory: chatDir, createdAt: '2026-08-10T00:00:00Z' });
+  putRecord({
+    name: 'chat',
+    managedBy: 'rt',
+    port: 11002,
+    kind: 'service',
+    workingDirectory: chatDir,
+    createdAt: '2026-08-10T00:00:00Z',
+  });
   ingestManifest('chat');
   boardRow({ enabled: false });
-  writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH!, JSON.stringify([
-    { hostname: 'chat.localhost', port: 11002 },
-    { hostname: 'board.localhost', port: 11006 },
-  ]));
+  writeFileSync(
+    process.env.LOCAL_APPS_ROUTES_PATH!,
+    JSON.stringify([
+      { hostname: 'chat.localhost', port: 11002 },
+      { hostname: 'board.localhost', port: 11006 },
+    ])
+  );
   const apps = await buildDiscoveryApps(statusOpts);
   expect(apps.map(a => a.name)).toEqual(['chat']);
   boardRow();
-  writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH!, JSON.stringify([
-    { hostname: 'chat.localhost', port: 11002 },
-    { hostname: 'board.localhost', port: 11006 },
-  ]));
-  expect((await buildDiscoveryApps(statusOpts)).map(a => a.name)).toEqual(['board', 'chat']);
+  writeFileSync(
+    process.env.LOCAL_APPS_ROUTES_PATH!,
+    JSON.stringify([
+      { hostname: 'chat.localhost', port: 11002 },
+      { hostname: 'board.localhost', port: 11006 },
+    ])
+  );
+  expect((await buildDiscoveryApps(statusOpts)).map(a => a.name)).toEqual([
+    'board',
+    'chat',
+  ]);
 });

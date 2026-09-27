@@ -382,20 +382,32 @@ test('drops a badge that is absolute or protocol-relative', () => {
 
 test('reads requiresTeam when it is a boolean', () => {
   const dir = mkdtempSync(join(tmpdir(), 'deck-manifest-'));
-  writeFileSync(join(dir, 'mattstack.deck.json'), JSON.stringify({ name: 'board', requiresTeam: true }));
+  writeFileSync(
+    join(dir, 'mattstack.deck.json'),
+    JSON.stringify({ name: 'board', requiresTeam: true })
+  );
   const r = readDeckManifest(dir);
   expect(r?.ok && r.manifest.requiresTeam).toBe(true);
 });
 
 test('a manifest without requiresTeam leaves it undefined', () => {
   const dir = mkdtempSync(join(tmpdir(), 'deck-manifest-'));
-  writeFileSync(join(dir, 'mattstack.deck.json'), JSON.stringify({ name: 'chat' }));
+  writeFileSync(
+    join(dir, 'mattstack.deck.json'),
+    JSON.stringify({ name: 'chat' })
+  );
   const r = readDeckManifest(dir);
   expect(r?.ok && r.manifest.requiresTeam).toBeUndefined();
 });
 
 test('rejects a non-boolean requiresTeam', () => {
   const dir = mkdtempSync(join(tmpdir(), 'deck-manifest-'));
-  writeFileSync(join(dir, 'mattstack.deck.json'), JSON.stringify({ name: 'board', requiresTeam: 'yes' }));
-  expect(readDeckManifest(dir)).toEqual({ ok: false, error: 'requiresTeam must be a boolean' });
+  writeFileSync(
+    join(dir, 'mattstack.deck.json'),
+    JSON.stringify({ name: 'board', requiresTeam: 'yes' })
+  );
+  expect(readDeckManifest(dir)).toEqual({
+    ok: false,
+    error: 'requiresTeam must be a boolean',
+  });
 });
