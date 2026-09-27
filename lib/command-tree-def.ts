@@ -2632,6 +2632,27 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  apps: {
+    description: "The mattstack apps deck serves on this Mac (board, console, chat, boxscore)",
+    subcommands: {
+      list: { description: "List the apps and whether each is on", module: "./commands/apps.ts", fn: "appsList", args: [SETUP_JSON_ARG] },
+      enable: {
+        description: "Turn an app on (deck serves it and the window shows it)",
+        module: "./commands/apps.ts",
+        fn: "appsEnable",
+        omitBehavior: "list",
+        args: [{ name: "Name", type: "text", placeholder: "board", hint: "App name from rt apps list" }, SETUP_JSON_ARG],
+      },
+      disable: {
+        description: "Turn an app off (deck stops it and the window hides it)",
+        module: "./commands/apps.ts",
+        fn: "appsDisable",
+        omitBehavior: "list",
+        args: [{ name: "Name", type: "text", placeholder: "board", hint: "App name from rt apps list" }, SETUP_JSON_ARG],
+      },
+    },
+  },
+
   tools: {
     description: "Install or run the setup verb for a tool from a setup plan row",
     subcommands: {
