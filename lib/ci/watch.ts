@@ -3,7 +3,7 @@ import type { CiLease } from "../../packages/rt-client/src/index.ts";
 export interface WatchJob { id: string; name: string; stage: string; status: string; allowFailure: boolean; webUrl: string | null }
 export interface WatchPipeline { id: string; status: string; sha: string | null; ref: string | null; mergeRequestEventType: string | null; webUrl: string | null; createdAt: string | null; jobs: WatchJob[] }
 export interface WatchMr { iid: number; sha: string | null; webUrl: string | null; pipeline: WatchPipeline | null }
-export type LeaseCheck = { ok: true; lease: CiLease | null } | { ok: false; holder: CiLease | null };
+export type LeaseCheck = { ok: true; lease: CiLease | null } | { ok: false; holder: CiLease | null; reason?: "none" | "lost" };
 
 export interface WatchDeps {
   now(): number;
@@ -150,7 +150,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     if (input.signal?.aborted) return result("aborted", last.mr, "the call was cancelled; call again to resume");
     const lc = deps.leaseCheck();
     polls++;
-    if (!lc.ok) return result("lease_lost", last.mr, "another owner attends this MR now; stand down", { holder: lc.holder, lease: null });
+    if (!lc.ok) {
+      const next = lc.reason === "none" ? "no lease held for this MR; call ci_lease_claim first" : "another owner attends this MR now; stand down";
+      return result("lease_lost", last.mr, next, { holder: lc.holder, lease: null });
+    }
     lease = lc.lease;
 
     const read = await deps.readMr();

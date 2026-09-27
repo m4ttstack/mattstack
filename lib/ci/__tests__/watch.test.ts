@@ -132,6 +132,12 @@ describe("watchPipeline", () => {
     const { deps } = fake([mr(SHA, pipe({}))], { leaseCheck: () => ({ ok: false, holder: other }) });
     expect(await watchPipeline(base, deps)).toMatchObject({ state: "lease_lost", holder: { owner: "session:b" } });
   });
+  test("lease lost with reason none reports a claim hint instead of the stand-down one", async () => {
+    const { deps } = fake([mr(SHA, pipe({}))], { leaseCheck: () => ({ ok: false, holder: null, reason: "none" }) });
+    const r = await watchPipeline(base, deps) as { next: string; holder: unknown };
+    expect(r).toMatchObject({ state: "lease_lost", holder: null });
+    expect(r.next).toContain("call ci_lease_claim first");
+  });
   test("lease lost reports lease: null, not the previous poll's lease", async () => {
     const other = { ...LEASE, owner: "session:b" };
     let n = 0;

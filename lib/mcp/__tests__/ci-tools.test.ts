@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { getEventListeners } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ciLeaseFileName } from "../../../packages/rt-client/src/index.ts";
-import { ciToolDefs } from "../ci-tools.ts";
+import { abortableSleep, ciToolDefs } from "../ci-tools.ts";
 
 const MR = "https://gitlab.example.com/grp/proj/-/merge_requests/42";
 let dir: string;
@@ -113,12 +114,20 @@ describe("ci_watch", () => {
 
   test("watches under the caller's lease and heartbeats it", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const before = ((await tool("ci_lease_read").handler({ mrUrl: MR }, A)) as any).body.lease.heartbeatAt;
+    await Bun.sleep(5);
     const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
     expect(r).toMatchObject({ ok: true, body: { state: "success", lease: { owner: "session:aaa" } } });
+    expect((r as any).body.lease.heartbeatAt).toBeGreaterThan(before);
   });
   test("without the lease it returns lease_lost", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, B);
     expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "lease_lost" } });
+  });
+  test("with no lease held at all, lease_lost carries a claim hint rather than the stand-down one", async () => {
+    const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "lease_lost", holder: null } });
+    expect((r as any).body.next).toContain("call ci_lease_claim first");
   });
   test("underBoardLease continues under a fresh board doctor lease and never writes it", async () => {
     const { claimCiLease, boardDoctorOwner, readCiLease } = await import("../../../packages/rt-client/src/index.ts");
@@ -135,6 +144,46 @@ describe("ci_watch", () => {
   });
   test("underBoardLease returns lease_lost when no lease exists", async () => {
     expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A)).toMatchObject({ body: { state: "lease_lost" } });
+  });
+  test("underBoardLease refuses a stale board doctor lease", async () => {
+    const { claimCiLease, boardDoctorOwner } = await import("../../../packages/rt-client/src/index.ts");
+    claimCiLease({ mrUrl: MR, owner: boardDoctorOwner(MR), holder: "doctor", ttlSeconds: 60 }, { dir, now: () => 0 });
+    const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "lease_lost" } });
+  });
+  test("refuses a GitHub-shaped MR", async () => {
+    const t = watchTool({
+      projectMrs: (async () => ({
+        ok: true,
+        data: {
+          mrs: { a: { pr: { iid: 42, sha: SHA, webUrl: "https://github.com/acme/proj/pull/42", pipeline: { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] } }, fetchedAt: 0 } },
+          syncedAt: 1,
+        },
+      })) as any,
+    });
+    const r = await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r.ok).toBe(false);
+    expect((r as any).error).toMatch(/GitLab only/);
+  });
+  test("a busy lease lock inside the watch's heartbeat is a tool error, not an unhandled rejection", async () => {
+    const { claimCiLease } = await import("../../../packages/rt-client/src/index.ts");
+    claimCiLease({ mrUrl: MR, owner: "session:aaa", holder: "watch-ci" }, { dir });
+    const name = ciLeaseFileName(MR).replace(/\.json$/, ".lock");
+    writeFileSync(join(dir, name), JSON.stringify({ token: "someone-else", at: Date.now() }));
+    const t = ciToolDefs({
+      leaseOpts: () => ({ dir, lockWaitMs: 10, lockStaleMs: 60_000 }),
+      label: () => undefined,
+      watch: {
+        resolve: async () => ({ ok: true, identity: "remote:x", iid: 42 }),
+        projectMrs: (async () => ({ ok: true, data: { mrs: { a: { pr: { iid: 42, sha: SHA, webUrl: MR, pipeline: { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] } }, fetchedAt: 0 } }, syncedAt: 1 } })) as any,
+        command: (async () => ({ ok: true, data: [] })) as any,
+        now: () => 0,
+        sleep: async () => {},
+      },
+    }).find((x) => x.name === "ci_watch")!;
+    const r = await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/lease lock busy/);
   });
   test("daemon error surfaces", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
@@ -154,5 +203,30 @@ describe("ci_watch", () => {
     const running = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
     const r = await watchTool({ sleep: async () => { ac.abort(); } }, running).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A, ac.signal);
     expect(r).toMatchObject({ ok: true, body: { state: "aborted" } });
+  });
+});
+
+describe("abortableSleep", () => {
+  test("resolves early on abort, not at the full timeout, and leaves no abort listener afterward", async () => {
+    const ac = new AbortController();
+    const start = Date.now();
+    const p = abortableSleep(10_000, ac.signal);
+    ac.abort();
+    await p;
+    expect(Date.now() - start).toBeLessThan(200);
+    expect(getEventListeners(ac.signal, "abort")).toHaveLength(0);
+  });
+  test("resolves immediately for an already-aborted signal, with no listener added", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const start = Date.now();
+    await abortableSleep(10_000, ac.signal);
+    expect(Date.now() - start).toBeLessThan(50);
+    expect(getEventListeners(ac.signal, "abort")).toHaveLength(0);
+  });
+  test("leaves no abort listener after resolving normally, with no abort at all", async () => {
+    const ac = new AbortController();
+    await abortableSleep(5, ac.signal);
+    expect(getEventListeners(ac.signal, "abort")).toHaveLength(0);
   });
 });

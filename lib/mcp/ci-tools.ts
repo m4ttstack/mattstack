@@ -1,9 +1,9 @@
 /**
- * The CI attendant lease as four MCP tools: claim, heartbeat,
- * release, read. Every tool acts only as this session: the owner comes from
+ * The CI attendant lease tools (claim, heartbeat, release, read) and
+ * ci_watch, which polls a pipeline to a terminal state under the caller's
+ * lease. Every tool acts only as this session: the owner comes from
  * CLAUDE_CODE_SESSION_ID via ownerFromEnv, never from input, so a caller
- * cannot claim, heartbeat or release on another session's behalf. ci_watch
- * wraps the pure lib/ci/watch.ts engine with real daemon and lease deps.
+ * cannot claim, heartbeat, release or watch on another session's behalf.
  */
 import {
   boardDoctorOwner, claimCiLease, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, readProjectMRs, releaseCiLease, rtCommand,
@@ -12,7 +12,7 @@ import {
 import { readChatSession } from "../chat-session.ts";
 import { watchPipeline, type WatchDeps, type WatchMr } from "../ci/watch.ts";
 import { explainError } from "../explain-error.ts";
-import { resolveMrTarget } from "./mr-target.ts";
+import { parseMrUrl, resolveMrTarget } from "./mr-target.ts";
 import { tailTrace } from "./mr-read-tools.ts";
 import { checkOptional, checkPositiveInts, checkRequired, err, MR_TARGET_PROPS, ok, REPO_NAME_RULE, type McpToolDef, type ToolResult } from "./shared.ts";
 
@@ -48,7 +48,7 @@ export interface CiWatchToolDeps {
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
-function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
     const t = setTimeout(done, ms);
@@ -176,13 +176,14 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
           now: w.now,
           sleep: w.sleep,
           leaseCheck: () => {
-            if (!mrUrl) return { ok: false, holder: null };
+            if (!mrUrl) return { ok: false, holder: null, reason: "none" };
             if (underBoard) {
               const { lease } = readCiLease(mrUrl, deps.leaseOpts());
-              return lease && lease.owner === boardDoctorOwner(mrUrl) ? { ok: true, lease } : { ok: false, holder: lease };
+              if (lease && lease.owner === boardDoctorOwner(mrUrl)) return { ok: true, lease };
+              return { ok: false, holder: lease, reason: lease ? "lost" : "none" };
             }
             const hb = heartbeatCiLease(mrUrl, owner, deps.leaseOpts());
-            return hb.ok ? { ok: true, lease: hb.lease } : { ok: false, holder: hb.reason === "lost" ? hb.holder : null };
+            return hb.ok ? { ok: true, lease: hb.lease } : { ok: false, holder: hb.reason === "lost" ? hb.holder : null, reason: hb.reason };
           },
           readMr: async () => {
             const res = await w.projectMrs(target.identity, WATCH_LIVE_MAX_AGE_MS);
@@ -210,9 +211,16 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         if (!first.ok) return err(first.error);
         mrUrl = first.mr.webUrl;
         if (!mrUrl) return err(`MR !${target.iid} has no web URL in the cache; retry once the daemon has synced it`);
+        if (parseMrUrl(mrUrl) === null || (first.mr.pipeline !== null && !first.mr.pipeline.id.startsWith("gitlab:"))) {
+          return err("ci_watch is GitLab only");
+        }
 
-        const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
-        return "error" in r ? err(r.error) : ok(r);
+        try {
+          const r = await watchPipeline({ sha, maxWaitSeconds: maxWait, intervalSeconds: interval, ...(typeof input.priorPipelineId === "number" && { priorPipelineId: input.priorPipelineId }), ...(signal && { signal }) }, watchDeps);
+          return "error" in r ? err(r.error) : ok(r);
+        } catch (e) {
+          return err(e instanceof Error ? e.message : String(e));
+        }
       },
     },
   ];
