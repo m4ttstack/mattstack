@@ -290,6 +290,70 @@ describe("assembleBrief", () => {
     if (result.ok) return;
     expect(result.leftover).toContain("paths");
   });
+
+  test("an author note in the template is stripped before slots and the Method split", () => {
+    const noted = [
+      "# Job: <name>",
+      "",
+      "<!-- author -->",
+      "Assembler only: fill <every slot>.",
+      "## Method",
+      "<!-- /author -->",
+      "",
+      "Goal: <goal>",
+      "",
+      "## Method",
+      "",
+      "<REQUIRED: describe the approach here>",
+      "",
+      "## Done",
+      "",
+    ].join("\n");
+    const plain = ["# Job: <name>", "", "Goal: <goal>", "", "## Method", "", "<REQUIRED: describe the approach here>", "", "## Done", ""].join("\n");
+    const inputs = { job: "j", fills: { goal: "g" }, method: { kind: "file" as const, content: "Do it." } };
+    const withNote = assembleBrief({ ...inputs, template: noted });
+    const without = assembleBrief({ ...inputs, template: plain });
+    expect(withNote.ok).toBe(true);
+    expect(withNote).toEqual(without);
+    if (withNote.ok) expect(withNote.brief).not.toContain("Assembler only");
+  });
+
+  test("an author note in a method file is stripped", () => {
+    const result = assembleBrief({
+      template: HAPPY_TEMPLATE,
+      job: "j",
+      fills: { goal: "g", paths: "p" },
+      method: { kind: "file", content: ["<!-- author -->", "Strategy author note.", "<!-- /author -->", "", "Do it."].join("\n") },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.brief).not.toContain("Strategy author note");
+    expect(result.brief).toContain("## Method\nDo it.\n\n## Done");
+  });
+
+  test("an unclosed note fails assembly naming its source", () => {
+    const template = assembleBrief({
+      template: ["<!-- author -->", HAPPY_TEMPLATE].join("\n"),
+      job: "j",
+      fills: { goal: "g", paths: "p" },
+      method: { kind: "file", content: "Do it." },
+    });
+    expect(template).toEqual({ ok: false, error: "author note opened at template line 1 is never closed (<!-- /author --> missing)" });
+    const method = assembleBrief({
+      template: HAPPY_TEMPLATE,
+      job: "j",
+      fills: { goal: "g", paths: "p" },
+      method: { kind: "file", content: ["Do it.", "<!-- author -->"].join("\n") },
+    });
+    expect(method).toEqual({ ok: false, error: "author note opened at method line 2 is never closed (<!-- /author --> missing)" });
+  });
+
+  test("author markers inside a backtick fence are kept and the brief assembles", () => {
+    const template = HAPPY_TEMPLATE.replace("## Done\n", "## Done\n\n```\n<!-- author -->\n```\n");
+    const result = assembleBrief({ template, job: "j", fills: { goal: "g", paths: "p" }, method: { kind: "file", content: "Do it." } });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.brief).toContain("```\n<!-- author -->\n```");
+  });
 });
 
 describe("stripAuthorNotes", () => {

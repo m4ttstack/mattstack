@@ -214,12 +214,21 @@ function substituteMarkers(doc: string, fills: Record<string, string>): { text: 
 }
 
 export function assembleBrief(inputs: BriefInputs): BriefResult {
-  const methodBody = resolveMethodBody(inputs.method);
+  const template = stripAuthorNotes(inputs.template, "template");
+  if (!template.ok) {
+    return { ok: false, error: template.error };
+  }
+
+  const resolved = resolveMethodBody(inputs.method);
+  if (!resolved.ok) {
+    return { ok: false, error: resolved.error };
+  }
+  const methodBody = stripAuthorNotes(resolved.body, "method");
   if (!methodBody.ok) {
     return { ok: false, error: methodBody.error };
   }
 
-  const split = splitAroundMethod(inputs.template);
+  const split = splitAroundMethod(template.text);
   if (!split.ok) {
     return { ok: false, error: split.error };
   }
@@ -232,7 +241,7 @@ export function assembleBrief(inputs: BriefInputs): BriefResult {
   // Each region gets its own decorative-span pass: a stray backtick/quote in
   // one can never desync marker detection in another.
   const beforeResult = substituteMarkers(split.before, merged);
-  const methodResult = substituteMarkers(methodBody.body, merged);
+  const methodResult = substituteMarkers(methodBody.text, merged);
   const afterResult = substituteMarkers(split.after, merged);
 
   const leftover: string[] = [];
