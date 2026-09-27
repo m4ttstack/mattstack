@@ -75,10 +75,13 @@ const WS_OPTION_RE = /^ (?<cursor>❯| ) (?<label>\S.*?)\s*$/;
 const WS_ACCEPT_RE = /^Yes, I trust this folder/;
 const WS_WINDOW_CAP = 24;
 
-// A code point, not a UTF-16 unit: an emoji in the echoed brief above the
-// dialog is two UTF-16 units wide but one column, and comparing widths in
-// units would make the real rule look narrower than the text around it.
-const width = (s: string): number => [...s].length;
+// Terminal cells, not code points or UTF-16 units: an emoji in the echoed
+// brief above the dialog is two cells wide despite being one code point, and
+// a decomposed accent (a base letter plus a combining mark, as macOS
+// filenames produce) is one cell wide despite being two code points.
+// Counting code points would make a row with a decomposed accent read wider
+// than the rule that actually bounds it.
+const width = (s: string): number => Bun.stringWidth(s);
 
 function readWorkspacePrompt(lines: string[]): TrustPrompt | null {
   let end = lines.length - 1;

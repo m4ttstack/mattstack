@@ -65,21 +65,34 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
   const attempts = deps.attempts ?? ATTEMPTS;
 
   // The first admitted path is pinned: a later read naming any other path,
-  // admitted or not, stops the walk rather than redirecting it.
+  // admitted or not, stops the walk rather than redirecting it. Once pinned,
+  // a read with no path at all (the old layout carries none) is the same
+  // refusal, not a pass-through: the walk cannot compare it to the pinned
+  // path, so it must not be driven either.
   let pinned: string | undefined;
+  /** True when this call's return was a refusal look() already logged, so
+      the outer loop's own undrivable warn does not repeat it. */
+  let refused = false;
   /** The modal currently on screen, or null when none is; `false` means the
       screen could not be read at all, which is never evidence of either. */
   const look = async (): Promise<TrustPrompt | null | false> => {
+    refused = false;
     const screen = await herdr<{ read: { text: string } }>("pane.read", { pane_id: pane, source: "visible" }, sock);
     if (!screen.ok) {
       log?.warn({ ...context, pane, err: screen.message }, "trust: pane read failed; dialog not checked");
       return false;
     }
     const prompt = (deps.read ?? readTrustPrompt)(screen.result.read.text);
+    if (prompt?.kind === "accept" && prompt.path === undefined && pinned !== undefined) {
+      log?.warn({ ...context, pane, pinned }, "trust: a path was pinned earlier; a dialog with no path to compare will not be driven");
+      refused = true;
+      return { kind: "undrivable" };
+    }
     if (prompt?.kind !== "accept" || prompt.path === undefined) return prompt;
     const admitted = pinned === undefined ? deps.trustsPath?.(prompt.path) === true : prompt.path === pinned;
     if (!admitted) {
       log?.warn({ ...context, pane, path: prompt.path, pinned }, "trust: the dialog names a folder this caller does not admit; leaving it for the human");
+      refused = true;
       return { kind: "undrivable" };
     }
     pinned = prompt.path;
@@ -98,7 +111,7 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
     if (prompt === false) return "unchecked";
     if (prompt === null) return attempt > 0 ? "accepted" : "no-dialog";
     if (prompt.kind === "undrivable") {
-      log?.warn({ ...context, pane }, "trust: dialog present but its selection could not be read; not guessing a key");
+      if (!refused) log?.warn({ ...context, pane }, "trust: dialog present but its selection could not be read; not guessing a key");
       return "stuck";
     }
 

@@ -317,47 +317,17 @@ describe("watchdog actuators", () => {
       trustSettleMs: 1,
       trustStepMs: 1,
     });
-    expect(await a.acceptTrustModal("demo-1", "job-a", "bg:w1:p1")).toBe(true);
+    expect(await a.acceptTrustModal("demo-1", "job-a", "bg:w1:p1", "/w")).toBe(true);
     // The bg: ref is parsed at the seam: herdr only ever sees the bare id.
     expect(seen.every((c) => c.pane === "w1:p1")).toBe(true);
     expect(seen.every((c) => c.sock === BG)).toBe(true);
     // A blocked pane that is not the trust dialog is not this driver's to answer.
-    expect(await a.acceptTrustModal("demo-1", "job-b", "w1:p2")).toBe(false);
+    expect(await a.acceptTrustModal("demo-1", "job-b", "w1:p2", "/w")).toBe(false);
   });
 
-  test("acceptTrustModal accepts a 2.1.283 workspace dialog naming a registered tree", async () => {
-    saveRegistry("trust-modal-fixture", [
-      { name: "t1", path: "/pool/trust-modal-fixture/t1", kind: "ephemeral", branch: "t1", createdAt: new Date().toISOString() } satisfies TreeRecord,
-    ]);
-    try {
-      const screens: Record<string, string> = { "w1:p1": workspaceScreen({ path: "/pool/trust-modal-fixture/t1", cursor: "no" }) };
-      const herdr = (async (method: string, params: any) => {
-        const pane = params.pane_id;
-        if (method === "pane.read") return { ok: true, result: { read: { text: screens[pane] ?? "" } } };
-        if (method === "pane.send_keys") { screens[pane] = "$ claude\n> \n"; return { ok: true, result: {} }; }
-        return { ok: false, code: "invalid_request", message: method };
-      }) as any;
-      const a = createWatchdogActuators({
-        herdStore: { setJobStatus: () => {} },
-        db: freshDb(),
-        socketFor: () => DEFAULT,
-        herdr,
-        enqueue: () => true,
-        log,
-        trustSettleMs: 1,
-        trustStepMs: 1,
-      });
-      expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1")).toBe(true);
-    } finally {
-      deleteRegistry("trust-modal-fixture");
-    }
-  });
-
-  test("acceptTrustModal leaves a workspace dialog naming an unregistered path, sending no key", async () => {
-    const screens: Record<string, string> = { "w1:p1": workspaceScreen({ path: "/pool/trust-modal-fixture/unregistered", cursor: "no" }) };
-    const seen: Array<{ method: string }> = [];
+  test("acceptTrustModal accepts a 2.1.283 workspace dialog naming the job's own worktree", async () => {
+    const screens: Record<string, string> = { "w1:p1": workspaceScreen({ path: "/pool/trust-modal-fixture/t1", cursor: "no" }) };
     const herdr = (async (method: string, params: any) => {
-      seen.push({ method });
       const pane = params.pane_id;
       if (method === "pane.read") return { ok: true, result: { read: { text: screens[pane] ?? "" } } };
       if (method === "pane.send_keys") { screens[pane] = "$ claude\n> \n"; return { ok: true, result: {} }; }
@@ -373,8 +343,54 @@ describe("watchdog actuators", () => {
       trustSettleMs: 1,
       trustStepMs: 1,
     });
-    expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1")).toBe(false);
-    expect(seen.some((c) => c.method === "pane.send_keys")).toBe(false);
+    expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1", "/pool/trust-modal-fixture/t1")).toBe(true);
+  });
+
+  test("acceptTrustModal leaves a workspace dialog naming another registered tree, sending no key", async () => {
+    saveRegistry("trust-modal-fixture", [
+      { name: "t2", path: "/pool/trust-modal-fixture/t2", kind: "ephemeral", branch: "t2", createdAt: new Date().toISOString() } satisfies TreeRecord,
+    ]);
+    try {
+      const screens: Record<string, string> = { "w1:p1": workspaceScreen({ path: "/pool/trust-modal-fixture/t2", cursor: "no" }) };
+      const seen: Array<{ method: string }> = [];
+      const herdr = (async (method: string, params: any) => {
+        seen.push({ method });
+        const pane = params.pane_id;
+        if (method === "pane.read") return { ok: true, result: { read: { text: screens[pane] ?? "" } } };
+        if (method === "pane.send_keys") { screens[pane] = "$ claude\n> \n"; return { ok: true, result: {} }; }
+        return { ok: false, code: "invalid_request", message: method };
+      }) as any;
+      const a = createWatchdogActuators({
+        herdStore: { setJobStatus: () => {} },
+        db: freshDb(),
+        socketFor: () => DEFAULT,
+        herdr,
+        enqueue: () => true,
+        log,
+        trustSettleMs: 1,
+        trustStepMs: 1,
+      });
+      // job-a's own worktree is t1, not t2, even though t2 is a tree the registry knows.
+      expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1", "/pool/trust-modal-fixture/t1")).toBe(false);
+      expect(seen.some((c) => c.method === "pane.send_keys")).toBe(false);
+    } finally {
+      deleteRegistry("trust-modal-fixture");
+    }
+  });
+
+  test("acceptTrustModal fails closed on a job with no worktree path, sending no key", async () => {
+    const seen: Array<{ method: string }> = [];
+    const herdr = (async (method: string) => { seen.push({ method }); return { ok: false, code: "invalid_request", message: method }; }) as any;
+    const a = createWatchdogActuators({
+      herdStore: { setJobStatus: () => {} },
+      db: freshDb(),
+      socketFor: () => DEFAULT,
+      herdr,
+      enqueue: () => true,
+      log,
+    });
+    expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1", "")).toBe(false);
+    expect(seen).toEqual([]);
   });
 
   test("a trust accept that throws reports false instead of escaping", async () => {
@@ -386,7 +402,7 @@ describe("watchdog actuators", () => {
       enqueue: () => true,
       log,
     });
-    expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1")).toBe(false);
+    expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1", "/w")).toBe(false);
   });
 
   test("parkStuckAtModal marks the job row", () => {

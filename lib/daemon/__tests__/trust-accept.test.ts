@@ -356,6 +356,31 @@ describe("driveTrustAccept: a dialog that names its folder", () => {
   });
 });
 
+describe("driveTrustAccept: a path pinned from a workspace dialog", () => {
+  test("a later read showing an old-layout dialog with no path stops the walk instead of driving it, and warns once", async () => {
+    const warns: string[] = [];
+    const captureLog = { ...log, warn: (_ctx: unknown, msg: string) => { warns.push(msg); } } as unknown as typeof log;
+    let reads = 0;
+    const calls: Array<{ method: string; keys?: string[] }> = [];
+    const herdr = (async (method: string, params: any) => {
+      calls.push({ method, ...(params?.keys ? { keys: params.keys } : {}) });
+      if (method === "pane.read") {
+        reads++;
+        return { ok: true, result: { read: { text: reads === 1 ? workspaceScreen({ cursor: "no" }) : dialog(1) } } };
+      }
+      if (method === "pane.send_keys") return { ok: true, result: {} };
+      return { ok: false, code: "invalid_request", message: method };
+    }) as never;
+    const outcome = await driveTrustAccept({
+      herdr, sock: {}, pane: "w1:p1", log: captureLog, context: {}, settleMs: 1, stepMs: 1,
+      trustsPath: (path) => path === FIXTURE_PATH,
+    });
+    expect(outcome).toBe("stuck");
+    expect(calls.some((c) => c.method === "pane.send_keys" && c.keys?.includes("enter"))).toBe(false);
+    expect(warns).toHaveLength(1);
+  });
+});
+
 describe("cwdPath", () => {
   test("admits the cwd itself, with or without a trailing slash", () => {
     expect(cwdPath("/tmp/not-there")("/tmp/not-there")).toBe(true);

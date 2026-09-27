@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readRelocationPrompt, readTrustPrompt } from "../trust-dialog.ts";
-import { CAPTURED_NARROW, CAPTURED_WIDE, FIXTURE_PATH, workspaceScreen } from "./trust-workspace-fixtures.ts";
+import { CAPTURED_ACCOUNT_2, CAPTURED_NARROW, CAPTURED_WIDE, FIXTURE_PATH, workspaceScreen } from "./trust-workspace-fixtures.ts";
 
 /** The plain first-run dialog: the cursor starts on "Yes, proceed". */
 const PLAIN = [
@@ -105,6 +105,9 @@ describe("readTrustPrompt: the 2.1.283 workspace dialog", () => {
     expect(readTrustPrompt(CAPTURED_WIDE)).toEqual({ kind: "accept", variant: "workspace", path: FIXTURE_PATH, keys: ["down", "enter"] });
   });
 
+  // CAPTURED_NARROW carries a decoy row with a decomposed accent (one cell,
+  // two code points): a width measured in code points would read that row as
+  // wider than the rule and misparse the whole dialog as undrivable.
   test("the narrow capture, under the shell's echo, parses the same", () => {
     expect(readTrustPrompt(CAPTURED_NARROW)).toEqual({ kind: "accept", variant: "workspace", path: FIXTURE_PATH, keys: ["down", "enter"] });
   });
@@ -140,12 +143,6 @@ describe("readTrustPrompt: the 2.1.283 workspace dialog", () => {
     expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
   });
 
-  test("a row above the rule at the rule's own code-point width, but wider in UTF-16 units, still parses", () => {
-    const lines = CAPTURED_WIDE.split("\n");
-    lines.unshift("x".repeat(172) + "😀😀");
-    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "accept", variant: "workspace", path: FIXTURE_PATH, keys: ["down", "enter"] });
-  });
-
   test("a footer under some other layout is no dialog", () => {
     const menu = ["─".repeat(60), " Select model", "", " ❯ Opus", "   Sonnet", "", " Enter to confirm · Esc to cancel"].join("\n");
     expect(readTrustPrompt(menu)).toBeNull();
@@ -165,6 +162,12 @@ describe("readTrustPrompt: the 2.1.283 workspace dialog", () => {
 
   test("the old layout still parses without a path", () => {
     expect(readTrustPrompt(PLAIN)).toEqual({ kind: "accept", variant: "plain", keys: ["enter"] });
+  });
+
+  // Copied from the board gate gallery's own capture of the same dialog
+  // (apps/board/src/client/board/gate-gallery.fixtures.ts, Account-2).
+  test("a second real capture, from an Account-2 pane, parses to its own path", () => {
+    expect(readTrustPrompt(CAPTURED_ACCOUNT_2)).toEqual({ kind: "accept", variant: "workspace", path: "/Users/pat/.mattstack/teams/acme", keys: ["down", "enter"] });
   });
 });
 
