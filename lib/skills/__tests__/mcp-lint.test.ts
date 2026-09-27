@@ -60,6 +60,12 @@ describe("commandPattern", () => {
     expect(commandPattern("rt sync").test("rt skills sync")).toBe(false);
     expect(commandPattern("git push").test("legit push")).toBe(false);
   });
+  test("never matches a hyphenated prefix", () => {
+    expect(commandPattern("rt chat dm").test("mattstack-rt chat dm")).toBe(false);
+  });
+  test("still matches after a path separator", () => {
+    expect(commandPattern("rt chat dm").test("/usr/local/bin/rt chat dm")).toBe(true);
+  });
 });
 
 describe("pickRule precedence", () => {
@@ -70,7 +76,7 @@ describe("pickRule precedence", () => {
   test("on the same start, the longer match wins", () => {
     expect(pickRule("rt runs show 3", RULES)!.id).toBe("rt runs show");
     expect(pickRule("glab mr merge 4", RULES)!.id).toBe("glab mr merge");
-    expect(pickRule("rt git push", RULES)!.tool).toBe("git_push");
+    expect(pickRule("rt git push", RULES)!.id).toBe("rt git push");
   });
   test("on the same start and length, the earlier rule wins", () => {
     const rules = [rule("a", /\bx y\b/), rule("b", /\bx y\b/, "leaf")];
@@ -249,5 +255,10 @@ describe("lintPackScripts", () => {
   test("an unreadable script is skipped and no scripts is empty", () => {
     expect(lintPackScripts("/p", RULES, { list: () => ["/p/skills/a/x.sh"], read: () => null })).toEqual([]);
     expect(lintPackScripts("/p", RULES, { list: () => [], read: () => null })).toEqual([]);
+  });
+  test("a captured-output line is judged on the inner call, not flagged as subst", () => {
+    const files: Record<string, string> = { "/p/skills/a/scripts/x.sh": "out=$(glab ci retry 5)" };
+    const hits = lintPackScripts("/p", RULES, { list: () => Object.keys(files), read: (p) => files[p] ?? null });
+    expect(hits.map((h) => h.tool)).toEqual(["mr_retry"]);
   });
 });
