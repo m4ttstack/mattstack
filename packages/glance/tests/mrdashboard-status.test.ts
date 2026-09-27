@@ -95,6 +95,33 @@ function cableProvider(): { provider: GitProvider; cable: () => WatcherSubscribe
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
+describe('createRealtimeWatcher status callback', () => {
+  test('the params callback wins: an options callback set alongside it never fires', async () => {
+    const cable: { cbs?: WatcherSubscribeCallbacks } = {};
+    const fromParams: string[] = [];
+    const fromOptions: string[] = [];
+    const dispose = createRealtimeWatcher<number>({
+      fetch: async () => 1,
+      subscribe: (c) => {
+        cable.cbs = c;
+        return () => {};
+      },
+      onUpdate: () => {},
+      onStatusChange: (s) => fromParams.push(s.connection),
+      options: { onStatusChange: (s) => fromOptions.push(s.connection) },
+    });
+    await settle();
+
+    try {
+      cable.cbs!.onConnected();
+      expect(fromParams).toEqual(['connected']);
+      expect(fromOptions).toEqual([]);
+    } finally {
+      dispose();
+    }
+  });
+});
+
 describe('single MR dashboard connection state', () => {
   test('reports connected after the cable connects and disconnected after it drops', async () => {
     const { provider, cable } = cableProvider();
@@ -110,6 +137,9 @@ describe('single MR dashboard connection state', () => {
 
       cable().onDisconnected();
       expect(statuses.at(-1)).toBe('disconnected');
+
+      cable().onConnected();
+      expect(statuses.at(-1)).toBe('connected');
     } finally {
       dashboard.dispose();
     }
