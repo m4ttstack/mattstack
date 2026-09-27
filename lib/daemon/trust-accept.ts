@@ -14,6 +14,8 @@
  */
 import type { Logger } from "pino";
 import { readRelocationPrompt, readTrustPrompt, type TrustPrompt } from "./trust-dialog.ts";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 
 /** `no-dialog` is "the screen showed no modal", which each caller reads in its
     own context: for a registered pane it means nothing to do, for one that
@@ -42,6 +44,9 @@ export interface TrustDriveDeps {
       parser when omitted. driveRelocationAccept substitutes its own so the
       same cursor-verified walk drives the relocation prompt. */
   read?: (screen: string) => TrustPrompt | null;
+  /** A dialog that names the folder it asks about is accepted only for a
+      path this admits; with no predicate such a dialog is never accepted. */
+  trustsPath?: (path: string) => boolean;
 }
 
 const SETTLE_MS = 1_500;
@@ -59,15 +64,39 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
   const stepMs = deps.stepMs ?? STEP_MS;
   const attempts = deps.attempts ?? ATTEMPTS;
 
+  // The first admitted path is pinned: a later read naming any other path,
+  // admitted or not, stops the walk rather than redirecting it. Once pinned,
+  // a read with no path at all (the old layout carries none) is the same
+  // refusal, not a pass-through: the walk cannot compare it to the pinned
+  // path, so it must not be driven either.
+  let pinned: string | undefined;
+  /** True when this call's return was a refusal look() already logged, so
+      the outer loop's own undrivable warn does not repeat it. */
+  let refused = false;
   /** The modal currently on screen, or null when none is; `false` means the
       screen could not be read at all, which is never evidence of either. */
   const look = async (): Promise<TrustPrompt | null | false> => {
+    refused = false;
     const screen = await herdr<{ read: { text: string } }>("pane.read", { pane_id: pane, source: "visible" }, sock);
     if (!screen.ok) {
       log?.warn({ ...context, pane, err: screen.message }, "trust: pane read failed; dialog not checked");
       return false;
     }
-    return (deps.read ?? readTrustPrompt)(screen.result.read.text);
+    const prompt = (deps.read ?? readTrustPrompt)(screen.result.read.text);
+    if (prompt?.kind === "accept" && prompt.path === undefined && pinned !== undefined) {
+      log?.warn({ ...context, pane, pinned }, "trust: a path was pinned earlier; a dialog with no path to compare will not be driven");
+      refused = true;
+      return { kind: "undrivable" };
+    }
+    if (prompt?.kind !== "accept" || prompt.path === undefined) return prompt;
+    const admitted = pinned === undefined ? deps.trustsPath?.(prompt.path) === true : prompt.path === pinned;
+    if (!admitted) {
+      log?.warn({ ...context, pane, path: prompt.path, pinned }, "trust: the dialog names a folder this caller does not admit; leaving it for the human");
+      refused = true;
+      return { kind: "undrivable" };
+    }
+    pinned = prompt.path;
+    return prompt;
   };
 
   const press = async (key: "up" | "down" | "enter"): Promise<boolean> => {
@@ -82,7 +111,7 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
     if (prompt === false) return "unchecked";
     if (prompt === null) return attempt > 0 ? "accepted" : "no-dialog";
     if (prompt.kind === "undrivable") {
-      log?.warn({ ...context, pane }, "trust: dialog present but its selection could not be read; not guessing a key");
+      if (!refused) log?.warn({ ...context, pane }, "trust: dialog present but its selection could not be read; not guessing a key");
       return "stuck";
     }
 
@@ -116,6 +145,13 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
   if (after === null) return "accepted";
   log?.warn({ ...context, pane }, "trust: dialog still up after the accept keys; the pane is stuck at the modal");
   return "stuck";
+}
+
+export function cwdPath(cwd: string): (path: string) => boolean {
+  const logical = resolve(cwd);
+  let physical: string | undefined;
+  try { physical = realpathSync(logical); } catch { physical = undefined; }
+  return (path) => path === logical || path === physical;
 }
 
 /** `unregistered` is the refusal that makes this driver safe to leave on:

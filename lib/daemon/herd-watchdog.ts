@@ -167,9 +167,10 @@ export interface WatchdogActuators {
   poke(pane: string, text: string): Promise<boolean>;
   parkStuckAtModal(herd: string, job: string): void;
   /** Try the folder-trust accept on a blocked pane, the same driver every
-      spawn path uses. True means the pane came back; false means it is a
-      dialog the daemon may not answer, or one the accept did not clear. */
-  acceptTrustModal(herd: string, job: string, pane: string): Promise<boolean>;
+      spawn path uses. Admits only a dialog naming the job's own worktree
+      path; true means the pane came back, false means it is a dialog the
+      daemon may not answer, or one the accept did not clear. */
+  acceptTrustModal(herd: string, job: string, pane: string, worktreePath: string): Promise<boolean>;
   /** Try the relocation-prompt accept on a blocked pane. True means the pane
       came back; false covers every refusal (no relocation prompt on screen,
       a path the registry does not know, a cursor that would not drive). */
@@ -288,10 +289,11 @@ export class HerdWatchdog {
       // accept that does not clear the pane, parks as before. Only a
       // daemon-provisioned tree qualifies -- a job pointed at a directory
       // someone passed in is not rt's to trust on the human's behalf. Also
-      // gated on midRunTrustAccept (RT-196, off by default): a working
-      // session can show a genuine, unrelated permission prompt with the
-      // same numbered-options shape, and this driver cannot yet confirm the
-      // dialog's folder matches the job's worktree.
+      // gated on midRunTrustAccept (RT-196, off by default): the 2.1.283
+      // workspace dialog's own path is checked against the job's worktree
+      // before any key goes out, but the old layout carries no path, so a
+      // working session showing an old-layout numbered-options prompt is
+      // still indistinguishable from the trust dialog.
       // The relocation prompt goes first and needs neither gate: its own
       // body names the path, and the actuator accepts only a path rt's
       // worktree registry holds (RT-200).
@@ -300,7 +302,7 @@ export class HerdWatchdog {
         this.log.info({ herd: herd.id, job: job.name, pane: job.pane }, "accepted a mid-run relocation prompt");
         return;
       }
-      if (job.tree !== null && cfg.midRunTrustAccept && await this.act.acceptTrustModal(herd.id, job.name, job.pane)) {
+      if (job.tree !== null && cfg.midRunTrustAccept && await this.act.acceptTrustModal(herd.id, job.name, job.pane, job.worktree)) {
         this.ladders.delete(key);
         this.log.info({ herd: herd.id, job: job.name, pane: job.pane }, "accepted a mid-run trust dialog");
         return;

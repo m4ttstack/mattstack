@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readRelocationPrompt, readTrustPrompt } from "../trust-dialog.ts";
+import { CAPTURED_ACCOUNT_2, CAPTURED_NARROW, CAPTURED_WIDE, FIXTURE_PATH, workspaceScreen } from "./trust-workspace-fixtures.ts";
 
 /** The plain first-run dialog: the cursor starts on "Yes, proceed". */
 const PLAIN = [
@@ -96,6 +97,77 @@ describe("readTrustPrompt", () => {
 
   test("the header is recognized even when the options have scrolled off", () => {
     expect(readTrustPrompt("│ Do you trust the files in this folder?  │\n")).toEqual({ kind: "undrivable" });
+  });
+});
+
+describe("readTrustPrompt: the 2.1.283 workspace dialog", () => {
+  test("the captured dialog parses to its path, walking down off No", () => {
+    expect(readTrustPrompt(CAPTURED_WIDE)).toEqual({ kind: "accept", variant: "workspace", path: FIXTURE_PATH, keys: ["down", "enter"] });
+  });
+
+  // CAPTURED_NARROW carries a decoy row with a decomposed accent (one cell,
+  // two code points): a width measured in code points would read that row as
+  // wider than the rule and misparse the whole dialog as undrivable.
+  test("the narrow capture, under the shell's echo, parses the same", () => {
+    expect(readTrustPrompt(CAPTURED_NARROW)).toEqual({ kind: "accept", variant: "workspace", path: FIXTURE_PATH, keys: ["down", "enter"] });
+  });
+
+  test("a cursor already on Yes is a bare enter", () => {
+    expect(readTrustPrompt(workspaceScreen({ cursor: "yes" }))).toEqual({ kind: "accept", variant: "workspace", path: FIXTURE_PATH, keys: ["enter"] });
+  });
+
+  test("quoted wording without the live footer at the bottom is no dialog", () => {
+    const quoted = `${CAPTURED_WIDE}\n$ echo done\ndone\n$ `;
+    expect(readTrustPrompt(quoted)).toBeNull();
+  });
+
+  test("a painted rule narrower than the screen's text is undrivable, never no dialog: the live options are present", () => {
+    const lines = CAPTURED_WIDE.split("\n");
+    lines[0] = "─".repeat(40);
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("the wide capture with its first row (the rule) removed is undrivable", () => {
+    const lines = CAPTURED_WIDE.split("\n").slice(1);
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("the wide capture with its first three rows removed is undrivable", () => {
+    const lines = CAPTURED_WIDE.split("\n").slice(3);
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("a 175-character row inserted above the rule is undrivable", () => {
+    const lines = CAPTURED_WIDE.split("\n");
+    lines.unshift("x".repeat(175));
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("a footer under some other layout is no dialog", () => {
+    const menu = ["─".repeat(60), " Select model", "", " ❯ Opus", "   Sonnet", "", " Enter to confirm · Esc to cancel"].join("\n");
+    expect(readTrustPrompt(menu)).toBeNull();
+  });
+
+  test("a wrapped path is undrivable, never rejoined", () => {
+    const lines = CAPTURED_WIDE.split("\n");
+    const i = lines.indexOf(` ${FIXTURE_PATH}`);
+    lines.splice(i, 1, " /Users/matt/.mattstack/teams/acme/.worktrees/t38fix-", " devservers");
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("options with no cursor are undrivable", () => {
+    const screen = CAPTURED_WIDE.replace(" ❯ No, exit", "   No, exit");
+    expect(readTrustPrompt(screen)).toEqual({ kind: "undrivable" });
+  });
+
+  test("the old layout still parses without a path", () => {
+    expect(readTrustPrompt(PLAIN)).toEqual({ kind: "accept", variant: "plain", keys: ["enter"] });
+  });
+
+  // Copied from the board gate gallery's own capture of the same dialog
+  // (apps/board/src/client/board/gate-gallery.fixtures.ts, Account-2).
+  test("a second real capture, from an Account-2 pane, parses to its own path", () => {
+    expect(readTrustPrompt(CAPTURED_ACCOUNT_2)).toEqual({ kind: "accept", variant: "workspace", path: "/Users/pat/.mattstack/teams/acme", keys: ["down", "enter"] });
   });
 });
 

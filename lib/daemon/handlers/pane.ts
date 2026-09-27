@@ -13,7 +13,7 @@ import { trayRequest } from "../../daemon-client.ts";
 import { herdrError, injectAfterTurn, injectIntoPane } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import { attendPane } from "../attend.ts";
-import { driveTrustAccept } from "../trust-accept.ts";
+import { cwdPath, driveTrustAccept } from "../trust-accept.ts";
 import type { RelocationWatcher } from "../relocation-announce.ts";
 import { BG_SESSION, bgSocketPath, type BgService } from "../bg-service.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
@@ -336,7 +336,7 @@ export function createPaneHandlers(opts: {
         // the status left its pane on the dialog (RT-156). The screen decides,
         // and a dialog whose cursor cannot be read is left up for a human
         // (`ready` stays false) instead of guessed at.
-        const trust = await driveTrustAccept({ herdr, sock: {}, pane: paneId, log, context: { cwd } });
+        const trust = await driveTrustAccept({ herdr, sock: {}, pane: paneId, log, context: { cwd }, trustsPath: cwdPath(cwd) });
         if (signal?.aborted) return earlyReturn(status);
         if (trust === "accepted") {
           const again = await herdr<{ agent: HerdrAgent }>("agent.wait", { target: paneId, until: SETTLED, timeout_ms: TRUST_BUDGET_MS }, { timeoutMs: waitTimeout(TRUST_BUDGET_MS) });

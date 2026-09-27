@@ -319,7 +319,7 @@ describe("HerdWatchdog ladder", () => {
     const pokes: { pane: string; text: string }[] = [];
     const parks: { herd: string; job: string }[] = [];
     const modalNotes: { herd: string; job: string; pane: string }[] = [];
-    const trustCalls: { herd: string; job: string; pane: string }[] = [];
+    const trustCalls: { herd: string; job: string; pane: string; worktree: string }[] = [];
     const trust = { accepts: false };
     const relocCalls: { herd: string; job: string; pane: string }[] = [];
     const reloc = { accepts: false };
@@ -336,7 +336,7 @@ describe("HerdWatchdog ladder", () => {
       poke: async (pane, text) => { pokes.push({ pane, text }); const parked = hold.p; hold.p = null; if (parked) await parked; return delivery.ok; },
       parkStuckAtModal: (h, j) => { parks.push({ herd: h, job: j }); },
       notifyStuckAtModal: (h, j, pane) => { modalNotes.push({ herd: h, job: j, pane }); },
-      acceptTrustModal: async (h, j, pane) => { trustCalls.push({ herd: h, job: j, pane }); return trust.accepts; },
+      acceptTrustModal: async (h, j, pane, worktree) => { trustCalls.push({ herd: h, job: j, pane, worktree }); return trust.accepts; },
       acceptRelocationModal: async (h, j, pane) => { relocCalls.push({ herd: h, job: j, pane }); return reloc.accepts; },
       notifyHuman: (summary, pane) => { notes.push(summary); noteEvents.push({ summary, pane: pane ?? null }); },
     };
@@ -664,7 +664,7 @@ describe("HerdWatchdog ladder", () => {
     const r = rig({ jobs: [provisioned()], sensors: modalOn(), cfg: { midRunTrustAccept: true } });
     r.trust.accepts = true;
     await r.tick();
-    expect(r.trustCalls).toEqual([{ herd: "demo-1", job: "job-a", pane: "w1:p1" }]);
+    expect(r.trustCalls).toEqual([{ herd: "demo-1", job: "job-a", pane: "w1:p1", worktree: "/w" }]);
     expect(r.parks).toEqual([]);
     expect(r.modalNotes).toEqual([]);
     expect(r.shepherdPokes()).toEqual([]);
