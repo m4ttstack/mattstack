@@ -65,7 +65,17 @@ change it first, mirror in `packages/rt-client/src/settings/paths.ts`
 Every key is declared in the suite registry
 (`packages/rt-client/src/settings/registry-defs.ts`): name, type, allowed
 scopes, merge (`deep` merges across scopes for objects), description, optional
-default. Prefixes: `rt.*`, `deck.*`, `board.*`, `gitq.*`, `mattstack.*`,
+default. `repoScoped: true` opens the three `*.repo` rungs; `repoOnly: true`
+(which implies it) closes the three global ones, for a key that only means
+something for one repo's code (roles, intercepts, worktree pool, ready
+approval, hooks, sync, branch naming, run presets and variations, Doppler
+template, ignored MRs). A repo-only key resolves to its repo sections plus the
+registry default: a value in a global team/user/machine section is refused
+like a disallowed scope (`invalid` in `explain`, skipped with a warning by
+`getSetting`), `setSetting`, prune and `rt settings set` refuse a write with no
+repo, and `unsetSetting` still removes a stray global value. A repo with no
+remote (a path identity) has no repo sections, so it gets only the default.
+Prefixes: `rt.*`, `deck.*`, `board.*`, `gitq.*`, `mattstack.*`,
 `claude.*`, and `setup.*` for machine-local installer state such as
 `setup.waived`. `rt settings set/get/explain/list` accept any registered key;
 `rt settings explain <key>` shows per-scope provenance and is the first
@@ -78,7 +88,10 @@ exist for out-of-process callers only.
 ## Adding a key (the checklist)
 
 1. Add the registry row in `registry-defs.ts` (pick the scope by who the intent
-   belongs to: team convention / this human everywhere / this machine).
+   belongs to: team convention / this human everywhere / this machine). A key
+   whose value describes one repo's code is `repoScoped` and `repoOnly`; keep
+   a per-repo key global-capable only when some field is read with no repo,
+   as `rt.gitStatus`'s sweep switch and interval are.
 2. For an `object` or `array` key, write its zod schema in `SCHEMAS`
    (`packages/rt-client/src/settings/registry-schemas.ts`): the value the code
    reading it accepts, not an ideal. `z.looseObject` unless a reader rejects
@@ -133,15 +146,16 @@ path formatted `[0].pattern` or `emoji.looking`.
   already broken elsewhere never blocks an unrelated edit. A team write
   names one team and merges only that team's store. A global write of a
   repo-scoped key checks the merge with no repo and once per repo that has a
-  section in any store.
+  section in any store; a repo-only key refuses a global write first.
 - **Reads are lenient.** `validateValue` alone is the resolver's skip rule
   (`invalid`). A value that fails only its schema stays in effect and is
   labeled `nonconforming`, with its issues, in `explain` and `list`; a
   merged value that fails the full schema is reported as `mergedIssues`.
 - **`rt settings check`** lists every stored value (team, user and machine
   stores, global and repo sections) that fails its type check or layer
-  schema, every merged value that fails the full schema, and the
-  unregistered keys found in stores. It is read-only, uses the registry of
+  schema, every merged value that fails the full schema, every global
+  value on a repo-only key (as `invalid`), and the unregistered keys found in
+  stores. It is read-only, uses the registry of
   the rt that runs it, takes `--json`, and exits 1 on any finding except an
   unregistered key. A finding against a real store is fixed in the schema,
   never in the store.
