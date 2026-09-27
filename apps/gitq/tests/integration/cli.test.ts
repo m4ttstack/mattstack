@@ -858,7 +858,23 @@ describe('gitq CLI', () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.success).toBe(true);
-    expect(parsed.restoredBranches.sort()).toEqual(['feat/branch-1', 'main']);
+    expect(parsed.restoredBranches).toEqual(['feat/branch-1']);
+  });
+
+  test('undo on a dirty tree exits 1 with the dirty-tree error and leaves refs and the stack record alone', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    const reparent = await runCli(['reparent', 'feat/branch-2', '--onto', 'main', '--json'], repo.dir, configDir);
+    expect(reparent.exitCode).toBe(0);
+    const headsAfter = ['feat/branch-1', 'feat/branch-2'].map((b) => repo.git('rev-parse', b));
+    await Bun.write(`${repo.dir}/README.md`, 'uncommitted\n');
+    const stacksAfter = (await runCli(['stacks', '--json'], repo.dir, configDir)).stdout;
+
+    const undo = await runCli(['undo', '--json'], repo.dir, configDir);
+
+    expect(undo.exitCode).toBe(1);
+    expect(JSON.parse(undo.stdout).error).toContain('uncommitted changes');
+    expect(['feat/branch-1', 'feat/branch-2'].map((b) => repo.git('rev-parse', b))).toEqual(headsAfter);
+    expect((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout).toBe(stacksAfter);
   });
 
   test('undo drops a branch git no longer has instead of re-tracking it', async () => {
