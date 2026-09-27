@@ -122,8 +122,9 @@ leaves the row out of the "N of M healthy" count. It carries no switch.
 applies the mode default: on solo, every app with `requiresTeam: true` is
 PATCHed to `enabled: false`; on a team install, every app is PATCHed to
 `enabled: true`. The step applies the default at Install and again during
-an upgrade (below), and nowhere else, so a user's manual flip in Settings is
-never overwritten by a later `rt setup` run or a daemon restart.
+an upgrade (below), and nowhere else. A plain `rt setup apply` and a daemon
+restart never touch a user's manual flip in Settings; an upgrade reapplies
+the default for the team-only apps and leaves every other toggle alone.
 
 **Flavors.** The deck-app-set-by-flavor rule stands: prod serves the
 bundle's explicit list, dev serves the machine's registrations. `enabled`
