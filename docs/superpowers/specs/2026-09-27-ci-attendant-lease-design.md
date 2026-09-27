@@ -157,7 +157,7 @@ lock file `<slug>-<iid>.lock`:
 
 GitLab only, like the other `mr_*` reads. Input: the MR target (`repoName` +
 `iid`, or `mrUrl`), `sha` (the pushed commit, 7 to 40 hex), `maxWaitSeconds`
-(default 300, cap 1800), `intervalSeconds` (default 30, floor 10),
+(default 300, cap 1800), `intervalSeconds` (default 30, 10 to 120, and at most half the lease's `ttlSeconds` at run time),
 `priorPipelineId` (the head pipeline id read before the push, optional), and
 `underBoardLease` (default false).
 
@@ -170,14 +170,18 @@ A head pipeline is "for" `sha` when:
 - a merged-results or merge-train pipeline (event type `merged_result` or
   `merge_train`, or a `ref` of `refs/merge-requests/<iid>/merge` or `/train`):
   its merge commit's parents include `sha`. Fast-forward and squash merge
-  trains build a commit whose parents never include `sha`, so when the parents
-  do not match, the fallback applies: the MR's `diffHeadSha` equals `sha` and
+  trains build a commit whose parents never include `sha`, so when a merge
+  train's parents do not match (event type `merge_train` or a `/train` ref),
+  the fallback applies; a merged-results pipeline whose parents miss `sha` is
+  no match, since its commit always has the source head as a parent: the MR's `diffHeadSha` equals `sha` and
   the pipeline is new since the push, meaning its id is greater than
   `priorPipelineId` when that is given, else its id differs from the head
   pipeline id seen on the first poll of this call where `diffHeadSha` equalled
   `sha`. Without `priorPipelineId`, a pipeline that already existed when the
   call first saw the head at `sha` cannot be proved new, so it stays `waiting`
-  with a `next` hint to pass `priorPipelineId`.
+  with a `next` hint to pass `priorPipelineId`. A match proved against that
+  first-seen id returns it as `priorPipelineId` in the result, and `next`
+  says to pass it, so the next call keeps the proof.
 - Parents are fetched once per pipeline id per call, and only a successful
   fetch is cached: a failed fetch is retried on the next poll, never cached as
   "no match".

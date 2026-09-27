@@ -8,9 +8,11 @@ alive, read it, and release it.
 
 An agent working an MR's CI normally does this:
 
-1. `ci_lease_claim` the MR before touching it.
-2. Read the MR's current head pipeline (`mr_pipeline`) to capture its id as
-   `priorPipelineId`, before pushing.
+1. `ci_lease_claim` the MR before touching it, passing `branch` (the MR's
+   source branch) so the board's stack preflight sees this attendant.
+2. Read the MR's current head pipeline (`mr_pipeline`) before pushing and
+   keep its id as `priorPipelineId`: the numeric part of the
+   `gitlab:pipeline:N` id `mr_pipeline` returns.
 3. Push the fix.
 4. `ci_watch` the pushed commit's pipeline until it settles. `ci_watch`
    heartbeats the lease on every poll, so a single long watch call keeps the
@@ -88,6 +90,12 @@ things:
 A refusal is an ordinary result, not an error, specifically so an agent can
 branch on it in the normal flow.
 
+A claim that omits `branch` keeps the branch already recorded on the lease,
+on a re-claim and on a takeover alike, since the branch belongs to the MR
+and the board's stack preflight finds a lease only by it. A re-claim that
+omits `sessionLabel` keeps the caller's own label; a takeover never
+inherits the previous owner's.
+
 ## Owner tokens
 
 Every lease operation is scoped to an owner token; there is no input that
@@ -138,13 +146,16 @@ never sees a half-written file).
 
 ## The tools
 
-Every tool below takes `mrUrl`, the MR's (or PR's) `https://` URL. None of
-them take an owner: the owner always comes from the caller's session.
+Every tool below takes `mrUrl`, the MR's (or PR's) `https://` URL; any
+other scheme, or none, is refused, since a scheme-less URL would name a
+different lease file. None of them take an owner: the owner always comes
+from the caller's session.
 
 ### `ci_lease_claim`
 
 Claims the lease. Optional input: `holder` (`watch-ci`, the default, or
-`doctor`), `branch`, `ttlSeconds` (60 to 900, default 600, so one crashed
+`doctor`), `branch` (the MR's source branch; pass it so the board's stack
+preflight sees this attendant), `ttlSeconds` (60 to 900, default 600, so one crashed
 session blocks nobody for more than 15 minutes). Returns
 `{claimed: true, lease, previousOwner?}` or `{claimed: false, holder}`.
 
@@ -191,15 +202,30 @@ timeout passes, heartbeating the caller's lease on every poll.
 
 Input: an MR target (`repoName` and `iid`, or `mrUrl`), `sha` (the pushed
 commit, 7 to 40 hex characters, required), `maxWaitSeconds` (default 300,
-capped at 1800), `intervalSeconds` (default 30, floored at 10),
-`priorPipelineId` (the MR's head pipeline id read before the push, so a
+capped at 1800), `intervalSeconds` (default 30, 10 to 120; the watch also
+never polls less often than every half of the lease's `ttlSeconds`, so its
+own heartbeat cannot let the lease go stale), `priorPipelineId` (the numeric
+part of the `gitlab:pipeline:N` head pipeline id read before the push, so a
 fast-forward merge train's new pipeline can be told apart from an old one),
 and `underBoardLease` (default false, see below).
+
+A merged-results pipeline counts only when its merge commit's parents
+include the pushed sha; only a merge train falls back to "new since the
+push". Without `priorPipelineId`, a train pipeline is proved new against the
+head pipeline the call first saw; the result then carries that id as
+`priorPipelineId`, and `next` says to pass it on the next call so the proof
+survives across calls.
 
 Returns `state`, `sha`, `headSha`, the matching `pipeline` (or null),
 `failedJobs` (with a 40 line trace tail for up to five blocking failures on
 a terminal `failed`), `blockingFailures`, `lease`, `waitedSeconds`, `polls`
-and `next`, a one line hint for what to do next.
+and `next`, a one line hint for what to do next. A `failed` pipeline with no
+failed job rows (a bridge job's downstream pipeline failed, and GitLab lists
+bridges apart from jobs) points `next` at `mr_pipeline` with the bridge
+job's `jobId` instead of `mr_job_trace`. The watch heartbeats once more right
+before returning a settled state, since reading the failed jobs' traces can
+take a while; if the lease was lost by then it returns `lease_lost` (with the
+settled pipeline) instead.
 
 `state` is one of:
 
@@ -208,8 +234,10 @@ and `next`, a one line hint for what to do next.
 - `running`: the pipeline for the pushed sha is in progress; call again.
 - `waiting`: no matching pipeline yet, or the MR's head has not caught up to
   the pushed sha yet; call again.
-- `superseded`: the MR's head moved past the pushed sha before a matching
-  pipeline settled; watch the new head instead.
+- `superseded`: the MR's head stayed at another sha for the 120 second grace
+  window before a matching pipeline settled (`next` names that head); watch
+  the new head instead. A head the cache has not synced yet (no sha) keeps
+  the watch `waiting`, never `superseded`.
 - `lease_lost`: the caller no longer holds the lease (or never did). A
   watch under the caller's own lease says in `next` whether to stand down or
   claim first; with `underBoardLease` (a doctor the board launched) it always
@@ -231,7 +259,9 @@ The board's automatic doctor never claims a lease itself. The board claims
 on the doctor's behalf, as `board:doctor:<lease file name>`, before it
 launches the doctor pane, and the board's own cron heartbeats that lease
 while the doctor is in flight and releases it once the doctor reaches a
-terminal status. If the board's claim is refused (a live `watch-ci` lease is
+terminal status. Both the heartbeat and the release first adopt a doctor
+lease a pre-upgrade board left without an `owner`, so it is kept alive and
+then freed like the board's own. If the board's claim is refused (a live `watch-ci` lease is
 already attending), the board skips that MR for this pass rather than
 launching a doctor that would collide with it.
 
