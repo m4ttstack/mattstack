@@ -902,7 +902,7 @@ git commit -m "setup: Fast Browser optional on solo; plan branches on isSolo"
 - Test: `lib/setup/__tests__/steps-b.test.ts`
 
 **Interfaces:**
-- Produces: `readDeckApiPortFrom(p: Pick<Probes, "readFile" | "home">): number | null` exported from `steps/deck.ts` (used by Task 13); `deck.managed` detail ends with `; solo: <names> off`, `; team apps on: <names>` or `; no team-only apps`.
+- Produces: `readDeckApiPortFrom(p: Pick<Probes, "readFile" | "home">): number | null` exported from `steps/deck.ts` (used by Task 13); `deck.managed` detail ends with `; solo: <names> off`, `; team apps on: <names>` or `; no team-only apps` when done, and the step is `failed` with `; app defaults not applied ...` when the list or any PATCH did not succeed.
 
 - [ ] **Step 1: Update the existing tests and add the new ones**
 
@@ -921,7 +921,7 @@ In the `deck.managed` describe, extend `healthyFetch` so a `GET .../api/v1/apps`
       };
 ```
 
-Every existing `deck ready; ...` expectation in that describe gets a fragment appended: `; no team-only apps` where the test uses `healthyFetch` (its list answers `{ apps: [] }`), and `; app defaults skipped (deck answered 404)` where a test supplies its own `fetch` that does not answer the list. Every existing test there runs with `makeCtx`'s default `intent: null`, which the new gate treats as "not an install", so those expectations instead end with `; app defaults untouched (not an install)`; only tests that set an intent reach the fragments above. Then add:
+Every existing `deck ready; ...` expectation in that describe gets a fragment appended. Every existing test there runs with `makeCtx`'s default `intent: null`, which the new gate treats as "not an install", so those expectations end with `; app defaults untouched (not an install)` and stay `state: "done"`; only tests that set an intent reach the other outcomes: `; no team-only apps` (done) where the test uses `healthyFetch` (its list answers `{ apps: [] }`), and `state: "failed"` with `; app defaults not applied (deck answered 404)` where a test sets an intent but supplies its own `fetch` that does not answer the list. A default that was not applied fails the step rather than reporting done, so an Install never completes and clears its intent with board still on for a solo user. Then add:
 
 ```ts
     const CATALOG = [
@@ -993,38 +993,43 @@ export function readDeckApiPort(ctx: ApplyContext): number | null {
 ```ts
 interface DeckAppRow { name: string; managedBy: string; requiresTeam?: boolean; enabled?: boolean }
 
-async function applyAppDefaults(ctx: ApplyContext, port: number): Promise<string> {
+const DECK_API_TIMEOUT_MS = 120_000;
+
+async function applyAppDefaults(ctx: ApplyContext, port: number): Promise<{ ok: boolean; detail: string }> {
   // An intent is only on disk during a first run or an upgrade; a completed apply clears it. Without one this is a re-run, and a user's own toggles stand.
-  if (ctx.intent === null) return "app defaults untouched (not an install)";
-  const res = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps`);
-  if (res.status !== 200) return `app defaults skipped (deck answered ${res.status})`;
+  if (ctx.intent === null) return { ok: true, detail: "app defaults untouched (not an install)" };
+  const res = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps`, { timeoutMs: DECK_API_TIMEOUT_MS });
+  if (res.status !== 200) return { ok: false, detail: `app defaults not applied (deck answered ${res.status})` };
   let apps: DeckAppRow[];
   try {
     apps = (JSON.parse(res.body) as { apps?: DeckAppRow[] }).apps ?? [];
   } catch {
-    return "app defaults skipped (unreadable app list)";
+    return { ok: false, detail: "app defaults not applied (unreadable app list)" };
   }
   const targets = apps.filter((a) => a.managedBy === MATTSTACK_REGISTRAR && a.requiresTeam === true).map((a) => a.name).sort();
-  if (targets.length === 0) return "no team-only apps";
+  if (targets.length === 0) return { ok: true, detail: "no team-only apps" };
   const enabled = !isSolo(ctx.team);
   const headers = { "content-type": "application/json", "x-local-caller": MATTSTACK_REGISTRAR };
   const failed: string[] = [];
   for (const name of targets) {
-    const r = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps/${name}`, { method: "PATCH", headers, body: JSON.stringify({ enabled }) });
+    const r = await ctx.p.fetch(`http://127.0.0.1:${port}/api/v1/apps/${name}`, { method: "PATCH", headers, body: JSON.stringify({ enabled }), timeoutMs: DECK_API_TIMEOUT_MS });
     if (r.status < 200 || r.status >= 300) failed.push(`${name} (${r.status})`);
   }
+  if (failed.length) return { ok: false, detail: `app defaults not applied; failed: ${failed.join(", ")}` };
   const names = targets.join(", ");
-  const tail = failed.length ? `; failed: ${failed.join(", ")}` : "";
-  return enabled ? `team apps on: ${names}${tail}` : `solo: ${names} off${tail}`;
+  return { ok: true, detail: enabled ? `team apps on: ${names}` : `solo: ${names} off` };
 }
 ```
 
-Import `isSolo` from `../contract.ts`. In `deckManagedRun`, replace the two `return { state: "done", ... }` lines with:
+The list read and every PATCH carry `timeoutMs` because deck's `enabled` PATCH and its admin list both wait on deck's boot sweep, and a wedged sweep would otherwise hang Install. Import `isSolo` from `../contract.ts`. In `deckManagedRun`, replace the two `return { state: "done", ... }` lines with:
 
 ```ts
   const adoptDetail = adopted.kind === "skip" ? adopted.detail : `board adopted from legacy mrs, ${await repointBoard(ctx, port)}`;
-  return { state: "done", detail: `deck ready; ${adoptDetail}; ${await applyAppDefaults(ctx, port)}` };
+  const defaults = await applyAppDefaults(ctx, port);
+  return { state: defaults.ok ? "done" : "failed", detail: `deck ready; ${adoptDetail}; ${defaults.detail}` };
 ```
+
+Add one more test in the describe: with `SOLO_INTENT` and `healthyFetch(4100, 500, CATALOG)`, the outcome is `{ state: "failed", detail: "deck ready; board already adopted; app defaults not applied; failed: board (500), boxscore (500)" }`.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -1116,7 +1121,7 @@ git commit -m "team status: answer mode solo when no clone exists"
 - Test: `commands/__tests__/apps.test.ts`
 
 **Interfaces:**
-- Produces: `rt apps list [--json]` prints `envelope({ apps: [{ name, displayName, enabled, requiresTeam }] })` for `managedBy: "rt"` rows; `rt apps enable <name> [--json]` and `rt apps disable <name> [--json]` PATCH deck and print `envelope({ name, enabled })`. Errors: `deck-not-running` (no api.json or healthz not 200), `unknown-app` (404), `not-managed` (409). Omitting the name prints the list and the usage error (`omitBehavior: "list"`).
+- Produces: `rt apps list [--json]` prints `envelope({ apps: [{ name, displayName, description?, enabled, requiresTeam }] })` for `managedBy: "rt"` rows (`description` present only when deck's row carries one); `rt apps enable <name> [--json]` and `rt apps disable <name> [--json]` PATCH deck and print `envelope({ name, enabled })`. Errors: `deck-not-running` (no api.json or healthz not 200), `unknown-app` (404), `not-managed` (409). Omitting the name prints the list and the usage error (`omitBehavior: "list"`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1129,7 +1134,7 @@ import { appsDisable, appsEnable, appsList, type AppsDeps } from "../apps.ts";
 import { fakeProbes } from "../../lib/setup/__tests__/fakes.ts";
 
 const ROWS = [
-  { name: "board", managedBy: "rt", displayName: "Board", enabled: false, requiresTeam: true },
+  { name: "board", managedBy: "rt", displayName: "Board", description: "Open MRs ready for review.", enabled: false, requiresTeam: true },
   { name: "chat", managedBy: "rt", displayName: "Chat", enabled: true, requiresTeam: false },
   { name: "mine", managedBy: "user", displayName: "mine", enabled: true, requiresTeam: false },
 ];
@@ -1160,7 +1165,7 @@ describe("rt apps", () => {
     const d = deps();
     await appsList(["--json"], {}, d);
     expect(JSON.parse(d.out[0]!).apps).toEqual([
-      { name: "board", displayName: "Board", enabled: false, requiresTeam: true },
+      { name: "board", displayName: "Board", description: "Open MRs ready for review.", enabled: false, requiresTeam: true },
       { name: "chat", displayName: "Chat", enabled: true, requiresTeam: false },
     ]);
   });
@@ -1234,6 +1239,7 @@ export function realAppsDeps(): AppsDeps {
 export interface AppRow {
   name: string;
   displayName: string;
+  description?: string;
   enabled: boolean;
   requiresTeam: boolean;
 }
@@ -1256,7 +1262,7 @@ async function listRows(deps: AppsDeps, port: number): Promise<AppRow[]> {
   const res = await deps.probes.fetch(`http://127.0.0.1:${port}/api/v1/apps`);
   if (res.status !== 200) throw new UserActionableError("deck-error", `deck answered ${res.status} listing apps`);
   const apps = (JSON.parse(res.body) as { apps?: Array<AppRow & { managedBy: string }> }).apps ?? [];
-  return apps.filter((a) => a.managedBy === REGISTRAR).map(({ name, displayName, enabled, requiresTeam }) => ({ name, displayName, enabled, requiresTeam }));
+  return apps.filter((a) => a.managedBy === REGISTRAR).map(({ name, displayName, description, enabled, requiresTeam }) => ({ name, displayName, ...(description !== undefined ? { description } : {}), enabled, requiresTeam }));
 }
 
 function printList(deps: AppsDeps, json: boolean, apps: AppRow[]): void {
@@ -1452,7 +1458,7 @@ git commit -m "tray: TeamChoice.solo with its prepare verbs"
 
 - [ ] **Step 1: Write the failing UI test and stub scenario**
 
-`stub.ts`: in `plan()`, when `scenario === "solo"`: set `mode = "none"`, return `team: { slug: "", name: "", mode: "none" }`, `accounts[0]` replaced by `row("account.github", "account", "GitHub", "Opens pull requests from rt.", false, "missing", null, { type: "connect", label: "Connect", integration: "github", fields: [{ name: "token", label: "Personal access token", secret: true }], alternatives: [] }, undefined, "Works without this. Connect a GitHub account later to open pull requests from rt.")`, `access = []`, and `tools[1]!.required = false`. Add `"solo"` to `installableScenario`. Add a `team status` branch: `else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { ...the existing shape... });` (find where `team status` is answered today and branch there).
+`stub.ts`: in `plan()`, when `scenario === "solo"`: set `mode = "none"`, return `team: { slug: "", name: "", mode: "none" }`, `accounts[0]` replaced by `row("account.github", "account", "GitHub", "Opens pull requests from rt.", false, "missing", null, { type: "connect", label: "Connect", integration: "github", fields: [{ name: "token", label: "Personal access token", secret: true }], alternatives: [] }, undefined, "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.")`, `access = []`, and the `tool.fast-browser` row (`tools[1]`) set to `required = false` with `optionalNote = "Works without this; only the browser skills need it."` (both strings are the validators' exact copy from Tasks 9 and 10, so the stub-driven screenshots show what a real install shows). Add `"solo"` to `installableScenario`. Add a `team status` branch: `else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { ...the existing shape... });` (find where `team status` is answered today and branch there).
 
 `SetupFlowUITests.swift`:
 
@@ -1641,7 +1647,7 @@ git commit -m "tray: Settings > Team offers Create and Join on a solo install"
 - Test: `rt-tray/Tests/MattstackCoreChecks/SettingsChecks.swift`, `rt-tray/Tests/stub-rt/stub.test.ts`
 
 **Interfaces:**
-- Produces: `AppToggleRow { name, displayName, enabled, requiresTeam }`; `AppsSettingsModel.load()` runs `["apps", "list", "--json"]`; `setEnabled(_ name: String, _ on: Bool)` runs `["apps", on ? "enable" : "disable", name, "--json"]` then `load()`; `AXID.settingsAppToggle(name) = "settings.apps.toggle.<name>"`.
+- Produces: `AppToggleRow { name, displayName, description?, enabled, requiresTeam }` (the pane renders `description` as a secondary caption under the display name when present); `AppsSettingsModel.load()` runs `["apps", "list", "--json"]`; `setEnabled(_ name: String, _ on: Bool)` runs `["apps", on ? "enable" : "disable", name, "--json"]` then `load()`; `AXID.settingsAppToggle(name) = "settings.apps.toggle.<name>"`.
 
 - [ ] **Step 1: Write the failing checks and stub answers**
 
@@ -1691,6 +1697,7 @@ public struct AppToggleRow: Codable, Equatable, Sendable, Identifiable {
     public var id: String { name }
     public var name: String
     public var displayName: String
+    public var description: String?
     public var enabled: Bool
     public var requiresTeam: Bool
 }
@@ -1751,6 +1758,9 @@ struct AppsPane: View {
                         Toggle(app.displayName, isOn: Binding(get: { app.enabled }, set: { on in Task { await model.setEnabled(app.name, on) } }))
                             .toggleStyle(.switch)
                             .accessibilityIdentifier(AXID.settingsAppToggle(app.name))
+                        if let description = app.description {
+                            Text(description).font(.caption).foregroundStyle(.secondary)
+                        }
                         if app.requiresTeam, team.isSolo {
                             Text("Needs a team. Create or join one under Team to use this.").font(.caption).foregroundStyle(.secondary)
                         }
