@@ -1,8 +1,9 @@
 # Architecture: where the design docs live
 
-rt is one piece of a larger plan that spans five repos. Because it spans repos,
-the governing documents do **not** live in any one of them. They live in Linear,
-in the `mattstack` workspace.
+rt is one piece of a larger plan that once spanned five repos. The apps, glance
+and gitq now live in this repo (`apps/*`, `packages/glance`, `apps/gitq`; the
+old repos are archived), but the governing documents still do **not** live in
+any one repo. They live in Linear, in the `mattstack` workspace.
 
 Read these before proposing anything about rt's scope, board's shape, glance,
 gitq, or the acme skills:
@@ -23,6 +24,13 @@ gitq, or the acme skills:
 
 Tracking lives in the same workspace, one project per repo (`rt`, `rt client`,
 `glance`, `board`, `gitq`, `skills`) on team `just matt` (MAT).
+
+On npm, `@mattstack/rt-client`, `@mattstack/settings-kit`,
+`@mattstack/glance-react` and `@mattstack/mantine-tokyo` are deprecated
+(2026-09-27): they existed only to move code between the repos this one
+absorbed, and every consumer links them as workspace packages now.
+`@mattstack/glance`, `@mattstack/gitq` and `@mattstack/fast-browser` stay
+published.
 
 ## Why they are not in this repo
 

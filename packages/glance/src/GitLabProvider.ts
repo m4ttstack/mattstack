@@ -44,7 +44,11 @@ import { parseCodeownerSections } from './codeowners.ts';
 import { type ForgeLogger, noopLogger } from './logger.ts';
 import { MRDetailFetcher } from './MRDetailFetcher.ts';
 import { ActionCableClient } from './ActionCableClient.ts';
-import { createRealtimeWatcher, type RealtimeWatcherOptions } from './RealtimeWatcher.ts';
+import {
+  createRealtimeWatcher,
+  type RealtimeWatcherOptions,
+  type WatcherSubscribeCallbacks,
+} from './RealtimeWatcher.ts';
 import { startEventsWatcher } from './EventsWatcher.ts';
 import type { FetchEvents, GitLabEvent } from './EventsPoller.ts';
 import { safeEmit, instrumentGitbeaker, type OnRequestHook, type RequestInfo } from './instrumentation.ts';
@@ -318,6 +322,17 @@ function numericId(gid: string): number {
   const parts = gid.split('/');
   return parseInt(parts[parts.length - 1] ?? '0', 10);
 }
+
+/** `gitlab:mr:12345` (a `PullRequest.id`) back to the GID ActionCable subscribes by. */
+function mergeRequestGid(pullRequestId: string): string {
+  return `gid://gitlab/MergeRequest/${pullRequestId.split(':').pop()}`;
+}
+
+const MR_CABLE_CHANNELS = [
+  'mergeRequestMergeStatusUpdated',
+  'mergeRequestApprovalStateUpdated',
+  'mergeRequestReviewersUpdated',
+] as const;
 
 /** Build a scoped domain ID from a GitLab numeric integer. */
 function domainId(type: string, id: number | string): string {
@@ -901,8 +916,10 @@ export class GitLabProvider implements GitProvider {
   private readonly onRequest?: OnRequestHook;
 
   // ── Shared ActionCable connection ────────────────────────────────────
-  // All watchMR calls multiplex over one WebSocket instead of N.
+  // Every watchMR and subscribePullRequestEvents call multiplexes over one WebSocket.
   private sharedCable: ActionCableClient | null = null;
+  /** Welcomed and not since dropped; a watcher attached while false waits for the next welcome. */
+  private cableUp = false;
   private cableWatcherCount = 0;
   // Maps subscription identifier → per-watcher onEvent callback
   private readonly cableEventHandlers = new Map<string, () => void>();
@@ -1893,104 +1910,11 @@ export class GitLabProvider implements GitProvider {
         // No `writeApplied`: a watcher tick is a plain read, so a failure here
         // leaves nothing pending on the forge for the caller to reconcile.
         const mr = await this.fetchSingleMRWithRetry(projectPath, mrIid, 'watchMR', 'watchMR');
-        if (mr && !mrGid) {
-          // Cache the GID from the first successful fetch.
-          const numId = mr.id.split(':').pop();
-          mrGid = `gid://gitlab/MergeRequest/${numId}`;
-        }
+        if (mr && !mrGid) mrGid = mergeRequestGid(mr.id);
         return mr;
       },
 
-      // subscribe — wires GitLab's ActionCable GraphQL subscriptions.
-      // All watchers share a single WebSocket via this.sharedCable.
-      // Three channels per MR cover all merge-widget state changes:
-      //   mergeRequestMergeStatusUpdated  → pipeline, rebase, merge status, merge error
-      //   mergeRequestApprovalStateUpdated → approvals, mergeabilityChecks
-      //   mergeRequestReviewersUpdated     → reviewers list
-      subscribe: ({ onConnected, onDisconnected, onEvent }) => {
-        const subscriptionIds: string[] = [];
-
-        // Build a subscribe-on-connect callback for this watcher.
-        // Called on initial connect and on every reconnect.
-        const doSubscribe = () => {
-          if (!mrGid || !this.sharedCable) return;
-          const queries = [
-            `subscription { mergeRequestMergeStatusUpdated(issuableId: "${mrGid}") { iid } }`,
-            `subscription { mergeRequestApprovalStateUpdated(issuableId: "${mrGid}") { iid } }`,
-            `subscription { mergeRequestReviewersUpdated(issuableId: "${mrGid}") { iid } }`,
-          ];
-          for (const query of queries) {
-            const id = JSON.stringify({ channel: 'GraphqlChannel', query });
-            subscriptionIds.push(id);
-            this.cableEventHandlers.set(id, onEvent);
-            this.sharedCable.subscribe(id);
-          }
-        };
-
-        // Wrap onConnected to also subscribe this MR's channels
-        const wrappedOnConnected = () => {
-          doSubscribe();
-          onConnected();
-        };
-
-        // Register this watcher's callbacks
-        this.cableConnectHandlers.add(wrappedOnConnected);
-        this.cableDisconnectHandlers.add(onDisconnected);
-        this.cableWatcherCount++;
-
-        // Lazy-init: create and connect the shared cable on first watcher
-        if (this.cableWatcherCount === 1) {
-          this.sharedCable = new ActionCableClient(
-            this.baseURL,
-            this.token,
-            {
-              onConnected: () => {
-                // Fan out to all registered watchers
-                for (const handler of this.cableConnectHandlers) handler();
-              },
-              onMessage: (id: string, _msg: unknown) => {
-                // Route message to the watcher that owns this subscription
-                this.cableEventHandlers.get(id)?.();
-              },
-              onConfirm: () => {},
-              onReject: (id: string) => {
-                this.log.warn('watchMR: subscription rejected', { id });
-              },
-              onDisconnected: (intentional: boolean, reason: string) => {
-                if (!intentional) {
-                  for (const handler of this.cableDisconnectHandlers) handler();
-                } else {
-                  this.log.debug('watchMR: WS disconnected intentionally', { reason });
-                }
-              },
-            },
-            { logger: this.log, logContext: 'watchMR:shared' },
-          );
-          this.sharedCable.connect();
-        } else if (this.sharedCable) {
-          // Cable already connected — subscribe immediately
-          doSubscribe();
-          onConnected();
-        }
-
-        // Return dispose for this watcher only
-        return () => {
-          // Unsubscribe this MR's channels
-          for (const id of subscriptionIds) {
-            this.sharedCable?.unsubscribe(id);
-            this.cableEventHandlers.delete(id);
-          }
-          this.cableConnectHandlers.delete(wrappedOnConnected);
-          this.cableDisconnectHandlers.delete(onDisconnected);
-          this.cableWatcherCount--;
-
-          // Last watcher gone — tear down the shared connection
-          if (this.cableWatcherCount === 0 && this.sharedCable) {
-            this.sharedCable.disconnect();
-            this.sharedCable = null;
-          }
-        };
-      },
+      subscribe: (callbacks) => this.attachToSharedCable(() => (mrGid ? [mrGid] : []), callbacks),
 
       onUpdate,
       options: {
@@ -1999,6 +1923,100 @@ export class GitLabProvider implements GitProvider {
         logContext: `watchMR:${projectPath}!${mrIid}`,
       },
     });
+  }
+
+  subscribePullRequestEvents(
+    _projectPath: string,
+    prs: ReadonlyArray<Pick<PullRequest, 'id' | 'iid'>>,
+    callbacks: WatcherSubscribeCallbacks,
+  ): () => void {
+    const gids = prs.map((pr) => mergeRequestGid(pr.id));
+    return this.attachToSharedCable(() => gids, callbacks);
+  }
+
+  /**
+   * Registers one watcher on the shared cable, creating and connecting it for
+   * the first. `gids` is read on every (re)connect because `watchMR` learns
+   * its GID from its first fetch. Three channels per MR cover every
+   * merge-widget change: merge status (pipeline, rebase, merge error),
+   * approval state (approvals, mergeability checks) and reviewers.
+   */
+  private attachToSharedCable(
+    gids: () => string[],
+    { onConnected, onDisconnected, onEvent }: WatcherSubscribeCallbacks,
+  ): () => void {
+    const subscriptionIds = new Set<string>();
+
+    const doSubscribe = () => {
+      if (!this.sharedCable) return;
+      for (const gid of gids()) {
+        for (const channel of MR_CABLE_CHANNELS) {
+          const query = `subscription { ${channel}(issuableId: "${gid}") { iid } }`;
+          const id = JSON.stringify({ channel: 'GraphqlChannel', query });
+          subscriptionIds.add(id);
+          this.cableEventHandlers.set(id, onEvent);
+          this.sharedCable.subscribe(id);
+        }
+      }
+    };
+
+    const wrappedOnConnected = () => {
+      doSubscribe();
+      onConnected();
+    };
+
+    this.cableConnectHandlers.add(wrappedOnConnected);
+    this.cableDisconnectHandlers.add(onDisconnected);
+    this.cableWatcherCount++;
+
+    if (this.cableWatcherCount === 1) {
+      this.sharedCable = new ActionCableClient(
+        this.baseURL,
+        this.token,
+        {
+          onConnected: () => {
+            this.cableUp = true;
+            for (const handler of this.cableConnectHandlers) handler();
+          },
+          onMessage: (id: string, _msg: unknown) => {
+            this.cableEventHandlers.get(id)?.();
+          },
+          onConfirm: () => {},
+          onReject: (id: string) => {
+            this.log.warn('sharedCable: subscription rejected', { id });
+          },
+          onDisconnected: (intentional: boolean, reason: string) => {
+            this.cableUp = false;
+            if (!intentional) {
+              for (const handler of this.cableDisconnectHandlers) handler();
+            } else {
+              this.log.debug('sharedCable: WS disconnected intentionally', { reason });
+            }
+          },
+        },
+        { logger: this.log, logContext: 'sharedCable' },
+      );
+      this.sharedCable.connect();
+    } else if (this.sharedCable && this.cableUp) {
+      doSubscribe();
+      onConnected();
+    }
+
+    return () => {
+      for (const id of subscriptionIds) {
+        this.sharedCable?.unsubscribe(id);
+        this.cableEventHandlers.delete(id);
+      }
+      this.cableConnectHandlers.delete(wrappedOnConnected);
+      this.cableDisconnectHandlers.delete(onDisconnected);
+      this.cableWatcherCount--;
+
+      if (this.cableWatcherCount === 0 && this.sharedCable) {
+        this.sharedCable.disconnect();
+        this.sharedCable = null;
+        this.cableUp = false;
+      }
+    };
   }
 
   watchEvents(

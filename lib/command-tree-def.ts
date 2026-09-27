@@ -1649,7 +1649,8 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Verb", type: "text", placeholder: "join | leave | archive | post | read | ack | claim | release | rooms | who | mark | prune | sign-in | sign-out | away | back | buddies | dm | invite", hint: "The chat action to run" },
       { name: "Room", type: "text", optional: true, placeholder: "build", hint: "Room name for join/leave/archive/post/read/who/mark; the target handle for dm; the pane id for invite; the message id for ack/claim/release; omit on read/rooms/who to span everything, and on prune/sign-in/sign-out/buddies/back/away, which take no room" },
       { name: "Text", type: "text", optional: true, placeholder: "@handle message", hint: "A one-line message body (every word after the room/handle) — post, dm; leave it out and feed the body on stdin (a heredoc) so paragraphs and lists survive; away takes this directly, with no room before it" },
-      { name: "As handle", flag: "--as", type: "text", placeholder: "repo-tools-main", hint: "Override the derived handle for this invocation; refused while signed in (sign out first)" },
+      { name: "As handle", flag: "--as", type: "text", placeholder: "repo-tools-main", hint: "On sign-in: continue the identity it names (a name or an id); elsewhere: act as that handle for one call, refused while signed in" },
+      { name: "Name", flag: "--name", type: "text", placeholder: "remy", hint: "For sign-in: a fresh identity with this display name; never continues one (use --as for that)" },
       { name: "Wake on", flag: "--wake-on", type: "text", placeholder: "mention | all | none", hint: "For join: when this handle gets delivered a message (default mention)" },
       { name: "Reopen", flag: "--reopen", type: "boolean", default: false, hint: "For archive: clear the archive instead of setting it" },
       { name: "Limit", flag: "--limit", type: "text", placeholder: "20", hint: "For read: max messages (default 20)" },
@@ -2594,7 +2595,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "setupIntent",
         hidden: true,
         args: [
-          { name: "Mode", type: "text", placeholder: "restore", hint: "restore <org>/<repo> | clear" },
+          { name: "Mode", type: "text", placeholder: "restore", hint: "restore <org>/<repo> | solo | clear" },
           { name: "HomeRepo", type: "text", placeholder: "org/repo", hint: "org/repo of the home repo to restore (restore only)" },
           SETUP_JSON_ARG,
         ],
@@ -2695,6 +2696,27 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Label", type: "text", placeholder: "com.mattstack.daemon", hint: "LaunchAgent label" },
           SETUP_JSON_ARG,
         ],
+      },
+    },
+  },
+
+  apps: {
+    description: "The mattstack apps deck serves on this Mac (board, console, chat, boxscore)",
+    subcommands: {
+      list: { description: "List the apps and whether each is on", module: "./commands/apps.ts", fn: "appsList", args: [SETUP_JSON_ARG] },
+      enable: {
+        description: "Turn an app on (deck serves it and the window shows it)",
+        module: "./commands/apps.ts",
+        fn: "appsEnable",
+        omitBehavior: "list",
+        args: [{ name: "Name", type: "text", placeholder: "board", hint: "App name from rt apps list" }, SETUP_JSON_ARG],
+      },
+      disable: {
+        description: "Turn an app off (deck stops it and the window hides it)",
+        module: "./commands/apps.ts",
+        fn: "appsDisable",
+        omitBehavior: "list",
+        args: [{ name: "Name", type: "text", placeholder: "board", hint: "App name from rt apps list" }, SETUP_JSON_ARG],
       },
     },
   },

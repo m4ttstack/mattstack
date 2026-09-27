@@ -64,6 +64,7 @@ const provider = createProvider('gitlab', 'https://gitlab.com', token, {
 | `resolveDiscussion(path, iid, discussionId)` | Resolve a discussion thread |
 | `unresolveDiscussion(path, iid, discussionId)` | Unresolve a discussion thread |
 | `watchMR(path, iid, userId, onUpdate, options?)` | Real-time MR subscription (returns `dispose()`) |
+| `subscribePullRequestEvents?(path, prs, callbacks)` | Push-only events for already-fetched MRs, no fetch or poll (GitLab; absent on GitHub) |
 | `fetchMRDiscussions(repoId, iid)` | Fetch MR discussions and notes |
 | `fetchBranchProtectionRules(path)` | Fetch branch protection rules |
 | `deleteBranch(path, branch)` | Delete a branch |
@@ -227,9 +228,9 @@ Pre-bound mutation methods — call without passing project path or IID:
 
 ### Shared WebSocket Connection
 
-All `watchMR` calls on a single `GitLabProvider` instance share **one WebSocket connection** via ActionCable. Each MR subscribes 3 channels (merge status, approval state, reviewers) on the shared connection. The connection is ref-counted:
+All `watchMR` and `subscribePullRequestEvents` calls on a single `GitLabProvider` instance share **one WebSocket connection** via ActionCable. A group dashboard makes one `subscribePullRequestEvents` call for the whole group and refreshes through one batched fetch. Each MR subscribes 3 channels (merge status, approval state, reviewers) on the shared connection. The connection is ref-counted:
 
-- **First `watchMR` call** → opens the WebSocket
+- **First watcher** → opens the WebSocket
 - **Subsequent calls** → subscribe additional channels on the existing connection
 - **`dispose()` a watcher** → unsubscribes that MR's channels
 - **Last watcher disposed** → disconnects the WebSocket

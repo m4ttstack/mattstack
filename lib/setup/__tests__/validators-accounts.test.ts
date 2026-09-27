@@ -586,6 +586,17 @@ describe("accountRows, catch-path does not apply cached health (Fix 3)", () => {
   });
 });
 
+describe("accountRows on solo", () => {
+  test("one optional github row, nothing else", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "gh" && argv[1] === "auth" ? { code: 1, stdout: "", stderr: "not logged in" } : ok());
+    const rows = await accountRows(fakeProbes({ exec }), baseTeam({ slug: "" }), [], fakeSecrets(), { v: 1, at: "", mode: "solo" }, {}, true);
+    expect(rows.map((r) => r.id)).toEqual(["account.github"]);
+    expect(rows[0]!.required).toBe(false);
+    expect(rows[0]!.optionalNote).toBe("Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.");
+    expect(rows[0]!.status).toBe("missing");
+  });
+});
+
 describe("accountRows, credential_health integration (rt-132)", () => {
   // Neutralizes the row written by each test below to a non-interfering
   // "error" health entry once assertions are done: getStateDb("cli") is a

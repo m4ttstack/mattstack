@@ -5,7 +5,7 @@ source "$(cd "$(dirname "$0")/.." && pwd)/lib/common.sh"
 
 usage() { sed -n '2p' "$0"; cat <<'EOF'
 usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
-         [--scenario create|join|headless] [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT]
+         [--scenario create|join|headless|solo] [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT]
          [--invite-code-file <p>] [--team-remote <url>] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
          [--fresh-team-repo] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
 EOF
@@ -237,7 +237,8 @@ EXPECT_ARG=""; [ -n "$APP_VERSION" ] && EXPECT_ARG="--expect-version '$APP_VERSI
 # The declined run asserts the untrusted state and then drives the trust verb's
 # own dialogs, so this phase needs the admin credentials too.
 UNTRUSTED_ARG=""; [ "$DECLINE_TRUST" = 1 ] && UNTRUSTED_ARG=--expect-untrusted
-vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
+SOLO_ARG=""; [ "$SCENARIO" = solo ] && SOLO_ARG="--solo"
+vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $SOLO_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
 rc=$?
 if [ "$rc" -eq 0 ]; then
   vm_phase_end assert pass

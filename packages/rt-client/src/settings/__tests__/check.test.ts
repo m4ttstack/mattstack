@@ -45,6 +45,16 @@ describe("settings/check", () => {
   const writeMachine = (obj: unknown) => write(machineSettingsPath(), obj);
   const writeTeam = (name: string, obj: unknown) => write(teamSettingsPath(name), obj);
 
+  test("a global value on a repo-only key is a failing invalid finding; its repo section is fine", () => {
+    const tpl = [{ path: "apps/api", project: "acme", config: "dev" }];
+    writeUser({ "rt.dopplerTemplate": tpl, repos: { [IDENTITY]: { "rt.dopplerTemplate": tpl } } });
+    const report = checkStores();
+    const found = report.findings.filter((f) => f.key === "rt.dopplerTemplate");
+    expect(found.map((f) => [f.kind, f.scope, f.repo])).toEqual([["invalid", "user", undefined]]);
+    expect(found[0]!.issues[0]!.message).toMatch(/repo-only/);
+    expect(report.failing).toBe(1);
+  });
+
   test("reports a nonconforming layer, a type-invalid layer, a merged failure and an unregistered key", () => {
     withSchema("rt.homeSnapshot", SNAPSHOT, () => {
       writeMachine({ "rt.homeSnapshot": { enabled: "yes" }, "rt.repoRoots": "nope", "board.rtRepos": [] });
@@ -91,8 +101,8 @@ describe("settings/check", () => {
   });
 
   test("reports invalid and nonconforming values written to the user store", () => {
-    withSchema("rt.worktrees", WORKTREES, () => {
-      writeUser({ "rt.notifications": "nope", "rt.worktrees": { onDeck: "two" } });
+    withSchema("rt.gitStatus", { type: "object", properties: { sweep: { type: "boolean" } } }, () => {
+      writeUser({ "rt.notifications": "nope", "rt.gitStatus": { sweep: "yes" } });
       const findings = checkStores().findings;
 
       const invalid = findings.find((f) => f.key === "rt.notifications")!;
@@ -100,7 +110,7 @@ describe("settings/check", () => {
       expect(invalid.scope).toBe("user");
       expect(invalid.file).toBe(userSettingsPath());
 
-      const nonconforming = findings.find((f) => f.key === "rt.worktrees" && f.kind === "nonconforming")!;
+      const nonconforming = findings.find((f) => f.key === "rt.gitStatus" && f.kind === "nonconforming")!;
       expect(nonconforming.scope).toBe("user");
     });
   });

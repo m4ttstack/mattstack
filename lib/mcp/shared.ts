@@ -6,7 +6,7 @@
  */
 import { herdList } from "../../packages/rt-client/src/index.ts";
 import type { RtResponse } from "../../packages/rt-client/src/index.ts";
-import { readChatSession, type ChatSession } from "../chat-session.ts";
+import { readChatSession, sessionName, type ChatSession } from "../chat-session.ts";
 import { explainError } from "../explain-error.ts";
 
 /** A string is a literal command prefix; an object carries a pattern a prefix
@@ -141,10 +141,10 @@ export const SIGN_IN_HINT = "no signed-in chat session for this session; call ch
 export function requireChatHandle(
   env: NodeJS.ProcessEnv,
   read: (id: string | undefined) => ChatSession | null = readChatSession,
-): { handle: string } | { error: string } {
+): { handle: string; name: string } | { error: string } {
   const session = read(env.CLAUDE_CODE_SESSION_ID);
   if (!session) return { error: SIGN_IN_HINT };
-  return { handle: session.handle };
+  return { handle: session.handle, name: sessionName(session) };
 }
 
 /** Mirrors isValidChatName (lib/state/chat-store.ts), which lib/mcp does not import. */

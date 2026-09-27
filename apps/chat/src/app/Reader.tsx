@@ -103,7 +103,7 @@ function ReaderPhoneHeader({
         fw={700}
         style={{ fontSize: 'var(--mantine-font-size-sm)', minWidth: 0 }}
       >
-        {card.handle} needs you
+        {card.name} needs you
       </Text>
       <Box style={{ flex: 1 }} />
       <UnstyledButton
@@ -165,6 +165,7 @@ function ReaderMessage({
       <div className={prose.hdr}>
         <AgentName
           handle={message.handle}
+          name={message.name}
           variant="inline"
           hue={speakerHue(message.handle, humanHandle, 'body')}
           task={task}
@@ -182,6 +183,7 @@ function ReaderMessage({
         <MessageMarkdown
           body={message.body}
           mentions={message.mentions}
+          mentionNames={message.mentionNames}
           humanHandle={humanHandle}
         />
       </div>
@@ -268,8 +270,8 @@ export function Reader({
       isDm={card.kind === 'dm'}
       daemonReachable={daemonReachable}
       phone={phone}
-      prefill={{ body: `@${card.handle} `, mentions: [card.handle] }}
-      placeholder={`Reply in ${where} · @${card.handle} is already tagged`}
+      prefill={{ body: `@${card.name} `, mentions: [card.handle] }}
+      placeholder={`Reply in ${where} · @${card.name} is already tagged`}
       onPosted={onReplied}
     />
   );

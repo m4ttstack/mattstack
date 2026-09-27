@@ -559,7 +559,7 @@ export const GitShell = {
   /** Check if there are staged changes relative to HEAD (for detecting empty commits). */
   async hasStagedDiff(cwd: string): Promise<boolean> {
     try {
-      const { stdout } = await git(['diff', '--cached', '--quiet', 'HEAD'], cwd);
+      await git(['diff', '--cached', '--quiet', 'HEAD'], cwd);
       return false; // exit 0 = no diff
     } catch {
       return true; // exit 1 = has diff

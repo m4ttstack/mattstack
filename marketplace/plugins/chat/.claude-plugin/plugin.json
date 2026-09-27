@@ -1,6 +1,6 @@
 {
   "name": "chat",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "rt chat presence: sign-in/join/sign-out/away skills and the hooks that confirm a signed-in session across resumes.",
   "author": {
     "name": "Matthew Goodwin"

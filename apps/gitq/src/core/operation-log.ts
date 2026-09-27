@@ -31,6 +31,12 @@ export interface OperationEntry {
   operation: OperationType;
   commands: CommandRecord[];
   branchSnapshots: Record<string, string>;
+  /**
+   * The same branches' heads once the operation finished. Undo moves each
+   * branch only from this head, so work committed after the operation is
+   * never dropped. Absent on entries logged before it existed.
+   */
+  resultHeads?: Record<string, string>;
   stackSnapshot: Stack;
   /**
    * Absolute repo worktree root this operation ran in. Optional so entries

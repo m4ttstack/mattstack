@@ -164,8 +164,9 @@ from a different Mantine version.
 
 ### Publishing
 
-`packages/glance` and `packages/glance-react` publish to npm on demand
-(`packages/glance/docs/releasing.md`), and `apps/gitq` publishes
+`packages/glance` publishes to npm on demand
+(`packages/glance/docs/releasing.md`; glance-react is private and its npm
+versions are deprecated), and `apps/gitq` publishes
 `@mattstack/gitq` to npm on demand too (`bun run release`, per
 `apps/gitq/docs/releasing.md`); nothing else in this repo publishes.
 `@mattstack/app-kit`,

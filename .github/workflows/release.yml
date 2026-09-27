@@ -231,6 +231,7 @@ jobs:
         run: |
           cd extensions/vscode/rt-context
           bun run package
+          node scripts/load-smoke.mjs
           RT_VSIX="$(ls "$PWD"/*.vsix 2>/dev/null | head -1)"
           [ -n "$RT_VSIX" ] || { echo "::error::no .vsix produced by bun run package"; exit 1; }
           echo "RT_VSIX=$RT_VSIX" >> "$GITHUB_ENV"

@@ -419,6 +419,10 @@ interface Resolution {
 const TEAM_LOCKED_SCOPES: Scope[] = ["default", "team", "team.repo"];
 
 /** The store a scope's value is authored in — the rung's write-side scope. */
+function isRepoRung(scope: Scope): boolean {
+  return scope === "team.repo" || scope === "user.repo" || scope === "machine.repo";
+}
+
 function baseScope(scope: Scope): SettingScope | null {
   if (scope === "team" || scope === "team.repo") return "team";
   if (scope === "user" || scope === "user.repo") return "user";
@@ -474,6 +478,14 @@ function resolveDef(def: SettingDef, stores: StoreBundle, opts: ResolveOpts): Re
     const base = baseScope(slot.scope);
     if (base !== null && !def.scopes.includes(base)) {
       const reason = `not settable in the ${base} store (allowed: ${def.scopes.join(", ")})`;
+      row.invalid = reason;
+      invalid.push({ scope: slot.scope, file: slot.file, reason });
+      rows.push(row);
+      continue;
+    }
+
+    if (def.repoOnly && base !== null && !isRepoRung(slot.scope)) {
+      const reason = `repo-only: set it in a repo section (--repo), not the global ${base} store`;
       row.invalid = reason;
       invalid.push({ scope: slot.scope, file: slot.file, reason });
       rows.push(row);

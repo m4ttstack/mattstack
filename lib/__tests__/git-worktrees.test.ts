@@ -54,6 +54,22 @@ describe("listWorktreeRoots", () => {
     // listWorktreeRoots must filter the missing dir out.
     expect(listWorktreeRoots(repo)).toEqual([repo]);
   });
+
+  test("opts.env replaces the inherited environment, so GIT_DIR there redirects the listing to another repo", () => {
+    const repoA = mkdtempSync(join(tmpRoot, "repo-a-"));
+    initRepo(repoA);
+    const repoB = mkdtempSync(join(tmpRoot, "repo-b-"));
+    initRepo(repoB);
+    const linkedB = join(tmpRoot, "linked-b");
+    execSync(`git -C "${repoB}" worktree add -q "${linkedB}" -b feat/b`);
+
+    const redirected = { ...process.env, GIT_DIR: join(repoB, ".git") };
+    expect(listWorktreeRoots(repoA, { env: redirected }).sort()).toEqual([linkedB, repoB].sort());
+
+    const cleared: Record<string, string | undefined> = { ...redirected };
+    delete cleared.GIT_DIR;
+    expect(listWorktreeRoots(repoA, { env: cleared })).toEqual([repoA]);
+  });
 });
 
 describe("listWorktrees", () => {

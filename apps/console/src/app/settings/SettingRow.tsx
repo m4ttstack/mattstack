@@ -24,9 +24,10 @@ import { compositeParts } from './CompositeControls';
 import { IssueLines } from './IssueLines';
 import type { WireIssue } from './issues';
 import { RepoReach } from './RepoReach';
-import { RowMenu } from './RowMenu';
+import { RowMenu, SLOT } from './RowMenu';
 import { ScalarControl } from './ScalarControl';
 import { ScopeBadge } from './ScopeBadge';
+import { useSettingsRepo } from './useConsoleSettings';
 import { useRowSave, type RowStore } from './useRowSave';
 import {
   APPROVAL_KEY,
@@ -94,12 +95,24 @@ export function SettingRow({
   const kind = rowKind(def);
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
-  const plain = sourceText(def);
   const isComposite = def.type === 'object' || def.type === 'array';
+  // With no repo picked, every write here would be a global one, which a
+  // repo-only key refuses; the repo reach beside the name says where it is set.
+  const repo = useSettingsRepo();
+  const perRepo = def.repoOnly === true && repo === null;
+  // A global source label ("unset", "default") says nothing about a key
+  // that only lives in repo sections; the repo reach carries it instead.
+  const plain = perRepo ? null : sourceText(def);
 
   let control: ReactNode;
   let body: ReactNode = null;
-  if (def.key === APPROVAL_KEY) {
+  if (perRepo) {
+    control = (
+      <Text fz={12} c={text.muted}>
+        set per repo
+      </Text>
+    );
+  } else if (def.key === APPROVAL_KEY) {
     const hash =
       typeof def.effective.value === 'string' ? def.effective.value : null;
     const at = rungBase(def.effective.scope) ? def.effective.scope : null;
@@ -241,21 +254,25 @@ export function SettingRow({
           )}
         </Group>
         <Group gap={4} wrap="nowrap" style={{ flex: 'none' }}>
-          <RowMenu
-            def={def}
-            row={row}
-            onEditJson={
-              isComposite &&
-              isEditable(def) &&
-              def.writable &&
-              def.effective.invalid === undefined
-                ? () => {
-                    setAsJson(true);
-                    setOpen(true);
-                  }
-                : undefined
-            }
-          />
+          {perRepo ? (
+            <Box w={SLOT} />
+          ) : (
+            <RowMenu
+              def={def}
+              row={row}
+              onEditJson={
+                isComposite &&
+                isEditable(def) &&
+                def.writable &&
+                def.effective.invalid === undefined
+                  ? () => {
+                      setAsJson(true);
+                      setOpen(true);
+                    }
+                  : undefined
+              }
+            />
+          )}
           {onExplain && (
             <ActionIcon
               variant="subtle"

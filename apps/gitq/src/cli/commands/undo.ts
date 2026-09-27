@@ -87,7 +87,17 @@ export async function undoCommand(ctx: CliContext): Promise<number> {
       : '';
   const human = result.success
     ? `undone: restored ${result.restoredBranches.join(', ') || 'no branches'}${skippedNote}${result.error ? ` (${result.error})` : ''}`
-    : `undo failed: ${result.error ?? 'unknown error'}`;
-  emit(ctx, human, { ...result, restoredStack, skippedBranches });
+    : `undo failed: ${result.error ?? 'unknown error'}${
+        result.restoredBranches.length > 0
+          ? `; already restored (the stack record is unchanged; run undo again once fixed): ${result.restoredBranches.join(', ')}`
+          : ''
+      }`;
+  if (result.success) {
+    emit(ctx, human, { ...result, restoredStack, skippedBranches });
+  } else {
+    // The store was not touched, so the snapshot tree is not reported as restored.
+    const { restoredStack: _unapplied, ...failure } = result;
+    emit(ctx, human, { ...failure, skippedBranches });
+  }
   return result.success ? 0 : 1;
 }

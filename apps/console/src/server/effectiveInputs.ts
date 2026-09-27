@@ -1,4 +1,9 @@
-import { getDef, getRun, getSetting } from '@mattstack/rt-client';
+import {
+  getDef,
+  getRun,
+  getSetting,
+  parseIdentity,
+} from '@mattstack/rt-client';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
@@ -167,12 +172,14 @@ export function mountEffectiveInputs(
           ? null
           : await Promise.all(commits.map(packVersionRow));
 
+      const identity = parseIdentity(repo);
+      const repoIdentity = identity?.kind === 'remote' ? identity.id : null;
       const config: ConfigDepRow[] = [];
       for (const key of CONFIG_DEPS) {
         // CONFIG_DEPS is otherwise the only guard on this path, and it serializes full values onto the wire -- a secret def must never reach config.push.
         if (getDef(key)?.secret) continue;
         try {
-          const { value, provenance } = getSetting(key);
+          const { value, provenance } = getSetting(key, { repoIdentity });
           config.push({ key, value, provenance });
         } catch {
           // A throwing resolver skips the key rather than 500ing the panel.

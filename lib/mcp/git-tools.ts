@@ -4,18 +4,9 @@ import { rtSelfArgv } from "../rt-self.ts";
 import { GIT_GLOBAL_OPTS } from "../skills/mcp-lint.ts";
 import { childEnv, runCapture } from "../subprocess.ts";
 import { checkOptional, err, ok, type McpToolDef, type ToolResult } from "./shared.ts";
-import { checkRegisteredTree, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
+import { checkRegisteredTree, gitChildEnv, realTreeGuardDeps, type TreeGuardDeps } from "./tree-guard.ts";
 
-// Each of these outranks cwd, so git would answer for (and push from) a repo
-// other than the tree the guard approved. git reads an empty value as a path,
-// not as unset, so they are deleted rather than blanked.
-const CWD_OVERRIDES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"];
-
-export function gitChildEnv(base: Record<string, string | undefined>, extra: Record<string, string>): Record<string, string | undefined> {
-  const env = { ...base };
-  for (const name of CWD_OVERRIDES) delete env[name];
-  return { ...env, ...extra };
-}
+export { gitChildEnv };
 
 export function syncChildEnv(base: Record<string, string | undefined>): Record<string, string | undefined> {
   return gitChildEnv(base, { GIT_TERMINAL_PROMPT: "0", RT_BATCH: "1", RT_SKIP_SETUP: "1" });

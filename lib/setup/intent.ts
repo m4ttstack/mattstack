@@ -27,7 +27,7 @@ export interface InvitePointer {
 export interface SetupIntent {
   v: 1;
   at: string;
-  mode: "create" | "join" | "restore";
+  mode: "create" | "join" | "restore" | "solo";
   team?: { slug: string; name: string; remote: string; others: boolean };
   join?: { id: string; keyB64: string; pointer: InvitePointer };
   restore?: { homeRepo: string };
@@ -75,5 +75,6 @@ export function teamRefFromIntent(intent: SetupIntent | null, teams: string[]): 
   if (intent?.mode === "restore") {
     return { slug: teams[0] ?? "", name: teams[0] ?? "", mode: "restore" };
   }
+  // solo carries no team; the discovered clones still decide the ref so a machine that later has a team never reads as solo.
   return teams.length ? { slug: teams[0]!, name: teams[0]!, mode: "none" } : { slug: "", name: "", mode: "none" };
 }

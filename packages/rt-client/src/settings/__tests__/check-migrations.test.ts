@@ -106,7 +106,7 @@ describe("settings/check over versioned store names", () => {
 
   test("a value the chain cannot carry, whose authored shape also fails the type check, is invalid and keeps both the migration error and the type error", () => {
     withMigration("rt.roles", { storeVersion: 2, migrateFrom: [{ version: 1, up: () => { throw new Error("boom"); } }] }, () => {
-      writeUser({ "rt.roles": [] });
+      writeUser({ repos: { [IDENTITY]: { "rt.roles": [] } } });
       const f = checkStores().findings.find((x) => x.key === "rt.roles" && x.kind === "invalid")!;
       expect(f.issues).toEqual([
         { path: [], message: "migration 1 -> 2 threw: boom" },

@@ -10,6 +10,58 @@ private func makeTeamSettings(_ rt: RtRunning, services: FakeServices = FakeServ
     return (TeamSettingsModel(rt: rt, needs: broker), broker)
 }
 
+@MainActor
+private final class HookCounter { var count = 0 }
+
+/// Holds the first caller of `arrive()` until `release()`, so a check can
+/// look at a model while its rt verb is still running.
+private actor AsyncGate {
+    private var arrived = false
+    private var arrivalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var held: CheckedContinuation<Void, Never>?
+
+    func arrive() async {
+        arrived = true
+        arrivalWaiters.forEach { $0.resume() }
+        arrivalWaiters = []
+        await withCheckedContinuation { held = $0 }
+    }
+
+    func waitForArrival() async {
+        if arrived { return }
+        await withCheckedContinuation { arrivalWaiters.append($0) }
+    }
+
+    func release() {
+        held?.resume()
+        held = nil
+    }
+}
+
+/// `apps list` always answers board off; the first enable/disable waits on
+/// `gate` (consumed, so a second flip never blocks) and every flip is counted.
+private final class GatedRt: RtRunning, @unchecked Sendable {
+    var gate: AsyncGate?
+    var flips = 0
+    var throwOnFlip = false
+
+    func run(_ args: [String], stdin: Data?) async throws -> RtResult {
+        if args.starts(with: ["apps", "list"]) {
+            return RtResult(exitCode: 0, stdout: Data(#"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":false,"requiresTeam":true}]}"#.utf8), stderr: Data())
+        }
+        flips += 1
+        if throwOnFlip { throw RtClientError.spawnFailed("no rt") }
+        let g = gate
+        gate = nil
+        if let g { await g.arrive() }
+        return RtResult(exitCode: 0, stdout: Data(#"{"contract":1,"name":"board","enabled":true}"#.utf8), stderr: Data())
+    }
+
+    func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { $0.finish() }
+    }
+}
+
 let settingsChecks: [Check] = [
     Check("RemoteMasker shows host + repo only, and never leaks stripped credentials on a path-less fallback") { c in
         c.expectEqual(RemoteMasker.mask("git@gitlab.example.com:tools/mattstack-team.git"), "gitlab.example.com/tools/mattstack-team")
@@ -119,5 +171,124 @@ let settingsChecks: [Check] = [
         c.expectEqual(unreg.state, "done", "rt polls GET /setup/need/services.unregister until this says done")
         c.expectEqual(proxy.state, "done")
         c.expect(!unreg.detail.contains("stale-need"), "the pre-run ledger entry must be forgotten, not replayed as this run's outcome")
+    },
+    Check("TeamSettingsModel reads mode solo from team status") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"mode":"solo","slug":null,"name":null,"remote":null,"lastPush":null,"members":[]}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+        await m.load()
+        c.expectEqual(await MainActor.run { m.isSolo }, true)
+        c.expect(await MainActor.run { m.info?.remote == nil }, "a solo status carries no remote")
+    },
+    Check("AppsSettingsModel lists rt apps and flips one through rt, exact argv") { c in
+        let rt = ScriptedRt()
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":false,"requiresTeam":true},{"name":"chat","displayName":"Chat","enabled":true,"requiresTeam":false}]}"#)
+        rt.answers["apps enable board"] = (0, #"{"contract":1,"name":"board","enabled":true}"#)
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        let hookCalls = await MainActor.run { HookCounter() }
+        await MainActor.run { m.onAppsChanged = { hookCalls.count += 1 } }
+        c.expectEqual(await MainActor.run { m.loaded }, false, "nothing reads as an empty list before the first load")
+        await m.load()
+        c.expectEqual(await MainActor.run { m.loaded }, true)
+        c.expectEqual(await MainActor.run { m.apps.map(\.name) }, ["board", "chat"])
+        await m.setEnabled("board", true)
+        try c.require(rt.calls.count == 3, "expected list, enable, list; got \(rt.calls.map(\.args))")
+        c.expectEqual(rt.calls[1].args, ["apps", "enable", "board", "--json"])
+        c.expectEqual(rt.calls[2].args, ["apps", "list", "--json"])
+        c.expectEqual(await MainActor.run { hookCalls.count }, 1, "a successful flip fires the catalog hook exactly once")
+        c.expectEqual(await MainActor.run { m.inFlight }, [], "nothing is in flight once the flip and reload return")
+    },
+    Check("AppsSettingsModel keeps rt's error and the last list on a failed flip") { c in
+        let rt = ScriptedRt()
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":true,"requiresTeam":true}]}"#)
+        rt.answers["apps disable board"] = (2,#"{"contract":1,"error":{"code":"deck-not-running","message":"deck is not running; open mattstack.app, then retry"}}"#)
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        let hookCalls = await MainActor.run { HookCounter() }
+        await MainActor.run { m.onAppsChanged = { hookCalls.count += 1 } }
+        await m.load()
+        await m.setEnabled("board", false)
+        c.expectEqual(await MainActor.run { m.error }, "deck is not running; open mattstack.app, then retry")
+        c.expectEqual(await MainActor.run { m.apps.count }, 1)
+        c.expectEqual(await MainActor.run { hookCalls.count }, 0, "a failed flip must not refresh the window's tabs")
+        c.expectEqual(await MainActor.run { m.apps[0].enabled }, true, "a failed flip reverts the optimistic switch to its prior value")
+        c.expectEqual(await MainActor.run { m.inFlight }, [], "a failed flip clears its in-flight guard")
+    },
+    Check("AppsSettingsModel stays unloaded when apps list fails, so the pane shows the error and no empty-list hint") { c in
+        let rt = ScriptedRt()
+        rt.answers["apps list"] = (1, "")
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        await m.load()
+        await MainActor.run {
+            c.expectEqual(m.loaded, false)
+            c.expectEqual(m.error, "rt apps list failed (exit 1).")
+        }
+    },
+    Check("AppsSettingsModel flips the switch before rt answers and refuses a second flip of the same app while one is in flight") { c in
+        let rt = GatedRt()
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        await m.load()
+        let gate = AsyncGate()
+        rt.gate = gate
+        let first = Task { await m.setEnabled("board", true) }
+        await gate.waitForArrival()
+        await MainActor.run {
+            c.expectEqual(m.apps[0].enabled, true, "the switch flips before rt answers")
+            c.expectEqual(m.inFlight, ["board"])
+        }
+        await m.setEnabled("board", false)
+        c.expectEqual(rt.flips, 1, "a second click while the first is in flight must not send another verb")
+        await gate.release()
+        await first.value
+        await MainActor.run { c.expectEqual(m.inFlight, []) }
+    },
+    Check("AppsSettingsModel reverts the optimistic flip on a non-2 exit, an undecodable reply and a spawn failure") { c in
+        for answer in [(Int32(1), ""), (Int32(0), "not json")] {
+            let rt = ScriptedRt()
+            rt.answers["apps list"] = (0, #"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":false,"requiresTeam":true}]}"#)
+            rt.answers["apps enable board"] = answer
+            let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+            await m.load()
+            await m.setEnabled("board", true)
+            await MainActor.run {
+                c.expectEqual(m.apps[0].enabled, false, "reply \(answer) must revert the switch")
+                c.expectEqual(m.inFlight, [])
+                c.expect(m.error != nil, "reply \(answer) must surface an error")
+            }
+        }
+        let rt = GatedRt()
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        await m.load()
+        rt.throwOnFlip = true
+        await m.setEnabled("board", true)
+        await MainActor.run {
+            c.expectEqual(m.apps[0].enabled, false, "a thrown spawn error must revert the switch")
+            c.expectEqual(m.inFlight, [])
+            c.expect(m.error != nil)
+        }
+    },
+    Check("SettingsRefresher reloads team and apps on every show, so an already-open Settings window refreshes") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"mode":"solo"}"#)
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[]}"#)
+        let refresher = await MainActor.run {
+            SettingsRefresher(team: makeTeamSettings(rt).0, apps: AppsSettingsModel(rt: rt))
+        }
+        await refresher.reload()
+        await refresher.reload()
+        c.expectEqual(rt.calls.filter { $0.args == ["team", "status", "--json"] }.count, 2, "a second show must run team status again")
+        c.expectEqual(rt.calls.filter { $0.args == ["apps", "list", "--json"] }.count, 2, "a second show must run apps list again")
+    },
+    Check("SettingsRefresher reloads after an upgrade's setup window closes on a finished apply, never on a first run or an unfinished apply") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme"}"#)
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[]}"#)
+        let refresher = await MainActor.run {
+            SettingsRefresher(team: makeTeamSettings(rt).0, apps: AppsSettingsModel(rt: rt))
+        }
+        await refresher.setupWindowClosed(entry: .firstRun, applied: true)
+        await refresher.setupWindowClosed(entry: .upgrade, applied: false)
+        c.expectEqual(rt.calls.count, 0, "a first run or an unfinished upgrade must not reload Settings")
+        await refresher.setupWindowClosed(entry: .upgrade, applied: true)
+        c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["apps", "list", "--json"]])
     },
 ]
