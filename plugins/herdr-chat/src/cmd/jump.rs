@@ -1,6 +1,6 @@
 //! `jump`: the pane a buddy is signed in on, found by the pane list's
-//! `presence.handle`. Two entry points over that one map, and they differ in
-//! what they do with the answer: [`jump_to`] focuses the pane through
+//! `presence` id or display name. Two entry points over that one map, and they
+//! differ in what they do with the answer: [`jump_to`] focuses the pane through
 //! [`herdr::focus_pane`], and is the peek row action the popup dispatches;
 //! [`locate`] is the `jump` subcommand, and answers with the pane while moving
 //! nothing, because the caller driving it focuses panes itself.
@@ -9,32 +9,46 @@ use crate::herdr;
 use crate::rt;
 use crate::run::Runner;
 
-/// Focus the pane a buddy is signed in on. Resolves `handle` to a pane id by its
-/// `presence.handle` in `panes`, then focuses that pane. Returns `false` when no
-/// pane carries the handle (the buddy has no local pane) or when the pane is
-/// absent from herdr's snapshot.
-pub fn jump_to(r: &dyn Runner, handle: &str, panes: &[rt::ChatPane]) -> Result<bool, String> {
-    let Some(pane) = panes
-        .iter()
-        .find(|p| p.presence.as_ref().is_some_and(|pr| pr.handle == handle))
-    else {
+/// The pane `who` is signed in on: an exact id first, the order rt resolves a
+/// typed name in, then a live agent's display name. Live names are unique, so
+/// the name pass finds at most one; a signed-out identity keeps its old name
+/// and is skipped there.
+pub fn pane_for<'a>(
+    panes: &'a [rt::ChatPane],
+    who: &str,
+) -> Option<(&'a rt::ChatPane, &'a rt::Presence)> {
+    let signed_in = || {
+        panes
+            .iter()
+            .filter_map(|p| p.presence.as_ref().map(|pr| (p, pr)))
+    };
+    signed_in()
+        .find(|(_, pr)| pr.handle == who)
+        .or_else(|| signed_in().find(|(_, pr)| pr.status != "offline" && pr.display_name() == who))
+}
+
+/// Focus the pane a buddy is signed in on. Returns `false` when no pane
+/// carries `who` (the buddy has no local pane) or when the pane is absent
+/// from herdr's snapshot.
+pub fn jump_to(r: &dyn Runner, who: &str, panes: &[rt::ChatPane]) -> Result<bool, String> {
+    let Some((pane, _)) = pane_for(panes, who) else {
         return Ok(false);
     };
     herdr::focus_pane(r, &pane.pane_id)
 }
 
-/// The pane `handle` is signed in on. Errs rather than answering an empty
-/// object, so a caller cannot mistake "nobody by that name" for "found it".
-pub fn locate(r: &dyn Runner, handle: &str) -> Result<crate::json::Jump, String> {
+/// The pane `who` is signed in on, answered with the matched id, whichever
+/// of id or name the caller typed. Errs rather than answering an empty object,
+/// so a caller cannot mistake "nobody by that name" for "found it".
+pub fn locate(r: &dyn Runner, who: &str) -> Result<crate::json::Jump, String> {
     let panes = rt::pane_list(r)?;
-    let pane = panes
-        .iter()
-        .find(|p| p.presence.as_ref().is_some_and(|pr| pr.handle == handle))
-        .ok_or_else(|| format!("no pane is signed in as {handle:?}"))?;
+    let (pane, presence) =
+        pane_for(&panes, who).ok_or_else(|| format!("no pane is signed in as {who:?}"))?;
     Ok(crate::json::Jump {
         pane_id: pane.pane_id.clone(),
         workspace: pane.workspace.clone(),
-        handle: handle.to_string(),
+        handle: presence.handle.clone(),
+        name: presence.display_name().to_string(),
     })
 }
 
@@ -107,6 +121,17 @@ mod tests {
         }
     }
 
+    fn with_named(pane_id: &str, handle: &str, name: &str, status: &str) -> rt::ChatPane {
+        let mut p = with_presence(pane_id, handle);
+        if let Some(pr) = p.presence.as_mut() {
+            pr.name = Some(name.to_string());
+            pr.status = status.to_string();
+        }
+        p
+    }
+
+    const RT_NAMED_PANE: &str = r#"{"ok":true,"panes":[{"paneId":"w1:p1","workspace":"flock","agentStatus":"idle","presence":{"handle":"remy.k3f9","name":"remy","status":"live"}}]}"#;
+
     #[test]
     fn jump_maps_handle_to_pane_and_focuses() {
         let panes = vec![with_presence("w1:p2", "fred")];
@@ -145,6 +170,7 @@ mod tests {
         assert_eq!(j.pane_id, "w1:p1");
         assert_eq!(j.workspace, "flock");
         assert_eq!(j.handle, "kay");
+        assert_eq!(j.name, "kay");
     }
 
     /// An empty answer would be mistaken for "found it, at no pane".
@@ -163,5 +189,52 @@ mod tests {
             1,
             "a second call here is a focus this verb must not perform"
         );
+    }
+
+    #[test]
+    fn locate_by_display_name_answers_with_the_id_and_the_name() {
+        let r = FakeRunner::sequence(&[RT_NAMED_PANE]);
+        let j = locate(&r, "remy").unwrap();
+        assert_eq!(j.pane_id, "w1:p1");
+        assert_eq!(j.handle, "remy.k3f9");
+        assert_eq!(j.name, "remy");
+    }
+
+    #[test]
+    fn locate_by_id_answers_with_the_name() {
+        let r = FakeRunner::sequence(&[RT_NAMED_PANE]);
+        let j = locate(&r, "remy.k3f9").unwrap();
+        assert_eq!(j.handle, "remy.k3f9");
+        assert_eq!(j.name, "remy");
+    }
+
+    /// rt resolves a typed value as an id before a name; a jump that did
+    /// otherwise would land on a different agent than a DM to the same text.
+    #[test]
+    fn an_exact_id_wins_over_another_identitys_display_name() {
+        let panes = vec![
+            with_named("w1:p1", "kai.a1b2", "remy", "live"),
+            with_named("w1:p2", "remy", "remy-2", "live"),
+        ];
+        let (pane, presence) = pane_for(&panes, "remy").unwrap();
+        assert_eq!(pane.pane_id, "w1:p2");
+        assert_eq!(presence.handle, "remy");
+    }
+
+    #[test]
+    fn a_name_match_skips_an_identity_that_has_signed_out() {
+        let panes = vec![
+            with_named("w1:p1", "remy.0001", "remy", "offline"),
+            with_named("w1:p2", "remy.k3f9", "remy", "live"),
+        ];
+        let (pane, _) = pane_for(&panes, "remy").unwrap();
+        assert_eq!(pane.pane_id, "w1:p2");
+    }
+
+    #[test]
+    fn jump_to_accepts_a_display_name() {
+        let panes = vec![with_named("w1:p2", "fred.9zz1", "fred", "live")];
+        let r = FakeRunner::sequence(&[ONE_PANE, "{}", "{}", "{}"]);
+        assert!(jump_to(&r, "fred", &panes).unwrap());
     }
 }

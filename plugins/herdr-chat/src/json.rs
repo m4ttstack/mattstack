@@ -198,6 +198,7 @@ pub struct Jump {
     pub pane_id: String,
     pub workspace: String,
     pub handle: String,
+    pub name: String,
 }
 
 /// The chat viewer URL, deep-linked to a room when the caller asked for one.
@@ -298,11 +299,12 @@ mod tests {
             pane_id: "w1:p1".to_string(),
             workspace: "flock".to_string(),
             handle: "kay".to_string(),
+            name: "kay".to_string(),
         })
         .unwrap();
         assert_eq!(
             out,
-            r#"{"paneId":"w1:p1","workspace":"flock","handle":"kay"}"#
+            r#"{"paneId":"w1:p1","workspace":"flock","handle":"kay","name":"kay"}"#
         );
     }
 
