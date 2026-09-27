@@ -70,6 +70,31 @@ describe("rt repos reidentify", () => {
     expect(out.at(-1)).toContain("refused: kv:repo-index");
   });
 
+  test("a refused --json run prints exactly one document carrying the report", async () => {
+    setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
+    setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fnew", "/y");
+    const code = await runExpectingProcessExit(() =>
+      reposReidentify(["github.com/acme/old", "github.com/acme/new", "--json"], {}, { print: (s) => out.push(s) }),
+    );
+    expect(code).toBe(2);
+    const doc = JSON.parse(out.join("\n"));
+    expect(doc.error.code).toBe("refused");
+    expect(doc.error.via).toBe("local");
+    expect(doc.error.report.stores.find((s: { store: string }) => s.store === "kv:repo-index").status).toBe("refused");
+  });
+
+  test("a successful --json run names the path it took", async () => {
+    await reposReidentify(["github.com/acme/old", "github.com/acme/new", "--json"], {}, { print: (s) => out.push(s) });
+    expect(JSON.parse(out.join("\n")).via).toBe("local");
+  });
+
+  test("a refused plain run does not claim it moved", async () => {
+    setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
+    setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fnew", "/y");
+    await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old", "github.com/acme/new"], {}, { print: (s) => out.push(s) }));
+    expect(out[0]).toStartWith("refused, partly moved ");
+  });
+
   test("usage error on a missing positional", async () => {
     const code = await runExpectingProcessExit(() => reposReidentify(["github.com/acme/old"], {}, { print: (s) => out.push(s) }));
     expect(code).toBe(2);
