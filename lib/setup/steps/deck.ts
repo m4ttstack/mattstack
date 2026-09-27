@@ -42,9 +42,13 @@ export function readDeckApiPort(ctx: ApplyContext): number | null {
   return readDeckApiPortFrom(ctx.p);
 }
 
-export async function deckIsHealthy(ctx: ApplyContext, port: number): Promise<boolean> {
-  const res = await ctx.p.fetch(`http://127.0.0.1:${port}/healthz`);
+export async function deckHealthyAt(p: Pick<Probes, "fetch">, port: number): Promise<boolean> {
+  const res = await p.fetch(`http://127.0.0.1:${port}/healthz`);
   return res.status === 200;
+}
+
+export async function deckIsHealthy(ctx: ApplyContext, port: number): Promise<boolean> {
+  return deckHealthyAt(ctx.p, port);
 }
 
 /** deck's own frozen error vocabulary for `adopt` — matched as substrings since the real CLI wraps them in a sentence, not a bare code. */
@@ -55,7 +59,7 @@ function matchFrozenError(text: string): (typeof FROZEN_ADOPT_ERRORS)[number] | 
 }
 
 /** deck's registrar id for mattstack's rows. Deck refuses a structural change to a row from any caller but its registrar, and an unnamed caller is "user". */
-const MATTSTACK_REGISTRAR = "rt";
+export const MATTSTACK_REGISTRAR = "rt";
 
 type AdoptResult = { kind: "renamed" } | { kind: "skip"; detail: string } | { kind: "failed"; outcome: StepOutcome };
 

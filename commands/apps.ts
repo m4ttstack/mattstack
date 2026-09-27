@@ -8,7 +8,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, userErrorPayload } from "../lib/setup/errors.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
-import { readDeckApiPortFrom } from "../lib/setup/steps/deck.ts";
+import { MATTSTACK_REGISTRAR, deckHealthyAt, readDeckApiPortFrom } from "../lib/setup/steps/deck.ts";
 
 export interface AppsDeps {
   probes: Probes;
@@ -28,8 +28,6 @@ export interface AppRow {
   requiresTeam: boolean;
 }
 
-const REGISTRAR = "rt";
-
 function fail(deps: AppsDeps, json: boolean, verb: string, err: UserActionableError): never {
   deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt ${verb}: ${err.message}`);
   return deps.exit(2);
@@ -38,16 +36,26 @@ function fail(deps: AppsDeps, json: boolean, verb: string, err: UserActionableEr
 async function deckPort(deps: AppsDeps): Promise<number | null> {
   const port = readDeckApiPortFrom(deps.probes);
   if (port === null) return null;
-  const res = await deps.probes.fetch(`http://127.0.0.1:${port}/healthz`);
-  return res.status === 200 ? port : null;
+  return (await deckHealthyAt(deps.probes, port)) ? port : null;
+}
+
+function parseApps(body: string): Array<AppRow & { managedBy: string }> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = null;
+  }
+  const apps = (parsed as { apps?: unknown } | null)?.apps;
+  if (!Array.isArray(apps)) throw new UserActionableError("deck-error", "deck answered an unreadable app list");
+  return apps as Array<AppRow & { managedBy: string }>;
 }
 
 async function listRows(deps: AppsDeps, port: number): Promise<AppRow[]> {
   const res = await deps.probes.fetch(`http://127.0.0.1:${port}/api/v1/apps`);
   if (res.status !== 200) throw new UserActionableError("deck-error", `deck answered ${res.status} listing apps`);
-  const apps = (JSON.parse(res.body) as { apps?: Array<AppRow & { managedBy: string }> }).apps ?? [];
-  return apps
-    .filter((a) => a.managedBy === REGISTRAR)
+  return parseApps(res.body)
+    .filter((a) => a?.managedBy === MATTSTACK_REGISTRAR)
     .map(({ name, displayName, description, enabled, requiresTeam }) => ({
       name,
       displayName,
@@ -60,6 +68,10 @@ async function listRows(deps: AppsDeps, port: number): Promise<AppRow[]> {
 function printList(deps: AppsDeps, json: boolean, apps: AppRow[]): void {
   if (json) {
     deps.print(JSON.stringify(envelope({ apps }, deps.probes.now())));
+    return;
+  }
+  if (apps.length === 0) {
+    deps.print("no mattstack apps registered");
     return;
   }
   for (const a of apps) deps.print(`${a.enabled ? "on " : "off"}  ${a.name.padEnd(10)} ${a.displayName}${a.requiresTeam ? "  (needs a team)" : ""}`);
@@ -84,16 +96,25 @@ async function setEnabled(args: string[], deps: AppsDeps, enabled: boolean): Pro
   const port = await deckPort(deps);
   if (port === null) return fail(deps, json, verb, new UserActionableError("deck-not-running", "deck is not running; open mattstack.app, then retry"));
   if (!name) {
-    if (!json) printList(deps, false, await listRows(deps, port));
+    if (process.stdin.isTTY && !json && !process.env.RT_BATCH) {
+      try {
+        printList(deps, false, await listRows(deps, port));
+      } catch (err) {
+        if (err instanceof UserActionableError) return fail(deps, json, verb, err);
+        throw err;
+      }
+    }
     return fail(deps, json, verb, new UserActionableError("usage", `usage: rt ${verb} <name> [--json]`));
   }
-  const res = await deps.probes.fetch(`http://127.0.0.1:${port}/api/v1/apps/${name}`, {
+  const res = await deps.probes.fetch(`http://127.0.0.1:${port}/api/v1/apps/${encodeURIComponent(name)}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json", "x-local-caller": REGISTRAR },
+    headers: { "content-type": "application/json", "x-local-caller": MATTSTACK_REGISTRAR },
     body: JSON.stringify({ enabled }),
   });
   if (res.status === 404) return fail(deps, json, verb, new UserActionableError("unknown-app", `deck has no app named ${name}`));
-  if (res.status === 409) return fail(deps, json, verb, new UserActionableError("not-managed", `${name} is not a mattstack app; toggle it from deck's board instead`));
+  if (res.status === 409) {
+    return fail(deps, json, verb, new UserActionableError("not-managed", `${name} is not a mattstack app; rt manages only the apps mattstack ships, and user apps and deck itself are always served`));
+  }
   if (res.status < 200 || res.status >= 300) return fail(deps, json, verb, new UserActionableError("deck-error", `deck answered ${res.status}`));
   deps.print(json ? JSON.stringify(envelope({ name, enabled }, deps.probes.now())) : `rt ${verb}: ${name} is now ${enabled ? "on" : "off"}`);
 }
