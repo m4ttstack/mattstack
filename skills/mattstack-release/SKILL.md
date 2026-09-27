@@ -12,8 +12,9 @@ revision of this skill: step lists copied into prose are exactly what went stale
 
 Division of duties: `rt:release` owns version judgment, docs, `RELEASE_NOTES.md`, the tag push,
 verifying the run, and deploying rt.cool. It is current; follow it for a normal release. Its
-Publish and finish stage sends an `upload flake persists` or `assets missing` take here for the
-hand completion. This skill is the other half: running or debugging the build, sign and publish
+Publish and finish stage's `upload flake persists` and `assets missing` takes land here on the
+`sent by rt:release: its one rerun already ran` edge, which skips the delete and rerun and goes
+straight to verify. This skill is the other half: running or debugging the build, sign and publish
 pipeline itself. Distribution reality, key material and the footguns are in `reference.md`
 beside this file.
 
@@ -86,10 +87,14 @@ digraph mattstack_release {
     "Asset rerun failed another way: gate rounds = 2?" [shape=diamond];
     "Off-script gate: uploads keep failing" [shape=box];
     "Uploads keep failing: gate rounds = 2?" [shape=diamond];
+    "Propagation reruns = 4?" [shape=diamond];
+    "rt release verify <tag> --json, rerun after the wait" [shape=plaintext];
     "Off-script gate: hand completion does not verify" [shape=box];
     "Hand completion does not verify: gate rounds = 2?" [shape=diamond];
     "Off-script gate: by-hand pipeline keeps failing" [shape=box];
     "By-hand pipeline keeps failing: gate rounds = 2?" [shape=diamond];
+    "Publish propagation reruns = 4?" [shape=diamond];
+    "rt release verify <tag> --json, rerun after the publish wait" [shape=plaintext];
     "Off-script gate: hand publish does not verify" [shape=box];
     "Hand publish does not verify: gate rounds = 2?" [shape=diamond];
 
@@ -98,6 +103,7 @@ digraph mattstack_release {
     "What does the run need?" -> "gh workflow run release.yml --ref <branch>" [label="a rehearsal"];
     "What does the run need?" -> "Run the step with the workflow's env" [label="one step by hand"];
     "What does the run need?" -> "gh release delete <tag>" [label="asset uploads failed on a tag"];
+    "What does the run need?" -> "rt release verify <tag> --json" [label="sent by rt:release: its one rerun already ran"];
     "What does the run need?" -> "Run every pipeline step with the workflow's env" [label="a fully by-hand pipeline, CI not involved"];
     "What does the run need?" -> "Handed to Matt: second-user smoke or key backup" [label="a Matt-gated step"];
     "gh workflow run release.yml --ref <branch>" -> "Watch the dispatch run";
@@ -179,6 +185,10 @@ digraph mattstack_release {
     "gh release edit <tag> --draft=false" -> "rt release verify <tag> --json, after the hand completion";
     "rt release verify <tag> --json, after the hand completion" -> "Hand completion verified?";
     "Hand completion verified?" -> "Completed by hand" [label="yes"];
+    "Hand completion verified?" -> "Propagation reruns = 4?" [label="pending: releases/latest still propagating"];
+    "Propagation reruns = 4?" -> "rt release verify <tag> --json, rerun after the wait" [label="no"];
+    "rt release verify <tag> --json, rerun after the wait" -> "Hand completion verified?";
+    "Propagation reruns = 4?" -> "Off-script gate: hand completion does not verify" [label="yes: budget spent"];
     "Off-script gate: hand completion does not verify" -> "Completed by hand" [label="take: Matt confirms the release is live"];
     "Off-script gate: hand completion does not verify" -> "Hand completion does not verify: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: hand completion does not verify" -> "Held: the turn ends naming the gate" [label="hold"];
@@ -204,6 +214,10 @@ digraph mattstack_release {
     "gh release create <tag> out/... --notes-file RELEASE_NOTES.md" -> "rt release verify <tag> --json, after the hand publish";
     "rt release verify <tag> --json, after the hand publish" -> "Hand publish verified?";
     "Hand publish verified?" -> "Published by hand" [label="yes"];
+    "Hand publish verified?" -> "Publish propagation reruns = 4?" [label="pending: releases/latest still propagating"];
+    "Publish propagation reruns = 4?" -> "rt release verify <tag> --json, rerun after the publish wait" [label="no"];
+    "rt release verify <tag> --json, rerun after the publish wait" -> "Hand publish verified?";
+    "Publish propagation reruns = 4?" -> "Off-script gate: hand publish does not verify" [label="yes: budget spent"];
     "Off-script gate: hand publish does not verify" -> "Published by hand" [label="take: Matt confirms the release is live"];
     "Off-script gate: hand publish does not verify" -> "Hand publish does not verify: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: hand publish does not verify" -> "Held: the turn ends naming the gate" [label="hold"];
@@ -225,14 +239,17 @@ asset rows.
 completion. The action publishes last, so an aborted run never flips it, and `gh release view`
 renders a draft exactly like a published release while `releases/latest` and the site keep
 serving the previous tag. After the flip, verify must see `releases/latest` resolve the new tag;
-that endpoint caches for a minute or two.
+it reports `pending` for up to about 20 minutes while that endpoint propagates, so wait about five
+minutes between propagation reruns.
 
-Counters say what one count is. `Rehearsal attempts = 3?` counts every dispatch run in this
-rehearsal, the first included. `Step attempts = 3?` counts every run of the hand step, the first
-included. `Upload attempts = 5?` counts every upload of the hand-completed assets, the first
-included. `Pipeline attempts = 3?` counts every by-hand pipeline run, the first included. Each
-`<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
-Matt has answered iterate twice.
+Counters say what one count is. The attempt counters include the first attempt, and an iterate
+answer never resets them. `Rehearsal attempts = 3?` counts every dispatch run in this rehearsal.
+`Step attempts = 3?` counts every run of the hand step. `Upload attempts = 5?` counts every upload
+of the hand-completed assets. `Pipeline attempts = 3?` counts every by-hand pipeline run.
+`Propagation reruns = 4?` counts the verify reruns after the hand completion's first `pending`,
+and `Publish propagation reruns = 4?` the same after the hand publish's; each is yes after the
+fourth. Each `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is
+yes once Matt has answered iterate twice.
 
 ### Read release.yml, the sequence of record
 
@@ -244,9 +261,10 @@ branch, never a by-hand publish.
 ### Watch the dispatch run
 
 `gh workflow run release.yml` (no inputs) runs the whole pipeline against a synthetic
-`v0.0.0-ci<run>` tag and skips only the publish. Rehearse at the exact commit a tag will point to
-before pushing the tag: this pipeline's defects are invisible until the step before them works,
-and a tag that fails midway has already re-signed the app.
+`v0.0.0-ci<run>` tag and skips only the publish. This pipeline's defects are invisible until the step
+before them works, and a tag that fails midway has already re-signed the app, so a release is
+rehearsed at the exact commit its tag will point to. After a merge, a PR branch's commit is not
+that commit: rehearsing main again before the tag belongs to `rt:release`.
 
 Poll `gh run view <run-id> -R m4ttstack/mattstack --json status,conclusion,jobs` every few
 minutes (the run id from `gh run list -R m4ttstack/mattstack --workflow release.yml --limit 1`,
@@ -261,9 +279,9 @@ before the next dispatch; `reference.md`'s footguns hold the causes seen so far.
 
 ### Commit the fix on the rehearsal branch
 
-`git add` the files the fix touched by name, never a wildcard, and commit them on the branch the
-dispatch runs against. That branch is a non-default branch: `git_push` refuses main, so a fix meant
-for main goes through a PR first, and the rehearsal dispatches against that PR's branch.
+`git add` the files the fix touched by name, never a wildcard, and commit them on the rehearsal
+branch, a non-default branch (`git_push` refuses main). The PR that takes the fix to main, and the
+rehearsal of main after it merges, belong to `rt:release`.
 
 ### Run the step with the workflow's env
 
@@ -308,13 +326,10 @@ metadata instead:
    and full downloads are the accepted path.
 3. Regenerate SHA256SUMS for all three (dmg, zip, appcast).
 
-Every file uploaded comes from this one completion: never mix in an asset from another attempt.
-
 ### Gate: upload the hand-completed assets
 
 Quote the files to upload, their SHA256SUMS lines, and which assets CI already landed. Approve
-uploads them with `--clobber`. Hold ends at `Held: the turn ends naming the gate`, resuming at this
-gate with the files in place. Hand back reports the completed files, not uploaded.
+uploads them with `--clobber`. Hold resumes at this gate with the files in place. Hand back reports the completed files, not uploaded.
 
 ### Wait a few minutes before the next upload
 
@@ -323,9 +338,9 @@ between attempts.
 
 ### Run every pipeline step with the workflow's env
 
-Only for a pipeline run CI is deliberately not part of. Run release.yml's steps in its order, each
+Run release.yml's steps in its order, each
 as in `Run the step with the workflow's env`, up to but not including the publish, leaving the
-assets in `out/`. A rebuild re-signs, so a fix upstream means every step after it reruns.
+assets in `out/`.
 
 ### Diagnose the failing pipeline step
 
@@ -334,11 +349,9 @@ onward when nothing upstream changed; after an upstream change, run from the cha
 
 ### Gate: publish the by-hand release
 
-On a normal release CI creates the release object; never create one on top of a real tag push.
-This gate is only for a fully by-hand pipeline run CI never touched. Quote the tag, the assets in
+Quote the tag, the assets in
 `out/`, SHA256SUMS, and confirm no release.yml run exists for this tag. Approve runs the create
-with `--notes-file RELEASE_NOTES.md`. Hold ends at `Held: the turn ends naming the gate`, resuming
-at this gate with `out/` intact. Hand back reports the built assets, unpublished.
+with `--notes-file RELEASE_NOTES.md`. Hold resumes at this gate with `out/` intact. Hand back reports the built assets, unpublished.
 
 ### Off-script gate: dispatch run wedged
 
@@ -392,13 +405,16 @@ the cause, and verify runs again.
 
 Attended, a gate is an AskUserQuestion form in the pane; in a herd, `herd_ask`; in a pipeline run,
 `gate_ask`. The first option is the recommendation, and the question quotes what the gate's
-section names. Record the answer before acting on it.
+section names. Record the answer before acting on it. A gate always puts its question, even when
+Matt is away: that is when it matters most, and the agent never picks hold or any other answer
+for him.
 
 A hold ends at `Held: the turn ends naming the gate`: name the resume point (the node to re-enter
 and what it needs) in the gate answer and the turn's final message, never in a #rt post. Take means
 Matt made the move (or ruled it made) and the graph continues past the failed step; the agent never
 makes an off-graph move itself. Iterate means Matt fixed the cause and the failed step runs again,
-counted by that gate's rounds counter.
+counted by that gate's rounds counter. Hand back ends at `Handed back to Matt`, reporting what
+stands unresolved to whoever sent the run.
 
 ## Matt-gated
 

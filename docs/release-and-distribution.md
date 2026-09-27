@@ -237,9 +237,9 @@ gitq also publishes `@mattstack/gitq` to npm on its own schedule
 (`bun run release` from `apps/gitq`; see `apps/gitq/docs/releasing.md`),
 independent of the bundled binary `build-apps` produces here. fast-browser
 is the one app left on the standalone pin-freshness policy (see
-`skills/rt-release/SKILL.md`). Running or debugging the pipeline by hand, including
-completing a release whose asset uploads failed, is `skills/mattstack-release/SKILL.md`
-(`rt:mattstack-release`).
+`skills/rt-release/SKILL.md`). Running or debugging the pipeline by
+hand, including completing a release whose asset uploads failed, is
+`skills/mattstack-release/SKILL.md` (`rt:mattstack-release`).
 
 `apps/AGENTS.md` is the contract for what lives under `apps/*` and
 `packages/*` (catalog rules, turbo, per-app scripts, UI authoring); read it
