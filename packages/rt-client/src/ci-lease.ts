@@ -32,6 +32,9 @@ export interface CiLeaseOpts {
 
 export class CiLeaseError extends Error {}
 
+/** The per-MR lock stayed held (or kept being broken) past the wait: contention, not a fault; a retry later can succeed. */
+export class CiLeaseLockBusyError extends CiLeaseError {}
+
 export const DEFAULT_CI_LEASE_TTL_SECONDS = 600;
 const LOCK_STALE_MS = 10_000;
 const LOCK_WAIT_MS = 5_000;
@@ -130,7 +133,7 @@ function withLock<T>(lock: string, opts: CiLeaseOpts, body: (stillMine: () => vo
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       breakIfStale(lock, staleMs, opts);
-      if (Date.now() > deadline) throw new CiLeaseError(`lease lock busy: ${lock}`);
+      if (Date.now() > deadline) throw new CiLeaseLockBusyError(`lease lock busy: ${lock}`);
       opts.onLockWait?.();
       sleepSync(15);
       continue;
@@ -142,7 +145,7 @@ function withLock<T>(lock: string, opts: CiLeaseOpts, body: (stillMine: () => vo
       return body(stillMine);
     } catch (e) {
       if (!(e instanceof LockLost)) throw e;
-      if (Date.now() > deadline) throw new CiLeaseError(`lease lock lost repeatedly: ${lock}`);
+      if (Date.now() > deadline) throw new CiLeaseLockBusyError(`lease lock lost repeatedly: ${lock}`);
     } finally {
       if (lockToken(lock)?.token === token) {
         try { unlinkSync(lock); } catch { /* already gone */ }
@@ -281,14 +284,19 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
       if (existing && isLeaseFresh(existing, now) && leaseOwner(existing) !== req.owner) {
         return { claimed: false, holder: existing };
       }
+      const reclaim = existing !== null && leaseOwner(existing) === req.owner;
+      // The branch belongs to the MR, not the owner, so a takeover keeps it too:
+      // readCiLeaseByBranch (the board's stack preflight) finds a lease only by it.
+      const branch = req.branch ?? existing?.branch;
+      const sessionLabel = req.sessionLabel ?? (reclaim ? existing.sessionLabel : undefined);
       const lease: CiLease = {
         mr: req.mrUrl,
-        ...(req.branch !== undefined && { branch: req.branch }),
+        ...(branch !== undefined && { branch }),
         holder: req.holder,
         owner: req.owner,
-        ...(req.sessionLabel !== undefined && { sessionLabel: req.sessionLabel }),
+        ...(sessionLabel !== undefined && { sessionLabel }),
         pid: req.pid ?? process.pid,
-        startedAt: existing && leaseOwner(existing) === req.owner ? existing.startedAt : now,
+        startedAt: reclaim ? existing.startedAt : now,
         heartbeatAt: now,
         ttlSeconds: req.ttlSeconds ?? DEFAULT_CI_LEASE_TTL_SECONDS,
       };

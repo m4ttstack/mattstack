@@ -195,7 +195,7 @@ export {
 } from "./settings/identity.ts";
 
 export {
-  adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, CiLeaseError, claimCiLease,
+  adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, CiLeaseError, CiLeaseLockBusyError, claimCiLease,
   DEFAULT_CI_LEASE_TTL_SECONDS, heartbeatCiLease, isLeaseFresh, leaseOwner, parseMrIid, readCiLease,
   readCiLeaseByBranch, releaseCiLease,
 } from "./ci-lease.ts";

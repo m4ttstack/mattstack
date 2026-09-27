@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, CiLeaseError, claimCiLease, heartbeatCiLease,
+  adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, CiLeaseError, CiLeaseLockBusyError, claimCiLease, heartbeatCiLease,
   leaseOwner, parseMrIid, readCiLease, readCiLeaseByBranch, releaseCiLease, type CiLease,
 } from "../src/ci-lease.ts";
 
@@ -69,6 +69,41 @@ describe("claim rules", () => {
     const r = claimCiLease({ mrUrl: MR, owner: "session:b", holder: "doctor" }, opts());
     expect(r).toMatchObject({ claimed: true, previousOwner: "session:a" });
     expect(onDisk().owner).toBe("session:b");
+  });
+  test("a same-owner re-claim without branch or label keeps the recorded ones", () => {
+    claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci", branch: "feat", sessionLabel: "alice" }, opts());
+    t += 5_000;
+    const r = claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, opts());
+    expect(r).toMatchObject({ claimed: true, lease: { branch: "feat", sessionLabel: "alice" } });
+    expect(onDisk()).toMatchObject({ branch: "feat", sessionLabel: "alice" });
+  });
+  test("a re-claim naming a branch or label replaces the recorded ones", () => {
+    claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci", branch: "feat", sessionLabel: "alice" }, opts());
+    claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci", branch: "feat-2", sessionLabel: "bob" }, opts());
+    expect(onDisk()).toMatchObject({ branch: "feat-2", sessionLabel: "bob" });
+  });
+  test("a takeover without branch keeps the recorded branch but not the previous owner's label", () => {
+    claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci", branch: "feat", sessionLabel: "alice", ttlSeconds: 60 }, opts());
+    t += 61_000;
+    const r = claimCiLease({ mrUrl: MR, owner: "session:b", holder: "doctor" }, opts());
+    expect(r).toMatchObject({ claimed: true, previousOwner: "session:a", lease: { branch: "feat" } });
+    expect(onDisk().branch).toBe("feat");
+    expect(onDisk().sessionLabel).toBeUndefined();
+  });
+  test("a busy lock throws CiLeaseLockBusyError, a CiLeaseError", () => {
+    writeFileSync(join(dir, "grp-proj-42.lock"), JSON.stringify({ token: "other", at: Date.now() }));
+    let err: unknown;
+    try {
+      claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, { ...opts(), lockWaitMs: 20 });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(CiLeaseLockBusyError);
+    expect(err).toBeInstanceOf(CiLeaseError);
+  });
+  test("an unparseable URL is a CiLeaseError but not a lock-busy one", () => {
+    expect(() => ciLeaseFileName("https://gitlab.example.com/grp/proj")).toThrow(CiLeaseError);
+    try { ciLeaseFileName("https://gitlab.example.com/grp/proj"); } catch (e) { expect(e).not.toBeInstanceOf(CiLeaseLockBusyError); }
   });
   test("malformed file is claimable", () => {
     writeFileSync(file(), "{not json");
