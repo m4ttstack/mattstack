@@ -97,11 +97,12 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
 import { dirname } from "path";
+import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
 import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
-import { listTeams } from "./stores.ts";
+import { listTeams, readStore } from "./stores.ts";
 import { isJoinedTeam } from "./team-local-read.ts";
 import { validateWrite } from "./validate-write.ts";
 
@@ -533,4 +534,62 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
   if (!removed) return { removed };
   console.error(`rt: removed "${storeName}" from the local ${scope} store (${storePath}); this is local only until you commit and push it.`);
   return { removed, authored };
+}
+
+/**
+ * True when a store file exists with content the writer would refuse to edit.
+ * `readStore` reads such a file as empty, so a caller that treats "no section
+ * found" as an all-clear must ask this first.
+ */
+export function storeUnparseable(storePath: string): boolean {
+  if (!existsSync(storePath)) return false;
+  const content = readFileSync(storePath, "utf8");
+  if (content.trim() === "") return false;
+  try {
+    assertEditableJsonc(storePath, content);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+export type SectionRename = "moved" | "already" | "none" | "refused";
+
+/**
+ * Moves one `repos.<oldId>` section onto `repos.<newId>` in a single store
+ * file, keeping every other key and comment. The rename is two edits on the
+ * same jsonc document (set the new section, remove the old), then a re-read
+ * proves both landed. A write that throws comes back as `refused`, so one
+ * store's failure never stops a caller walking the others.
+ */
+export function renameRepoSection(
+  storePath: string,
+  oldId: string,
+  newId: string,
+  opts: { dryRun?: boolean } = {},
+): { status: SectionRename; keys: number; detail?: string } {
+  if (!existsSync(storePath)) return { status: "none", keys: 0 };
+  if (storeUnparseable(storePath)) return { status: "refused", keys: 0, detail: `unparseable store ${storePath}` };
+  const before = readStore(storePath);
+  const oldSection = before.repos[oldId];
+  const newSection = before.repos[newId];
+  if (oldSection === undefined && newSection !== undefined) return { status: "already", keys: 0 };
+  if (oldSection === undefined) return { status: "none", keys: 0 };
+  const keys = Object.keys(oldSection).length;
+  // Equal sections on both ids are what a rename interrupted between its two
+  // writes leaves behind; only the removal is left to do.
+  const interrupted = newSection !== undefined && isDeepStrictEqual(oldSection, newSection);
+  if (newSection !== undefined && !interrupted) return { status: "refused", keys, detail: "both populated" };
+  if (opts.dryRun) return { status: "moved", keys };
+  try {
+    if (!interrupted) writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
+    removeFromStore(storePath, () => [["repos", oldId]]);
+  } catch (err) {
+    return { status: "refused", keys, detail: String(err) };
+  }
+  const after = readStore(storePath);
+  if (!isDeepStrictEqual(after.repos[newId], oldSection) || after.repos[oldId] !== undefined) {
+    return { status: "refused", keys, detail: `${storePath} did not persist the rename` };
+  }
+  return { status: "moved", keys };
 }

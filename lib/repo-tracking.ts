@@ -34,8 +34,11 @@
  */
 
 import { getSetting } from "./settings/resolve.ts";
-import { setSetting } from "./settings/write.ts";
+import { setSetting, storeUnparseable } from "./settings/write.ts";
+import { machineSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "./settings/identity.ts";
+import type { StoreReport } from "./state/reidentify.ts";
+import { isDeepStrictEqual } from "util";
 
 export const CACHE_KINDS = ["branches", "project-mrs", "discussions"] as const;
 export type CacheKind = (typeof CACHE_KINDS)[number];
@@ -164,14 +167,17 @@ interface MachineTrackingRead {
 }
 
 function readMachineTracking(): MachineTrackingRead {
-  let rawValue: unknown;
   try {
-    rawValue = getSetting<unknown>("rt.repoTracking").value;
+    return resolveMachineTracking();
   } catch (err) {
     console.warn(`rt: rt.repoTracking could not be resolved (${err instanceof Error ? err.message : err}) — tracking nothing`);
     return { out: {}, rawIdentities: new Set(), raw: {} };
   }
+}
 
+/** `readMachineTracking` without the fallback: a resolve failure throws. */
+function resolveMachineTracking(): MachineTrackingRead {
+  const rawValue = getSetting<unknown>("rt.repoTracking").value;
   const out: RepoTracking = {};
   const rawIdentities = new Set<string>();
   const raw: Record<string, unknown> = {};
@@ -393,6 +399,48 @@ export async function rekeyRepoTrackingSettings(
     }
   }
   return report;
+}
+
+/**
+ * Moves one tracking grant between serialized identities. The setting is one
+ * blob whose write the resolver can drop silently, so the re-read decides. A
+ * throwing write comes back as `refused` so a caller walking every store keeps
+ * going.
+ */
+export function moveRepoTrackingEntry(from: string, to: string, opts: { dryRun?: boolean } = {}): StoreReport {
+  const store = "rt.repoTracking";
+  // Both fallbacks below read as an empty map, which would report a stranded
+  // grant as `none`.
+  if (storeUnparseable(machineSettingsPath())) {
+    return { store, status: "refused", count: 0, detail: `unparseable store ${machineSettingsPath()}` };
+  }
+  let raw: Record<string, unknown>;
+  try {
+    raw = resolveMachineTracking().raw;
+  } catch (err) {
+    return { store, status: "refused", count: 0, detail: `rt.repoTracking could not be resolved: ${String(err)}` };
+  }
+  const hasFrom = Object.prototype.hasOwnProperty.call(raw, from);
+  const hasTo = Object.prototype.hasOwnProperty.call(raw, to);
+  if (!hasFrom && hasTo) return { store, status: "already", count: 0 };
+  if (!hasFrom) return { store, status: "none", count: 0 };
+  // The write is one blob, so a move cannot leave half of itself behind; equal
+  // entries under both keys come from re-registering under the new identity.
+  const sameValue = hasTo && isDeepStrictEqual(raw[from], raw[to]);
+  if (hasTo && !sameValue) return { store, status: "refused", count: 1, detail: "both populated" };
+  if (opts.dryRun) return { store, status: "moved", count: 1 };
+  const next: Record<string, unknown> = { ...raw, [to]: raw[from] };
+  delete next[from];
+  try {
+    saveRepoTrackingRaw(next);
+  } catch (err) {
+    return { store, status: "refused", count: 1, detail: String(err) };
+  }
+  const after = loadMachineRepoTrackingRaw();
+  if (!isDeepStrictEqual(after[to], raw[from]) || Object.prototype.hasOwnProperty.call(after, from)) {
+    return { store, status: "refused", count: 1, detail: "rt.repoTracking did not persist the move" };
+  }
+  return { store, status: "moved", count: 1 };
 }
 
 // Bypasses the non-empty-map guard in primeTeamTrackingIdentityMap — for test

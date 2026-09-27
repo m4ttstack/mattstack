@@ -13,7 +13,7 @@ deck restart chat`, port 11002).
    `@mattstack/app-kit` + `@mattstack/app-server` (icon registration). The
    kit contract itself lives in the repo root `AGENTS.md` (see below).
 
-The other half lives in `~/Documents/GitHub/repo-tools`: `skills/rt-chat/SKILL.md`
+The other half lives in `~/Documents/GitHub/mattstack`: `skills/rt-chat/SKILL.md`
 (the agent-facing rules), `docs/superpowers/specs/2026-08-2{3,4}-rt-chat-*.md`
 (schema and wake protocol), `packages/rt-client/README.md` (the client this
 app calls).
