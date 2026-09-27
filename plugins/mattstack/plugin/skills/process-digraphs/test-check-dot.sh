@@ -45,6 +45,8 @@ expect stop-branches "at most one way out" 'digraph g { "S" [shape=ellipse]; "ST
 expect stop-redirect "" 'digraph g { "S" [shape=ellipse]; "Need a read?" [shape=diamond]; "STOP: reads go through rt_verb" [shape=octagon]; "rt_verb {args}" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "Need a read?"; "Need a read?" -> "rt_verb {args}" [label="yes"]; "Need a read?" -> "STOP: reads go through rt_verb" [label="tempted to use the shell"]; "STOP: reads go through rt_verb" -> "rt_verb {args}"; "Need a read?" -> "A" [label="no"]; "rt_verb {args}" -> "A"; }'
 expect stop-exit-to-step "only a guard STOP" 'digraph g { "S" [shape=ellipse]; "Push refused?" [shape=diamond]; "STOP: push only with git_push" [shape=octagon]; "Push with the shell" [shape=box]; "A" [shape=doublecircle style=filled]; "S" -> "Push refused?"; "Push refused?" -> "A" [label="no"]; "Push refused?" -> "STOP: push only with git_push" [label="yes"]; "STOP: push only with git_push" -> "Push with the shell"; "Push with the shell" -> "A"; }'
 expect stop-to-outcome "" 'digraph g { "S" [shape=ellipse]; "Gate closed?" [shape=diamond]; "STOP: never re-ask a closed gate" [shape=octagon]; "Path ended" [shape=doublecircle]; "A" [shape=doublecircle style=filled]; "S" -> "Gate closed?"; "Gate closed?" -> "A" [label="no"]; "Gate closed?" -> "STOP: never re-ask a closed gate" [label="yes"]; "STOP: never re-ask a closed gate" -> "Path ended"; }'
+expect merged-step "unlabelled out-edges" 'digraph g { "S" [shape=ellipse]; "Resumed?" [shape=diamond]; "run_stage {start}" [shape=plaintext]; "Fetch" [shape=box]; "Report" [shape=box]; "A" [shape=doublecircle style=filled]; "S" -> "Resumed?"; "Resumed?" -> "run_stage {start}" [label="no"]; "Resumed?" -> "run_stage {start}" [label="yes"]; "run_stage {start}" -> "Fetch"; "run_stage {start}" -> "Report"; "Fetch" -> "A"; "Report" -> "A"; }'
+expect gate-answers "" 'digraph g { "S" [shape=ellipse]; "Ask the human: retry or take over" [shape=box]; "A" [shape=doublecircle style=filled]; "B" [shape=doublecircle]; "S" -> "Ask the human: retry or take over"; "Ask the human: retry or take over" -> "A" [label="retry"]; "Ask the human: retry or take over" -> "B" [label="takes over"]; }'
 expect loop-no-exit "no decision edge leaves it" 'digraph g { "S" [shape=ellipse]; "Try" [shape=box]; "Again?" [shape=diamond]; "A" [shape=doublecircle style=filled]; "S" -> "Try"; "S" -> "A"; "Try" -> "Again?"; "Again?" -> "Try" [label="yes"]; "Again?" -> "Try" [label="no"]; }'
 expect stop-to-gate "" 'digraph g { "S" [shape=ellipse]; "Push refused?" [shape=diamond]; "STOP: push only with git_push" [shape=octagon]; "Off-script gate" [shape=box]; "A" [shape=doublecircle style=filled]; "S" -> "Push refused?"; "Push refused?" -> "A" [label="no"]; "Push refused?" -> "STOP: push only with git_push" [label="yes"]; "STOP: push only with git_push" -> "Off-script gate"; "Off-script gate" -> "A" [label="human pushed"]; }'
 expect outcome-out "an outcome ends the path" 'digraph g { "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "More" [shape=box]; "B" [shape=doublecircle]; "S" -> "A"; "A" -> "More"; "More" -> "B"; }'
@@ -53,6 +55,14 @@ expect parse-error "syntax error" 'digraph g { "S" -> ; }'
 printf '# t\n\n  ```dot\ndigraph g { "S" [shape=ellipse]; }\n  ```\n' > "$tmp/indented.md"
 out="$(python3 "$here/check-dot.py" "$tmp/indented.md" 2>&1)"; rc=$?
 if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "indented"; then echo "ok   indented-fence"; else echo "FAIL indented-fence"; echo "$out"; fails=$((fails+1)); fi
+
+printf '# t\n\n```dot\ndigraph g { "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "S" -> "A"; }\n```\n\n### S\n\none\n\n### S\n\ntwo\n' > "$tmp/dupsec.md"
+out="$(python3 "$here/check-dot.py" "$tmp/dupsec.md" 2>&1)"; rc=$?
+if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "duplicate section"; then echo "ok   duplicate-section"; else echo "FAIL duplicate-section"; echo "$out"; fails=$((fails+1)); fi
+
+printf '# t\n\n```dot\ndigraph g { "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "S" -> "A"; }\n```\n\n````markdown\n### S\n````\n\n### S\n\none\n' > "$tmp/fencedsec.md"
+out="$(python3 "$here/check-dot.py" "$tmp/fencedsec.md" 2>&1)"; rc=$?
+if [ $rc -eq 0 ]; then echo "ok   fenced-heading-ignored"; else echo "FAIL fenced-heading-ignored"; echo "$out"; fails=$((fails+1)); fi
 
 printf '# nothing here\n' > "$tmp/empty.md"
 out="$(python3 "$here/check-dot.py" "$tmp/empty.md" 2>&1)"; rc=$?
