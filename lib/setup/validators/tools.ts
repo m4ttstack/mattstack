@@ -263,7 +263,6 @@ const FAST_BROWSER_SETUP_ACTION: Action = { type: "run", label: "Run setup", ver
  * follow-ups don't.
  */
 const FASTBROWSER_SETUP_NOTE = "Installed by Install (fastbrowser.setup).";
-/** Solo has no browser-skill user yet, so the truer statement on every branch is that the machine works without it, not that Install will finish the job. */
 const FASTBROWSER_SOLO_NOTE = "Works without this; only the browser skills need it.";
 
 function fastBrowserRow(probe: FastBrowserProbe, solo: boolean): Row {

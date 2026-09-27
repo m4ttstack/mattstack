@@ -3,9 +3,10 @@ import { applyInstallSatisfiedFlip, composePlan } from "../plan.ts";
 import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
 import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
 import { setSetting } from "../../settings/write.ts";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
+import { teamSettingsPath } from "../../rt-paths.ts";
 import { UserActionableError } from "../errors.ts";
 import { writeIntent, type SetupIntent } from "../intent.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
@@ -132,6 +133,34 @@ describe("composePlan", () => {
     expect(accounts.rows.some((r) => r.id === "account.github")).toBe(true);
   });
 
+  // RT-260: composePlan now threads readUserIntegrationOverrides() into accountRows (it never did before this task), so a joined team whose declared switchboard URL matches the user's own confirmed latch must read as a re-check, not a Confirm prompt asking to re-latch the same value.
+  test("join intent, team declares switchboard -> latch matching the declared URL offers the re-check action; no latch offers connect", async () => {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-switchboard-"));
+    process.env.HOME = home;
+    try {
+      const teamPath = teamSettingsPath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, "// team store\n{}\n");
+      setSetting("mattstack.integrations", { switchboard: { url: "https://sw.example.com" } }, "team", { team: "acme" });
+
+      const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+      writeIntent(p, joinIntent());
+
+      const unlatched = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
+      const unlatchedRow = unlatched.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "account.switchboard")!;
+      expect(unlatchedRow.action?.type).toBe("connect");
+
+      setSetting("rt.integrations", { switchboardUrl: "https://sw.example.com" }, "user");
+      const latched = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
+      const latchedRow = latched.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "account.switchboard")!;
+      expect(latchedRow.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+    } finally {
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("solo intent, no teams -> no access rows, github optional, fast-browser optional, no team rows, and the existing modes unchanged", async () => {
     // canInstall also needs tool.arch and tool.app ready; readyExec/grantedTray alone leave both unmocked, and neither is solo-specific.
     const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
@@ -151,11 +180,22 @@ describe("composePlan", () => {
   test("create, join and restore intents produce the same rows as before solo existed", async () => {
     // readyExec puts no fast-browser on PATH, so the row's "missing" branch is the one asserted; the pending branches already read required:false in every mode.
     for (const intent of [createIntent(), joinIntent(), restoreIntent()]) {
-      const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+      const isJoin = intent.mode === "join";
+      const p = fakeProbes({
+        exec: readyExec,
+        tray: grantedTray,
+        // The join case alone seeds a marketplace.json, and it's deliberately unparseable so a team.* row actually exists to assert against below.
+        files: isJoin ? { "/fake-home/.mattstack/teams/acme/.claude-plugin/marketplace.json": "not json" } : {},
+      });
       writeIntent(p, intent);
       const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
       expect(plan.groups.find((g) => g.id === "access")!.rows.length).toBeGreaterThan(0);
-      expect(plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser")!.required).toBe(true);
+      const tools = plan.groups.find((g) => g.id === "tools")!.rows;
+      expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(true);
+      expect(tools.find((r) => r.id === "tool.fast-browser-extension")!.finishGated).toBe(true);
+      const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
+      expect(accounts.map((r) => [r.id, r.required])).toEqual(intent.mode === "restore" ? [] : [["account.github", true]]);
+      if (isJoin) expect(tools.some((r) => r.id.startsWith("team."))).toBe(true);
     }
   });
 
@@ -401,9 +441,9 @@ describe("finish gate", () => {
     try {
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
       const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
-      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
 
       setSetting("setup.waived", [], "machine");
+      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
       const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], waived: ["tool.fast-browser-extension"] });
       expect(extension(injectedWaived).waived).toBe(true);
 
