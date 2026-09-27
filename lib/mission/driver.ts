@@ -1366,10 +1366,17 @@ export class MissionDriver {
     if (!payload || typeof payload.repo !== "string") return;
     const known = this.rows.find((r) => r.repo === payload.repo)?.worktrees[0]?.worktree;
     const scanned = this.unregistered.find((u) => u.identity === payload.repo)?.path;
-    const target = known ?? (scanned && this.deps.pathExists(scanned) && this.stillHolds(scanned, payload.repo) ? scanned : undefined);
+    const live = known === undefined && scanned !== undefined && this.deps.pathExists(scanned);
+    const replaced = live && !this.stillHolds(scanned!, payload.repo);
+    const target = known ?? (live && !replaced ? scanned : undefined);
     if (!target) {
       // Refuse rather than half-switch: a repo without a known worktree has
       // no directory to point the git client at.
+      if (replaced) {
+        this.opened.delete(payload.repo);
+        this.indicatorBadges.delete(payload.repo);
+        this.reloadRepoList();
+      }
       this.state.notice = `no known worktree for ${repoLabel(payload.repo)}`;
       this.push();
       return;

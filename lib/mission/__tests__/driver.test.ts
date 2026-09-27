@@ -3431,7 +3431,7 @@ describe("unregistered repos", () => {
     expect(last.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
   });
 
-  test("refuses a scanned path that now holds a different repo, and re-resolves it next pass", async () => {
+  test("refuses a scanned path that now holds a different repo and drops its row", async () => {
     const timers: (() => void)[] = [];
     const asked: string[] = [];
     let replaced = false;
@@ -3451,10 +3451,9 @@ describe("unregistered repos", () => {
     const refused = session.pushed.at(-1) as MissionModel;
     expect(refused.current.repo).toBe("repo-tools");
     expect(refused.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
-    asked.length = 0;
-    timers[0]!();
-    await flushMicrotasks();
-    expect(asked).toContain("/u/a");
+    expect(refused.repos.map((r) => r.id)).not.toContain("gh:me/a");
+    expect(refused.repos.map((r) => r.id)).toContain("gh:other/x");
+    expect(asked.filter((p) => p === "/u/a").length).toBeGreaterThanOrEqual(3);
     session.send({ t: "intent", name: "quit" });
     await run;
   });
