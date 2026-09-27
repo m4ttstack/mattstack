@@ -781,6 +781,18 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(patched).toEqual(["http://127.0.0.1:4100/api/v1/apps/board", "http://127.0.0.1:4100/api/v1/apps/boxscore"]);
     });
 
+    test("restore with no team clone: every requiresTeam app is PATCHed off, like solo", async () => {
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
+      const restoreIntent: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "restore", restore: { homeRepo: "me/home" } };
+      const { ctx } = makeCtx(p, { intent: restoreIntent, team: { slug: "", name: "", mode: "restore" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; solo: board, boxscore off" });
+      const patches = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => [c.url, c.init?.body]);
+      expect(patches).toEqual([
+        ["http://127.0.0.1:4100/api/v1/apps/board", JSON.stringify({ enabled: false })],
+        ["http://127.0.0.1:4100/api/v1/apps/boxscore", JSON.stringify({ enabled: false })],
+      ]);
+    });
+
     test("intent set but the app list is unreachable: the step fails, so an install never clears its intent with defaults unapplied", async () => {
       const p = bundledProbes({
         tools: ["board"],

@@ -17,7 +17,6 @@
 
 import { join } from "path";
 import { bundledToolPath } from "../../deps/resolve.ts";
-import { isSolo } from "../contract.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import type { Probes } from "../probes.ts";
@@ -130,7 +129,7 @@ async function applyAppDefaults(ctx: ApplyContext, port: number): Promise<{ ok: 
     .map((a) => a.name)
     .sort();
   if (targets.length === 0) return { ok: true, detail: "no team-only apps" };
-  const enabled = !isSolo(ctx.team);
+  const enabled = ctx.team.slug !== "";
   const headers = { "content-type": "application/json", "x-local-caller": MATTSTACK_REGISTRAR };
   const failed: string[] = [];
   for (const name of targets) {
