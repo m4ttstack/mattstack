@@ -68,11 +68,8 @@ export const realTreeGuardDeps: TreeGuardDeps = {
     findTreeByPath(p) ??
     findTreeByRealpath(p, listKvValues<Array<{ name: string; path: string }>>(WORKTREE_REGISTRY_NS), realpathSync),
   realpath: (p) => realpathSync(p),
-  // GIT_CEILING_DIRECTORIES stops .git discovery from walking up past the
-  // checkout: without it, a stale registered path whose own .git is gone
-  // but that still sits inside another repo would resolve to that OUTER
-  // repo, listing an unregistered repo's worktrees as if they belonged to
-  // the registered checkout.
+  // A stale checkout whose own .git is gone must not resolve to an enclosing
+  // repo, or that unregistered repo's worktrees would be admitted.
   worktreeRoots: (checkout) =>
     listWorktreeRoots(checkout, {
       env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(checkout) }),
