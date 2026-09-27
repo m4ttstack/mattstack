@@ -36,7 +36,7 @@ describe("the attendant flow needs no Bash rt call", () => {
   });
   test("a flow written only with tool calls produces no lint hits", () => {
     const flow = [
-      "ci_lease_claim {mrUrl}",
+      "ci_lease_claim {mrUrl, branch}",
       "mr_pipeline {repoName, iid} (the prior pipeline id)",
       "git_push {tree}",
       "ci_watch {repoName, iid, sha, priorPipelineId}",

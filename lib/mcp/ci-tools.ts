@@ -25,12 +25,25 @@ export interface CiLeaseToolDeps {
 
 const TTL_MIN = 60;
 const TTL_MAX = 900;
+const INTERVAL_MIN = 10;
+const INTERVAL_MAX = 120;
 const HOLDERS: CiLeaseHolder[] = ["watch-ci", "doctor"];
 const NO_SESSION = "CLAUDE_CODE_SESSION_ID is not set; the lease is owned by a Claude Code session";
 const LEASE_NOTE = "One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.";
 
 export function ownerFromEnv(env: NodeJS.ProcessEnv): string | null {
   return env.CLAUDE_CODE_SESSION_ID ? `session:${env.CLAUDE_CODE_SESSION_ID}` : null;
+}
+
+/** An https MR or PR URL. A scheme-less URL fails `new URL` and would slug from
+    its whole text, naming a different lease file than the https form. */
+export function isHttpsMrUrl(mrUrl: string): boolean {
+  try {
+    if (new URL(mrUrl).protocol !== "https:") return false;
+  } catch {
+    return false;
+  }
+  return parseMrIid(mrUrl) !== null;
 }
 
 const realLeaseDeps: CiLeaseToolDeps = {
@@ -87,7 +100,7 @@ function leaseCall(input: Record<string, unknown>, env: NodeJS.ProcessEnv, owner
   const bad = checkRequired(input, [{ name: "mrUrl", type: "string" }]);
   if (bad) return err(bad);
   const mrUrl = (input.mrUrl as string).trim();
-  if (parseMrIid(mrUrl) === null) return err('"mrUrl" must be an MR or PR URL ending in /-/merge_requests/<iid> or /pull/<n>');
+  if (!isHttpsMrUrl(mrUrl)) return err('"mrUrl" must be an https MR or PR URL ending in /-/merge_requests/<iid> or /pull/<n>');
   const owner = ownerOf(env);
   if (!owner) return err(NO_SESSION);
   try {
@@ -104,7 +117,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     {
       name: "ci_lease_claim",
       description: `Claim this MR's CI attendant lease for this session. Returns {claimed: true, lease, previousOwner?} or {claimed: false, holder}. Re-claiming a lease this session holds refreshes it. holder is the role (watch-ci default, or doctor); ttlSeconds ${TTL_MIN} to ${TTL_MAX}, default 600. ${LEASE_NOTE}`,
-      inputSchema: { type: "object", properties: { ...MR_URL_PROP, holder: { type: "string", enum: HOLDERS }, branch: { type: "string" }, ttlSeconds: { type: "number" } }, required: ["mrUrl"], additionalProperties: false },
+      inputSchema: { type: "object", properties: { ...MR_URL_PROP, holder: { type: "string", enum: HOLDERS }, branch: { type: "string", description: "The MR's source branch; pass it so the board's stack preflight sees this attendant." }, ttlSeconds: { type: "number" } }, required: ["mrUrl"], additionalProperties: false },
       shellForms: ["rt ci lease claim"],
       async handler(input, env) {
         const bad = checkOptional(input, [{ name: "holder", type: "string" }, { name: "branch", type: "string" }, { name: "ttlSeconds", type: "number" }]);
@@ -157,7 +170,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
     },
     {
       name: "ci_watch",
-      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1800) passes, polling every intervalSeconds (default 30, floor 10). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs with a trace tail for up to five blocking failures, blockingFailures, lease and next. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. ${REPO_NAME_RULE}`,
+      description: `GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1800) passes, polling every intervalSeconds (default 30, ${INTERVAL_MIN} to ${INTERVAL_MAX}, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs with a trace tail for up to five blocking failures, blockingFailures, lease and next. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. ${REPO_NAME_RULE}`,
       inputSchema: {
         type: "object",
         properties: {
@@ -182,7 +195,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
         const maxWait = (input.maxWaitSeconds as number | undefined) ?? 300;
         if (!(Number.isInteger(maxWait) && maxWait >= 0 && maxWait <= 1800)) return err('"maxWaitSeconds" must be an integer from 0 to 1800');
         const interval = (input.intervalSeconds as number | undefined) ?? 30;
-        if (!(Number.isInteger(interval) && interval >= 10)) return err('"intervalSeconds" must be an integer of at least 10');
+        if (!(Number.isInteger(interval) && interval >= INTERVAL_MIN && interval <= INTERVAL_MAX)) return err(`"intervalSeconds" must be an integer from ${INTERVAL_MIN} to ${INTERVAL_MAX}`);
         const owner = deps.owner(env);
         if (!owner) return err(NO_SESSION);
         const target = await w.resolve(input);

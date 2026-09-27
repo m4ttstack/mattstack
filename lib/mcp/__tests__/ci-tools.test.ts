@@ -87,6 +87,19 @@ describe("lease tools", () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
     expect(await tool("ci_lease_read").handler({ mrUrl: `${MR}/diffs?x=1` }, A)).toMatchObject({ ok: true, body: { mine: true } });
   });
+  test("a URL that is not https is refused before it can slug to a lease file", async () => {
+    for (const mrUrl of ["gitlab.example.com/grp/proj/-/merge_requests/42", "http://gitlab.example.com/grp/proj/-/merge_requests/42", "/grp/proj/-/merge_requests/42"]) {
+      for (const name of ["ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read"]) {
+        const r = await tool(name).handler({ mrUrl }, A);
+        expect(r.ok).toBe(false);
+        expect(r.error).toContain("https");
+      }
+    }
+  });
+  test("claim's branch input says why to pass it", () => {
+    const schema = tool("ci_lease_claim").inputSchema as { properties: { branch: { description?: string } } };
+    expect(schema.properties.branch.description).toContain("stack preflight");
+  });
   test("a whitespace-only branch is treated as absent", async () => {
     const r = await tool("ci_lease_claim").handler({ mrUrl: MR, branch: "   " }, A);
     expect(r).toMatchObject({ ok: true, body: { claimed: true } });
@@ -209,7 +222,12 @@ describe("ci_watch", () => {
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: "xyz" }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 1801 }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 5 }, A)).ok).toBe(false);
+    expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 121 }, A)).ok).toBe(false);
     expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, {})).ok).toBe(false);
+  });
+  test("intervalSeconds at the 120 ceiling is accepted", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 120 }, A)).toMatchObject({ ok: true, body: { state: "success" } });
   });
   test("the abort signal ends the call", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, A);

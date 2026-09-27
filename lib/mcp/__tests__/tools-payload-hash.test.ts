@@ -4,7 +4,7 @@ import { mcpToolsPayload } from "../../../commands/mcp.ts";
 // mattstack-skills' attachments/mcp-tools/reference.md is generated from this
 // payload and checked in CI against a pinned rt sha, so a change here must be
 // carried there by hand.
-const PAYLOAD_SHA256 = "d97a70fcad4cef441f2f380e887f5593e058bbe740dff578fc9c06ed5b8bc84b";
+const PAYLOAD_SHA256 = "2d22fad5f94342748f8e0583cd8b27f3f40997d4a3556debd9dd691ba5c8e7db";
 
 function payloadHash(): string {
   const h = new Bun.CryptoHasher("sha256");

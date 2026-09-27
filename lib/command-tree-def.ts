@@ -1472,7 +1472,7 @@ export const TREE: Record<string, CommandNode> = {
           { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR URL" },
           { name: "Sha", flag: "--sha", type: "text", placeholder: "abc1234", hint: "The pushed commit" },
           { name: "Max wait", flag: "--max-wait", type: "text", placeholder: "300", hint: "Seconds, up to 1800" },
-          { name: "Interval", flag: "--interval", type: "text", placeholder: "30", hint: "Seconds, at least 10" },
+          { name: "Interval", flag: "--interval", type: "text", placeholder: "30", hint: "Seconds, 10 to 120" },
           { name: "Prior pipeline", flag: "--prior-pipeline", type: "text", placeholder: "123", hint: "Head pipeline id before the push" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
         ],
