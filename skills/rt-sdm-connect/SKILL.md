@@ -139,7 +139,8 @@ digraph sdm_connect {
 An **attended** session has a human at this pane's prompt: ask with
 `AskUserQuestion`. A pane that a herd, a board or a pipeline launched is
 unattended: ask with `gate_ask {questions, context}` and act only on the
-recorded answer.
+recorded answer. When `gate_ask` returns `presentation: wait`, run
+`rt gate wait <id>` as a background Bash command and end the turn.
 
 ### Match the request against label, tier and key
 
