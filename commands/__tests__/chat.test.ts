@@ -736,6 +736,23 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(stderr).toContain("session id");
   });
 
+  test("--as naming an id live in another session is refused with the reclaimed wording, and writes no session file", async () => {
+    await runChat(["sign-in", "--name", "remy", "--session", "s1", "--no-room"]);
+    const s1Handle = JSON.parse(readFileSync(join(home, ".mattstack", "rt", "chat", "sessions", "s1.json"), "utf8")).handle;
+
+    const { code, stderr } = await runChatRaw(["sign-in", "--as", s1Handle, "--session", "s2", "--no-room"]);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("handle reclaimed");
+    expect(existsSync(join(home, ".mattstack", "rt", "chat", "sessions", "s2.json"))).toBe(false);
+  });
+
+  test("--as naming the human's handle is refused", async () => {
+    setSetting("chat.humanHandle", "matt", "user");
+    const { code, stderr } = await runChatRaw(["sign-in", "--as", "matt", "--session", "s1", "--no-room"]);
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("matt");
+  });
+
   test("sign-out --json reports a daemonError field rather than a bare {ok:true} when the daemon leg failed", async () => {
     await signInInProcess({ as: "x", session: "s1", noRoom: true });
     server?.stop(true);

@@ -454,6 +454,19 @@ test("continue on a name another live session holds mints a new id with the next
   expect(b.data).toMatchObject({ name: "remy-2", continued: false });
 });
 
+test("continue naming an id live in another session is refused with the reclaimed wording", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: a.data.handle });
+  expect(b.ok).toBe(false);
+  if (b.ok) throw new Error("unreachable");
+  expect(b.error).toContain("handle reclaimed");
+  const again = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!again.ok) throw new Error(again.error);
+  expect(again.data.handle).toBe(a.data.handle);
+});
+
 test("continue on a live suffixed name suffixes from the identity's base name, not from the suffixed name", async () => {
   const h = freshHandlers();
   const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });

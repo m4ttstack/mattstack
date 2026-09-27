@@ -1188,8 +1188,9 @@ export function createChatHandlers(opts: {
         try {
           data = signInWith({ baseHandle: resolvedBase, continueId });
         } catch (err) {
-          // `--as` on an identity live in another session: a new id under its base name, suffixed (remy-2).
-          if (requested === undefined || continueId === undefined || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
+          // A typed NAME live in another session retries under its base name, suffixed (remy-2); a typed ID is refused as-is, since a minted id reaches agents only through reply hints and a suffix would silently hand it a different identity.
+          const typedTheId = requested === continueId && continueId !== undefined && identityName(continueId, db) !== continueId;
+          if (requested === undefined || continueId === undefined || typedTheId || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
           data = signInWith({ baseHandle: getIdentity(continueId, db)?.baseName ?? baseOfHandle(continueId) });
         }
       } catch (err) {
