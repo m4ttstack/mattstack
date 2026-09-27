@@ -74,6 +74,8 @@ export interface StatusRow {
   name: string;
   /** Launcher name from the effective identity; the record name when none. */
   displayName: string;
+  /** From the effective identity; present only when the identity has one. */
+  description?: string;
   enabled: boolean;
   requiresTeam: boolean;
   /** TLD the row's identity renders under (ownership-driven locally, the
@@ -218,6 +220,9 @@ export function rowFor(
   return {
     name: record.name,
     displayName: identity.displayName,
+    ...(identity.description !== undefined
+      ? { description: identity.description }
+      : {}),
     enabled: isEnabled(record),
     requiresTeam: identity.requiresTeam === true,
     // Same ownership rule as buildStatus: a managed record is a mattstack
@@ -329,6 +334,9 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
       return {
         name: a.name,
         displayName: identity ? identity.displayName : a.name,
+        ...(identity?.description !== undefined
+          ? { description: identity.description }
+          : {}),
         enabled: record ? isEnabled(record) : true,
         requiresTeam: identity?.requiresTeam === true,
         displayTld,

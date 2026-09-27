@@ -94,12 +94,14 @@ test('status rows carry enabled, requiresTeam and displayName', async () => {
     enabled: false,
     requiresTeam: true,
     displayName: 'My App',
+    description: 'My app does things',
     createdAt: '2026-08-10T00:00:00Z',
   });
   const row = (await buildStatus(opts)).apps.find(a => a.name === 'myapp')!;
   expect(row.enabled).toBe(false);
   expect(row.requiresTeam).toBe(true);
   expect(row.displayName).toBe('My App');
+  expect(row.description).toBe('My app does things');
 });
 
 test('a disabled app is left out of the healthy count', async () => {
