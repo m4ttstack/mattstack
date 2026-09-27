@@ -13,7 +13,8 @@
  * own separate cast), so a fixture screenshot and the artboard are showing
  * the same content. If build.py's tables change, change these with them.
  * The one deliberate addition is the recycled `remy.m2p4` (its roster row,
- * its DM with kai, and #rt 607-609): two identities sharing one display name.
+ * its DM with kai, #rt 607-609, and a pane beside the legacy remy's): two
+ * identities sharing one display name.
  *
  * Dev-only, opt-in, and never on by default: `fixturesEnabled()` is the only
  * gate and it reads the env at call time so a running server can be pointed
@@ -686,6 +687,38 @@ export function fixturePanes(): ChatPane[] {
       branch: 'invite-onboarding',
       agentStatus: 'working',
       sessionId: 'fixture-mrboard',
+    },
+    {
+      paneId: 'wAM:pF',
+      workspace: 'repo-tools',
+      title: 'remy',
+      cwd: '/Users/matt/Documents/GitHub/repo-tools',
+      repo: 'rt',
+      branch: 'main',
+      agentStatus: 'idle',
+      sessionId: 'fixture-remy',
+      presence: {
+        handle: 'remy',
+        name: 'remy',
+        status: 'idle',
+        rooms: ['rt'],
+      },
+    },
+    {
+      paneId: 'wC4:p2',
+      workspace: 'repo-tools',
+      title: 'remy',
+      cwd: '/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-rt/gandalf',
+      repo: 'rt',
+      branch: 'chat-identity',
+      agentStatus: 'working',
+      sessionId: 'fixture-remy.m2p4',
+      presence: {
+        handle: 'remy.m2p4',
+        name: 'remy',
+        status: 'live',
+        rooms: ['rt'],
+      },
     },
   ];
 }

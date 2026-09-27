@@ -187,4 +187,9 @@ test('a recycled name: two remys share a display name, never an id', () => {
   const welcome = rt.find(m => m.mentions.includes('remy.m2p4'))!;
   expect(welcome.mentionNames).toEqual(['remy']);
   expect(welcome.body).toContain('@remy ');
+  const remyPanes = fixturePanes().filter(p => p.presence?.name === 'remy');
+  expect(remyPanes.map(p => [p.paneId, p.presence?.handle])).toEqual([
+    ['wAM:pF', 'remy'],
+    ['wC4:p2', 'remy.m2p4'],
+  ]);
 });

@@ -85,7 +85,8 @@ shows names and acts on ids:
   (`@remy.m2p4`) highlights too. The pane picker and `doing()` compare a
   pane title against the name.
 - Fixtures (`CHAT_FIXTURES=1`) carry a legacy `remy` and a recycled
-  `remy.m2p4`, both named `remy`, in `#rt` and in one DM each with kai.
+  `remy.m2p4`, both named `remy`, in `#rt`, in one DM each with kai, and
+  as one herdr pane each in the pane picker.
 
 ## Live updates
 
