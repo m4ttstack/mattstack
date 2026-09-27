@@ -1219,8 +1219,7 @@ a `gate-1: fix` row whose Fixed reply was finalized) that no answer value names 
 ## Off-script gate
 
 Every `Off-script gate: ...` box asks this one gate, through
-gate-protocol's Runs integration (this engine does not include
-work-next-gate). Its scope is `off-script:receive-review:<n>`, `n`
+gate-protocol's Runs integration. Its scope is `off-script:receive-review:<n>`, `n`
 counting from 1 within the stage attempt; its `context` quotes the refusal
 or failure. Ask it with the `gate_ask` tool and submit the answer, a Hold
 included, through the `gate_answer` tool (`id` the gate's id, `answers`
