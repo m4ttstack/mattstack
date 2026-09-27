@@ -49,6 +49,16 @@ export function scrubGitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proce
   return env;
 }
 
+// A set-but-empty GIT_ASKPASS also stops git falling back to core.askPass or
+// SSH_ASKPASS. Credential helpers stay: a keychain helper answers without a
+// dialog, and dropping it would fail every fetch of a private https remote.
+const NON_INTERACTIVE_ENV = {
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "",
+  SSH_ASKPASS_REQUIRE: "never",
+  GCM_INTERACTIVE: "never",
+};
+
 // A killed process is not guaranteed to unblock immediately: SIGTERM
 // delivery can be deferred behind a syscall the child is stuck in (a stalled
 // connect(), for instance), so a grace period backstops it with SIGKILL,
@@ -69,7 +79,7 @@ export async function rawGit(dir: string, args: string[], opts: RawGitOpts = {})
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: opts.nonInteractive ? { ...scrubGitEnv(), GIT_TERMINAL_PROMPT: "0" } : scrubGitEnv(),
+    env: opts.nonInteractive ? { ...scrubGitEnv(), ...NON_INTERACTIVE_ENV } : scrubGitEnv(),
     detached: opts.nonInteractive === true,
   });
   // Always closed, even with no stdin data: git plumbing commands that never
