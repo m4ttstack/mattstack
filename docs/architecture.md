@@ -24,6 +24,13 @@ gitq, or the acme skills:
 Tracking lives in the same workspace, one project per repo (`rt`, `rt client`,
 `glance`, `board`, `gitq`, `skills`) on team `just matt` (MAT).
 
+On npm, `@mattstack/rt-client`, `@mattstack/settings-kit`,
+`@mattstack/glance-react` and `@mattstack/mantine-tokyo` are deprecated
+(2026-09-27): they existed only to move code between the repos this one
+absorbed, and every consumer links them as workspace packages now.
+`@mattstack/glance`, `@mattstack/gitq` and `@mattstack/fast-browser` stay
+published.
+
 ## Why they are not in this repo
 
 The roadmap has been lost twice: first as an unpublished artifact that existed
