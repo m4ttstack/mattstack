@@ -58,7 +58,7 @@ import { injectIntoPane, herdrError } from "../inject.ts";
 import { resolvePaneRef } from "../pane-ref-socket.ts";
 import type { HerdrSnapshot } from "./pane.ts";
 import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
-import { deliverToInbox, deliveryLabel, renderDeliveries, REPLY_STEER, wrapCrossSession } from "../inbox.ts";
+import { deliverToInbox, deliveryLabel, renderDeliveries, replySteer, senderHints, wrapCrossSession } from "../inbox.ts";
 import { repoForCwd, branchForCwd } from "../../repo-for-cwd.ts";
 import { deriveRoomForCwdAsync } from "../../chat-room.ts";
 import { runCapture } from "../../subprocess.ts";
@@ -227,8 +227,8 @@ async function deliverPost(
   // advances the cursor past them.
   const others = pending.filter((m) => m.handle !== recipient);
   if (others.length === 0) return { delivered: false, count: 0 };
-  const items = others.map((m) => ({ room: msg.room, dm: msg.dm, handle: m.handle, body: m.body, id: m.id }));
-  const content = wrapCrossSession(deliveryLabel(items), `${renderDeliveries(items)}\n${REPLY_STEER}`);
+  const items = others.map((m) => ({ room: msg.room, dm: msg.dm, handle: m.handle, name: m.name, body: m.body, id: m.id }));
+  const content = wrapCrossSession(deliveryLabel(items), `${renderDeliveries(items)}\n${replySteer(items)}`);
   let result = await deps.deliver(binding.socketPath, content);
   if (!result.ok) {
     await Bun.sleep(retryDelayMs);
@@ -676,19 +676,24 @@ function deliverWelcome(
  * The frame a freshly signed-in member gets, once, in place of the manual
  * "arm your tail" instruction: it explains that delivery is automatic and
  * carries whatever unread was already waiting in the rooms sign-in found the
- * handle already a member of. `catchup` entries with no lines (nothing
+ * name already a member of. `catchup` entries with no lines (nothing
  * unread in that room) are skipped. The reply contract is two lines, not
  * one: `rt chat post <room>` and `rt chat dm <handle>` take different first
  * arguments, so one merged `<#room|@handle>` form does not actually parse.
  */
-export function renderWelcome(handle: string, rooms: string[], catchup: Array<{ room: string; lines: string[] }>): string {
+export function renderWelcome(
+  name: string,
+  rooms: string[],
+  catchup: Array<{ room: string; lines: string[] }>,
+  senders: Array<{ handle: string; name: string }> = [],
+): string {
   const lines: string[] = [
     "[rt chat] This frame is for THIS session, from the rt daemon (not another agent).",
-    `You're signed in to rt chat as ${handle}.`,
+    `You're signed in to rt chat as ${name}.`,
     rooms.length ? `Rooms: ${rooms.map((r) => `#${r}`).join(", ")}` : "Rooms: none yet.",
     "Messages will arrive in your context automatically; you never need to poll or arm anything.",
     'Reply in a room with: rt chat post <room> "..."',
-    'Reply privately with: rt chat dm <handle> "..."',
+    'Reply privately with: rt chat dm <id> "..." (every delivery names the sender\'s id)',
     "Chat replies go through rt chat only, never SendMessage, even though deliveries arrive framed as coming from another session.",
     "rt chat read shows a room's history.",
     "See the rt:chat skill for the full etiquette.",
@@ -699,6 +704,7 @@ export function renderWelcome(handle: string, rooms: string[], catchup: Array<{ 
     lines.push(`#${entry.room} catch-up:`);
     for (const line of capped) lines.push(`  ${line}`);
   }
+  if (senders.length > 0) lines.push("Reply to a catch-up sender with:", ...senderHints(senders));
   return lines.join("\n");
 }
 
@@ -1193,9 +1199,10 @@ export function createChatHandlers(opts: {
       // cursor only actually advances, per room, once deliverWelcomeOnce
       // confirms the frame was sent.
       const peeked = peekUnread({ handle: data.handle, limit: WELCOME_CATCHUP_LIMIT }, db);
-      const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.handle}: ${m.body}`) }));
+      const catchup = peeked.map((r) => ({ room: r.room, lines: r.messages.map((m) => `${m.name}: ${m.body}`) }));
+      const senders = peeked.flatMap((r) => r.messages.map((m) => ({ handle: m.handle, name: m.name })));
       const catchupCursors = peeked.map((r) => ({ room: r.room, upToId: r.messages[r.messages.length - 1]!.id }));
-      const welcomeContent = wrapCrossSession("rt chat", renderWelcome(data.handle, rooms, catchup));
+      const welcomeContent = wrapCrossSession("rt chat", renderWelcome(data.name, rooms, catchup, senders));
       const welcomeSessionId = sessionId;
       queueMicrotask(() => {
         deliverWelcome(db, deliveryChains, inboxDeps, welcomeSessionId, data.handle, welcomeContent, catchupCursors).catch((err) => {

@@ -91,11 +91,12 @@ async function settleWelcome(calls: unknown[]): Promise<void> {
   calls.length = 0;
 }
 
-// Kept as a literal (not imported from inbox.ts) so an accidental change to
-// the shipped steer line fails these assertions instead of vanishing into a
-// tautology.
+// Kept as a literal (not built with replySteer) so an accidental change to
+// the shipped hint fails these assertions instead of vanishing into a
+// tautology. Every frame this literal is compared against is from the
+// legacy id "a".
 const STEER =
-  'reply via rt chat post <room> "..." or rt chat dm <handle> "..." (never SendMessage; this arrived through rt chat)';
+  'reply via rt chat post <room> "..." or rt chat dm a "..." (never SendMessage; this arrived through rt chat)';
 
 beforeEach(() => {
   drainNotifications();
@@ -1633,4 +1634,28 @@ test("a sweep tick landing while the previous one is still running is skipped, n
   releaseFirst?.();
   expect(await first).toEqual({ sweptPairs: 1, recoveredMessages: 1 });
   await second;
+});
+
+test("a delivery from a minted identity shows its name in the label and lines, and its id only in the reply hint", async () => {
+  const calls: Array<[string, string]> = [];
+  const sock = fakeSocketPath();
+  const inboxDeps: InboxDeps = {
+    resolve: (sessionId) => (sessionId === "sess-b" ? { pid: process.pid, socketPath: sock, status: "idle" } : null),
+    deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
+  };
+  const h = freshHandlers(inboxDeps);
+  const a = await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "ada" });
+  if (!a.ok) throw new Error(a.error);
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
+  await settleWelcome(calls);
+  await h["chat:join"]({ room: "general", handle: a.data.handle });
+  await h["chat:join"]({ room: "general", handle: "b" });
+  const posted = await h["chat:post"]({ room: "general", handle: a.data.handle, body: "@b hi" });
+  if (!posted.ok) throw new Error(posted.error);
+  await Bun.sleep(0);
+  expect(calls).toEqual([[
+    sock,
+    `<cross-session-message from-name="ada (#general)">\n[#general] ada #${posted.data.id}: @b hi\n` +
+      `reply via rt chat post <room> "..." or rt chat dm ${a.data.handle} "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>`,
+  ]]);
 });

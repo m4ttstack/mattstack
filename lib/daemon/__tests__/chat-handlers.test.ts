@@ -484,21 +484,26 @@ test("baseHandle naming an offline identity mints a fresh id and inherits none o
   expect(rooms.data.rooms).toEqual([]);
 });
 
-test("renderWelcome carries the handle, room list, the automatic-delivery sentence, the two-line reply contract, the read/skill pointers, and catch-up capped at 10 lines per room", () => {
+test("renderWelcome carries the name, room list, the automatic-delivery sentence, the two-line reply contract, the read/skill pointers, catch-up capped at 10 lines per room, and the catch-up senders' ids", () => {
   const manyLines = Array.from({ length: 12 }, (_, i) => `agent: msg ${i}`);
   const text = renderWelcome("kai", ["build", "general"], [
     { room: "build", lines: manyLines },
     { room: "general", lines: [] },
-  ]);
-  expect(text).toContain("kai");
+  ], [{ handle: "agent.k3f9", name: "agent" }]);
+  expect(text).toContain("You're signed in to rt chat as kai.");
   expect(text).toContain("#build");
   expect(text).toContain("#general");
   expect(text).toContain("Messages will arrive in your context automatically; you never need to poll or arm anything.");
   expect(text).toContain('Reply in a room with: rt chat post <room> "..."');
-  expect(text).toContain('Reply privately with: rt chat dm <handle> "..."');
+  expect(text).toContain('Reply privately with: rt chat dm <id> "..." (every delivery names the sender\'s id)');
   expect(text).toContain("rt chat read shows a room's history.");
   expect(text).toContain("rt:chat skill");
   expect(text.split("\n").filter((l) => l.includes("msg "))).toHaveLength(10);
+  expect(text).toContain('Reply to a catch-up sender with:\n  reply to agent: rt chat dm agent.k3f9 "..."');
+});
+
+test("renderWelcome with nothing to catch up has no sender hints", () => {
+  expect(renderWelcome("kai", [], [])).not.toContain("Reply to a catch-up sender");
 });
 
 function paneSnapshotHandler(paneId: string, sessionId: string, cwd?: string): FakeHerdrHandler {
@@ -553,7 +558,8 @@ test("chat:sign-in viaPane resolves the pane's Claude session via herdr, signs i
   await Bun.sleep(0);
   expect(calls).toHaveLength(1);
   expect(calls[0]![0]).toBe(inboxSock);
-  expect(calls[0]![1]).toContain(res.data.handle);
+  expect(calls[0]![1]).toContain(`You're signed in to rt chat as ${res.data.name}.`);
+  expect(calls[0]![1]).not.toContain(res.data.handle);
   expect(calls[0]![1]).toContain('Reply in a room with: rt chat post <room> "..."');
 });
 
