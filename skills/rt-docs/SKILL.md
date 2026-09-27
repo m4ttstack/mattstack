@@ -10,7 +10,7 @@ The rt.cool docs site lives in `website/` (a Docusaurus site served at the site 
 ## Context
 
 - `website/docs/reference/` is GENERATED. `scripts/gen-docs.ts` builds every page under it from `lib/command-tree-def.ts`, the single source of truth for command names, subcommands, flags, and args. Never hand-edit a generated page; your edit is silently discarded the next time someone runs the generator.
-- `website/docs/guides/*`, `website/docs/getting-started/*`, `website/docs/intro.mdx`, and `website/docs/reference/global.mdx` are hand-written. These are where prose, rationale, and workflow explanation live.
+- `website/docs/guides/*`, `website/docs/getting-started/*`, `website/docs/intro.mdx`, `website/docs/reference/global.mdx`, and `website/docs/reference/_category_.json` are hand-written. These are where prose, rationale, and workflow explanation live.
 - `website/docs/reference/_partials/<relpath>.mdx` files are hand-written worked examples spliced into an otherwise-generated reference page (`<relpath>` mirrors the command's path, e.g. `_partials/worktree/new.mdx` for the `worktree new` command). The generator checks whether a partial exists for a given command and, if so, imports it into the generated page rather than overwriting it. These files are never clobbered by generation, so they are the one place you can add worked prose underneath a generated flag table.
 
 ## The rule
