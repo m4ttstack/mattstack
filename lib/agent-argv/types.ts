@@ -20,4 +20,9 @@ export interface AgentInvocation {
   inboundAccept?: boolean;
   /** claude-only: absolute path to a --settings JSON file. */
   settingsPath?: string;
+  /** claude-only: directories to grant read access to via --add-dir, emitted
+      immediately before --session-id/--resume (see claude.ts's claudeArgs).
+      Used to admit an unattended pane's own prompt-pointer file without a
+      permission prompt; codex's builders ignore this field outright. */
+  addDirs?: string[];
 }

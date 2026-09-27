@@ -10,11 +10,10 @@
  */
 
 import { spawnSync } from "child_process";
-import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import type { RebaseResult } from "../commands/git/rebase.ts";
-import { buildPaneCommand } from "./agent-argv/index.ts";
+import { buildPaneCommand, writePromptFile } from "./agent-argv/index.ts";
 import { defaultHerdrRunner, herdrAgentWait, launchInWorkspace, type HerdrRunner } from "./agent-herdr.ts";
 import { getCurrentBranch, hasUncommittedChanges } from "./git-ops.ts";
 import { syncLog } from "./sync-log.ts";
@@ -138,12 +137,8 @@ export function renderHumanReport(bundle: ConflictBundle): string {
 // ─── Task file ───────────────────────────────────────────────────────────────
 
 export function writeTaskFile(dataDir: string, content: string): string {
-  const dir = join(dataDir, "agent-tasks");
-  mkdirSync(dir, { recursive: true });
   const ts = new Date().toISOString().replace(/:/g, "-").replace(/\.\d+Z$/, "");
-  const path = join(dir, `rebase-${ts}.md`);
-  writeFileSync(path, content);
-  return path;
+  return writePromptFile(join(dataDir, "agent-tasks"), `rebase-${ts}.md`, content);
 }
 
 // ─── Verification ────────────────────────────────────────────────────────────

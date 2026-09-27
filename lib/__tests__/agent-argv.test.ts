@@ -21,21 +21,33 @@ describe("buildClaudeArgv", () => {
   });
 
   test("all knobs, headless start with prompt", () => {
-    expect(buildClaudeArgv({
+    const argv = buildClaudeArgv({
       account: "a@b.c", model: "haiku", effort: "low", extraArgs: "--permission-mode plan",
       session: { kind: "start", sessionId: UUID }, headless: true, prompt: "do it",
-    }, bins)).toEqual([
+    }, bins);
+    expect(argv).toEqual([
       "/abs/cswap", "run", "a@b.c", "--",
       "-p", "--output-format", "json",
       "--model", "haiku", "--effort", "low", "--session-id", UUID,
-      "--permission-mode", "plan", "do it",
+      "--permission-mode", "plan",
     ]);
+    expect(argv).not.toContain("do it");
   });
 
   test("resume never emits --session-id", () => {
     const argv = buildClaudeArgv({ session: { kind: "resume", sessionId: UUID }, headless: true, prompt: "q" }, bins);
-    expect(argv).toEqual(["/abs/claude", "-p", "--output-format", "json", "--resume", UUID, "q"]);
+    expect(argv).toEqual(["/abs/claude", "-p", "--output-format", "json", "--resume", UUID]);
     expect(argv).not.toContain("--session-id");
+  });
+
+  test("headless never carries the prompt in argv; the caller feeds it on stdin", () => {
+    const argv = buildClaudeArgv({ session: { kind: "start", sessionId: UUID }, headless: true, prompt: "pkill -f 'bun run test'" }, bins);
+    expect(argv.some((a) => a.includes("bun run test"))).toBe(false);
+  });
+
+  test("interactive still carries its (pointer) prompt as the last token", () => {
+    const argv = buildClaudeArgv({ session: { kind: "start", sessionId: UUID }, headless: false, prompt: "read /x.md" }, bins);
+    expect(argv.at(-1)).toBe("read /x.md");
   });
 
   test("invalid uuid throws before any argv exists", () => {
@@ -109,6 +121,24 @@ describe("buildClaudeArgv", () => {
   test("no yolo emits no bypass flag", () => {
     const argv = buildClaudeArgv({ session: { kind: "start", sessionId: UUID }, headless: false }, bins);
     expect(argv).not.toContain("--dangerously-skip-permissions");
+  });
+
+  test("addDirs emit as --add-dir immediately before --session-id, prompt stays last", () => {
+    const argv = buildClaudeArgv({
+      addDirs: ["/d1", "/d2"],
+      session: { kind: "start", sessionId: UUID }, headless: false, prompt: "read /x.md",
+    }, bins);
+    expect(argv).toEqual([
+      "/abs/claude", "--add-dir", "/d1", "--add-dir", "/d2", "--session-id", UUID, "read /x.md",
+    ]);
+  });
+
+  test("addDirs on resume sit immediately before --resume", () => {
+    const argv = buildClaudeArgv({
+      addDirs: ["/d1"],
+      session: { kind: "resume", sessionId: UUID }, headless: false,
+    }, bins);
+    expect(argv).toEqual(["/abs/claude", "--add-dir", "/d1", "--resume", UUID]);
   });
 });
 
