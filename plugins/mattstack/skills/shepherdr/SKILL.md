@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.26.1 + mattstack:model-tiering@0.26.1 + mattstack:execution-strategy@0.26.1 + mattstack:cswap-accounts@0.26.1"
+  compiled: "mattstack@0.26.2 + mattstack:model-tiering@0.26.2 + mattstack:execution-strategy@0.26.2 + mattstack:cswap-accounts@0.26.2"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.26.1 path=attachments/orchestration/shepherdr/SKILL.md lines=15-870 -->
+<!-- part: step source=mattstack:shepherdr version=0.26.2 path=attachments/orchestration/shepherdr/SKILL.md lines=15-876 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.26.1 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.26.2 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -143,7 +143,7 @@ this skill is the generic framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.26.1 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.26.2 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -255,7 +255,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.26.1 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.26.2 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -563,13 +563,19 @@ Workers ask through gates (`herd_ask`, `herd_milestone`) and report into
 the room, where the daemon also posts lifecycle notices (`<job> blocked`,
 `<job> exited`); the daemon pushes all of it into this session and records
 job state as a side effect of every call. You talk to a worker with the
-`chat_dm` tool (`{to: <handle>, body}`). There is no herd DB, no script,
+`chat_dm` tool (`{to: <the job's handle from herd_status>, body}`). There
+is no herd DB, no script,
 and no background wait; `herd_status {herd}` is the whole picture at any
 moment.
 
 **Resuming.** `herd_list` shows the herd ids. `herd_resume {herd}`
-re-points the gate subscription and the chat identity to this session and
-returns the open gates, the unread room messages, and every job's state.
+re-points the gate subscription to this session, continues the shepherd's
+chat identity here (its DMs and unread come with it; a plain sign-in would
+start an empty identity instead), and returns the open gates, the unread
+room messages, and every job's state. One exception: a herd started before
+chat identities stores a legacy shepherd handle, and when another identity
+now holds that name, resume starts a fresh identity instead, so the old
+handle's DMs and unread stay behind.
 There is no other resume step. After `herd_resume`, handle each unread room
 line as if it had just arrived (a report goes to the lanes graph).
 
@@ -638,7 +644,7 @@ rt herd spawn --herd <id> --job <job> --brief <path-to-brief.md> --model <model>
 **Spawn facts.**
 
 - `herd_start {name: <short-name>, repo, hidden?}` runs once per herd; `repo` is the repo's checkout path, identity or label. It returns the herd id, the room, the workspace label, and the subscription id. Every pane the herd creates is a tab in that one workspace; the user's own workspace is never touched.
-- `job` is the job's name (lowercase, `[a-z][a-z0-9_-]{0,31}`); it is also the worker's chat handle and its tab label. `brief` is the absolute `out` path `herd_brief` wrote.
+- `job` is the job's name (lowercase, `[a-z][a-z0-9_-]{0,31}`); it is also the worker's tab label and chat display name. The spawn mints the worker a fresh chat identity under that name, so a job named like an earlier herd's never inherits that herd's DMs. `herd_status` shows the job's `handle` (the identity id, which chat tools take: `chat_dm`'s `to`) beside `handleName` (the display name people read; `<job>-2` while another live session holds the job name). A herd tool's `job` field (`herd_close`, `herd_attend`) always takes the job name, never either of these. `brief` is the absolute `out` path `herd_brief` wrote.
 - `herd_spawn` provisions the tree, launches claude with the brief, signs the worker into the room, accepts the fresh-worktree trust dialog, and records the job.
 - A cold provision, when no on-deck tree is ready, can take minutes; tell the user it is provisioning.
 - **Stagger 4+ spawns**: spawn one, confirm it returned, spawn the next.
@@ -678,7 +684,7 @@ digraph shepherdr_watch {
     "Smart-distribute pool in use?" [shape=diamond];
     "Nudges for this gate?" [shape=diamond];
     "An idle prompt, and no form on screen?" [shape=diamond];
-    "chat_dm {to: <job>, body: call herd_answer for <gate>}" [shape=plaintext];
+    "chat_dm {to: <job handle>, body: call herd_answer for <gate>}" [shape=plaintext];
     "rt pane send <pane> --text <the same nudge>" [shape=plaintext];
     "Blocked notices for this job = 3?" [shape=diamond];
     "herd_gates {herd}: the blocked job" [shape=plaintext];
@@ -694,7 +700,7 @@ digraph shepherdr_watch {
     "herd_close {job, herd}: parked, respawning" [shape=plaintext];
     "herd_attend {job, herd}: a human is needed" [shape=plaintext];
     "Report the crash with its job and pane" [shape=box];
-    "chat_dm {to: <job>, body: the ruling or findings}" [shape=plaintext];
+    "chat_dm {to: <job handle>, body: the ruling or findings}" [shape=plaintext];
     "Ask: let them finish, kill and respawn, or hold" [shape=box];
     "herd_close {job, herd}: killed for new scope" [shape=plaintext];
     "herd_brief {job, template, strategy, strategies, fill, out}: the new brief" [shape=plaintext];
@@ -721,7 +727,7 @@ digraph shepherdr_watch {
     "What arrived?" -> "rt_verb {args: [pane, peek, <pane>]}: the unconsumed lane" [label="gate <id> UNCONSUMED in herd_status, or the watchdog's answered-and-unconsumed line"];
     "What arrived?" -> "Blocked notices for this job = 3?" [label="<job> blocked"];
     "What arrived?" -> "Report the crash with its job and pane" [label="<job> exited"];
-    "What arrived?" -> "chat_dm {to: <job>, body: the ruling or findings}" [label="a ruling or findings for one worker"];
+    "What arrived?" -> "chat_dm {to: <job handle>, body: the ruling or findings}" [label="a ruling or findings for one worker"];
     "What arrived?" -> "Ask: let them finish, kill and respawn, or hold" [label="the user redirects scope"];
     "What arrived?" -> "Respawns of this job = 2?" [label="the user asks for a respawn"];
     "What arrived?" -> "Go to lanes and wrap-up" [label="a report line, or a nag about a done job's open pane"];
@@ -752,12 +758,12 @@ digraph shepherdr_watch {
     "Is the lane alive?" -> "Smart-distribute pool in use?" [label="dead: a login expired, or no claude on it"];
     "Smart-distribute pool in use?" -> "Pick the account per the accounts rules" [label="yes"];
     "Smart-distribute pool in use?" -> "Respawns of this job = 2?" [label="no: relaunch on the same account"];
-    "Nudges for this gate?" -> "chat_dm {to: <job>, body: call herd_answer for <gate>}" [label="0"];
+    "Nudges for this gate?" -> "chat_dm {to: <job handle>, body: call herd_answer for <gate>}" [label="0"];
     "Nudges for this gate?" -> "An idle prompt, and no form on screen?" [label="1: the DM was lost too"];
     "An idle prompt, and no form on screen?" -> "rt pane send <pane> --text <the same nudge>" [label="yes"];
     "An idle prompt, and no form on screen?" -> "Shepherd off-script gate: ask the user" [label="no: a form is up, or the pane is busy"];
     "Nudges for this gate?" -> "Shepherd off-script gate: ask the user" [label="2: budget spent"];
-    "chat_dm {to: <job>, body: call herd_answer for <gate>}" -> "End the turn until something arrives";
+    "chat_dm {to: <job handle>, body: call herd_answer for <gate>}" -> "End the turn until something arrives";
     "rt pane send <pane> --text <the same nudge>" -> "End the turn until something arrives";
     "Blocked notices for this job = 3?" -> "herd_gates {herd}: the blocked job" [label="no"];
     "Blocked notices for this job = 3?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
@@ -782,7 +788,7 @@ digraph shepherdr_watch {
     "herd_close {job, herd}: parked, respawning" -> "Respawns of this job = 2?";
     "herd_attend {job, herd}: a human is needed" -> "End the turn until something arrives";
     "Report the crash with its job and pane" -> "End the turn until something arrives";
-    "chat_dm {to: <job>, body: the ruling or findings}" -> "End the turn until something arrives";
+    "chat_dm {to: <job handle>, body: the ruling or findings}" -> "End the turn until something arrives";
     "Ask: let them finish, kill and respawn, or hold" -> "End the turn until something arrives" [label="let them finish, or hold"];
     "Ask: let them finish, kill and respawn, or hold" -> "herd_close {job, herd}: killed for new scope" [label="kill and respawn"];
     "herd_close {job, herd}: killed for new scope" -> "herd_brief {job, template, strategy, strategies, fill, out}: the new brief";
@@ -872,7 +878,7 @@ briefs** / **Hold**. No restated heading, no per-option descriptions.
 - **Blocked diagnosis.** `<job> blocked` means the pane sat on a prompt for 30s. `herd_gates` comes first; its rows carry `presentation` and `owner`. Only "blocked, no open question, no open gate" makes the pane peek legitimate, never a hunch. `bg:` refs work for hidden herds.
 - **Typing versus keys.** Typing a text nudge into a lane's prompt with `rt pane send <pane> --text <nudge>` is allowed when the prompt is idle and no form is on screen. Pressing keys into a modal or form (Escape, Enter, an option number) is forbidden: the daemon injects Escape itself when a form-presentation gate is answered elsewhere, and a keystroke into a pane on a background `rt gate wait` interrupts a worker that was never stuck. A gate row's `presentation` says which you face: `"form"` means answering the gate clears the form; `"wait"` means leave the pane alone.
 - **Unconsumed answers.** The daemon already re-nudges the worker itself; what reaches you is `gate <id> UNCONSUMED` on a job in `herd_status`, or the watchdog's "answered Nm ago and unconsumed" line. Read the lane's pane first: a dead lane (a login expired, no claude on it) is a respawn, not a nudge. Nudge 0 is the DM. Nudge 1 types the same nudge, under the Typing versus keys rule above. After that, the off-script gate.
-- **The disposable reviewer.** Its spawn line is the graph's node, in the job's own tree (`herd_spawn` would land it in a fresh one). Its brief reads the artifact, DMs the findings to the job's handle with `chat_dm`, and reports a verdict; the daemon closes its pane on that report. The job revises and opens a fresh milestone gate: every round is gate, DM, gate. You never read the artifact. With the Accounts section non-empty, it takes a per-spawn pick like any other spawn.
+- **The disposable reviewer.** Its spawn line is the graph's node, in the job's own tree (`herd_spawn` would land it in a fresh one). Its brief reads the artifact, DMs the findings with `chat_dm` (`to` = the job's `handle` from `herd_status`), and reports a verdict; the daemon closes its pane on that report. The job revises and opens a fresh milestone gate: every round is gate, DM, gate. You never read the artifact. With the Accounts section non-empty, it takes a per-spawn pick like any other spawn.
 - **A bare pane form.** A worker pane showing a structured question with no gate behind it (`herd_gates` returns nothing for it) is the banned bare pane-local form, unreachable from every channel. Flag it to the user; never answer it yourself. Covered panes deny it at source through the launch-injected gate-fork hook, so seeing one means the pane is uncovered or its daemon was unreachable.
 
 **The shared respawn.** A rate-limit stall (a limit banner in the peek), a
@@ -911,7 +917,7 @@ digraph shepherdr_lanes {
     "Ask the integration job's strategy and model" [shape=box];
     "herd_brief {job: integration-<n>, template, strategy, strategies, fill, out}" [shape=plaintext];
     "herd_spawn {herd, job: integration-<n>, brief, model, account?}" [shape=plaintext];
-    "chat_dm {to: <job>, body: ship through your skill chain}" [shape=plaintext];
+    "chat_dm {to: <job handle>, body: ship through your skill chain}" [shape=plaintext];
     "Gate: merge this lane?" [shape=box];
     "Forge?" [shape=diamond];
     "mr_merge {mrUrl}" [shape=plaintext];
@@ -919,7 +925,7 @@ digraph shepherdr_lanes {
     "Merged on the repo?" [shape=diamond];
     "Did this lane claim the merge itself?" [shape=diamond];
     "Unmerged reports for this lane = 2?" [shape=diamond];
-    "chat_dm {to: <job>, body: the measured merge state}" [shape=plaintext];
+    "chat_dm {to: <job handle>, body: the measured merge state}" [shape=plaintext];
     "Flip the lane's ticket, when it has one" [shape=box];
     "herd_close {job, herd}: the merged lane" [shape=plaintext];
     "More merged lanes to close?" [shape=diamond];
@@ -955,7 +961,7 @@ digraph shepherdr_lanes {
     "Does the report claim a merge?" -> "Merged on the repo?" [label="yes, or a nag about an open pane"];
     "Does the report claim a merge?" -> "Who merges this lane?" [label="no"];
     "Who merges this lane?" -> "Every lane job done?" [label="no domain rule: the integration job merges"];
-    "Who merges this lane?" -> "chat_dm {to: <job>, body: ship through your skill chain}" [label="domain: the worker ships its own lane"];
+    "Who merges this lane?" -> "chat_dm {to: <job handle>, body: ship through your skill chain}" [label="domain: the worker ships its own lane"];
     "Who merges this lane?" -> "Gate: merge this lane?" [label="domain: the shepherd merges after a gate"];
     "Does the report claim a merge?" -> "STOP: never merge, fix or push by hand; route by who merges" [label="tempted to merge, fix or push it yourself"];
     "STOP: never merge, fix or push by hand; route by who merges" -> "Who merges this lane?";
@@ -968,7 +974,7 @@ digraph shepherdr_lanes {
     "Ask the integration job's strategy and model" -> "herd_brief {job: integration-<n>, template, strategy, strategies, fill, out}";
     "herd_brief {job: integration-<n>, template, strategy, strategies, fill, out}" -> "herd_spawn {herd, job: integration-<n>, brief, model, account?}";
     "herd_spawn {herd, job: integration-<n>, brief, model, account?}" -> "Back to the watch loop: end the turn";
-    "chat_dm {to: <job>, body: ship through your skill chain}" -> "Back to the watch loop: end the turn";
+    "chat_dm {to: <job handle>, body: ship through your skill chain}" -> "Back to the watch loop: end the turn";
     "Gate: merge this lane?" -> "Forge?" [label="merge"];
     "Gate: merge this lane?" -> "Back to the watch loop: end the turn" [label="not yet, or hold"];
     "Forge?" -> "mr_merge {mrUrl}" [label="GitLab"];
@@ -980,9 +986,9 @@ digraph shepherdr_lanes {
     "Did this lane claim the merge itself?" -> "Unmerged reports for this lane = 2?" [label="yes"];
     "Did this lane claim the merge itself?" -> "Back to the watch loop: end the turn" [label="no: it waits on the integration job or the gate"];
     "Did this lane claim the merge itself?" -> "Shepherd off-script gate: ask the user" [label="no: your own merge call did not land"];
-    "Unmerged reports for this lane = 2?" -> "chat_dm {to: <job>, body: the measured merge state}" [label="no"];
+    "Unmerged reports for this lane = 2?" -> "chat_dm {to: <job handle>, body: the measured merge state}" [label="no"];
     "Unmerged reports for this lane = 2?" -> "Shepherd off-script gate: ask the user" [label="yes: budget spent"];
-    "chat_dm {to: <job>, body: the measured merge state}" -> "Back to the watch loop: end the turn";
+    "chat_dm {to: <job handle>, body: the measured merge state}" -> "Back to the watch loop: end the turn";
     "Flip the lane's ticket, when it has one" -> "herd_close {job, herd}: the merged lane";
     "herd_close {job, herd}: the merged lane" -> "More merged lanes to close?";
     "More merged lanes to close?" -> "Flip the lane's ticket, when it has one" [label="yes"];
@@ -1110,7 +1116,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.26.1 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.26.2 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

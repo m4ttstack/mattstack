@@ -71,7 +71,7 @@ digraph herd_job {
     "Trigger: a chat message arrives" [shape=ellipse];
     "Does it need a reply?" [shape=diamond];
     "STOP: reply with chat_dm, never SendMessage" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "chat_dm {to: <handle>, body}" [shape=plaintext];
+    "chat_dm {to: <sender id>, body}" [shape=plaintext];
     "Write the report draft" [shape=box];
     "herd_report {body}" [shape=plaintext];
     "Reported: stop" [shape=doublecircle style=filled fillcolor=lightgreen];
@@ -116,12 +116,12 @@ digraph herd_job {
     "Revision rounds on this milestone = 3?" -> "herd_ask {questions, context}: keep revising?" [label="yes: budget spent"];
     "Revise the artifact" -> "herd_milestone {artifact, summary}: the revised artifact";
     "Trigger: a chat message arrives" -> "Does it need a reply?";
-    "Does it need a reply?" -> "chat_dm {to: <handle>, body}" [label="yes"];
+    "Does it need a reply?" -> "chat_dm {to: <sender id>, body}" [label="yes"];
     "Does it need a reply?" -> "Work the Method" [label="no: it informs, or is a new instruction"];
     "Does it need a reply?" -> "Revision rounds on this milestone = 3?" [label="findings from review-<your job>"];
     "Does it need a reply?" -> "STOP: reply with chat_dm, never SendMessage" [label="tempted to reply with SendMessage"];
-    "STOP: reply with chat_dm, never SendMessage" -> "chat_dm {to: <handle>, body}";
-    "chat_dm {to: <handle>, body}" -> "Work the Method";
+    "STOP: reply with chat_dm, never SendMessage" -> "chat_dm {to: <sender id>, body}";
+    "chat_dm {to: <sender id>, body}" -> "Work the Method";
     "Write the report draft" -> "herd_report {body}";
     "herd_report {body}" -> "Reported: stop";
 }
@@ -208,10 +208,12 @@ takes the report text, not a path):
 then STOP.
 
 ## Messages
-Chat arrives as `[#<room>] <handle> #<n>: ...` or `[dm] <handle> #<n>:
-...`. Only when `chat_sign_in` refuses because this session was replaced
-by `/clear`, reply with `rt chat dm <handle>` in Bash instead, the body on <!-- mcp-lint: allow -->
-stdin from a quoted heredoc.
+Chat arrives as `[#<room>] <name> #<n>: ...` or `[dm] <name> #<n>: ...`,
+with a reply hint that names the sender's identity id
+(`rt chat dm <id> "..."`). Reply with the `chat_dm` tool, `to` = that id. <!-- mcp-lint: allow -->
+Only when `chat_sign_in` refuses because this session was replaced by
+`/clear`, reply with `rt chat dm <id>` in Bash instead, the body on stdin <!-- mcp-lint: allow -->
+from a quoted heredoc.
 
 ## Git
 Commit incrementally on this branch. Push only when the goal above asks
