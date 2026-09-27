@@ -56,6 +56,9 @@ func (m *Mission) settleStash(wasShowing bool) {
 	case showing && !wasShowing && *focus == focusList:
 		*focus = focusStashFiles
 	}
+	if showing && !wasShowing {
+		m.stashFilesFree = false
+	}
 	if !showing {
 		m.diffFromStash = false
 	} else if m.stashFileIndex() < 0 {
@@ -220,6 +223,7 @@ func (m *Mission) emitStashFile() tea.Cmd {
 }
 
 func (m *Mission) stashFileMove(delta int) tea.Cmd {
+	m.stashFilesFree = false
 	if m.model.Stash == nil || len(m.model.Stash.Files) == 0 {
 		return nil
 	}
@@ -309,7 +313,7 @@ func stashHeaderLines(width int, hoverRestore, hoverDiscard bool) []string {
 func (m *Mission) stashPane(width int) committedPane {
 	return committedPane{
 		header: stashHeaderLines(width, m.hoverStashRestore, m.hoverStashDiscard),
-		files:  m.model.Stash.Files, cursor: m.stashFile, top: &m.stashFilesTop,
+		files:  m.model.Stash.Files, cursor: m.stashFile, top: &m.stashFilesTop, free: &m.stashFilesFree,
 		hover: m.hoverStashFile, focused: m.focus == focusStashFiles,
 	}
 }
@@ -344,10 +348,10 @@ func (m *Mission) stashPaneHit(x, y int) hit {
 	return hit{}
 }
 
-func (m *Mission) stashWheel(x, y, delta int) tea.Cmd {
+func (m *Mission) stashWheel(x, y, delta int) {
 	if m.model.Stash.Files == nil {
-		return nil
+		return
 	}
 	paneW := m.diffWidth()
-	return m.committedPaneWheel(m.stashPane(paneW), x, y, paneW, delta, m.stashFileMove)
+	m.committedPaneWheel(m.stashPane(paneW), x, y, paneW, m.layout().bodyH, delta)
 }

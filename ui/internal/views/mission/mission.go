@@ -174,6 +174,7 @@ type Mission struct {
 	historyFileShown   string
 	historyDriverFile  string
 	historyFilesTop    int
+	historyFilesFree   bool
 	hoverHistoryFile   int
 	historyExpanded    bool
 	hoverExpander      bool
@@ -185,6 +186,7 @@ type Mission struct {
 	diffFromStash     bool
 	stashFile         string
 	stashFilesTop     int
+	stashFilesFree    bool
 	hoverStashFile    int
 	hoverStashRestore bool
 	hoverStashDiscard bool
@@ -314,6 +316,7 @@ func (m *Mission) SetModel(raw json.RawMessage) error {
 	// opens at its top, and the other tab's stashed position goes too.
 	if decoded.Current.Worktree != m.model.Current.Worktree {
 		m.diffCursor, m.diffTop, m.diffPath, m.diffFreeScroll = 0, 0, "", false
+		m.changesTop, m.changesFreeScroll = 0, false
 		m.tabDiff = map[string]diffScroll{}
 	}
 	wasShowing := m.stashShowing()
@@ -1567,10 +1570,9 @@ func (m *Mission) setHover(x, y int) {
 
 // mouseWheel scrolls the view of whichever pane the pointer sits over and
 // never moves a cursor or selection, GitHub Desktop's behavior: the modal's
-// row region, the diff pane, the Changes list, the History commit list. A
-// key that moves a cursor afterwards brings the view back to it. The
-// committed panes' file column is the exception: its wheel still steps the
-// file cursor (committedPaneWheel). An open menu takes every tick: over its
+// row region, the diff pane, the Changes list, the History commit list, the
+// History and stash file columns. A key that moves a cursor afterwards
+// brings the view back to it. An open menu takes every tick: over its
 // box they scroll a row region too tall to fit, and nowhere do they reach
 // the board beneath it. A modal claims every row like hitTest's own first
 // check; otherwise the tick must land inside the body's Y range (between
@@ -1606,11 +1608,12 @@ func (m *Mission) mouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if mouse.X >= sidebarWidth {
 		switch {
 		case m.historyTab():
-			return m, m.historyWheel(mouse.X-sidebarWidth-1, bodyY, delta)
+			m.historyWheel(mouse.X-sidebarWidth-1, bodyY, delta)
 		case m.stashShowing():
-			return m, m.stashWheel(mouse.X-sidebarWidth-1, bodyY, delta)
+			m.stashWheel(mouse.X-sidebarWidth-1, bodyY, delta)
+		default:
+			m.scrollDiff(delta)
 		}
-		m.scrollDiff(delta)
 		m.setHover(mouse.X, mouse.Y)
 		return m, nil
 	}

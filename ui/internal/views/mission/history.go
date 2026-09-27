@@ -112,6 +112,7 @@ func (m *Mission) clampHistory() {
 	selectionChanged := driverKey != m.historyDriverKey
 	if selectionChanged {
 		m.historyDriverKey, m.historyShown = driverKey, driverKey
+		m.historyFilesFree = false
 	}
 	file := m.model.History.SelectedFile
 	fileChanged := file != m.historyDriverFile
@@ -929,6 +930,7 @@ type committedPane struct {
 	files   []HistoryFileRow
 	cursor  string
 	top     *int
+	free    *bool
 	hover   int
 	focused bool
 }
@@ -974,7 +976,12 @@ func (m *Mission) renderCommittedFiles(p committedPane, width, height int) strin
 	cursorIdx := slices.IndexFunc(p.files, func(f HistoryFileRow) bool { return f.Path == p.cursor })
 	listH := height - 1
 	rowW := max(width-1, 0)
-	top, vis := picker.Viewport(max(cursorIdx, 0), *p.top, len(p.files), listH, listH, 0)
+	var top, vis int
+	if *p.free {
+		top, vis = picker.FreeWindow(*p.top, len(p.files), listH)
+	} else {
+		top, vis = picker.Viewport(max(cursorIdx, 0), *p.top, len(p.files), listH, listH, 0)
+	}
 	*p.top = top
 	thumbTop, thumbH := picker.ThumbSpan(top, vis, len(p.files))
 	thumbOn := lipgloss.NewStyle().Background(theme.Panel)
@@ -1017,24 +1024,27 @@ func (m *Mission) committedPaneHit(p committedPane, x, y, paneW int) paneHit {
 	return paneHit{region: paneDiff, diff: m.diffHit(x-filesW-1, bodyY, max(paneW-filesW-1, 0))}
 }
 
-// committedPaneWheel scrolls the file column or the diff under the pointer;
-// the header, the rule, and the divider scroll nothing.
-func (m *Mission) committedPaneWheel(p committedPane, x, y, paneW, delta int, moveFile func(int) tea.Cmd) tea.Cmd {
+// committedPaneWheel scrolls the file column or the diff under the pointer,
+// leaving both cursors alone; the header, the rule, and the divider scroll
+// nothing. The file column's height mirrors renderCommittedPane's bodyH less
+// renderCommittedFiles' count row.
+func (m *Mission) committedPaneWheel(p committedPane, x, y, paneW, paneH, delta int) {
 	filesW := historyFilesWidth(paneW)
 	switch {
 	case x < 0 || y <= len(p.header) || x == filesW:
-		return nil
 	case x < filesW:
-		return moveFile(delta)
+		listH := max(paneH-len(p.header)-1, 0) - 1
+		*p.free = true
+		*p.top, _ = picker.FreeWindow(*p.top+delta, len(p.files), listH)
+	default:
+		m.scrollDiff(delta)
 	}
-	m.scrollDiff(delta)
-	return nil
 }
 
 func (m *Mission) historyPane(width, height int) committedPane {
 	return committedPane{
 		header: m.historyHeader(width, height), files: m.model.History.Files, cursor: m.historyFile,
-		top: &m.historyFilesTop, hover: m.hoverHistoryFile, focused: m.focus == focusHistoryFiles,
+		top: &m.historyFilesTop, free: &m.historyFilesFree, hover: m.hoverHistoryFile, focused: m.focus == focusHistoryFiles,
 	}
 }
 
@@ -1085,12 +1095,12 @@ func (m *Mission) historyPaneHit(x, y int) hit {
 	return hit{}
 }
 
-func (m *Mission) historyWheel(x, y, delta int) tea.Cmd {
+func (m *Mission) historyWheel(x, y, delta int) {
 	if m.historySlate() != "" {
-		return nil
+		return
 	}
-	paneW := m.diffWidth()
-	return m.committedPaneWheel(m.historyPane(paneW, m.layout().bodyH), x, y, paneW, delta, m.historyFileMove)
+	paneW, paneH := m.diffWidth(), m.layout().bodyH
+	m.committedPaneWheel(m.historyPane(paneW, paneH), x, y, paneW, paneH, delta)
 }
 
 func (m *Mission) historyFileIndex() int {
@@ -1110,6 +1120,7 @@ func (m *Mission) emitHistoryFile() tea.Cmd {
 }
 
 func (m *Mission) historyFileMove(delta int) tea.Cmd {
+	m.historyFilesFree = false
 	files := m.model.History.Files
 	if len(files) == 0 {
 		return nil

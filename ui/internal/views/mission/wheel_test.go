@@ -206,3 +206,101 @@ func TestTheModalThumbTracksTheWheel(t *testing.T) {
 		t.Fatal("the scrolled window and its thumb should repaint")
 	}
 }
+
+func longFiles(first string) []HistoryFileRow {
+	files := []HistoryFileRow{{Path: first, Status: "modified"}}
+	for i := 1; i < 60; i++ {
+		files = append(files, HistoryFileRow{Path: fmt.Sprintf("f-%02d.go", i), Status: "modified"})
+	}
+	return files
+}
+
+type fileColumnCase struct {
+	name   string
+	build  func() *Mission
+	cursor func(*Mission) string
+	top    func(*Mission) int
+	hover  func(*Mission) int
+	kind   hitKind
+	focus  focusKind
+}
+
+func fileColumnCases() []fileColumnCase {
+	return []fileColumnCase{
+		{
+			name: "history",
+			build: func() *Mission {
+				m := twoFileHistoryMission()
+				m.model.History.Files = longFiles(m.historyFile)
+				return m
+			},
+			cursor: func(m *Mission) string { return m.historyFile },
+			top:    func(m *Mission) int { return m.historyFilesTop },
+			hover:  func(m *Mission) int { return m.hoverHistoryFile },
+			kind:   hitHistoryFile,
+			focus:  focusHistoryFiles,
+		},
+		{
+			name: "stash",
+			build: func() *Mission {
+				m := stashMission(true)
+				m.model.Stash.Files = longFiles(m.stashFile)
+				return m
+			},
+			cursor: func(m *Mission) string { return m.stashFile },
+			top:    func(m *Mission) int { return m.stashFilesTop },
+			hover:  func(m *Mission) int { return m.hoverStashFile },
+			kind:   hitStashFile,
+			focus:  focusStashFiles,
+		},
+	}
+}
+
+func TestWheelOverACommittedFileColumnScrollsTheViewNotTheCursor(t *testing.T) {
+	instantSelectTick(t)
+	for _, c := range fileColumnCases() {
+		m := c.build()
+		m.View()
+		x := historyPaneX(3)
+		y, ok := findHitY(m, x, c.kind)
+		if !ok {
+			t.Fatalf("%s: no file row painted", c.name)
+		}
+		cursor := c.cursor(m)
+		m.Update(tea.MouseMotionMsg{X: x, Y: y})
+		if cmd := wheel(m, x, y, tea.MouseWheelDown); cmd != nil {
+			t.Fatalf("%s: a wheel tick over the file column must emit nothing", c.name)
+		}
+		if c.cursor(m) != cursor || c.top(m) != wheelStep {
+			t.Fatalf("%s: the wheel should scroll %d rows and hold the cursor, cursor %q top %d", c.name, wheelStep, c.cursor(m), c.top(m))
+		}
+		if h := m.hitTest(x, y); h.kind != c.kind || h.idx != wheelStep || c.hover(m) != wheelStep {
+			t.Fatalf("%s: hit and hover should name the scrolled row, hit %+v hover %d", c.name, h, c.hover(m))
+		}
+		m.View()
+		if c.top(m) != wheelStep || !strings.Contains(frameRow(m, y), "f-03.go") {
+			t.Fatalf("%s: the render must keep the scrolled top, got %d row %q", c.name, c.top(m), frameRow(m, y))
+		}
+		m.focus = c.focus
+		m.Update(downKey())
+		m.View()
+		if c.cursor(m) != "f-01.go" || c.top(m) != 0 {
+			t.Fatalf("%s: a key moves the cursor from where it was and the view follows, cursor %q top %d", c.name, c.cursor(m), c.top(m))
+		}
+	}
+}
+
+func TestAWorktreeSwitchResetsTheChangesScroll(t *testing.T) {
+	m := longChangesMission()
+	for range 3 {
+		wheel(m, 5, changesRowY(m, 1), tea.MouseWheelDown)
+	}
+	next := m.model
+	next.Current.Worktree = "/elsewhere"
+	if err := m.setModelValue(next); err != nil {
+		t.Fatal(err)
+	}
+	if m.changesFreeScroll || m.changesTop != 0 {
+		t.Fatalf("a new worktree's Changes list opens at its top, following its cursor, free %v top %d", m.changesFreeScroll, m.changesTop)
+	}
+}

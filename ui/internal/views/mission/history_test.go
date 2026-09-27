@@ -2057,13 +2057,6 @@ func TestHistoryWheelScrollsTheRegionUnderThePointer(t *testing.T) {
 	m := twoFileHistoryMission()
 	m.View()
 	y, _ := findHitY(m, historyPaneX(3), hitHistoryFile)
-	_, cmd := m.Update(tea.MouseWheelMsg{X: historyPaneX(3), Y: y, Button: tea.MouseWheelDown})
-	if m.historyFile != "lib/mission/driver.ts" {
-		t.Fatalf("a wheel tick over the file column should move the file cursor, got %q", m.historyFile)
-	}
-	if _, ok := cmd().(historyDebounceMsg); !ok {
-		t.Fatal("a wheel move over the file column should route through the file debounce")
-	}
 	for range 60 {
 		m.model.Diff.Lines = append(m.model.Diff.Lines, DiffLine{Kind: "context", Text: "y"})
 	}
