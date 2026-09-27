@@ -6,7 +6,7 @@ import pino from "pino";
 import { AGENT_NAMES } from "../../chat-names.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
-import { getAgent, openStateDb, signIn } from "../../state/index.ts";
+import { getAgent, insertAgent, openStateDb, signIn } from "../../state/index.ts";
 import { pointerPrompt, shellSingleQuote } from "../../agent-argv/index.ts";
 import { createAgentHandlers, extractSessionId, type HeadlessChild } from "../handlers/agent.ts";
 import { createBgClaimsStore, type BgClaimsStore } from "../bg-claims-store.ts";
@@ -238,6 +238,24 @@ test("agent:start herdr rolls back the inserted record when launch fails", async
   expect(list.data.agents).toHaveLength(0);
 });
 
+test("agent:start herdr with a non-slash prompt removes its prompt dir when the launch fails", async () => {
+  const throwingRunner: HerdrRunner = async () => {
+    throw new Error("herdr unavailable");
+  };
+  let capturedId: string | undefined;
+  const h = fresh({
+    runner: throwingRunner,
+    insertAgentFn: (rec: any, db: any) => {
+      capturedId = rec.id;
+      insertAgent(rec, db);
+    },
+  });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  expect(res.ok).toBe(false);
+  expect(capturedId).toBeDefined();
+  expect(existsSync(join(rtDir(), "agent-prompts", capturedId!))).toBe(false);
+});
+
 // Pins S051: a tab-label dedup must never report success with a phantom
 // record nothing is listening on (rt agent resume on it would run
 // `claude --resume` for a session that never started).
@@ -254,7 +272,14 @@ test("agent:start herdr returns ok:false and rolls back when herdr dedups the ta
     }
     return { stdout: "{}", exitCode: 0 };
   };
-  const h = fresh({ runner });
+  let capturedId: string | undefined;
+  const h = fresh({
+    runner,
+    insertAgentFn: (rec: any, db: any) => {
+      capturedId = rec.id;
+      insertAgent(rec, db);
+    },
+  });
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", tab: label });
   expect(res.ok).toBe(false);
   if (res.ok) throw new Error("unreachable");
@@ -264,6 +289,8 @@ test("agent:start herdr returns ok:false and rolls back when herdr dedups the ta
   const list = await h["agent:list"]({});
   if (!list.ok) throw new Error("unreachable");
   expect(list.data.agents).toHaveLength(0);
+  expect(capturedId).toBeDefined();
+  expect(existsSync(join(rtDir(), "agent-prompts", capturedId!))).toBe(false);
 });
 
 // Pins the guard: a no-op insert (standing in for runCriticalWrite giving up

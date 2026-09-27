@@ -19,7 +19,7 @@
  * resolveHookSettingsPath below.
  */
 
-import { chmodSync, mkdirSync, readdirSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
@@ -164,6 +164,17 @@ function agentPromptsRoot(): string {
     admits only its own prompt file, never every agent's. */
 function agentPromptDir(id: string): string {
   return join(agentPromptsRoot(), id);
+}
+
+/** A rolled-back agent:start must not leave its prompt dir behind: nothing else
+    ever removes it. Best effort: a cleanup failure must not mask the rollback's
+    own error, so it only logs. */
+function removeAgentPromptDir(id: string, log: Logger): void {
+  try {
+    rmSync(agentPromptDir(id), { recursive: true, force: true });
+  } catch (err) {
+    log.warn({ err, id }, "agent: failed to remove prompt dir after rollback");
+  }
 }
 
 /** Every launch (start, and each resume) gets its own file: a resume must never
@@ -632,6 +643,7 @@ export function createAgentHandlers(opts: {
         });
         if (!res.ok) {
           deleteAgent(rec.id, db);
+          removeAgentPromptDir(rec.id, log);
           return res;
         }
         // A herd-spawned hidden worker rides the bg socket via herdrSocket,
@@ -656,6 +668,7 @@ export function createAgentHandlers(opts: {
         return res.ok ? { ok: true, data: withName(res.data, db) } : res;
       } catch (err) {
         deleteAgent(rec.id, db);
+        removeAgentPromptDir(rec.id, log);
         const message = err instanceof Error ? err.message : String(err);
         if (payload.bg && opts.bg && isCommandNotFoundShape(message)) {
           // Advisory only: the failure this branch handles is exactly the
