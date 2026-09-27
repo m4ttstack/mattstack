@@ -32,7 +32,7 @@ These were ratified in forms and are not open:
    The checklist keeps "unused services show as idle, not absent".
 7. **Spec now, execute after monorepo Stage C merges** (gitq into
    `apps/gitq`), so the deck registry and deps.lock work never fights the
-   monorepo branch.
+   monorepo branch. Cleared 2026-09-27: Stage C merged as rt#502.
 8. **Deck's own board shows an off app as off, and offers no switch.**
    The only place an app is turned on or off is mattstack.app
    Settings > Apps (and the `rt apps` verbs behind it). Ratified after the
