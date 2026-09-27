@@ -1420,6 +1420,38 @@ test('reresolve: reinstalls only the app whose resolved command differs from its
   expect(counting.installCalls).toEqual([changedSpec.label]);
 });
 
+test('reresolve: a disabled rt row loses its plist and is reported under disabled; enabling it again installs it', async () => {
+  const counting = new CountingManager();
+  const reresolveDrivers = { manager: counting, edge: drivers.edge };
+  const h = bundleHelpers('board');
+  await registerApp({ ...input, name: 'board', managedBy: 'rt', command: h.command('board', 'serve') }, reresolveDrivers);
+  const label = `${LABEL_PREFIX}board`;
+  expect(counting.installed.has(label)).toBe(true);
+  counting.installCalls = [];
+  counting.uninstallCalls = [];
+
+  putRecord({ ...getRecord('board')!, enabled: false });
+  const off = await reresolveManagedApps(reresolveDrivers);
+  expect(off.body).toMatchObject({ ok: true, disabled: ['board'], failed: [] });
+  expect(counting.uninstallCalls).toEqual([label]);
+  expect(counting.installed.has(label)).toBe(false);
+
+  putRecord({ ...getRecord('board')!, enabled: undefined });
+  const on = await reresolveManagedApps(reresolveDrivers);
+  expect(on.body).toMatchObject({ ok: true, disabled: [], restarted: ['board'] });
+  expect(counting.installed.has(label)).toBe(true);
+});
+
+test('restartManagedApps skips a disabled row', async () => {
+  const h = bundleHelpers('board');
+  await registerApp({ ...input, name: 'board', managedBy: 'rt', command: h.command('board', 'serve') }, drivers);
+  putRecord({ ...getRecord('board')!, enabled: false });
+  drivers.manager.kickstarts = [];
+  const r = await restartManagedApps(drivers);
+  expect(drivers.manager.kickstarts).toEqual([]);
+  expect(r.body).toMatchObject({ restarted: [] });
+});
+
 test('reresolve: an installed plist whose environment lags the rendered one is reinstalled', async () => {
   const counting = new CountingManager();
   const reresolveDrivers = { manager: counting, edge: drivers.edge };

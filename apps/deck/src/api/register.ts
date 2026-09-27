@@ -37,6 +37,7 @@ import {
   clearIssues,
   deleteRecord,
   getRecord,
+  isEnabled,
   isMattstackOwned,
   listRecords,
   putRecord,
@@ -502,6 +503,7 @@ export async function restartManagedApps(
   for (const record of managed) {
     if (record.kind !== 'service' || !record.label) continue;
     if (notServedHere(record, serveShapeDeps)) continue;
+    if (!isEnabled(record)) continue;
     try {
       // kickstart signals failure via its boolean return (label not
       // installed), not by throwing — same contract the single-app
@@ -637,6 +639,7 @@ export async function reresolveManagedApps(
   const restarted: string[] = [];
   const unchanged: string[] = [];
   const notServed: string[] = [];
+  const disabled: string[] = [];
   const failed: SweepFailure[] = [];
   const flavor = resolveFlavor(serveShapeDeps);
   const ensured = flavor.catalog
@@ -670,6 +673,19 @@ export async function reresolveManagedApps(
       clearIssues(record.name, 'launchd');
       clearIssues(record.name, 'dev-link');
       notServed.push(record.name);
+      continue;
+    }
+    if (!isEnabled(record)) {
+      const issue = await runDriver('launchd', () =>
+        drivers.manager.uninstall(record.label!)
+      );
+      if (issue) {
+        addIssue(record.name, issue);
+        failed.push({ name: record.name, error: issue.message });
+        continue;
+      }
+      clearIssues(record.name, 'launchd');
+      disabled.push(record.name);
       continue;
     }
     const shape = serveShape(record, serveShapeDeps);
@@ -749,6 +765,7 @@ export async function reresolveManagedApps(
       restarted,
       unchanged,
       notServed,
+      disabled,
       created: ensured.created,
       adopted: ensured.adopted,
       failed,

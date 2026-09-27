@@ -5,6 +5,7 @@ interface Swept {
   adopted?: string[];
   restarted?: string[];
   notServed?: string[];
+  disabled?: string[];
   failed?: Array<{ name: string; error: string }>;
 }
 
@@ -34,6 +35,8 @@ export async function reresolveOnBoot(opts: {
     parts.push(`restarted ${body.restarted.join(', ')}`);
   if (body.notServed?.length)
     parts.push(`not-served ${body.notServed.join(', ')}`);
+  if (body.disabled?.length)
+    parts.push(`disabled ${body.disabled.join(', ')}`);
   if (body.failed?.length)
     parts.push(
       `failed ${body.failed.map(f => `${f.name} (${f.error})`).join(', ')}`
