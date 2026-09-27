@@ -7,15 +7,15 @@
  */
 
 import { Database } from "bun:sqlite";
-import { existsSync } from "fs";
+import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { migrateRepoData, migrationIncomplete, REPO_INDEX_NS } from "./repo-index.ts";
 import { moveRepoTrackingEntry } from "./repo-tracking.ts";
-import { rtDir } from "./rt-paths.ts";
-import { parseIdentity, serializeIdentity } from "./settings/identity.ts";
+import { repoDataDir, rtDir } from "./rt-paths.ts";
+import { normalizeRemote, parseIdentity, serializeIdentity } from "./settings/identity.ts";
 import { CURSOR_NS } from "./state/cursors-store.ts";
 import { dropTableRows, moveKvKey, moveTableRows, type StoreReport } from "./state/reidentify.ts";
-import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
+import { machineSettingsPath, teamSettingsPath, teamsDir, userSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { listTeams } from "../packages/rt-client/src/settings/stores.ts";
 import { renameRepoSection } from "../packages/rt-client/src/settings/write.ts";
 
@@ -41,8 +41,15 @@ export function normalizeIdentityArg(arg: string): IdentityPair | null {
     if (parsed.kind !== "remote") return null;
     return { serialized: trimmed, raw: parsed.id };
   }
-  if (trimmed.includes(":") || !trimmed.includes("/")) return null;
-  return { serialized: serializeIdentity({ kind: "remote", id: trimmed }), raw: trimmed };
+  // A non-canonical wire would otherwise read as scp syntax with host "remote".
+  if (/^(remote|path):/.test(trimmed)) return null;
+  // normalizeRemote strips ".git" before trailing slashes, so strip them first;
+  // a bare host/path has no scheme for it to match, so lend it one.
+  const bare = trimmed.replace(/\/+$/, "");
+  if (bare.startsWith("/") || bare.startsWith("~")) return null;
+  const raw = normalizeRemote(bare) ?? normalizeRemote(`https://${bare}`);
+  if (!raw) return null;
+  return { serialized: serializeIdentity({ kind: "remote", id: raw }), raw };
 }
 
 const MOVED_TABLES = [
@@ -65,13 +72,44 @@ function guarded(store: string, run: () => StoreReport): StoreReport {
   }
 }
 
+/**
+ * migrateRepoData swallows its own readdir and rename failures and still
+ * reports every planned name, so the directories on disk are the only proof.
+ */
 function dataDirReport(from: string, to: string, dryRun: boolean): StoreReport {
   const store = "data-dir";
+  const fromDir = repoDataDir(from);
+  const toDir = repoDataDir(to);
+  if (existsSync(fromDir)) {
+    try {
+      readdirSync(fromDir);
+    } catch (err) {
+      return { store, status: "refused", count: 0, detail: `${fromDir} is unreadable: ${String(err)}` };
+    }
+  }
   const m = migrateRepoData(from, to, { dryRun });
   const count = m.moved.length + m.merged.length;
   if (migrationIncomplete(m)) return { store, status: "refused", count, detail: `refused: ${[...m.refused, ...(m.registry === "refused" ? ["worktree-registry"] : [])].join(", ")}` };
-  if (count === 0 && m.registry === "none") return { store, status: "none", count: 0 };
+  if (count === 0 && m.registry === "none") return { store, status: existsSync(toDir) ? "already" : "none", count: 0 };
+  if (!dryRun) {
+    const missing = [...m.moved, ...m.merged].filter((name) => !existsSync(join(toDir, name)));
+    if (missing.length > 0) return { store, status: "refused", count, detail: `did not land under ${toDir}: ${missing.join(", ")}` };
+    if (existsSync(fromDir)) return { store, status: "refused", count, detail: `${fromDir} was not removed` };
+  }
   return { store, status: "moved", count: count + (m.registry === "none" ? 0 : 1) };
+}
+
+/** listTeams reads an unlistable teams dir as no teams, which would skip every team store silently. */
+function teamsOrRefusal(): string[] | StoreReport {
+  const dir = teamsDir();
+  if (existsSync(dir)) {
+    try {
+      readdirSync(dir);
+    } catch (err) {
+      return { store: "settings:teams", status: "refused", count: 0, detail: `${dir} is unreadable: ${String(err)}` };
+    }
+  }
+  return listTeams();
 }
 
 function herdsReport(from: string, to: string, dryRun: boolean): StoreReport {
@@ -80,6 +118,8 @@ function herdsReport(from: string, to: string, dryRun: boolean): StoreReport {
   if (!existsSync(path)) return { store: "herds.repo", status: "none", count: 0 };
   const db = new Database(path, { readwrite: true, create: false });
   try {
+    // The daemon holds herds.db open in WAL mode; without a wait, its lock reads as a refusal.
+    db.run("PRAGMA busy_timeout = 2000");
     return moveTableRows("herds", "repo", from, to, { dryRun, db });
   } finally {
     db.close();
@@ -115,9 +155,11 @@ export async function reidentify(fromArg: string, toArg: string, opts: { dryRun?
   add("settings:machine", () => settingsReport("machine", machineSettingsPath(), from.raw, to.raw, dryRun));
   let teams: string[] = [];
   try {
-    teams = listTeams();
+    const listed = teamsOrRefusal();
+    if (Array.isArray(listed)) teams = listed;
+    else stores.push(listed);
   } catch (err) {
-    stores.push({ store: "settings:team", status: "refused", count: 0, detail: String(err) });
+    stores.push({ store: "settings:teams", status: "refused", count: 0, detail: String(err) });
   }
   for (const team of teams) add(`settings:team:${team}`, () => settingsReport(`team:${team}`, teamSettingsPath(team), from.raw, to.raw, dryRun));
 

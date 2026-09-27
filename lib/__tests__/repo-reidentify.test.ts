@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { REPO_INDEX_NS, loadRepoIndex } from "../repo-index.ts";
@@ -9,7 +9,7 @@ import { repoDataDir, rtDir } from "../rt-paths.ts";
 import { closeStateDb, getKvValue, getStateDb, setKvValue } from "../state/index.ts";
 import { CURSOR_NS } from "../state/cursors-store.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
-import { machineSettingsPath, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
+import { machineSettingsPath, teamsDir, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { readStore } from "../../packages/rt-client/src/settings/stores.ts";
 import { normalizeIdentityArg, reidentify } from "../repo-reidentify.ts";
 
@@ -24,6 +24,24 @@ describe("normalizeIdentityArg", () => {
     expect(normalizeIdentityArg(OLD)).toEqual({ serialized: OLD, raw: OLD_RAW });
     expect(normalizeIdentityArg("path:%2Ftmp%2Fx")).toBeNull();
     expect(normalizeIdentityArg("")).toBeNull();
+  });
+
+  test("normalizes every raw remote spelling onto the one identity", () => {
+    for (const form of [
+      "GitHub.com/acme/old",
+      "github.com/acme/old.git",
+      "github.com/acme/old/",
+      "github.com/acme/old.git/",
+      "https://github.com/acme/old.git",
+      "git@github.com:acme/old.git",
+    ]) {
+      expect(normalizeIdentityArg(form)).toEqual({ serialized: OLD, raw: OLD_RAW });
+    }
+  });
+
+  test("refuses a malformed wire and a local path", () => {
+    expect(normalizeIdentityArg("remote:bad%zz")).toBeNull();
+    expect(normalizeIdentityArg("/tmp/acme/old")).toBeNull();
   });
 });
 
@@ -149,6 +167,55 @@ describe("reidentify", () => {
     expect(herds.status).toBe("refused");
     expect(herds.detail).toBeTruthy();
     expect(r.stores.find((s) => s.store === "settings:user")!.status).toBe("moved");
+  });
+
+  test("a data dir move that fails partway is refused, not reported moved", async () => {
+    seedAll(OLD, OLD_RAW);
+    mkdirSync(repoDataDir(NEW), { recursive: true });
+    chmodSync(repoDataDir(NEW), 0o555);
+    try {
+      const r = await reidentify(OLD_RAW, NEW_RAW);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.ok).toBe(false);
+      const dataDir = r.stores.find((s) => s.store === "data-dir")!;
+      expect(dataDir.status).toBe("refused");
+      expect(dataDir.detail).toContain("run-history.jsonl");
+    } finally {
+      chmodSync(repoDataDir(NEW), 0o755);
+    }
+  });
+
+  test("an unreadable old data dir is refused, not reported none", async () => {
+    seedAll(OLD, OLD_RAW);
+    chmodSync(repoDataDir(OLD), 0o000);
+    try {
+      const r = await reidentify(OLD_RAW, NEW_RAW);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.stores.find((s) => s.store === "data-dir")!.status).toBe("refused");
+    } finally {
+      chmodSync(repoDataDir(OLD), 0o755);
+    }
+  });
+
+  test("a data dir already under the new identity reports already", async () => {
+    seedAll(OLD, OLD_RAW);
+    await reidentify(OLD_RAW, NEW_RAW);
+    const r = await reidentify(OLD_RAW, NEW_RAW);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.stores.find((s) => s.store === "data-dir")!.status).toBe("already");
+  });
+
+  test("a teams dir that cannot be listed is refused", async () => {
+    mkdirSync(teamsDir(), { recursive: true });
+    chmodSync(teamsDir(), 0o000);
+    try {
+      const r = await reidentify(OLD_RAW, NEW_RAW);
+      if ("error" in r) throw new Error(r.error);
+      expect(r.ok).toBe(false);
+      expect(r.stores.find((s) => s.store === "settings:teams")!.status).toBe("refused");
+    } finally {
+      chmodSync(teamsDir(), 0o755);
+    }
   });
 
   test("refuses a path-kind identity", async () => {
