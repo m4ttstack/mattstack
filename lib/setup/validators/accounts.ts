@@ -341,6 +341,8 @@ async function accountRowForSafe(p: Probes, entry: DeclaredEntry, team: TeamSnap
   }
 }
 
+const SOLO_FORGE_NOTE = "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt.";
+
 function slackAppRow(required: boolean): Row {
   return row({
     id: "account.slack-app",
@@ -360,8 +362,19 @@ function slackAppRow(required: boolean): Row {
   });
 }
 
-export async function accountRows(p: Probes, team: TeamSnapshot, reqs: PackRequirements[], secrets: SecretPresence, intent: SetupIntent | null, overrides: UserIntegrationOverrides = {}): Promise<Row[]> {
-  const declared = declaredIntegrations(team, reqs);
+export async function accountRows(
+  p: Probes,
+  team: TeamSnapshot,
+  reqs: PackRequirements[],
+  secrets: SecretPresence,
+  intent: SetupIntent | null,
+  overrides: UserIntegrationOverrides = {},
+  solo = false,
+): Promise<Row[]> {
+  const declared =
+    solo && !team.integrations.forge && reqs.length === 0
+      ? [{ id: "github" as Integration, required: false, optionalNote: SOLO_FORGE_NOTE }]
+      : declaredIntegrations(team, reqs);
   const wantsSlack = declared.some((e) => e.id === "slack");
   const slackAppNeeded = wantsSlack && !team.integrations.slack?.clientId;
   const slackAppRequired = intent?.mode === "create";

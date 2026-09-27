@@ -56,21 +56,46 @@ function userVersion(db: Database): number {
 }
 
 describe("openStateDb — fresh open", () => {
-  test("a fresh database reaches v13 directly, gaining every v1 through v13 change", () => {
+  test("a fresh database reaches v14 directly, gaining every v1 through v14 change", () => {
     const dbPath = join(dir, "state.db");
     const db = openStateDb(dbPath, "cli");
-    expect(SCHEMA_VERSION).toBe(13);
+    expect(SCHEMA_VERSION).toBe(14);
     expect(userVersion(db)).toBe(SCHEMA_VERSION);
-    // Full table-list coverage lives in db-schema-convergence.test.ts's
-    // dynamic presence test, derived from db.ts's own CREATE TABLE
-    // statements rather than a hand-maintained list here.
     const cols = (db.query("PRAGMA table_info(chat_rooms);").all() as { name: string }[]).map(c => c.name);
     expect(cols).toContain("archived_at");
     const agentCols = (db.query("PRAGMA table_info(agents);").all() as { name: string }[]).map(c => c.name);
     expect(agentCols).toContain("handle");
     const claimCols = (db.query("PRAGMA table_info(endpoint_claims);").all() as { name: string }[]).map(c => c.name);
     expect(claimCols).toContain("start_time");
+    const identityCols = (db.query("PRAGMA table_info(chat_identities);").all() as { name: string }[]).map(c => c.name);
+    expect(identityCols).toEqual(["id", "name", "base_name", "minted_at", "minted", "session_id"]);
+    const indexes = db
+      .query(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('chat_dms_b', 'chat_identities_name', 'chat_identities_session', 'chat_members_handle', 'chat_messages_handle') ORDER BY name;",
+      )
+      .all();
+    expect(indexes).toEqual([
+      { name: "chat_dms_b" },
+      { name: "chat_identities_name" },
+      { name: "chat_identities_session" },
+      { name: "chat_members_handle" },
+      { name: "chat_messages_handle" },
+    ]);
     db.close();
+  });
+
+  test("v14 adds chat_identities to a v13 database without touching a chat row", () => {
+    const dbPath = join(dir, "state.db");
+    const db = openStateDb(dbPath, "cli");
+    db.exec("DROP TABLE chat_identities;");
+    db.exec("INSERT INTO chat_members (room, handle, joined_at, last_read_id, wake_on) VALUES ('r', 'remy', 1, 0, 'mention');");
+    db.exec("PRAGMA user_version = 13;");
+    db.close();
+    const re = openStateDb(dbPath, "cli");
+    expect(userVersion(re)).toBe(14);
+    expect(re.query("SELECT handle FROM chat_members;").all()).toEqual([{ handle: "remy" }]);
+    expect(re.query("SELECT COUNT(*) AS n FROM chat_identities;").get()).toEqual({ n: 0 });
+    re.close();
   });
 
   test("the db file exists on disk after open", () => {
@@ -684,7 +709,7 @@ describe("getStateDb / closeStateDb — lazy singleton", () => {
     // unrelated exports (reading SCHEMA_VERSION, pushing to LEGACY_IMPORTS)
     // never opens or creates a db file on its own.
     const before = SCHEMA_VERSION;
-    expect(before).toBe(13);
+    expect(before).toBe(14);
     LEGACY_IMPORTS.push({ file: "x.json", import: () => {} });
     LEGACY_IMPORTS.length = 0;
     // No db.ts function that touches disk was called above; nothing to assert

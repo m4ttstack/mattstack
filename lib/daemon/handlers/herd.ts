@@ -21,6 +21,7 @@ import type { createAgentHandlers } from "./agent.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { slugifyChatName } from "../../chat-room-name.ts";
+import { baseOfHandle } from "../../chat-names.ts";
 import { readChatSession, writeChatSession } from "../../chat-session.ts";
 import { attendPane } from "../attend.ts";
 import type { TrustOutcome } from "../trust-accept.ts";
@@ -41,14 +42,20 @@ export interface HerdDeps {
   store: HerdStore;
   gateStore: Pick<GatesStore, "get" | "markConsumed">;
   gate: Pick<ReturnType<typeof createGateHandlers>, "gate:open" | "gate:list" | "gate:close" | "gate:subscribe" | "gate:subscriptions" | "gate:unsubscribe">;
-  chat: Pick<ReturnType<typeof createChatHandlers>, "chat:sign-in" | "chat:join" | "chat:post" | "chat:archive" | "chat:rooms">;
+  chat: Pick<ReturnType<typeof createChatHandlers>, "chat:sign-in" | "chat:sign-out" | "chat:join" | "chat:post" | "chat:archive" | "chat:rooms">;
   agent: Pick<ReturnType<typeof createAgentHandlers>, "agent:start">;
   worktree: { "worktree:provision": (payload: any) => Promise<any>; "worktree:dispose": (payload: any) => Promise<any> };
   runWorktree: (runId: string) => string | null;
   /** Live-run lookup by worktree path, for herd:close's advisory warning; wired from `findRunningRunByWorktree` in lib/runs/store.ts. */
   findRunningRunByWorktree: (worktree: string) => RunningRunScan;
-  /** The chat handle a session already holds, or null; wired from `presenceForSession` in lib/state/presence-store.ts. */
-  presenceHandleForSession: (session: string) => string | null;
+  /** The chat identity a session already holds, or null; wired from `presenceForSession` in lib/state/presence-store.ts. */
+  presenceIdentityForSession: (session: string) => { handle: string; baseHandle: string; name: string } | null;
+  /** Mints a worker identity whose display name is the job name, bound to no session yet; wired from `mintIdentity` in lib/state/identity-store.ts. */
+  mintWorkerId: (job: string) => string;
+  /** Display names for ids, every missing id mapping to itself; wired from `identityNames` in lib/state/identity-store.ts. */
+  identityNames: (ids: Iterable<string>) => Map<string, string>;
+  /** The id a typed name or id reaches; wired from `resolveHandle` in lib/state/identity-store.ts. */
+  resolveHandle: (x: string) => string;
   /** Whether the shepherd session's own inbox socket is currently accepting connections; wired from `probeInboxReachability` in lib/daemon/inbox.ts over `resolveInbox`'s binding. */
   probeInbox: (session: string) => Promise<"reachable" | "unreachable">;
   herdr: typeof herdrRequest;
@@ -77,11 +84,11 @@ export const HERD_OPTION_LABEL_MAX = 60;
     unless it is written here. A file already naming this handle is kept (it
     may carry the CLI's room and cwd); one naming another handle is stale and
     would make every chat_* call act as a handle the session no longer owns. */
-function recordChatSession(log: Logger, sessionId: string, handle: string, baseHandle: string): void {
+function recordChatSession(log: Logger, sessionId: string, identity: { handle: string; baseHandle: string; name: string }): void {
   try {
     const existing = readChatSession(sessionId);
-    if (existing?.handle === handle) return;
-    writeChatSession({ ...existing, sessionId, handle, baseHandle, signedInAt: Date.now() });
+    if (existing?.handle === identity.handle && existing.name === identity.name) return;
+    writeChatSession({ ...existing, sessionId, ...identity, signedInAt: Date.now() });
   } catch (err) {
     log.warn({ err, sessionId }, "herd: could not write the chat session file; chat_* tools will not resolve this session");
   }
@@ -130,9 +137,6 @@ const herdOrigin = (paneRef: string | undefined, session: string, questions: Gat
   paneRef
     ? { paneId: paneRef, presentation: Array.isArray(questions) && questions.every(isValidQuestion) ? gatePresentation({ paneId: paneRef, sessionId: session, questions }) : "wait" }
     : undefined;
-
-/** `shepherd-2` is a collision suffix chat mints, not a name to ask for again. */
-const baseHandleOf = (handle: string): string => handle.replace(/-\d+$/, "");
 
 export function workspaceLabel(herdId: string): string { return `herd: ${herdId}`; }
 export function roomName(herdId: string): string { return slugifyChatName(`herd-${herdId}`); }
@@ -213,12 +217,15 @@ export function createHerdHandlers(deps: HerdDeps) {
       deps.gate["gate:subscriptions"]({ session: herd.shepherdSession }),
       deps.probeInbox(herd.shepherdSession),
     ]);
-    const jobs = store.jobs(herdId).map((j: HerdJobRow) => {
+    const jobRows = store.jobs(herdId);
+    const names = deps.identityNames([herd.shepherdHandle, ...jobRows.map((j) => j.handle)]);
+    const jobs = jobRows.map((j: HerdJobRow) => {
       const last = j.lastGate ? deps.gateStore.get(j.lastGate) : null;
       const paneRow = j.pane ? (panes.get(parsePaneRef(j.pane).paneId) ?? null) : null;
       const ladder = deps.watchdog?.annotations(herdId, j.name) ?? null;
       return {
         ...j,
+        handleName: names.get(j.handle) ?? j.handle,
         // Round-trip rule: the row stores the addressable ref (agent:start
         // formats bg spawns; formatPaneRef is idempotent so pre-ref rows and
         // visible bares both come out addressable). The snapshot map keys on
@@ -257,7 +264,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         ? (subRow.lastDelivery.at >= ownerRow.lastDelivery.at ? subRow.lastDelivery : ownerRow.lastDelivery)
         : (subRow?.lastDelivery ?? ownerRow?.lastDelivery ?? null);
     return {
-      herd, jobs, unread,
+      herd: { ...herd, shepherdName: names.get(herd.shepherdHandle) ?? herd.shepherdHandle }, jobs, unread,
       lifecycleConnected: deps.lifecycle.connected(herd.herdrSocket),
       hiddenUp: herd.hidden ? await deps.bg.up() : null,
       subscription: subRow ? { id: subRow.id, dead: subRow.dead, lastDelivery: subRow.lastDelivery } : null,
@@ -304,13 +311,14 @@ export function createHerdHandlers(deps: HerdDeps) {
         herdrSocket = ensured.socket;
       }
 
-      let handle = deps.presenceHandleForSession(session);
-      if (!handle) {
+      let identity = deps.presenceIdentityForSession(session);
+      if (!identity) {
         const signIn = await deps.chat["chat:sign-in"]({ sessionId: session, baseHandle: SHEPHERD_HANDLE, noRoom: true });
         if (!signIn.ok) return signIn;
-        handle = signIn.data.handle;
+        identity = { handle: signIn.data.handle, baseHandle: signIn.data.baseHandle, name: signIn.data.name };
       }
-      recordChatSession(log, session, handle, SHEPHERD_HANDLE);
+      const handle = identity.handle;
+      recordChatSession(log, session, identity);
       const join = await deps.chat["chat:join"]({ room, handle });
       if (!join.ok) return join;
 
@@ -335,15 +343,25 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!herd) return { ok: false, error: `unknown herd "${herdId}"` };
       const sub = await subscribeShepherd(herdId, session, herd.shepherdSession);
       if (!sub.ok) return sub;
-      // Presence binds a handle to a session: without a row for the relaunched
-      // session, worker reports and lifecycle posts wake nobody.
-      let handle = deps.presenceHandleForSession(session);
-      if (!handle) {
-        const signIn = await deps.chat["chat:sign-in"]({ sessionId: session, baseHandle: baseHandleOf(herd.shepherdHandle), noRoom: true });
-        if (!signIn.ok) return signIn;
-        handle = signIn.data.handle;
+      // signIn refuses to continue an id live in another session; resume is
+      // the one takeover, so the replaced shepherd session gives it up first.
+      if (herd.shepherdSession !== session) {
+        const out = await deps.chat["chat:sign-out"]({ sessionId: herd.shepherdSession });
+        if (!out.ok) log.warn({ herd: herdId, error: out.error }, "herd resume: could not sign the prior shepherd session out");
       }
-      recordChatSession(log, session, handle, baseHandleOf(herd.shepherdHandle));
+      // A legacy id with no identity row resolves by name, which can reach
+      // another herd's newer shepherd; only an id that resolves to itself is
+      // this herd's own to continue.
+      const stored = herd.shepherdHandle;
+      const request = deps.resolveHandle(stored) === stored ? { continue: stored } : { baseHandle: baseOfHandle(stored) };
+      const signIn = await deps.chat["chat:sign-in"]({ sessionId: session, ...request, noRoom: true });
+      if (!signIn.ok) return signIn;
+      if (!signIn.data.continued) {
+        const why = "continue" in request ? "the shepherd id is live elsewhere" : "the stored shepherd id resolves to another identity";
+        log.warn({ herd: herdId, expected: stored, got: signIn.data.handle }, `herd resume: ${why}; resumed under a new one`);
+      }
+      const handle = signIn.data.handle;
+      recordChatSession(log, session, { handle, baseHandle: signIn.data.baseHandle, name: signIn.data.name });
       const join = await deps.chat["chat:join"]({ room: herd.room, handle });
       if (!join.ok) return join;
       store.setShepherd(herdId, { session, handle, pane: p?.callerPane ?? null });
@@ -362,7 +380,8 @@ export function createHerdHandlers(deps: HerdDeps) {
     "herd:list": async (raw: unknown): Promise<CommandResult<"herd:list">> => {
       const all = (raw as { all?: unknown } | undefined)?.all === true;
       const rows = all ? store.list() : store.list({ status: "active" });
-      return { ok: true, data: { herds: rows.map((h) => ({ ...h, jobs: store.jobs(h.id).length })) } };
+      const names = deps.identityNames(rows.map((h) => h.shepherdHandle));
+      return { ok: true, data: { herds: rows.map((h) => ({ ...h, shepherdName: names.get(h.shepherdHandle) ?? h.shepherdHandle, jobs: store.jobs(h.id).length })) } };
     },
 
     "herd:close": async (raw: unknown): Promise<CommandResult<"herd:close">> => {
@@ -427,9 +446,10 @@ export function createHerdHandlers(deps: HerdDeps) {
       // reviewer the shepherd already marked throwaway.
       const disposable = p?.disposable ?? prior?.disposable ?? false;
 
+      const workerId = deps.mintWorkerId(name);
       // The prior pane is closed above, so the row must not go on naming it
       // while agent:start decides whether there is a new one.
-      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: name, status: "spawning", disposable, pane: null, agentSession: null, agentId: null });
+      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", disposable, pane: null, agentSession: null, agentId: null });
       const started = await deps.agent["agent:start"]({
         // Pinned, never inherited from the agent.provider default: a worker
         // depends on claude-only machinery (the reserved chat handle
@@ -439,7 +459,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         provider: "claude",
         repo: herd.repo, cwd: worktree, prompt: brief, surface: "herdr",
         ...(str(p?.model) && { model: p!.model }), ...(str(p?.effort) && { effort: p!.effort }), ...(str(p?.account) && { account: p!.account }),
-        label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: name,
+        label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: workerId,
         subject: herdSubject(herdId, name),
         env: { HERD_ID: herdId, HERD_JOB: name, HERD_ROOM: herd.room },
         ...(herd.herdrSocket && { herdrSocket: herd.herdrSocket }),
@@ -450,17 +470,17 @@ export function createHerdHandlers(deps: HerdDeps) {
       });
       if (!started.ok) return started;
       const rec = started.data;
-      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: name, status: "spawning", pane: rec.paneId ?? null, agentSession: rec.sessionId, agentId: rec.id });
+      store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", pane: rec.paneId ?? null, agentSession: rec.sessionId, agentId: rec.id });
 
       // Chat identity first: the trust wait can spend its whole budget, and a
       // worker with no handle can neither report nor be reached meanwhile.
-      const signIn = await deps.chat["chat:sign-in"]({ sessionId: rec.sessionId, baseHandle: name, pane: rec.paneId, cwd: worktree, noRoom: true });
+      const signIn = await deps.chat["chat:sign-in"]({ sessionId: rec.sessionId, continue: workerId, pane: rec.paneId, cwd: worktree, noRoom: true });
       if (!signIn.ok) log.warn({ herd: herdId, job: name, error: signIn.error }, "herd: worker chat sign-in failed; reports will not deliver until it signs in");
-      const handle = signIn.ok ? signIn.data.handle : name;
-      if (signIn.ok) recordChatSession(log, rec.sessionId, handle, signIn.data.baseHandle);
+      const handle = signIn.ok ? signIn.data.handle : workerId;
+      if (signIn.ok) recordChatSession(log, rec.sessionId, { handle, baseHandle: signIn.data.baseHandle, name: signIn.data.name });
       const joined = await deps.chat["chat:join"]({ room: herd.room, handle, pane: rec.paneId, cwd: worktree });
       if (!joined.ok) log.warn({ herd: herdId, job: name, error: joined.error }, "herd: worker room join failed");
-      if (handle !== name) store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle, status: "spawning" });
+      if (handle !== workerId) store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle, status: "spawning" });
 
       // agent:start drives the dialog for every claude pane it launches
       // (RT-156); a non-claude provider's record carries no outcome at all.

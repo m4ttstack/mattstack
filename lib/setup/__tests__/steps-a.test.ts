@@ -435,6 +435,12 @@ describe("team.create", () => {
     expect(outcome.state).toBe("failed");
     expect((outcome as { remedy?: string }).remedy).toBe("Check your push access to the team repo, then Retry");
   });
+
+  test("a solo intent never makes team-of-one create a team", () => {
+    const { ctx } = makeCtx(fakeProbes(), { teamOfOne: true, intent: { v: 1, at: "", mode: "solo" }, team: { slug: "", name: "", mode: "none" } });
+    expect(teamCreateStep.applies(ctx)).toBe(false);
+    expect(teamJoinStep.applies(ctx)).toBe(false);
+  });
 });
 
 // ─── team.join ───────────────────────────────────────────────────────────────

@@ -110,6 +110,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // Test harness only: XCUITest can't toggle the real system appearance,
+        // so under stub mode it asks for a scheme via RT_STUB_APPEARANCE instead
+        // of -AppleInterfaceStyle, which this app does not otherwise honor.
+        if BundleFlavor.isStubActive {
+            switch ProcessInfo.processInfo.environment["RT_STUB_APPEARANCE"] {
+            case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+            case "light": NSApp.appearance = NSAppearance(named: .aqua)
+            default: break
+            }
+        }
+        #endif
         if LaunchGuard.isTranslocatedOrOnRemovableVolume(bundlePath: Bundle.main.bundlePath) {
             showMoveToApplicationsAlert()
             return
@@ -210,6 +222,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         NotificationCenter.default.addObserver(self, selector: #selector(showSettings), name: .rtShowSettings, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showUninstall), name: .rtShowUninstall, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(showSettingsTeam), name: .rtShowSettingsTeam, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(appsChanged), name: .rtAppsChanged, object: nil)
 
         checkMissionControlConflict()
         autoRegisterLoginItem()
@@ -763,6 +776,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @objc private func showSettings() { Task { @MainActor in coordinator?.showSettings() } }
     @objc private func showUninstall() { Task { @MainActor in coordinator?.showSettings(pane: .uninstall) } }
     @objc private func showSettingsTeam() { Task { @MainActor in coordinator?.showSettings(pane: .team) } }
+    @objc private func appsChanged() { Task { @MainActor in await windowModel?.invalidateCatalog() } }
 
     func applicationWillTerminate(_ notification: Notification) {
         statusTimer?.invalidate()

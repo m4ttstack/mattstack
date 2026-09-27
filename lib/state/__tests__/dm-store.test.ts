@@ -7,6 +7,7 @@ import { join } from "path";
 import { openStateDb } from "../db.ts";
 import { archiveRoom, joinRoom, listMembers, listRooms, postMessage, recipientsFor } from "../chat-store.ts";
 import { dmParticipants, dmRoomFor, listDms } from "../dm-store.ts";
+import { mintIdentity } from "../identity-store.ts";
 
 let n = 0;
 function fresh() {
@@ -93,4 +94,15 @@ test("an archived DM revives on the next dm post with both participants and the 
   expect(posted.recipients).toEqual(["b"]);
   expect(listRooms("a", db).map(r => r.room)).toEqual([room]);
   expect(listMembers(room, db).map(m => m.handle).sort()).toEqual(["a", "b", "matt"]);
+});
+
+test("two identities sharing a display name get separate DM rooms with the same peer", () => {
+  const db = fresh();
+  const minted = mintIdentity({ base: "remy", name: "remy", sessionId: "s1", now: 1 }, db);
+  const legacy = dmRoomFor("kai", "remy", "matt", db);
+  const mintedDm = dmRoomFor("kai", minted.id, "matt", db);
+  expect(mintedDm.room).not.toBe(legacy.room);
+  expect(listDms("kai", db).map((d) => d.room).sort()).toEqual([legacy.room, mintedDm.room].sort());
+  expect(listDms(minted.id, db).map((d) => d.room)).toEqual([mintedDm.room]);
+  expect(listMembers(mintedDm.room, db).map((m) => m.name).sort()).toEqual(["kai", "matt", "remy"]);
 });

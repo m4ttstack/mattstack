@@ -16,7 +16,8 @@ import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { z } from 'zod';
 
-import { PaneRow, usePanePicker } from './PanePicker';
+import { sameNameOrdinals } from './display-name';
+import { paneName, PaneRow, usePanePicker } from './PanePicker';
 import type { ChatPane, InviteResult } from './PanePicker/types';
 
 /** Always rendered outside `ThemeOverrideWrapper theme={chatFontTheme}`
@@ -63,6 +64,7 @@ export function NewRoomModal({
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
+  const ordinals = sameNameOrdinals(picked, paneName);
 
   const values = form.values;
   const invalid = !schema.safeParse(values).success;
@@ -214,9 +216,14 @@ export function NewRoomModal({
             <Box key={pane.paneId} data-testid={`picked-${pane.paneId}`}>
               <PaneRow
                 pane={pane}
+                ordinal={ordinals.get(pane)}
                 extra={
                   <TextInput
-                    aria-label="note for this pane"
+                    aria-label={
+                      ordinals.has(pane)
+                        ? `note for ${ordinals.get(pane)}`
+                        : 'note for this pane'
+                    }
                     placeholder="note for this pane (optional)"
                     value={notes[pane.paneId] ?? ''}
                     onChange={e => {
@@ -227,7 +234,11 @@ export function NewRoomModal({
                 }
                 trailing={
                   <UnstyledButton
-                    aria-label="Remove"
+                    aria-label={
+                      ordinals.has(pane)
+                        ? `Remove ${ordinals.get(pane)}`
+                        : 'Remove'
+                    }
                     type="button"
                     onClick={() => removePane(pane.paneId)}
                   >

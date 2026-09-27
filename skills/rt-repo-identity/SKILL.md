@@ -25,8 +25,11 @@ codec is not yours to write.
    repo-tools, `parseIdentity` then last path segment (remote) or basename
    (path) in consumers. `parseIdentity` hands back the id ALREADY decoded —
    never `decodeURIComponent` it again. The wire form is a key, never copy;
-   a label never goes back as a key. Chat handles (`[a-z0-9._-]+`) forbid
-   `%` and `:` — build them from the label, not the wire.
+   a label never goes back as a key. Chat handles are identity ids,
+   `<base>.<suffix>` (`remy.k3f9`), or a legacy bare name that is its own
+   id; the charset `[a-z0-9._-]+` forbids `%` and `:`, so build a base from
+   the label, never the wire. Show a handle's `name` (`name ?? handle`),
+   key on the handle, and never split a handle to find its name.
 5. `parseIdentity` is strict-canonical: only wires `serializeIdentity` emits
    parse, and it is the guard at every repo-keyed daemon verb — a bare name
    resolves EMPTY, never an error. Exception: `runs:*` verbs treat `repo` as
@@ -42,6 +45,6 @@ never name-match around it.
 
 | Need | Read |
 |---|---|
-| Full contract: derivation rules, verb families, legacy re-key/heal/prune, footguns | `docs/repo-identity.md` in the repo-tools checkout this skill symlinks from (here: `~/Documents/GitHub/repo-tools`) |
+| Full contract: derivation rules, verb families, legacy re-key/heal/prune, footguns | `docs/repo-identity.md` in the checkout this skill symlinks from (here: `~/Documents/GitHub/mattstack`) |
 | Settings scopes, registry checklist, adding a repo-scoped key | `docs/settings-architecture.md`, same checkout |
 | Codec signatures + copy-paste example while standing in a consumer repo | `node_modules/@mattstack/rt-client/README.md` (from that repo's root) |

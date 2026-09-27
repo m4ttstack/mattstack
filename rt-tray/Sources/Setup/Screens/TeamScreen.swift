@@ -3,6 +3,7 @@ import MattstackCore
 
 struct TeamScreen: View {
     @ObservedObject var model: TeamChoiceModel
+    var showsSolo = true
 
     var body: some View {
         ScrollView {
@@ -10,6 +11,11 @@ struct TeamScreen: View {
                 card(.create, title: "Create a team", systemImage: "person.3") { createFields }
                 card(.join, title: "Join a team", systemImage: "person.crop.circle.badge.plus") { joinFields }
                 // No restore card: its Continue runs `rt restore`, which rt does not have yet.
+                if showsSolo {
+                    card(.solo, title: "Just me", systemImage: "person") {
+                        Text(TeamChoiceModel.soloExplainer).font(.callout).foregroundStyle(.secondary)
+                    }
+                }
             }
             .padding(20)
         }
@@ -47,7 +53,7 @@ struct TeamScreen: View {
     }
 
     private func cardID(_ c: TeamChoice) -> String {
-        switch c { case .create: return AXID.teamCardCreate; case .join: return AXID.teamCardJoin; case .restore: return AXID.teamCardRestore }
+        switch c { case .create: return AXID.teamCardCreate; case .join: return AXID.teamCardJoin; case .restore: return AXID.teamCardRestore; case .solo: return AXID.teamCardSolo }
     }
 
     private func switchRow(_ label: String, isOn: Binding<Bool>, id: String) -> some View {

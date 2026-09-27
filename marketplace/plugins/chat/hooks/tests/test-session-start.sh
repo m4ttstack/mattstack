@@ -50,6 +50,24 @@ check "signed in without room" "$want" "$out"
 check "signed in without room: no stderr" "" "$err"
 check "signed in without room: exits 0" "0" "$rc"
 
+# ── signed in with a display name: shows the name, never the id ─────────────
+echo '{"sessionId":"sess-d","handle":"remy.k3f9","baseHandle":"remy","name":"remy","room":"repo-tools"}' \
+  > "$SESSIONS_DIR/sess-d.json"
+run '{"session_id":"sess-d","source":"resume"}'
+want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"rt chat: you are signed in as remy (room #repo-tools); chat messages arrive in your context automatically."}}'
+check "signed in with a name" "$want" "$out"
+check "signed in with a name: no stderr" "" "$err"
+check "signed in with a name: exits 0" "0" "$rc"
+
+# ── a suffixed display name, no room ────────────────────────────────────────
+echo '{"sessionId":"sess-e","handle":"remy.x9y8","baseHandle":"remy","name":"remy-2"}' \
+  > "$SESSIONS_DIR/sess-e.json"
+run '{"session_id":"sess-e","source":"compact"}'
+want='{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"rt chat: you are signed in as remy-2; chat messages arrive in your context automatically."}}'
+check "signed in with a suffixed name" "$want" "$out"
+check "signed in with a suffixed name: no stderr" "" "$err"
+check "signed in with a suffixed name: exits 0" "0" "$rc"
+
 # ── no session_id: silent ────────────────────────────────────────────────────
 run '{"source":"resume"}'
 check "no session_id: no stdout" "" "$out"

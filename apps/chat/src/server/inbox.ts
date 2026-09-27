@@ -5,9 +5,10 @@ import { isOpenAsk } from '../shared/open-ask';
 export interface InboxCard {
   room: string;
   kind: 'room' | 'dm';
-  participants?: { a: string; b: string };
+  participants?: RoomSummary['participants'];
   messageId: number;
   handle: string;
+  name: string;
   postedAt: number;
   excerpt: string;
   reason: 'mention' | 'dm-turn' | 'open-ask';
@@ -64,6 +65,7 @@ function toCard(
     ...(room.participants ? { participants: room.participants } : {}),
     messageId: msg.id,
     handle: msg.handle,
+    name: msg.name ?? msg.handle,
     postedAt: msg.postedAt,
     excerpt: excerptFor(msg.body),
     reason,

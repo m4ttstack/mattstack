@@ -1,5 +1,10 @@
 # rt chat delivery v2: socket-first — design
 
+> **Superseded in part:** `2026-09-27-chat-identity-design.md` replaces this
+> document's handle-as-identity statements: a handle is an identity id
+> behind a display name, and every new session is a new identity unless it
+> explicitly continues one.
+
 Date: 2026-08-28
 Status: ratified (decisions below approved by Matt in-session)
 Supersedes: the wake/tail delivery model of

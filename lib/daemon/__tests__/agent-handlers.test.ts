@@ -428,8 +428,9 @@ test("agent:start herdr reserves a handle not held by live presence, never passe
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.handle).toBeTruthy();
-  expect(AGENT_NAMES).toContain(res.data.handle!);
-  expect(res.data.handle).not.toBe(held);
+  expect(AGENT_NAMES).toContain(res.data.name!);
+  expect(res.data.name).not.toBe(held);
+  expect(res.data.handle!.startsWith(`${res.data.name}.`)).toBe(true);
 
   const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
   expect(cmd).not.toContain("'--name'");
@@ -457,6 +458,7 @@ test("agent:start headless never reserves a handle or passes --name/inline --set
   expect(res.ok).toBe(true);
   if (!res.ok) throw new Error("unreachable");
   expect(res.data.handle).toBeUndefined();
+  expect(res.data.name).toBeUndefined();
   expect(argv).not.toContain("--name");
   expect(argv).not.toContain('{"crossSessionInbound":"accept"}');
 });
@@ -753,6 +755,7 @@ test("agent:start with handle records it, reserves no pool handle, and keeps inb
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr", handle: "job-a" });
   if (!res.ok) throw new Error(res.error);
   expect(res.data.handle).toBe("job-a");
+  expect(res.data.name).toBe("job-a");
   const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")?.[3] ?? "";
   expect(paneRun).toContain('{"crossSessionInbound":"accept"}');
   expect(paneRun).not.toContain("'--name'");
@@ -1321,4 +1324,16 @@ test("a launched agent's own ps args carry the pointer and no prompt text, with 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("agent:get and agent:list carry the reserved identity's display name beside its id", async () => {
+  const h = fresh({ runner: okRunner([]) });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "hi", surface: "herdr" });
+  if (!res.ok) throw new Error(res.error);
+  const got = await h["agent:get"]({ id: res.data.id });
+  if (!got.ok) throw new Error(got.error);
+  expect(got.data).toMatchObject({ handle: res.data.handle, name: res.data.name });
+  const listed = await h["agent:list"]({});
+  if (!listed.ok) throw new Error(listed.error);
+  expect(listed.data.agents.find((a) => a.id === res.data.id)).toMatchObject({ handle: res.data.handle, name: res.data.name });
 });

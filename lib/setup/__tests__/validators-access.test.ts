@@ -442,6 +442,13 @@ describe("accessRows — access.switchboard", () => {
   });
 });
 
+describe("accessRows on solo", () => {
+  test("no rows at all, whatever the snapshot says", async () => {
+    const rows = await accessRows(fakeProbes(), baseTeam({ remote: REMOTE, trackingIdentities: ["github.com/acme/x"] }), null, {}, undefined, true);
+    expect(rows).toEqual([]);
+  });
+});
+
 describe("accessRows — independent probes run concurrently (R-T9-e)", () => {
   test("row order is deterministic (team-repo, forge, repo.*, switchboard) regardless of which probe resolves first", async () => {
     const team = baseTeam({

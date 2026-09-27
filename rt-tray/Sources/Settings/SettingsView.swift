@@ -12,6 +12,7 @@ enum SettingsPaneContent {
             case .general: GeneralPane(env: env)
             case .permissions: PermissionsPane(env: env)
             case .fastBrowser: FastBrowserPane(env: env)
+            case .apps: AppsPane(env: env)
             case .team: TeamPane(env: env)
             case .uninstall: UninstallPane(env: env)
             }

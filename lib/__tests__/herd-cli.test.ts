@@ -2,7 +2,7 @@ import { describe, test, expect, spyOn } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderStatus, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
+import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderResumed, renderStatus, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
 import type { Commands, HerdListRow, HerdStatusData } from "../../packages/rt-client/src/index.ts";
 
 async function run(fn: (args: string[]) => Promise<void>, args: string[]) {
@@ -72,7 +72,7 @@ describe("rt herd payload builders", () => {
 
 describe("rt herd list", () => {
   const row = (over: Partial<HerdListRow> = {}): HerdListRow => ({
-    id: "hd-1", repo: "r", room: "herd-hd-1", workspace: "w", shepherdSession: "s", shepherdHandle: "shep",
+    id: "hd-1", repo: "r", room: "herd-hd-1", workspace: "w", shepherdSession: "s", shepherdHandle: "shep", shepherdName: "shep",
     herdrSocket: null, hidden: false, status: "active", createdAt: 0, wrappedAt: null, jobs: 2, ...over,
   });
 
@@ -123,7 +123,7 @@ describe("renderAnswer", () => {
 
 function statusData(over: Partial<HerdStatusData>): HerdStatusData {
   return {
-    herd: { id: "hd-1", repo: "r", room: "herd-1", workspace: "w1", shepherdSession: "s", shepherdHandle: "shep", herdrSocket: null, hidden: false, status: "active", createdAt: 0, wrappedAt: null },
+    herd: { id: "hd-1", repo: "r", room: "herd-1", workspace: "w1", shepherdSession: "s", shepherdHandle: "shep", shepherdName: "shep", herdrSocket: null, hidden: false, status: "active", createdAt: 0, wrappedAt: null },
     jobs: [],
     unread: 0,
     lifecycleConnected: true,
@@ -137,7 +137,7 @@ function statusData(over: Partial<HerdStatusData>): HerdStatusData {
 function job(over: Partial<HerdStatusData["jobs"][number]>): HerdStatusData["jobs"][number] {
   return {
     herd: "hd-1", name: "job-a", worktree: "/tmp/job-a", branch: null, tree: null, pane: "w1:p1",
-    agentSession: null, agentId: null, handle: "job-a", status: "active", disposable: false,
+    agentSession: null, agentId: null, handle: "job-a", handleName: "job-a", status: "active", disposable: false,
     lastGate: null, lastReport: null, createdAt: 0, updatedAt: 0,
     openGate: null, paneStatus: "idle", sessionDead: false, lastGateStatus: null, lastGateDelivery: null, lastGateConsumed: null,
     ...over,
@@ -358,5 +358,18 @@ describe("renderStatus", () => {
 
     const unreachable = renderStatus(statusData({ push: { state: "unreachable", lastDelivery: { outcome: "delivered", at: Date.now() - 5 * 60_000 } } }));
     expect(unreachable).toContain("push: unreachable (last delivery 5m ago)");
+  });
+
+  test("the dead-pane remedy DMs the worker by name, never by id", () => {
+    const data = statusData({ jobs: [job({ lastGate: "gt-9", lastGateStatus: "answered", lastGateDelivery: "dead-pane", handle: "job-a.w001", handleName: "job-a" })] });
+    const out = renderStatus(data);
+    expect(out).toContain("worker not woken: rt chat dm job-a");
+    expect(out).not.toContain("job-a.w001");
+  });
+
+  test("renderResumed names the shepherd by name", () => {
+    const status = statusData({ herd: { ...statusData({}).herd, shepherdHandle: "shep.k3f9", shepherdName: "shep" } });
+    const line = renderResumed("hd-1", { subscription: "sub-1", gates: [], unread: 2, status, handle: "shep.k3f9" });
+    expect(line).toBe("resumed hd-1 as shep: subscription sub-1, 0 open gate(s), 2 unread");
   });
 });

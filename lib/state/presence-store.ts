@@ -1,16 +1,30 @@
 /**
- * lib/state/presence-store.ts — sign-in presence for `rt chat` (RT-48).
+ * lib/state/presence-store.ts: sign-in presence for `rt chat` (RT-48).
  * The only module that touches `chat_presence`; `chat_room_defaults` and
- * `chat_dms` remain chat-store.ts's and dm-store.ts's respectively, since
- * neither carries a heartbeat or a reclaim predicate.
+ * `chat_dms` remain chat-store.ts's and dm-store.ts's respectively, and
+ * identities and display names come from identity-store.ts.
  */
 
 import { Database } from "bun:sqlite";
-import { AGENT_NAMES, pickAgentName } from "../chat-names.ts";
+import { AGENT_NAMES, baseOfHandle, pickAgentName } from "../chat-names.ts";
 import { resolveAllInboxes, resolveInbox, inboxAlive } from "../claude-registry.ts";
 import { persistOrWarn, runCriticalWrite } from "./busy.ts";
 import { getStateDb } from "./db.ts";
-import { capKvNamespace, getKvValue, replaceKvValue, setKvValue } from "./kv-blob.ts";
+import {
+  bindIdentitySession,
+  fixedIdentityRefusal,
+  getIdentity,
+  identityForSession,
+  identityName,
+  identityNames,
+  isFixedChatName,
+  isKnownId,
+  mintIdentity,
+  renameIdentity,
+  resolveHandle,
+  type IdentityRow,
+} from "./identity-store.ts";
+import { getKvValue, setKvValue } from "./kv-blob.ts";
 
 export type BuddyStatus = "live" | "idle" | "offline";
 
@@ -18,6 +32,7 @@ export interface PresenceRow {
   sessionId: string;
   handle: string;
   baseHandle: string;
+  name: string;
   cwd?: string;
   repo?: string;
   branch?: string;
@@ -64,11 +79,12 @@ interface PresenceRawRow {
   signed_out_at: number | null;
 }
 
-function rowToPresence(row: PresenceRawRow): PresenceRow {
+function rowToPresence(row: PresenceRawRow, name: string): PresenceRow {
   const presence: PresenceRow = {
     sessionId: row.session_id,
     handle: row.handle,
     baseHandle: row.base_handle,
+    name,
     signedInAt: row.signed_in_at,
     lastSeenAt: row.last_seen_at,
   };
@@ -116,12 +132,7 @@ const PRUNABLE_SQL = `(signed_out_at IS NOT NULL AND signed_out_at < ?) OR (sign
 
 const SELECT_PRESENCE_BY_HANDLE_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE handle = ?;`;
 const SELECT_PRESENCE_BY_SESSION_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE session_id = ?;`;
-// The whole suffix family in one query, so signIn's seat selection scans an
-// in-memory set instead of probing candidates one handle string at a time (a
-// probe loop can never look past the first free slot to a same-base row
-// beyond it). Reclaimability is computed in TS (isReclaimable), never SQL --
-// it depends on a live registry probe.
-const SELECT_BASE_HANDLE_ROWS_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE base_handle = ?;`;
+const SELECT_ALL_PRESENCE_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence;`;
 // The roster's own cutoff is the signed-out leg alone, never last_seen_at:
 // a stale-but-live-binding row must reach buddyStatus to be classified
 // live/idle, not disappear from the list before buddyStatus ever sees it.
@@ -179,13 +190,7 @@ export function buddyStatus(
   return binding.status === "busy" ? "live" : "idle";
 }
 
-/**
- * The suffix number a handle occupies within `baseHandle`'s family (`x` is
- * 1, `x-2` is 2, …), or null when `handle` isn't one of that family's
- * members at all — the case for a session's remembered handle after its
- * own baseHandle has changed (a different cwd), where no suffix of the new
- * base can mean "this exact prior handle".
- */
+/** The suffix number a display name occupies within `baseHandle`'s family (`x` is 1, `x-2` is 2, ...), or null when it is not one of that family's names. */
 function suffixOf(handle: string, baseHandle: string): number | null {
   if (handle === baseHandle) return 1;
   const prefix = `${baseHandle}-`;
@@ -198,38 +203,79 @@ function suffixToHandle(suffix: number, baseHandle: string): string {
   return suffix === 1 ? baseHandle : `${baseHandle}-${suffix}`;
 }
 
-/**
- * (c)/(d): walks suffixes from 1, skipping ones this family already
- * occupies, and returns the first that's free or reclaimable GLOBALLY — a
- * suffix absent from the family can still be held by an unrelated base's
- * family (`handle` is globally UNIQUE, `base_handle` is not what's being
- * matched here), so each such candidate needs its own check against the
- * whole table rather than just this family's rows.
- */
-function findOpenSuffix(
-  db: Database,
-  baseHandle: string,
-  bySuffix: Map<number, PresenceRawRow & { reclaimable: boolean }>,
-  sessionStaleCutoff: number,
-  deps: RegistryDeps,
-): { suffix: number; row: (PresenceRawRow & { reclaimable: boolean }) | null } {
-  for (let candidate = 1; ; candidate++) {
-    if (bySuffix.has(candidate)) continue;
-    // `handle` is globally UNIQUE across every base_handle family, so a
-    // "gap" suffix absent from THIS family's rows can still be occupied by
-    // a row from an unrelated one (e.g. a worktree dir literally named "2"
-    // derives the base "x-2", which collides with "x"'s own second suffix).
-    const globalRow = db.query(SELECT_PRESENCE_BY_HANDLE_SQL).get(suffixToHandle(candidate, baseHandle)) as PresenceRawRow | null;
-    if (!globalRow) return { suffix: candidate, row: null };
-    const reclaimable = isReclaimable(globalRow, sessionStaleCutoff, deps);
-    if (reclaimable) return { suffix: candidate, row: { ...globalRow, reclaimable } };
+export type SignInResult = { handle: string; baseHandle: string; name: string; reclaimed: boolean; continued: boolean };
+
+type Seat = PresenceRawRow & { name: string; reclaimable: boolean };
+
+/** Every presence row by display name. signIn deletes a reclaimable holder before reusing its name, so names are unique across chat_presence and the map drops nothing. */
+function seatsByName(db: Database, sessionStaleCutoff: number, deps: RegistryDeps): Map<string, Seat> {
+  const rows = db.query(SELECT_ALL_PRESENCE_SQL).all() as PresenceRawRow[];
+  const names = identityNames(rows.map((row) => row.handle), db);
+  const seats = new Map<string, Seat>();
+  for (const row of rows) {
+    const name = names.get(row.handle)!;
+    seats.set(name, { ...row, name, reclaimable: isReclaimable(row, sessionStaleCutoff, deps) });
   }
+  return seats;
+}
+
+/**
+ * The session's own previous name when it is free; else the name of a
+ * reclaimable row on the same cwd and pane (a restarted process keeps its
+ * seat's name, never its id); else the lowest free or reclaimable suffix.
+ */
+function pickDisplayName(
+  baseHandle: string,
+  preferred: string | undefined,
+  seat: { cwd: string | null; pane: string | null },
+  seats: Map<string, Seat>,
+): string {
+  const free = (name: string): boolean => !isFixedChatName(name) && (seats.get(name)?.reclaimable ?? true);
+  if (preferred !== undefined && suffixOf(preferred, baseHandle) !== null && free(preferred)) return preferred;
+  const sameSeat = [...seats.values()]
+    .filter((row) => row.reclaimable && row.cwd === seat.cwd && row.pane === seat.pane && suffixOf(row.name, baseHandle) !== null)
+    .sort((a, b) => suffixOf(a.name, baseHandle)! - suffixOf(b.name, baseHandle)!);
+  if (sameSeat.length > 0) return sameSeat[0]!.name;
+  for (let suffix = 1; ; suffix++) {
+    const name = suffixToHandle(suffix, baseHandle);
+    if (free(name)) return name;
+  }
+}
+
+/** False when a live session other than the caller sits on `id`; a reclaimable holder is deleted so the id can be seated again. */
+function claimIdentitySeat(id: string, sessionStaleCutoff: number, deps: RegistryDeps, db: Database): boolean {
+  const holder = db.query(SELECT_PRESENCE_BY_HANDLE_SQL).get(id) as PresenceRawRow | null;
+  if (!holder) return true;
+  if (!isReclaimable(holder, sessionStaleCutoff, deps)) return false;
+  db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(holder.session_id);
+  return true;
+}
+
+/** A presence row written before identities existed: its handle is the session's id. */
+function legacyIdentity(row: PresenceRawRow): IdentityRow {
+  return { id: row.handle, name: row.handle, baseName: row.base_handle, mintedAt: row.signed_in_at, sessionId: row.session_id };
+}
+
+function heldByAnotherSession(handle: string): Error {
+  return new Error(`chat: handle reclaimed: "${handle}" is now held by another session; sign in again`);
+}
+
+/** The identity `continueId` names, or, when it names no known identity, the display name to mint under (`--as newname` has nothing to continue). */
+function continuationTarget(continueId: string, db: Database): IdentityRow | string {
+  const id = resolveHandle(continueId, db);
+  for (const x of [continueId, id]) {
+    const refusal = fixedIdentityRefusal(x);
+    if (refusal) throw new Error(`chat: may not continue ${JSON.stringify(x)}: ${refusal}`);
+  }
+  if (!isKnownId(id, db)) return id;
+  return getIdentity(id, db) ?? { id, name: id, baseName: baseOfHandle(id), mintedAt: 0, sessionId: null };
 }
 
 export function signIn(
   args: {
     sessionId: string;
     baseHandle?: string;
+    continueId?: string;
     cwd?: string;
     repo?: string;
     branch?: string;
@@ -239,13 +285,11 @@ export function signIn(
   },
   db: Database = getStateDb(),
   deps: RegistryDeps = defaultRegistryDeps,
-): { handle: string; baseHandle: string; reclaimed: boolean } | undefined {
+): SignInResult | undefined {
   const { sessionId, statusText } = args;
-  // Defense in depth: the handler (lib/daemon/handlers/chat.ts) is the
-  // root-cause guard, but session_id is a bare TEXT PRIMARY KEY with no
-  // NOT NULL/CHECK constraint (bun:sqlite binds undefined as NULL, which
-  // SQLite accepts), so any future caller of this store function directly
-  // must not be able to wedge the same NULL-keyed-row failure mode.
+  // Defense in depth: session_id is a bare TEXT PRIMARY KEY with no NOT
+  // NULL/CHECK constraint (bun:sqlite binds undefined as NULL), so a direct
+  // caller must not be able to wedge a NULL-keyed row.
   if (!sessionId) throw new Error("signIn: sessionId is required");
   const cwd = args.cwd ?? null;
   const repo = args.repo ?? null;
@@ -255,91 +299,58 @@ export function signIn(
   const th = presenceThresholds();
   const sessionStaleCutoff = now - th.sessionStaleMs;
 
-  const run = db.transaction((): { handle: string; baseHandle: string; reclaimed: boolean } => {
-    // One registry scan for the whole transaction: prune's binding check,
-    // every family row's reclaimability, and findOpenSuffix's candidate
-    // walk all resolve against this same snapshot instead of each doing
-    // its own directory read.
+  const run = db.transaction((): SignInResult => {
     const scoped = snapshotRegistryDeps(deps);
-
-    // The two moments a handle is about to be needed (spec "Pruning").
     prunePresence(now, db, scoped);
 
-    // A session may always retake its own seat: drop whatever row it
-    // already held before selecting, so a repeat sign-in is idempotent
-    // rather than a raw UNIQUE violation against the very handle it's
-    // about to be granted again. Once dropped, that exact handle string
-    // can never be "occupied" by anyone else inside this same transaction.
-    // With no base requested, the row's own base is kept over a fresh
-    // draw, so a repeat sign-in never changes identity.
     const ownPriorRow = db.query(SELECT_PRESENCE_BY_SESSION_SQL).get(sessionId) as PresenceRawRow | null;
+    // Resolve continueId (resolveHandle's live-name lookup included) before
+    // dropping the caller's own row, or a session continuing its own live
+    // display name would find no live holder for it and fall through to a
+    // newer identity sharing that name.
+    const target = args.continueId === undefined ? undefined : continuationTarget(args.continueId, db);
     if (ownPriorRow) db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(sessionId);
-    const baseHandle = args.baseHandle ?? ownPriorRow?.base_handle ?? drawPoolName(db);
 
-    const familyRowsRaw = db.query(SELECT_BASE_HANDLE_ROWS_SQL).all(baseHandle) as PresenceRawRow[];
-    const familyRows = familyRowsRaw.map((row) => ({ ...row, reclaimable: isReclaimable(row, sessionStaleCutoff, scoped) }));
-    const bySuffix = new Map<number, PresenceRawRow & { reclaimable: boolean }>();
-    for (const row of familyRows) {
-      const suffix = suffixOf(row.handle, baseHandle);
-      if (suffix !== null) bySuffix.set(suffix, row);
+    const continued = typeof target === "object";
+    if (continued && !claimIdentitySeat(target.id, sessionStaleCutoff, scoped, db)) throw heldByAnotherSession(target.id);
+    let identity: IdentityRow | undefined = continued
+      ? target
+      : (identityForSession(sessionId, db) ?? (ownPriorRow ? legacyIdentity(ownPriorRow) : undefined));
+    if (!continued && identity && !claimIdentitySeat(identity.id, sessionStaleCutoff, scoped, db)) identity = undefined;
+    const requestedBase = typeof target === "string" ? target : args.baseHandle;
+    const baseHandle = continued ? target.baseName : (requestedBase ?? identity?.baseName ?? drawPoolName(db));
+
+    const seats = seatsByName(db, sessionStaleCutoff, scoped);
+    const name = pickDisplayName(baseHandle, identity?.name, { cwd, pane }, seats);
+    const displaced = seats.get(name);
+    if (displaced) db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(displaced.session_id);
+
+    let handle: string;
+    if (identity) {
+      handle = identity.id;
+      bindIdentitySession(handle, sessionId, db);
+      renameIdentity(handle, name, baseHandle, db);
+    } else {
+      handle = mintIdentity({ base: baseHandle, name, sessionId, now }, db).id;
     }
-
-    // "Own seat" (a): the session's own previous row, if it named a suffix
-    // within THIS baseHandle's family (suffixOf returns null when the
-    // remembered handle belonged to a different base — nothing here to
-    // prefer) — or, failing that, a reclaimable family row whose cwd AND
-    // pane both match the incoming session (a restarted process: new
-    // session id, same seat). Every family row here is already the sole
-    // global occupant of its exact handle string (handle is UNIQUE), so
-    // neither branch needs a global check: the own-row slot is free by
-    // construction (just dropped above) and the cwd/pane match is a real
-    // row already in hand.
-    let winnerSuffix: number | null = ownPriorRow ? suffixOf(ownPriorRow.handle, baseHandle) : null;
-    let winnerRow: (PresenceRawRow & { reclaimable: boolean }) | null = null;
-    if (winnerSuffix === null) {
-      const seatMatch = familyRows.find((row) => row.reclaimable && row.cwd === cwd && row.pane === pane);
-      if (seatMatch) {
-        winnerSuffix = suffixOf(seatMatch.handle, baseHandle);
-        winnerRow = seatMatch;
-      }
-    }
-
-    if (winnerSuffix === null) {
-      // (b) the first reclaimable row, by suffix order — same reasoning:
-      // a family row is already the exact global occupant.
-      const reclaimableBySuffix = [...bySuffix.entries()].filter(([, row]) => row.reclaimable).sort((a, b) => a[0] - b[0]);
-      if (reclaimableBySuffix.length > 0) [winnerSuffix, winnerRow] = reclaimableBySuffix[0]!;
-    }
-
-    if (winnerSuffix === null) {
-      const open = findOpenSuffix(db, baseHandle, bySuffix, sessionStaleCutoff, scoped);
-      winnerSuffix = open.suffix;
-      winnerRow = open.row;
-    }
-
-    const handle = suffixToHandle(winnerSuffix, baseHandle);
-    // The old row's session_id is its primary key and its handle is
-    // UNIQUE, so it cannot be updated into the new session — delete then insert.
-    if (winnerRow) db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(winnerRow.session_id);
     db.query(INSERT_PRESENCE_SQL).run(sessionId, handle, baseHandle, cwd, repo, branch, pane, statusText ?? null, now, now);
     recordPoolNameUse(baseHandle, now, db);
 
-    return { handle, baseHandle, reclaimed: winnerRow !== null };
+    return { handle, baseHandle, name, reclaimed: displaced !== undefined, continued };
   });
 
   // A signed-in identity is not re-derivable from anything else (R057): a
-  // busy connection here must retry, not warn-and-drop the way a cache-class
-  // write can.
+  // busy connection here must retry, not warn-and-drop.
   return runCriticalWrite("signIn", () => run.immediate(), { sessionId });
 }
 
 const NAMES_KV_NS = "chat";
 const NAMES_KV_KEY = "names";
-const SELECT_ALL_HANDLES_SQL = `SELECT handle FROM chat_presence;`;
+const SELECT_ALL_BASES_SQL = `SELECT base_handle FROM chat_presence;`;
 
-/** Runs after the prune, so every remaining row counts as held: signed-out rows in their offline window included, which is exactly the buddy list. */
+/** Runs after the prune, so every remaining row's base counts as held: signed-out rows in their offline window included, which is exactly the buddy list. */
 function drawPoolName(db: Database): string {
-  const taken = (db.query(SELECT_ALL_HANDLES_SQL).all() as { handle: string }[]).map((r) => r.handle);
+  const taken = (db.query(SELECT_ALL_BASES_SQL).all() as { base_handle: string }[]).map((r) => r.base_handle);
   return pickAgentName(taken, getKvValue<Record<string, number>>(NAMES_KV_NS, NAMES_KV_KEY, {}, db));
 }
 
@@ -351,45 +362,21 @@ function recordPoolNameUse(name: string, now: number, db: Database): void {
 }
 
 /**
- * Draws a pool name for an agent that has not signed in yet (`rt agent
- * start`), against the same live-presence-held set and LRU ledger `signIn`'s
- * own draw uses, and records the draw immediately -- so a second
- * reservation or a sign-in racing before this agent's own chat:sign-in
- * lands does not also land on it.
+ * Mints the identity for an agent that has not signed in yet (`rt agent
+ * start`) under a pool name drawn against the same held set and LRU ledger
+ * `signIn` uses, and records the draw at once, so a second reservation or a
+ * racing sign-in does not also land on the name. Returns the id; the agent's
+ * sign-in continues it.
  */
 export function reserveAgentHandle(db: Database = getStateDb(), now: number = Date.now()): string {
   const run = db.transaction((): string => {
     const name = drawPoolName(db);
     recordPoolNameUse(name, now, db);
-    return name;
+    return mintIdentity({ base: name, name, sessionId: null, now }, db).id;
   });
   // BEGIN IMMEDIATE: read-then-write must lock up front or SQLITE_BUSY_SNAPSHOT
-  // bypasses busy_timeout (same reason as signIn's S073 fix above).
+  // bypasses busy_timeout (same reason as signIn's).
   return run.immediate();
-}
-
-const PANE_HANDLES_NS = "chat_pane_handles";
-// A long-lived daemon accumulates one pin per herdr pane it ever saw; the cap
-// keeps the ledger bounded, dropping the least-recently-pinned panes first.
-const PANE_HANDLE_CAP = 200;
-
-/** The base handle a herdr pane last signed in under, or undefined if this daemon has no pin for it. */
-export function paneHandleFor(paneId: string, db: Database = getStateDb()): string | undefined {
-  const v = getKvValue<string | null>(PANE_HANDLES_NS, paneId, null, db);
-  return typeof v === "string" && v ? v : undefined;
-}
-
-/**
- * Pins `paneId` to `baseHandle` so a later session on the same pane redraws
- * it instead of a fresh pool name, then caps the ledger to its most-recently
- * -written pins (deterministic even when writes share a millisecond).
- */
-export function rememberPaneHandle(paneId: string, baseHandle: string, db: Database = getStateDb()): void {
-  // replaceKvValue, not setKvValue: re-pinning a known pane must take a fresh
-  // rowid so capKvNamespace's recency order counts it as the most recent write,
-  // not the stale rowid an in-place upsert would keep.
-  replaceKvValue(PANE_HANDLES_NS, paneId, baseHandle, db);
-  capKvNamespace(PANE_HANDLES_NS, PANE_HANDLE_CAP, db);
 }
 
 export function signOut(sessionId: string, now: number = Date.now(), db: Database = getStateDb()): void {
@@ -425,22 +412,23 @@ export function listBuddies(
   const th = presenceThresholds();
   const dayAgo = now - th.pruneMs;
   const rows = db.query(SELECT_ROSTER_SQL).all(dayAgo) as PresenceRawRow[];
+  const names = identityNames(rows.map((row) => row.handle), db);
   // One registry scan for the whole roster, reused by every row's status.
   const scoped = snapshotRegistryDeps(deps);
   return rows.map((raw) => {
-    const presence = rowToPresence(raw);
+    const presence = rowToPresence(raw, names.get(raw.handle)!);
     return { ...presence, status: buddyStatus(presence, now, th, scoped) };
   });
 }
 
 export function presenceForHandle(handle: string, db: Database = getStateDb()): PresenceRow | null {
   const row = db.query(SELECT_PRESENCE_BY_HANDLE_SQL).get(handle) as PresenceRawRow | null;
-  return row ? rowToPresence(row) : null;
+  return row ? rowToPresence(row, identityName(row.handle, db)) : null;
 }
 
 export function presenceForSession(sessionId: string, db: Database = getStateDb()): PresenceRow | null {
   const row = db.query(SELECT_PRESENCE_BY_SESSION_SQL).get(sessionId) as PresenceRawRow | null;
-  return row ? rowToPresence(row) : null;
+  return row ? rowToPresence(row, identityName(row.handle, db)) : null;
 }
 
 /** Handle-keyed payloads (dm/dm-open): enforced only when a presence row exists for the handle AND a session id was offered (the unsigned plan-1 path stays unenforced). */
@@ -448,7 +436,7 @@ export function assertSessionOwnsHandle(handle: string, sessionId: string | unde
   if (sessionId === undefined) return;
   const row = db.query(SELECT_PRESENCE_BY_HANDLE_SQL).get(handle) as PresenceRawRow | null;
   if (row === null) return;
-  if (row.session_id !== sessionId) throw new Error(`chat: handle reclaimed — "${handle}" is now held by another session; sign in again`);
+  if (row.session_id !== sessionId) throw heldByAnotherSession(handle);
 }
 
 /**

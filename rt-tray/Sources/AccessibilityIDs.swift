@@ -26,6 +26,7 @@ enum AXID {
     static let teamCardCreate = "setup.team.card.create"
     static let teamCardJoin = "setup.team.card.join"
     static let teamCardRestore = "setup.team.card.restore"
+    static let teamCardSolo = "setup.team.card.solo"
     static let teamCreateName = "setup.team.create.name"
     static let teamCreateOthers = "setup.team.create.others"
     static let teamCreateUseGh = "setup.team.create.useGh"
@@ -106,6 +107,7 @@ enum AXID {
     static let settingsFastBrowserSkipped = "settings.fastBrowser.skipped"
     static let settingsFastBrowserUnskip = "settings.fastBrowser.unskip"
     static let settingsFastBrowserError = "settings.fastBrowser.error"
+    static func settingsAppToggle(_ name: String) -> String { "settings.apps.toggle.\(name)" }
     static let settingsWritingStyleRow = "settings.writingStyle.row"
     static let settingsWritingStyleRowAction = "settings.writingStyle.row.action"
     static let settingsWritingStyleRowStatus = "settings.writingStyle.row.status"
@@ -116,6 +118,7 @@ enum AXID {
     static let settingsTeamCopyLink = "settings.team.copyLink"
     static let settingsTeamShareInvite = "settings.team.shareInvite"
     static let settingsTeamJoinAnother = "settings.team.joinAnother"
+    static let settingsTeamCreate = "settings.team.create"
     static let settingsUninstall = "settings.uninstall.button"
     static let settingsUninstallCancel = "settings.uninstall.cancel"
     static let settingsUninstallConfirm = "settings.uninstall.confirm"

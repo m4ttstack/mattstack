@@ -1207,7 +1207,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/worktree.ts",
         fn: "worktreeProvision",
         args: [
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Registered repo name (defaults to the current repo)" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Registered repo name (defaults to the current repo)" },
           { name: "Ticket", flag: "--ticket", type: "text", placeholder: "RT-40", hint: "Linear ticket id — derives the branch name" },
           { name: "Title", flag: "--title", type: "text", placeholder: "Prune the parking lot", hint: "Ticket title, used with --ticket to derive the branch slug" },
           { name: "Branch", flag: "--branch", type: "text", placeholder: "feature/my-branch", hint: "Explicit branch name (overrides --ticket)" },
@@ -1280,7 +1280,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/worktree.ts",
         fn: "worktreeCreate",
         args: [
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Registered repo name (defaults to the current repo)" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Registered repo name (defaults to the current repo)" },
           { name: "On-deck", flag: "--on-deck", type: "boolean", default: false, hint: "Put the new tree in the on-deck pool instead of claiming it" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
@@ -1294,7 +1294,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Tree", type: "text", placeholder: "my-tree", hint: "Tree name to dispose; omit to pick interactively" },
           { name: "Owner", flag: "--owner", type: "text", placeholder: "matt", hint: "Dispose every tree owned by this owner (can span repos)" },
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Narrow to this registered repo" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Narrow to this registered repo" },
           { name: "Force", flag: "--force", type: "boolean", default: false, hint: "Override the dirty/unpushed guard" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
@@ -1307,7 +1307,7 @@ export const TREE: Record<string, CommandNode> = {
         fullscreen: true,
         args: [
           { name: "Tree", type: "text", optional: true, placeholder: "my-tree", hint: "Disposed tree name to restore; omit to pick interactively" },
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Registered repo name (defaults to the current repo)" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Registered repo name (defaults to the current repo)" },
           { name: "List", flag: "--list", type: "boolean", default: false, hint: "List restorable entries instead of restoring one" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
@@ -1319,7 +1319,7 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: "picker",
         fullscreen: true,
         args: [
-          { name: "Repo", type: "text", optional: true, placeholder: "repo-tools", hint: "Repo whose team `ready` ladder to approve; omit to pick interactively" },
+          { name: "Repo", type: "text", optional: true, placeholder: "mattstack", hint: "Repo whose team `ready` ladder to approve; omit to pick interactively" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
       },
@@ -1329,7 +1329,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "worktreeList",
         agentSafe: true,
         args: [
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Narrow to this registered repo (default: every registered repo)" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Narrow to this registered repo (default: every registered repo)" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
       },
@@ -1339,7 +1339,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "worktreeTriage",
         agentSafe: true,
         args: [
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Narrow to this registered repo" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Narrow to this registered repo" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
       },
@@ -1351,7 +1351,7 @@ export const TREE: Record<string, CommandNode> = {
         fullscreen: true,
         args: [
           { name: "Tree", type: "text", placeholder: "my-tree", hint: "Tree name to freshen; omit to pick interactively (or run for every repo, headless)" },
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Narrow to this registered repo" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Narrow to this registered repo" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
       },
@@ -1368,7 +1368,7 @@ export const TREE: Record<string, CommandNode> = {
         fullscreen: true,
         args: [
           { name: "Tree", type: "text", placeholder: "my-tree", hint: "Claimed tree to wait on; omit to pick interactively" },
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Registered repo name (defaults to the current repo)" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Registered repo name (defaults to the current repo)" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
       },
@@ -1377,7 +1377,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/worktree.ts",
         fn: "worktreeAdopt",
         args: [
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Registered repo name (required)" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Registered repo name (required)" },
           { name: "Claim", flag: "--claim", type: "boolean", default: false, hint: "Take ownership: adopt foreign worktrees as auto-disposing ephemerals (default: leave them unmanaged, untouched)" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the raw result as JSON" },
         ],
@@ -1406,7 +1406,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "mrMap",
         omitBehavior: "list",
         args: [
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Registered repo name (defaults to the current repo)" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Registered repo name (defaults to the current repo)" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Machine-readable rows (default output is a table)" },
         ],
       },
@@ -1582,7 +1582,8 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Verb", type: "text", placeholder: "join | leave | archive | post | read | ack | claim | release | rooms | who | mark | prune | sign-in | sign-out | away | back | buddies | dm | invite", hint: "The chat action to run" },
       { name: "Room", type: "text", optional: true, placeholder: "build", hint: "Room name for join/leave/archive/post/read/who/mark; the target handle for dm; the pane id for invite; the message id for ack/claim/release; omit on read/rooms/who to span everything, and on prune/sign-in/sign-out/buddies/back/away, which take no room" },
       { name: "Text", type: "text", optional: true, placeholder: "@handle message", hint: "A one-line message body (every word after the room/handle) — post, dm; leave it out and feed the body on stdin (a heredoc) so paragraphs and lists survive; away takes this directly, with no room before it" },
-      { name: "As handle", flag: "--as", type: "text", placeholder: "repo-tools-main", hint: "Override the derived handle for this invocation; refused while signed in (sign out first)" },
+      { name: "As handle", flag: "--as", type: "text", placeholder: "mattstack-main", hint: "On sign-in: continue the identity it names (a name or an id); elsewhere: act as that handle for one call, refused while signed in" },
+      { name: "Name", flag: "--name", type: "text", placeholder: "remy", hint: "For sign-in: a fresh identity with this display name; never continues one (use --as for that)" },
       { name: "Wake on", flag: "--wake-on", type: "text", placeholder: "mention | all | none", hint: "For join: when this handle gets delivered a message (default mention)" },
       { name: "Reopen", flag: "--reopen", type: "boolean", default: false, hint: "For archive: clear the archive instead of setting it" },
       { name: "Limit", flag: "--limit", type: "text", placeholder: "20", hint: "For read: max messages (default 20)" },
@@ -1906,7 +1907,7 @@ export const TREE: Record<string, CommandNode> = {
         module: "./commands/settings.ts",
         fn: "sourcePathCommand",
         args: [
-          { name: "Path", type: "text", optional: true, placeholder: "~/Documents/GitHub/repo-tools", hint: "Omit to show the current checkout" },
+          { name: "Path", type: "text", optional: true, placeholder: "~/Documents/GitHub/mattstack", hint: "Omit to show the current checkout" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2209,8 +2210,20 @@ export const TREE: Record<string, CommandNode> = {
         omitBehavior: "picker",
         args: [
           { name: "New path", type: "text", placeholder: "/path/to/moved-repo", hint: "Where the repo lives now; omit to pick from candidates under rt.repoRoots" },
-          { name: "Repo", flag: "--repo", type: "text", placeholder: "repo-tools", hint: "Which indexed repo moved (identity, path, or name); omit to match by the new path's own identity" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "mattstack", hint: "Which indexed repo moved (identity, path, or name); omit to match by the new path's own identity" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would be re-pointed without writing" },
+          SETUP_JSON_ARG,
+        ],
+      },
+      reidentify: {
+        description: "Move every per-repo store from one remote identity to another after a repo rename (github.com/owner/old to github.com/owner/new)",
+        module: "./commands/repos-reidentify.ts",
+        fn: "reposReidentify",
+        omitBehavior: { exempt: "agent-facing; identities are not enumerable" },
+        args: [
+          { name: "Old identity", type: "text", placeholder: "github.com/owner/old", hint: "The identity every store is keyed on today; raw host/path or serialized remote: form" },
+          { name: "New identity", type: "text", placeholder: "github.com/owner/new", hint: "The identity the repo's remote derives now" },
+          { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print per-store counts without writing" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2527,7 +2540,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "setupIntent",
         hidden: true,
         args: [
-          { name: "Mode", type: "text", placeholder: "restore", hint: "restore <org>/<repo> | clear" },
+          { name: "Mode", type: "text", placeholder: "restore", hint: "restore <org>/<repo> | solo | clear" },
           { name: "HomeRepo", type: "text", placeholder: "org/repo", hint: "org/repo of the home repo to restore (restore only)" },
           SETUP_JSON_ARG,
         ],
@@ -2628,6 +2641,27 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Label", type: "text", placeholder: "com.mattstack.daemon", hint: "LaunchAgent label" },
           SETUP_JSON_ARG,
         ],
+      },
+    },
+  },
+
+  apps: {
+    description: "The mattstack apps deck serves on this Mac (board, console, chat, boxscore)",
+    subcommands: {
+      list: { description: "List the apps and whether each is on", module: "./commands/apps.ts", fn: "appsList", args: [SETUP_JSON_ARG] },
+      enable: {
+        description: "Turn an app on (deck serves it and the window shows it)",
+        module: "./commands/apps.ts",
+        fn: "appsEnable",
+        omitBehavior: "list",
+        args: [{ name: "Name", type: "text", placeholder: "board", hint: "App name from rt apps list" }, SETUP_JSON_ARG],
+      },
+      disable: {
+        description: "Turn an app off (deck stops it and the window hides it)",
+        module: "./commands/apps.ts",
+        fn: "appsDisable",
+        omitBehavior: "list",
+        args: [{ name: "Name", type: "text", placeholder: "board", hint: "App name from rt apps list" }, SETUP_JSON_ARG],
       },
     },
   },
