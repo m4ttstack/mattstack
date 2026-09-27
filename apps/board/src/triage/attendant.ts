@@ -1,7 +1,7 @@
 import {
   adoptLegacyCiLease,
   boardDoctorOwner,
-  CiLeaseError,
+  CiLeaseLockBusyError,
   claimCiLease,
   DEFAULT_CI_LEASE_TTL_SECONDS,
   heartbeatCiLease,
@@ -20,12 +20,8 @@ import type { AttendantsPort } from './run.ts';
     Lock contention stays silent (the next pass retries); any other failure
     warns. */
 
-function isLockContention(err: unknown): boolean {
-  return err instanceof CiLeaseError && err.message.startsWith('lease lock');
-}
-
 function warnUnlessLockBusy(action: string, err: unknown): void {
-  if (isLockContention(err)) return;
+  if (err instanceof CiLeaseLockBusyError) return;
   console.warn(`board: ci lease ${action} failed`, err);
 }
 
@@ -76,7 +72,9 @@ export function createBoardAttendants(opts: CiLeaseOpts = {}): AttendantsPort {
     },
     release: mrUrl => {
       try {
-        releaseCiLease(mrUrl, boardDoctorOwner(mrUrl), opts);
+        const owner = boardDoctorOwner(mrUrl);
+        adoptLegacyCiLease(mrUrl, owner, 'doctor', opts);
+        releaseCiLease(mrUrl, owner, opts);
       } catch (err) {
         warnUnlessLockBusy(`release for ${mrUrl}`, err);
       }

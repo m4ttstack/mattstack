@@ -70,6 +70,38 @@ describe('createBoardAttendants', () => {
     });
   });
 
+  test('release adopts and releases a legacy doctor lease left by a pre-upgrade board', () => {
+    writeFileSync(
+      join(dir, ciLeaseFileName(MR)),
+      JSON.stringify({
+        mr: MR,
+        holder: 'doctor',
+        startedAt: t,
+        heartbeatAt: t,
+        ttlSeconds: 600,
+      })
+    );
+    createBoardAttendants({ dir, now: () => t }).release(MR, 42);
+    expect(readCiLease(MR, { dir, now: () => t }).lease).toBeNull();
+  });
+
+  test('release never touches a legacy watch-ci lease', () => {
+    writeFileSync(
+      join(dir, ciLeaseFileName(MR)),
+      JSON.stringify({
+        mr: MR,
+        holder: 'watch-ci',
+        startedAt: t,
+        heartbeatAt: t,
+        ttlSeconds: 600,
+      })
+    );
+    createBoardAttendants({ dir, now: () => t }).release(MR, 42);
+    expect(readCiLease(MR, { dir, now: () => t }).lease?.holder).toBe(
+      'watch-ci'
+    );
+  });
+
   test('heartbeat never touches a watch-ci lease', () => {
     claimCiLease(
       { mrUrl: MR, owner: 'session:w', holder: 'watch-ci' },
