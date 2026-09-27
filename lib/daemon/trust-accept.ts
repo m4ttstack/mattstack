@@ -64,6 +64,10 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
   const stepMs = deps.stepMs ?? STEP_MS;
   const attempts = deps.attempts ?? ATTEMPTS;
 
+  /** The modal currently on screen, or null when none is; `false` means the
+      screen could not be read at all, which is never evidence of either. */
+  // The first admitted path is pinned: a later read naming any other path,
+  // admitted or not, stops the walk rather than redirecting it.
   let pinned: string | undefined;
   const look = async (): Promise<TrustPrompt | null | false> => {
     const screen = await herdr<{ read: { text: string } }>("pane.read", { pane_id: pane, source: "visible" }, sock);
