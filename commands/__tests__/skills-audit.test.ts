@@ -41,7 +41,7 @@ describe("buildAuditInvocation", () => {
     expect(argv).toContain("-p");
     expect(argv.slice(argv.indexOf("--output-format"), argv.indexOf("--output-format") + 2)).toEqual(["--output-format", "json"]);
     for (const token of LOCKDOWN) expect(argv).toContain(token);
-    expect(argv.at(-1)).toBe("PROMPT");
+    expect(argv).not.toContain("PROMPT");
     expect(argv.some((a) => a.includes("dangerously"))).toBe(false);
     expect(inv.account).toBeUndefined();
   });
@@ -50,7 +50,7 @@ describe("buildAuditInvocation", () => {
     const argv = buildClaudeArgv(buildAuditInvocation("PROMPT", SESSION), { claude: "/bin/claude" });
     const start = argv.indexOf(LOCKDOWN[0]!);
     expect(argv.slice(start, start + LOCKDOWN.length)).toEqual(LOCKDOWN);
-    expect(argv.slice(start + LOCKDOWN.length)).toEqual(["PROMPT"]);
+    expect(argv.slice(start + LOCKDOWN.length)).toEqual([]);
   });
 });
 

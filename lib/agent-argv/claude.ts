@@ -4,8 +4,8 @@
  * Session uuids are validated here because the claude CLI fails soft:
  * `--session-id ""` is silently ignored (random id minted) and
  * `-p --resume ""` silently resumes the most recent session in cwd
- * (spike 2026-08-25). Headless without a prompt blocks on stdin, so it is
- * refused at build time.
+ * (spike 2026-08-25). A headless prompt never enters argv: the caller feeds it
+ * on stdin, and a headless invocation without one is refused at build time.
  *
  * Two output shapes: argv arrays for daemon-side Bun.spawn (absolute bins ...
  * executable lookup uses the process-start PATH), and a single shell string
@@ -63,7 +63,8 @@ function claudeArgs(inv: AgentInvocation): string[] {
   if (inv.session.kind === "start") args.push("--session-id", inv.session.sessionId);
   else args.push("--resume", inv.session.sessionId);
   if (inv.extraArgs) args.push(...inv.extraArgs.split(/\s+/).filter(Boolean));
-  if (inv.prompt) args.push(inv.prompt);
+  // A headless prompt is the caller's stdin: `claude -p` reads it there.
+  if (inv.prompt && !inv.headless) args.push(inv.prompt);
   return args;
 }
 

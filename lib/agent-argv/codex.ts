@@ -48,7 +48,9 @@ export function buildCodexArgv(inv: AgentInvocation, bins?: { codex?: string }):
   const args = inv.session.kind === "start"
     ? [bin, "exec", ...jsonFlag, ...flags]
     : [bin, "exec", "resume", ...jsonFlag, ...flags, inv.session.sessionId];
-  if (inv.prompt) args.push(inv.prompt);
+  // `-` is the only form `codex exec resume` reads stdin for; the caller feeds the prompt there.
+  if (inv.headless) args.push("-");
+  else if (inv.prompt) args.push(inv.prompt);
   return args;
 }
 
