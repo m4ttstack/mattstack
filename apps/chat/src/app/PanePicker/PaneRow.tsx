@@ -49,6 +49,13 @@ const STATE_TOOLTIP: Partial<Record<AgentStatus, string>> = {
   blocked: 'answer its prompt first',
 };
 
+/** The signed-in identity's display name, or none for a bare pane. */
+export function paneName(pane: ChatPane): string | undefined {
+  return pane.presence
+    ? (pane.presence.name ?? pane.presence.handle)
+    : undefined;
+}
+
 function paneWhere(pane: ChatPane): string {
   return [pane.repo, pane.branch].filter(Boolean).join(' · ');
 }
@@ -111,9 +118,7 @@ export function PaneRow({
   ordinal,
 }: PaneRowProps) {
   const disabled = !!disabledReason;
-  const name = pane.presence
-    ? (pane.presence.name ?? pane.presence.handle)
-    : undefined;
+  const name = paneName(pane);
   const sub =
     name && pane.title === name
       ? pane.workspace

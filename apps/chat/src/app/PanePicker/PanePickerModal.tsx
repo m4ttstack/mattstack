@@ -13,7 +13,7 @@ import { notifications } from '@mattstack/app-kit/notifications';
 
 import { sameNameOrdinals } from '../display-name';
 import { NewPaneForm } from './NewPaneForm';
-import { PaneRow } from './PaneRow';
+import { paneName, PaneRow } from './PaneRow';
 import type { ChatPane, PickPanesOptions } from './types';
 
 const ORDER: Record<string, number> = { live: 0, idle: 1 };
@@ -91,10 +91,7 @@ export function PanePickerModal({
     () => panes.filter(p => matchesFilter(p, filter)),
     [panes, filter]
   );
-  const ordinals = sameNameOrdinals(
-    visible,
-    p => p.presence && (p.presence.name ?? p.presence.handle)
-  );
+  const ordinals = sameNameOrdinals(visible, paneName);
 
   function reasonFor(pane: ChatPane): string | null {
     if (notReady.has(pane.paneId))

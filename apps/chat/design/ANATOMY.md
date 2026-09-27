@@ -272,7 +272,9 @@ neither.
 
 ## New room
 
-Unchanged from the previous round; see `NewRoom.dc.html`.
+Unchanged from the previous round; see `NewRoom.dc.html`. Picked rows that
+share a name follow the pane picker's rule: an avatar each, and their
+`Remove` and note labels carry the ordinal (`Remove remy (1 of 2)`).
 
 ## Entry points
 

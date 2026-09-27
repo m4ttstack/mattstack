@@ -74,8 +74,8 @@ shows names and acts on ids:
   DM rows that read the same pair show their avatars, and so does the open
   DM's title in the page bar and phone header (`DmPairTitle`). Both read
   `repeatedPairLabels` over the rail's listed DMs, so they cannot disagree.
-- Fleet tree workstream rows and pane picker rows that share a name each
-  show their avatar, and their aria-labels carry the row's place among them
+- Fleet tree workstream rows, pane picker rows and New room's picked rows
+  that share a name each show their avatar, and their aria-labels carry the row's place among them
   in render order (`Message remy (2 of 2)`, `select remy (2 of 2)`), from
   `sameNameOrdinals` in `display-name.ts`.
 - The collapsed DIRECT overflow line draws each hidden pair's unread as the
