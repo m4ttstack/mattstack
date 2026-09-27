@@ -14,7 +14,7 @@
  */
 
 export type TrustPrompt =
-  | { kind: "accept"; variant: "plain" | "elevated" | "relocation"; keys: Array<"up" | "down" | "enter"> }
+  | { kind: "accept"; variant: "plain" | "elevated" | "relocation" | "workspace"; keys: Array<"up" | "down" | "enter">; path?: string }
   | { kind: "undrivable" };
 
 const HEADER_RE = /do you trust the files in this folder/i;
@@ -44,6 +44,8 @@ function readOptions(screen: string): Option[] {
  * share, so a brief or a transcript that merely says "trust" never matches.
  */
 export function readTrustPrompt(screen: string): TrustPrompt | null {
+  const workspace = readWorkspacePrompt(screen.split("\n"));
+  if (workspace !== null) return workspace;
   if (!HEADER_RE.test(screen)) return null;
   const options = readOptions(screen);
   return walkToAccept(options, (keys) => ({ kind: "accept", variant: ELEVATED_RE.test(screen) ? "elevated" : "plain", keys }));
@@ -56,6 +58,47 @@ function walkToAccept<T>(options: Option[], make: (keys: Array<"up" | "down" | "
   const distance = accept - selected;
   const step = distance < 0 ? "up" : "down";
   return make([...Array(Math.abs(distance)).fill(step), "enter"]);
+}
+
+// Claude Code 2.1.283's layout. Every anchor sits at its own column and the
+// whole dialog must end the screen: the pane's shell echo of claude's command
+// line sits right above it and can quote any of this wording.
+const WS_FOOTER_RE = /^ Enter to confirm · Esc to cancel\s*$/;
+const WS_HEADER_RE = /^ Accessing workspace:\s*$/;
+const WS_QUESTION_RE = /^ Quick safety check:/;
+const WS_OPTION_RE = /^ (?<cursor>❯| ) (?<label>\S.*?)\s*$/;
+const WS_WINDOW_CAP = 24;
+
+function readWorkspacePrompt(lines: string[]): TrustPrompt | null {
+  let end = lines.length - 1;
+  while (end >= 0 && (lines[end] as string).trim() === "") end--;
+  if (end < 0 || !WS_FOOTER_RE.test(lines[end] as string)) return null;
+  let last = end - 1;
+  while (last >= 0 && (lines[last] as string).trim() === "") last--;
+  let first = last;
+  while (first > 0 && WS_OPTION_RE.test(lines[first - 1] as string)) first--;
+  if (last < 0 || !WS_OPTION_RE.test(lines[last] as string)) return null;
+  let top = -1;
+  for (let i = first - 1; i >= Math.max(0, first - WS_WINDOW_CAP); i--) {
+    if (RULE_RE.test(lines[i] as string)) { top = i; break; }
+  }
+  if (top < 0) return null;
+  const rule = (lines[top] as string).trimEnd();
+  // The real rule spans the pane; a command can paint one, but never wider
+  // than the text around it.
+  if (lines.some((l) => l.trimEnd().length > rule.length)) return null;
+  const body = lines.slice(top + 1, first).filter((l) => l.trim() !== "");
+  if (!WS_HEADER_RE.test(body[0] ?? "")) return null;
+  const pathRow = body[1] ?? "";
+  // A path wider than the pane wraps onto the next row; the question must
+  // follow the path row directly, or the path is not whole on it.
+  if (!pathRow.startsWith(" /") || !WS_QUESTION_RE.test(body[2] ?? "")) return { kind: "undrivable" };
+  const path = pathRow.slice(1).trimEnd();
+  const options: Option[] = lines.slice(first, last + 1).map((l) => {
+    const m = WS_OPTION_RE.exec(l);
+    return { cursor: m?.groups?.cursor === "❯", label: m?.groups?.label ?? "" };
+  });
+  return walkToAccept(options, (keys) => ({ kind: "accept", variant: "workspace", path, keys }));
 }
 
 export type RelocationPrompt =
