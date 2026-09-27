@@ -468,7 +468,9 @@ export function postMessage(
     return { id: Number(result.lastInsertRowid), recipients };
   });
 
-  return runCriticalWrite("postMessage", () => run(), { room, handle });
+  // BEGIN IMMEDIATE: the mention resolution read and the message insert must
+  // hold the write lock together or SQLITE_BUSY_SNAPSHOT bypasses busy_timeout.
+  return runCriticalWrite("postMessage", () => (db.inTransaction ? run() : run.immediate()), { room, handle });
 }
 
 export function readUnread(
