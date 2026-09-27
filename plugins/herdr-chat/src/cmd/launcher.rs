@@ -344,7 +344,7 @@ fn draw(frame: &mut Frame, theme: &AppTheme, cursor: usize, mode: &Mode, status:
     frame.render_widget(footer(theme, mode), parts[2]);
 }
 
-/// Who this popup acts for: dot + handle + status + pane on the first line,
+/// Who this popup acts for: dot + name + status + pane on the first line,
 /// the session's rooms on the second. Signed-out and pane-less launches say
 /// so in place of an identity.
 fn header(theme: &AppTheme, status: &OriginStatus) -> Paragraph<'static> {

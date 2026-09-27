@@ -129,7 +129,8 @@ fn recipients(results: &[rt::SendResult], panes: &[rt::ChatPane]) -> Vec<Recipie
         .collect()
 }
 
-/// A history entry recorded before display names existed carries only the handle.
+/// The shown label: the name, else the handle for a history entry written
+/// before display names existed, else the pane id when neither is known.
 fn recipient_label(r: &Recipient) -> String {
     r.name
         .clone()

@@ -45,7 +45,7 @@ pub fn send_json(r: &dyn Runner, to: &str, body: &str) -> Result<crate::json::Se
         return Err("to is required".to_string());
     }
     let target = crate::json::parse_target(to)
-        .ok_or_else(|| format!("target must be #room or @handle, got {to:?}"))?;
+        .ok_or_else(|| format!("target must be #room or @name, got {to:?}"))?;
     send(r, target, body)?;
     Ok(crate::json::Sent {
         ok: true,
@@ -422,7 +422,7 @@ mod tests {
         let r = FakeRunner::sequence(&[]);
         assert_eq!(
             send_json(&r, "rt", "hello").unwrap_err(),
-            r#"target must be #room or @handle, got "rt""#
+            r#"target must be #room or @name, got "rt""#
         );
         assert_eq!(
             r.call_count(),

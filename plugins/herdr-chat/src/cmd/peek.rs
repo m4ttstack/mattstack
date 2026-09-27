@@ -305,8 +305,9 @@ fn draw_list(
     frame.render_widget(para, area);
 }
 
-/// One launcher line: a status dot + handle for a buddy, or `# room` plus unread
-/// and mention badges for a room.
+/// One launcher line: a status dot + name for a buddy, or `# room` plus unread
+/// and mention badges for a room; a DM room row draws `@ <participants>` in
+/// place of its hashed name.
 fn row_line<'a>(theme: &AppTheme, row: &'a Row, cursor: bool) -> Line<'a> {
     let marker = if cursor { "\u{203a} " } else { "  " };
     let row_style = if cursor { theme.selected } else { theme.base };
