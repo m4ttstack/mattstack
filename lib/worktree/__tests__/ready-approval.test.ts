@@ -84,6 +84,15 @@ describe("ready-approval gate", () => {
     expect(await worktreeReadyHeld("ready-gate", repoPath)).toBe(false);
   });
 
+  test("a matching hash in the global user store no longer unlocks the gate: approvals are per repo", async () => {
+    teamReady([{ run: "make setup" }]);
+    const cfg = await loadWorktreeRepoConfig("ready-gate", repoPath);
+    writeStore(userSettingsPath(), { "rt.worktreeReadyApproval": readyLadderHash(cfg.ready) });
+
+    const gate = await evaluateReadyGate(cfg, "ready-gate", repoPath);
+    expect(gate.held).toBe(true);
+  });
+
   test("an approval for a different (older) hash re-holds after the team changes the ladder", async () => {
     teamReady([{ run: "make setup" }]);
     const cfg = await loadWorktreeRepoConfig("ready-gate", repoPath);
