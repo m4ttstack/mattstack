@@ -102,6 +102,21 @@ test('status rows carry enabled, requiresTeam and displayName', async () => {
   expect(row.displayName).toBe('My App');
 });
 
+test('a disabled app is left out of the healthy count', async () => {
+  putRecord({
+    name: 'myapp',
+    managedBy: 'rt',
+    port: 19999,
+    kind: 'service',
+    enabled: false,
+    createdAt: '2026-08-10T00:00:00Z',
+  });
+  const status = await buildStatus(opts);
+  expect(status.total).toBe(0);
+  expect(status.up).toBe(0);
+  expect(status.apps.find(a => a.name === 'myapp')?.enabled).toBe(false);
+});
+
 test('a route with no record is managedBy null (legacy, pre-migrate)', async () => {
   const status = await buildStatus(opts);
   expect(status.apps[0]!.managedBy).toBeNull();

@@ -189,7 +189,11 @@ export function isDrawerClick(e: { target: EventTarget | null }): boolean {
     probe (which outranks a bare service pid) because a row mid-restart is
     still probeable and would otherwise flash bad before the new process
     comes up. */
-function healthTone(row: Row, restarting: boolean): 'ok' | 'warn' | 'bad' {
+function healthTone(
+  row: Row,
+  restarting: boolean
+): 'ok' | 'warn' | 'bad' | 'muted' {
+  if (row.enabled === false) return 'muted';
   if (restarting) return 'warn';
   if (row.health) return row.health.ok ? 'ok' : 'bad';
   if (row.service) return servicePid(row.service) !== null ? 'ok' : 'bad';
@@ -197,6 +201,7 @@ function healthTone(row: Row, restarting: boolean): 'ok' | 'warn' | 'bad' {
 }
 
 function healthTip(row: Row, restarting: boolean): string {
+  if (row.enabled === false) return 'off';
   if (restarting) return 'restarting…';
   if (row.health)
     return row.health.status !== null
@@ -216,15 +221,15 @@ function SiteCell({
   data: StatusData;
   restarting: boolean;
 }) {
+  const tone = healthTone(row, restarting);
   return (
     <>
       {row.icon && (
         <img className="app-icon" src={row.icon} alt="" aria-hidden="true" />
       )}
-      <StatusDot
-        intent={healthTone(row, restarting)}
-        tip={healthTip(row, restarting)}
-      />
+      {tone !== 'muted' && (
+        <StatusDot intent={tone} tip={healthTip(row, restarting)} />
+      )}
       {row.url ? (
         <span className="site-name">
           <a className="unstyled" href={row.url}>
@@ -317,6 +322,13 @@ function PortCell({ row, data }: { row: Row; data: StatusData }) {
 }
 
 function HealthCell({ row, restarting }: { row: Row; restarting: boolean }) {
+  if (row.enabled === false) {
+    return (
+      <Tooltip tip="Turned off. Turn it on in mattstack.app, Settings > Apps.">
+        <Badge intent="muted">off</Badge>
+      </Tooltip>
+    );
+  }
   if (restarting) {
     return (
       <Badge intent="warn">
@@ -418,7 +430,7 @@ function RestartCell({
   restarting: boolean;
   onRestart: (row: Row) => void;
 }) {
-  if (!(data.canRestart && row.service)) return null;
+  if (row.enabled === false || !(data.canRestart && row.service)) return null;
   return (
     <Button
       variant="subtle"
@@ -450,6 +462,7 @@ function CommandsCell({
   commandRuns: CommandRuns;
   linkSource: (row: Row, workingDirectory: string) => Promise<string | null>;
 }) {
+  if (row.enabled === false) return null;
   // The platform's own row never gets Link/Unlink: bootstrapSelf owns its serve
   // shape, and editApp refuses to touch it structurally, so those controls
   // would only ever produce a 200 that changes nothing this button implies.

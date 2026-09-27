@@ -303,6 +303,35 @@ test('external-link anchor appears only when publicUrl differs, with parity aria
   });
 });
 
+test('an off app: muted off badge with the settings hint, no restart, no commands, and the count skips it', async () => {
+  await withBoard(
+    async page => {
+      const ledger = rowFor(page, 'ledger');
+      const badge = ledger.locator('[data-part="badge"]', { hasText: 'off' });
+      expect(await badge.count()).toBe(1);
+      const tooltip = ledger.locator(
+        '[data-part="tooltip"][data-tip="Turned off. Turn it on in mattstack.app, Settings > Apps."]'
+      );
+      expect(await tooltip.count()).toBe(1);
+      expect(
+        await ledger.locator('button[aria-label^="restart"]').count()
+      ).toBe(0);
+      // Scoped to the commands cell (index 6: site, port, health, service,
+      // publish, restart, commands, chevron) rather than a button attribute --
+      // every kit Button stamps data-part="button" regardless of column, so an
+      // unscoped selector would also match the restart button.
+      const commandsCell = ledger.locator('[data-part="table-cell"]').nth(6);
+      expect(await commandsCell.locator('button').count()).toBe(0);
+      const fraction = page.locator('.board-subline .t-ok', {
+        hasText: 'healthy',
+      });
+      expect(await fraction.textContent()).toBe('3 of 3 healthy');
+      expect(consoleErrors(page)).toEqual([]);
+    },
+    { fixture: 'status-off.json' }
+  );
+});
+
 test('public switch flips optimistically before the PUT resolves, and reverts when the server never confirms', async () => {
   await withBoard(async page => {
     // ledger is unpublished in the fixture; hold the PUT open long enough to

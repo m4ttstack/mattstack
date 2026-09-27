@@ -444,8 +444,8 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
     canRestart: opts.local,
     canManage: opts.local,
     devMode: !!opts.devMode,
-    up: healths.filter(h => h.ok).length,
-    total: apps.length,
+    up: appRows.filter(r => r.enabled && r.health?.ok).length,
+    total: appRows.filter(r => r.enabled).length,
     apps: appRows,
     orphans: orphanRows,
     // Advisory only, but it must not lie: use the SAME authority the actual
