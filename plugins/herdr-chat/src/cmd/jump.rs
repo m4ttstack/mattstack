@@ -9,10 +9,13 @@ use crate::herdr;
 use crate::rt;
 use crate::run::Runner;
 
-/// The pane `who` is signed in on: an exact id first, the order rt resolves a
-/// typed name in, then a live agent's display name. Live names are unique, so
-/// the name pass finds at most one; a signed-out identity keeps its old name
-/// and is skipped there.
+/// The pane `who` is signed in on: a live agent's display name first, then a
+/// legacy handle exactly, the order rt resolves a typed name in. Legacy
+/// handles come last on purpose: every old pool name is still a handle, so an
+/// id-first match would jump to the old pane a name was reassigned from,
+/// where a DM to the same text reaches the live agent holding it now. A
+/// minted id carries a `.xxxx` suffix that never equals a live name, so an id
+/// from a peek row still resolves in the second pass.
 pub fn pane_for<'a>(
     panes: &'a [rt::ChatPane],
     who: &str,
@@ -23,8 +26,8 @@ pub fn pane_for<'a>(
             .filter_map(|p| p.presence.as_ref().map(|pr| (p, pr)))
     };
     signed_in()
-        .find(|(_, pr)| pr.handle == who)
-        .or_else(|| signed_in().find(|(_, pr)| pr.status != "offline" && pr.display_name() == who))
+        .find(|(_, pr)| pr.status != "offline" && pr.display_name() == who)
+        .or_else(|| signed_in().find(|(_, pr)| pr.handle == who))
 }
 
 /// Focus the pane a buddy is signed in on. Returns `false` when no pane
@@ -208,17 +211,26 @@ mod tests {
         assert_eq!(j.name, "remy");
     }
 
-    /// rt resolves a typed value as an id before a name; a jump that did
-    /// otherwise would land on a different agent than a DM to the same text.
+    /// rt resolves a typed value as a live agent's name before a legacy id;
+    /// a jump that did otherwise would land on a different agent than a DM
+    /// to the same text.
     #[test]
-    fn an_exact_id_wins_over_another_identitys_display_name() {
+    fn a_live_display_name_wins_over_a_legacy_id() {
         let panes = vec![
             with_named("w1:p1", "kai.a1b2", "remy", "live"),
             with_named("w1:p2", "remy", "remy-2", "live"),
         ];
         let (pane, presence) = pane_for(&panes, "remy").unwrap();
-        assert_eq!(pane.pane_id, "w1:p2");
-        assert_eq!(presence.handle, "remy");
+        assert_eq!(pane.pane_id, "w1:p1");
+        assert_eq!(presence.handle, "kai.a1b2");
+    }
+
+    /// With no live agent holding the name, a legacy handle still resolves.
+    #[test]
+    fn a_legacy_id_still_resolves_when_no_live_agent_holds_the_name() {
+        let panes = vec![with_named("w1:p1", "remy", "remy", "offline")];
+        let (pane, _) = pane_for(&panes, "remy").unwrap();
+        assert_eq!(pane.pane_id, "w1:p1");
     }
 
     #[test]

@@ -95,10 +95,11 @@ same agent" goes by `handle`, because a name is reused after its holder
 signs out and a handle never is.
 
 Input goes the other way. `jump --handle` and `quick-send --to '@...'` take
-either one. `jump` matches a handle exactly first, then a live agent's name.
-`quick-send` passes the value to rt, which resolves a name to the live
-identity holding it. `targets` lists each name once: a signed-out identity
-can still share a name with a live one, and only the live one answers to it.
+either one. `jump` matches a live agent's name first, then a handle exactly,
+the same order rt resolves a DM in. `quick-send` passes the value to rt,
+which resolves a name to the live identity holding it. `targets` lists each
+name once: a signed-out identity can still share a name with a live one,
+and only the live one answers to it.
 
 An rt from before names existed sends no `name`, and every verb then prints
 the handle in its place, so `name` is present wherever `handle` is.
