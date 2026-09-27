@@ -201,7 +201,6 @@ function healthTone(
 }
 
 function healthTip(row: Row, restarting: boolean): string {
-  if (row.enabled === false) return 'off';
   if (restarting) return 'restarting…';
   if (row.health)
     return row.health.status !== null
@@ -321,14 +320,16 @@ function PortCell({ row, data }: { row: Row; data: StatusData }) {
   );
 }
 
+export function OffBadge() {
+  return (
+    <Tooltip tip="Turned off. Turn it on in mattstack.app, Settings > Apps.">
+      <Badge intent="muted">off</Badge>
+    </Tooltip>
+  );
+}
+
 function HealthCell({ row, restarting }: { row: Row; restarting: boolean }) {
-  if (row.enabled === false) {
-    return (
-      <Tooltip tip="Turned off. Turn it on in mattstack.app, Settings > Apps.">
-        <Badge intent="muted">off</Badge>
-      </Tooltip>
-    );
-  }
+  if (row.enabled === false) return <OffBadge />;
   if (restarting) {
     return (
       <Badge intent="warn">
@@ -399,7 +400,8 @@ function PublishCell({
   onPublish: (row: Row) => Promise<void>;
 }) {
   const tag = <PublicOriginTag row={row} />;
-  if (!(data.canManage && row.port != null)) return tag;
+  if (row.enabled === false || !(data.canManage && row.port != null))
+    return tag;
   const label = row.published
     ? `make ${row.name} private`
     : `publish ${row.name}`;

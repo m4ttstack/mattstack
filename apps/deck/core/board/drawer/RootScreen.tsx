@@ -9,7 +9,7 @@ import {
   StatusDot,
   type DrawerScreen,
 } from '@mattstack/tui-kit';
-import { servicePid } from '../AppsTable.tsx';
+import { OffBadge, servicePid } from '../AppsTable.tsx';
 import {
   isMattstack,
   tunnelDomain,
@@ -72,6 +72,13 @@ function RootStatusStrip({
   row: Row;
   restarting: boolean;
 }) {
+  if (row.enabled === false) {
+    return (
+      <p className="drawer-status">
+        <OffBadge />
+      </p>
+    );
+  }
   if (restarting) {
     return (
       <p className="drawer-status">
@@ -231,7 +238,7 @@ export function buildAppRoot(
         {/* Mutations gate on canManage like every mutating table cell: the
             server 403s them from a public host, so a public board must not
             render the controls that would trigger them. */}
-        {data.canManage && (
+        {data.canManage && row.enabled !== false && (
           <ListGroup footer={publicFooter(row, data)}>
             <OptimisticToggleRow
               label="public"

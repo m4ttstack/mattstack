@@ -332,6 +332,29 @@ test('an off app: muted off badge with the settings hint, no restart, no command
         hasText: 'healthy',
       });
       expect(await fraction.textContent()).toBe('3 of 3 healthy');
+      expect(await ledger.locator('[role="switch"]').count()).toBe(0);
+
+      await ledger.locator('[data-part="row-chevron"]').click();
+      await page.waitForSelector('[data-part="sidedrawer"]');
+      const header = page.locator('.drawer-status');
+      const headerBadge = header.locator('[data-part="badge"]', {
+        hasText: 'off',
+      });
+      expect(await headerBadge.count()).toBe(1);
+      expect(
+        await header
+          .locator(
+            '[data-part="tooltip"][data-tip="Turned off. Turn it on in mattstack.app, Settings > Apps."]'
+          )
+          .count()
+      ).toBe(1);
+      expect(await header.locator('[data-part="statusdot"]').count()).toBe(0);
+      expect(await header.locator('.t-bad').count()).toBe(0);
+      expect(await header.textContent()).not.toContain('unreachable');
+      const drawer = page.locator('[data-part="sidedrawer"]');
+      expect(
+        await drawer.locator('[aria-label="publish ledger"]').count()
+      ).toBe(0);
       expect(consoleErrors(page)).toEqual([]);
     },
     { fixture: 'status-off.json' }
