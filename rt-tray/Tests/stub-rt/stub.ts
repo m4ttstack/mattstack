@@ -151,7 +151,7 @@ function writingStyleRow() {
 function plan(): unknown {
   const fdaCalls = stateBump("plan-calls");
   const fdaGranted = scenario !== "perm-denied-then-granted" || fdaCalls >= 3;
-  const mode = scenario === "create-happy" ? "create" : scenario === "restore" ? "restore" : scenario === "solo" ? "none" : "join";
+  const mode = scenario === "create-happy" ? "create" : scenario === "restore" ? "restore" : "join";
   const mac = [
     row("perm.fda", "permission", "Full Disk Access",
         "Reads your repositories' git state so the daemon can show branch and MR status.", true,
@@ -195,7 +195,7 @@ function plan(): unknown {
   // Scenarios other than perm-denied-then-granted are installable out of the box so
   // flows can reach Install without connecting anything; perm-denied-then-granted
   // gates only on perm.fda so the second plan() call can flip canInstall to true.
-  const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style", "solo"].includes(scenario);
+  const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style"].includes(scenario);
   // accounts[0] and tools[1] are the fixed literal elements built above — non-null
   // is safe, not a runtime guess.
   if (installableScenario) { accounts[0]!.status = "ready"; accounts[0]!.detail = "token can see group acme"; tools[1]!.status = "ready"; tools[1]!.detail = "extension loaded"; }

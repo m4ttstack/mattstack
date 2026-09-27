@@ -163,7 +163,7 @@ final class SetupFlowUITests: XCTestCase {
         el("setup.welcome.continue").click()
         waitFor("setup.team.screen")
         el("setup.team.card.solo").click()
-        XCTAssertTrue(app.staticTexts[TeamChoiceModel.soloExplainer].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."].waitForExistence(timeout: 3))
         XCTAssertTrue(el("setup.team.continue").isEnabled, "Just me needs no fields")
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
