@@ -1,0 +1,1 @@
+semgrep-sast scan completed with 3 findings

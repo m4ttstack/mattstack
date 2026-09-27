@@ -155,5 +155,15 @@ that quotes a shell form carries `<!-- mcp-lint: allow -->`.
 | 2026-09-26 | mattstack:mcp-tools | pure | pass | n/a (hidden) | Review fix: the rule sentence applies to calls that have a tool in the reference; the kept-on-Bash exceptions (`git commit` among them) live in the generated header, and their missing tool is intended. Covered by extending-a-pack's re-run GREEN; reference test and certify exit 0 |
 | 2026-09-26 | mattstack:extending-a-pack | pure | pass | n/a (no description edit) | Review fix: pointer qualified ("has a tool there, except the few its header lists as staying on Bash"). GREEN re-run 3/3 `git_push`; new scenario, a fill that commits and pushes, 2/2 kept `git commit` on Bash, pushed with `git_push`, invented no commit tool; certify exit 0 |
 | 2026-09-26 | mattstack:creating-a-pack | pure | pass | n/a (no description edit) | Review fix: same qualified pointer as extending-a-pack, covered by its re-run GREEN; certify exit 0 |
+| 2026-09-26 | mattstack:work-next | pure | pass | n/a (not rostered on the mattstack side) | digraph twin of work; GREEN deviations 0 vs RED 5 over 15 describe-only runs |
+| 2026-09-26 | mattstack:work-next-gate | pure | pass | n/a (not rostered on the mattstack side) | compact run-gate include for the work-next stages; replaces gate-protocol and wrap-up-form there |
+| 2026-09-26 | mattstack:work-next-provision | pure | pass | n/a (hidden) | digraph stage twin of stage-provision; compiled by a team pack as an internal verb |
+| 2026-09-26 | mattstack:work-next-plan | pure | pass | n/a (hidden) | digraph stage twin of stage-plan; compiled by a team pack as an internal verb |
+| 2026-09-26 | mattstack:work-next-gates | pure | pass | n/a (hidden) | digraph stage twin of stage-gates; compiled by a team pack as an internal verb |
+| 2026-09-26 | mattstack:work-next-evidence | pure | pass | n/a (hidden) | digraph stage twin of stage-evidence; compiled by a team pack as an internal verb |
+| 2026-09-26 | mattstack:work-next-implement | pure | pass | n/a (hidden) | digraph stage twin of stage-implement; compiled by a team pack as an internal verb |
+| 2026-09-26 | mattstack:work-next-self-review | pure | pass | n/a (hidden) | digraph stage twin of stage-self-review; compiled by a team pack as an internal verb |
+| 2026-09-26 | mattstack:work-next-ship | pure | pass | n/a (hidden) | digraph stage twin of stage-ship; compiled by a team pack as an internal verb |
+| 2026-09-26 | mattstack:work-next-watch-ci | pure | pass | n/a (hidden) | digraph stage twin of stage-watch-ci; compiled by a team pack as an internal verb |
 
 (Ledger rows are appended by the orchestrating session as each lane lands -- lanes themselves never edit this file.)
