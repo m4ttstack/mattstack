@@ -101,7 +101,7 @@ import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
 import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "./paths.ts";
 import { getDef, isMigrated, isRetiredKey, type SettingDef, type SettingScope } from "./registry-machinery.ts";
-import { listTeams } from "./stores.ts";
+import { listTeams, readStore } from "./stores.ts";
 import { isJoinedTeam } from "./team-local-read.ts";
 import { validateWrite } from "./validate-write.ts";
 
@@ -533,4 +533,36 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
   if (!removed) return { removed };
   console.error(`rt: removed "${storeName}" from the local ${scope} store (${storePath}); this is local only until you commit and push it.`);
   return { removed, authored };
+}
+
+export type SectionRename = "moved" | "already" | "none" | "refused";
+
+/**
+ * Moves one `repos.<oldId>` section onto `repos.<newId>` in a single store
+ * file, keeping every other key and comment. The rename is two edits on the
+ * same jsonc document (set the new section, remove the old), then a re-read
+ * proves both landed.
+ */
+export function renameRepoSection(
+  storePath: string,
+  oldId: string,
+  newId: string,
+  opts: { dryRun?: boolean } = {},
+): { status: SectionRename; keys: number; detail?: string } {
+  if (!existsSync(storePath)) return { status: "none", keys: 0 };
+  const before = readStore(storePath);
+  const oldSection = before.repos[oldId];
+  const hasNew = before.repos[newId] !== undefined;
+  if (oldSection === undefined && hasNew) return { status: "already", keys: 0 };
+  if (oldSection === undefined) return { status: "none", keys: 0 };
+  const keys = Object.keys(oldSection).length;
+  if (hasNew) return { status: "refused", keys, detail: "both populated" };
+  if (opts.dryRun) return { status: "moved", keys };
+  writeIntoStore(storePath, () => [{ path: ["repos", newId], value: oldSection }], false);
+  removeFromStore(storePath, () => [["repos", oldId]]);
+  const after = readStore(storePath);
+  if (JSON.stringify(after.repos[newId]) !== JSON.stringify(oldSection) || after.repos[oldId] !== undefined) {
+    return { status: "refused", keys, detail: `${storePath} did not persist the rename` };
+  }
+  return { status: "moved", keys };
 }
