@@ -8,6 +8,7 @@ usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
          [--scenario create|join|headless|solo] [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT]
          [--invite-code-file <p>] [--team-remote <url>] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
          [--fresh-team-repo] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
+         [--golden <name>]
 EOF
 exit 2; }
 
@@ -15,12 +16,13 @@ VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; PAT_ENV=MATTSTACK_VMTEST_P
 # The create card's pasted-URL path (a fresh guest has no gh identity yet): the throwaway
 # org's team repo, same naming as run/team-setup.sh.
 TEAM_REMOTE="${TEAM_REMOTE:-https://github.com/${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}/${MATTSTACK_VMTEST_TEAM_REPO:-mattstack-vmtest-team}.git}"
-UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0
+UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""
 while [ $# -gt 0 ]; do case "$1" in
   --ver) VER="$2"; shift 2;; --dmg) DMG="$2"; shift 2;; --app) APP="$2"; shift 2;;
   --scenario) SCENARIO="$2"; shift 2;; --team-slug) SLUG="$2"; shift 2;; --pat-env) PAT_ENV="$2"; shift 2;;
   --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; shift 2;; --forge) FORGE="$2"; shift 2;;
   --update-dir) UPD="$2"; shift 2;; --update-version) UPDV="$2"; shift 2;;
+  --golden) GOLDEN_OVERRIDE="$2"; shift 2;;
   --fresh-team-repo) FRESH_REPO=1; shift;;
   --decline-trust) DECLINE_TRUST=1; shift;;
   --no-quarantine) QUAR=0; shift;; --no-graphics) GRAPHICS=0; shift;; --keep) KEEP=1; shift;; --dry-run) DRY=1; shift;;
@@ -34,8 +36,9 @@ while [ $# -gt 0 ]; do case "$1" in
 # headless recipe drives no dialogs at all.
 [ "$DECLINE_TRUST" = 1 ] && [ "$SCENARIO" = headless ] && { vm_warn "--decline-trust needs a driven scenario, not headless"; usage; }
 
-GOLDEN=$(vm_golden_name "$VER")
+GOLDEN="${GOLDEN_OVERRIDE:-$(vm_golden_name "$VER")}"
 vm_run_init "walk-$VER-$SCENARIO"
+vm_log "golden: $GOLDEN"
 RUN_VM="mattstack-run-$VER-$(date +%H%M%S)"
 GUEST_RUN="/Volumes/My Shared Files/run"
 GUEST_BIN="/Users/$VM_TESTER_USER/vmrun"
