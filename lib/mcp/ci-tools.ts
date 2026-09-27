@@ -1,11 +1,11 @@
 /**
- * The CI attendant lease as four agent-safe MCP tools: claim, heartbeat,
+ * The CI attendant lease as four MCP tools: claim, heartbeat,
  * release, read. Every tool acts only as this session: the owner comes from
  * CLAUDE_CODE_SESSION_ID via ownerFromEnv, never from input, so a caller
  * cannot claim, heartbeat or release on another session's behalf.
  */
 import {
-  CiLeaseError, claimCiLease, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, releaseCiLease,
+  claimCiLease, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, releaseCiLease,
   type CiLeaseHolder, type CiLeaseOpts,
 } from "../../packages/rt-client/src/index.ts";
 import { readChatSession } from "../chat-session.ts";
@@ -36,8 +36,8 @@ const realLeaseDeps: CiLeaseToolDeps = {
 const MR_URL_PROP = { mrUrl: { type: "string", description: "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)." } };
 
 /** Shared claim/heartbeat/release/read shape: validate mrUrl and the session
-    owner, then run the lease op, turning a thrown CiLeaseError (a busy lock,
-    a bad URL past parseMrIid) into an ordinary tool error instead of a throw. */
+    owner, then run the lease op, turning any thrown error (a busy lock or an
+    fs failure) into an ordinary tool error instead of a throw. */
 function leaseCall(input: Record<string, unknown>, env: NodeJS.ProcessEnv, ownerOf: CiLeaseToolDeps["owner"], run: (mrUrl: string, owner: string) => unknown): ToolResult {
   const bad = checkRequired(input, [{ name: "mrUrl", type: "string" }]);
   if (bad) return err(bad);
@@ -48,8 +48,7 @@ function leaseCall(input: Record<string, unknown>, env: NodeJS.ProcessEnv, owner
   try {
     return ok(run(mrUrl, owner));
   } catch (e) {
-    if (e instanceof CiLeaseError) return err(e.message);
-    throw e;
+    return err(e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -68,14 +67,16 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> = {}): McpToolDef
         if (!HOLDERS.includes(holder)) return err('"holder" must be watch-ci or doctor');
         const ttl = input.ttlSeconds as number | undefined;
         if (ttl !== undefined && !(Number.isInteger(ttl) && ttl >= TTL_MIN && ttl <= TTL_MAX)) return err(`"ttlSeconds" must be an integer from ${TTL_MIN} to ${TTL_MAX}`);
-        const label = deps.label(env);
-        return leaseCall(input, env, deps.owner, (mrUrl, owner) =>
-          claimCiLease({
+        const branch = typeof input.branch === "string" && input.branch.trim() !== "" ? input.branch : undefined;
+        return leaseCall(input, env, deps.owner, (mrUrl, owner) => {
+          const label = deps.label(env);
+          return claimCiLease({
             mrUrl, owner, holder,
-            ...(typeof input.branch === "string" && { branch: input.branch }),
+            ...(branch !== undefined && { branch }),
             ...(label !== undefined && { sessionLabel: label }),
             ...(ttl !== undefined && { ttlSeconds: ttl }),
-          }, deps.leaseOpts()));
+          }, deps.leaseOpts());
+        });
       },
     },
     {
@@ -98,7 +99,7 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> = {}): McpToolDef
     },
     {
       name: "ci_lease_read",
-      description: `Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale lease on disk or null>, mine: <true when the fresh lease is this session's>}. A lease with no owner field was written by the pack script and reads as owner legacy:<holder>. ${LEASE_NOTE}`,
+      description: `Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale lease on disk or null>, mine: <true when the fresh lease is this session's>}. A lease with no owner field was written by the pack script and reads as owner legacy:<holder>. A stale lease of this session's own is revived by calling ci_lease_heartbeat, which checks ownership only, not freshness. ${LEASE_NOTE}`,
       inputSchema: { type: "object", properties: { ...MR_URL_PROP }, required: ["mrUrl"], additionalProperties: false },
       shellForms: ["rt ci lease show"],
       async handler(input, env) {

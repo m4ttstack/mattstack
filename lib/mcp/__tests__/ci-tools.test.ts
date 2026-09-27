@@ -64,4 +64,31 @@ describe("lease tools", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/lease lock busy/);
   });
+  test("an fs failure comes back as a tool error, not a throw", async () => {
+    const notADir = join(dir, "not-a-dir");
+    writeFileSync(notADir, "x");
+    const t = ciToolDefs({ leaseOpts: () => ({ dir: notADir }), label: () => "alice" }).find((x) => x.name === "ci_lease_claim");
+    if (!t) throw new Error("ci_lease_claim");
+    const r = await t.handler({ mrUrl: MR }, A);
+    expect(r.ok).toBe(false);
+  });
+  test("ttlSeconds at the boundary is accepted", async () => {
+    expect(await tool("ci_lease_claim").handler({ mrUrl: MR, ttlSeconds: 60 }, A)).toMatchObject({ ok: true, body: { claimed: true } });
+    expect(await tool("ci_lease_claim").handler({ mrUrl: MR, ttlSeconds: 900 }, A)).toMatchObject({ ok: true, body: { claimed: true } });
+  });
+  test("a fractional ttlSeconds is refused", async () => {
+    expect(await tool("ci_lease_claim").handler({ mrUrl: MR, ttlSeconds: 120.5 }, A)).toMatchObject({ ok: false });
+  });
+  test("heartbeat with no lease returns reason none", async () => {
+    expect(await tool("ci_lease_heartbeat").handler({ mrUrl: MR }, A)).toMatchObject({ ok: true, body: { ok: false, reason: "none" } });
+  });
+  test("a suffixed URL claims the same lease as the bare MR URL", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    expect(await tool("ci_lease_read").handler({ mrUrl: `${MR}/diffs?x=1` }, A)).toMatchObject({ ok: true, body: { mine: true } });
+  });
+  test("a whitespace-only branch is treated as absent", async () => {
+    const r = await tool("ci_lease_claim").handler({ mrUrl: MR, branch: "   " }, A);
+    expect(r).toMatchObject({ ok: true, body: { claimed: true } });
+    expect((r as any).body.lease.branch).toBeUndefined();
+  });
 });
