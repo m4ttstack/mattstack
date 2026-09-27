@@ -35,7 +35,8 @@ export function checkStores(): CheckReport {
   for (const s of storeSections()) checkSection(s, findings);
   for (const def of allDefs()) {
     if (!hasSchema(def)) continue;
-    for (const repo of [null, ...(def.repoScoped ? listStoreRepoIdentities() : [])]) {
+    const contexts = def.repoScoped ? listStoreRepoIdentities() : [];
+    for (const repo of def.repoOnly ? contexts : [null, ...contexts]) {
       const value = currentMergedValue(def, { repoIdentity: repo, expand: false });
       if (value === undefined) continue;
       const issues = checkSchema(def, value, { layer: false });
@@ -53,6 +54,10 @@ function checkSection(s: StoreSection, out: CheckFinding[]): void {
     const read = readSection(def, s.section, { layer: true });
     if (!read.present) continue;
     const at = { key: def.key, scope: s.scope, file: s.file, ...(s.repo ? { repo: s.repo } : {}) };
+    if (def.repoOnly === true && s.repo === undefined) {
+      out.push({ ...at, kind: "invalid", issues: [{ path: [], message: "repo-only: set it in a repo section (--repo), not the global store" }] });
+      continue;
+    }
     // Older-name findings are only meaningful where this key can legitimately be
     // written: the same allow-list planStoreMigrations applies before walking older names.
     const allowedHere = def.scopes.includes(s.scope) && (s.repo === undefined || def.repoScoped === true);
