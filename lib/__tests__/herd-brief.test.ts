@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assembleBrief } from "../herd-brief.ts";
+import { assembleBrief, stripAuthorNotes } from "../herd-brief.ts";
 
 const HAPPY_TEMPLATE = [
   "# Job: <name>",
@@ -289,5 +289,77 @@ describe("assembleBrief", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.leftover).toContain("paths");
+  });
+});
+
+describe("stripAuthorNotes", () => {
+  const lines = (...l: string[]) => l.join("\n");
+
+  test("a document with no markers comes back byte for byte", () => {
+    const doc = lines("# T", "", "Body <slot>", "", "```", "code", "```", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: doc });
+    expect(stripAuthorNotes(HAPPY_TEMPLATE, "template")).toEqual({ ok: true, text: HAPPY_TEMPLATE });
+  });
+
+  test("a preamble block is removed with its markers and leaves no double blank line", () => {
+    const doc = lines("# T", "", "<!-- author -->", "Copy this verbatim.", "Fill the slots.", "<!-- /author -->", "", "Worker line.", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("# T", "", "Worker line.", "") });
+  });
+
+  test("a block at the start of the document drops the blank line after it", () => {
+    const doc = lines("<!-- author -->", "note", "<!-- /author -->", "", "# T", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("# T", "") });
+  });
+
+  test("a block directly under a heading keeps the heading and the line after", () => {
+    const doc = lines("# T", "<!-- author -->", "note", "<!-- /author -->", "", "Body", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("# T", "", "Body", "") });
+  });
+
+  test("a block at the end of the document keeps one trailing newline", () => {
+    const doc = lines("Body", "", "<!-- author -->", "note", "<!-- /author -->", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("Body", "") });
+  });
+
+  test("several blocks are all removed", () => {
+    const doc = lines("A", "", "<!-- author -->", "one", "<!-- /author -->", "", "B", "", "<!-- author -->", "two", "<!-- /author -->", "", "C");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("A", "", "B", "", "C") });
+  });
+
+  test("marker lines with trailing whitespace or CRLF endings are recognized", () => {
+    const doc = "A\r\n\r\n<!-- author -->  \r\nnote\r\n<!-- /author -->\r\n\r\nB\r\n";
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: "A\r\n\r\nB\r\n" });
+  });
+
+  test("markers inside backtick and tilde fences are text", () => {
+    const backtick = lines("```", "<!-- author -->", "x", "<!-- /author -->", "```", "");
+    const tilde = lines("~~~~", "<!-- author -->", "~~~", "<!-- /author -->", "~~~~", "");
+    expect(stripAuthorNotes(backtick, "template")).toEqual({ ok: true, text: backtick });
+    expect(stripAuthorNotes(tilde, "template")).toEqual({ ok: true, text: tilde });
+  });
+
+  test("an indented marker or a marker sharing its line is text", () => {
+    const doc = lines("    <!-- author -->", "<!-- author --> inline", "x <!-- /author -->", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: doc });
+  });
+
+  test("a closer inside a fence inside a note is note text, not the closer", () => {
+    const doc = lines("A", "", "<!-- author -->", "```", "<!-- /author -->", "```", "<!-- /author -->", "", "B");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("A", "", "B") });
+  });
+
+  test("an unclosed opener fails naming the source and line", () => {
+    const doc = lines("A", "", "<!-- author -->", "note", "");
+    expect(stripAuthorNotes(doc, "method")).toEqual({ ok: false, error: "author note opened at method line 3 is never closed (<!-- /author --> missing)" });
+  });
+
+  test("a stray closer fails naming the source and line", () => {
+    const doc = lines("A", "<!-- /author -->", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: false, error: "<!-- /author --> at template line 2 has no matching <!-- author -->" });
+  });
+
+  test("a nested opener fails naming both lines", () => {
+    const doc = lines("<!-- author -->", "a", "<!-- author -->", "b", "<!-- /author -->", "<!-- /author -->");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: false, error: "author note opened at template line 3 is inside the one opened at line 1; author notes do not nest" });
   });
 });

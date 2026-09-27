@@ -18,6 +18,59 @@ const INDENTED_LINE_RE = /^ {4,}/;
 const MARKER_RE = /<([^<>]+)>/g;
 const DECORATIVE_SPAN_RE = /`[^`]*`|"[^"]*"/g;
 
+const AUTHOR_OPEN = "<!-- author -->";
+const AUTHOR_CLOSE = "<!-- /author -->";
+const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
+
+export type StripResult = { ok: true; text: string } | { ok: false; error: string };
+
+/** Removes author-note blocks (marker lines included). Markers inside a
+    fenced code block are text. A document with no markers is returned as
+    is, so unmarked templates stay byte-identical. */
+export function stripAuthorNotes(doc: string, source: "template" | "method"): StripResult {
+  const lines = doc.split("\n");
+  const kept: string[] = [];
+  let fence: string | null = null;
+  let openAt = 0;
+  let precededByBlank = false;
+  let dropNextBlank = false;
+  let sawMarker = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const lineNo = i + 1;
+    if (fence === null) {
+      const bare = line.replace(/\s+$/, "");
+      if (bare === AUTHOR_OPEN) {
+        if (openAt > 0) return { ok: false, error: `author note opened at ${source} line ${lineNo} is inside the one opened at line ${openAt}; author notes do not nest` };
+        openAt = lineNo;
+        precededByBlank = kept.length === 0 || kept[kept.length - 1]!.trim() === "";
+        sawMarker = true;
+        continue;
+      }
+      if (bare === AUTHOR_CLOSE) {
+        if (openAt === 0) return { ok: false, error: `${AUTHOR_CLOSE} at ${source} line ${lineNo} has no matching ${AUTHOR_OPEN}` };
+        openAt = 0;
+        dropNextBlank = precededByBlank;
+        continue;
+      }
+    }
+    const fenceMatch = FENCE_RE.exec(line);
+    if (fence === null) {
+      if (fenceMatch) fence = fenceMatch[1]!;
+    } else if (fenceMatch && fenceMatch[1]![0] === fence[0] && fenceMatch[1]!.length >= fence.length) {
+      fence = null;
+    }
+    if (openAt > 0) continue;
+    if (dropNextBlank) {
+      dropNextBlank = false;
+      if (line.trim() === "") continue;
+    }
+    kept.push(line);
+  }
+  if (openAt > 0) return { ok: false, error: `author note opened at ${source} line ${openAt} is never closed (${AUTHOR_CLOSE} missing)` };
+  return { ok: true, text: sawMarker ? kept.join("\n") : doc };
+}
+
 function normalizeMarkerName(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
