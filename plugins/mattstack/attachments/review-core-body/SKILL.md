@@ -20,7 +20,8 @@ follows.
 
 Take these as given: never re-resolve, never fabricate. An absent,
 unreadable, or mismatched input is the draft's first finding. The checkout
-is the caller's job; run checks in the one you are handed.
+is the caller's job (review provisions an MR-head checkout at verify and
+repro depth); run checks in the one you are handed.
 
 ## Commit to a review depth
 

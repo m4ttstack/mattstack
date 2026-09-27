@@ -157,10 +157,10 @@ call.
 When your Method runs a pipeline verb (`work`, `ship`, `review`, ...),
 start its run with the `run_start` tool and pass
 `spawnedBy: "herd:<HERD_ID>"` and `skillDir`, the base directory of the
-pipeline verb's skill it just loaded (an absolute path), where
+pipeline verb's skill you just loaded (an absolute path), where
 `<HERD_ID>` is the value of `HERD_ID` in this pane's environment
-(`printenv HERD_ID` prints it). That
-field makes the verb's run take its unattended branch, so the run's gated
+(`printenv HERD_ID` prints it). The
+`spawnedBy` field makes the verb's run take its unattended branch, so the run's gated
 questions ride the daemon's gate registry and reach the shepherd through
 the same door as the questions below. Inside that run, questions go
 through `gate_ask`, never a bare form.
