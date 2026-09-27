@@ -3,9 +3,10 @@ import { applyInstallSatisfiedFlip, composePlan } from "../plan.ts";
 import { FINISH_GATED_ROW_IDS, finalizePlan, row, type Group, type Row } from "../contract.ts";
 import { WAIVED_NOTE, applyFinishGate } from "../finish-gate.ts";
 import { setSetting } from "../../settings/write.ts";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
+import { teamSettingsPath } from "../../rt-paths.ts";
 import { UserActionableError } from "../errors.ts";
 import { writeIntent, type SetupIntent } from "../intent.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
@@ -48,6 +49,41 @@ const grantedTray = fakeTray({
   }),
 });
 
+function createIntent(): SetupIntent {
+  return {
+    v: 1,
+    at: "2026-08-21T00:00:00.000Z",
+    mode: "create",
+    team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
+  };
+}
+
+function joinIntent(): SetupIntent {
+  return {
+    v: 1,
+    at: "x",
+    mode: "join",
+    join: {
+      id: "inv1",
+      keyB64: "k",
+      pointer: {
+        v: 1,
+        team: "acme",
+        name: "Acme",
+        // The remote alone would derive "example.com", not "github.com"... proves the pointer's own forge wins.
+        remote: "https://example.com/acme/mattstack.git",
+        owner: "owner1",
+        forge: "github.com",
+        createdAt: "x",
+      },
+    },
+  };
+}
+
+function restoreIntent(): SetupIntent {
+  return { v: 1, at: "2026-08-21T00:00:00.000Z", mode: "restore", restore: { homeRepo: "acme/home" } };
+}
+
 describe("composePlan", () => {
   test("no intent, no teams -> 4 groups in contract order, team.mode none, perm.fda ready", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
@@ -78,13 +114,7 @@ describe("composePlan", () => {
 
   test("create intent -> team ref from the intent, forge derived from its remote, account.github row present", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-    const intent: SetupIntent = {
-      v: 1,
-      at: "2026-08-21T00:00:00.000Z",
-      mode: "create",
-      team: { slug: "acme", name: "Acme", remote: "https://github.com/o/r.git", others: false },
-    };
-    writeIntent(p, intent);
+    writeIntent(p, createIntent());
 
     const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
 
@@ -95,31 +125,78 @@ describe("composePlan", () => {
 
   test("join intent -> forge derived from the invite pointer's own forge field, not re-parsed from its remote", async () => {
     const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-    const intent: SetupIntent = {
-      v: 1,
-      at: "x",
-      mode: "join",
-      join: {
-        id: "inv1",
-        keyB64: "k",
-        pointer: {
-          v: 1,
-          team: "acme",
-          name: "Acme",
-          // The remote alone would derive "example.com", not "github.com" — proves the pointer's own forge wins.
-          remote: "https://example.com/acme/mattstack.git",
-          owner: "owner1",
-          forge: "github.com",
-          createdAt: "x",
-        },
-      },
-    };
-    writeIntent(p, intent);
+    writeIntent(p, joinIntent());
 
     const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
 
     const accounts = plan.groups.find((g) => g.id === "accounts")!;
     expect(accounts.rows.some((r) => r.id === "account.github")).toBe(true);
+  });
+
+  // RT-260: composePlan now threads readUserIntegrationOverrides() into accountRows (it never did before this task), so a joined team whose declared switchboard URL matches the user's own confirmed latch must read as a re-check, not a Confirm prompt asking to re-latch the same value.
+  test("join intent, team declares switchboard -> latch matching the declared URL offers the re-check action; no latch offers connect", async () => {
+    const prevHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "rt-plan-switchboard-"));
+    process.env.HOME = home;
+    try {
+      const teamPath = teamSettingsPath("acme");
+      mkdirSync(dirname(teamPath), { recursive: true });
+      writeFileSync(teamPath, "// team store\n{}\n");
+      setSetting("mattstack.integrations", { switchboard: { url: "https://sw.example.com" } }, "team", { team: "acme" });
+
+      const p = fakeProbes({ exec: readyExec, tray: grantedTray });
+      writeIntent(p, joinIntent());
+
+      const unlatched = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
+      const unlatchedRow = unlatched.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "account.switchboard")!;
+      expect(unlatchedRow.action?.type).toBe("connect");
+
+      setSetting("rt.integrations", { switchboardUrl: "https://sw.example.com" }, "user");
+      const latched = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: ["acme"] });
+      const latchedRow = latched.groups.find((g) => g.id === "accounts")!.rows.find((r) => r.id === "account.switchboard")!;
+      expect(latchedRow.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+    } finally {
+      process.env.HOME = prevHome;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("solo intent, no teams -> no access rows, github optional, fast-browser optional, no team rows, and the existing modes unchanged", async () => {
+    // canInstall also needs tool.arch and tool.app ready; readyExec/grantedTray alone leave both unmocked, and neither is solo-specific.
+    const soloExec: ExecScript = (argv) => (argv[0] === "uname" ? ok("arm64") : readyExec(argv));
+    const p = fakeProbes({ exec: soloExec, tray: grantedTray, dirs: { "/Applications/mattstack.app": [] } });
+    writeIntent(p, { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" });
+    const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+    expect(plan.team).toEqual({ slug: "", name: "", mode: "none" });
+    expect(plan.groups.find((g) => g.id === "access")!.rows).toEqual([]);
+    const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
+    expect(accounts.map((r) => [r.id, r.required])).toEqual([["account.github", false]]);
+    const tools = plan.groups.find((g) => g.id === "tools")!.rows;
+    expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(false);
+    expect(tools.some((r) => r.id.startsWith("team."))).toBe(false);
+    expect(plan.canInstall).toBe(true);
+  });
+
+  test("create, join and restore intents produce the same rows as before solo existed", async () => {
+    // readyExec puts no fast-browser on PATH, so the row's "missing" branch is the one asserted; the pending branches already read required:false in every mode.
+    for (const intent of [createIntent(), joinIntent(), restoreIntent()]) {
+      const isJoin = intent.mode === "join";
+      const p = fakeProbes({
+        exec: readyExec,
+        tray: grantedTray,
+        // The join case alone seeds a marketplace.json, and it's deliberately unparseable so a team.* row actually exists to assert against below.
+        files: isJoin ? { "/fake-home/.mattstack/teams/acme/.claude-plugin/marketplace.json": "not json" } : {},
+      });
+      writeIntent(p, intent);
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "plan", teams: [] });
+      expect(plan.groups.find((g) => g.id === "access")!.rows.length).toBeGreaterThan(0);
+      const tools = plan.groups.find((g) => g.id === "tools")!.rows;
+      expect(tools.find((r) => r.id === "tool.fast-browser")!.required).toBe(true);
+      expect(tools.find((r) => r.id === "tool.fast-browser-extension")!.finishGated).toBe(true);
+      const accounts = plan.groups.find((g) => g.id === "accounts")!.rows;
+      expect(accounts.map((r) => [r.id, r.required])).toEqual(intent.mode === "restore" ? [] : [["account.github", true]]);
+      if (isJoin) expect(tools.some((r) => r.id.startsWith("team."))).toBe(true);
+    }
   });
 
   test("--team naming an unknown team rejects with a user-actionable error instead of silently substituting a different plan", async () => {
@@ -222,8 +299,9 @@ describe("composePlan — install-satisfied flip", () => {
   test("tool.fast-browser-extension never counts against canInstall, in either mode, even while status mode reads it required", async () => {
     const p = fakeProbes({ exec: fastBrowserNotLoadedExec, tray: grantedTray, env: { PATH: "/opt/tools" }, files: { "/opt/tools/fast-browser": "#!/bin/sh" } });
     p.mkdirp("/Applications/Google Chrome.app");
+    // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated here.
     for (const mode of ["plan", "status"] as const) {
-      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, teams: [] });
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode, teams: ["acme"] });
       const r = plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.status).toBe("needs-you");
       expect(r.required).toBe(mode === "status");
@@ -344,7 +422,8 @@ describe("finish gate", () => {
     try {
       setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
       const p = fakeProbes({ exec: readyExec, tray: grantedTray });
-      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [] });
+      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
+      const plan = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"] });
       const r = plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
       expect(r.optionalNote).toBe(WAIVED_NOTE);
       // skills.writing-style is finish-gated but not waivable, so it still blocks Finish.
@@ -364,13 +443,14 @@ describe("finish gate", () => {
       const extension = (plan: Awaited<ReturnType<typeof composePlan>>) => plan.groups.find((g) => g.id === "tools")!.rows.find((r) => r.id === "tool.fast-browser-extension")!;
 
       setSetting("setup.waived", [], "machine");
-      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [], waived: ["tool.fast-browser-extension"] });
+      // A discovered team keeps this machine non-solo, which is what makes the extension row finish-gated (and so waivable) here.
+      const injectedWaived = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], waived: ["tool.fast-browser-extension"] });
       expect(extension(injectedWaived).waived).toBe(true);
 
       setSetting("setup.waived", ["tool.fast-browser-extension"], "machine");
-      const injectedNone = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [], waived: [] });
+      const injectedNone = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"], waived: [] });
       expect(extension(injectedNone).waived).toBeFalsy();
-      const fromStore = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: [] });
+      const fromStore = await composePlan({ p, secrets: fakeSecrets(), ci: false, mode: "status", teams: ["acme"] });
       expect(extension(fromStore).waived).toBe(true);
     } finally {
       process.env.HOME = prevHome;

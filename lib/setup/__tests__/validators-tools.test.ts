@@ -335,6 +335,14 @@ describe("toolRows — tool.fast-browser", () => {
     expect(r.action).toEqual({ type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] });
   });
 
+  test("solo: a pending (needs-you) branch carries the solo note too, not just the not-resolvable branch", async () => {
+    const p = fakeProbes({ exec: doctorExec(withCheckStatus(REAL_DOCTOR, "runtime-checksum", "fail")) });
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS, solo: true }, fastBrowserSeams()), "tool.fast-browser");
+    expect(r.status).toBe("needs-you");
+    expect(r.required).toBe(false);
+    expect(r.optionalNote).toBe("Works without this; only the browser skills need it.");
+  });
+
   // An id this build doesn't recognize (an older or newer fast-browser) is
   // not proof the runtime is broken: rt just couldn't determine the answer,
   // so it must never read as the same "not ready" a real fail reads as.
@@ -392,6 +400,15 @@ describe("toolRows — tool.fast-browser", () => {
     await toolRows(fakeProbes({ exec }), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams());
     expect(seenTimeouts.doctor).toBe(45_000);
     expect(seenTimeouts.herdr).toBe(5000);
+  });
+
+  test("solo: the binary row is optional and the extension row never gates Finish", async () => {
+    const rows = await toolRows(fakeProbes(), [], { hasBrew: true, secrets: NO_SECRETS, solo: true }, NOOP_SEAMS);
+    const fb = rows.find((r) => r.id === "tool.fast-browser")!;
+    expect(fb.required).toBe(false);
+    expect(fb.optionalNote).toBe("Works without this; only the browser skills need it.");
+    const ext = rows.find((r) => r.id === "tool.fast-browser-extension")!;
+    expect(ext.finishGated).toBe(false);
   });
 });
 
