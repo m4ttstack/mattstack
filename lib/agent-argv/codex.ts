@@ -36,7 +36,7 @@ function codexFlags(inv: AgentInvocation): string[] {
 
 export function buildCodexArgv(inv: AgentInvocation, bins?: { codex?: string }): string[] {
   if (inv.headless && !inv.prompt) {
-    throw new Error("headless launch requires a prompt (codex exec with no prompt blocks on stdin)");
+    throw new Error("headless launch requires a prompt (codex exec reads it from stdin)");
   }
   const bin = bins?.codex ?? resolveCodexBin();
   const flags = codexFlags(inv);

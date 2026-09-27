@@ -292,8 +292,8 @@ const agentOwner = (id: string): string => `agent:${id}`;
     message on a codex launch sends the reader to the wrong CLI's docs. */
 function headlessStdinBlurb(provider: AgentProvider): string {
   return provider === "codex"
-    ? "codex exec with no prompt blocks on stdin"
-    : "claude -p with no prompt blocks on stdin";
+    ? "codex exec reads it from stdin"
+    : "claude -p reads it from stdin";
 }
 
 /** herdr only learns codex's session id after the pane finishes its first

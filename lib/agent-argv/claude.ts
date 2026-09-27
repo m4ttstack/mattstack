@@ -44,7 +44,7 @@ function claudeArgs(inv: AgentInvocation): string[] {
     throw new Error(`invalid session uuid "${inv.session.sessionId}" ... refusing to spawn`);
   }
   if (inv.headless && !inv.prompt) {
-    throw new Error("headless launch requires a prompt (claude -p with no prompt blocks on stdin)");
+    throw new Error("headless launch requires a prompt (claude -p reads it from stdin)");
   }
   const args: string[] = [];
   if (inv.headless) args.push("-p", "--output-format", "json");
