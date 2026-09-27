@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Structure-check every ```dot block in a markdown file (or one .dot file).
 
-Usage: python3 check-dot.py <SKILL.md | graph.dot> [...]
+Usage: python3 check-dot.py [--strict] <SKILL.md | graph.dot> [...]
 Exit 0 when every graph passes, 1 on any finding, 2 on a usage or parse error.
 
 Graphviz parses the graph (dot -Tjson), so a block that renders is exactly the
 block that is checked.
+Warnings print as "warn:" lines and exit 0; --strict makes them fail.
 """
 import json
 import re
@@ -17,6 +18,37 @@ INDENTED_FENCE = re.compile(r"^\s+```dot\s*$")
 FENCE_CLOSE = re.compile(r"^`{3,}\s*$")
 ANY_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 TERMINALS = {"doublecircle", "octagon"}
+TEMPTED = re.compile(r"^\s*tempted", re.IGNORECASE)
+
+
+def two_calls(name):
+    quote_openers = {}
+    stack, opens, closes = [], set(), set()
+    for i, ch in enumerate(name):
+        if ch in "\"`":
+            if ch in quote_openers:
+                opens.add(quote_openers.pop(ch))
+                closes.add(i)
+            else:
+                quote_openers[ch] = i
+        elif quote_openers:
+            continue
+        elif ch in "{<(":
+            stack.append(i)
+        elif ch in "}>)":
+            if stack:
+                opens.add(stack.pop())
+                closes.add(i)
+    depth, flat = 0, []
+    for i, ch in enumerate(name):
+        if i in opens:
+            depth += 1
+            ch = " "
+        elif i in closes:
+            depth = max(depth - 1, 0)
+            ch = " "
+        flat.append(ch if depth == 0 else " ")
+    return ", or " in "".join(flat)
 
 
 def blocks(path):
@@ -77,6 +109,7 @@ def check(graph):
         into_labels[h].append(e.get("label", ""))
 
     problems = []
+    warnings = []
     for i, name in enumerate(names):
         label = objects[i].get("label", "\\N")
         if label not in ("\\N", name):
@@ -93,6 +126,15 @@ def check(graph):
             problems.append(f'"{name}": an octagon is a STOP; start its text with "STOP:"')
         if shape[i] == "plaintext" and "\n" in name:
             problems.append(f'"{name[:40]}...": a plaintext node is one short command or tool call, not a code block')
+        if shape[i] == "plaintext" and two_calls(name):
+            warnings.append(f'"{name}": two calls in one plaintext node; give each call its own node behind a decision (for example "Forge?")')
+        for h, lab in out[i]:
+            if not TEMPTED.match(lab):
+                continue
+            if shape[h] != "octagon":
+                problems.append(f'"{name}" -> "{names[h]}": a tempted edge leads into a STOP, never a step; the sanctioned move takes its own edge')
+            if shape[i] != "diamond":
+                warnings.append(f'"{name}" -> "{names[h]}": a tempted edge leaves a step, not a decision; draw the decision the temptation branches from')
         if not out[i] and shape[i] not in TERMINALS:
             problems.append(f'"{name}": dead end; only a doublecircle outcome or a STOP octagon may have no way out')
         if out[i] and shape[i] == "doublecircle":
@@ -131,7 +173,7 @@ def check(graph):
         if not exits:
             loop = ", ".join(f'"{names[n]}"' for n in sorted(comp))
             problems.append(f"unbounded loop: no decision edge leaves it: {loop}")
-    return problems
+    return problems, warnings
 
 
 def cycles(out):
@@ -167,11 +209,13 @@ def cycles(out):
     return comps
 
 
-def main(paths):
+def main(argv):
+    strict = "--strict" in argv
+    paths = [a for a in argv if a != "--strict"]
     if not paths:
-        print("usage: check-dot.py <SKILL.md | graph.dot> [...]", file=sys.stderr)
+        print("usage: check-dot.py [--strict] <SKILL.md | graph.dot> [...]", file=sys.stderr)
         return 2
-    failed, total = False, 0
+    failed, total, warned = False, 0, []
     for path in paths:
         found, problems = blocks(path)
         for p in problems:
@@ -187,10 +231,16 @@ def main(paths):
                 print(f"{path}:{line}: {err}")
                 failed = True
                 continue
-            for p in check(graph):
+            problems, warnings = check(graph)
+            for p in problems:
                 print(f"{path}:{line}: {p}")
                 failed = True
-    print(f"{total} graph(s) checked, {'FAIL' if failed else 'ok'}")
+            warned += [f"{path}:{line}: warn: {w}" for w in warnings]
+    # certify shows only the first lines of a failure, so failures print before warnings.
+    for w in warned:
+        print(w)
+    failed = failed or (strict and bool(warned))
+    print(f"{total} graph(s) checked, {'FAIL' if failed else 'ok'}, {len(warned)} warning(s)")
     return 1 if failed else 0
 
 

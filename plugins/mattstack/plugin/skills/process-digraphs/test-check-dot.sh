@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Each case must make check-dot.py fail with the named finding; the good case must pass.
+# Each case must make check-dot.py fail (or warn) with the named finding; a pass case must pass with no warning.
 set -u
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmp="$(mktemp -d)"
@@ -10,10 +10,18 @@ expect() { # name, expected substring (empty = must pass), dot body
   printf '%s' "$3" > "$tmp/$1.dot"
   out="$(python3 "$here/check-dot.py" "$tmp/$1.dot" 2>&1)"; rc=$?
   if [ -z "$2" ]; then
-    [ $rc -eq 0 ] && echo "ok   $1" || { echo "FAIL $1 (expected pass)"; echo "$out"; fails=$((fails+1)); }
+    if [ $rc -eq 0 ] && ! printf '%s' "$out" | grep -q 'warn:'; then echo "ok   $1"; else echo "FAIL $1 (expected a clean pass)"; echo "$out"; fails=$((fails+1)); fi
   else
     if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "$2"; then echo "ok   $1"; else echo "FAIL $1 (expected: $2)"; echo "$out"; fails=$((fails+1)); fi
   fi
+}
+
+expect_warn() { # name, expected substring, dot body: the default run passes with the warning, --strict fails on it
+  printf '%s' "$3" > "$tmp/$1.dot"
+  out="$(python3 "$here/check-dot.py" "$tmp/$1.dot" 2>&1)"; rc=$?
+  if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q "warn: .*$2"; then echo "ok   $1"; else echo "FAIL $1 (expected warning: $2)"; echo "$out"; fails=$((fails+1)); fi
+  out="$(python3 "$here/check-dot.py" --strict "$tmp/$1.dot" 2>&1)"; rc=$?
+  if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "$2"; then echo "ok   $1-strict"; else echo "FAIL $1-strict (expected failure: $2)"; echo "$out"; fails=$((fails+1)); fi
 }
 
 GOOD='digraph g {
@@ -51,6 +59,13 @@ expect loop-no-exit "no decision edge leaves it" 'digraph g { "S" [shape=ellipse
 expect stop-to-gate "" 'digraph g { "S" [shape=ellipse]; "Push refused?" [shape=diamond]; "STOP: push only with git_push" [shape=octagon]; "Off-script gate" [shape=box]; "A" [shape=doublecircle style=filled]; "S" -> "Push refused?"; "Push refused?" -> "A" [label="no"]; "Push refused?" -> "STOP: push only with git_push" [label="yes"]; "STOP: push only with git_push" -> "Off-script gate"; "Off-script gate" -> "A" [label="human pushed"]; }'
 expect outcome-out "an outcome ends the path" 'digraph g { "S" [shape=ellipse]; "A" [shape=doublecircle style=filled]; "More" [shape=box]; "B" [shape=doublecircle]; "S" -> "A"; "A" -> "More"; "More" -> "B"; }'
 expect parse-error "syntax error" 'digraph g { "S" -> ; }'
+expect_warn two-calls "two calls in one plaintext node" 'digraph g { "S" [shape=ellipse]; "mr_view {mrUrl}, or gh pr view <mr> on GitHub" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "mr_view {mrUrl}, or gh pr view <mr> on GitHub"; "mr_view {mrUrl}, or gh pr view <mr> on GitHub" -> "A"; }'
+expect param-or-quiet "" 'digraph g { "S" [shape=ellipse]; "mr_view {mrUrl, or repoName + iid}" [shape=plaintext]; "run_field_set {key: hold, value: <their words, or held>}" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "mr_view {mrUrl, or repoName + iid}"; "mr_view {mrUrl, or repoName + iid}" -> "run_field_set {key: hold, value: <their words, or held>}"; "run_field_set {key: hold, value: <their words, or held>}" -> "A"; }'
+expect quoted-nests "" 'digraph g { "S" [shape=ellipse]; "echo \"a, or b\"" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "echo \"a, or b\""; "echo \"a, or b\"" -> "A"; }'
+expect_warn quoted-opener "two calls in one plaintext node" 'digraph g { "S" [shape=ellipse]; "echo \"{\", or run }" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "echo \"{\", or run }"; "echo \"{\", or run }" -> "A"; }'
+expect_warn unmatched-opener "two calls in one plaintext node" 'digraph g { "S" [shape=ellipse]; "test x < 3, or run y" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "test x < 3, or run y"; "test x < 3, or run y" -> "A"; }'
+expect_warn tempted-from-step "tempted edge leaves a step" 'digraph g { "S" [shape=ellipse]; "Commit the change" [shape=box]; "STOP: push only with git_push" [shape=octagon]; "git_push {tree}" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "Commit the change"; "Commit the change" -> "git_push {tree}"; "Commit the change" -> "STOP: push only with git_push" [label="tempted to push from the shell"]; "STOP: push only with git_push" -> "git_push {tree}"; "git_push {tree}" -> "A"; }'
+expect tempted-into-step "tempted edge leads into a STOP" 'digraph g { "S" [shape=ellipse]; "Need a push?" [shape=diamond]; "git_push {tree}" [shape=plaintext]; "Push from the shell" [shape=box]; "A" [shape=doublecircle style=filled]; "S" -> "Need a push?"; "Need a push?" -> "git_push {tree}" [label="yes"]; "Need a push?" -> "Push from the shell" [label="tempted to push from the shell"]; "Need a push?" -> "A" [label="no"]; "git_push {tree}" -> "A"; "Push from the shell" -> "A"; }'
 
 printf '# t\n\n  ```dot\ndigraph g { "S" [shape=ellipse]; }\n  ```\n' > "$tmp/indented.md"
 out="$(python3 "$here/check-dot.py" "$tmp/indented.md" 2>&1)"; rc=$?
@@ -67,6 +82,10 @@ if [ $rc -eq 0 ]; then echo "ok   fenced-heading-ignored"; else echo "FAIL fence
 printf '# nothing here\n' > "$tmp/empty.md"
 out="$(python3 "$here/check-dot.py" "$tmp/empty.md" 2>&1)"; rc=$?
 if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "no \`\`\`dot block"; then echo "ok   no-blocks"; else echo "FAIL no-blocks"; echo "$out"; fails=$((fails+1)); fi
+
+printf 'digraph g { "S" [shape=ellipse]; "a {x}, or b" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "a {x}, or b"; "a {x}, or b" -> "A"; }' > "$tmp/late.dot"
+out="$(python3 "$here/check-dot.py" "$tmp/good.dot" "$tmp/late.dot" --strict 2>&1)"; rc=$?
+if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "two calls"; then echo "ok   strict-after-path"; else echo "FAIL strict-after-path"; echo "$out"; fails=$((fails+1)); fi
 
 echo "---"
 [ $fails -eq 0 ] && echo "all cases pass" || echo "$fails case(s) failed"
