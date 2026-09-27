@@ -147,7 +147,7 @@ WHERE id IN (
   WHERE rn > ? AND posted_at < ?
 );
 `;
-const SELECT_UNREAD_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id > ? ORDER BY id ASC LIMIT ?;`;
+const SELECT_UNREAD_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id > ? AND handle <> ? ORDER BY id ASC LIMIT ?;`;
 const SELECT_SINCE_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND posted_at >= ? ORDER BY id ASC LIMIT ?;`;
 const SELECT_MESSAGES_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? ORDER BY id DESC LIMIT ?;`;
 const SELECT_MESSAGES_BEFORE_SQL = `SELECT ${MESSAGE_COLUMNS} FROM chat_messages WHERE room = ? AND id < ? ORDER BY id DESC LIMIT ?;`;
@@ -476,7 +476,7 @@ export function readUnread(
       const rows = (
         sinceMs !== undefined
           ? db.query(SELECT_SINCE_SQL).all(member.room, sinceMs, limit)
-          : db.query(SELECT_UNREAD_SQL).all(member.room, cursor, limit)
+          : db.query(SELECT_UNREAD_SQL).all(member.room, cursor, handle, limit)
       ) as MessageRow[];
       if (rows.length === 0) continue;
 
@@ -511,7 +511,7 @@ export function peekUnread(
   for (const member of members) {
     const maxId = getRoomMaxId(member.room, db);
     const cursor = member.last_read_id <= maxId ? member.last_read_id : maxId;
-    const rows = db.query(SELECT_UNREAD_SQL).all(member.room, cursor, limit) as MessageRow[];
+    const rows = db.query(SELECT_UNREAD_SQL).all(member.room, cursor, handle, limit) as MessageRow[];
     if (rows.length === 0) continue;
     results.push({ room: member.room, messages: rows.map(rowToMessage) });
   }

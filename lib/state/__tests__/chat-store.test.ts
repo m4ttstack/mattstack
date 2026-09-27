@@ -32,6 +32,7 @@ import {
   pendingMessages,
   ackMessage,
   postMessage,
+  peekUnread,
   readUnread,
   recipientsFor,
   releaseClaim,
@@ -563,3 +564,31 @@ test("R057: markRead does not throw when the write races a held lock past busy_t
     release();
   }
 }, 5000);
+
+test("peekUnread never shows the reader its own messages", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  joinRoom({ room: "r", handle: "b" }, db);
+  postMessage({ room: "r", handle: "b", body: "which branch?" }, db);
+  postMessage({ room: "r", handle: "a", body: "picker" }, db);
+  expect(peekUnread({ handle: "a", limit: 20 }, db).map((r) => r.messages.map((m) => m.body))).toEqual([["which branch?"]]);
+});
+
+test("readUnread skips the reader's own messages and advances past what it showed", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  joinRoom({ room: "r", handle: "b" }, db);
+  postMessage({ room: "r", handle: "b", body: "q1" }, db);
+  postMessage({ room: "r", handle: "a", body: "mine" }, db);
+  postMessage({ room: "r", handle: "b", body: "q2" }, db);
+  expect(readUnread({ handle: "a", limit: 20 }, db)[0]!.messages.map((m) => m.body)).toEqual(["q1", "q2"]);
+  expect(readUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
+});
+
+test("a room whose only backlog is the reader's own posts has nothing unread", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  postMessage({ room: "r", handle: "a", body: "notes to self" }, db);
+  expect(peekUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
+  expect(readUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
+});
