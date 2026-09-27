@@ -130,4 +130,5 @@ struct SetupView: View {
 
 extension Notification.Name {
     static let rtShowSettingsTeam = Notification.Name("rtShowSettingsTeam")
+    static let rtAppsChanged = Notification.Name("rtAppsChanged")
 }

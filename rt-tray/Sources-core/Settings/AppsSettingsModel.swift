@@ -16,6 +16,9 @@ struct AppsListResult: Codable { var apps: [AppToggleRow] }
 public final class AppsSettingsModel: ObservableObject {
     @Published public private(set) var apps: [AppToggleRow] = []
     @Published public private(set) var error: String?
+    /// The window's tab list settles on one deck catalog and stops polling,
+    /// so it only learns of a flip through this.
+    public var onAppsChanged: (@MainActor () -> Void)?
     private let rt: RtRunning
     public init(rt: RtRunning) { self.rt = rt }
 
@@ -26,6 +29,7 @@ public final class AppsSettingsModel: ObservableObject {
     public func setEnabled(_ name: String, _ on: Bool) async {
         struct Flip: Codable { var name: String; var enabled: Bool }
         guard await runJSON(["apps", on ? "enable" : "disable", name, "--json"], verb: "apps \(on ? "enable" : "disable")", as: Flip.self) != nil else { return }
+        onAppsChanged?()
         await load()
     }
 

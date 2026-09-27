@@ -10,6 +10,9 @@ private func makeTeamSettings(_ rt: RtRunning, services: FakeServices = FakeServ
     return (TeamSettingsModel(rt: rt, needs: broker), broker)
 }
 
+@MainActor
+private final class HookCounter { var count = 0 }
+
 let settingsChecks: [Check] = [
     Check("RemoteMasker shows host + repo only, and never leaks stripped credentials on a path-less fallback") { c in
         c.expectEqual(RemoteMasker.mask("git@gitlab.example.com:tools/mattstack-team.git"), "gitlab.example.com/tools/mattstack-team")
@@ -133,22 +136,28 @@ let settingsChecks: [Check] = [
         rt.answers["apps list"] = (0, #"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":false,"requiresTeam":true},{"name":"chat","displayName":"Chat","enabled":true,"requiresTeam":false}]}"#)
         rt.answers["apps enable board"] = (0, #"{"contract":1,"name":"board","enabled":true}"#)
         let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        let hookCalls = await MainActor.run { HookCounter() }
+        await MainActor.run { m.onAppsChanged = { hookCalls.count += 1 } }
         await m.load()
         c.expectEqual(await MainActor.run { m.apps.map(\.name) }, ["board", "chat"])
         await m.setEnabled("board", true)
         try c.require(rt.calls.count == 3, "expected list, enable, list; got \(rt.calls.map(\.args))")
         c.expectEqual(rt.calls[1].args, ["apps", "enable", "board", "--json"])
         c.expectEqual(rt.calls[2].args, ["apps", "list", "--json"])
+        c.expectEqual(await MainActor.run { hookCalls.count }, 1, "a successful flip fires the catalog hook exactly once")
     },
     Check("AppsSettingsModel keeps rt's error and the last list on a failed flip") { c in
         let rt = ScriptedRt()
         rt.answers["apps list"] = (0, #"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":false,"requiresTeam":true}]}"#)
         rt.answers["apps disable board"] = (2, #"{"contract":1,"error":{"code":"deck-not-running","message":"deck is not running; open mattstack.app, then retry"}}"#)
         let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        let hookCalls = await MainActor.run { HookCounter() }
+        await MainActor.run { m.onAppsChanged = { hookCalls.count += 1 } }
         await m.load()
         await m.setEnabled("board", false)
         c.expectEqual(await MainActor.run { m.error }, "deck is not running; open mattstack.app, then retry")
         c.expectEqual(await MainActor.run { m.apps.count }, 1)
+        c.expectEqual(await MainActor.run { hookCalls.count }, 0, "a failed flip must not refresh the window's tabs")
     },
     Check("SettingsRefresher reloads team and apps on every show, so an already-open Settings window refreshes") { c in
         let rt = ScriptedRt()

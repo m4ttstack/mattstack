@@ -62,6 +62,7 @@ final class SetupCoordinator {
         statusInstall = InstallRunModel(stream: { _ in AsyncThrowingStream { $0.finish() } }, needs: needs)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
         appsSettings = AppsSettingsModel(rt: rt)
+        appsSettings.onAppsChanged = { NotificationCenter.default.post(name: .rtAppsChanged, object: nil) }
         settingsRefresher = SettingsRefresher(team: teamSettings, apps: appsSettings)
     }
 
