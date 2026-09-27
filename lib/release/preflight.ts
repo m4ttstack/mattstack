@@ -1,5 +1,5 @@
 /**
- * rt release preflight — the release's mechanical checks (the rt:release
+ * rt release preflight... the release's mechanical checks (the rt:release
  * skill's preflight node) as one read-only report: git/tag state, picker
  * conformance, settings schema lock, the candidate's settings check against
  * the real stores, per-layer pin freshness across every vendored surface,
