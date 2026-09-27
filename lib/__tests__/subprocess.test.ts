@@ -110,6 +110,20 @@ describe("runCapture abort signal", () => {
   });
 });
 
+describe("runCapture stdin", () => {
+  test("feeds the given text on the child's stdin", async () => {
+    const r = await runCapture(["cat"], { stdin: "hello\nworld" });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe("hello\nworld");
+  });
+
+  test("without stdin the child reads EOF immediately", async () => {
+    const r = await runCapture(["cat"]);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe("");
+  });
+});
+
 describe("outputTail", () => {
   test("passes short output through, trimmed", () => {
     expect(outputTail("  env: node: No such file or directory\n", 2000))

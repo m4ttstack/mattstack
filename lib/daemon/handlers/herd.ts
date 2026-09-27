@@ -3,13 +3,14 @@
  * existing handlers (gate, chat, agent, worktree) so the herd owns no
  * delivery, CAS, or spawn semantics of its own.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "fs";
+import { chmodSync, existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import type { Logger } from "pino";
 import type { Commands, GateQuestion, GateRow, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
 import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages/rt-client/src/index.ts";
 import type { CommandResult } from "./types.ts";
 import type { HerdStore, HerdJobRow } from "../herd-store.ts";
+import { writePromptFile } from "../../agent-argv/index.ts";
 import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
 import type { GatesStore } from "../gates-store.ts";
 import type { RunningRunScan } from "../../runs/store.ts";
@@ -417,9 +418,13 @@ export function createHerdHandlers(deps: HerdDeps) {
       const dir = jobDir(deps.jobsRoot, herdId, name);
       const briefPath = join(dir, "job.md");
       let brief = str(p?.brief);
-      if (brief) { mkdirSync(dir, { recursive: true }); writeFileSync(briefPath, brief); }
-      else if (existsSync(briefPath)) brief = readFileSync(briefPath, "utf8");
-      else return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
+      if (brief) writePromptFile(dir, "job.md", brief);
+      else if (existsSync(briefPath)) {
+        brief = readFileSync(briefPath, "utf8");
+        // The read-back path tightens modes without rewriting the only copy of the brief.
+        chmodSync(dir, 0o700);
+        chmodSync(briefPath, 0o600);
+      } else return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
 
       const prior = store.getJob(herdId, name);
       // agent:start dedups on the tab label and would focus the dead tab
