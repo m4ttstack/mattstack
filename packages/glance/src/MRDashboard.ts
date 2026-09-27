@@ -10,7 +10,11 @@ import type {
 import { isTransitionalMergeStatus } from './types.ts';
 import type { FetchPullRequestsWarning, GitProvider } from './GitProvider.ts';
 import { repoIdProvider, warningTarget } from './GitProvider.ts';
-import { createRealtimeWatcher, type WatcherStatus } from './RealtimeWatcher.ts';
+import {
+  createRealtimeWatcher,
+  type WatcherStatus,
+  type WatcherSubscribeCallbacks
+} from './RealtimeWatcher.ts';
 
 /**
  * Derives a fully-rendered, headless-UI-ready props object from a raw PullRequest.
@@ -704,10 +708,32 @@ function createDashboardGroup(
 
     if (!listener || currentIids.length === 0) return;
 
-    // The watcher subscribes only after its init fetch, so this holds that
-    // fetch's PRs by then. An MR the init fetch missed gets no push until the
-    // next restart; the batched poll still refreshes it.
+    // The watcher subscribes after its init fetch, from that fetch's PRs. A
+    // later fetch that returns an MR no subscription covers re-attaches.
     let fetchedPrs: PullRequest[] = [];
+    let push: {
+      callbacks: WatcherSubscribeCallbacks;
+      subscribed: Set<number>;
+      dispose: () => void;
+    } | null = null;
+
+    // New before old, so the shared cable's watcher count never reaches zero
+    // in between. A re-attach drops the immediate onConnected: the watcher is
+    // already connected, and a second connect would read as a reconnect.
+    const attachPush = (callbacks: WatcherSubscribeCallbacks, reattach: boolean) => {
+      let quiet = reattach;
+      const dispose = provider.subscribePullRequestEvents!(projectPath, fetchedPrs, {
+        onEvent: callbacks.onEvent,
+        onDisconnected: callbacks.onDisconnected,
+        onConnected: () => {
+          if (!quiet) callbacks.onConnected();
+        }
+      });
+      quiet = false;
+      const previous = push;
+      push = { callbacks, subscribed: new Set(fetchedPrs.map(pr => pr.iid)), dispose };
+      previous?.dispose();
+    };
 
     disposeWatcher = createRealtimeWatcher<Map<number, PullRequest>>({
       fetch: batchFetch,
@@ -717,12 +743,19 @@ function createDashboardGroup(
           callbacks.onConnected();
           return () => {};
         }
-        return provider.subscribePullRequestEvents(projectPath, fetchedPrs, callbacks);
+        attachPush(callbacks, false);
+        return () => {
+          push?.dispose();
+          push = null;
+        };
       },
 
       onUpdate: (freshMap) => {
         _isInitialLoading = false;
         fetchedPrs = [...freshMap.values()];
+        if (push && fetchedPrs.some(pr => !push!.subscribed.has(pr.iid))) {
+          attachPush(push.callbacks, true);
+        }
         for (const [iid, pr] of freshMap) {
           state.set(iid, getMRDashboardProps(pr, connectionState));
         }

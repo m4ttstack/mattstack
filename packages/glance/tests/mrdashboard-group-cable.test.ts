@@ -56,6 +56,8 @@ interface CableProvider {
   watchMRCalls: number;
   subscriptions: Array<Array<Pick<PullRequest, 'id' | 'iid'>>>;
   cable: WatcherSubscribeCallbacks | null;
+  /** Subscriptions attached and not yet disposed. */
+  live: number;
   /** iids the fake leaves out of its answer, as a row-level failure would. */
   omit: Set<number>;
 }
@@ -68,6 +70,7 @@ function cableProvider(): CableProvider {
     watchMRCalls: 0,
     subscriptions: [],
     cable: null,
+    live: 0,
     omit: new Set(),
   };
   rec.provider = {
@@ -90,8 +93,10 @@ function cableProvider(): CableProvider {
     ) {
       rec.subscriptions.push(prs.map(({ id, iid }) => ({ id, iid })));
       rec.cable = callbacks;
+      rec.live++;
       return () => {
-        rec.cable = null;
+        rec.live--;
+        if (rec.cable === callbacks) rec.cable = null;
       };
     },
   } as unknown as GitProvider;
@@ -167,7 +172,26 @@ describe('group dashboard over the shared cable', () => {
     }
   });
 
-  test('an MR missing from the init fetch is not subscribed but still arrives on the next refresh', async () => {
+  test('a burst of events from different MRs inside the debounce window gives one refetch', async () => {
+    const rec = cableProvider();
+    const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: [1, 2, 3], userId: null });
+    group.subscribe(() => {});
+    await settle();
+
+    try {
+      rec.cable?.onConnected();
+      const before = rec.fetches.length;
+      rec.cable?.onEvent();
+      rec.cable?.onEvent();
+      rec.cable?.onEvent();
+      await pastDebounce();
+      expect(rec.fetches.length - before).toBe(1);
+    } finally {
+      group.dispose();
+    }
+  });
+
+  test('an MR missing from the init fetch arrives on the next refresh and is then subscribed for push', async () => {
     const rec = cableProvider();
     rec.omit.add(3);
     const group = createDashboard({ provider: rec.provider, projectPath: 'g/p', mrIid: [1, 2, 3], userId: null });
@@ -185,8 +209,16 @@ describe('group dashboard over the shared cable', () => {
       await pastDebounce();
       expect(rec.fetches.at(-1)).toEqual([1, 2, 3]);
       expect(latest.has(3)).toBe(true);
+      expect(rec.subscriptions.at(-1)?.map((p) => p.iid)).toEqual([1, 2, 3]);
+      expect(rec.live).toBe(1);
+
+      const before = rec.fetches.length;
+      rec.cable?.onEvent();
+      await pastDebounce();
+      expect(rec.fetches.length - before).toBe(1);
     } finally {
       group.dispose();
     }
+    expect(rec.live).toBe(0);
   });
 });
