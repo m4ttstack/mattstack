@@ -42,7 +42,7 @@ This file is the master plan: shared constraints, the frozen contract every lane
 2. Two live sessions race to sign in with the same requested display name (herdr-chat signs panes in concurrently): exactly one gets `remy`, the other `remy-2`, and both get distinct ids. Owner: lane 1a Task 3.
 3. A legacy handle that already contains a dot (older derived handles) is typed as a DM target or `--as`: it resolves as a known id (step 1), never as "name remy.x". Owner: lane 1a Task 4.
 4. The viewer shows a legacy `remy` and a new `remy.k3f9` in one room and in two DM rows with kai: rows stay distinct (keys by id), colours differ, labels read `kai ↔ remy`. Owner: lane 2.
-5. `--as matt` or `continue: "matt"` (the human) or `continue` of an id live in another session is refused with today's error wording. Owner: lane 1a Task 5.
+5. `--as matt` or `continue: "matt"` (the human), or a typed minted id live in another session, is refused with today's error wording; only a typed live name gets a fresh id with the next free display suffix. Owner: lane 1a Task 5.
 
 ## The frozen contract
 
@@ -192,7 +192,7 @@ When two DM rows would read the same pair label, both rows show their participan
 ### Task I4: UI validation (mandatory)
 
 - [ ] **Step 1:** Delegate to `fast-browser:browser-driver`: open the chat viewer from `deck list`'s localhost URL for chat in a dev instance seeded with a legacy `remy` and a new `remy.m2p4` in `#rt` (lane 2's fixture id, chosen because its hue and avatar both differ from `remy`) and one DM each with kai. Screenshot light and dark.
-- [ ] **Step 2:** Check by eye: no `.m2p4` anywhere, two DM rows both labelled `kai ↔ remy` with different hues, mention highlight on `@remy`. Report plainly what looks wrong.
+- [ ] **Step 2:** Check by eye: no `.m2p4` anywhere, two DM rows both labelled `kai ↔ remy`, told apart by their avatars, mention highlight on `@remy`. Report plainly what looks wrong.
 - [ ] **Step 3:** flock: after lane 4's dev build, screenshot the chat popover, peek and quick-send in both schemes; same checks.
 
 ### Task I5: Ship order on merge day
