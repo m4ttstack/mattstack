@@ -229,3 +229,9 @@ specifies; the write fence lists those paths.
 For searches, codebase exploration, and mechanical subtasks, dispatch
 subagents on cheaper models instead of doing them in your own context.
 Reserve your own turns for design decisions and the work itself.
+
+## Processes
+Stop only processes you started, by PID (`kill <pid>`) or through the
+background task's own stop. Never kill by pattern (`pkill -f`, <!-- mcp-lint: allow -->
+`killall`): other lanes run on this machine, and a pattern such as a test
+command also matches their agents' command lines.
