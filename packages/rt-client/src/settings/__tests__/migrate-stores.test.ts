@@ -95,6 +95,14 @@ describe("planStoreMigrations", () => {
     });
   });
 
+  test("skips a repo-only key found in a global section, and still plans its repo sections", () => {
+    withMigration("rt.roles", ROLES_BUMP, () => {
+      write(userSettingsPath(), { "rt.roles": { backend: { hook: "a" } }, repos: { [IDENTITY]: { "rt.roles": { backend: { hook: "b" } } } } });
+      const writes = planStoreMigrations().writes;
+      expect(writes.map((w) => [w.scope, w.repo])).toEqual([["user", IDENTITY]]);
+    });
+  });
+
   test("skips a key found in a store its def does not allow", () => {
     withMigration(EB, EB_BUMP, () => {
       write(machineSettingsPath(), { [EB]: EB_V1 });

@@ -44,6 +44,8 @@ export interface SettingDefWire {
   secret: boolean;
   teamLocked: boolean;
   repoScoped: boolean;
+  /** Only repo sections may hold it; a client never offers a global write. */
+  repoOnly?: boolean;
   /** Computed once, server-side: migrated AND not secret AND (not composite,
       or composite writes admitted by `allowComposite`). Every client edit
       affordance keys off this instead of re-deriving it. */
@@ -191,6 +193,7 @@ export function defToWire(def: SettingDef, migrated: ((def: SettingDef) => boole
     secret: def.secret === true,
     teamLocked: def.teamLocked === true,
     repoScoped: def.repoScoped === true,
+    repoOnly: def.repoOnly === true,
     writable: isWritable(def, migrated, composites),
     description: def.description,
     hasDefault: "default" in def,
@@ -286,7 +289,9 @@ function issuesFromRows(def: SettingDef, rows: ExplainRow[], repo?: string): Wir
     present, un-shadowed row wins. A deep-merged object reports the merged
     value, not the winning layer's slice. Secrets omit the value. */
 export function effectiveFromRows(def: SettingDef, rows: ExplainRow[]): EffectiveWire {
-  const live = rows.filter((r) => r.present && !r.shadowed);
+  // A repo-only key's global layer is refused outright, never in effect,
+  // unlike a type-invalid layer the page still names as the effective one.
+  const live = rows.filter((r) => r.present && !r.shadowed && !(def.repoOnly && !r.scope.endsWith(".repo") && r.scope !== "default"));
   const top = live.at(-1);
   if (!top) {
     if ("default" in def) {
