@@ -95,12 +95,14 @@ export function SettingRow({
   const kind = rowKind(def);
   const [ns, name] = splitKey(def.key);
   const badge = badgeScope(def, subhead);
-  const plain = sourceText(def);
   const isComposite = def.type === 'object' || def.type === 'array';
   // With no repo picked, every write here would be a global one, which a
   // repo-only key refuses; the repo reach beside the name says where it is set.
   const repo = useSettingsRepo();
   const perRepo = def.repoOnly === true && repo === null;
+  // A global source label ("unset", "default") says nothing about a key
+  // that only lives in repo sections; the repo reach carries it instead.
+  const plain = perRepo ? null : sourceText(def);
 
   let control: ReactNode;
   let body: ReactNode = null;

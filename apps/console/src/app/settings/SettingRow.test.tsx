@@ -48,6 +48,7 @@ describe('SettingRow', () => {
       <SettingRow def={d} store={store()} subhead={null} query="" />
     );
     expect(screen.getByText('set per repo')).toBeInTheDocument();
+    expect(screen.queryByText('unset')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(
       screen.queryByRole('button', { name: 'rt.logDir actions' })
