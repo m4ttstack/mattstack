@@ -50,9 +50,10 @@ function opts(args: string[]) {
 }
 
 function renderPane(p: ChatPane, idWidth: number): string {
-  const who = p.presence ? `${p.presence.handle} (${p.presence.status})` : "not signed in";
+  const name = p.presence ? (p.presence.name ?? p.presence.handle) : undefined;
+  const who = p.presence ? `${name} (${p.presence.status})` : "not signed in";
   const where = [p.repo, p.branch].filter(Boolean).join(" · ");
-  const title = p.title && p.title !== p.presence?.handle ? ` · ${p.title}` : "";
+  const title = p.title && p.title !== name ? ` · ${p.title}` : "";
   const rooms = p.presence?.rooms.length ? `  #${p.presence.rooms.join(" #")}` : "";
   return `${p.paneId.padEnd(idWidth)} ${p.agentStatus.padEnd(8)} ${who.padEnd(22)} ${p.workspace}${title}${where ? `  ${where}` : ""}${rooms}`;
 }
