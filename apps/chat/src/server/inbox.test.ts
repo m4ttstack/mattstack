@@ -228,3 +228,29 @@ test('excerptFor caps at roughly 200 characters', () => {
   expect(out.length).toBeLessThanOrEqual(203);
   expect(out.endsWith('...')).toBe(true);
 });
+
+test('a card names its author and its DM pair; the ids stay on the side', () => {
+  const dm = room({
+    room: 'dm-2c9b7e41d0a5',
+    unread: 1,
+    kind: 'dm',
+    participants: { a: 'matt', b: 'remy.m2p4', aName: 'matt', bName: 'remy' },
+  });
+  const m = msg({
+    id: 30,
+    room: 'dm-2c9b7e41d0a5',
+    handle: 'remy.m2p4',
+    name: 'remy',
+    body: 'picked up the lane',
+  });
+  const [card] = buildInbox(
+    [dm],
+    new Map([['dm-2c9b7e41d0a5', [m]]]),
+    'matt'
+  ).needsYou;
+  expect(card).toMatchObject({
+    handle: 'remy.m2p4',
+    name: 'remy',
+    participants: { a: 'matt', b: 'remy.m2p4', aName: 'matt', bName: 'remy' },
+  });
+});

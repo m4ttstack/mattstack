@@ -47,8 +47,9 @@ test('the roster covers every status the design draws', () => {
     acc[b.status] = (acc[b.status] ?? 0) + 1;
     return acc;
   }, {});
-  // Matches design/build.py's FLEET table: 3 live, 1 idle, 9 offline.
-  expect(byStatus).toEqual({ live: 3, idle: 1, offline: 9 });
+  // design/build.py's FLEET table (3 live, 1 idle, 9 offline) plus the
+  // recycled remy.m2p4, live.
+  expect(byStatus).toEqual({ live: 4, idle: 1, offline: 9 });
 });
 
 test('the roster exercises the states that break layout', () => {
@@ -72,7 +73,7 @@ test('the roster exercises the states that break layout', () => {
 
 test('DM rooms carry participants and a hashed name that is never shown', () => {
   const dms = fixtureRooms().filter(r => r.kind === 'dm');
-  expect(dms).toHaveLength(4);
+  expect(dms).toHaveLength(5);
   for (const dm of dms) {
     expect(dm.room).toMatch(/^dm-[0-9a-f]{12}$/);
     expect(dm.participants?.a).toBeTruthy();
@@ -86,7 +87,7 @@ test('a DM room reports exactly its two agent participants', () => {
   expect(fixtureMembers(FIXTURE_DM)[0]!.wakeOn).toBe('all');
 });
 
-test('the #rt transcript carries the tsc-red thread, ending in the full log', () => {
+test('the #rt transcript carries the tsc-red thread, then the remy handoff', () => {
   const msgs = fixtureMessages('rt');
   const withCode = msgs.find(m => m.body.includes('```'));
   // This fixture is the one that proves a code block scrolls inside its own
@@ -160,4 +161,30 @@ test('directories filter by substring; accounts carry headroom; spawn returns a 
     ready: true,
     pane: { cwd: '/Users/matt/Documents/GitHub/chat', agentStatus: 'idle' },
   });
+});
+
+test('a recycled name: two remys share a display name, never an id', () => {
+  const remys = fixtureBuddies().filter(b => b.name === 'remy');
+  expect(remys.map(b => [b.handle, b.baseHandle])).toEqual([
+    ['remy', 'remy'],
+    ['remy.m2p4', 'remy'],
+  ]);
+  const kaiDms = fixtureRooms().filter(
+    r => r.kind === 'dm' && r.participants?.a === 'kai'
+  );
+  expect(kaiDms.map(r => [r.room, r.participants])).toEqual([
+    ['dm-e41f7a3c68bd', { a: 'kai', b: 'remy', aName: 'kai', bName: 'remy' }],
+    [
+      'dm-2c9b7e41d0a5',
+      { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+    ],
+  ]);
+  const rt = fixtureMessages('rt');
+  expect(rt.filter(m => m.name === 'remy').map(m => m.handle)).toEqual([
+    'remy',
+    'remy.m2p4',
+  ]);
+  const welcome = rt.find(m => m.mentions.includes('remy.m2p4'))!;
+  expect(welcome.mentionNames).toEqual(['remy']);
+  expect(welcome.body).toContain('@remy ');
 });

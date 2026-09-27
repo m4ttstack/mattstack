@@ -55,6 +55,7 @@ const DM_VISIBLE = 4;
 
 export interface DmLastMessage {
   handle: string;
+  name?: string;
   body: string;
 }
 

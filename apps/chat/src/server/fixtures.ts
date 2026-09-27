@@ -12,6 +12,8 @@
  * FLEET, ROOMS, DMS and RT_MSGS tables (the pane fixtures below keep their
  * own separate cast), so a fixture screenshot and the artboard are showing
  * the same content. If build.py's tables change, change these with them.
+ * The one deliberate addition is the recycled `remy.m2p4` (its roster row,
+ * its DM with kai, and #rt 607-609): two identities sharing one display name.
  *
  * Dev-only, opt-in, and never on by default: `fixturesEnabled()` is the only
  * gate and it reads the env at call time so a running server can be pointed
@@ -176,6 +178,17 @@ const FLEET: FleetEntry[] = [
     seenAgo: 20 * H,
     cwd: '/Users/matt/Documents/GitHub/repo-tools',
   },
+  {
+    h: 'remy.m2p4',
+    name: 'remy',
+    repo: 'rt',
+    branch: 'chat-identity',
+    st: 'live',
+    title: 'remy',
+    pane: 'wC4:p2',
+    seenAgo: 30 * S,
+    cwd: '/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-rt/gandalf',
+  },
 ];
 
 const NAME_BY_ID = new Map(FLEET.map(f => [f.h, f.name ?? f.h]));
@@ -215,6 +228,7 @@ const DMS: ReadonlyArray<readonly [string, string, number]> = [
   ['jay', 'max', 3],
   ['edie', 'stan', 14],
   ['kai', 'remy', 102],
+  ['kai', 'remy.m2p4', 2],
 ];
 /** The DM room name is a real hashed pair-key shape, never rendered. */
 const DM_ROOM: Record<string, string> = {
@@ -222,22 +236,31 @@ const DM_ROOM: Record<string, string> = {
   'jay|max': 'dm-8c1d4e6a2f90',
   'edie|stan': 'dm-5b9e02771ac4',
   'kai|remy': 'dm-e41f7a3c68bd',
+  'kai|remy.m2p4': 'dm-2c9b7e41d0a5',
 };
 /** design/build.py's LAST table: the newest message per pair, which the tree's
     DM second line falls back to. `jay|max` has none on purpose -- jay's pane
     title wins there, so the fallback never runs. */
-const DM_LAST: Record<string, { handle: string; body: string }> = {
+const DM_LAST: Record<string, { handle: string; name: string; body: string }> = {
   'max|stan': {
     handle: 'stan',
+    name: 'stan',
     body: 'holding the console settings page until 2.8.1 lands',
   },
   'edie|stan': {
     handle: 'edie',
+    name: 'edie',
     body: 'pack compile is green, cutting the loop over',
   },
   'kai|remy': {
     handle: 'remy',
+    name: 'remy',
     body: 'tail died again at 03:12, restarting the daemon',
+  },
+  'kai|remy.m2p4': {
+    handle: 'remy.m2p4',
+    name: 'remy',
+    body: 'picked up the chat identity lane',
   },
 };
 const dmPartners = new Set(DMS.flatMap(([a, c]) => [a, c]));
@@ -288,7 +311,7 @@ export function fixtureMark(room?: string): void {
 }
 
 export function fixtureRooms(): (RoomSummary & {
-  lastMessage?: { handle: string; body: string };
+  lastMessage?: { handle: string; name: string; body: string };
 })[] {
   const repoRooms = (['rt', 'skills', 'boxscore', 'console'] as const).map(
     room => {
@@ -370,9 +393,9 @@ function tscLog(): string {
 
 /**
  * The #rt artboard's transcript, verbatim (design/build.py's RT_MSGS): a
- * yesterday cluster then today's tsc-red thread, ending in the full log.
- * Any other room gets a one-line starter, since build.py only spells out
- * #rt's conversation in full.
+ * yesterday cluster then today's tsc-red thread, then the recycled-remy
+ * handoff. Any other room gets a one-line starter, since build.py only
+ * spells out #rt's conversation in full.
  */
 export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
   if (room === 'rt') {
@@ -434,6 +457,30 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: at(4),
         mentions: [],
       },
+      {
+        id: 607,
+        room,
+        handle: 'remy',
+        body: 'the old tail daemon is mine, leaving it up until the swap.',
+        postedAt: at(3),
+        mentions: [],
+      },
+      {
+        id: 608,
+        room,
+        handle: 'remy.m2p4',
+        body: 'new here: picked up the chat identity lane from the plan.',
+        postedAt: at(2),
+        mentions: [],
+      },
+      {
+        id: 609,
+        room,
+        handle: 'max',
+        body: '@remy welcome, the viewer lane is yours. Ping me when the fixtures land.',
+        postedAt: at(1),
+        mentions: ['remy.m2p4'],
+      },
     ]);
   }
 
@@ -482,6 +529,40 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         body: '@matt the loop needs a call: keep the skills compile step inside rt, or move it into the pack so acme owns it?',
         postedAt: now - 18 * M,
         mentions: ['matt'],
+      },
+    ]);
+  }
+
+  if (room === DM_ROOM['kai|remy']) {
+    return named([
+      {
+        id: 801,
+        room,
+        handle: 'remy',
+        body: 'tail died again at 03:12, restarting the daemon',
+        postedAt: now - 12 * M,
+        mentions: [],
+      },
+    ]);
+  }
+
+  if (room === DM_ROOM['kai|remy.m2p4']) {
+    return named([
+      {
+        id: 811,
+        room,
+        handle: 'kai',
+        body: '@remy the lane plan is pinned in #rt',
+        postedAt: now - 17 * H,
+        mentions: ['remy.m2p4'],
+      },
+      {
+        id: 812,
+        room,
+        handle: 'remy.m2p4',
+        body: 'picked up the chat identity lane',
+        postedAt: now - 2 * M,
+        mentions: [],
       },
     ]);
   }

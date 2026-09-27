@@ -18,6 +18,7 @@ const card: InboxCardData = {
   kind: 'room',
   messageId: 412,
   handle: 'jay',
+  name: 'jay',
   postedAt: NOW - 29 * 60_000,
   excerpt: '@matt metrics-hardening is ready for review.',
   reason: 'mention',

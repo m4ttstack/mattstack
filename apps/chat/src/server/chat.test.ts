@@ -1047,10 +1047,12 @@ test('fixtures mode pages GET /api/chat/messages like the daemon: the newest `li
         messages: { id: number }[];
       }
     ).messages.map(m => m.id);
-  expect(await ids('?limit=2')).toEqual([605, 606]);
+  expect(await ids('?limit=2')).toEqual([608, 609]);
   expect(await ids('?before=605&limit=2')).toEqual([603, 604]);
   expect(await ids('?before=601&limit=2')).toEqual([]);
-  expect(await ids('')).toEqual([601, 602, 603, 604, 605, 606]);
+  expect(await ids('')).toEqual([
+    601, 602, 603, 604, 605, 606, 607, 608, 609,
+  ]);
   expect(rt.chatMessages).not.toHaveBeenCalled();
 });
 
@@ -1121,6 +1123,7 @@ test('GET /api/chat/inbox fetches only unread rooms, capped at 50, and builds th
         kind: 'room',
         messageId: 900,
         handle: 'jay',
+        name: 'jay',
         postedAt: 1,
         excerpt: '@matt take a look',
         reason: 'mention',
@@ -1181,4 +1184,91 @@ test('fixtures mode answers GET /api/chat/inbox from fixtureInbox without touchi
   expect(body.elsewhere.map(e => e.room)).toContain('rt');
   expect(rt.chatRooms).not.toHaveBeenCalled();
   expect(rt.chatMessages).not.toHaveBeenCalled();
+});
+
+test('dm/open hands the daemon a name or an id exactly as typed', async () => {
+  vi.mocked(rt.chatDmOpen).mockResolvedValue({
+    ok: true,
+    data: { room: 'dm-2c9b7e41d0a5', created: false },
+  });
+  for (const to of ['remy', 'remy.m2p4']) {
+    const res = await routes.request('/api/chat/dm/open?handle=matt', {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    });
+    expect(res.status).toBe(200);
+  }
+  expect(vi.mocked(rt.chatDmOpen).mock.calls.map(c => c[0])).toEqual([
+    { from: 'matt', to: 'remy' },
+    { from: 'matt', to: 'remy.m2p4' },
+  ]);
+});
+
+test('buddies that share a name keep their own rooms, keyed by id', async () => {
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      buddies: [
+        { sessionId: 's1', handle: 'remy', baseHandle: 'remy', name: 'remy', signedInAt: 1, lastSeenAt: 1, status: 'idle' },
+        { sessionId: 's2', handle: 'remy.m2p4', baseHandle: 'remy', name: 'remy', signedInAt: 2, lastSeenAt: 2, status: 'live' },
+      ],
+    },
+  });
+  vi.mocked(rt.chatRooms).mockImplementation(async ({ handle }) => ({
+    ok: true,
+    data: {
+      rooms:
+        handle === 'remy'
+          ? [{ room: 'rt', memberCount: 2, unread: 0, mentions: 0 }]
+          : [
+              {
+                room: 'dm-2c9b7e41d0a5',
+                memberCount: 3,
+                unread: 0,
+                mentions: 0,
+                kind: 'dm' as const,
+                participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+              },
+            ],
+    },
+  }));
+  const res = await routes.request('/api/chat/buddies');
+  const { buddies } = await res.json();
+  expect(buddies).toMatchObject([
+    { handle: 'remy', name: 'remy', rooms: ['rt'] },
+    { handle: 'remy.m2p4', name: 'remy', rooms: ['dm'] },
+  ]);
+});
+
+test('a DM tail carries its author name beside the id', async () => {
+  vi.mocked(rt.chatRooms).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      rooms: [
+        {
+          room: 'dm-2c9b7e41d0a5',
+          memberCount: 3,
+          unread: 1,
+          mentions: 0,
+          kind: 'dm',
+          participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+        },
+      ],
+    },
+  });
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({ ok: true, data: { buddies: [] } });
+  vi.mocked(rt.chatMessages).mockResolvedValue({
+    ok: true,
+    data: {
+      messages: [
+        { id: 812, room: 'dm-2c9b7e41d0a5', handle: 'remy.m2p4', name: 'remy', body: 'on it', mentions: [], mentionNames: [], postedAt: 1 },
+      ],
+    },
+  });
+  const res = await routes.request('/api/chat/rooms?handle=matt');
+  expect((await res.json()).rooms[0].lastMessage).toEqual({
+    handle: 'remy.m2p4',
+    name: 'remy',
+    body: 'on it',
+  });
 });
