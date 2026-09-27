@@ -6,10 +6,13 @@ import { buildInbox, excerptFor } from './inbox';
 function msg(
   over: Partial<ChatMessage> & { id: number; body: string }
 ): ChatMessage {
+  const handle = over.handle ?? 'jay';
   return {
     room: 'rt',
-    handle: 'jay',
+    handle,
+    name: handle,
     mentions: [],
+    mentionNames: over.mentions ?? [],
     postedAt: over.id * 1000,
     ...over,
   };
@@ -39,7 +42,7 @@ test('an agent message in a matt DM lands in needsYou as a dm-turn', () => {
     room: 'dm-x',
     unread: 1,
     kind: 'dm',
-    participants: { a: 'jay', b: 'matt' },
+    participants: { a: 'jay', b: 'matt', aName: 'jay', bName: 'matt' },
   });
   const m = msg({
     id: 20,
@@ -56,7 +59,7 @@ test("matt's own message in his DM is not a dm-turn", () => {
     room: 'dm-x',
     unread: 1,
     kind: 'dm',
-    participants: { a: 'jay', b: 'matt' },
+    participants: { a: 'jay', b: 'matt', aName: 'jay', bName: 'matt' },
   });
   const m = msg({ id: 21, room: 'dm-x', handle: 'matt', body: 'on it' });
   const inbox = buildInbox([dm], new Map([['dm-x', [m]]]), 'matt');
@@ -68,7 +71,7 @@ test('a message that both mentions matt and is a DM turn counts once, as a menti
     room: 'dm-x',
     unread: 1,
     kind: 'dm',
-    participants: { a: 'jay', b: 'matt' },
+    participants: { a: 'jay', b: 'matt', aName: 'jay', bName: 'matt' },
   });
   const m = msg({
     id: 22,
@@ -106,7 +109,7 @@ test('a DM never produces an open ask, even with @here in the body', () => {
     room: 'dm-x',
     unread: 1,
     kind: 'dm',
-    participants: { a: 'jay', b: 'kai' },
+    participants: { a: 'jay', b: 'kai', aName: 'jay', bName: 'kai' },
   });
   const m = msg({ id: 50, room: 'dm-x', body: '@here anyone around' });
   const inbox = buildInbox([dm], new Map([['dm-x', [m]]]), 'matt');

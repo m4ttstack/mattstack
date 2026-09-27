@@ -27,8 +27,10 @@ const opened: ChatMessage = {
   id: 412,
   room: 'boxscore',
   handle: 'jay',
+  name: 'jay',
   body: '@matt metrics-hardening is ready for review: PR #12.',
   mentions: ['matt'],
+  mentionNames: ['matt'],
   postedAt: card.postedAt,
 };
 
@@ -36,8 +38,10 @@ const predecessor: ChatMessage = {
   id: 407,
   room: 'boxscore',
   handle: 'max',
+  name: 'max',
   body: '@jay when you pick metrics-hardening up: read every knob through getSetting.',
   mentions: ['jay'],
+  mentionNames: ['jay'],
   postedAt: card.postedAt - 70 * 60_000,
 };
 

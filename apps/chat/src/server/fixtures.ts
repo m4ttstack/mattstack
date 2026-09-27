@@ -50,6 +50,8 @@ type Buddy = PresenceRow & {
 
 interface FleetEntry {
   h: string;
+  /** Display name when it differs from the id (a recycled pool name). */
+  name?: string;
   repo: string;
   branch: string;
   st: BuddyStatus;
@@ -176,6 +178,22 @@ const FLEET: FleetEntry[] = [
   },
 ];
 
+const NAME_BY_ID = new Map(FLEET.map(f => [f.h, f.name ?? f.h]));
+
+function nameOf(id: string): string {
+  return NAME_BY_ID.get(id) ?? id;
+}
+
+type Unnamed = Omit<ChatMessage, 'name' | 'mentionNames'>;
+
+function named(messages: Unnamed[]): ChatMessage[] {
+  return messages.map(m => ({
+    ...m,
+    name: nameOf(m.handle),
+    mentionNames: m.mentions.map(nameOf),
+  }));
+}
+
 /** design/build.py's ROOMS table: repo -> room; `board` has agents but no room. */
 const REPO_ROOMS: Record<string, string> = {
   rt: 'rt',
@@ -233,7 +251,8 @@ export function fixtureBuddies(now = Date.now()): Buddy[] {
     return {
       sessionId: `fixture-${f.h}`,
       handle: f.h,
-      baseHandle: f.h,
+      baseHandle: nameOf(f.h),
+      name: nameOf(f.h),
       repo: f.repo,
       branch: f.branch,
       pane: f.pane,
@@ -292,7 +311,7 @@ export function fixtureRooms(): (RoomSummary & {
       unread: marked.has(room) ? 0 : unread,
       mentions: 0,
       kind: 'dm' as const,
-      participants: { a, b: c },
+      participants: { a, b: c, aName: nameOf(a), bName: nameOf(c) },
       ...(lastMessage ? { lastMessage } : {}),
     };
   });
@@ -313,6 +332,7 @@ export function fixtureMembers(room: string, now = Date.now()) {
     return {
       room,
       handle,
+      name: b.name,
       joinedAt: b.signedInAt,
       lastReadId: 0,
       wakeOn: room.startsWith('dm-') ? ('all' as const) : ('mention' as const),
@@ -357,7 +377,7 @@ function tscLog(): string {
 export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
   if (room === 'rt') {
     const at = (minutesAgo: number) => now - minutesAgo * M;
-    return [
+    return named([
       {
         id: 601,
         room,
@@ -414,13 +434,13 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: at(4),
         mentions: [],
       },
-    ];
+    ]);
   }
 
   // The Main artboard's own inbox thread: max's set-up, then jay's question
   // for Matt. The pair is what the reader draws, context message included.
   if (room === 'boxscore') {
-    return [
+    return named([
       {
         id: 411,
         room,
@@ -440,13 +460,13 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: now - 29 * M,
         mentions: ['matt'],
       },
-    ];
+    ]);
   }
 
   // The artboard's second NEEDS YOU card: a DM Matt is not part of, which
   // still needs him because it names him.
   if (room === DM_ROOM['edie|stan']) {
-    return [
+    return named([
       {
         id: 719,
         room,
@@ -463,10 +483,10 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
         postedAt: now - 18 * M,
         mentions: ['matt'],
       },
-    ];
+    ]);
   }
 
-  return [
+  return named([
     {
       id: 1,
       room,
@@ -475,7 +495,7 @@ export function fixtureMessages(room: string, now = Date.now()): ChatMessage[] {
       postedAt: now - 30 * M,
       mentions: [],
     },
-  ];
+  ]);
 }
 
 /**
@@ -510,7 +530,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'rt-63-68-locate',
       agentStatus: 'working',
       sessionId: 'fixture-fred',
-      presence: { handle: 'fred', status: 'live', rooms: ['repo-tools'] },
+      presence: {
+        handle: 'fred',
+        name: 'fred',
+        status: 'live',
+        rooms: ['repo-tools'],
+      },
     },
     {
       paneId: 'w3f:p4',
@@ -521,7 +546,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'main',
       agentStatus: 'idle',
       sessionId: 'fixture-meg',
-      presence: { handle: 'meg', status: 'live', rooms: ['build', 'chat'] },
+      presence: {
+        handle: 'meg',
+        name: 'meg',
+        status: 'live',
+        rooms: ['build', 'chat'],
+      },
     },
     {
       paneId: 'w9c:p3',
@@ -532,7 +562,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'main',
       agentStatus: 'blocked',
       sessionId: 'fixture-june',
-      presence: { handle: 'june', status: 'idle', rooms: ['gitq'] },
+      presence: {
+        handle: 'june',
+        name: 'june',
+        status: 'idle',
+        rooms: ['gitq'],
+      },
     },
     {
       paneId: 'w2d:p1',
@@ -543,7 +578,12 @@ export function fixturePanes(): ChatPane[] {
       branch: 'main',
       agentStatus: 'idle',
       sessionId: 'fixture-otis',
-      presence: { handle: 'otis', status: 'offline', rooms: ['deck'] },
+      presence: {
+        handle: 'otis',
+        name: 'otis',
+        status: 'offline',
+        rooms: ['deck'],
+      },
     },
     {
       paneId: 'w7A:pY',

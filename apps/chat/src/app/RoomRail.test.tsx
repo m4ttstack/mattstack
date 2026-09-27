@@ -29,7 +29,12 @@ test('DM rooms sit in a direct section and are named by their pair, never the ha
           unread: 1,
           mentions: 1,
           kind: 'dm',
-          participants: { a: 'deck-main', b: 'rt-chat-wt' },
+          participants: {
+            a: 'deck-main',
+            b: 'rt-chat-wt',
+            aName: 'deck-main',
+            bName: 'rt-chat-wt',
+          },
         },
       ]}
     />
@@ -140,7 +145,12 @@ test('the hover × closes that row without selecting it', async () => {
           unread: 2,
           mentions: 0,
           kind: 'dm',
-          participants: { a: 'fred', b: 'gitq-main' },
+          participants: {
+            a: 'fred',
+            b: 'gitq-main',
+            aName: 'fred',
+            bName: 'gitq-main',
+          },
         },
       ]}
       onCloseRoom={onCloseRoom}
@@ -226,6 +236,7 @@ test('the header names the fleet and counts it, and withholds the count when the
       sessionId: 's-max',
       handle: 'max',
       baseHandle: 'max',
+      name: 'max',
       repo: 'rt',
       signedInAt: 1,
       lastSeenAt: 2,
@@ -236,6 +247,7 @@ test('the header names the fleet and counts it, and withholds the count when the
       sessionId: 's-kai',
       handle: 'kai',
       baseHandle: 'kai',
+      name: 'kai',
       repo: 'rt',
       signedInAt: 2,
       lastSeenAt: 3,
@@ -281,6 +293,7 @@ test('the desktop RoomRail wires a workstream tap to onFocusPane, not onSelectBu
           sessionId: 's-jay',
           handle: 'jay',
           baseHandle: 'jay',
+          name: 'jay',
           repo: 'build',
           signedInAt: 1,
           lastSeenAt: 1,
@@ -343,6 +356,7 @@ test('tapping a workstream row in the fleet drawer opens a DM, not a focused pan
           sessionId: 's-jay',
           handle: 'jay',
           baseHandle: 'jay',
+          name: 'jay',
           repo: 'build',
           signedInAt: 1,
           lastSeenAt: 1,

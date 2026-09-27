@@ -20,7 +20,12 @@ const PANES: ChatPane[] = [
     repo: 'repo-tools',
     branch: 'main',
     agentStatus: 'working',
-    presence: { handle: 'fred', status: 'live', rooms: ['repo-tools'] },
+    presence: {
+      handle: 'fred',
+      name: 'fred',
+      status: 'live',
+      rooms: ['repo-tools'],
+    },
   },
   {
     paneId: 'w1:p2',
@@ -30,7 +35,7 @@ const PANES: ChatPane[] = [
     repo: 'chat',
     branch: 'main',
     agentStatus: 'idle',
-    presence: { handle: 'meg', status: 'live', rooms: ['build'] },
+    presence: { handle: 'meg', name: 'meg', status: 'live', rooms: ['build'] },
   },
   {
     paneId: 'w1:p3',
@@ -40,7 +45,7 @@ const PANES: ChatPane[] = [
     repo: 'gitq',
     branch: 'main',
     agentStatus: 'blocked',
-    presence: { handle: 'june', status: 'idle', rooms: [] },
+    presence: { handle: 'june', name: 'june', status: 'idle', rooms: [] },
   },
   {
     paneId: 'w1:p4',

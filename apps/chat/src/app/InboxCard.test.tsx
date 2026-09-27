@@ -17,6 +17,7 @@ const jay: RosterBuddy = {
   sessionId: 'jay-1',
   handle: 'jay',
   baseHandle: 'jay',
+  name: 'jay',
   signedInAt: NOW - 3_600_000,
   lastSeenAt: NOW - 40_000,
   status: 'live',

@@ -25,6 +25,7 @@ function buddy(
     sessionId: `s-${handle}`,
     handle,
     baseHandle: handle,
+    name: handle,
     repo,
     branch: 'main',
     cwd: `/Users/matt/Documents/GitHub/${repo}`,
@@ -51,7 +52,7 @@ function dm(a: string, b: string, over: Partial<FleetRoom> = {}): FleetRoom {
     unread: 0,
     mentions: 0,
     kind: 'dm',
-    participants: { a, b },
+    participants: { a, b, aName: a, bName: b },
     ...over,
   };
 }

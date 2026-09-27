@@ -113,7 +113,12 @@ test('a DM shows the pair as its title, wakes: all in its member popover', async
         unread: 0,
         mentions: 0,
         kind: 'dm',
-        participants: { a: 'deck-main', b: 'rt-chat-wt' },
+        participants: {
+          a: 'deck-main',
+          b: 'rt-chat-wt',
+          aName: 'deck-main',
+          bName: 'rt-chat-wt',
+        },
       }}
       buddies={[]}
     />
@@ -154,7 +159,7 @@ test('a DM lists each end and its task in the member roster, join-order gone', a
         unread: 0,
         mentions: 0,
         kind: 'dm',
-        participants: { a: 'jay', b: 'max' },
+        participants: { a: 'jay', b: 'max', aName: 'jay', bName: 'max' },
       }}
       now={now}
       buddies={[
@@ -205,7 +210,12 @@ test('the ⋯ menu offers Close this conversation for a DM, fleet or not', async
     unread: 0,
     mentions: 0,
     kind: 'dm' as const,
-    participants: { a: 'fred', b: 'gitq-main' },
+    participants: {
+      a: 'fred',
+      b: 'gitq-main',
+      aName: 'fred',
+      bName: 'gitq-main',
+    },
   };
   renderWithProviders(<RoomMenu room={dm} onClose={onClose} />);
   await userEvent.click(screen.getByTestId('room-menu'));
