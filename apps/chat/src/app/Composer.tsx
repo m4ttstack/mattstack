@@ -325,9 +325,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       : buddies.filter(b => b.status !== 'offline');
     const query = (token?.query ?? '').toLowerCase();
     const filtered = query
-      ? relevant.filter(b =>
-          (b.name ?? b.handle).toLowerCase().startsWith(query)
-        )
+      ? relevant.filter(b => nameOf(b.handle).toLowerCase().startsWith(query))
       : relevant;
     const options = STATUS_ORDER.flatMap(status =>
       filtered.filter(
@@ -337,7 +335,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     );
     const optionNameCounts = new Map<string, number>();
     for (const b of options) {
-      const shown = b.name ?? b.handle;
+      const shown = nameOf(b.handle);
       optionNameCounts.set(shown, (optionNameCounts.get(shown) ?? 0) + 1);
     }
     const hereCount = roomMembers.filter(h => h !== humanHandle).length;
@@ -457,7 +455,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       // one agent; a shared name may belong to the other one.
       if (
         textHas &&
-        buddies.filter(b => (b.name ?? b.handle) === shown).length === 1
+        buddies.filter(b => nameOf(b.handle) === shown).length === 1
       ) {
         setMentions(prev => (prev.includes(handle) ? prev : [...prev, handle]));
         focusAt(caret);
@@ -611,10 +609,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
                 <BuddyOption
                   key={b.handle}
                   handle={b.handle}
-                  name={b.name ?? b.handle}
-                  withAvatar={
-                    (optionNameCounts.get(b.name ?? b.handle) ?? 0) > 1
-                  }
+                  name={nameOf(b.handle)}
+                  withAvatar={(optionNameCounts.get(nameOf(b.handle)) ?? 0) > 1}
                   status={b.status as 'live' | 'idle'}
                   inRoom={roomMembers.includes(b.handle)}
                   room={room}

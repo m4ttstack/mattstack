@@ -4,6 +4,7 @@ import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
+import { BuddiesProvider } from './buddies-context';
 import { Composer, type ComposerHandle } from './Composer';
 import {
   fetchMock,
@@ -194,6 +195,40 @@ test('autocomplete matches names, never ids, and posts the picked id', async () 
       })
     )
   );
+});
+
+test('autocomplete filters, labels and counts by the name it inserts when only the directory knows it', async () => {
+  renderWithProviders(
+    <BuddiesProvider
+      buddies={[]}
+      roomMembers={['remy', 'remy.m2p4']}
+      memberNames={new Map([['remy.m2p4', 'remy']])}
+      now={0}
+      reachable
+    >
+      <Composer
+        room="rt"
+        roomMembers={['remy', 'remy.m2p4']}
+        buddies={[
+          { handle: 'remy', name: 'remy', status: 'idle' },
+          { handle: 'remy.m2p4', status: 'live' },
+        ]}
+      />
+    </BuddiesProvider>
+  );
+  const box = screen.getByRole('textbox');
+  await userEvent.type(box, '@remy.');
+  expect(screen.queryByTestId('composer-option-remy.m2p4')).toBeNull();
+  await userEvent.clear(box);
+  await userEvent.type(box, '@remy');
+  const recycled = await screen.findByTestId('composer-option-remy.m2p4');
+  expect(recycled).toHaveTextContent('remy');
+  expect(recycled).not.toHaveTextContent('m2p4');
+  expect(
+    recycled.querySelectorAll('svg[shape-rendering="crispEdges"]')
+  ).toHaveLength(1);
+  await userEvent.click(recycled);
+  expect(box).toHaveValue('@remy ');
 });
 
 test('a roster pick inserts the name and a DM placeholder reads names', () => {
