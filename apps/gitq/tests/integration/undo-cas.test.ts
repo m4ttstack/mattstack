@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GitShell } from '../../src/core/git-shell.ts';
 import { RebaseEngine } from '../../src/core/rebase-engine.ts';
@@ -13,6 +13,7 @@ import {
   commit,
   createSandboxRepo,
   gitIn,
+  rejectRefUpdates,
   type SandboxRepo,
 } from './helpers.ts';
 
@@ -180,17 +181,3 @@ describe('undo moves refs by compare-and-swap', () => {
     }
   });
 });
-
-/**
- * Make git itself reject any ref transaction touching `branch`, the way a
- * concurrent writer winning the race would. Returns the hook's remover.
- */
-async function rejectRefUpdates(repo: SandboxRepo, branch: string): Promise<() => Promise<void>> {
-  const hook = join(repo.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'hooks', 'reference-transaction');
-  await writeFile(
-    hook,
-    `#!/bin/sh\n[ "$1" = prepared ] || exit 0\nif grep ' refs/heads/${branch}$' >/dev/null; then exit 1; fi\nexit 0\n`,
-    { mode: 0o755 },
-  );
-  return () => rm(hook);
-}
