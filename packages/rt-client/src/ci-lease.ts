@@ -312,7 +312,10 @@ export type HeartbeatResult =
 
 export function heartbeatCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts = {}): HeartbeatResult {
   const p = paths(mrUrl, opts);
-  if (!readFileLease(p.lease)) return { ok: false, reason: "none" };
+  const seen = readFileLease(p.lease);
+  if (!seen) return { ok: false, reason: "none" };
+  // Only this owner writes its own owner token, so a foreign lease seen here cannot become ours under the lock.
+  if (leaseOwner(seen) !== owner) return { ok: false, reason: "lost", holder: seen };
   return withLock(p.lock, opts, (stillMine) => {
     const existing = readFileLease(p.lease);
     if (!existing) return { ok: false, reason: "none" };
@@ -332,7 +335,9 @@ export type ReleaseResult =
 
 export function releaseCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts = {}): ReleaseResult {
   const p = paths(mrUrl, opts);
-  if (!readFileLease(p.lease)) return { released: false, reason: "none" };
+  const seen = readFileLease(p.lease);
+  if (!seen) return { released: false, reason: "none" };
+  if (leaseOwner(seen) !== owner) return { released: false, reason: "not-owner", holder: seen };
   return withLock(p.lock, opts, (stillMine) => {
     const existing = readFileLease(p.lease);
     if (!existing) return { released: false, reason: "none" };

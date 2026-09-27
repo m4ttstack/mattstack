@@ -135,6 +135,15 @@ describe("heartbeat, release, read, adopt", () => {
     expect(releaseCiLease(MR, "session:a", opts())).toEqual({ released: true });
     expect(existsSync(file())).toBe(false);
   });
+  test("heartbeat and release of a foreign-owned lease answer at once, even while the lock is held", () => {
+    claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, opts());
+    writeFileSync(join(dir, "grp-proj-42.lock"), JSON.stringify({ token: "live", at: Date.now() }));
+    const started = Date.now();
+    expect(heartbeatCiLease(MR, "session:b", opts())).toMatchObject({ ok: false, reason: "lost", holder: { owner: "session:a" } });
+    expect(releaseCiLease(MR, "session:b", opts())).toMatchObject({ released: false, reason: "not-owner", holder: { owner: "session:a" } });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(onDisk().owner).toBe("session:a");
+  });
   test("read returns fresh leases and reports stale ones separately", () => {
     claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci", ttlSeconds: 60 }, opts());
     expect(readCiLease(MR, opts()).lease?.owner).toBe("session:a");
