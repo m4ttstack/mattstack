@@ -108,6 +108,7 @@ final class SetupCoordinator {
                                               self.pendingTeamJoinCode = nil
                                               self.showSetup(step: .team, joinCode: code, entry: .upgrade)
                                           },
+                                          onCreateTeam: { [weak self] in self?.showSetup(step: .team, entry: .upgrade) },
                                           onQuitForUninstall: { NSApp.terminate(nil) })
             settingsWindow = SettingsWindowController(env: env)
         }

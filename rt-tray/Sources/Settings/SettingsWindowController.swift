@@ -150,5 +150,6 @@ struct SettingsEnvironment {
     let isDevBuild: Bool
     let version: String
     let onJoinAnotherTeam: () -> Void
+    let onCreateTeam: () -> Void
     let onQuitForUninstall: () -> Void
 }

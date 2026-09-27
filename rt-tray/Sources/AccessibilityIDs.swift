@@ -117,6 +117,7 @@ enum AXID {
     static let settingsTeamCopyLink = "settings.team.copyLink"
     static let settingsTeamShareInvite = "settings.team.shareInvite"
     static let settingsTeamJoinAnother = "settings.team.joinAnother"
+    static let settingsTeamCreate = "settings.team.create"
     static let settingsUninstall = "settings.uninstall.button"
     static let settingsUninstallCancel = "settings.uninstall.cancel"
     static let settingsUninstallConfirm = "settings.uninstall.confirm"

@@ -8,6 +8,7 @@ public struct TeamSettingsInfo: Codable, Equatable, Sendable {
     public var remote: String?
     public var lastPush: String?
     public var members: [Member]?
+    public var mode: String?
 }
 
 @MainActor
@@ -21,6 +22,7 @@ public final class TeamSettingsModel: ObservableObject {
     public init(rt: RtRunning, needs: NeedBroker) { self.rt = rt; self.needs = needs }
 
     public var maskedRemote: String { info?.remote.map(RemoteMasker.mask) ?? "—" }
+    public var isSolo: Bool { info?.mode == "solo" }
 
     public func load() async {
         if let decoded = await runJSON(["team", "status", "--json"], verb: "team status", as: TeamSettingsInfo.self) { info = decoded }
