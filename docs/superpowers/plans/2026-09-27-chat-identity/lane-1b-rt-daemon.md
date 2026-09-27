@@ -14,9 +14,9 @@ Part of `docs/superpowers/plans/2026-09-27-chat-identity.md` (the master plan ow
 4. **Body `@mention` resolution.** The spec resolves each `@x` in a body at post time, but `mergeMentions` and `postMessage` are lane 1a's (`lib/state/chat-store.ts`). This lane resolves payload `mentions[]`, and its own desk-notify merge, through `resolveHandle`. It relies on 1a's `postMessage` resolving parsed body mentions before storing them and computing recipients. If 1a does not, a legacy `remy` member is still woken by an `@remy` meant for the new remy (the Task 2 body-mention test catches it).
 5. **A `continueId` with no identities row.** `--as recipient` on a name nobody holds resolves (spec step 4) to `recipient` itself. This lane assumes `signIn` continues it as a legacy id (handle = name = `recipient`). The e2e suites and the converted unit tests depend on it.
 
-## Spec note for Matt (not a contract issue)
+## Spec note for Matt (resolved by ruling 6)
 
-The MCP `chat_sign_in` tool's `as` today refuses a name another session holds or held, or one with room memberships. The spec makes `as` the continuation path, so Task 10 drops those two refusals (it keeps the human and `here` refusals). An MCP caller can then inherit an offline identity's rooms and DMs by naming it. AGENTS.md treats every tool on the mattstack server as an unasked grant, so this is flagged for review rather than silently shipped.
+The MCP `chat_sign_in` tool's `as` keeps every current refusal and never continues; Task 10 spawns `rt chat sign-in --name <as>`, a fresh identity with that display name.
 
 ## What needs no change
 
@@ -69,24 +69,37 @@ Expected: failures, starting with a link error on `paneHandleFor` (1a deleted it
 
 **Interfaces:**
 - Consumes (lane 1a): `signIn(args: { sessionId; baseHandle?; continueId?; cwd?; repo?; branch?; pane?; statusText?; now? }, db?, deps?): { handle; baseHandle; name; reclaimed; continued } | undefined` (throws on a refused continuation, CONTRACT ISSUE 1); `resolveHandle(x, db?): string`; `identityName(id, db?): string`; `reserveAgentHandle(db?, now?): string`.
-- Produces: `chat:sign-in` accepts payload `continue?: string` and answers `{ handle, baseHandle, name, reclaimed, continued, sessionId, room }`. Payload `continue` means "`--as`": continue the identity it names unless another live session holds it, in which case a new id under that name's base. An agent reservation (`getAgent(sessionId).handle`) is continued unconditionally.
+- Produces: `chat:sign-in` accepts payload `continue?: string` and answers `{ handle, baseHandle, name, reclaimed, continued, sessionId, room }`. Payload `continue` means "`--as`": continue the identity it names; when `signIn` refuses it as live in another session ("handle reclaimed"), sign in again with `baseHandle: identityName(id)`, a new id with the next display suffix. An agent reservation (`getAgent(sessionId).handle`) is continued unconditionally.
 
 - [ ] **Step 1: Convert the existing handler tests to legacy-id sign-ins**
 
-These suites sign in with `baseHandle` and then act on the raw string (`handle: "b"`, `lastReadId(db, room, "b")`). Under lane 1a a `baseHandle` mints `b.xxxx`, so they switch to `continue`, which keeps the legacy id `b` (CONTRACT ISSUE 5). The invalid-base test keeps `baseHandle`.
+These suites sign in with `baseHandle` and then act on the raw string (`handle: "b"`, `lastReadId(db, room, "b")`). Under lane 1a a `baseHandle` mints `b.xxxx`, and so does a `continue` naming nothing known (ruling 5 mints under that display name). So they switch to `continue`, and `freshHandlers` first adopts a `continue` name nothing knows as a legacy id, which the continuation then keeps as `b`. The invalid-base test keeps `baseHandle`.
 
 Run:
 ```bash
 perl -pi -e 's/baseHandle: "/continue: "/ if /chat:sign-in/ && !/remote:host/' lib/daemon/__tests__/chat-handlers.test.ts lib/daemon/__tests__/chat-delivery.test.ts
 ```
 
-Then add this comment above `freshHandlers` in both files:
+Then, in both files, add `isValidChatName` to the `../../state/index.ts` import (and `import type { Database } from "bun:sqlite";` in `chat-delivery.test.ts`), and add this helper above `freshHandlers`:
 
 ```ts
-// Sign-ins here continue the legacy id named by `continue`, so each handle
-// equals its name and the raw-handle db probes below keep working. Tests
-// that need a minted id pass `baseHandle` or nothing.
+// A `continue` naming no identity row (by id or name) is adopted as a legacy
+// id first, so each handle equals its name and the raw-handle db probes below
+// keep working. Tests that need a minted id pass `baseHandle` or nothing.
+function adoptingLegacy<H extends ReturnType<typeof createChatHandlers>>(h: H, db: Database): H {
+  const signIn = h["chat:sign-in"];
+  h["chat:sign-in"] = (async (p: { continue?: string }) => {
+    const want = p?.continue;
+    if (typeof want === "string" && isValidChatName(want) && !db.query("SELECT 1 FROM chat_identities WHERE id = ?1 OR name = ?1").get(want)) {
+      db.run("INSERT INTO chat_identities (id, name, base_name, minted_at, session_id) VALUES (?1, ?1, ?1, 0, NULL)", [want]);
+    }
+    return signIn(p as never);
+  }) as H["chat:sign-in"];
+  return h;
+}
 ```
+
+and make `freshHandlers` return `Object.assign(adoptingLegacy(createChatHandlers({ ... }), db), { db })` (same `createChatHandlers` arguments as today).
 
 - [ ] **Step 2: Replace the pane-pin and suffix tests with identity tests**
 
@@ -182,6 +195,21 @@ test("continue with an invalid name is refused with a reason", async () => {
   if (res.ok) throw new Error("unreachable");
   expect(res.error).toContain("handle");
 });
+
+test("baseHandle naming an offline identity mints a fresh id and inherits none of its rooms (the MCP as path)", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  await h["chat:join"]({ room: "build", handle: a.data.handle });
+  await h["chat:sign-out"]({ sessionId: "s1" });
+  const b = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "remy" });
+  if (!b.ok) throw new Error(b.error);
+  expect(b.data).toMatchObject({ name: "remy", continued: false });
+  expect(b.data.handle).not.toBe(a.data.handle);
+  const rooms = await h["chat:rooms"]({ handle: b.data.handle });
+  if (!rooms.ok) throw new Error(rooms.error);
+  expect(rooms.data.rooms).toEqual([]);
+});
 ```
 
 - [ ] **Step 3: Update the registry-name and reservation tests**
@@ -228,24 +256,12 @@ In `commands/__tests__/chat.test.ts`: remove `rememberPaneHandle` from the `../.
 
 - [ ] **Step 5: Run to verify the new tests fail**
 
-Run: `bun test lib/daemon/__tests__/chat-handlers.test.ts -t "sign-in|continue|agent start|same session|pane that signed"`
+Run: `bun test lib/daemon/__tests__/chat-handlers.test.ts -t "sign-in|continue|agent start|same session|pane that signed|MCP as path"`
 Expected: FAIL. With 1a present and the old handler, the module fails to link on `paneHandleFor`; without the link error, `continue` is ignored (`continued` undefined, no `remy-2`).
 
 - [ ] **Step 6: Implement continuation in the handler**
 
-In `lib/daemon/handlers/chat.ts`, change the `../../state/index.ts` import: remove `paneHandleFor` and `rememberPaneHandle`; add `identityName`, `identityNames`, `resolveHandle`. Add this function above `createChatHandlers`:
-
-```ts
-/** presence-store's reclaim predicate for one id, inverted: another session's row that is not signed out and has a fresh heartbeat or a live registry binding. */
-function heldByAnotherSession(id: string, sessionId: string, db: Database, deps: RegistryDeps | undefined): boolean {
-  const row = presenceForHandle(id, db);
-  if (!row || row.sessionId === sessionId || row.signedOutAt !== undefined) return false;
-  if (row.lastSeenAt >= Date.now() - presenceThresholds().sessionStaleMs) return true;
-  const scoped = snapshotRegistryDeps(deps);
-  const binding = scoped.resolve(row.sessionId);
-  return binding !== null && scoped.alive(binding);
-}
-```
+In `lib/daemon/handlers/chat.ts`, change the `../../state/index.ts` import: remove `paneHandleFor` and `rememberPaneHandle`; add `identityName`, `identityNames`, `resolveHandle`. Liveness stays lane 1a's call: the handler never re-derives it, it catches `signIn`'s reclaimed refusal (ruling 2).
 
 In `"chat:sign-in"`, directly after the existing `explicitRoom` validation line, add:
 
@@ -259,11 +275,7 @@ Replace everything from the comment `// No explicit baseHandle: prefer a name so
 ```ts
       let continueId: string | undefined;
       let resolvedBase = baseHandle;
-      if (requested !== undefined) {
-        const target = resolveHandle(requested, db);
-        if (heldByAnotherSession(target, sessionId, db, registryDeps)) resolvedBase = identityName(target, db).replace(/-\d+$/, "");
-        else continueId = target;
-      }
+      if (requested !== undefined) continueId = resolveHandle(requested, db);
       // No explicit request: prefer a name someone CHOSE for this session
       // (registry nameSource "user": --name at launch, /rename). Claude Code's
       // auto-derived names (nameSource "derived") are skipped for a pool draw.
@@ -278,9 +290,17 @@ Replace everything from the comment `// No explicit baseHandle: prefer a name so
         if (reserved && isValidChatName(reserved)) continueId = reserved;
       }
 
+      const signInWith = (request: { baseHandle?: string; continueId?: string }) =>
+        signIn({ sessionId, ...request, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
       let data: ReturnType<typeof signIn>;
       try {
-        data = signIn({ sessionId, baseHandle: resolvedBase, continueId, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
+        try {
+          data = signInWith({ baseHandle: resolvedBase, continueId });
+        } catch (err) {
+          // `--as` on an identity live in another session: a new id under its name, suffixed (remy-2).
+          if (requested === undefined || continueId === undefined || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
+          data = signInWith({ baseHandle: identityName(continueId, db) });
+        }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -1194,7 +1214,7 @@ test("a recycled pool name never inherits the previous holder's rooms, DMs or ca
   expect(welcome).not.toContain("kai to remy");
 
   const pair = dmParticipants(aKaiRoom, db)!;
-  expect([pair.a, pair.b].sort()).toEqual([a.data.handle, "kai"].sort());
+  expect([pair.a, pair.b].sort()).toEqual([a.data.handle, kai.data.handle].sort());
 
   const toNewRemy = await h["chat:dm"]({ from: "kai", to: "remy", body: "hello new remy", sessionId: "sess-kai" });
   if (!toNewRemy.ok) throw new Error(toNewRemy.error);
@@ -1239,10 +1259,7 @@ git commit -m "chat: pin the recycled-name incident at the daemon" -m "Co-Author
 
 - [ ] **Step 1: Convert and extend the handler tests**
 
-Run:
-```bash
-perl -pi -e 's/baseHandle: "/continue: "/ if /chat:sign-in/' lib/daemon/__tests__/pane-handlers.test.ts
-```
+The existing sign-ins keep `baseHandle` (each now mints an id); the three assertions that compare `presence.handle` to a literal compare the name instead. In `lib/daemon/__tests__/pane-handlers.test.ts`: `toMatchObject({ handle: "meg", rooms: ["build"], status: "live" })` becomes `toMatchObject({ name: "meg", rooms: ["build"], status: "live" })`, `.presence?.handle).toBe("fred")` becomes `.presence?.name).toBe("fred")`, and `bgRow.presence?.handle).toBe("worker")` becomes `bgRow.presence?.name).toBe("worker")`.
 
 Append to `lib/daemon/__tests__/pane-handlers.test.ts`:
 
@@ -1763,7 +1780,7 @@ git commit -m "herd: mint shepherd and worker identities, resume continues the s
 
 **Interfaces:**
 - Consumes: `chat:sign-in` payload `continue` and data `name` (Task 1); response name fields (Task 4); rt-client `name`/`aName`/`bName`/`recipientNames`/`authorName`/`holderName`/`previousHolderName` (lane 2 types; the CLI falls back to the id when a field is missing).
-- Produces: `ChatSession` gains `name?: string` (older files lack it); `sessionName(s: Pick<ChatSession, "handle" | "name">): string`. `rt chat sign-in --json`, with or without `--pane`, prints `{ ok, handle, name, room, continued }` (frozen contract). `__test__.resolveSignInRequest(args): { baseHandle?: string; continue?: string }` replaces `resolveSignInBaseHandle`.
+- Produces: `ChatSession` gains `name?: string` (older files lack it); `sessionName(s: Pick<ChatSession, "handle" | "name">): string`. `rt chat sign-in --json`, with or without `--pane`, prints `{ ok, handle, name, room, continued }` (frozen contract). `__test__.resolveSignInRequest(args): { baseHandle?: string; continue?: string }` replaces `resolveSignInBaseHandle`. New sign-in flag `--name <x>`: a fresh identity with display name `x`, never a continuation (sends `baseHandle`); it is how the MCP `chat_sign_in` `as` reaches the daemon (Task 10, ruling 6).
 
 - [ ] **Step 1: Write the failing session-file test**
 
@@ -1784,8 +1801,9 @@ Append inside `describe("chat-session")` in `lib/__tests__/chat-session.test.ts`
 In `commands/__tests__/chat.test.ts`, replace what remains of `"resolveSignInBaseHandle: ..."` with:
 
 ```ts
-  test("resolveSignInRequest: --as continues, chat.handle asks for a fresh identity with that name, neither draws", () => {
+  test("resolveSignInRequest: --as continues, --name and chat.handle ask for a fresh identity with that name, neither draws", () => {
     expect(__test__.resolveSignInRequest(["--as", "kai"])).toEqual({ continue: "kai" });
+    expect(__test__.resolveSignInRequest(["--name", "bob"])).toEqual({ baseHandle: "bob" });
     expect(__test__.resolveSignInRequest([])).toEqual({});
     setSetting("chat.handle", "picked", "user");
     expect(__test__.resolveSignInRequest([])).toEqual({ baseHandle: "picked" });
@@ -1822,12 +1840,19 @@ Append inside the existing describe block whose title ends in "sign-in / sign-ou
 
   test("sign-in --as sends continue, never baseHandle, and the session file carries the name", async () => {
     const out = JSON.parse(await runChat(["sign-in", "--as", "remy", "--no-room", "--session", "s11", "--json"]));
-    expect(out).toMatchObject({ ok: true, handle: "remy", name: "remy", room: null });
-    expect(typeof out.continued).toBe("boolean");
+    expect(out).toMatchObject({ ok: true, name: "remy", room: null, continued: false });
     const sent = seen.find((s) => s.cmd === "chat:sign-in")!.payload as Record<string, unknown>;
     expect(sent.continue).toBe("remy");
     expect(sent.baseHandle).toBeUndefined();
-    expect(JSON.parse(readFileSync(sessionFilePath("s11"), "utf8"))).toMatchObject({ handle: "remy", name: "remy" });
+    expect(JSON.parse(readFileSync(sessionFilePath("s11"), "utf8"))).toMatchObject({ handle: out.handle, name: "remy" });
+  });
+
+  test("sign-in --name sends baseHandle, never continue", async () => {
+    const out = JSON.parse(await runChat(["sign-in", "--name", "bob", "--no-room", "--session", "s13", "--json"]));
+    expect(out).toMatchObject({ ok: true, name: "bob", continued: false });
+    const sent = seen.find((s) => s.cmd === "chat:sign-in")!.payload as Record<string, unknown>;
+    expect(sent.baseHandle).toBe("bob");
+    expect(sent.continue).toBeUndefined();
   });
 
   test("every line the CLI prints about a minted identity shows its name, never its id", async () => {
@@ -1897,6 +1922,8 @@ Replace `resolveSignInBaseHandle` and its doc comment with:
  * that identity is live in another session. `chat.handle` asks for a fresh
  * identity with that display name. Neither means a pool draw. A repeat
  * sign-in from the same session keeps its id daemon-side, by session id.
+ * `--name` asks for a fresh identity with that display name and never
+ * continues one (the MCP chat_sign_in `as` spawns it).
  */
 function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?: string } {
   const explicit = flagValue(args, "--as");
@@ -1904,10 +1931,17 @@ function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?:
     requireValidName("handle", explicit);
     return { continue: explicit };
   }
+  const named = flagValue(args, "--name");
+  if (named) {
+    requireValidName("handle", named);
+    return { baseHandle: named };
+  }
   const fromSetting = readChatHandleSetting();
   return fromSetting ? { baseHandle: fromSetting } : {};
 }
 ```
+
+Add `"--name"` to `FLAGS_WITH_VALUES`, and in `lib/command-tree-def.ts` add a flag row after the chat node's `--as` row: `{ name: "Name", flag: "--name", type: "text", placeholder: "remy", hint: "For sign-in: a fresh identity with this display name; never continues one (use --as for that)" }`.
 
 Replace `resolvePaneBaseHandle` (keep its doc comment, changing "baseHandle chain" to "request") with:
 
@@ -2028,8 +2062,8 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add lib/chat-session.ts commands/chat.ts lib/__tests__/chat-session.test.ts commands/__tests__/chat.test.ts
-git commit -m "chat cli: --as continues, session file and output carry names" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git add lib/chat-session.ts commands/chat.ts lib/command-tree-def.ts lib/__tests__/chat-session.test.ts commands/__tests__/chat.test.ts
+git commit -m "chat cli: --as continues, --name mints, session file and output carry names" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2046,22 +2080,21 @@ git commit -m "chat cli: --as continues, session file and output carry names" -m
 
 **Interfaces:**
 - Consumes: `sessionName` (Task 9); `rt chat sign-in --json` prints `name` (Task 9).
-- Produces: `requireChatHandle(env, read?): { handle: string; name: string } | { error: string }`; `chat_sign_in` answers `{ handle, name, room, continued }` (frozen contract); `whoami`'s `chat` is `{ handle, name, baseHandle, room }`.
+- Produces: `requireChatHandle(env, read?): { handle: string; name: string } | { error: string }`; `chat_sign_in` answers `{ handle, name, room, continued }` (frozen contract); `whoami`'s `chat` is `{ handle, name, baseHandle, room }`. `chat_sign_in`'s `as` never continues (ruling 6): it keeps every current refusal and spawns `rt chat sign-in --name <as>` (Task 9), so the daemon mints a fresh id with that display name.
 
 - [ ] **Step 1: Write the failing tests**
 
-In `lib/mcp/__tests__/chat-tools.test.ts`: change the import to `import { requireChatHandle, SIGN_IN_HINT } from "../shared.ts";`. In `"spawns the CLI with a fixed argv ..."` change the expected body to `{ handle: "ann", name: "ann", room: "rt", continued: false }`. Delete the six tests `"as refuses an offline other session's own base handle, with no spawn"`, `"as refuses a suffixed handle from the same base family, with no spawn"`, `"as allows retaking this session's own prior base handle without calling buddies"`, `"as fails closed when buddies errors, with no spawn"`, `"as refuses a handle with remaining room memberships, with no spawn"`, `"as refuses a handle whose only remaining membership is an archived DM room"`, `"as spawns when the name is unused (buddies and rooms both empty)"` and `"as exempts this session's own base handle found only in the buddies roster ..."`, and add:
+In `lib/mcp/__tests__/chat-tools.test.ts`: change the import to `import { requireChatHandle, SIGN_IN_HINT } from "../shared.ts";`. In `"spawns the CLI with a fixed argv ..."` change `"--as", "ann"` in the expected `rest` to `"--name", "ann"` and the expected body to `{ handle: "ann", name: "ann", room: "rt", continued: false }`. Keep every existing `as` refusal test unchanged (held names, suffixed family, room memberships, archived DM, buddies failing closed, the own-seat exemptions). Add:
 
 ```ts
-  test("as naming a name another session holds or held still spawns: the daemon decides between continuing it and a suffixed new identity", async () => {
-    const f = fake({
-      buddiesRows: [{ sessionId: "s2", handle: "bob.k3f9", baseHandle: "bob", name: "bob" }],
-      roomsResult: { rooms: [{ room: "build" }] },
-    });
+  test("as never continues: an offline identity's unused name spawns a fresh sign-in by --name, never --as", async () => {
+    const f = fake();
     const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
     expect(r.ok).toBe(true);
-    expect(f.calls.map((c) => c.fn)).toEqual(["spawnRt"]);
-    expect(f.calls[0]!.a.rest).toEqual(["--session", "s1", "--as", "bob"]);
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies", "rooms", "spawnRt"]);
+    const rest = f.calls.find((c) => c.fn === "spawnRt")!.a.rest as string[];
+    expect(rest).toEqual(["--session", "s1", "--name", "bob"]);
+    expect(rest).not.toContain("--as");
   });
 
   test("the sign-in result carries the name and continued flag the CLI printed", async () => {
@@ -2114,7 +2147,7 @@ In `lib/mcp/__tests__/tools.test.ts` append:
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `bun test lib/mcp/__tests__/chat-tools.test.ts lib/mcp/__tests__/whoami-tool.test.ts lib/mcp/__tests__/tools.test.ts`
-Expected: FAIL (no `name` anywhere; `as` still refused for `bob`; descriptions unchanged).
+Expected: FAIL (no `name` anywhere; `as` still spawns with `--as`; descriptions unchanged).
 
 - [ ] **Step 3: Implement**
 
@@ -2137,20 +2170,10 @@ export function requireChatHandle(
 - `chat_sign_in` description:
 
 ```ts
-      description: "Sign this session in to rt chat (presence, an identity, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as continues an existing identity by name or id, its rooms and DMs included; when that identity is live in another session, this session gets a new one under that name with a suffix. as may not be the human's handle. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.",
+      description: "Sign this session in to rt chat (presence, an identity, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as picks the display name for a fresh identity and never continues an existing one: it may not be the human's handle, a name another session holds or held, or a name with room memberships. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.",
 ```
 
-- in its handler, replace the whole `if (typeof input.as === "string") { ... }` block with:
-
-```ts
-        if (typeof input.as === "string") {
-          const human = deps.humanHandle();
-          if (human === null) return err('"as" is refused: the human\'s chat handle could not be read');
-          if (input.as === human || RESERVED_HANDLES.includes(input.as)) {
-            return err(`"as" may not be ${JSON.stringify(input.as)}: that handle speaks for the human`);
-          }
-        }
-```
+- in its handler, keep the whole `if (typeof input.as === "string") { ... }` refusal block as it is, and change the spawn argument from `rest.push("--as", input.as)` to `rest.push("--name", input.as)`.
 
 - and replace the result lines at the end of the handler:
 
@@ -2191,7 +2214,7 @@ Expected: PASS.
 
 ```bash
 git add lib/mcp/shared.ts lib/mcp/chat-tools.ts lib/mcp/whoami-tool.ts lib/mcp/tools.ts lib/mcp/__tests__/chat-tools.test.ts lib/mcp/__tests__/whoami-tool.test.ts lib/mcp/__tests__/tools.test.ts lib/mcp/__tests__/tools-payload-hash.test.ts
-git commit -m "mcp: chat tools act on the id, show the name, as continues" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "mcp: chat tools act on the id and show the name; as mints, never continues" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2224,21 +2247,29 @@ async function postAs(homeDir: string, room: string, body: string, as: string): 
 }
 ```
 
-Expected frame edits (the sender of each is a legacy id, so its id equals its name):
+Every `--as x` sign-in here names an identity nothing knows yet, so the daemon mints `x.<suffix>` with display name `x` (ruling 5). Assertions that compare a signed-in handle to a literal compare `name` instead, and recipient lists and reply hints use the handle each sign-in returned:
 
 ```ts
-    // first test, sender "poster"
-        'reply via rt chat post <room> "..." or rt chat dm poster "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>',
-    // DM test, sender "c"
-        'reply via rt chat post <room> "..." or rt chat dm c "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>',
+    // first test
+    expect(signedIn.name).toBe("recipient");            // was signedIn.handle
+    const poster = await signIn(home, "sess-poster", "poster", "testroom");
+    expect(posted.recipients).toContain(signedIn.handle); // was "recipient"
+        `reply via rt chat post <room> "..." or rt chat dm ${poster.handle} "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>`,
+    // DM test
+    expect(a.name).toBe("a");                            // was a.handle
+    expect(b.name).toBe("b");                            // was b.handle
+    const c = await signIn(home, "sess-c", "c", "testroom");
+        `reply via rt chat post <room> "..." or rt chat dm ${c.handle} "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>`,
 ```
 
-In `"rooms default to wake-on mention: ..."`, delete `await signIn(home, "sess-m", "matt", "testroom");`, replace the human post with `const fromHuman = await postAs(home, "testroom", "one of you: write the TLDR", "matt");`, and change the expected frame's last line to:
+In `"rooms default to wake-on mention: ..."`, bind the two sign-ins (`const bIn = await signInPane(home, "w1:pb", "b", "testroom");`, `const aIn = await signIn(home, "sess-a", "a", "testroom");`), delete `await signIn(home, "sess-m", "matt", "testroom");`, replace the human post with `const fromHuman = await postAs(home, "testroom", "one of you: write the TLDR", "matt");`, change `expect(fromHuman.recipients).toEqual(["a", "b"]);` to `expect([...fromHuman.recipients].sort()).toEqual([aIn.handle, bIn.handle].sort());`, and change the expected frame's last line to:
 
 ```ts
         'reply via rt chat post <room> "..." or rt chat dm <id> "..." (never SendMessage; this arrived through rt chat)\n' +
-        '  reply to a: rt chat dm a "..."\n  reply to matt: rt chat dm matt "..."\n</cross-session-message>',
+        `  reply to a: rt chat dm ${aIn.handle} "..."\n  reply to matt: rt chat dm matt "..."\n</cross-session-message>`,
 ```
+
+Any other literal-handle assertion on an `--as` sign-in in this file gets the same treatment (`name` for the literal, the returned `handle` where an id is compared).
 
 Append:
 
@@ -2275,12 +2306,14 @@ Add `name: string;` to its `SignInResult`, and replace the first test:
   test("a second session asking for a live name gets a new identity with the next display suffix", async () => {
     await startDaemonForHome(home);
     const a = await signIn(home, "sess-a1", "x");
-    expect(a).toMatchObject({ handle: "x", name: "x" });
+    expect(a.name).toBe("x");
     const b = await signIn(home, "sess-b1", "x");
     expect(b.name).toBe("x-2");
     expect(b.handle).not.toBe(a.handle);
   }, 30_000);
 ```
+
+In the `user_version` replay test, the `--as` sign-ins mint too: `expect(seeded.handle).toBe("before-migration")` becomes `expect(seeded.name).toBe("before-migration")`, `readPresenceRow(home, "before-migration")` becomes `readPresenceRow(home, seeded.handle)`, and `expect(after.handle).toBe("after-migration")` becomes `expect(after.name).toBe("after-migration")`.
 
 - [ ] **Step 3: Run the e2e files**
 
@@ -2324,7 +2357,7 @@ Expected: `0 fail` (no pty test touches chat; this confirms it).
 - [ ] **Step 5: Typecheck**
 
 Run: `bun run typecheck > "$TMPDIR/lane1b-tsc.log" 2>&1; rg -n "error TS" "$TMPDIR/lane1b-tsc.log" | rg -v "packages/rt-client" | head -40`
-Expected before lane 2 is merged: only errors naming the new wire fields (`name`, `continue`, `continued`, `recipientNames`, `authorName`, `holderName`, `previousHolderName`, `aName`, `bName`, `shepherdName`, `handleName`) on rt-client types. After master Task I2 merges lane 2: none.
+Expected before lane 2 is merged: only errors naming the new wire fields (`name`, `continue`, `continued`, `recipientNames`, `authorName`, `holderName`, `previousHolderName`, `aName`, `bName`, `shepherdName`, `handleName`) on rt-client types. After master Task I2 merges lane 2: none. Lane 2 does not edit files outside `packages/rt-client` and `apps/chat`: every `error TS` left in `lib/`, `commands/` or `e2e/` after that merge (lane 2's Task 1 Step 5 report lists them, for example `lib/__tests__/herd-cli.test.ts`) is this lane's to fix at I2, by adding the missing name field to the literal (equal to its id for a legacy handle).
 
 - [ ] **Step 6: Report**
 

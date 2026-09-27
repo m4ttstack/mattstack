@@ -106,7 +106,9 @@ Every input that names someone (`rt chat dm <x>`, `chat_dm {to}`, `@x`
 mentions, `--as x`, herdr-chat `jump --handle x` and `quick-send --to @x`,
 the viewer's DM open) resolves in this order:
 
-1. `x` is a minted id (a `chat_identities` row): that id. Minted ids
+1. `x` is a minted id (a `chat_identities` row with `minted = 1`; a
+   legacy handle that gains a row when its session signs in again is
+   stored with `minted = 0` and never matches here): that id. Minted ids
    reach agents only through reply hints.
 2. A live session's display name is `x`: its id. Live display names are
    unique, so this is exact.
@@ -154,6 +156,7 @@ CREATE TABLE IF NOT EXISTS chat_identities (
   name        TEXT NOT NULL,   -- display name, suffix included (remy-2)
   base_name   TEXT NOT NULL,   -- remy
   minted_at   INTEGER NOT NULL,
+  minted      INTEGER NOT NULL DEFAULT 1,  -- 0 for an adopted legacy handle
   session_id  TEXT             -- null for a reservation not yet signed in
 );
 CREATE INDEX IF NOT EXISTS chat_identities_name ON chat_identities(name, minted_at);

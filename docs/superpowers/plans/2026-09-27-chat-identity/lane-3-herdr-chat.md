@@ -11,7 +11,7 @@ Part of `docs/superpowers/plans/2026-09-27-chat-identity.md` (master plan: const
 ## CONTRACT ISSUE notes
 
 1. **`rt chat sign-in --pane <id> --json` stdout.** herdr-chat's launcher reads the CLI's print, which today is `{ ok, handle, room }` (`commands/chat.ts`, `runSignInViaPane`). The frozen contract adds `name` to the daemon's `chat:sign-in` data but never says this CLI print carries it. Lane 1b should print `{ ok, handle, name, room }`. This lane plans against that shape and falls back to `handle` when `name` is absent, so nothing breaks if 1b does not add it; the result line would just show the id for new identities.
-2. **DM rooms in herdr-chat's JSON have no display label.** `peek.rooms[].room` and `targets.rooms[]` stay the raw room (`dm-<hash>`) because the caller passes them back (`open-viewer --room`, `quick-send --to '#...'`). The contract adds no label field, so flock will keep showing `dm-<hash>` for DM rooms. herdr-chat's own TUI labels them from rt's `participants`. This lane adds no JSON field; if flock needs one, the shepherd adds it to the contract first.
+2. **(Superseded by ruling 2: Tasks 4 and 6 add `label` and `labels`.) DM rooms in herdr-chat's JSON have no display label.** `peek.rooms[].room` and `targets.rooms[]` stay the raw room (`dm-<hash>`) because the caller passes them back (`open-viewer --room`, `quick-send --to '#...'`). The contract adds no label field, so flock will keep showing `dm-<hash>` for DM rooms. herdr-chat's own TUI labels them from rt's `participants`. This lane adds no JSON field; if flock needs one, the shepherd adds it to the contract first.
 
 ## Lane constraints
 
@@ -608,7 +608,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `rt::Buddy::display_name()`, `rt::Room::is_dm()`, `rt::Room::label()`, `rt::Participants` (Task 2).
 - Produces:
   - `peek::Row { kind, handle, name: Option<String>, status, repo, branch, title, room, room_label: Option<String>, unread, mentions }`. `name` is set on buddy rows; `room_label` is set on DM room rows only.
-  - `json::PeekBuddy { handle, name: String, pane_id, status, repo, branch, title, unread, mentions }`, printed with `name` right after `handle`. `json::PeekRoom` is unchanged and keeps the raw room.
+  - `json::PeekBuddy { handle, name: String, pane_id, status, repo, branch, title, unread, mentions }`, printed with `name` right after `handle`.
+  - `json::PeekRoom { room, label: String, unread, mentions }`: `room` stays the raw room (the viewer link and `quick-send` key on it); `label`, printed right after `room`, is `kai \u{2194} remy` for a DM room and the room itself otherwise (shepherd ruling 2).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -780,18 +781,21 @@ Append these tests inside `mod tests`:
 
     #[test]
     fn a_peek_dm_room_keeps_its_raw_room_for_the_viewer_link() {
-        let rows = rows(vec![], vec![dm_room("dm-3f9a", 2)], &no_details());
+        let rows = rows(vec![], vec![dm_room("dm-3f9a", 2), room("build", 1, 0)], &no_details());
         let out = crate::json::peek_from_rows(&rows, &[]);
-        assert_eq!(out.rooms[0].room, "dm-3f9a");
+        let dm = out.rooms.iter().find(|r| r.room == "dm-3f9a").unwrap();
+        assert_eq!(dm.label, "kai \u{2194} remy");
+        let channel = out.rooms.iter().find(|r| r.room == "build").unwrap();
+        assert_eq!(channel.label, "build");
     }
 ```
 
-In `src/json.rs` test `peek_buddy_serializes_pane_id_as_camel_case`, add `name: "kay".to_string(),` after `handle: "kay".to_string(),`.
+In `src/json.rs` test `peek_buddy_serializes_pane_id_as_camel_case`, add `name: "kay".to_string(),` after `handle: "kay".to_string(),`. In every `PeekRoom { ... }` literal in `src/json.rs` tests, add `label:` equal to its `room` right after the `room:` line.
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `unset HERDR_BIN_PATH RT_BIN_PATH DECK_BIN_PATH; cargo test --release peek`
-Expected: compile errors: `struct Row has no field named name`, `has no field named room_label`, `struct PeekBuddy has no field named name`.
+Expected: compile errors: `struct Row has no field named name`, `has no field named room_label`, `struct PeekBuddy has no field named name`, `no field label on type PeekRoom`.
 
 - [ ] **Step 3: Implement `Row`, `rows`, `label` and `row_line` in `src/cmd/peek.rs`**
 
@@ -943,6 +947,33 @@ pub struct PeekBuddy {
 }
 ```
 
+Replace the `PeekRoom` struct with:
+
+```rust
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct PeekRoom {
+    pub room: String,
+    /// What to draw: a DM room's participant names, else the room itself.
+    pub label: String,
+    pub unread: u32,
+    pub mentions: u32,
+}
+```
+
+and in `peek_from_rows`'s room arm build it as:
+
+```rust
+                if let Some(room) = row.room.clone() {
+                    let label = row.room_label.clone().unwrap_or_else(|| room.clone());
+                    rooms.push(PeekRoom {
+                        room,
+                        label,
+                        unread: row.unread,
+                        mentions: row.mentions,
+                    });
+                }
+```
+
 In `peek_from_rows`, replace the buddy arm's body with:
 
 ```rust
@@ -972,7 +1003,7 @@ Expected: `test result: ok. 155 passed; 0 failed`.
 
 ```bash
 git add src/cmd/peek.rs src/json.rs
-git commit -m "peek: show display names, key on the handle, label DM rooms by who is in them
+git commit -m "peek: show display names, key on the handle, label DM rooms by who is in them (JSON label too)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1189,7 +1220,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `rt::Buddy::display_name()`, `rt::Room::is_dm()`, `rt::Room::label()` (Task 2).
 - Produces:
   - `quick_send::TargetRow { pub target: Target, pub label: String, pub sigil: char, pub detail: Option<rt::AgentDetail> }`, where `Target::Dm` holds the id and `Target::Room` the raw room.
-  - `json::targets_from(rows: &[quick_send::TargetRow]) -> json::Targets`. `rooms` holds `#<raw room>`; `people` holds `@<display name>`, once per name.
+  - `json::targets_from(rows: &[quick_send::TargetRow]) -> json::Targets`. `rooms` holds `#<raw room>`; `people` holds `@<display name>`, once per name; `labels` maps every string in `rooms` and `people` to its display text: `kai \u{2194} remy` for a DM room, the string itself for anything else (shepherd ruling 2).
   - `quick_send::send_json`: unchanged; `@x` reaches `rt chat dm x` verbatim, and rt resolves a name or an id.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1215,6 +1246,7 @@ In `src/cmd/quick_send.rs` tests, replace `targets_json_lists_rooms_with_their_h
         ]);
         assert_eq!(t.rooms, vec!["#rt".to_string()]);
         assert_eq!(t.people, vec!["@scout".to_string()]);
+        assert_eq!(t.labels.get("#rt").map(String::as_str), Some("#rt"));
     }
 ```
 
@@ -1239,6 +1271,10 @@ Append these tests:
         let t = targets_json(&r).unwrap();
         assert_eq!(t.rooms, vec!["#rt", "#dm-3f9a"]);
         assert_eq!(t.people, vec!["@remy", "@meg"]);
+        assert_eq!(t.labels.get("#dm-3f9a").map(String::as_str), Some("kai \u{2194} remy"));
+        assert_eq!(t.labels.get("#rt").map(String::as_str), Some("#rt"));
+        assert_eq!(t.labels.get("@remy").map(String::as_str), Some("@remy"));
+        assert_eq!(t.labels.len(), 4);
     }
 
     /// A signed-out identity keeps its name while a live one holds it too, and
@@ -1430,25 +1466,35 @@ Replace the `Targets` doc comment and `targets_from` with:
 pub struct Targets {
     pub rooms: Vec<String>,
     pub people: Vec<String>,
+    /// Display text for every string above; a DM room's `#dm-<hash>` reads as
+    /// its participants' names.
+    pub labels: std::collections::BTreeMap<String, String>,
 }
 
 pub fn targets_from(rows: &[crate::cmd::quick_send::TargetRow]) -> Targets {
     let mut rooms = Vec::new();
     let mut people: Vec<String> = Vec::new();
+    let mut labels = std::collections::BTreeMap::new();
     for row in rows {
         match &row.target {
-            crate::cmd::quick_send::Target::Room(r) => rooms.push(format!("#{r}")),
+            crate::cmd::quick_send::Target::Room(r) => {
+                let target = format!("#{r}");
+                let text = if row.sigil == '@' { row.label.clone() } else { target.clone() };
+                labels.insert(target.clone(), text);
+                rooms.push(target);
+            }
             crate::cmd::quick_send::Target::Dm(_) => {
                 // A signed-out identity can share a live one's name, and
                 // `@name` reaches only the live one.
                 let person = format!("@{}", row.label);
                 if !people.contains(&person) {
+                    labels.insert(person.clone(), person.clone());
                     people.push(person);
                 }
             }
         }
     }
-    Targets { rooms, people }
+    Targets { rooms, people, labels }
 }
 ```
 
@@ -1743,16 +1789,33 @@ with:
 
 - [ ] **Step 2: README paragraphs below the table**
 
+Replace the table row:
+
+```
+| `targets` | none | `rooms`, `people` |
+```
+
+with:
+
+```
+| `targets` | none | `rooms`, `people`, `labels` |
+```
+
 Replace:
 
 ```
 The nested rows: a `peek` buddy is `handle`, `paneId`, `status`, `repo`,
+`branch`, `title`, `unread`, `mentions`, and a `peek` room is `room`, `unread`,
+`mentions`;
 ```
 
 with:
 
 ```
 The nested rows: a `peek` buddy is `handle`, `name`, `paneId`, `status`, `repo`,
+`branch`, `title`, `unread`, `mentions`, and a `peek` room is `room`, `label`,
+`unread`, `mentions` (`label` is what to draw: a DM room's participant names,
+`kai ↔ remy`, else the room);
 ```
 
 Re-wrap that paragraph to the README's 80-column width afterwards.
@@ -1770,7 +1833,9 @@ with:
 ```
 `targets` prints prefixed strings (`#room` under `rooms`, `@name` under
 `people`) and `quick-send --to` takes one back. A bare name is refused rather
-than guessed at between a room and a person.
+than guessed at between a room and a person. `labels` maps each of those
+strings to what to draw: a DM room's `#dm-...` reads as its participants'
+names, and every other string maps to itself.
 ```
 
 Replace:

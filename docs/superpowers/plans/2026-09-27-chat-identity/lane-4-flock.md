@@ -83,6 +83,7 @@ carry `@`. One unit test keeps the `@`-tolerance case explicit.
   - `ChatStatus.displayName: String?` (nil exactly when `handle` is nil)
   - `ChatBuddy.name: String?`, `ChatBuddy.displayName: String`
   - `ChatJump.name: String?`
+  - `ChatPeekRoom.label: String?` and `ChatTargets.labels: [String: String]?` (defaulted `var`s, so existing memberwise calls still compile; shepherd ruling)
   - `enum ChatDisplayName { static func text(name: String?, handle: String) -> String }` (internal to FlockCore)
 
 - [ ] **Step 1: Write the failing tests**
@@ -158,6 +159,27 @@ Append to `Tests/FlockCoreTests/ChatShapesTests.swift`, inside `ChatShapesTests`
         XCTAssertEqual(ChatDisplayName.text(name: "", handle: "kay"), "kay")
         XCTAssertEqual(ChatDisplayName.text(name: "remy-2", handle: "remy.k3f9"), "remy-2")
     }
+
+    /// herdr-chat labels a DM room by its participants; an older herdr-chat
+    /// sends no label, and the raw room is drawn.
+    func testAPeekRoomDecodesItsLabelAbsentOrPresent() throws {
+        let absent = try decode(ChatPeekRoom.self, #"{"room":"rt","unread":0,"mentions":0}"#)
+        XCTAssertNil(absent.label)
+        let present = try decode(ChatPeekRoom.self, #"{"room":"dm-3f9a","label":"kai ↔ remy","unread":2,"mentions":0}"#)
+        XCTAssertEqual(present.room, "dm-3f9a")
+        XCTAssertEqual(present.label, "kai ↔ remy")
+    }
+
+    func testTargetsDecodeTheirLabelsAbsentOrPresent() throws {
+        let absent = try decode(ChatTargets.self, #"{"rooms":["#rt"],"people":["@kay"]}"#)
+        XCTAssertNil(absent.labels)
+        let present = try decode(
+            ChatTargets.self,
+            #"{"rooms":["#rt","#dm-3f9a"],"people":["@kay"],"labels":{"#rt":"#rt","#dm-3f9a":"kai ↔ remy","@kay":"@kay"}}"#
+        )
+        XCTAssertEqual(present.rooms, ["#rt", "#dm-3f9a"])
+        XCTAssertEqual(present.labels?["#dm-3f9a"], "kai ↔ remy")
+    }
 ```
 
 Also change the existing `testABuddyReadsThePaneIdItWasPrintedUnder` fixture only if it carries `@` (it does not: `"handle":"kay"` stays).
@@ -218,6 +240,28 @@ public struct ChatBuddy: Decodable, Equatable, Sendable {
 }
 ```
 
+Replace the `ChatPeekRoom` and `ChatTargets` declarations with:
+
+```swift
+/// One room row in `peek`. `room` is what the viewer link keys on; `label`
+/// is what to draw (a DM room's participant names), absent from an older
+/// herdr-chat.
+public struct ChatPeekRoom: Decodable, Equatable, Sendable {
+    public let room: String
+    public var label: String? = nil
+    public let unread: Int
+    public let mentions: Int
+}
+
+/// What `targets` prints: every room and person a send could name, and
+/// what to draw for each (absent from an older herdr-chat).
+public struct ChatTargets: Decodable, Equatable, Sendable {
+    public let rooms: [String]
+    public let people: [String]
+    public var labels: [String: String]? = nil
+}
+```
+
 Replace the `ChatJump` declaration (lines 75-85) with:
 
 ```swift
@@ -258,7 +302,7 @@ Synthesized `Decodable` reads an optional with `decodeIfPresent`, so a missing `
 xcodebuild test -scheme Flock -destination 'platform=macOS' -only-testing:FlockCoreTests/ChatShapesTests -only-testing:FlockCoreTests/ChatOutcomeTests -skipPackagePluginValidation -derivedDataPath build/lane4-derived 2>&1 | tail -25
 ```
 
-Expected: `** TEST SUCCEEDED **`, 8 ChatShapesTests and 5 ChatOutcomeTests passing.
+Expected: `** TEST SUCCEEDED **`, 10 ChatShapesTests and 5 ChatOutcomeTests passing.
 
 - [ ] **Step 5: Commit**
 
@@ -476,11 +520,13 @@ git commit -m "Draw the chat name in the pane legend, one @ rule for fixtures" -
 - Modify: `Sources/Flock/Chat/ChatPopover.swift:215-219`
 - Modify: `Sources/Flock/Chat/ChatPeekView.swift:82`
 - Modify: `Sources/Flock/Chat/ChatBroadcastView.swift:92`
-- Modify: `Sources/Flock/Chat/ChatQuickSendView.swift:157-160`
+- Modify: `Sources/Flock/Chat/ChatQuickSendView.swift:22-28` (init), `:46-51` (`.task`), `:97-100` (`chip`), `:157-160`
+- Modify: `Sources/Flock/Chat/ChatPeekView.swift:103` (`roomRow`)
 - Test: `Tests/FlockChromeRender/ChatFeatureViewsRenderTests.swift`
 
 **Interfaces:**
-- Consumes: `ChatStatus.displayName`, `ChatBuddy.displayName`, `ChatStatus(handle:name:...)` from Task 1.
+- Consumes: `ChatStatus.displayName`, `ChatBuddy.displayName`, `ChatStatus(handle:name:...)`, `ChatPeekRoom.label`, `ChatTargets.labels` from Task 1.
+- Produces: `ChatQuickSendView.init(..., previewTargets:, previewLabels: [String: String] = [:])`. Peek room rows and quick-send chips draw the label when herdr-chat sent one, else the raw target; `selectedTarget`, `send()` and every action keep the raw target. The popover's room chips are unchanged: they draw `status.rooms`, where herdr-chat's `room_tokens` already collapses DM rooms, so no DM hash reaches them.
 - Produces: `hostWindow(_:chatStore:size:theme:)` and `pixels(_:size:theme:)` test helpers in `ChatFeatureViewsRenderTests`, used again by Task 5.
 
 - [ ] **Step 1: Write the failing tests**
@@ -606,6 +652,39 @@ Add a new section before `// MARK: - Shared harness`:
         XCTAssertEqual(fieldMinted, fieldLegacy, "the quick send footer drew something other than the name")
         XCTAssertNotEqual(fieldUnnamed, fieldLegacy, "control: an id with no name must draw differently")
     }
+
+    /// A DM room's hash never reaches the screen when herdr-chat sent a
+    /// label: the row and the chip draw exactly what a room literally named
+    /// by the label would draw. The unlabelled hash is the control.
+    func testDMRoomRowsAndChipsDrawTheLabelNeverTheHash() async throws {
+        let peek = ChatPeekView(theme: Self.theme, onBack: {}, onClose: {}, onJump: { _ in })
+        let rowSize = CGSize(width: ChromeMetrics.ChatPeek.width, height: ChromeMetrics.ChatPeek.PaneRow.height)
+        let labelled = try await pixels(
+            peek.roomRow(ChatPeekRoom(room: "dm-3f9a", label: "kai ↔ remy", unread: 0, mentions: 0), isFirst: true), size: rowSize
+        )
+        let literal = try await pixels(
+            peek.roomRow(ChatPeekRoom(room: "kai ↔ remy", unread: 0, mentions: 0), isFirst: true), size: rowSize
+        )
+        let unlabelled = try await pixels(
+            peek.roomRow(ChatPeekRoom(room: "dm-3f9a", unread: 0, mentions: 0), isFirst: true), size: rowSize
+        )
+        XCTAssertEqual(labelled, literal, "a peek DM room row drew something other than its label")
+        XCTAssertNotEqual(unlabelled, literal, "control: the raw hash must draw differently")
+
+        let status = ChatStatus(handle: "kay", state: "working", pane: "w1:p3", signedIn: true, rooms: ["#rt"])
+        let chipSize = CGSize(width: ChromeMetrics.ChatQuickSend.width, height: ChromeMetrics.ChatQuickSend.TargetBand.chipHeight)
+        let withLabels = ChatQuickSendView(
+            theme: Self.theme, status: status, onBack: {}, onClose: {},
+            previewTargets: ["#dm-3f9a"], previewLabels: ["#dm-3f9a": "kai ↔ remy"]
+        )
+        let literalTarget = ChatQuickSendView(theme: Self.theme, status: status, onBack: {}, onClose: {}, previewTargets: ["kai ↔ remy"])
+        let noLabels = ChatQuickSendView(theme: Self.theme, status: status, onBack: {}, onClose: {}, previewTargets: ["#dm-3f9a"])
+        let chipLabelled = try await pixels(withLabels.chip("#dm-3f9a"), size: chipSize)
+        let chipLiteral = try await pixels(literalTarget.chip("kai ↔ remy"), size: chipSize)
+        let chipRaw = try await pixels(noLabels.chip("#dm-3f9a"), size: chipSize)
+        XCTAssertEqual(chipLabelled, chipLiteral, "a quick send chip drew something other than its label")
+        XCTAssertNotEqual(chipRaw, chipLiteral, "control: the raw target must draw differently")
+    }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -614,7 +693,7 @@ Add a new section before `// MARK: - Shared harness`:
 xcodebuild test -scheme FlockChromeRender -destination 'platform=macOS' -only-testing:FlockChromeRender/ChatFeatureViewsRenderTests -skipPackagePluginValidation -derivedDataPath build/lane4-derived 2>&1 | tail -30
 ```
 
-Expected: `** TEST FAILED **` with exactly these failures: `a peek row drew something other than the name`, `a broadcast row drew something other than the name`, `the popover status line drew something other than the name`, `XCTAssertEqual failed: ("sent as kay.k3f9") is not equal to ("sent as kay")` and `the quick send footer drew something other than the name`. Every control assertion and every pre-existing test passes.
+Expected: `** TEST FAILED **`. The test build fails first on `extra argument 'previewLabels' in call`; with that one test commented out, exactly these failures: `a peek row drew something other than the name`, `a broadcast row drew something other than the name`, `the popover status line drew something other than the name`, `XCTAssertEqual failed: ("sent as kay.k3f9") is not equal to ("sent as kay")` and `the quick send footer drew something other than the name`. Every control assertion and every pre-existing test passes. Restore the commented test before Step 3.
 
 - [ ] **Step 3: Implement**
 
@@ -640,7 +719,17 @@ Expected: `** TEST FAILED **` with exactly these failures: `a peek row drew some
                     Text(buddy.displayName).font(ChromeType.chatPeekHandle).foregroundStyle(theme.text)
 ```
 
-`Sources/Flock/Chat/ChatQuickSendView.swift`, lines 157-160 become (`chip(_:)` and `send()` are untouched: chips draw the raw target, `@kay` or `#rt`, and send passes it back as `--to`):
+`Sources/Flock/Chat/ChatPeekView.swift`, in `roomRow` (line 103), draw the label when present:
+
+```swift
+            Text(room.label ?? room.room).font(ChromeType.chatPeekRoomName).foregroundStyle(theme.subtext0)
+```
+
+(the `ForEach` at line 43 keeps `id: \.element.room`).
+
+`Sources/Flock/Chat/ChatQuickSendView.swift`: add `@State private var labels: [String: String]` beside `targets`; extend the init with `previewLabels: [String: String] = [:]` after `previewTargets`, seeding `self._labels = State(initialValue: previewLabels)`; in `.task`, after `targets = fetched.rooms + fetched.people`, add `labels = fetched.labels ?? [:]`; and in `chip(_:)` change `Text(target)` to `Text(labels[target] ?? target)`. `selectedTarget` and `send()` keep the raw target (`@kay`, `#rt`, `#dm-3f9a`), which is what `--to` takes back.
+
+Lines 157-160 become:
 
 ```swift
     var footerHint: String {
@@ -670,7 +759,7 @@ Expected: `** TEST SUCCEEDED **`.
 ```bash
 git add Sources/Flock/Chat/ChatPopover.swift Sources/Flock/Chat/ChatPeekView.swift Sources/Flock/Chat/ChatBroadcastView.swift Sources/Flock/Chat/ChatQuickSendView.swift Tests/FlockChromeRender/ChatFeatureViewsRenderTests.swift
 Scripts/checks.sh
-git commit -m "Draw chat names in the popover, peek, broadcast and quick send" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "Draw chat names and DM room labels in the popover, peek, broadcast and quick send" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -690,8 +779,8 @@ In `docs/superpowers/specs/2026-09-18-flock-chat-design.md`, replace these table
 
 ```markdown
 | `status --json` | `--pane <id>` | `{ handle, name, state, pane, signedIn, rooms[] }` |
-| `peek --json` | | `{ buddies: [{handle, name, paneId, status, repo, branch, title, unread, mentions}], rooms: [{room, unread, mentions}] }` |
-| `targets --json` | | `{ rooms: [#name], people: [@name] }` |
+| `peek --json` | | `{ buddies: [{handle, name, paneId, status, repo, branch, title, unread, mentions}], rooms: [{room, label, unread, mentions}] }` |
+| `targets --json` | | `{ rooms: [#name], people: [@name], labels: {target: text} }` |
 | `quick-send --json` | `--to <#room\|@name> --body <text>` | `{ ok, to }` |
 ```
 
@@ -710,7 +799,10 @@ name never inherits someone else's rooms or messages. `handle` carries the id,
 and it is what flock acts on (`jump --handle`). `name` is what every surface
 draws. A missing or null `name` falls back to `handle`, since a legacy
 identity's id is its name. Identity text is never drawn with an `@`; the only
-`@` on screen is the target prefix on a quick-send chip.
+`@` on screen is the target prefix on a quick-send chip. A DM room's own name
+is a hash, so `peek` rooms carry a `label` and `targets` a `labels` map
+(`#dm-3f9a` reads `kai ↔ remy`); flock draws the label when present and
+still acts on the raw room or target.
 ```
 
 - [ ] **Step 3: Spec display wording**

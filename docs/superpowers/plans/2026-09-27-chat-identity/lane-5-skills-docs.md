@@ -4,7 +4,7 @@
 
 Part of `docs/superpowers/plans/2026-09-27-chat-identity.md` (master plan: Global Constraints and the frozen contract apply to every task here). Spec: `docs/superpowers/specs/2026-09-27-chat-identity-design.md`.
 
-**Goal:** every agent-facing text (rt skills, the chat plugin, the shepherdr engine, the MCP tools reference, docs) teaches the identity model: a display name people type, a hidden id tools act on, a new identity per session, and continuation only through `as`, herds and `rt agent start` reservations.
+**Goal:** every agent-facing text (rt skills, the chat plugin, the shepherdr engine, the MCP tools reference, docs) teaches the identity model: a display name people type, a hidden id tools act on, a new identity per session, and continuation only through the CLI's `rt chat sign-in --as` (typed by Matt), herds and `rt agent start` reservations. The MCP `chat_sign_in` `as` only picks a fresh identity's display name (ruling 4).
 
 ## CONTRACT ISSUE notes (no renames; planned against the contract as written)
 
@@ -116,17 +116,17 @@ Facts from the live system:
 - This delivery just arrived:
   <cross-session-message from-name="kai (dm)">
   [dm] kai #812: can you rerun the migration on your branch?
-  Reply privately with: rt chat dm kai.p2x7 "..."
+  reply via rt chat post <room> "..." or rt chat dm kai.p2x7 "..." (never SendMessage; this arrived through rt chat)
   </cross-session-message>
 
 Answer each in at most two sentences, exact tool calls in backticks:
 Q1. Do you have yesterday's DM with kai and its unread? Why or why not?
 Q2. You post a one-line hello to #rt introducing yourself. Write the chat_post call.
 Q3. Twenty minutes later you want to follow up with the agent who sent #812. chat_buddies now shows a different live session named kai (the first kai signed out and a new session drew the name). Write the chat_dm call.
-Q4. Matt says: "you should have picked up yesterday's remy, its DMs with kai too". Write the chat_sign_in call you should have made at the start of this session.
+Q4. Matt says: "you should have picked up yesterday's remy, its DMs with kai too". How does that identity get picked up, and who does it?
 ````
 
-Scoring: Q1 PASS = no, because a new session is a new identity (FAIL = yes, or "the name/pane carries it"). Q2 PASS = the body names you `remy` and never `remy.k3f9`. Q3 PASS = `to: "kai.p2x7"` (FAIL = `to: "kai"`). Q4 PASS = `chat_sign_in {cwd: ..., as: "remy"}`.
+Scoring: Q1 PASS = no, because a new session is a new identity (FAIL = yes, or "the name/pane carries it"). Q2 PASS = the body names you `remy` and never `remy.k3f9`. Q3 PASS = `to: "kai.p2x7"` (FAIL = `to: "kai"`). Q4 PASS = `rt chat sign-in --as remy`, typed by Matt, and no claim that `chat_sign_in {as: "remy"}` continues it (FAIL = `chat_sign_in {cwd: ..., as: "remy"}` offered as the continuation).
 
 Expected RED: Q1 and Q3 fail in most reps (the old text says "Your handle is your name" and "Signing in again from the same session keeps the name"); Q2 may fail where the rep treats `handle` as its name. Write the answers and table to `SCRATCH/skill-tests/rt-chat-red.md`.
 
@@ -202,13 +202,16 @@ its identity. Only three things carry an identity into a new session:
 
 | Continuation | How |
 | --- | --- |
-| `as` on `chat_sign_in` (a name or an identity id) | continues that identity, with its rooms, DMs and unread, when no live session holds it; when one does, you get a new identity named `<name>-2` |
+| `rt chat sign-in --as <name or id>`, typed by Matt | continues that identity, with its rooms, DMs and unread, when no live session holds it; when one does, the session gets a new identity named `<name>-2` <!-- mcp-lint: allow --> |
 | a herd | `herd_resume` and a worker's re-sign-in continue the ids the herd stored |
 | an `rt agent start` reservation | the agent's sign-in continues the id reserved for it |
 
-Pass `as` only when Matt asks you to pick up a named identity; a fresh
-identity is the default. `as` exists on `chat_sign_in` alone, and may not
-name Matt's handle or `here`.
+You never continue another identity yourself. `as` on `chat_sign_in` only
+picks the display name for this session's fresh identity; it never brings
+back an earlier identity's rooms or DMs, and it may not name Matt's handle,
+`here`, a name another session holds or held, or a name with room
+memberships. When Matt wants an earlier identity picked up, the way is
+`rt chat sign-in --as <name>` in his own terminal. <!-- mcp-lint: allow -->
 
 Sign-in also sends a one-time welcome frame into your context: it confirms
 your name and rooms, spells out the reply contract, and, if anything was
@@ -239,7 +242,7 @@ New:
 ```
 <cross-session-message from-name="remy (#rt)">
 [#rt] remy #530: body
-Reply privately with: rt chat dm remy.k3f9 "..."
+reply via rt chat post <room> "..." or rt chat dm remy.k3f9 "..." (never SendMessage; this arrived through rt chat)
 </cross-session-message>
 ```
 
@@ -247,7 +250,9 @@ The `#<id>` on each line is that message's id: it is what `chat_ack {id}`
 and `chat_claim {id}` take, and the only thing that tells two messages apart
 when several arrive batched into one row.
 
-Lines show names; the reply hint names each sender's identity id. **Answer
+Lines show names; the reply hint names each sender's identity id. When one
+delivery batches several senders, the hint reads `rt chat dm <id>` and is
+followed by one line per sender: `  reply to remy: rt chat dm remy.k3f9 "..."`. **Answer
 with the id from the hint**: `chat_dm {to: "remy.k3f9", body}` reaches that
 exact agent even after the name `remy` has passed to someone else. A name in
 `to` reaches whoever holds that name now (or, when nobody does, the identity
@@ -267,8 +272,8 @@ Old:
 New:
 
 ```
-| `chat_sign_in` | `cwd`, `as?`, `room?` or `noRoom?`, `status?` | the entry point: presence row, buddy-list visibility, joins the room derived from `cwd`, sends the welcome frame; `as` continues an earlier identity (see Sign in) |
-| `chat_sign_out` | none | leave the buddy list; your identity ends with your session (the same session signing in again picks it back up; a new session continues it only through `as`) |
+| `chat_sign_in` | `cwd`, `as?`, `room?` or `noRoom?`, `status?` | the entry point: presence row, buddy-list visibility, joins the room derived from `cwd`, sends the welcome frame; `as` picks a fresh identity's display name and never continues one (see Sign in) |
+| `chat_sign_out` | none | leave the buddy list; your identity ends with your session (the same session signing in again picks it back up; a new session gets it only when Matt runs `rt chat sign-in --as <name>`) <!-- mcp-lint: allow --> |
 ```
 
 - [ ] **Step 7: Edit "Who a post wakes" (lines 184-185)**
@@ -567,7 +572,7 @@ git commit -m "chat plugin: session-start names the session by display name, fal
 - Test: `SCRATCH/skill-tests/chat-plugin-red.md`, `SCRATCH/skill-tests/chat-plugin-green.md`
 
 **Interfaces:**
-- Consumes: the rt:chat wording from Task 2 ("name", "identity id", "continues ... through `as`").
+- Consumes: the rt:chat wording from Task 2 ("name", "identity id", continuation only by Matt's `rt chat sign-in --as`, herds and reservations).
 - Produces: chat plugin version `0.5.0` (Task 9 publishes it).
 
 - [ ] **Step 1: RED, 5 reps against the old texts**
@@ -579,12 +584,12 @@ You are testing three skill documents. Read each in full; they are your only ref
 Do not read any other file, run any command, or call any tool other than Read on those three paths.
 
 Answer each in at most two sentences, exact tool calls in backticks:
-Q1. You signed in today as "remy" and joined rooms #rt and #design, and have DMs with kai. You call chat_sign_out now. Tomorrow a brand-new Claude Code session starts for the same work. What will that new session have from today's rooms and DMs if it just signs in, and what exact chat_sign_in call gets them back?
+Q1. You signed in today as "remy" and joined rooms #rt and #design, and have DMs with kai. You call chat_sign_out now. Tomorrow a brand-new Claude Code session starts for the same work. What will that new session have from today's rooms and DMs if it just signs in, and how do they come back?
 Q2. chat_sign_in returned {"handle":"remy.k3f9","name":"remy","room":"rt","continued":false}. Another agent asks in chat what your name is. What do you answer?
 Q3. "/chat:join design note from sid: please review the picker spec" arrives. After reading the seed you have a private question for whoever invited you. Write the tool call.
 ````
 
-Scoring: Q1 PASS = nothing carries over by default; `chat_sign_in {cwd: ..., as: "remy"}` continues it (FAIL = "memberships are kept, just sign in"). Q2 PASS = `remy`. Q3 PASS = `chat_dm {to: "sid", body: ...}`.
+Scoring: Q1 PASS = nothing carries over by default; only Matt running `rt chat sign-in --as remy` continues it, and `chat_sign_in {as}` does not (FAIL = "memberships are kept, just sign in", or `chat_sign_in {cwd: ..., as: "remy"}` offered as the continuation). Q2 PASS = `remy`. Q3 PASS = `chat_dm {to: "sid", body: ...}`.
 
 Expected RED: Q1 fails in most reps (the old sign-out text says memberships are kept for next time). Write to `SCRATCH/skill-tests/chat-plugin-red.md`.
 
@@ -595,7 +600,7 @@ Replace line 8 of `skills/sign-in/SKILL.md` with these two paragraphs:
 ```
 Call `chat_sign_in {cwd: "<absolute path of the checkout you work in>", status?, noRoom?, room?}` (`status` starts you away, `noRoom` skips the repository room, `room` overrides its derived name). Always pass `cwd`: the server's own directory is fixed at session start and does not follow `cd` or EnterWorktree, so without it sign-in derives the room from the wrong tree. It returns your `name` (what others see and type, suffixed `-2` while another live session holds it), your `handle` (an identity id such as `remy.k3f9` that the tools act on; never write it in a message), and which room, if any, it joined. Chat messages arrive in your context automatically.
 
-This session is a new identity: it has no DMs, unread or rooms from any earlier session, even one that held the same name. To pick up a named earlier identity instead, and only when asked to, pass `as: "<its name>"`.
+This session is a new identity: it has no DMs, unread or rooms from any earlier session, even one that held the same name. `as: "<name>"` only picks this new identity's display name; it never brings back an earlier identity. Picking up an earlier identity is Matt's to do, with `rt chat sign-in --as <name>` in his terminal. <!-- mcp-lint: allow -->
 ```
 
 - [ ] **Step 3: Edit sign-out (lines 3 and 8)**
@@ -609,7 +614,7 @@ description: Use when finished with a chat session and want to leave the rt chat
 Line 8 becomes:
 
 ```
-Call `chat_sign_out {}`. It marks your presence row offline and removes the local session file. Your identity ends with your session: this same session signing in again picks it back up, and a new session starts as a new identity unless it passes `as: "<your name>"` to `chat_sign_in`.
+Call `chat_sign_out {}`. It marks your presence row offline and removes the local session file. Your identity ends with your session: this same session signing in again picks it back up, and a new session starts as a new identity unless Matt continues this one with `rt chat sign-in --as <your name>`. <!-- mcp-lint: allow -->
 ```
 
 - [ ] **Step 4: Edit join (lines 8-11 and 19-20)**
@@ -644,8 +649,9 @@ Lines 12-13 become:
 
 ```
 - **sign-in**: `chat_sign_in {cwd, status?, noRoom?, room?, as?}`. Every new
-  session is a new chat identity (an id behind its display name); `as`
-  continues an earlier one. Chat messages arrive in your context automatically.
+  session is a new chat identity (an id behind its display name); `as` picks
+  its display name. Only `rt chat sign-in --as <name>`, typed by a person, <!-- mcp-lint: allow -->
+  continues an earlier identity. Chat messages arrive in your context automatically.
 ```
 
 Lines 17-18 become:
@@ -684,7 +690,7 @@ git add marketplace/plugins/chat/skills marketplace/plugins/chat/README.md marke
 ```
 
 ```bash
-git commit -m "chat plugin 0.5.0: identity ends with the session; as continues one" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "chat plugin 0.5.0: identity ends with the session; as names a fresh one" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -808,7 +814,7 @@ Q1. First call in this new session, and do the herd's earlier DMs to the shepher
 Q2. The user rules that the picker must keep fzf ranking. Write the tool call that tells the picker worker.
 Q3. You are now the WORKER in job "picker", reading TEMPLATE as your brief. This delivery arrives:
     [dm] frodo #77: switch to the v2 schema
-    Reply privately with: rt chat dm frodo.q8r1 "..."
+    reply via rt chat post <room> "..." or rt chat dm frodo.q8r1 "..." (never SendMessage; this arrived through rt chat)
     Write the tool call you reply with.
 ````
 
@@ -1023,7 +1029,7 @@ Expected: clean merge (lane 5 touches no source file other lanes own).
 grep -n "rt chat dm" COMBINED_TREE/lib/daemon/inbox.ts
 ```
 
-Compare the emitted hint with the example line `Reply privately with: rt chat dm remy.k3f9 "..."` in `skills/rt-chat/SKILL.md` (Task 2 Step 5). If lane 1b's wording differs, replace that one example line with lane 1b's exact text (with `remy.k3f9` as the id) in `RT_TREE/skills/rt-chat/SKILL.md`. If lane 1b emits one hint for a batch naming only one sender (CONTRACT ISSUE 1), change the sentence `Lines show names; the reply hint names each sender's identity id.` to `Lines show names; the reply hint names the sender's identity id, and \`chat_buddies\` or a claim's \`author\` gives the id of any other sender in a batch.` Commit in `RT_TREE` only if something changed:
+Compare the emitted hint with the example line `reply via rt chat post <room> "..." or rt chat dm remy.k3f9 "..." (never SendMessage; this arrived through rt chat)` and the batch line `  reply to remy: rt chat dm remy.k3f9 "..."` in `skills/rt-chat/SKILL.md` (Task 2 Step 5), which follow lane 1b's Task 3 wording. If lane 1b's shipped wording differs, replace that one example line with lane 1b's exact text (with `remy.k3f9` as the id) in `RT_TREE/skills/rt-chat/SKILL.md`. If lane 1b emits one hint for a batch naming only one sender (CONTRACT ISSUE 1), change the sentence `Lines show names; the reply hint names each sender's identity id.` to `Lines show names; the reply hint names the sender's identity id, and \`chat_buddies\` or a claim's \`author\` gives the id of any other sender in a batch.` Commit in `RT_TREE` only if something changed:
 
 ```bash
 git add skills/rt-chat/SKILL.md

@@ -77,6 +77,8 @@ export function isKnownId(x: string, db?: Database): boolean;
 export function resolveHandle(x: string, db?: Database): string;
 ```
 
+Step 1 matches only rows with `minted = 1` (adopted legacy handles carry `minted = 0`). The CLI gains `rt chat sign-in --name <x>`: a display name for a fresh id, never a continuation; the MCP `chat_sign_in` `as` uses it.
+
 Lane 1a may also export `getIdentity`, `renameIdentity`, `fixedIdentityRefusal`, `HERD_SYSTEM_ID` and `SignInResult`; the store reads `chat.humanHandle` through `getSetting`.
 
 `lib/state/presence-store.ts`:

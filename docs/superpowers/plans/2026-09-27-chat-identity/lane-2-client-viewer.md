@@ -12,7 +12,7 @@ Part of `docs/superpowers/plans/2026-09-27-chat-identity.md` (master plan: const
 
 ## PLAN NOTES (not contract issues)
 
-1. **`remy.k3f9` collides with `remy` on the speaker hue.** `speakerHue` folds a 31-multiplier hash into 5 hues; `remy` and `remy.k3f9` both land on index 0 (purple chip). Their invadrs avatars do differ (palette index 1 vs 3). This lane's fixture therefore uses `remy.m2p4`, which differs from `remy` on both (chip index 1 vs 0, avatar index 4 vs 1) and from `kai` too. Master plan Task I4 names `remy.k3f9`; the shepherd should seed `remy.m2p4` there as well, or accept that the two chips share a colour and only the avatars differ. The general point stands for real traffic: about one recycled name in five shares a chip colour with its old holder, and the avatar is the reliable tell.
+1. **`remy.k3f9` collides with `remy` on the speaker hue.** `speakerHue` folds a 31-multiplier hash into 5 hues; `remy` and `remy.k3f9` both land on index 0 (purple chip). Their invadrs avatars do differ (palette index 1 vs 3). This lane's fixture therefore uses `remy.m2p4`, which differs from `remy` on both (chip index 1 vs 0, avatar index 4 vs 1) and from `kai` too. Master plan Task I4 seeds `remy.m2p4` too (shepherd ruling). The general point stands for real traffic: about one recycled name in five shares a chip colour with its old holder, and the avatar is the reliable tell.
 2. **Two DM rows that read the same pair.** Today DM rows render no avatar (`withAvatar={false}`), so `kai ↔ remy` twice would be two identical rows. This lane shows the id-seeded avatars on a DM row only when another listed DM row has the same label. It is the least visible change that makes Review Focus 4 true; every other DM row is unchanged. `design/ANATOMY.md` records the rule.
 3. **Root typecheck will name files this lane does not own.** Making `name`, `shepherdName` and friends required in rt-client breaks object literals typed with them outside this lane (for example `lib/__tests__/herd-cli.test.ts` builds `HerdInfo`). Those files belong to lane 1b. Task 1 lists them for the shepherd and does not edit them.
 4. **The fixtures diverge from `design/build.py` on purpose.** The recycled remy, its DM with kai and three `#rt` messages exist only in `fixtures.ts`. `design/audit.mjs` will count one more roster row and one more DM than the artboards draw; that is expected until someone decides whether the artboards should grow the same case.
@@ -258,7 +258,7 @@ In the `Commands` map, replace these lines:
 In `chat:sign-in`, after `noRoom?: boolean;` add:
 
 ```ts
-      /** An id or a name to continue instead of minting a fresh identity; refused when that identity is live in another session. */
+      /** An id or a name to continue instead of minting a fresh identity; when that identity is live in another session, a new one is minted under its name with a display suffix (`continued: false`). */
       continue?: string;
 ```
 
@@ -364,7 +364,7 @@ accept either; the daemon resolves a name to an id.
 const page = await chatMessages({ room: 'rt' });
 for (const m of page.data?.messages ?? []) console.log(`${m.name ?? m.handle}: ${m.body}`);
 
-// Continue an identity instead of minting a new one; refused if it is live elsewhere.
+// Continue an identity instead of minting a new one; if it is live elsewhere you get a new one named remy-2 (continued false).
 const res = await chatSignIn({ sessionId, continue: 'remy.k3f9' }); // res.data?.continued === true
 ```
 ````

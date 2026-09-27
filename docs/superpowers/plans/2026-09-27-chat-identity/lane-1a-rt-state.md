@@ -1,6 +1,8 @@
 # Lane 1a: rt state layer
 
 > **Shepherd ruling (supersedes CONTRACT ISSUE 1 below):** adopt the reorder. `resolveHandle(x)`: (1) `x` is a `chat_identities` id, (2) a live display name, (3) the most recently minted identity named `x`, (4) `x` itself as a legacy id. Write Task 2's tests to this order, including "`@kai` reaches the live `kai.x7p2` while a legacy `kai` has memberships" and "no live kai, minted `kai.x7p2` offline beats legacy `kai`". The spec and master plan already carry this order. Your extra exports and the colon error wording are accepted.
+>
+> **Shepherd ruling 2 (adopted legacy handles):** step 1 matches only minted ids. `chat_identities` carries `minted INTEGER NOT NULL DEFAULT 1`; `adoptLegacy` writes `0`; `resolveHandle` step 1 uses `SELECT_MINTED_SQL` (`WHERE id = ? AND minted = 1`). Add a Task 2 test: legacy `kai` is adopted (its session signs in again), a live `kai.x7p2` exists, and `resolveHandle("kai")` returns `kai.x7p2`; with no live kai and the adoption newer than `kai.x7p2`'s mint, step 3 returns the adopted `kai` (most recent holder of the name).
 
 Part of `docs/superpowers/plans/2026-09-27-chat-identity.md` (the master plan). Read the master plan's Global Constraints, Review Focus and FROZEN CONTRACT first; this file only adds the lane's own tasks. Spec: `docs/superpowers/specs/2026-09-27-chat-identity-design.md`.
 
@@ -130,6 +132,7 @@ CREATE TABLE IF NOT EXISTS chat_identities (
   name        TEXT NOT NULL,   -- display name, suffix included (remy-2)
   base_name   TEXT NOT NULL,   -- remy
   minted_at   INTEGER NOT NULL,
+  minted      INTEGER NOT NULL DEFAULT 1,  -- 0 for an adopted legacy handle
   session_id  TEXT             -- null for a reservation not yet signed in
 );
 CREATE INDEX IF NOT EXISTS chat_identities_name ON chat_identities(name, minted_at);
@@ -306,7 +309,8 @@ const SELECT_IDENTITY_SQL = `SELECT ${IDENTITY_COLUMNS} FROM chat_identities WHE
 const SELECT_IDENTITY_BY_SESSION_SQL = `SELECT ${IDENTITY_COLUMNS} FROM chat_identities WHERE session_id = ? ORDER BY minted_at DESC, rowid DESC LIMIT 1;`;
 const SELECT_NAME_SQL = `SELECT name FROM chat_identities WHERE id = ?;`;
 const INSERT_IDENTITY_SQL = `INSERT INTO chat_identities (id, name, base_name, minted_at, session_id) VALUES (?, ?, ?, ?, ?);`;
-const ADOPT_LEGACY_SQL = `INSERT INTO chat_identities (id, name, base_name, minted_at, session_id) VALUES (?, ?, ?, ?, NULL) ON CONFLICT(id) DO NOTHING;`;
+const ADOPT_LEGACY_SQL = `INSERT INTO chat_identities (id, name, base_name, minted_at, minted, session_id) VALUES (?, ?, ?, ?, 0, NULL) ON CONFLICT(id) DO NOTHING;`;
+const SELECT_MINTED_SQL = `SELECT 1 FROM chat_identities WHERE id = ? AND minted = 1;`;
 const UNBIND_SESSION_SQL = `UPDATE chat_identities SET session_id = NULL WHERE session_id = ? AND id <> ?;`;
 const BIND_SESSION_SQL = `UPDATE chat_identities SET session_id = ? WHERE id = ?;`;
 const RENAME_IDENTITY_SQL = `UPDATE chat_identities SET name = ?, base_name = ? WHERE id = ?;`;
@@ -447,7 +451,7 @@ git commit -m "state: chat_identities table (v14) and identity store" -m "Co-Aut
 
 **Interfaces:**
 - Consumes: Task 1's `mintIdentity`, `isKnownId`.
-- Produces: `resolveHandle(x: string, db?): string` in the frozen order; `isKnownId` covering all five tables.
+- Produces: `resolveHandle(x: string, db?): string` in the ruled order (minted id, live display name, most recent minted identity by name, `x` as a legacy id); `isKnownId` covering all five tables (it guards minting and continuation, not resolution).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -470,7 +474,7 @@ test("isKnownId sees a handle in chat_presence, chat_messages and either side of
   expect(isKnownId("nobody", db)).toBe(false);
 });
 
-test("resolveHandle: a known id, then a live display name, then the newest identity by name, then the input", () => {
+test("resolveHandle: a minted id, then a live display name, then the newest identity by name, then the input", () => {
   const db = fresh();
   const old = mintIdentity({ base: "remy", name: "remy", sessionId: "s-old", now: 1 }, db);
   const newer = mintIdentity({ base: "remy", name: "remy", sessionId: "s-new", now: 2 }, db);
@@ -479,6 +483,22 @@ test("resolveHandle: a known id, then a live display name, then the newest ident
   expect(resolveHandle("remy", db)).toBe(old.id);
   expect(resolveHandle(newer.id, db)).toBe(newer.id);
   expect(resolveHandle("nobody", db)).toBe("nobody");
+});
+
+test("resolveHandle: @kai reaches the live kai.x7p2 while a legacy kai has memberships", () => {
+  const db = fresh();
+  member(db, "kai");
+  const live = mintIdentity({ base: "kai", name: "kai", sessionId: "s1", now: 5 }, db);
+  seat(db, "s1", live.id, "kai", 5);
+  expect(resolveHandle("kai", db)).toBe(live.id);
+});
+
+test("resolveHandle: with no live kai, an offline minted kai.x7p2 beats the legacy kai", () => {
+  const db = fresh();
+  member(db, "kai");
+  const minted = mintIdentity({ base: "kai", name: "kai", sessionId: "s1", now: 5 }, db);
+  expect(resolveHandle("kai", db)).toBe(minted.id);
+  expect(resolveHandle("legacy-only", db)).toBe("legacy-only");
 });
 
 test("resolveHandle: a signed-out session's display name is not live", () => {
@@ -532,9 +552,9 @@ const SELECT_LATEST_BY_NAME_SQL = `SELECT id FROM chat_identities WHERE name = ?
 and the function after `isKnownId`:
 
 ```ts
-/** Spec "Resolving a typed name": known id, else live display name, else most recent identity by name, else `x`. */
+/** Spec "Resolving a typed name": minted id (chat_identities row), else live display name, else most recent minted identity by name, else `x` as a legacy id. */
 export function resolveHandle(x: string, db: Database = getStateDb()): string {
-  if (isKnownId(x, db)) return x;
+  if (db.query(SELECT_MINTED_SQL).get(x)) return x;
   const live = db.query(SELECT_LIVE_BY_NAME_SQL).get(x) as { id: string } | null;
   if (live) return live.id;
   const latest = db.query(SELECT_LATEST_BY_NAME_SQL).get(x) as { id: string } | null;
@@ -1077,15 +1097,16 @@ Append to `lib/state/__tests__/identity-store.test.ts`:
 
 ```ts
 // Review Focus 3
-test("a legacy handle containing a dot resolves as a known id, even against a live session showing that exact string", () => {
+test("a legacy handle containing a dot resolves as itself, never as base remy plus a suffix", () => {
   const db = fresh();
   db.run("INSERT INTO chat_dms (room, a, b, created_at) VALUES ('dm-old', 'kai', 'remy.old', 1)");
   db.run("INSERT INTO chat_messages (room, handle, body, posted_at) VALUES ('dm-old', 'remy.old', 'hi', 1)");
-  const live = mintIdentity({ base: "remy.old", name: "remy.old", sessionId: "s1", now: 5 }, db);
-  seat(db, "s1", live.id, "remy.old", 5);
+  const live = mintIdentity({ base: "remy", name: "remy", sessionId: "s1", now: 5 }, db);
+  seat(db, "s1", live.id, "remy", 5);
   expect(isKnownId("remy.old", db)).toBe(true);
   expect(resolveHandle("remy.old", db)).toBe("remy.old");
   expect(identityName("remy.old", db)).toBe("remy.old");
+  expect(resolveHandle("remy", db)).toBe(live.id);
   expect(resolveHandle(live.id, db)).toBe(live.id);
 });
 
@@ -2079,6 +2100,7 @@ test("a new session drawing a name a legacy handle once held gets its own id and
   expect(listRooms(b.handle, db)).toEqual([]);
   expect(peekUnread({ handle: b.handle, limit: 50 }, db)).toEqual([]);
   expect(listDms(b.handle, db)).toEqual([]);
+  expect(resolveHandle("remy", db)).toBe(b.handle);
 });
 ```
 
