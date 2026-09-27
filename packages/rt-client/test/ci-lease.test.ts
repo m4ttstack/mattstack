@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, readdirSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, claimCiLease, heartbeatCiLease,
+  adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, CiLeaseError, claimCiLease, heartbeatCiLease,
   leaseOwner, parseMrIid, readCiLease, readCiLeaseByBranch, releaseCiLease, type CiLease,
 } from "../src/ci-lease.ts";
 
@@ -82,6 +82,19 @@ describe("claim rules", () => {
   });
   test("no lock or temp file is left behind", () => {
     claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, opts());
+    expect(readdirSync(dir)).toEqual(["grp-proj-42.json"]);
+  });
+  test("a lock file mid write (empty, fresh mtime) is not broken while its writer is still busy", () => {
+    writeFileSync(join(dir, "grp-proj-42.lock"), "");
+    expect(() => claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, opts())).toThrow(CiLeaseError);
+  }, 15_000);
+  test("a genuinely stale empty lock (old mtime) is broken and the claim succeeds, leaving no lock or aside file", () => {
+    const lockPath = join(dir, "grp-proj-42.lock");
+    writeFileSync(lockPath, "");
+    const old = new Date(Date.now() - 1_000);
+    utimesSync(lockPath, old, old);
+    const r = claimCiLease({ mrUrl: MR, owner: "session:a", holder: "watch-ci" }, { dir, now: () => t, lockStaleMs: 50 });
+    expect(r.claimed).toBe(true);
     expect(readdirSync(dir)).toEqual(["grp-proj-42.json"]);
   });
 });

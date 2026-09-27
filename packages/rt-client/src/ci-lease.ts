@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { linkSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -143,33 +143,50 @@ function withLock<T>(lock: string, opts: CiLeaseOpts, body: (stillMine: () => vo
   }
 }
 
+/** Age of the file at `path` in ms, or null when it cannot be stat'd (gone). */
+function fileAgeMs(path: string, now: number): number | null {
+  try {
+    return now - statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 function breakIfStale(lock: string, staleMs: number): void {
+  const now = Date.now();
   const seen = lockToken(lock);
-  if (seen && Date.now() - seen.at <= staleMs) return;
+  // `wx` create is open-then-write, not atomic: a lock mid-creation reads with
+  // no token, and its own freshness can only be judged by mtime, never assumed stale.
+  if (seen ? now - seen.at <= staleMs : (fileAgeMs(lock, now) ?? 0) <= staleMs) return;
   const aside = `${lock}.${randomUUID()}.broken`;
   try {
     renameSync(lock, aside);
   } catch {
     return;
   }
-  const moved = lockToken(aside);
-  if (seen && moved?.token !== seen.token) {
-    // We moved a newer holder's lock: put it back, never over a third lock.
+  // Discard the aside file only on a positive match to what was judged stale: the
+  // same token, or (when the token was unreadable) an mtime still past staleMs.
+  // Anything else means a live write raced the judgment, so it goes back.
+  const stillStale = seen ? lockToken(aside)?.token === seen.token : (fileAgeMs(aside, Date.now()) ?? 0) > staleMs;
+  if (!stillStale) {
     try { linkSync(aside, lock); } catch { /* a newer lock exists */ }
   }
   try { unlinkSync(aside); } catch { /* already gone */ }
 }
 
-function writeReplace(path: string, lease: CiLease): void {
+/** Writes `lease` to a sibling temp file only; the caller commits it (rename or link) after re-checking `stillMine()`, to keep that window minimal. */
+function writeTmp(path: string, lease: CiLease): string {
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(tmp, JSON.stringify(lease, null, 2));
+  return tmp;
+}
+
+function commitReplace(tmp: string, path: string): void {
   renameSync(tmp, path);
 }
 
 /** Exclusive create: false when a lockless writer (the pack script) got there first. */
-function writeCreate(path: string, lease: CiLease): boolean {
-  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(lease, null, 2));
+function commitCreate(tmp: string, path: string): boolean {
   try {
     linkSync(tmp, path);
     return true;
@@ -246,11 +263,13 @@ export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimRe
         heartbeatAt: now,
         ttlSeconds: req.ttlSeconds ?? DEFAULT_CI_LEASE_TTL_SECONDS,
       };
+      const fresh = !fileExists(p.lease);
+      const tmp = writeTmp(p.lease, lease);
       stillMine();
-      if (!fileExists(p.lease)) {
-        if (!writeCreate(p.lease, lease)) continue;
+      if (fresh) {
+        if (!commitCreate(tmp, p.lease)) continue;
       } else {
-        writeReplace(p.lease, lease);
+        commitReplace(tmp, p.lease);
       }
       const previous = existing && leaseOwner(existing) !== req.owner ? leaseOwner(existing) : undefined;
       return previous ? { claimed: true, lease, previousOwner: previous } : { claimed: true, lease };
@@ -271,8 +290,9 @@ export function heartbeatCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts
     if (!existing) return { ok: false, reason: "none" };
     if (leaseOwner(existing) !== owner) return { ok: false, reason: "lost", holder: existing };
     const lease = { ...existing, heartbeatAt: clock(opts) };
+    const tmp = writeTmp(p.lease, lease);
     stillMine();
-    writeReplace(p.lease, lease);
+    commitReplace(tmp, p.lease);
     return { ok: true, lease };
   });
 }
@@ -302,8 +322,9 @@ export function adoptLegacyCiLease(mrUrl: string, owner: string, holder: CiLease
   return withLock(p.lock, opts, (stillMine) => {
     const existing = readFileLease(p.lease);
     if (!existing || existing.owner !== undefined || existing.holder !== holder) return { adopted: false };
+    const tmp = writeTmp(p.lease, { ...existing, owner });
     stillMine();
-    writeReplace(p.lease, { ...existing, owner });
+    commitReplace(tmp, p.lease);
     return { adopted: true };
   });
 }
