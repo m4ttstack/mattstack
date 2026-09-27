@@ -28,6 +28,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     /// though `flow` itself hasn't reached `.done` — a wizard step must never
     /// double as a trap once there's nothing left to walk the user through.
     var allowsCloseAlways = false
+    var onClose: (@MainActor (SetupEntry) -> Void)?
     private let environment: SetupEnvironment
     private var activeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
@@ -54,9 +55,10 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     }
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    func show(step: SetupStep? = nil, joinCode: String? = nil) {
+    func show(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
+        flow.entry = entry
         if let step { flow.jump(to: step) }
-        if let joinCode { team.choice = .join; team.inviteCode = joinCode }
+        team.enter(entry, choice: choice, joinCode: joinCode)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         applyStyle()
@@ -96,5 +98,6 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
             environment.readiness.becameHidden()
         }
         if let o = activeObserver { NotificationCenter.default.removeObserver(o) }
+        onClose?(flow.entry)
     }
 }

@@ -4,6 +4,8 @@ final class SetupFlowUITests: XCTestCase {
     private var app: XCUIApplication!
     private var stateDir: URL!
     private var home: URL!
+    /// Every dir `prepare` made, since a test can call it more than once.
+    private var createdDirs: [URL] = []
 
     /// A short random hex string, not a UUID: `home`'s tray.sock path
     /// (`<home>/.mattstack/rt/tray.sock`) has to fit in `sockaddr_un.sun_path`
@@ -31,15 +33,21 @@ final class SetupFlowUITests: XCTestCase {
 
     override func tearDown() {
         app?.terminate()
-        if let home { try? FileManager.default.removeItem(at: home) }
-        if let stateDir { try? FileManager.default.removeItem(at: stateDir) }
+        for dir in createdDirs { try? FileManager.default.removeItem(at: dir) }
+        createdDirs = []
         super.tearDown()
     }
 
     private func launch(_ scenario: String) {
+        prepare(scenario)
+        app.launch()
+    }
+
+    private func prepare(_ scenario: String) {
         app = XCUIApplication()
         stateDir = URL(fileURLWithPath: "/tmp/ms-state-\(shortHex())")
         home = URL(fileURLWithPath: "/tmp/ms-\(shortHex())")
+        createdDirs += [stateDir, home]
         try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let stub = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("stub-rt/stub.ts").path
@@ -52,7 +60,6 @@ final class SetupFlowUITests: XCTestCase {
         // process never spawns. Resolve the real one explicitly instead of
         // leaving the app to guess against a HOME that was never real either.
         app.launchEnvironment["RT_STUB_BUN"] = findBun()
-        app.launch()
     }
 
     private func el(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id] }
@@ -74,6 +81,13 @@ final class SetupFlowUITests: XCTestCase {
     private func waitUntilGone(_ id: String, _ timeout: TimeInterval = 10) {
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: el(id))
         waitForExpectations(timeout: timeout)
+    }
+
+    private func shoot(_ name: String) {
+        let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        a.name = name
+        a.lifetime = .keepAlways
+        add(a)
     }
 
     /// Welcome through Install for a join scenario whose plan is installable
@@ -155,6 +169,39 @@ final class SetupFlowUITests: XCTestCase {
         waitFor("setup.team.create.useGh")
         el("setup.team.continue").click()
         waitFor("setup.checklist.screen")
+    }
+
+    func testJustMeContinuesWithNoFieldsAndReachesChecklist() {
+        launch("solo")
+        waitFor("setup.welcome.screen")
+        el("setup.welcome.continue").click()
+        waitFor("setup.team.screen")
+        el("setup.team.card.solo").click()
+        XCTAssertTrue(app.staticTexts["rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."].waitForExistence(timeout: 3))
+        XCTAssertTrue(el("setup.team.continue").isEnabled, "Just me needs no fields")
+        el("setup.team.continue").click()
+        waitFor("setup.checklist.screen")
+        XCTAssertFalse(app.staticTexts["Team repo reachable"].exists, "a solo plan carries no access rows")
+    }
+
+    func testJustMeScreensLightAndDark() {
+        for scheme in ["Light", "Dark"] {
+            prepare("solo")
+            app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
+            app.launch()
+            waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
+            waitFor("setup.team.screen"); el("setup.team.card.solo").click(); shoot("team-\(scheme)")
+            el("setup.team.continue").click(); waitFor("setup.checklist.screen")
+            el("setup.checklist.continue").click(); waitFor("setup.done.screen", 60); shoot("done-\(scheme)")
+            // Settings opens with the Command-comma shortcut only while a window is key, and the Done screen is; Finish closes it.
+            app.typeKey(",", modifierFlags: .command)
+            waitFor("settings.tab.apps"); el("settings.tab.apps").click(); waitFor("settings.apps.toggle.board"); shoot("settings-apps-\(scheme)")
+            el("settings.tab.team").click(); waitFor("settings.team.create"); shoot("settings-team-\(scheme)")
+            app.typeKey("w", modifierFlags: .command)
+            waitUntilEnabled("setup.done.continue"); el("setup.done.continue").click()
+            waitUntilGone("setup.done.screen")
+            app.terminate()
+        }
     }
 
     /// A denial rt actually checked warns instead of blocking, so the warning
