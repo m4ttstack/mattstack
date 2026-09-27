@@ -30,6 +30,9 @@ import {
   dmRoomFor,
   dmParticipants,
   getAgent,
+  identityName,
+  identityNames,
+  resolveHandle,
   signIn,
   signOut,
   setAway,
@@ -1078,6 +1081,8 @@ export function createChatHandlers(opts: {
       const { baseHandle, cwd, repo, branch, pane, statusText, viaPane, room: explicitRoom, noRoom } = payload;
       if (baseHandle !== undefined && !isValidChatName(baseHandle)) return { ok: false, error: `invalid handle "${baseHandle}"` };
       if (explicitRoom !== undefined && !isValidChatName(explicitRoom)) return { ok: false, error: `invalid room "${explicitRoom}"` };
+      const requested = payload.continue;
+      if (requested !== undefined && !isValidChatName(requested)) return { ok: false, error: `invalid handle "${requested}"` };
 
       let sessionId = payload.sessionId;
       let signInCwd = cwd;
@@ -1128,25 +1133,39 @@ export function createChatHandlers(opts: {
       }
       if (!sessionId) return { ok: false, error: "chat: sign-in requires a sessionId or --pane" };
 
-      // No explicit baseHandle: prefer a name someone CHOSE for this session
-      // (registry nameSource "user": --name at launch, /rename) so chat and
-      // SendMessage identities match. Claude Code's auto-derived fallback
-      // names (nameSource "derived", chat-c6 style) are not names anyone
-      // picked: skip them and let the pool draw a real first name instead.
+      let continueId: string | undefined;
       let resolvedBase = baseHandle;
-      if (resolvedBase === undefined) {
+      if (requested !== undefined) continueId = resolveHandle(requested, db);
+      // No explicit request: prefer a name someone CHOSE for this session
+      // (registry nameSource "user": --name at launch, /rename). Claude Code's
+      // auto-derived names (nameSource "derived") are skipped for a pool draw.
+      if (continueId === undefined && resolvedBase === undefined) {
         const binding = inboxDeps.resolve(sessionId);
         if (binding?.name && binding.nameSource === "user" && isValidChatName(binding.name)) resolvedBase = binding.name;
       }
-      // The handle `rt agent start` reserved rides on the agent record, never
-      // on the session name (a session name becomes the pane's title).
-      if (resolvedBase === undefined) {
+      // The identity `rt agent start` (or herd:spawn) reserved rides on the
+      // agent record, never on the session name (that becomes the pane title).
+      if (continueId === undefined && resolvedBase === undefined) {
         const reserved = getAgent(sessionId, db)?.handle;
-        if (reserved && isValidChatName(reserved)) resolvedBase = reserved;
+        if (reserved && isValidChatName(reserved)) continueId = reserved;
       }
-      const data = signIn({ sessionId, baseHandle: resolvedBase, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
-      // R057: signIn now retries a busy write rather than throwing, but still
-      // reports undefined once its retry budget is exhausted.
+
+      const signInWith = (request: { baseHandle?: string; continueId?: string }) =>
+        signIn({ sessionId, ...request, cwd: signInCwd, repo: signInRepo, branch: signInBranch, pane, statusText }, db, registryDeps);
+      let data: ReturnType<typeof signIn>;
+      try {
+        try {
+          data = signInWith({ baseHandle: resolvedBase, continueId });
+        } catch (err) {
+          // `--as` on an identity live in another session: a new id under its name, suffixed (remy-2).
+          if (requested === undefined || continueId === undefined || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
+          data = signInWith({ baseHandle: identityName(continueId, db) });
+        }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      // R057: signIn retries a busy write, but still reports undefined once
+      // its retry budget is exhausted.
       if (!data) return { ok: false, error: "chat: sign-in failed, database busy" };
 
       if (derivedRoom) {

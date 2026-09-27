@@ -513,6 +513,12 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(again).toMatch(new RegExp(`signed in as ${handle}\\b`));
   });
 
+  test("resolveSignInBaseHandle: a pane pin beats the pool draw but loses to chat.handle and --as", () => {
+    expect(__test__.resolveSignInBaseHandle(["--as", "kai"], "sp-unit")).toBe("kai");
+    setSetting("chat.handle", "picked", "user");
+    expect(__test__.resolveSignInBaseHandle([], "sp-unit")).toBe("picked");
+  });
+
   test("sign-in never draws a name another live session holds", async () => {
     await runChat(["sign-in", "--as", "fred", "--no-room", "--session", "s8"]);
     for (let i = 0; i < 5; i++) {

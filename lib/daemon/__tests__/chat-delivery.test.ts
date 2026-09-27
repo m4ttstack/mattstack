@@ -1,9 +1,10 @@
 import { beforeEach, expect, test } from "bun:test";
+import type { Database } from "bun:sqlite";
 import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
-import { openStateDb, presenceForHandle, presenceForSession, type RegistryDeps } from "../../state/index.ts";
+import { isValidChatName, openStateDb, presenceForHandle, presenceForSession, type RegistryDeps } from "../../state/index.ts";
 import type { InboxBinding } from "../../claude-registry.ts";
 import { createChatDeliverySweep, createChatHandlers, pendingIncludesRecipient, planSweepTargets, type InboxDeps } from "../handlers/chat.ts";
 import { drainNotifications, peekNotifications } from "../../notifier.ts";
@@ -12,11 +13,27 @@ import { herdrRequest } from "../../herdr/client.ts";
 import { fakeHerdr, type FakeHerdrHandler } from "../../herdr/__tests__/fake-herdr.ts";
 
 let n = 0;
+
+// A `continue` naming no identity row (by id or name) is adopted as a legacy
+// id first, so each handle equals its name and the raw-handle db probes below
+// keep working. Tests that need a minted id pass `baseHandle` or nothing.
+function adoptingLegacy<H extends ReturnType<typeof createChatHandlers>>(h: H, db: Database): H {
+  const signIn = h["chat:sign-in"];
+  h["chat:sign-in"] = (async (p: { continue?: string }) => {
+    const want = p?.continue;
+    if (typeof want === "string" && isValidChatName(want) && !db.query("SELECT 1 FROM chat_identities WHERE id = ?1 OR name = ?1").get(want)) {
+      db.run("INSERT INTO chat_identities (id, name, base_name, minted_at, session_id) VALUES (?1, ?1, ?1, 0, NULL)", [want]);
+    }
+    return signIn(p as never);
+  }) as H["chat:sign-in"];
+  return h;
+}
+
 function freshHandlers(inboxDeps?: InboxDeps, herdr?: typeof herdrRequest, extra?: { log?: Logger; retryDelayMs?: number }) {
   const db = openStateDb(join(tmpdir(), `chat-deliv-${process.pid}-${n++}.db`));
   // Handlers no longer expose `db` (R028); tests that need to reach the
   // underlying table directly get it back alongside the handler map.
-  return Object.assign(createChatHandlers({ db, emitEvent: () => 0, inboxDeps, herdr, ...extra }), { db });
+  return Object.assign(adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, inboxDeps, herdr, ...extra }), db), { db });
 }
 
 /** Captures warn/info calls without pulling in a real pino instance. */
@@ -93,7 +110,7 @@ test("posting to a room delivers the body to a signed-in recipient's inbox and a
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
@@ -114,7 +131,7 @@ test("a successful delivery refreshes the recipient's last_seen_at -- the only r
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
@@ -145,7 +162,7 @@ test("a successful welcome delivery also refreshes last_seen_at", async () => {
     },
   };
   const h = freshHandlers(inboxDeps);
-  const signedIn = await h["chat:sign-in"]({ sessionId: "sess-c", baseHandle: "c" });
+  const signedIn = await h["chat:sign-in"]({ sessionId: "sess-c", continue: "c" });
   if (!signedIn.ok) throw new Error("unreachable");
 
   // Let the queued welcome delivery run up to (and block on) the gate.
@@ -171,8 +188,8 @@ test("posting refreshes the AUTHOR's own last_seen_at, not just the recipient's"
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
@@ -185,7 +202,7 @@ test("posting refreshes the AUTHOR's own last_seen_at, not just the recipient's"
 
 test("a quiet post still refreshes the author's last_seen_at even though it wakes nobody", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
   await h["chat:join"]({ room: "general", handle: "a" });
   const before = presenceForHandle("a", h.db)!.lastSeenAt;
   await Bun.sleep(2);
@@ -196,8 +213,8 @@ test("a quiet post still refreshes the author's last_seen_at even though it wake
 
 test("a DM refreshes the sender's own last_seen_at", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   const before = presenceForHandle("a", h.db)!.lastSeenAt;
   await Bun.sleep(2);
   const sent = await h["chat:dm"]({ from: "a", to: "b", body: "hi" });
@@ -207,8 +224,8 @@ test("a DM refreshes the sender's own last_seen_at", async () => {
 
 test("acking refreshes the ACKER's own last_seen_at, not just the author's", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
@@ -222,8 +239,8 @@ test("acking refreshes the ACKER's own last_seen_at, not just the author's", asy
 
 test("reading refreshes the READER's own last_seen_at", async () => {
   const h = freshHandlers();
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
@@ -242,7 +259,7 @@ test("a recipient whose resolver misses gets no deliver call and keeps unread", 
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   const before = lastReadId(h.db, "general", "b");
@@ -261,7 +278,7 @@ test("a delivery failure paints the recipient's pane with an unread badge over h
   };
   const { herdr, seen, stop } = fakeHerdrClient(() => ({}));
   const h = freshHandlers(inboxDeps, herdr);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b", pane: "w1:p1" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b", pane: "w1:p1" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
@@ -285,7 +302,7 @@ test("two badges in the same delivery chain get strictly increasing seq numbers"
   };
   const { herdr, seen, stop } = fakeHerdrClient(() => ({}));
   const h = freshHandlers(inboxDeps, herdr);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b", pane: "w1:p1" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b", pane: "w1:p1" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   await h["chat:post"]({ room: "general", handle: "a", body: "@b one" });
@@ -305,7 +322,7 @@ test("a successful delivery never paints an unread badge", async () => {
   };
   const { herdr, seen, stop } = fakeHerdrClient(() => ({}));
   const h = freshHandlers(inboxDeps, herdr);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b", pane: "w1:p1" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b", pane: "w1:p1" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
@@ -322,7 +339,7 @@ test("a delivery failure with no pane on presence skips the badge call entirely"
   };
   const { herdr, seen, stop } = fakeHerdrClient(() => ({}));
   const h = freshHandlers(inboxDeps, herdr);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" }); // no pane
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" }); // no pane
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
@@ -339,7 +356,7 @@ test("a delivery failure leaves the recipient's cursor untouched", async () => {
     deliver: async () => ({ ok: false, error: "timeout" }),
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   const before = lastReadId(h.db, "general", "b");
@@ -363,7 +380,7 @@ test("one retry on a failed push: fails once then succeeds -- single frame, curs
   const { herdr, seen, stop } = fakeHerdrClient(() => ({}));
   const { log, warnCalls, infoCalls } = fakeLogger();
   const h = freshHandlers(inboxDeps, herdr, { log, retryDelayMs: 1 });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b", pane: "w1:p1" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b", pane: "w1:p1" });
   await settleWelcome(calls);
   attempt = 0;
   await h["chat:join"]({ room: "general", handle: "a" });
@@ -392,7 +409,7 @@ test("both delivery attempts failing logs a warn with recipient, room, and the r
   const { herdr, seen, stop } = fakeHerdrClient(() => ({}));
   const { log, warnCalls } = fakeLogger();
   const h = freshHandlers(inboxDeps, herdr, { log, retryDelayMs: 1 });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b", pane: "w1:p1" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b", pane: "w1:p1" });
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
   await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
@@ -420,7 +437,7 @@ test("a failed delivery (both attempts) batches with the next successful one, ca
     },
   };
   const h = freshHandlers(inboxDeps, undefined, { retryDelayMs: 1 });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   attempt = 0;
   await h["chat:join"]({ room: "general", handle: "a" });
@@ -448,7 +465,7 @@ test("a bundle never replays the recipient's own posts back into their own pane"
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
@@ -475,7 +492,7 @@ test("an ack wakes only the message's author, with a one-line receipt", async ()
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
@@ -499,7 +516,7 @@ test("a repeat ack never wakes the author a second time", async () => {
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
@@ -529,8 +546,8 @@ async function claimScenario() {
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   for (const handle of ["a", "b", "c"]) await h["chat:join"]({ room: "general", handle });
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "one of you: write the TLDR" });
@@ -607,8 +624,8 @@ async function mentionRoom() {
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   for (const handle of ["a", "b", "matt"]) await h["chat:join"]({ room: "general", handle, wakeOn: "mention" });
   return { h, calls, sockA, sockB };
@@ -691,7 +708,7 @@ test("a quiet post reaches the room record but wakes nobody", async () => {
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
@@ -718,7 +735,7 @@ test("a quiet post rides along in the next bundle a normal post causes", async (
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
@@ -752,7 +769,7 @@ test("concurrent posts to the same recipient serialize delivery so a held first 
     },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   deliverCount = 0;
   await h["chat:join"]({ room: "general", handle: "a" });
@@ -802,7 +819,7 @@ test("a held first delivery that ultimately fails still lets the second carry bo
     },
   };
   const h = freshHandlers(inboxDeps, undefined, { retryDelayMs: 1 });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   attempt = 0;
   await h["chat:join"]({ room: "general", handle: "a" });
@@ -837,7 +854,7 @@ test("a resolver that throws is caught, leaving chat:post ok and no unhandled re
       deliver: async () => ({ ok: true }),
     };
     const h = freshHandlers(inboxDeps);
-    await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+    await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
     await h["chat:join"]({ room: "general", handle: "a" });
     await h["chat:join"]({ room: "general", handle: "b" });
     const posted = await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
@@ -857,7 +874,7 @@ test("a signed-out recipient's inbox is never delivered to", async () => {
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "b" });
@@ -875,7 +892,7 @@ test("a wake_on none member is never delivered even when signed in", async () =>
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-c", baseHandle: "c" });
+  await h["chat:sign-in"]({ sessionId: "sess-c", continue: "c" });
   await settleWelcome(calls);
   await h["chat:join"]({ room: "general", handle: "a" });
   await h["chat:join"]({ room: "general", handle: "c", wakeOn: "none" });
@@ -892,8 +909,8 @@ test("a dm post renders with the [dm] tag, not the room hash", async () => {
     deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
   };
   const h = freshHandlers(inboxDeps);
-  await h["chat:sign-in"]({ sessionId: "sess-a", baseHandle: "a" });
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await settleWelcome(calls);
   await h["chat:dm"]({ from: "a", to: "b", body: "hi" });
   await Bun.sleep(0);
@@ -923,13 +940,13 @@ test("a failed welcome delivery leaves the catch-up cursor untouched; the same m
 
   const before = lastReadId(h.db, "r", "b");
 
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await Bun.sleep(0);
   expect(lastReadId(h.db, "r", "b")).toBe(before); // welcome delivery failed: cursor must not move
 
   await h["chat:sign-out"]({ sessionId: "sess-b" });
   deliverOk = true;
-  await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "b" });
+  await h["chat:sign-in"]({ sessionId: "sess-b", continue: "b" });
   await Bun.sleep(0);
   expect(lastReadId(h.db, "r", "b")).toBeGreaterThan(before); // same unread, now shown and confirmed: cursor advances
 });
