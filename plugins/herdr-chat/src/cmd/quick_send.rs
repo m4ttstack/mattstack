@@ -474,6 +474,7 @@ mod tests {
             session_id: None,
             pane: None,
             rooms: Vec::new(),
+            signed_in_at: None,
         }];
         let out = targets(rooms, buddies, &std::collections::HashMap::new());
         let got: Vec<Target> = out.into_iter().map(|r| r.target).collect();
@@ -559,6 +560,7 @@ mod tests {
                 session_id: None,
                 pane: None,
                 rooms: Vec::new(),
+                signed_in_at: None,
             },
             rt::Buddy {
                 handle: "remy.k3f9".to_string(),
@@ -567,6 +569,7 @@ mod tests {
                 session_id: None,
                 pane: None,
                 rooms: Vec::new(),
+                signed_in_at: None,
             },
             rt::Buddy {
                 handle: "meg".to_string(),
@@ -575,6 +578,7 @@ mod tests {
                 session_id: None,
                 pane: None,
                 rooms: Vec::new(),
+                signed_in_at: None,
             },
         ];
         let rows = targets(vec![], buddies, &std::collections::HashMap::new());
@@ -607,6 +611,7 @@ mod tests {
             session_id: None,
             pane: None,
             rooms: Vec::new(),
+            signed_in_at: None,
         }];
         let mut details = std::collections::HashMap::new();
         details.insert(

@@ -134,12 +134,24 @@ pub struct Buddy {
     pub pane: Option<String>,
     #[serde(default)]
     pub rooms: Vec<String>,
+    #[serde(default, rename = "signedInAt")]
+    pub signed_in_at: Option<i64>,
 }
 
 impl Buddy {
     pub fn display_name(&self) -> &str {
         name_or(&self.name, &self.handle)
     }
+}
+
+/// The buddy a pane belongs to. Every chat session is its own identity, so an
+/// earlier session's signed-out row can still name the pane beside the live
+/// one: a signed-in row wins, then the most recent sign-in.
+pub fn buddy_in_pane<'a>(buddies: &'a [Buddy], pane: &str) -> Option<&'a Buddy> {
+    buddies
+        .iter()
+        .filter(|b| b.pane.as_deref() == Some(pane))
+        .max_by_key(|b| (b.status != "offline", b.signed_in_at.unwrap_or(i64::MIN)))
 }
 
 #[derive(serde::Deserialize)]
@@ -677,6 +689,23 @@ mod tests {
     fn parse_error_maps_to_err() {
         let r = FakeRunner::json("pane list", "not json");
         assert!(pane_list(&r).is_err());
+    }
+
+    #[test]
+    fn a_pane_with_two_identities_belongs_to_the_later_one_rt_sends() {
+        let r = FakeRunner::json(
+            "chat buddies",
+            r#"{"ok":true,"buddies":[
+                {"handle":"ida","status":"offline","pane":"w1:p2","signedInAt":1790534416270},
+                {"handle":"tony.ncu0","name":"tony","status":"offline","pane":"w1:p2","signedInAt":1790542738580}
+            ]}"#,
+        );
+        let all = buddies(&r).unwrap();
+        assert_eq!(
+            buddy_in_pane(&all, "w1:p2").map(|b| b.handle.as_str()),
+            Some("tony.ncu0")
+        );
+        assert!(buddy_in_pane(&all, "w9:p9").is_none());
     }
 
     #[test]
