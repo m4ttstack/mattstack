@@ -12,6 +12,7 @@ import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
+import type { SetupIntent } from "../intent.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { MERGE_MANIFESTS_MISSING_CODE } from "../skills-materialize.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
@@ -564,10 +565,11 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
   describe("deck.managed", () => {
     // Deck's registrar gate: a structural PATCH from any caller but the row's
     // own registrar ("rt") answers 409 unless it is forced.
-    const healthyFetch = (deckPort: number, patchStatus = 200): Probes["fetch"] =>
+    const healthyFetch = (deckPort: number, patchStatus = 200, apps: Array<{ name: string; managedBy: string; requiresTeam: boolean; enabled: boolean }> = []): Probes["fetch"] =>
       async (url, init) => {
         if (url === `http://127.0.0.1:${deckPort}/healthz`) return { status: 200, body: "ok", headers: {} };
-        if (url.includes("/api/v1/apps/board") && init?.method === "PATCH") {
+        if (url === `http://127.0.0.1:${deckPort}/api/v1/apps` && (init?.method ?? "GET") === "GET") return { status: 200, body: JSON.stringify({ apps }), headers: {} };
+        if (url.includes("/api/v1/apps/") && init?.method === "PATCH") {
           if (init.headers?.["x-local-caller"] !== "rt") return { status: 409, body: JSON.stringify({ error: "managed" }), headers: {} };
           return { status: patchStatus, body: "", headers: {} };
         }
@@ -617,7 +619,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx, logs } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repointed" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repointed; app defaults untouched (not an install)" });
 
       const deckBin = join(appRoot, HELPERS_DIR, "deck");
       expect(p.calls.exec).toEqual([[deckBin, "adopt", "mrs", "--as", "board", "--json"]]);
@@ -638,7 +640,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx, logs } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repoint skipped (board not bundled yet)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repoint skipped (board not bundled yet); app defaults untouched (not an install)" });
       expect(p.calls.fetch.some((u) => u.includes("/api/v1/apps/board"))).toBe(false);
       expect(p.calls.exec).toHaveLength(1);
       expect(logs).toEqual([]);
@@ -655,7 +657,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx, logs } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; app defaults untouched (not an install)" });
       expect(p.calls.exec).toHaveLength(1);
       expect(p.calls.fetch.some((u) => u.includes("/api/v1/apps/"))).toBe(false);
       expect(logs).toEqual([]);
@@ -672,7 +674,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repoint failed (deck answered 500)" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repoint failed (deck answered 500); app defaults untouched (not an install)" });
     });
 
     test("adopt fails with 'deck not running' -> failed, retryable precondition (not a rejection)", async () => {
@@ -719,7 +721,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       });
       const { ctx } = makeCtx(p);
 
-      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; no legacy mrs to adopt" });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; no legacy mrs to adopt; app defaults untouched (not an install)" });
       expect(p.calls.exec).toHaveLength(1);
       expect(p.calls.fetch.some((u) => u.includes("/api/v1/apps/"))).toBe(false);
     });
@@ -737,10 +739,84 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx: first } = makeCtx(p);
       const { ctx: second } = makeCtx(p);
 
-      expect(await deckManagedStep.run(first)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repointed" });
-      expect(await deckManagedStep.run(second)).toEqual({ state: "done", detail: "deck ready; board already adopted" });
+      expect(await deckManagedStep.run(first)).toEqual({ state: "done", detail: "deck ready; board adopted from legacy mrs, repointed; app defaults untouched (not an install)" });
+      expect(await deckManagedStep.run(second)).toEqual({ state: "done", detail: "deck ready; board already adopted; app defaults untouched (not an install)" });
       expect(p.calls.exec.every((argv) => argv[1] === "adopt" && argv[2] === "mrs")).toBe(true);
       expect(p.calls.fetch.filter((u) => u.includes("/api/v1/apps/board"))).toHaveLength(1);
+    });
+
+    const CATALOG = [
+      { name: "board", managedBy: "rt", requiresTeam: true, enabled: true },
+      { name: "boxscore", managedBy: "rt", requiresTeam: true, enabled: true },
+      { name: "console", managedBy: "rt", requiresTeam: false, enabled: false },
+      { name: "chat", managedBy: "rt", requiresTeam: false, enabled: true },
+    ];
+
+    const SOLO_INTENT: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "solo" };
+    const CREATE_INTENT: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://github.com/acme/x.git", others: false } };
+
+    test("no intent (a plain rt setup apply after install): nothing is PATCHed, whatever the mode", async () => {
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
+      const { ctx } = makeCtx(p, { intent: null, team: { slug: "", name: "", mode: "none" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; app defaults untouched (not an install)" });
+      expect(p.calls.fetchInits.filter((c) => c.init?.method === "PATCH")).toEqual([]);
+    });
+
+    test("solo: every requiresTeam app is PATCHed off; console's manual off is left alone", async () => {
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
+      const { ctx } = makeCtx(p, { intent: SOLO_INTENT, team: { slug: "", name: "", mode: "none" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; solo: board, boxscore off" });
+      const patches = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => [c.url, c.init?.body]);
+      expect(patches).toEqual([
+        ["http://127.0.0.1:4100/api/v1/apps/board", JSON.stringify({ enabled: false })],
+        ["http://127.0.0.1:4100/api/v1/apps/boxscore", JSON.stringify({ enabled: false })],
+      ]);
+    });
+
+    test("team: every requiresTeam app is PATCHed on; console's manual off is left alone", async () => {
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
+      const { ctx } = makeCtx(p, { intent: CREATE_INTENT, team: { slug: "acme", name: "Acme", mode: "create" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; team apps on: board, boxscore" });
+      const patched = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => c.url);
+      expect(patched).toEqual(["http://127.0.0.1:4100/api/v1/apps/board", "http://127.0.0.1:4100/api/v1/apps/boxscore"]);
+    });
+
+    test("restore with no team clone: every requiresTeam app is PATCHed off, like solo", async () => {
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 200, CATALOG), exec: async () => adoptReply(false) } });
+      const restoreIntent: SetupIntent = { v: 1, at: "2026-09-26T00:00:00.000Z", mode: "restore", restore: { homeRepo: "me/home" } };
+      const { ctx } = makeCtx(p, { intent: restoreIntent, team: { slug: "", name: "", mode: "restore" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "done", detail: "deck ready; board already adopted; solo: board, boxscore off" });
+      const patches = p.calls.fetchInits.filter((c) => c.init?.method === "PATCH").map((c) => [c.url, c.init?.body]);
+      expect(patches).toEqual([
+        ["http://127.0.0.1:4100/api/v1/apps/board", JSON.stringify({ enabled: false })],
+        ["http://127.0.0.1:4100/api/v1/apps/boxscore", JSON.stringify({ enabled: false })],
+      ]);
+    });
+
+    test("intent set but the app list is unreachable: the step fails, so an install never clears its intent with defaults unapplied", async () => {
+      const p = bundledProbes({
+        tools: ["board"],
+        overrides: {
+          files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) },
+          fetch: async (url, init) => {
+            if (url === "http://127.0.0.1:4100/healthz") return { status: 200, body: "ok", headers: {} };
+            if (url.includes("/api/v1/apps/") && init?.method === "PATCH") {
+              if (init.headers?.["x-local-caller"] !== "rt") return { status: 409, body: JSON.stringify({ error: "managed" }), headers: {} };
+              return { status: 200, body: "", headers: {} };
+            }
+            return { status: 404, body: "", headers: {} };
+          },
+          exec: async () => adoptReply(false),
+        },
+      });
+      const { ctx } = makeCtx(p, { intent: SOLO_INTENT, team: { slug: "", name: "", mode: "none" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "failed", detail: "deck ready; board already adopted; app defaults not applied (deck answered 404)" });
+    });
+
+    test("solo: a PATCH answering 500 fails the step", async () => {
+      const p = bundledProbes({ tools: ["board"], overrides: { files: { [join(home, ".mattstack", "deck", "api.json")]: JSON.stringify({ port: 4100 }) }, fetch: healthyFetch(4100, 500, CATALOG), exec: async () => adoptReply(false) } });
+      const { ctx } = makeCtx(p, { intent: SOLO_INTENT, team: { slug: "", name: "", mode: "none" } });
+      expect(await deckManagedStep.run(ctx)).toEqual({ state: "failed", detail: "deck ready; board already adopted; app defaults not applied; failed: board (500), boxscore (500)" });
     });
   });
 

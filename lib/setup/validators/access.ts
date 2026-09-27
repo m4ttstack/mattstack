@@ -142,7 +142,9 @@ async function switchboardRow(p: Probes, team: TeamSnapshot, overrides: UserInte
 }
 
 /** Every probe here is independent (different remote/host/URL each), so they run concurrently — worst-case latency is the slowest single probe, not their sum; team-repo/forge/switchboard/each tracking identity all keep their own bounded timeout. */
-export async function accessRows(p: Probes, team: TeamSnapshot, intent: SetupIntent | null, overrides: UserIntegrationOverrides = {}, secrets?: SecretPresence): Promise<Row[]> {
+export async function accessRows(p: Probes, team: TeamSnapshot, intent: SetupIntent | null, overrides: UserIntegrationOverrides = {}, secrets?: SecretPresence, solo = false): Promise<Row[]> {
+  if (solo) return [];
+
   const [teamRepo, forge, switchboard, ...repos] = await Promise.all([
     teamRepoRow(p, team, intent, overrides, secrets),
     forgeRow(p, team, intent, overrides),

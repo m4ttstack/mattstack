@@ -4,6 +4,7 @@ import {
   STEP_IDS,
   envelope,
   finalizePlan,
+  isSolo,
   row,
   type Group,
   type Row,
@@ -128,5 +129,14 @@ describe("STEP_IDS", () => {
 describe("DONE_ACTION_TYPES", () => {
   test("matches the app's DoneActions.handled", () => {
     expect([...DONE_ACTION_TYPES]).toEqual(["open-url", "steps", "run", "choose"]);
+  });
+});
+
+describe("isSolo", () => {
+  test("no team known, and only then", () => {
+    expect(isSolo({ slug: "", mode: "none" })).toBe(true);
+    expect(isSolo({ slug: "acme", mode: "none" })).toBe(false);
+    expect(isSolo({ slug: "", mode: "create" })).toBe(false);
+    expect(isSolo({ slug: "", mode: "restore" })).toBe(false);
   });
 });
