@@ -566,8 +566,7 @@ func historyCursorMargins(lines []historyLine, cursor int) (before, after int) {
 func (m *Mission) historyWindow(height int) (lines []historyLine, top, vis int) {
 	lines = m.historyLines(height)
 	if m.historyFreeScroll {
-		vis = max(min(len(lines), height), 0)
-		top = max(0, min(m.historyTop, len(lines)-vis))
+		top, vis = picker.FreeWindow(m.historyTop, len(lines), height)
 	} else {
 		cursor := m.historyCursorLine(lines)
 		before, after := historyCursorMargins(lines, cursor)
@@ -580,9 +579,9 @@ func (m *Mission) historyWindow(height int) (lines []historyLine, top, vis int) 
 // historyScroll is the wheel over the commit list: it moves the view by
 // delta lines from where it is painted and leaves the cursor alone.
 func (m *Mission) historyScroll(delta int) {
-	lines, top, vis := m.historyWindow(m.layout().listRegionH)
+	lines, top, _ := m.historyWindow(m.layout().listRegionH)
 	m.historyFreeScroll = true
-	m.historyTop = max(0, min(top+delta, len(lines)-vis))
+	m.historyTop, _ = picker.FreeWindow(top+delta, len(lines), m.layout().listRegionH)
 }
 
 func (m *Mission) renderCommitList(width, height int) string {

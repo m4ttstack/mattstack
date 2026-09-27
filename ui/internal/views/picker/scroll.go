@@ -63,6 +63,18 @@ func ViewportAround(cursor, top, n, cap_, paneRows, chromeRows, before, after in
 	return placeTopAround(cursor, top, n, h, before, after), h
 }
 
+// FreeWindow is the [top, top+h) window of a region the wheel scrolled away
+// from its cursor: h is what a paneRows-tall pane shows of n rows, and top
+// is clamped so the window never runs past either end. The cursor plays no
+// part, so a selection scrolled out of sight stays out of sight.
+func FreeWindow(top, n, paneRows int) (newTop, h int) {
+	h = max(min(n, paneRows), 0)
+	if h == 0 {
+		return 0, 0
+	}
+	return max(0, min(top, n-h)), h
+}
+
 // placeTop positions a window's top edge for an already-decided height h so
 // the cursor keeps scrolloff rows of margin from both visible edges
 // wherever h affords it, shrinking that margin symmetrically only when h is
