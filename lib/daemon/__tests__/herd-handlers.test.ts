@@ -156,6 +156,7 @@ export function harness(over: Partial<HerdDeps> = {}, trustTestBudgets: { regist
     presenceIdentityForSession: () => null,
     mintWorkerId: (job: string) => `${job}.w001`,
     identityNames: (ids: Iterable<string>) => new Map([...ids].map((id) => [id, id.replace(/\.[a-z0-9]+$/, "")])),
+    resolveHandle: (x: string) => x,
     herdr: herdrFn,
     herdrRunnerFor: (socket: string | null) => {
       const allHerds = store.list();
@@ -489,6 +490,29 @@ describe("herd:resume / status / close", () => {
     expect(res.data.handle).toBe("shepherd.k3f9");
     expect(store.get(herd)!.shepherdHandle).toBe("shepherd.k3f9");
     expect(readChatSession("sess-shep-2")).toMatchObject({ handle: "shepherd.k3f9", name: "shepherd" });
+  });
+
+  test("resume never continues a stored legacy id that now resolves to another identity; it signs in fresh under the id's base name", async () => {
+    const { h, store, chatCalls, herd } = await started({ resolveHandle: (x) => (x === "shepherd" ? "shepherd.zz99" : x) });
+    chatCalls.length = 0;
+    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    if (!res.ok) throw new Error(res.error);
+    const signIn = chatCalls.find((c) => c.verb === "sign-in")!.payload;
+    expect(signIn).toMatchObject({ sessionId: "sess-shep-2", baseHandle: "shepherd", noRoom: true });
+    expect(signIn.continue).toBeUndefined();
+    expect(res.data.handle).not.toBe("shepherd.zz99");
+    expect(store.get(herd)!.shepherdHandle).toBe(res.data.handle);
+  });
+
+  test("resume strips a legacy id's numeric suffix for the fresh sign-in's base name", async () => {
+    const { h, store, chatCalls, herd } = await started({ resolveHandle: (x) => (x === "shepherd-2" ? "shepherd.zz99" : x) });
+    store.setShepherd(herd, { session: "sess-shep", handle: "shepherd-2" });
+    chatCalls.length = 0;
+    const res = await h["herd:resume"]({ herd, session: "sess-shep-2" });
+    if (!res.ok) throw new Error(res.error);
+    const signIn = chatCalls.find((c) => c.verb === "sign-in")!.payload;
+    expect(signIn).toMatchObject({ baseHandle: "shepherd" });
+    expect(signIn.continue).toBeUndefined();
   });
 
   test("resume continues the shepherd id even when the new session already holds its own", async () => {

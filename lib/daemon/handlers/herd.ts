@@ -20,6 +20,7 @@ import type { createAgentHandlers } from "./agent.ts";
 import type { herdrRequest } from "../../herdr/client.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { slugifyChatName } from "../../chat-room-name.ts";
+import { baseOfHandle } from "../../chat-names.ts";
 import { readChatSession, writeChatSession } from "../../chat-session.ts";
 import { attendPane } from "../attend.ts";
 import type { TrustOutcome } from "../trust-accept.ts";
@@ -52,6 +53,8 @@ export interface HerdDeps {
   mintWorkerId: (job: string) => string;
   /** Display names for ids, every missing id mapping to itself; wired from `identityNames` in lib/state/identity-store.ts. */
   identityNames: (ids: Iterable<string>) => Map<string, string>;
+  /** The id a typed name or id reaches; wired from `resolveHandle` in lib/state/identity-store.ts. */
+  resolveHandle: (x: string) => string;
   /** Whether the shepherd session's own inbox socket is currently accepting connections; wired from `probeInboxReachability` in lib/daemon/inbox.ts over `resolveInbox`'s binding. */
   probeInbox: (session: string) => Promise<"reachable" | "unreachable">;
   herdr: typeof herdrRequest;
@@ -345,9 +348,17 @@ export function createHerdHandlers(deps: HerdDeps) {
         const out = await deps.chat["chat:sign-out"]({ sessionId: herd.shepherdSession });
         if (!out.ok) log.warn({ herd: herdId, error: out.error }, "herd resume: could not sign the prior shepherd session out");
       }
-      const signIn = await deps.chat["chat:sign-in"]({ sessionId: session, continue: herd.shepherdHandle, noRoom: true });
+      // A legacy id with no identity row resolves by name, which can reach
+      // another herd's newer shepherd; only an id that resolves to itself is
+      // this herd's own to continue.
+      const stored = herd.shepherdHandle;
+      const request = deps.resolveHandle(stored) === stored ? { continue: stored } : { baseHandle: baseOfHandle(stored) };
+      const signIn = await deps.chat["chat:sign-in"]({ sessionId: session, ...request, noRoom: true });
       if (!signIn.ok) return signIn;
-      if (!signIn.data.continued) log.warn({ herd: herdId, expected: herd.shepherdHandle, got: signIn.data.handle }, "herd resume: the shepherd id is live elsewhere; resumed under a new one");
+      if (!signIn.data.continued) {
+        const why = "continue" in request ? "the shepherd id is live elsewhere" : "the stored shepherd id resolves to another identity";
+        log.warn({ herd: herdId, expected: stored, got: signIn.data.handle }, `herd resume: ${why}; resumed under a new one`);
+      }
       const handle = signIn.data.handle;
       recordChatSession(log, session, { handle, baseHandle: signIn.data.baseHandle, name: signIn.data.name });
       const join = await deps.chat["chat:join"]({ room: herd.room, handle });
