@@ -6,11 +6,23 @@
  */
 
 import { Database } from "bun:sqlite";
-import { AGENT_NAMES, pickAgentName } from "../chat-names.ts";
+import { AGENT_NAMES, baseOfHandle, pickAgentName } from "../chat-names.ts";
 import { resolveAllInboxes, resolveInbox, inboxAlive } from "../claude-registry.ts";
 import { persistOrWarn, runCriticalWrite } from "./busy.ts";
 import { getStateDb } from "./db.ts";
-import { bindIdentitySession, identityForSession, identityName, identityNames, mintIdentity, renameIdentity, type IdentityRow } from "./identity-store.ts";
+import {
+  bindIdentitySession,
+  fixedIdentityRefusal,
+  getIdentity,
+  identityForSession,
+  identityName,
+  identityNames,
+  isKnownId,
+  mintIdentity,
+  renameIdentity,
+  resolveHandle,
+  type IdentityRow,
+} from "./identity-store.ts";
 import { capKvNamespace, getKvValue, replaceKvValue, setKvValue } from "./kv-blob.ts";
 
 export type BuddyStatus = "live" | "idle" | "offline";
@@ -243,6 +255,21 @@ function legacyIdentity(row: PresenceRawRow): IdentityRow {
   return { id: row.handle, name: row.handle, baseName: row.base_handle, mintedAt: row.signed_in_at, sessionId: row.session_id };
 }
 
+function heldByAnotherSession(handle: string): Error {
+  return new Error(`chat: handle reclaimed: "${handle}" is now held by another session; sign in again`);
+}
+
+/** The identity `continueId` names, or, when it names no known identity, the display name to mint under (`--as newname` has nothing to continue). */
+function continuationTarget(continueId: string, db: Database): IdentityRow | string {
+  const id = resolveHandle(continueId, db);
+  for (const x of [continueId, id]) {
+    const refusal = fixedIdentityRefusal(x);
+    if (refusal) throw new Error(`chat: may not continue ${JSON.stringify(x)}: ${refusal}`);
+  }
+  if (!isKnownId(id, db)) return id;
+  return getIdentity(id, db) ?? { id, name: id, baseName: baseOfHandle(id), mintedAt: 0, sessionId: null };
+}
+
 export function signIn(
   args: {
     sessionId: string;
@@ -279,9 +306,15 @@ export function signIn(
     const ownPriorRow = db.query(SELECT_PRESENCE_BY_SESSION_SQL).get(sessionId) as PresenceRawRow | null;
     if (ownPriorRow) db.query(DELETE_PRESENCE_BY_SESSION_SQL).run(sessionId);
 
-    let identity = identityForSession(sessionId, db) ?? (ownPriorRow ? legacyIdentity(ownPriorRow) : undefined);
-    if (identity && !claimIdentitySeat(identity.id, sessionStaleCutoff, scoped, db)) identity = undefined;
-    const baseHandle = args.baseHandle ?? identity?.baseName ?? drawPoolName(db);
+    const target = args.continueId === undefined ? undefined : continuationTarget(args.continueId, db);
+    const continued = typeof target === "object";
+    if (continued && !claimIdentitySeat(target.id, sessionStaleCutoff, scoped, db)) throw heldByAnotherSession(target.id);
+    let identity: IdentityRow | undefined = continued
+      ? target
+      : (identityForSession(sessionId, db) ?? (ownPriorRow ? legacyIdentity(ownPriorRow) : undefined));
+    if (!continued && identity && !claimIdentitySeat(identity.id, sessionStaleCutoff, scoped, db)) identity = undefined;
+    const requestedBase = typeof target === "string" ? target : args.baseHandle;
+    const baseHandle = continued ? target.baseName : (requestedBase ?? identity?.baseName ?? drawPoolName(db));
 
     const seats = seatsByName(db, sessionStaleCutoff, scoped);
     const name = pickDisplayName(baseHandle, identity?.name, { cwd, pane }, seats);
@@ -299,7 +332,7 @@ export function signIn(
     db.query(INSERT_PRESENCE_SQL).run(sessionId, handle, baseHandle, cwd, repo, branch, pane, statusText ?? null, now, now);
     recordPoolNameUse(baseHandle, now, db);
 
-    return { handle, baseHandle, name, reclaimed: displaced !== undefined, continued: false };
+    return { handle, baseHandle, name, reclaimed: displaced !== undefined, continued };
   });
 
   // A signed-in identity is not re-derivable from anything else (R057): a
@@ -423,7 +456,7 @@ export function assertSessionOwnsHandle(handle: string, sessionId: string | unde
   if (sessionId === undefined) return;
   const row = db.query(SELECT_PRESENCE_BY_HANDLE_SQL).get(handle) as PresenceRawRow | null;
   if (row === null) return;
-  if (row.session_id !== sessionId) throw new Error(`chat: handle reclaimed — "${handle}" is now held by another session; sign in again`);
+  if (row.session_id !== sessionId) throw heldByAnotherSession(handle);
 }
 
 /**

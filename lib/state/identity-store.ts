@@ -7,6 +7,7 @@
 
 import { Database } from "bun:sqlite";
 import { baseOfHandle } from "../chat-names.ts";
+import { getSetting } from "../settings/resolve.ts";
 import { getStateDb } from "./db.ts";
 
 export interface IdentityRow {
@@ -56,6 +57,16 @@ const NAME_LOOKUP_CHUNK = 500;
 /** True when `x` is a known id: a chat_identities row, or a handle in chat_presence, chat_members, chat_messages or chat_dms. */
 export function isKnownId(x: string, db: Database = getStateDb()): boolean {
   return db.query(KNOWN_ID_SQL).get({ $id: x }) !== null;
+}
+
+/** Parity: lib/daemon/handlers/herd.ts SYSTEM_HANDLE. Fixed like the human's handle: never minted, never continued. */
+export const HERD_SYSTEM_ID = "herdr";
+
+/** Why `x` can never be continued by an agent session, or undefined when it can. */
+export function fixedIdentityRefusal(x: string): string | undefined {
+  if (x === getSetting<string>("chat.humanHandle").value) return "that handle speaks for the human";
+  if (x === HERD_SYSTEM_ID) return "that handle is the herd's system poster";
+  return undefined;
 }
 
 const SELECT_LIVE_BY_NAME_SQL = `

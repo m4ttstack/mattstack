@@ -150,7 +150,9 @@ export { dmRoomFor, dmParticipants, listDms } from "./dm-store.ts";
 
 export {
   bindIdentitySession,
+  fixedIdentityRefusal,
   getIdentity,
+  HERD_SYSTEM_ID,
   identityForSession,
   identityName,
   identityNames,

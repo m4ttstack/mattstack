@@ -33,7 +33,7 @@ import {
 import type { InboxBinding } from "../../claude-registry.ts";
 import { AGENT_NAMES } from "../../chat-names.ts";
 import { getKvValue } from "../kv-blob.ts";
-import { identityForSession, mintIdentity } from "../identity-store.ts";
+import { getIdentity, identityForSession, mintIdentity } from "../identity-store.ts";
 import { setKvValue } from "../kv-blob.ts";
 
 /** No binding for any session id: the default in every test that doesn't care about the registry (matches the real resolver's behavior for a fake test session id it will never find on disk). */
@@ -619,4 +619,73 @@ test("signIn never mints an id equal to a dotted legacy handle", () => {
   const r = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
   expect(r.handle).toBe(`remy.${hash(`s1:${now}`, 6)}`);
   expect(r.name).toBe("remy");
+});
+
+// --- Continuation ------------------------------------------------------------
+
+test("continueId continues a reservation: the session takes the reserved id and its name", () => {
+  const db = fresh();
+  const reserved = mintIdentity({ base: "remy", name: "remy", sessionId: null, now: 1 }, db);
+  const r = mustSignIn({ sessionId: "s1", continueId: reserved.id, now }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: reserved.id, name: "remy", baseHandle: "remy", continued: true });
+  expect(identityForSession("s1", db)?.id).toBe(reserved.id);
+});
+
+test("continueId by name continues an offline identity and moves its binding off the old session", () => {
+  const db = fresh();
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  signOut("s1", now + MIN, db);
+  const r = mustSignIn({ sessionId: "s2", continueId: "remy", now: now + 2 * MIN }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: first.handle, name: "remy", continued: true });
+  expect(identityForSession("s1", db)).toBeUndefined();
+  expect(presenceForSession("s1", db)).toBeNull();
+});
+
+test("a dead session's id can be continued (the herd:resume takeover)", () => {
+  const db = fresh();
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "shepherd", now }, db, NO_BINDING);
+  const r = mustSignIn({ sessionId: "s2", continueId: first.handle, now: now + 2 * HOUR }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: first.handle, continued: true });
+});
+
+// Review Focus 5
+test("continuing an id live in another session is refused with the reclaimed wording and changes nothing", () => {
+  const db = fresh();
+  const live = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  expect(() => signIn({ sessionId: "s2", continueId: live.handle, now: now + MIN }, db, NO_BINDING)).toThrow(
+    `chat: handle reclaimed: "${live.handle}" is now held by another session; sign in again`,
+  );
+  expect(() => signIn({ sessionId: "s2", continueId: "remy", now: now + MIN }, db, NO_BINDING)).toThrow(/handle reclaimed/);
+  expect(presenceForSession("s1", db)?.handle).toBe(live.handle);
+  expect(presenceForSession("s2", db)).toBeNull();
+  expect(identityForSession("s1", db)?.id).toBe(live.handle);
+});
+
+// Review Focus 5
+test("continuing the human or the herd system poster is refused, whether or not either has rows yet", () => {
+  const db = fresh();
+  expect(() => signIn({ sessionId: "s1", continueId: "matt", now }, db, NO_BINDING)).toThrow(
+    'chat: may not continue "matt": that handle speaks for the human',
+  );
+  expect(() => signIn({ sessionId: "s1", continueId: "herdr", now }, db, NO_BINDING)).toThrow(/herd's system poster/);
+  joinRoom({ room: "r", handle: "matt" }, db);
+  expect(() => signIn({ sessionId: "s1", continueId: "matt", now }, db, NO_BINDING)).toThrow(/speaks for the human/);
+  expect(presenceForSession("s1", db)).toBeNull();
+  expect(identityForSession("s1", db)).toBeUndefined();
+});
+
+test("a continueId that names nobody mints a fresh id with that display name", () => {
+  const db = fresh();
+  const r = mustSignIn({ sessionId: "s1", continueId: "newbie", now }, db, NO_BINDING);
+  expect(r).toMatchObject({ name: "newbie", baseHandle: "newbie", continued: false });
+  expect(r.handle).toMatch(/^newbie\.[a-z0-9]{4}$/);
+});
+
+// Review Focus 3 and 5
+test("continuing a legacy handle, dotted or not, keeps it as the id", () => {
+  const db = fresh();
+  db.run("INSERT INTO chat_members (room, handle, joined_at, last_read_id, wake_on) VALUES ('r', 'kai', 1, 0, 'mention'), ('r', 'remy.old', 1, 0, 'mention')");
+  expect(mustSignIn({ sessionId: "s1", continueId: "kai", now }, db, NO_BINDING)).toMatchObject({ handle: "kai", name: "kai", continued: true });
+  expect(mustSignIn({ sessionId: "s2", continueId: "remy.old", now }, db, NO_BINDING)).toMatchObject({ handle: "remy.old", name: "remy.old", continued: true });
+  expect(getIdentity("remy.old", db)).toMatchObject({ name: "remy.old", baseName: "remy.old", sessionId: "s2" });
 });
