@@ -20,12 +20,19 @@ import (
 // terminal is (topbar.go's own comment on the repo segment).
 const commitBoxInner = sidebarWidth - 4
 
-// renderTabsRow paints the two-row tab strip: the Changes/History label row
-// and the underline row. Each tab owns HALF the width; the underline is Pink
-// under the active half and Rule under the other. Both rows of the INACTIVE
-// half are its button (sidebarHit/historySidebarHit resolve exactly those
-// cells to hitTab). Its hover fills the label row and swaps the underline
-// for an upper half-block. The active tab is inert and never hovers.
+// tabsStripRows is renderTabsRow's height: a blank pad row, the label row,
+// and the underline row. sidebarHit, historySidebarHit and both sidebars'
+// fixed-top constants count these rows by hand.
+const tabsStripRows = 3
+
+// renderTabsRow paints the tab strip: a blank pad row matching the breathing
+// the underline gives below the labels, the Changes/History label row, and
+// the underline row. Each tab owns HALF the width; the underline is Pink
+// under the active half and Rule under the other. All three rows of the
+// INACTIVE half are its button (sidebarHit/historySidebarHit resolve exactly
+// those cells to hitTab). Its hover caps the pad row with a lower half-block,
+// fills the label row and swaps the underline for an upper half-block. The
+// active tab is inert and never hovers.
 func renderTabsRow(changedTotal int, activeTab string, hoverInactive bool, width int) string {
 	on := lipgloss.NewStyle().Background(theme.Bg)
 	half := width / 2
@@ -65,8 +72,9 @@ func renderTabsRow(changedTotal int, activeTab string, hoverInactive bool, width
 	if historyActive {
 		changesRule, historyRule = theme.Rule, theme.Pink
 	}
+	pad := edge(changesHover, "▄", " ", theme.Bg, half) + edge(historyHover, "▄", " ", theme.Bg, otherHalf)
 	underline := edge(changesHover, "▀", "─", changesRule, half) + edge(historyHover, "▀", "─", historyRule, otherHalf)
-	return top + "\n" + underline
+	return pad + "\n" + top + "\n" + underline
 }
 
 // renderFilterRow paints the "❯ filter" box for either tab: the typed filter
