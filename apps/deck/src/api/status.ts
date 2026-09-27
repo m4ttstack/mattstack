@@ -19,10 +19,16 @@ import { tunnelRowHealth } from '../edge/edge-health.ts';
 import { edgeDrift } from '../edge/edge-reconcile.ts';
 import { getOAuth, type OAuth } from '../edge/oauth.ts';
 import { allocatePort } from '../registry/allocate.ts';
-import { statusIconUrl } from '../registry/bundled-identity.ts';
+import {
+  effectiveIdentity,
+  requiresTeamFor,
+  statusIconUrl,
+} from '../registry/bundled-identity.ts';
 import { withCatalogReport } from '../registry/catalog-report.ts';
 import {
+  isEnabled,
   listRecords,
+  type AppRecord,
   type RemoteState,
   type SyncIssue,
 } from '../registry/records.ts';
@@ -66,6 +72,12 @@ export interface StatusService {
 
 export interface StatusRow {
   name: string;
+  /** Launcher name from the effective identity; the record name when none. */
+  displayName: string;
+  /** From the effective identity; present only when the identity has one. */
+  description?: string;
+  enabled: boolean;
+  requiresTeam: boolean;
   /** TLD the row's identity renders under (ownership-driven locally, the
       tunnel domain when served publicly); null for rows with no hostname
       identity (orphan services, tunnels). */
@@ -146,6 +158,104 @@ export interface Status {
   autoHeal: { at: number; ok: boolean | null } | null;
 }
 
+/**
+ * An AppRecord with everything an API response must not carry stripped out:
+ * env VALUES (real secrets once the add-app form populates them) and the
+ * local-only command/workingDirectory. Redaction is unconditional, because
+ * GETs are always allowed through, public host or not, so there is no caller
+ * policy to gate on. envKeys names the variables an app has, never the values.
+ */
+export interface SafeRecord {
+  name: string;
+  managedBy: string;
+  port: number;
+  kind: AppRecord['kind'];
+  label?: string;
+  grandfathered?: boolean;
+  createdAt: string;
+  issues: SyncIssue[];
+  envKeys: string[];
+  enabled: boolean;
+  requiresTeam: boolean;
+}
+
+export function safeRecord(record: AppRecord): SafeRecord {
+  return {
+    name: record.name,
+    managedBy: record.managedBy,
+    port: record.port,
+    kind: record.kind,
+    ...(record.label !== undefined && { label: record.label }),
+    ...(record.grandfathered !== undefined && {
+      grandfathered: record.grandfathered,
+    }),
+    createdAt: record.createdAt,
+    issues: record.issues ?? [],
+    envKeys: Object.keys(record.env ?? {}),
+    enabled: isEnabled(record),
+    requiresTeam: requiresTeamFor(record),
+  };
+}
+
+/**
+ * A record's live (route-joined, health-probed) StatusRow when one exists. A
+ * record with no route yet (just-registered, before the edge driver's alias
+ * lands) has no row to join against; synthesize a "not yet live" stand-in using
+ * ONLY the same safe, non-secret StatusRow fields, never spreading the raw
+ * AppRecord, which carries command/env/workingDirectory. Shared by the list and
+ * single-record endpoints so the two shapes cannot drift apart.
+ *
+ * `redact` mirrors buildStatus: the row's `record` shape feeds the board's
+ * local-only edit dialog, so through a public host command/workingDirectory
+ * must be null here exactly as they are on a joined row.
+ */
+export function rowFor(
+  record: AppRecord,
+  byName: Map<string, StatusRow>,
+  redact: boolean
+): StatusRow {
+  const joined = byName.get(record.name);
+  if (joined) return joined;
+  const identity = effectiveIdentity(record);
+  return {
+    name: record.name,
+    displayName: identity.displayName,
+    ...(identity.description !== undefined
+      ? { description: identity.description }
+      : {}),
+    enabled: isEnabled(record),
+    requiresTeam: identity.requiresTeam === true,
+    // Same ownership rule as buildStatus: a managed record is a mattstack
+    // product and surfaces as name.mattstack even before its route lands.
+    displayTld:
+      record.managedBy != null && record.managedBy !== 'user'
+        ? MATTSTACK_TLD
+        : 'localhost',
+    port: record.port,
+    url: null,
+    publicUrl: null,
+    health: null,
+    service: null,
+    published: false,
+    hasPassword: false,
+    isTunnel: false,
+    override: null,
+    publicFollowsOverride: false,
+    self: false,
+    managedBy: record.managedBy,
+    icon: statusIconUrl(record, identity),
+    issues: record.issues ?? [],
+    record: {
+      kind: record.kind,
+      command: redact ? null : (record.command ?? null),
+      workingDirectory: redact ? null : (record.workingDirectory ?? null),
+    },
+    oauth: getOAuth(record.name),
+    publicOrigin: 'tunnel' as const,
+    remote: null,
+  };
+}
+
 export function serviceJson(
   s: LaunchdService,
   health: Health | null,
@@ -220,8 +330,15 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
       // public tunnel the tunnel's domain is everyone's identity.
       const owned = record?.managedBy != null && record.managedBy !== 'user';
       const displayTld = publicDomain ?? (owned ? MATTSTACK_TLD : 'localhost');
+      const identity = record && effectiveIdentity(record);
       return {
         name: a.name,
+        displayName: identity ? identity.displayName : a.name,
+        ...(identity?.description !== undefined
+          ? { description: identity.description }
+          : {}),
+        enabled: record ? isEnabled(record) : true,
+        requiresTeam: identity?.requiresTeam === true,
         displayTld,
         port: a.port,
         // The href must match the rendered identity: an owned app joins on
@@ -244,7 +361,7 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
         publicFollowsOverride: follows,
         self,
         managedBy: record?.managedBy ?? null,
-        icon: record ? statusIconUrl(record) : null,
+        icon: record ? statusIconUrl(record, identity) : null,
         issues: self
           ? withCatalogReport(record?.issues ?? [])
           : (record?.issues ?? []),
@@ -292,34 +409,44 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
         })
       : null;
 
-  const orphanRows: StatusRow[] = orphans.map(s => ({
-    name: shortLabel(
+  const orphanRows: StatusRow[] = orphans.map(s => {
+    const name = shortLabel(
       s.label,
       servicePrefixes(getPlatformSettings().legacyPrefixes)
-    ),
-    displayTld: null,
-    port: null,
-    url: null,
-    publicUrl: null,
-    health: s.label === TUNNEL_LABEL ? edgeHealth : null,
-    // The tunnel's own health (may be pid!=null but disconnected) decides its stderr tail;
-    // every other orphan service still falls back to the pid-null check inside serviceJson.
-    service: serviceJson(s, s.label === TUNNEL_LABEL ? edgeHealth : null, null),
-    published: true,
-    hasPassword: false,
-    // cloudflared tunnels are infrastructure, not stray app services.
-    isTunnel: s.program.some(p => p.includes('cloudflared')),
-    override: null,
-    publicFollowsOverride: false,
-    self: false,
-    managedBy: null,
-    icon: null,
-    issues: [],
-    record: null,
-    oauth: { mode: 'off' },
-    publicOrigin: 'tunnel' as const,
-    remote: null,
-  }));
+    );
+    return {
+      name,
+      displayName: name,
+      enabled: true,
+      requiresTeam: false,
+      displayTld: null,
+      port: null,
+      url: null,
+      publicUrl: null,
+      health: s.label === TUNNEL_LABEL ? edgeHealth : null,
+      // The tunnel's own health (may be pid!=null but disconnected) decides its stderr tail;
+      // every other orphan service still falls back to the pid-null check inside serviceJson.
+      service: serviceJson(
+        s,
+        s.label === TUNNEL_LABEL ? edgeHealth : null,
+        null
+      ),
+      published: true,
+      hasPassword: false,
+      // cloudflared tunnels are infrastructure, not stray app services.
+      isTunnel: s.program.some(p => p.includes('cloudflared')),
+      override: null,
+      publicFollowsOverride: false,
+      self: false,
+      managedBy: null,
+      icon: null,
+      issues: [],
+      record: null,
+      oauth: { mode: 'off' },
+      publicOrigin: 'tunnel' as const,
+      remote: null,
+    };
+  });
 
   return {
     suffix: publicDomain ?? 'localhost',
@@ -327,8 +454,8 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
     canRestart: opts.local,
     canManage: opts.local,
     devMode: !!opts.devMode,
-    up: healths.filter(h => h.ok).length,
-    total: apps.length,
+    up: appRows.filter(r => r.enabled && r.health?.ok).length,
+    total: appRows.filter(r => r.enabled).length,
     apps: appRows,
     orphans: orphanRows,
     // Advisory only, but it must not lie: use the SAME authority the actual

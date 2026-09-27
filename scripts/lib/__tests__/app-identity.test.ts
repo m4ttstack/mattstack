@@ -39,6 +39,7 @@ const BOARD_SOURCE = {
   port: 11006,
   includeInBundle: true,
   badge: "/api/badge",
+  requiresTeam: true,
   dev: { start: "bun src/server.ts" },
   bundle: { build: "bun run build", artifact: "dist/board" },
 };
@@ -150,6 +151,14 @@ test("a dotted name fails staging, since Resources/apps/<name> would read to cod
   );
 });
 
+test("requiresTeam survives staging and a non-boolean is refused", () => {
+  const out = join(mkdtempSync(join(tmpdir(), "stage-req-")), "identity");
+  const id = stageIdentity(appDir(BOARD_SOURCE, { "src/favicon.svg": SVG }), out, "board");
+  expect(id?.requiresTeam).toBe(true);
+  expect(readStagedIdentity(out, "board").requiresTeam).toBe(true);
+  expect(() => readDeclaredIdentity(appDir({ ...BOARD_SOURCE, requiresTeam: "yes" }, { "src/favicon.svg": SVG }))).toThrow(/requiresTeam must be a boolean/);
+});
+
 test("lockServes reads a serve block on a row of any status", () => {
   const lock = JSON.stringify({
     schema: 1,
@@ -209,7 +218,7 @@ test("land copies only the manifest and its icon, never other files in the ident
 test("land accepts an archive identity in another serialized form and lands the current form", () => {
   const deps = mkdtempSync(join(tmpdir(), "land-older-"));
   const src = appDir(
-    { icon: "./src/favicon.svg", badge: "/api/badge", name: "board", description: "Open MRs ready for review.", displayName: "Board" },
+    { icon: "./src/favicon.svg", badge: "/api/badge", name: "board", description: "Open MRs ready for review.", displayName: "Board", requiresTeam: true },
     { "src/favicon.svg": SVG },
   );
   const staged = join(deps, "board-identity");

@@ -31,8 +31,10 @@ function page(count: number, lastId = count): ChatMessage[] {
       id,
       room: 'build',
       handle: 'fred',
+      name: 'fred',
       body: `m${id}`,
       mentions: [],
+      mentionNames: [],
       postedAt: now - (count - i) * 1000,
     };
   });
@@ -110,6 +112,7 @@ test('the author header carries the fleet task line beside the sender', async ()
     sessionId: 'jay',
     handle: 'jay',
     baseHandle: 'jay',
+    name: 'jay',
     status: 'live',
     repo: 'boxscore',
     branch: 'feat/metrics-hardening',
@@ -127,8 +130,10 @@ test('the author header carries the fleet task line beside the sender', async ()
             id: 1,
             room: 'boxscore',
             handle: 'jay',
+            name: 'jay',
             body: 'pushed the fix',
             mentions: [],
+            mentionNames: [],
             postedAt: now,
           },
         ]}
@@ -150,16 +155,20 @@ test('a mention of the human is marked as me; the human’s own post is marked m
           id: 1,
           room: 'build',
           handle: 'rt-chat-wt',
+          name: 'rt-chat-wt',
           body: '@matt PR #67 is green, ok to merge?',
           mentions: ['matt'],
+          mentionNames: ['matt'],
           postedAt: Date.now(),
         },
         {
           id: 2,
           room: 'build',
           handle: 'matt',
+          name: 'matt',
           body: 'merge it',
           mentions: [],
+          mentionNames: [],
           postedAt: Date.now(),
         },
       ]}
@@ -183,24 +192,30 @@ test("each speaker's handle chip carries its own hue, and the human's is accent"
           id: 1,
           room: 'build',
           handle: 'fox',
+          name: 'fox',
           body: 'first',
           mentions: [],
+          mentionNames: [],
           postedAt: 1,
         },
         {
           id: 2,
           room: 'build',
           handle: 'max',
+          name: 'max',
           body: 'second',
           mentions: [],
+          mentionNames: [],
           postedAt: 2,
         },
         {
           id: 3,
           room: 'build',
           handle: 'matt',
+          name: 'matt',
           body: 'third',
           mentions: [],
+          mentionNames: [],
           postedAt: 3,
         },
       ]}
@@ -227,8 +242,10 @@ test('markdown structure reaches the row: paragraphs, a list, code untouched', (
           id: 1,
           room: 'build',
           handle: 'deck-main',
+          name: 'deck-main',
           body: 'first **point**\n\n- one\n- two\n\nsee `**not bold**`',
           mentions: [],
+          mentionNames: [],
           postedAt: 1,
         },
       ]}
@@ -252,16 +269,20 @@ test('a divider marks the read cursor before the unread tail', () => {
           id: 1,
           room: 'build',
           handle: 'deck-main',
+          name: 'deck-main',
           body: 'read already',
           mentions: [],
+          mentionNames: [],
           postedAt: now - 1000,
         },
         {
           id: 2,
           room: 'build',
           handle: 'rt-chat-wt',
+          name: 'rt-chat-wt',
           body: 'still unread',
           mentions: [],
+          mentionNames: [],
           postedAt: now,
         },
       ]}
@@ -285,8 +306,10 @@ test('the anchor scrolls once, and a later live merge does not repeat it', async
           id: 7,
           room: 'build',
           handle: 'deck-main',
+          name: 'deck-main',
           body: 'anchored',
           mentions: [],
+          mentionNames: [],
           postedAt: 1,
         },
       ],
@@ -572,8 +595,10 @@ test('a notice renders at the edge, above the older-messages row, and without an
       id: 1,
       room: 'build',
       handle: 'meg',
+      name: 'meg',
       body: 'hi',
       mentions: [],
+      mentionNames: [],
       postedAt: 1,
     },
   ];
@@ -611,8 +636,10 @@ test('two bare URLs in one body both render as links', () => {
           id: 1,
           room: 'build',
           handle: 'deck-main',
+          name: 'deck-main',
           body: 'see http://x.test/a and http://y.test/b',
           mentions: [],
+          mentionNames: [],
           postedAt: 1,
         },
       ]}
@@ -638,8 +665,10 @@ test('a day divider sits between messages on different days, never between same-
     id,
     room: 'build',
     handle: 'fred',
+    name: 'fred',
     body: `m${id}`,
     mentions: [],
+    mentionNames: [],
     postedAt,
   });
   renderWithProviders(
@@ -695,8 +724,10 @@ test('the new pill counts live arrivals while scrolled up and goes away at the b
         id: 1,
         room: 'build',
         handle: 'fred',
+        name: 'fred',
         body: 'first',
         mentions: [],
+        mentionNames: [],
         postedAt: Date.now(),
       },
     ],
@@ -733,8 +764,10 @@ test('loading an older page puts a day divider above what was the first message'
           id: 1,
           room: 'build',
           handle: 'fred',
+          name: 'fred',
           body: 'old',
           mentions: [],
+          mentionNames: [],
           postedAt: now - 3 * 86_400_000,
         },
       ],
@@ -777,8 +810,10 @@ const tall = {
   id: 1,
   room: 'build',
   handle: 'fred',
+  name: 'fred',
   body: Array.from({ length: 80 }, (_, i) => `line ${i}`).join('\n'),
   mentions: [],
+  mentionNames: [],
   postedAt: Date.now(),
 };
 
@@ -903,8 +938,10 @@ function twoBlockMessage(id: number, postedAt = id): ChatMessage {
     id,
     room: 'build',
     handle: 'fred',
+    name: 'fred',
     body: `lead ${id}\n\nsecond ${id}`,
     mentions: [],
+    mentionNames: [],
     postedAt,
   };
 }
@@ -1035,8 +1072,10 @@ test('an unread room message with an unanswered @here carries the unclaimed chip
           id: 1,
           room: 'build',
           handle: 'fred',
+          name: 'fred',
           body: '@here needs eyes on this',
           mentions: [],
+          mentionNames: [],
           postedAt: Date.now() - 60_000,
         },
       ]}
@@ -1057,16 +1096,20 @@ test('a reply to the @here message clears the unclaimed chip', () => {
           id: 1,
           room: 'build',
           handle: 'fred',
+          name: 'fred',
           body: '@here needs eyes on this',
           mentions: [],
+          mentionNames: [],
           postedAt: 1,
         },
         {
           id: 2,
           room: 'build',
           handle: 'max',
+          name: 'max',
           body: 'on it',
           mentions: [],
+          mentionNames: [],
           replyTo: 1,
           postedAt: 2,
         },
@@ -1086,8 +1129,10 @@ test('a read @here message never carries the unclaimed chip', () => {
           id: 1,
           room: 'build',
           handle: 'fred',
+          name: 'fred',
           body: '@here needs eyes on this',
           mentions: [],
+          mentionNames: [],
           postedAt: 1,
         },
       ]}
@@ -1107,12 +1152,69 @@ test('a DM never carries the unclaimed chip, even for an unanswered @here', () =
           id: 1,
           room: 'build',
           handle: 'fred',
+          name: 'fred',
           body: '@here needs eyes on this',
           mentions: [],
+          mentionNames: [],
           postedAt: 1,
         },
       ]}
     />
   );
   expect(screen.queryByTestId('unclaimed-chip')).toBeNull();
+});
+
+test('two identities that share a name read the same and keep their own hue', () => {
+  renderWithProviders(
+    <Transcript
+      room="rt"
+      messages={[
+        {
+          id: 1,
+          room: 'rt',
+          handle: 'remy',
+          name: 'remy',
+          body: 'old tail is mine',
+          mentions: [],
+          mentionNames: [],
+          postedAt: 1,
+        },
+        {
+          id: 2,
+          room: 'rt',
+          handle: 'remy.m2p4',
+          name: 'remy',
+          body: 'new here',
+          mentions: [],
+          mentionNames: [],
+          postedAt: 2,
+        },
+        {
+          id: 3,
+          room: 'rt',
+          handle: 'max',
+          name: 'max',
+          body: '@remy welcome',
+          mentions: ['remy.m2p4'],
+          mentionNames: ['remy'],
+          postedAt: 3,
+        },
+      ]}
+    />
+  );
+  const chips = screen.getAllByTestId('speaker-chip');
+  expect(chips[0]).toHaveTextContent(/^remy$/);
+  expect(chips[1]).toHaveTextContent(/^remy$/);
+  expect(screen.getByTestId('message-2')).not.toHaveTextContent('m2p4');
+  const hue = (chip: HTMLElement) =>
+    chip.style.getPropertyValue('--speaker-hue');
+  expect(hue(chips[0]!)).not.toBe(hue(chips[1]!));
+  const avatar = (chip: HTMLElement) =>
+    chip.querySelector('svg')!.getAttribute('fill');
+  expect(avatar(chips[0]!)).not.toBe(avatar(chips[1]!));
+  const mention = screen
+    .getByTestId('message-3')
+    .querySelector('[data-mention]')!;
+  expect(mention).toHaveTextContent('@remy');
+  expect(mention).toHaveAttribute('data-mention', 'remy.m2p4');
 });

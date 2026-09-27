@@ -113,7 +113,7 @@ export {
   joinRoom,
   leaveRoom,
   parseMentions,
-  mergeMentions,
+  resolveMentions,
   postMessage,
   readUnread,
   peekUnread,
@@ -149,6 +149,21 @@ export {
 export { dmRoomFor, dmParticipants, listDms } from "./dm-store.ts";
 
 export {
+  bindIdentitySession,
+  fixedIdentityRefusal,
+  getIdentity,
+  HERD_SYSTEM_ID,
+  identityForSession,
+  identityName,
+  identityNames,
+  isKnownId,
+  mintIdentity,
+  renameIdentity,
+  resolveHandle,
+  type IdentityRow,
+} from "./identity-store.ts";
+
+export {
   signIn,
   signOut,
   setAway,
@@ -162,13 +177,12 @@ export {
   assertSessionSignedIn,
   prunePresence,
   reserveAgentHandle,
-  paneHandleFor,
-  rememberPaneHandle,
   snapshotRegistryDeps,
   type BuddyStatus,
   type PresenceRow,
   type PresenceThresholds,
   type RegistryDeps,
+  type SignInResult,
 } from "./presence-store.ts";
 
 export {

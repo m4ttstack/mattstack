@@ -450,3 +450,12 @@ test("pane list id column width follows the longest ref, not a fixed 8", async (
   expect(r.stdout).toContain(`w1:p1${" ".repeat(idWidth - "w1:p1".length)} `);
   expect(r.stdout).toContain(`bg:workspace9:pane9999 `);
 });
+
+test("pane list prints the presence name, never the id, and hides a title equal to the name", async () => {
+  const minted = { ...PANE, title: "meg", presence: { handle: "meg.k3f9", name: "meg", status: "live", rooms: ["build"] } };
+  replies = { "pane:list": { ok: true, data: { panes: [minted] } } };
+  const plain = await run(paneList, []);
+  expect(plain.stdout).toContain("meg (live)");
+  expect(plain.stdout).not.toContain("meg.k3f9");
+  expect(plain.stdout).not.toContain("· meg");
+});

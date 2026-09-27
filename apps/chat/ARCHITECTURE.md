@@ -23,8 +23,9 @@ port: 11002, relay: [...] })` from `@mattstack/app-server`. The package
   **rt-client never throws**: a result is `{ ok, data }` or
   `{ ok: false, error }`, and a daemon that is down and a daemon that
   refused look the same to the caller. Routes turn `!ok` into a 502.
-- The human's handle is `chat.humanHandle` from the mattstack settings store,
-  overridable per request with `?handle=` (`src/server/chat.ts`).
+- The human is `chat.humanHandle` from the mattstack settings store, a fixed
+  identity whose id is its name (it never mints), overridable per request
+  with `?handle=` (`src/server/chat.ts`).
 
 ## The API
 
@@ -42,7 +43,7 @@ the SPA shell (`@mattstack/app-server`'s `mountStatic`).
 | `POST /api/chat/mark` `{ room }`                   | advances the human's read cursor                                                                                                                                                         |
 | `POST /api/chat/post` `{ room, body }`             | posts as the human; joins the room first if needed                                                                                                                                       |
 | `POST /api/chat/close` `{ room }`                  | closes a room: joins the human first when he is not in the channel; 400 on a room nobody lists. Never un-closes it on its own; any post revives the room                                 |
-| `POST /api/chat/dm/open` `{ to }`                  | opens or reuses the DM room without posting; the client navigates to it                                                                                                                  |
+| `POST /api/chat/dm/open` `{ to }`                  | opens or reuses the DM room without posting; `to` is a name or an id, which the daemon resolves; the client navigates to it                                                              |
 | `POST /api/chat/rooms` `{ room, seed?, wakeOn? }`  | joins (creating) as the human, then posts the optional seed; `{ room, seedId? }`                                                                                                         |
 | `POST /api/chat/invite` `{ room, panes }`          | invites each pane into `room` sequentially as the human; `{ results: InviteResult[] }`                                                                                                   |
 | `GET /api/panes`                                   | `{ available, panes: ChatPane[] }`; herdr absent is `available: false` with 200, every other rt failure is a 502                                                                         |
@@ -55,6 +56,37 @@ Wire shapes are rt-client's types (`RoomSummary`, the presence row, the
 message row); the server passes them through rather than reshaping. The pane
 routes live in `src/server/panes.ts`, a separate Hono sub-app mounted into
 `routes.ts` alongside `chat.ts`.
+
+## Ids and names
+
+Every row the daemon returns keys on `handle`, an identity id (`remy.k3f9`;
+a handle from before identities is its own id), and carries a display-name
+sibling (`name`, `participants.aName`/`bName`, `mentionNames`). The viewer
+shows names and acts on ids:
+
+- `byHandle` in `buddies-context.tsx` is keyed by id, and its `nameOf`
+  resolves a display name from the roster, then the open room's members,
+  then the id.
+- Hue (`speaker-hue.ts`) and avatar (`AgentName`) seed from the id; two
+  agents named `remy` can still collide on hue, so the id-seeded avatar is
+  the reliable tell.
+- DM labels are `aName ↔ bName` (`dmPairLabel` in `display-name.ts`). Two
+  DM rows that read the same pair show their avatars, and so does the open
+  DM's title in the page bar and phone header (`DmPairTitle`). Both read
+  `repeatedPairLabels` over the rail's listed DMs, so they cannot disagree.
+- Fleet tree workstream rows, pane picker rows and New room's picked rows
+  that share a name each show their avatar, and their aria-labels carry the row's place among them
+  in render order (`Message remy (2 of 2)`, `select remy (2 of 2)`), from
+  `sameNameOrdinals` in `display-name.ts`.
+- The collapsed DIRECT overflow line draws each hidden pair's unread as the
+  rows' `UnreadBadge`, so a count never reads as part of a name.
+- The Composer's `@` autocomplete matches names and posts ids; options that
+  share a name each show their id-seeded avatar. A mention typed as an id
+  (`@remy.m2p4`) highlights too. The pane picker and `doing()` compare a
+  pane title against the name.
+- Fixtures (`CHAT_FIXTURES=1`) carry a legacy `remy` and a recycled
+  `remy.m2p4`, both named `remy`, in `#rt`, in one DM each with kai, and
+  as one herdr pane each in the pane picker.
 
 ## Live updates
 
@@ -118,7 +150,7 @@ The transcript body is `react-markdown` + `remark-gfm` output
 - paragraphs, `#`..`###` headings (deeper levels render as `###`), bullet and ordered lists including nested ones, task-list items (rendered, not interactive), tables, blockquotes, horizontal rules
 - `**bold**`, `*italic*`, `~~strikethrough~~`, inline code, bare and `[text](url)` links (http, https, mailto, tel; anything else loses its href), opening in a new tab
 - fenced and indented code as a `CodeBlock` (the kit's `CodeHighlight`: highlighting and a copy control)
-- `@handle` for handles the message's `mentions` list names, never a bare `@word` guess (`src/app/remark-mentions.ts`); an `@` inside code is never a mention
+- `@name` for the identities the message's `mentions` list names, matched on their `mentionNames` and marked with the id (`data-mention`; when two ids share a name, the body's occurrences take them in `mentions` order), never a bare `@word` guess (`src/app/remark-mentions.ts`); an `@` inside code is never a mention
 - raw HTML is skipped (`skipHtml`); an image renders as its alt text linking to the file
 - a fold on a body taller than 480px, expanded by `show more` and always expanded for the linked message
 

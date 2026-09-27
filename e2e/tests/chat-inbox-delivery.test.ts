@@ -157,7 +157,7 @@ function frameContent(frame: Record<string, unknown>): string {
 
 // ─── chat CLI helpers ────────────────────────────────────────────────────────
 
-interface SignInResult { ok: true; handle: string; room: string | null }
+interface SignInResult { ok: true; handle: string; name: string; room: string | null }
 
 async function signIn(homeDir: string, sessionId: string, baseHandle: string, room: string): Promise<SignInResult> {
   const res = await finished(runRt(["chat", "sign-in", "--as", baseHandle, "--session", sessionId, "--room", room, "--json"], homeDir));
@@ -169,6 +169,19 @@ async function signInPane(homeDir: string, paneId: string, baseHandle: string, r
   const res = await finished(runRt(["chat", "sign-in", "--pane", paneId, "--as", baseHandle, "--room", room, "--json"], homeDir));
   if (res.exitCode !== 0) throw new Error(`sign-in --pane(${paneId}) failed: ${res.stderr || res.stdout}`);
   return JSON.parse(res.stdout) as SignInResult;
+}
+
+async function signInDrawn(homeDir: string, sessionId: string, room: string): Promise<SignInResult> {
+  const res = await finished(runRt(["chat", "sign-in", "--session", sessionId, "--room", room, "--json"], homeDir));
+  if (res.exitCode !== 0) throw new Error(`sign-in(${sessionId}) failed: ${res.stderr || res.stdout}`);
+  return JSON.parse(res.stdout) as SignInResult;
+}
+
+/** An unsigned post under a chosen handle: how the human posts, since continuing the human's id is refused. */
+async function postAs(homeDir: string, room: string, body: string, as: string): Promise<{ ok: true; id: number; recipients: string[] }> {
+  const res = await finished(runRt(["chat", "post", room, body, "--as", as, "--json"], homeDir));
+  if (res.exitCode !== 0) throw new Error(`post --as ${as} failed: ${res.stderr || res.stdout}`);
+  return JSON.parse(res.stdout);
 }
 
 async function signOut(homeDir: string, sessionId: string): Promise<void> {
@@ -224,24 +237,24 @@ describe("rt chat inbox delivery (e2e)", () => {
     await startDaemonForHome(home, { HERDR_SOCKET_PATH: herdrSock });
 
     const signedIn = await signInPane(home, paneId, "recipient", "testroom");
-    expect(signedIn.handle).toBe("recipient");
+    expect(signedIn.name).toBe("recipient");
     expect(signedIn.room).toBe("testroom");
 
     // The welcome frame lands first; drain it before asserting on the post.
     await waitForFrame(inbox.frames, (f) => frameContent(f).includes("You're signed in to rt chat as recipient"));
 
-    await signIn(home, "sess-poster", "poster", "testroom");
+    const poster = await signIn(home, "sess-poster", "poster", "testroom");
     // Rooms default to wake-on "all" now; the mention here also pins the
     // recipient explicitly so the assertion below stays meaningful if a
     // member's mode ever changes.
     const posted = await post(home, "testroom", "@recipient hello from e2e", "sess-poster");
-    expect(posted.recipients).toContain("recipient");
+    expect(posted.recipients).toContain(signedIn.handle);
 
     const frame = await waitForFrame(inbox.frames, (f) => frameContent(f).includes("hello from e2e"));
     expect(frame.type).toBe("user");
     expect(frameContent(frame)).toBe(
       `<cross-session-message from-name="poster (#testroom)">\n[#testroom] poster #${posted.id}: @recipient hello from e2e\n` +
-        'reply via rt chat post <room> "..." or rt chat dm <handle> "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>',
+        `reply via rt chat post <room> "..." or rt chat dm ${poster.handle} "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>`,
     );
   }, 30_000);
 
@@ -280,18 +293,18 @@ describe("rt chat inbox delivery (e2e)", () => {
 
     const a = await signInPane(home, paneA, "a", "testroom");
     const b = await signInPane(home, paneB, "b", "testroom");
-    expect(a.handle).toBe("a");
-    expect(b.handle).toBe("b");
+    expect(a.name).toBe("a");
+    expect(b.name).toBe("b");
     await waitForFrame(inboxA.frames, (f) => frameContent(f).includes("You're signed in"));
     await waitForFrame(inboxB.frames, (f) => frameContent(f).includes("You're signed in"));
 
-    await signIn(home, "sess-c", "c", "testroom");
+    const c = await signIn(home, "sess-c", "c", "testroom");
     const sent = await dm(home, "a", "secret for a", "sess-c");
 
     const frame = await waitForFrame(inboxA.frames, (f) => frameContent(f).includes("secret for a"));
     expect(frameContent(frame)).toBe(
       `<cross-session-message from-name="c (dm)">\n[dm] c #${sent.id}: secret for a\n` +
-        'reply via rt chat post <room> "..." or rt chat dm <handle> "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>',
+        `reply via rt chat post <room> "..." or rt chat dm ${c.handle} "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>`,
     );
     // b is not a participant of this DM: nothing about it ever reaches b's inbox.
     await Bun.sleep(300);
@@ -355,21 +368,44 @@ describe("rt chat inbox delivery (e2e)", () => {
     registerFakeInbox(home, sessionB, inboxB.socketPath);
 
     await startDaemonForHome(home, { HERDR_SOCKET_PATH: herdrSock });
-    await signInPane(home, "w1:pb", "b", "testroom");
+    const bIn = await signInPane(home, "w1:pb", "b", "testroom");
     await waitForFrame(inboxB.frames, (f) => frameContent(f).includes("You're signed in"));
-    await signIn(home, "sess-a", "a", "testroom");
-    await signIn(home, "sess-m", "matt", "testroom");
+    const aIn = await signIn(home, "sess-a", "a", "testroom");
 
     const fromAgent = await post(home, "testroom", "status: lane at 60%", "sess-a");
     expect(fromAgent.recipients).toEqual([]);
-    const fromHuman = await post(home, "testroom", "one of you: write the TLDR", "sess-m");
-    expect(fromHuman.recipients).toEqual(["a", "b"]);
+    const fromHuman = await postAs(home, "testroom", "one of you: write the TLDR", "matt");
+    expect([...fromHuman.recipients].sort()).toEqual([aIn.handle, bIn.handle].sort());
 
     const frame = await waitForFrame(inboxB.frames, (f) => frameContent(f).includes("write the TLDR"));
     // The agent's earlier post rides along in the same bundle: seen at the next wake, never lost.
     expect(frameContent(frame)).toBe(
       `<cross-session-message from-name="rt chat (2 messages)">\n[#testroom] a #${fromAgent.id}: status: lane at 60%\n[#testroom] matt #${fromHuman.id}: one of you: write the TLDR\n` +
-        'reply via rt chat post <room> "..." or rt chat dm <handle> "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>',
+        'reply via rt chat post <room> "..." or rt chat dm <id> "..." (never SendMessage; this arrived through rt chat)\n' +
+        `  reply to a: rt chat dm ${aIn.handle} "..."\n  reply to matt: rt chat dm matt "..."\n</cross-session-message>`,
+    );
+  }, 30_000);
+
+  test("a pool-drawn sender shows its name in the frame and its id only in the reply hint", async () => {
+    const sessionId = "77777777-7777-7777-7777-777777777777";
+    const { sock: herdrSock, stop: stopHerdr } = fakeHerdrForPanes([{ paneId: "w1:p7", sessionId }]);
+    stops.push(stopHerdr);
+    const inbox = startFakeInbox();
+    stops.push(inbox.stop);
+    registerFakeInbox(home, sessionId, inbox.socketPath);
+    await startDaemonForHome(home, { HERDR_SOCKET_PATH: herdrSock });
+
+    await signInPane(home, "w1:p7", "recipient", "testroom");
+    await waitForFrame(inbox.frames, (f) => frameContent(f).includes("You're signed in to rt chat as recipient"));
+    const poster = await signInDrawn(home, "sess-drawn", "testroom");
+    expect(poster.handle).not.toBe(poster.name);
+    expect(poster.handle.startsWith(`${poster.name}.`)).toBe(true);
+
+    const posted = await post(home, "testroom", "@recipient hi from a drawn name", "sess-drawn");
+    const frame = await waitForFrame(inbox.frames, (f) => frameContent(f).includes("hi from a drawn name"));
+    expect(frameContent(frame)).toBe(
+      `<cross-session-message from-name="${poster.name} (#testroom)">\n[#testroom] ${poster.name} #${posted.id}: @recipient hi from a drawn name\n` +
+        `reply via rt chat post <room> "..." or rt chat dm ${poster.handle} "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>`,
     );
   }, 30_000);
 });

@@ -15,7 +15,6 @@ import type {
   ForgeTokenData,
   RunSummary,
   RunDetail,
-  WakeMode,
   ChatMember,
   ChatMessage,
   ChatClaimOutcome,
@@ -149,14 +148,14 @@ export function abandonRun(
 // ship and needsToken() stays untouched.
 
 export function chatJoin(
-  a: { room: string; handle: string; wakeOn?: WakeMode; cwd?: string; pane?: string },
+  a: Commands["chat:join"]["payload"],
   o: RtClientOptions = {},
-): Promise<RtResponse<{ handle: string; memberCount: number; unread: number }>> {
+): Promise<RtResponse<Commands["chat:join"]["data"]>> {
   const payload: Record<string, unknown> = { room: a.room, handle: a.handle };
   if (a.wakeOn !== undefined) payload.wakeOn = a.wakeOn;
   if (a.cwd !== undefined) payload.cwd = a.cwd;
   if (a.pane !== undefined) payload.pane = a.pane;
-  return rtCommand<{ handle: string; memberCount: number; unread: number }>("chat:join", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["chat:join"]["data"]>("chat:join", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatLeave(
@@ -167,20 +166,20 @@ export function chatLeave(
 }
 
 export function chatPost(
-  a: { room: string; handle: string; body: string; mentions?: string[]; quiet?: boolean },
+  a: Commands["chat:post"]["payload"],
   o: RtClientOptions = {},
-): Promise<RtResponse<{ id: number; recipients: string[]; others: number }>> {
+): Promise<RtResponse<Commands["chat:post"]["data"]>> {
   const payload: Record<string, unknown> = { room: a.room, handle: a.handle, body: a.body };
   if (a.mentions !== undefined) payload.mentions = a.mentions;
   if (a.quiet) payload.quiet = true;
-  return rtCommand<{ id: number; recipients: string[]; others: number }>("chat:post", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["chat:post"]["data"]>("chat:post", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatAck(
-  a: { id: number; handle: string },
+  a: Commands["chat:ack"]["payload"],
   o: RtClientOptions = {},
-): Promise<RtResponse<{ author: string; room: string; already: boolean }>> {
-  return rtCommand<{ author: string; room: string; already: boolean }>(
+): Promise<RtResponse<Commands["chat:ack"]["data"]>> {
+  return rtCommand<Commands["chat:ack"]["data"]>(
     "chat:ack",
     { id: a.id, handle: a.handle },
     { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 },
@@ -191,8 +190,8 @@ export function chatClaim(a: { id: number; handle: string }, o: RtClientOptions 
   return rtCommand<ChatClaimOutcome>("chat:claim", { id: a.id, handle: a.handle }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
-export function chatRelease(a: { id: number; handle: string }, o: RtClientOptions = {}): Promise<RtResponse<{ holder: string }>> {
-  return rtCommand<{ holder: string }>("chat:release", { id: a.id, handle: a.handle }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+export function chatRelease(a: Commands["chat:release"]["payload"], o: RtClientOptions = {}): Promise<RtResponse<Commands["chat:release"]["data"]>> {
+  return rtCommand<Commands["chat:release"]["data"]>("chat:release", { id: a.id, handle: a.handle }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatRead(
@@ -259,6 +258,7 @@ export function chatSignIn(
   if (a.viaPane !== undefined) payload.viaPane = a.viaPane;
   if (a.room !== undefined) payload.room = a.room;
   if (a.noRoom !== undefined) payload.noRoom = a.noRoom;
+  if (a.continue !== undefined) payload.continue = a.continue;
   return rtCommand<Commands["chat:sign-in"]["data"]>("chat:sign-in", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
@@ -294,12 +294,12 @@ export function chatBuddies(
 }
 
 export function chatDm(
-  a: { from: string; to: string; body: string; sessionId?: string },
+  a: Commands["chat:dm"]["payload"],
   o: RtClientOptions = {},
-): Promise<RtResponse<{ room: string; id: number; recipients: string[] }>> {
+): Promise<RtResponse<Commands["chat:dm"]["data"]>> {
   const payload: Record<string, unknown> = { from: a.from, to: a.to, body: a.body };
   if (a.sessionId !== undefined) payload.sessionId = a.sessionId;
-  return rtCommand<{ room: string; id: number; recipients: string[] }>("chat:dm", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
+  return rtCommand<Commands["chat:dm"]["data"]>("chat:dm", payload, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 10_000 });
 }
 
 export function chatArchive(

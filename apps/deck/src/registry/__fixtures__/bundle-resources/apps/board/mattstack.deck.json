@@ -3,5 +3,6 @@
   "displayName": "Board",
   "description": "Open MRs ready for review.",
   "icon": "./src/favicon.svg",
-  "badge": "/api/badge"
+  "badge": "/api/badge",
+  "requiresTeam": true
 }
