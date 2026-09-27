@@ -1,10 +1,10 @@
 /**
- * rt release preflight — the release's mechanical checks (rt:release skill
- * steps 1-2c) as one read-only report: git/tag state, picker conformance,
- * settings schema lock, the candidate's settings check against the real
- * stores, per-layer pin freshness across every vendored surface, catalog pin
- * drift, extension currency, and the gate (fast vs full) the pending diff
- * implies.
+ * rt release preflight — the release's mechanical checks (the rt:release
+ * skill's preflight node) as one read-only report: git/tag state, picker
+ * conformance, settings schema lock, the candidate's settings check against
+ * the real stores, per-layer pin freshness across every vendored surface,
+ * catalog pin drift, extension currency, and the gate (fast vs full) the
+ * pending diff implies.
  *
  * Read-only by contract: the catalog check re-resolves refs with
  * `git ls-remote` itself because `marketplace.sh --refresh` rewrites
