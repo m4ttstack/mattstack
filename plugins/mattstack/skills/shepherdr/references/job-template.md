@@ -110,12 +110,21 @@ then STOP.
 ## Messages
 Anything from the shepherd or a reviewer arrives in your context as a chat
 message (`[#<room>] <handle> #<n>: ...` or `[dm] <handle> #<n>: ...`).
-Reply with `rt chat dm <handle> "..."`, never with SendMessage. A message
-that changes your task is a new instruction; a message that only informs
-needs no reply.
+Reply with the `chat_dm` tool (`{to: <handle>, body}`), never with
+SendMessage. Only when `chat_sign_in` refuses because this session was
+replaced by `/clear`, reply with `rt chat dm <handle>` in Bash instead, the
+body on stdin from a quoted heredoc. A message that changes your task is a
+new instruction; a message that only informs needs no reply.
 
 ## Git
-Commit incrementally on this branch. Never push. Questions, milestones, and reports go through the herd tools above, never into the repo.
+Commit incrementally on this branch. The goal above decides whether you push:
+- It asks you to ship, push, or open a PR or MR: push with the `git_push`
+  tool (`tree` = this worktree's root, `setUpstream: true`), then open it with
+  the `mr_create` tool on a GitLab origin or `gh pr create` on a GitHub origin.
+- Any other goal: never push. The commits on this branch are the deliverable.
+
+Questions, milestones, and reports go through the herd tools above, never
+into the repo.
 Tooling that manages its own workspace inside the repo writes where that
 tooling specifies; the write fence lists those paths.
 
