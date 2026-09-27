@@ -111,7 +111,7 @@ export async function deriveRepoIdentity(repoPath: string): Promise<RepoIdentity
   return result;
 }
 
-/** Test-only: clear the derivation memo so a test can force re-derivation. */
+/** Clears the derivation memo: tests force re-derivation with it, and a long-lived process calls it after re-keying a repo's stores. */
 export function clearIdentityMemo(): void {
   memo.clear();
 }
