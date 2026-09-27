@@ -112,8 +112,13 @@ lock file `<slug>-<iid>.lock`:
   and retry the take. When it is not T (another process broke and re-took the
   lock in between), put it back with an exclusive `link` and retry; if that
   link fails, a newer lock exists and the retry waits on it.
-- The lock is removed after the write. Its name does not end in `.json`, so the
-  board's branch scan never reads it.
+- The holder re-reads the lock's token immediately before its final write
+  (rename or link) and abandons the operation, retrying from the take, when
+  the token is no longer its own (its lock was broken as stale).
+- Release of the lock checks the token first and deletes the lock only when it
+  is still the holder's, so a holder whose lock was broken never deletes the
+  next holder's lock. Its name does not end in `.json`, so the board's branch
+  scan never reads it.
 
 ### Owner tokens
 
@@ -151,8 +156,9 @@ lock file `<slug>-<iid>.lock`:
 
 GitLab only, like the other `mr_*` reads. Input: the MR target (`repoName` +
 `iid`, or `mrUrl`), `sha` (the pushed commit, 7 to 40 hex), `maxWaitSeconds`
-(default 300, cap 1800), `intervalSeconds` (default 30, floor 10), `leaseless`
-(default false).
+(default 300, cap 1800), `intervalSeconds` (default 30, floor 10),
+`priorPipelineId` (the head pipeline id read before the push, optional), and
+`underBoardLease` (default false).
 
 ### Matching a pipeline to the pushed sha
 
@@ -162,15 +168,30 @@ A head pipeline is "for" `sha` when:
   equals `sha` (prefix match when `sha` is short);
 - a merged-results or merge-train pipeline (event type `merged_result` or
   `merge_train`, or a `ref` of `refs/merge-requests/<iid>/merge` or `/train`):
-  its merge commit's parents include `sha`. The parents are fetched once per
-  pipeline id per call.
+  its merge commit's parents include `sha`. Fast-forward and squash merge
+  trains build a commit whose parents never include `sha`, so when the parents
+  do not match, the fallback applies: the MR's `diffHeadSha` equals `sha` and
+  the pipeline is new since the push, meaning its id is greater than
+  `priorPipelineId` when that is given, else its id differs from the head
+  pipeline id seen on the first poll of this call where `diffHeadSha` equalled
+  `sha`. Without `priorPipelineId`, a pipeline that already existed when the
+  call first saw the head at `sha` cannot be proved new, so it stays `waiting`
+  with a `next` hint to pass `priorPipelineId`.
+- Parents are fetched once per pipeline id per call, and only a successful
+  fetch is cached: a failed fetch is retried on the next poll, never cached as
+  "no match".
 
 ### Loop
 
 One iteration per interval until a result, `maxWaitSeconds`, or cancellation:
 
-1. Unless `leaseless`, heartbeat the caller's lease on this MR. When the caller
-   does not hold it, return `state: "lease_lost"` with the holder.
+1. Lease check. Normally, heartbeat the caller's lease on this MR; when the
+   caller does not hold it, return `state: "lease_lost"` with the holder. With
+   `underBoardLease`, read the lease without writing it and return
+   `lease_lost` unless a fresh lease is owned by `board:doctor:<mrUrl>`. That
+   read is what tells a board-launched doctor that the board's lease lapsed
+   (laptop asleep, a cron pass skipped by the cron lock, triage switched off)
+   and a watch-ci session took the MR.
 2. Read the MR live from the daemon's cache (the `mr_pipeline` path, small
    `maxAgeMs`).
 3. If the MR's head sha (`diffHeadSha`) is not `sha`, the state is `waiting`
@@ -211,7 +232,7 @@ domain:
 
 `state` is one of `success`, `success_with_warnings`, `failed`, `canceled`,
 `skipped`, `manual`, `running`, `waiting`, `superseded`, `lease_lost`,
-`cancelled`. On a terminal `failed`, the first five blocking failed jobs carry
+`aborted` (the call was cancelled; distinct from the pipeline's `canceled`). On a terminal `failed`, the first five blocking failed jobs carry
 `traceTail` (last 40 lines, ANSI stripped, the `mr_job_trace` tail helper).
 When the cached pipeline was written at list weight and has no jobs, the watch
 fetches the full MR once before reporting failures. `next` is a one-line hint
@@ -236,8 +257,8 @@ heartbeat, release with no Bash rt call.
 A doctor the board launches runs under the board's lease: the board claims
 before launch and its cron heartbeats while the doctor is in flight and
 releases at a terminal status. The doctor pane never claims; it watches with
-`ci_watch {leaseless: true}` and so cannot be told `lease_lost` by the board's
-own lease. A doctor started any other way (by hand, outside the board) claims
+`ci_watch {underBoardLease: true}`, which only reads the lease and returns
+`lease_lost` as soon as the board's lease is gone or someone else holds the MR. A doctor started any other way (by hand, outside the board) claims
 with `ci_lease_claim {holder: "doctor"}` and runs the same flow as a watch-ci
 stage. The board's doctor skill text is not changed here; the follow-up that
 switches the pack also updates the doctor's domain skill.
@@ -274,7 +295,9 @@ They are not `agentSafe`: the MCP tools cover them, and each tool's
   none), TTL bounds.
 - Race tests in child processes spawned with `childEnv()`: many concurrent
   claimers, exactly one wins; a lockless exclusive-create claimer racing an rt
-  claimer, exactly one wins; stale lock breaking, including the put-back path.
+  claimer, exactly one wins; stale lock breaking, including the put-back path;
+  a holder whose lock was broken neither deletes the next holder's lock nor
+  completes its write.
 - Pack interop in both directions against a fixture copy of `ci-attendant.sh`:
   the script reads and refuses an rt `doctor` lease; rt reads a script lease as
   `legacy:watch-ci` and refuses to claim over it while fresh.
@@ -283,8 +306,12 @@ They are not `agentSafe`: the MCP tools cover them, and each tool's
 - `ci_watch` tests with fake deps: `waiting` on a stale sha (the false-green
   case); a merged-results pipeline matched through its merge commit's parents;
   head lag inside the grace window reads `waiting`, and past it `superseded`;
-  each terminal state; `lease_lost`; `leaseless` never touches the lease;
-  abort returns `cancelled` at once and stops heartbeating; timeout returns
+  a fast-forward merge-train pipeline matched by the fallback (with and
+  without `priorPipelineId`); a failed parent fetch retried rather than cached;
+  each terminal state; `lease_lost`; `underBoardLease` never writes the lease,
+  continues under a fresh `board:doctor:<mrUrl>` lease and returns
+  `lease_lost` when that lease is stale or held by another owner; abort
+  returns `aborted` at once and stops heartbeating; timeout returns
   `running`; trace tails on failure.
 - Board triage tests: claim before the queued write; a refused claim writes no
   row; a launch failure releases; legacy doctor leases are adopted.
