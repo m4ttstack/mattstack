@@ -454,6 +454,19 @@ test("continue on a name another live session holds mints a new id with the next
   expect(b.data).toMatchObject({ name: "remy-2", continued: false });
 });
 
+test("continue on a live suffixed name suffixes from the identity's base name, not from the suffixed name", async () => {
+  const h = freshHandlers();
+  const a = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!a.ok) throw new Error(a.error);
+  const b = await h["chat:sign-in"]({ sessionId: "s2", continue: "remy" });
+  if (!b.ok) throw new Error(b.error);
+  expect(b.data.name).toBe("remy-2");
+  const c = await h["chat:sign-in"]({ sessionId: "s3", continue: "remy-2" });
+  if (!c.ok) throw new Error(c.error);
+  expect(c.data).toMatchObject({ name: "remy-3", continued: false });
+  expect([a.data.handle, b.data.handle]).not.toContain(c.data.handle);
+});
+
 test("continue naming the human's handle is refused", async () => {
   setSetting("chat.humanHandle", "matt", "user");
   const h = freshHandlers();

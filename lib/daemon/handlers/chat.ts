@@ -30,6 +30,7 @@ import {
   dmRoomFor,
   dmParticipants,
   getAgent,
+  getIdentity,
   identityName,
   identityNames,
   resolveHandle,
@@ -61,6 +62,7 @@ import { resolveInbox, inboxAlive } from "../../claude-registry.ts";
 import { deliverToInbox, deliveryLabel, renderDeliveries, replySteer, senderHints, wrapCrossSession } from "../inbox.ts";
 import { repoForCwd, branchForCwd } from "../../repo-for-cwd.ts";
 import { deriveRoomForCwdAsync } from "../../chat-room.ts";
+import { baseOfHandle } from "../../chat-names.ts";
 import { runCapture } from "../../subprocess.ts";
 import { lazyChildLogger } from "../../daemon-logger.ts";
 import { deleteChatSession } from "../../chat-session.ts";
@@ -1186,9 +1188,9 @@ export function createChatHandlers(opts: {
         try {
           data = signInWith({ baseHandle: resolvedBase, continueId });
         } catch (err) {
-          // `--as` on an identity live in another session: a new id under its name, suffixed (remy-2).
+          // `--as` on an identity live in another session: a new id under its base name, suffixed (remy-2).
           if (requested === undefined || continueId === undefined || !(err instanceof Error) || !err.message.includes("handle reclaimed")) throw err;
-          data = signInWith({ baseHandle: identityName(continueId, db) });
+          data = signInWith({ baseHandle: getIdentity(continueId, db)?.baseName ?? baseOfHandle(continueId) });
         }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
