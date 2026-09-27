@@ -518,6 +518,12 @@ describe("rows describing the current worktree show its live badge", () => {
 
     expect(model.repos[0]!.badge.ahead).toBe(4);
   });
+
+  test("a repo with no badge yet is not shown as clean", () => {
+    const model = buildModel(baseInput({ rows: [{ repo: "gh:me/a", error: null, worktrees: [] }] }));
+
+    expect(model.repos[0]!.badge.clean).toBe(false);
+  });
 });
 
 describe("current.settling", () => {

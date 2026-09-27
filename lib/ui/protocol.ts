@@ -304,6 +304,8 @@ export interface MissionCurrent {
   detached: boolean;
   /** The tree was provisioned moments ago and its ready steps are still running in the daemon. */
   settling: boolean;
+  /** The repo is not registered with rt: pool worktrees and provisioning are unavailable. */
+  unmanaged: boolean;
 }
 
 export interface MissionModel {
@@ -358,6 +360,7 @@ const SESSION_INTENT_NAMES = [
   "mission:repo",
   "mission:select",
   "mission:refresh",
+  "mission:focus",
   "mission:tab",
   "mission:history-select",
   "mission:history-file",

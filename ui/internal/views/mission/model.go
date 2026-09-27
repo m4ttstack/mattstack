@@ -150,6 +150,7 @@ type Current struct {
 	Branch       string `json:"branch"`
 	Detached     bool   `json:"detached"`
 	Settling     bool   `json:"settling"`
+	Unmanaged    bool   `json:"unmanaged"`
 }
 
 // StashModel is the current branch's Desktop stash entry. Files is nil while

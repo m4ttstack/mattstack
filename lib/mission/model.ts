@@ -110,6 +110,7 @@ export const EMPTY_GIT_BADGE: GitWorktreeBadge = {
   updatedAt: "",
 };
 
+// Not clean: the board draws its clean check only for a badge a git read produced.
 const EMPTY_BADGE: MissionBadge = {
   ahead: 0,
   behind: 0,
@@ -117,7 +118,7 @@ const EMPTY_BADGE: MissionBadge = {
   unstaged: 0,
   untracked: 0,
   conflicted: 0,
-  clean: true,
+  clean: false,
   lastFetchedAt: "",
 };
 
@@ -488,6 +489,7 @@ export function buildModel(input: {
   stash?: { entry: DesktopStashEntry; files: CommittedFileChange[] | null; showing: boolean; selectedFile: string } | null;
   stashDiff?: { path: string | null; status: string; diff: StagingDiff | null; oversizedOverride: boolean };
   canStash?: boolean;
+  unmanaged?: boolean;
 }): MissionModel {
   const { state, rows, snapshot, branches, guards, worktrees, currentBadge, stagingDiff, lastCommit, action, headShortSha, defaultBranch, now = new Date(), historyDiff, stash, stashDiff } = input;
   const tab = input.tab ?? "changes";
@@ -593,6 +595,7 @@ export function buildModel(input: {
     branch: snapshot.branch ?? (snapshot.detached ? (headShortSha ?? "") : ""),
     detached: snapshot.detached,
     settling: state.settling,
+    unmanaged: input.unmanaged ?? false,
   };
 
   const actionModel: MissionActionModel = {

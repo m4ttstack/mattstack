@@ -178,6 +178,11 @@ function baseDeps(over: DepOptions & { session: SessionHandle; client: GitClient
       effects.pathExists.push(absPath);
       return over.exists ? over.exists(absPath) : true;
     },
+    readRepoCache: () => [],
+    identityOf: (root: string) => `path:${root}`,
+    isRegistered: () => true,
+    saveLastRepo: () => {},
+    indicatorTimers: { setTimer: () => null, clearTimer: () => {}, skewMs: 0 },
   };
   return { deps, effects };
 }

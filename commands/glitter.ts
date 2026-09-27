@@ -8,6 +8,9 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { createFileActions } from "../lib/file-actions.ts";
 import { MissionDriver, type MissionDeps } from "../lib/mission/driver.ts";
 import { publishRepo, runAction } from "../lib/mission/git-actions.ts";
+import { pickableRepos, resolveGlitterStart, readLastRepo, writeLastRepo, type PickResult } from "../lib/mission/launch.ts";
+import { randomSkewMs } from "../lib/mission/indicator-updater.ts";
+import { isRepoRegistered } from "../lib/repo-index.ts";
 import { interactive } from "../lib/ui/gate.ts";
 import { exit, openSession } from "../lib/ui/spawn.ts";
 import { SessionDied } from "../lib/runner/runner.ts";
@@ -16,21 +19,38 @@ import { daemonQuery, subscribeToDaemon } from "../lib/daemon-client.ts";
 import { buildWorktreeGuardMap, checkBranchGuard } from "../lib/branch-guard.ts";
 import { commitStaged, amendStaged } from "../lib/commit-ops.ts";
 import { getPullRebase, getRemoteDefaultBranch } from "../lib/git-ops.ts";
+import { getRepoRoot } from "../lib/git.ts";
+import { identityForRootReadOnly, getKnownReposCached, repoOptions, repoFromOptionValue } from "../lib/repo.ts";
+import { filterableSelect } from "../lib/pick-wrappers.ts";
 import { listWorktreesAsync } from "../lib/worktree/git-async.ts";
 import { launchEditorDetached, resolveEditorForDir } from "./code.ts";
 
-export async function glitterCommand(_args: string[], ctx: CommandContext): Promise<void> {
+async function pickRepoRoot(): Promise<PickResult> {
+  const repos = pickableRepos(getKnownReposCached({ includeMissing: false }));
+  if (repos.length === 0) return { kind: "no-repos" };
+  const picked = await filterableSelect({ message: "Pick a repo for rt glitter", options: repoOptions(repos), breadcrumb: ["rt", "glitter"] });
+  const root = picked ? repoFromOptionValue(repos, picked)?.worktrees[0]?.path : undefined;
+  return root ? { kind: "picked", root } : { kind: "cancelled" };
+}
+
+export async function glitterCommand(_args: string[], _ctx: CommandContext): Promise<void> {
   if (!interactive()) {
     process.stderr.write("rt glitter needs an interactive terminal (it drives a live board from the one you are in)\n");
     return exit(1);
   }
 
-  if (!ctx.identity) {
-    process.stderr.write("not in a registered repo\n");
+  const start = await resolveGlitterStart({
+    repoRoot: getRepoRoot,
+    identityOf: identityForRootReadOnly,
+    readLast: readLastRepo,
+    pathExists: existsSync,
+    pick: pickRepoRoot,
+  });
+  if (start.kind === "cancelled") return exit(0);
+  if (start.kind === "no-repos") {
+    process.stderr.write("rt glitter: not in a git repo and no repos found under your repo roots\n");
     return exit(1);
   }
-  const currentRepo = ctx.identity;
-  const currentWorktree = currentRepo.repoRoot;
 
   const deps: MissionDeps = {
     openSession,
@@ -51,14 +71,25 @@ export async function glitterCommand(_args: string[], ctx: CommandContext): Prom
     resolveEditor: resolveEditorForDir,
     launchEditor: launchEditorDetached,
     pathExists: existsSync,
+    readRepoCache: () => getKnownReposCached({ includeMissing: false }),
+    identityOf: identityForRootReadOnly,
+    isRegistered: isRepoRegistered,
+    saveLastRepo: writeLastRepo,
+    indicatorTimers: {
+      setTimer: (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; },
+      clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+      skewMs: randomSkewMs(),
+    },
   };
 
   const driver = new MissionDriver(deps, {
-    repo: currentRepo.identity,
-    worktree: currentWorktree,
+    repo: start.repo,
+    worktree: start.worktree,
   });
 
   const onSignal = () => {
+    // The background fetch runs detached in its own process group, so exiting without killing it leaves it running.
+    driver.stopBackground();
     process.exit(130);
   };
   process.once("SIGINT", onSignal);

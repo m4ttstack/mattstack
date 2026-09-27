@@ -180,3 +180,14 @@ func TestClampSelectionPreservesByPathAndFallsBack(t *testing.T) {
 		t.Fatalf("empty-list selection: got %q want \"\"", m.selected)
 	}
 }
+
+func TestWorktreeModalHidesProvisionWhenUnmanaged(t *testing.T) {
+	m := Model{Current: Current{Repo: "path:/r", Unmanaged: true}}
+	if ms := newWorktreeModal(m); ms.action != nil {
+		t.Fatalf("unmanaged repo still offers provisioning")
+	}
+	m.Current.Unmanaged = false
+	if ms := newWorktreeModal(m); ms.action == nil {
+		t.Fatalf("managed repo lost provisioning")
+	}
+}

@@ -69,7 +69,7 @@ export function createGitClient(dir: string): GitClient {
     stashPop: (index) => stashPop(ctx, index),
     stashDrop: (index) => stashDrop(ctx, index),
     fetchState: () => getFetchState(ctx),
-    fetch: (remote, signal) => fetchRemote(ctx, remote, signal),
+    fetch: (remote, signal, opts) => fetchRemote(ctx, remote, signal, opts),
     stagingDiff: (path, opts) => getStagingDiff(ctx, path, opts),
     stageSelection: (diff, selection, opts) => stageSelection(ctx, diff, selection, opts),
     discardSelection: (diff, selection) => discardSelection(ctx, diff, selection),

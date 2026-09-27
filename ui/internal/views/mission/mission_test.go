@@ -1464,3 +1464,17 @@ func TestOversizedStashDiffEnterAsksTheStashForIt(t *testing.T) {
 	s.Send(`{"t":"close"}`)
 	s.Wait()
 }
+
+func TestFocusEventsEmitFocusIntent(t *testing.T) {
+	s := s5open(t)
+	s.Type("\x1b[O")
+	if l := waitIntent(t, s, "mission:focus"); !strings.Contains(l, `"focused":false`) {
+		t.Fatalf("blur intent: %q", l)
+	}
+	s.Type("\x1b[I")
+	if l := waitIntent(t, s, "mission:focus"); !strings.Contains(l, `"focused":true`) {
+		t.Fatalf("focus intent: %q", l)
+	}
+	s.Send(`{"t":"close"}`)
+	s.Wait()
+}

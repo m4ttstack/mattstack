@@ -24,6 +24,7 @@ import { SessionDied } from "../../runner/runner.ts";
 import { MissionDriver, resolveCompactedSelIdx, type MissionDeps } from "../driver.ts";
 import type { MissionModel } from "../model.ts";
 import { FakeSession, flushMicrotasks, QueueSession } from "./fake-sessions.ts";
+import { repoLabel } from "../../repo-label.ts";
 
 // ─── translation helper fixtures ────────────────────────────────────────────
 
@@ -298,6 +299,11 @@ function baseDeps(over: {
   resolveEditor?: MissionDeps["resolveEditor"];
   launchEditor?: MissionDeps["launchEditor"];
   pathExists?: MissionDeps["pathExists"];
+  readRepoCache?: MissionDeps["readRepoCache"];
+  identityOf?: MissionDeps["identityOf"];
+  isRegistered?: MissionDeps["isRegistered"];
+  saveLastRepo?: MissionDeps["saveLastRepo"];
+  indicatorTimers?: MissionDeps["indicatorTimers"];
 }): MissionDeps {
   const client = over.client ?? makeFakeClient();
   return {
@@ -334,6 +340,11 @@ function baseDeps(over: {
     resolveEditor: over.resolveEditor ?? (() => null),
     launchEditor: over.launchEditor ?? (async () => false),
     pathExists: over.pathExists ?? (() => false),
+    readRepoCache: over.readRepoCache ?? (() => []),
+    identityOf: over.identityOf ?? ((root: string) => `path:${root}`),
+    isRegistered: over.isRegistered ?? (() => true),
+    saveLastRepo: over.saveLastRepo ?? (() => {}),
+    indicatorTimers: over.indicatorTimers ?? { setTimer: () => null, clearTimer: () => {}, skewMs: 0 },
   };
 }
 
@@ -3377,5 +3388,473 @@ describe("MissionDriver: History tab", () => {
 
     session.send({ t: "intent", name: "quit" });
     await runPromise;
+  });
+});
+
+describe("unregistered repos", () => {
+  const cacheRow = (path: string) => ({ repoName: path, worktrees: [{ path, branch: "main", isBare: false }], dataDir: "/d", registered: false });
+  const ids: Record<string, string> = { "/u/a": "gh:me/a", "/u/b": "gh:me/b" };
+  const identityOf = (root: string) => ids[root] ?? `path:${root}`;
+
+  test("lists scanned unregistered repos next to the daemon's rows", async () => {
+    const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);
+    const deps = baseDeps({ session, readRepoCache: () => [cacheRow("/u/a")], identityOf });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.repos.map((r) => r.id)).toEqual(["gh:me/a", "repo-tools"]);
+  });
+
+  test("switches to an unregistered repo before its first badge", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const saved: unknown[] = [];
+    const deps = baseDeps({ session, readRepoCache: () => [cacheRow("/u/a")], identityOf, isRegistered: (id) => id !== "gh:me/a", pathExists: () => true, saveLastRepo: (v) => { saved.push(v); } });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("gh:me/a");
+    expect(last.current.worktree).toBe("/u/a");
+    expect(last.current.unmanaged).toBe(true);
+    expect(saved.at(-1)).toEqual({ identity: "gh:me/a", worktree: "/u/a" });
+  });
+
+  test("refuses a vanished unregistered repo", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({ session, readRepoCache: () => [cacheRow("/u/a")], identityOf, pathExists: () => false });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("repo-tools");
+    expect(last.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
+  });
+
+  test("refuses a scanned path that now holds a different repo and drops its row", async () => {
+    const timers: (() => void)[] = [];
+    const asked: string[] = [];
+    let replaced = false;
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf: (root) => { asked.push(root); return replaced && root === "/u/a" ? "gh:other/x" : identityOf(root); },
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    replaced = true;
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } });
+    await flushMicrotasks();
+    const refused = session.pushed.at(-1) as MissionModel;
+    expect(refused.current.repo).toBe("repo-tools");
+    expect(refused.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
+    expect(refused.repos.map((r) => r.id)).not.toContain("gh:me/a");
+    expect(refused.repos.map((r) => r.id)).toContain("gh:other/x");
+    expect(asked.filter((p) => p === "/u/a").length).toBeGreaterThanOrEqual(3);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("refuses a scanned path whose identity can no longer be read", async () => {
+    let broken = false;
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf: (root) => { if (broken) throw new Error("not a git repo"); return identityOf(root); },
+      pathExists: () => true,
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    broken = true;
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } });
+    await flushMicrotasks();
+    const refused = session.pushed.at(-1) as MissionModel;
+    expect(refused.current.repo).toBe("repo-tools");
+    expect(refused.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("the updater skips registered repos and publishes badges", async () => {
+    const timers: (() => void)[] = [];
+    const refreshed: string[] = [];
+    const client = makeFakeClient({ snapshot: async () => baseSnapshot({ ahead: 3 }) });
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a"), cacheRow("/u/b"), cacheRow("/repo")],
+      identityOf: (root) => (root === "/repo" ? "repo-tools" : identityOf(root)),
+      pathExists: (p) => { refreshed.push(p); return true; },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(refreshed.filter((p) => p.startsWith("/u/") || p === "/repo")).toEqual(["/u/a", "/u/b"]);
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.repos.find((r) => r.id === "gh:me/a")!.badge.ahead).toBe(3);
+  });
+
+  const OPEN_A = { repo: "gh:me/a", worktree: "/u/a" };
+  const unmanagedA = (id: string) => !id.startsWith("gh:me/");
+
+  test("the updater never refreshes the open repo", async () => {
+    const timers: (() => void)[] = [];
+    const refreshed: string[] = [];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a"), cacheRow("/u/b")],
+      identityOf,
+      isRegistered: unmanagedA,
+      pathExists: (p) => { refreshed.push(p); return true; },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, OPEN_A).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(refreshed.filter((p) => p === "/u/a" || p === "/u/b")).toEqual(["/u/b"]);
+  });
+
+  test("the open unmanaged repo's row carries the live badge", async () => {
+    const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);
+    const deps = baseDeps({
+      session,
+      client: makeFakeClient({ snapshot: async () => baseSnapshot({ ahead: 2 }) }),
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: unmanagedA,
+    });
+    await new MissionDriver(deps, OPEN_A).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.repos.find((r) => r.id === "gh:me/a")!.badge.ahead).toBe(2);
+  });
+
+  test("a failing last-repo write never blocks the launch or a switch", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: unmanagedA,
+      pathExists: () => true,
+      saveLastRepo: () => { throw new Error("database is locked"); },
+    });
+    await new MissionDriver(deps, START).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("gh:me/a");
+    expect(last.notice).toBe("");
+  });
+
+  test("quitting aborts an in-flight background fetch", async () => {
+    const timers: (() => void)[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const client = makeFakeClient();
+    client.fetch = (_remote?: string, signal?: AbortSignal) => {
+      signals.push(signal);
+      return new Promise((_resolve, reject) => { signal?.addEventListener("abort", () => reject(new Error("aborted"))); });
+    };
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(signals).toHaveLength(1);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  test("blur aborts an in-flight background fetch and focus retries that repo", async () => {
+    const timers: (() => void)[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const client = makeFakeClient();
+    client.fetch = (_remote?: string, signal?: AbortSignal) => {
+      signals.push(signal);
+      return new Promise((_resolve, reject) => { signal?.addEventListener("abort", () => reject(new Error("aborted"))); });
+    };
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(signals).toHaveLength(1);
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: false } });
+    await flushMicrotasks();
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals).toHaveLength(1);
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: true } });
+    await flushMicrotasks();
+    expect(signals).toHaveLength(2);
+    expect(signals[1]?.aborted).toBe(false);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(signals[1]?.aborted).toBe(true);
+  });
+
+  test("a pass that drops the last unregistered repo repaints the list", async () => {
+    const timers: (() => void)[] = [];
+    let cache = [cacheRow("/u/a")];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => cache,
+      identityOf,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    expect((session.pushed.at(-1) as MissionModel).repos.map((r) => r.id)).toContain("gh:me/a");
+    cache = [];
+    timers[0]!();
+    await flushMicrotasks();
+    expect((session.pushed.at(-1) as MissionModel).repos.map((r) => r.id)).not.toContain("gh:me/a");
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("switching worktree saves it as the last repo", async () => {
+    const saved: unknown[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:worktree", payload: { path: "/repo2" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({ session, saveLastRepo: (v) => { saved.push(v); } });
+    await new MissionDriver(deps, START).run();
+    expect(saved.at(-1)).toEqual({ identity: "repo-tools", worktree: "/repo2" });
+  });
+
+  test("a provisioned worktree is saved as the last repo", async () => {
+    const saved: unknown[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:worktree", payload: { new: true, name: "my-feature" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      saveLastRepo: (v) => { saved.push(v); },
+      daemonQuery: async (cmd: string) => {
+        if (cmd === "worktree:provision") return { ok: true, data: { path: "/trees/rohan", readyPending: false } };
+        if (cmd === "worktree:list") return { ok: true, data: { trees: [] } };
+        return { ok: true, data: { repos: [] } };
+      },
+    });
+    await new MissionDriver(deps, START).run();
+    expect(saved.at(-1)).toEqual({ identity: "repo-tools", worktree: "/trees/rohan" });
+  });
+
+  test("mission:focus pauses and resumes the updater", async () => {
+    const timers: (() => void)[] = [];
+    const refreshed: string[] = [];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: (p) => { refreshed.push(p); return true; },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: false } });
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(refreshed.filter((p) => p === "/u/a")).toEqual([]);
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: true } });
+    await flushMicrotasks();
+    expect(refreshed.filter((p) => p === "/u/a")).toEqual(["/u/a"]);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("a later pass resolves identity only for scan paths it has not seen", async () => {
+    const timers: (() => void)[] = [];
+    const asked: string[] = [];
+    let cache = [cacheRow("/u/a")];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => cache,
+      identityOf: (root) => { asked.push(root); return identityOf(root); },
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    expect(asked).toEqual(["/u/a"]);
+    cache = [cacheRow("/u/a"), cacheRow("/u/b")];
+    timers[0]!();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(asked).toEqual(["/u/a", "/u/b"]);
+  });
+
+  test("the board opens before any scanned identity is resolved, then lists them", async () => {
+    const order: string[] = [];
+    const session = new FakeSession([{ t: "intent", name: "quit" }]);
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf: (root) => { order.push(`identity ${root}`); return identityOf(root); },
+    });
+    const open = deps.openSession;
+    deps.openSession = async (view, model) => {
+      order.push("open");
+      return open(view, model);
+    };
+    await new MissionDriver(deps, START).run();
+    expect(order).toEqual(["open", "identity /u/a"]);
+    expect((session.pushed[0] as MissionModel).repos.map((r) => r.id)).toEqual(["gh:me/a", "repo-tools"]);
+  });
+
+  test("switching away from the open unmanaged repo keeps its live badge on its row", async () => {
+    const session = new FakeSession([
+      { t: "intent", name: "mission:repo", payload: { repo: "repo-tools" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      client: makeFakeClient({ snapshot: async () => baseSnapshot({ ahead: 2 }) }),
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: unmanagedA,
+    });
+    await new MissionDriver(deps, OPEN_A).run();
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("repo-tools");
+    const row = last.repos.find((r) => r.id === "gh:me/a")!;
+    expect(row.badge.ahead).toBe(2);
+  });
+
+  test("an unmanaged repo opened from outside the cache stays listed and switchable after switching away", async () => {
+    const timers: (() => void)[] = [];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      isRegistered: (id) => id === "repo-tools",
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, { repo: "path:/elsewhere", worktree: "/elsewhere" }).run();
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "repo-tools" } });
+    await flushMicrotasks();
+    timers.at(-1)!();
+    await flushMicrotasks();
+    const listed = session.pushed.at(-1) as MissionModel;
+    expect(listed.current.repo).toBe("repo-tools");
+    expect(listed.repos.map((r) => r.id)).toContain("path:/elsewhere");
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "path:/elsewhere" } });
+    await flushMicrotasks();
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    const last = session.pushed.at(-1) as MissionModel;
+    expect(last.current.repo).toBe("path:/elsewhere");
+    expect(last.current.worktree).toBe("/elsewhere");
+  });
+
+  test("the first model lists an unmanaged current repo the cache does not know", async () => {
+    const session = new FakeSession([{ t: "intent", name: "quit" }]);
+    const deps = baseDeps({ session, isRegistered: () => false });
+    let opened: MissionModel | undefined;
+    const open = deps.openSession;
+    deps.openSession = async (view, model) => {
+      opened = model as MissionModel;
+      return open(view, model);
+    };
+    await new MissionDriver(deps, { repo: "path:/elsewhere", worktree: "/elsewhere" }).run();
+    expect(opened!.repos.map((r) => r.id)).toContain("path:/elsewhere");
+  });
+
+  test("stopBackground aborts an in-flight background fetch before the session ends", async () => {
+    const timers: (() => void)[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const client = makeFakeClient();
+    client.fetch = (_remote?: string, signal?: AbortSignal) => {
+      signals.push(signal);
+      return new Promise((_resolve, reject) => { signal?.addEventListener("abort", () => reject(new Error("aborted"))); });
+    };
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const driver = new MissionDriver(deps, START);
+    const run = driver.run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(signals).toHaveLength(1);
+    driver.stopBackground();
+    expect(signals[0]?.aborted).toBe(true);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("an unmanaged repo lists worktrees from git alone", async () => {
+    const queried: string[] = [];
+    const session = new FakeSession([{ t: "intent", name: "mission:refresh" }, { t: "intent", name: "quit" }]);
+    const deps = baseDeps({
+      session,
+      isRegistered: () => false,
+      daemonQuery: async (cmd: string) => { queried.push(cmd); return { ok: true, data: { repos: [], trees: [{ path: "/pool/x", name: "x", branch: "x", state: "claimed" }] } }; },
+      listGitWorktrees: async () => [{ path: "/repo", branch: "main", headSha: "abc", isBare: false }],
+    });
+    await new MissionDriver(deps, START).run();
+    expect(queried).not.toContain("worktree:list");
+    expect((session.pushed.at(-1) as MissionModel).worktrees.map((w) => w.path)).toEqual(["/repo"]);
+  });
+
+  test("provisioning in an unmanaged repo is refused without asking the daemon", async () => {
+    const queried: string[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:worktree", payload: { new: true, name: "feat" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      isRegistered: () => false,
+      daemonQuery: async (cmd: string) => { queried.push(cmd); return { ok: true, data: { repos: [], trees: [] } }; },
+    });
+    await new MissionDriver(deps, START).run();
+    expect(queried).not.toContain("worktree:provision");
+    expect((session.pushed.at(-1) as MissionModel).notice).toBe("worktree provisioning needs a repo rt manages");
   });
 });

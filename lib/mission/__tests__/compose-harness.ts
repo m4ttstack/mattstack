@@ -167,5 +167,10 @@ export function realDeps(sandbox: Sandbox, session: LiveSession, opened: (model:
     resolveEditor: () => null,
     launchEditor: async () => false,
     pathExists: existsSync,
+    readRepoCache: () => [],
+    identityOf: (root: string) => `path:${root}`,
+    isRegistered: () => true,
+    saveLastRepo: () => {},
+    indicatorTimers: { setTimer: () => null, clearTimer: () => {}, skewMs: 0 },
   };
 }

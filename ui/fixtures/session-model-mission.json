@@ -6,7 +6,8 @@
     "worktreeName": "gandalf",
     "branch": "mission-tui",
     "detached": false,
-    "settling": false
+    "settling": false,
+    "unmanaged": false
   },
   "action": {
     "kind": "pull",

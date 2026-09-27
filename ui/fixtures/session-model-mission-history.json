@@ -8,7 +8,8 @@
       "worktreeName": "repo",
       "branch": "main",
       "detached": false,
-      "settling": false
+      "settling": false,
+      "unmanaged": false
     },
     "action": {
       "kind": "fetch",
