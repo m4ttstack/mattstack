@@ -2,7 +2,7 @@ import { existsSync } from 'fs';
 
 import { effectiveIdentity } from '../registry/bundled-identity.ts';
 import { iconPathFor } from '../registry/manifest.ts';
-import { getRecord, listRecords } from '../registry/records.ts';
+import { getRecord, isEnabled, listRecords } from '../registry/records.ts';
 import { notServedHere, type ServeShapeDeps } from '../registry/serve-shape.ts';
 import { isPlatformManagedBy } from '../services/manager.ts';
 import { buildStatus, type BuildStatusOpts } from './status.ts';
@@ -36,6 +36,7 @@ export async function buildDiscoveryApps(
     if (record.managedBy === 'user' || isPlatformManagedBy(record.managedBy))
       continue;
     if (notServedHere(record, flavor)) continue;
+    if (!isEnabled(record)) continue;
     const url = urlByName.get(record.name);
     if (!url) continue;
     const identity = effectiveIdentity(record);
