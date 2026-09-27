@@ -157,6 +157,12 @@ export function mcpTools(): McpToolDef[] {
         required: ["id", "answers"],
         additionalProperties: false,
       },
+      shellForms: [{
+        id: "rt gate answer",
+        pattern: /(?<![\w-])rt\s+gate\s+answer(?![\w-])/,
+        example: "rt gate answer abc --answers {}",
+        note: "answers as this pane; the shepherd's --by shepherd answer stays on Bash",
+      }],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "id", type: "string" }, { name: "answers", type: "object" }]);
         if (bad) return err(bad);
@@ -195,6 +201,7 @@ export function mcpTools(): McpToolDef[] {
         },
         additionalProperties: false,
       },
+      shellForms: ["rt gate list"],
       async handler(input) {
         const payload: Commands["gate:list"]["payload"] = {};
         if (input.open !== undefined) payload.open = input.open as boolean;
@@ -219,6 +226,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["questions"],
         additionalProperties: false,
       },
+      shellForms: ["rt gate ask"],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "questions", type: "array" }]);
         if (bad) return err(bad);
@@ -251,6 +259,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["room", "body"],
         additionalProperties: false,
       },
+      shellForms: ["rt chat post"],
       async handler(input, env) {
         const identity = requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
@@ -271,6 +280,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["to", "body"],
         additionalProperties: false,
       },
+      shellForms: ["rt chat dm"],
       async handler(input, env) {
         const identity = requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
@@ -288,6 +298,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["id"],
         additionalProperties: false,
       },
+      shellForms: ["rt chat ack"],
       async handler(input, env) {
         const identity = requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
@@ -305,6 +316,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["id"],
         additionalProperties: false,
       },
+      shellForms: ["rt chat claim"],
       async handler(input, env) {
         const identity = requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
@@ -322,6 +334,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["id"],
         additionalProperties: false,
       },
+      shellForms: ["rt chat release"],
       async handler(input, env) {
         const identity = requireChatHandle(env);
         if ("error" in identity) return err(identity.error);
@@ -339,6 +352,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["discussionId", "body"],
         additionalProperties: false,
       },
+      shellForms: { none: "GitLab discussion replies have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkRequired(input, [{ name: "discussionId", type: "string" }, { name: "body", type: "string" }]);
         if (bad) return err(bad);
@@ -372,6 +386,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["body", "path", "line"],
         additionalProperties: false,
       },
+      shellForms: { none: "inline notes have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkRequired(input, [
           { name: "body", type: "string" },
@@ -402,6 +417,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["body"],
         additionalProperties: false,
       },
+      shellForms: ["glab mr note"],
       async handler(input) {
         const bad = checkRequired(input, [{ name: "body", type: "string" }]) ?? checkOptional(input, [{ name: "resolvable", type: "boolean" }]);
         if (bad) return err(bad);
@@ -431,6 +447,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["sourceBranch", "targetBranch", "title"],
         additionalProperties: false,
       },
+      shellForms: ["glab mr create"],
       async handler(input) {
         const bad = checkRequired(input, [
           { name: "sourceBranch", type: "string" },
@@ -470,6 +487,7 @@ export function mcpTools(): McpToolDef[] {
         },
         additionalProperties: false,
       },
+      shellForms: ["glab mr update"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "title", type: "string" }, { name: "description", type: "string" }, { name: "squash", type: "boolean" }])
           ?? checkStringArray(input, "addLabels") ?? checkStringArray(input, "removeLabels");
@@ -498,6 +516,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["path"],
         additionalProperties: false,
       },
+      shellForms: { none: "uploads have no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkRequired(input, [{ name: "path", type: "string" }]);
         if (bad) return err(bad);
@@ -517,6 +536,7 @@ export function mcpTools(): McpToolDef[] {
         properties: { ...MR_TARGET_PROPS, approved: { type: "boolean" } },
         additionalProperties: false,
       },
+      shellForms: ["glab mr approve", "glab mr revoke"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "approved", type: "boolean" }]);
         if (bad) return err(bad);
@@ -535,6 +555,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["discussionId"],
         additionalProperties: false,
       },
+      shellForms: { none: "resolving a discussion has no glab verb; a glab api call hits the glab catch-all on mr_view" },
       async handler(input) {
         const bad = checkRequired(input, [{ name: "discussionId", type: "string" }]) ?? checkOptional(input, [{ name: "resolved", type: "boolean" }]);
         if (bad) return err(bad);
@@ -559,6 +580,7 @@ export function mcpTools(): McpToolDef[] {
         properties: { ...MR_TARGET_PROPS, ready: { type: "boolean" } },
         additionalProperties: false,
       },
+      shellForms: { none: "draft state is a glab mr update flag, covered by mr_update's form" },
       async handler(input) {
         const bad = checkOptional(input, [{ name: "ready", type: "boolean" }]);
         if (bad) return err(bad);
@@ -576,6 +598,7 @@ export function mcpTools(): McpToolDef[] {
         properties: { ...MR_TARGET_PROPS, jobId: { type: "number" }, pipelineId: { type: "number" } },
         additionalProperties: false,
       },
+      shellForms: ["glab ci retry"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "jobId", type: "number" }, { name: "pipelineId", type: "number" }])
           ?? checkPositiveInts(input, ["jobId", "pipelineId"]);
@@ -597,6 +620,7 @@ export function mcpTools(): McpToolDef[] {
         properties: { ...MR_TARGET_PROPS },
         additionalProperties: false,
       },
+      shellForms: ["glab mr rebase"],
       async handler(input) {
         const target = await resolveMrTarget(input);
         if (!target.ok) return err(target.error);
@@ -611,6 +635,7 @@ export function mcpTools(): McpToolDef[] {
         properties: { ...MR_TARGET_PROPS, squash: { type: "boolean" }, removeSourceBranch: { type: "boolean" }, whenPipelineSucceeds: { type: "boolean" } },
         additionalProperties: false,
       },
+      shellForms: ["glab mr merge"],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "squash", type: "boolean" }, { name: "removeSourceBranch", type: "boolean" }, { name: "whenPipelineSucceeds", type: "boolean" }]);
         if (bad) return err(bad);
@@ -639,6 +664,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["repo"],
         additionalProperties: false,
       },
+      shellForms: ["rt mr map"],
       async handler(input) {
         const bad = checkRequired(input, [{ name: "repo", type: "string" }]);
         if (bad) return err(bad);
@@ -676,6 +702,7 @@ export function mcpTools(): McpToolDef[] {
         properties: { herd: { type: "string" } },
         additionalProperties: false,
       },
+      shellForms: ["rt herd gates"],
       async handler(input, env) {
         const explicit = (input.herd as string | undefined) ?? env.HERD_ID;
         if (explicit) return fromResponse(await herdGates({ herd: explicit }));
@@ -696,6 +723,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["questions"],
         additionalProperties: false,
       },
+      shellForms: ["rt herd ask"],
       async handler(input, env) {
         const w = requireWorkerEnv(env);
         if ("error" in w) return err(w.error);
@@ -715,6 +743,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["gate"],
         additionalProperties: false,
       },
+      shellForms: ["rt herd answer"],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "gate", type: "string" }]);
         if (bad) return err(bad);
@@ -730,6 +759,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["body"],
         additionalProperties: false,
       },
+      shellForms: ["rt herd report"],
       async handler(input, env) {
         const j = requireJobEnv(env);
         if ("error" in j) return err(j.error);
@@ -750,6 +780,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["args"],
         additionalProperties: false,
       },
+      shellForms: { none: "each agent-safe leaf derives its own rule from the command tree" },
       async handler(input) {
         const r = await runRtVerb(input);
         return r.ok ? ok(r.body) : err(r.error);

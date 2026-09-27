@@ -84,7 +84,7 @@ describe("toCallResult", () => {
 });
 
 describe("callTool", () => {
-  const tool = (handler: McpToolDef["handler"]): McpToolDef => ({ name: "t", description: "", inputSchema: {}, handler });
+  const tool = (handler: McpToolDef["handler"]): McpToolDef => ({ name: "t", description: "", inputSchema: {}, shellForms: { none: "fixture" }, handler });
 
   test("a handler that throws becomes a redacted error result, never a rejection", async () => {
     const res = await callTool(tool(async () => { throw new Error(`fetch https://oauth2:${FAKE_GL}@gitlab.com failed`); }), {}, {});

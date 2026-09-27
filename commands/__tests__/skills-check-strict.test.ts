@@ -52,14 +52,13 @@ describe("checkPack strictness", () => {
     }
   });
 
-  test("only rules naming a tool the server publishes report", async () => {
+  test("every hit names a published tool", async () => {
     const published = new Set(mcpTools().map((t) => t.name));
-    const dir = makePack({ name: "acme", version: "1.0.0" }, "Push with `git push`, then `rt runs snapshot`.");
+    const dir = makePack({ name: "acme", version: "1.0.0" }, "Push with `git push`, then `rt chat dm x hi`, then `rt skills check`.");
     try {
       const payload = await checkPack({ packDir: dir });
-      expect(payload.mcpLint.every((h) => published.has(h.tool))).toBe(true);
-      expect(payload.mcpLint.map((h) => h.rule)).toContain("rt-runs");
-      expect(payload.mcpLint.some((h) => h.rule === "git-push")).toBe(published.has("git_push"));
+      expect(payload.mcpLint.map((h) => h.tool)).toEqual(["git_push", "chat_dm", "rt_verb"]);
+      expect(payload.mcpLint.every((h) => h.tool !== null && published.has(h.tool))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -131,9 +130,48 @@ describe("skills check --strict", () => {
     try {
       const { logs } = await runCheck(["--pack-dir", dir, "--json"]);
       const parsed = JSON.parse(logs.at(-1)!) as { mcpLint: Array<{ rule: string; tool: string }>; strictLint: boolean };
-      expect(parsed.mcpLint.map((h) => h.rule)).toEqual(["rt-runs"]);
-      expect(parsed.mcpLint[0]!.tool).toBe("run_stage");
+      expect(parsed.mcpLint.map((h) => h.rule)).toEqual(["rt runs snapshot"]);
+      expect(parsed.mcpLint[0]!.tool).toBe("run_snapshot");
       expect(parsed.strictLint).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("pack script scan", () => {
+  function withScript(dir: string): void {
+    mkdirSync(join(dir, "skills", "x", "scripts"), { recursive: true });
+    writeFileSync(join(dir, "skills", "x", "scripts", "go.sh"), "#!/bin/sh\ngit push origin HEAD\n");
+  }
+  test("reports script hits as scriptLint, apart from mcpLint", async () => {
+    const dir = makePack({ name: "acme", version: "1.0.0" }, "No commands here.");
+    withScript(dir);
+    try {
+      const payload = await checkPack({ packDir: dir });
+      expect(payload.mcpLint).toEqual([]);
+      expect(payload.scriptLint.map((h) => h.tool)).toEqual(["git_push"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("never fails --strict, even for a strictLint pack", async () => {
+    const dir = makePack({ name: "acme", version: "1.0.0", strictLint: true }, "No commands here.");
+    withScript(dir);
+    try {
+      const { exitCode, logs } = await runCheck(["--pack-dir", dir, "--strict"]);
+      expect(exitCode).toBe(0);
+      expect(logs.some((l) => l.startsWith("mcp lint (pack scripts, advisory): 1 hit"))).toBe(true);
+      expect(logs).toContain("mcp lint: clean");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("--json always carries scriptLint", async () => {
+    const dir = makePack({ name: "acme", version: "1.0.0" }, "No commands here.");
+    try {
+      const { logs } = await runCheck(["--pack-dir", dir, "--json"]);
+      expect(JSON.parse(logs.at(-1)!).scriptLint).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
