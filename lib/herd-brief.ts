@@ -16,6 +16,7 @@ const INDENTED_LINE_RE = /^ {4,}/;
 // No \n exclusion: word-wrapped prose (the real job-template.md) puts a
 // slot's < and > on different physical lines.
 const MARKER_RE = /<([^<>]+)>/g;
+const HTML_COMMENT_RE = /^!--[\s\S]*--$/;
 const DECORATIVE_SPAN_RE = /`[^`]*`|"[^"]*"/g;
 
 const AUTHOR_OPEN = "<!-- author -->";
@@ -198,7 +199,7 @@ function substituteMarkers(doc: string, fills: Record<string, string>): { text: 
     const startLineIdx = lineIndexForOffset(lines, matchStart);
 
     out += doc.slice(cursor, matchStart);
-    if (isDecorative(lines, startLineIdx, matchStart, matchEnd, spans)) {
+    if (HTML_COMMENT_RE.test(raw) || isDecorative(lines, startLineIdx, matchStart, matchEnd, spans)) {
       out += m[0];
     } else {
       const name = normalizeMarkerName(raw);

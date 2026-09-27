@@ -83,6 +83,19 @@ describe("assembleBrief", () => {
     expect(result.error).toBe("unfilled markers: paths");
   });
 
+  test("an HTML comment is never a marker and survives assembly", () => {
+    const result = assembleBrief({
+      template: `${HAPPY_TEMPLATE}\nRun it in Bash. <!-- mcp-lint: allow -->\n`,
+      job: "widget-job",
+      fills: { goal: "ship the widget", paths: "src/**" },
+      method: { kind: "strategy", strategies: STRATEGIES, name: "trivial" },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.brief).toContain("Run it in Bash. <!-- mcp-lint: allow -->");
+  });
+
   test("method-file variant bypasses the strategies file entirely", () => {
     const result = assembleBrief({
       template: HAPPY_TEMPLATE,
