@@ -105,24 +105,50 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPa
 }
 
 /// What a caller may send to. The prefixes are the wire form: `#room` and
-/// `@handle` are one namespace a caller passes straight back as `--to`, where
-/// a bare name would be ambiguous between a room and a person.
+/// `@name` are one namespace a caller passes straight back as `--to`, where
+/// a bare name would be ambiguous between a room and a person. `#room` is the
+/// room rt keys on; `@name` is a display name rt resolves to its live holder.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Targets {
     pub rooms: Vec<String>,
     pub people: Vec<String>,
+    /// Display text for every string above; a DM room's `#dm-<hash>` reads as
+    /// its participants' names.
+    pub labels: std::collections::BTreeMap<String, String>,
 }
 
-pub fn targets_from(targets: &[crate::cmd::quick_send::Target]) -> Targets {
+pub fn targets_from(rows: &[crate::cmd::quick_send::TargetRow]) -> Targets {
     let mut rooms = Vec::new();
-    let mut people = Vec::new();
-    for t in targets {
-        match t {
-            crate::cmd::quick_send::Target::Room(r) => rooms.push(format!("#{r}")),
-            crate::cmd::quick_send::Target::Dm(h) => people.push(format!("@{h}")),
+    let mut people: Vec<String> = Vec::new();
+    let mut labels = std::collections::BTreeMap::new();
+    for row in rows {
+        match &row.target {
+            crate::cmd::quick_send::Target::Room(r) => {
+                let target = format!("#{r}");
+                let text = if row.sigil == '@' {
+                    row.label.clone()
+                } else {
+                    target.clone()
+                };
+                labels.insert(target.clone(), text);
+                rooms.push(target);
+            }
+            crate::cmd::quick_send::Target::Dm(_) => {
+                // A signed-out identity can share a live one's name, and
+                // `@name` reaches only the live one.
+                let person = format!("@{}", row.label);
+                if !people.contains(&person) {
+                    labels.insert(person.clone(), person.clone());
+                    people.push(person);
+                }
+            }
         }
     }
-    Targets { rooms, people }
+    Targets {
+        rooms,
+        people,
+        labels,
+    }
 }
 
 /// The inverse of [`targets_from`]'s prefixes.
