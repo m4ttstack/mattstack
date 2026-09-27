@@ -356,3 +356,19 @@ test('a roster pick adopts a hand-typed mention of a unique name instead of repe
     )
   );
 });
+
+test('a roster pick never adopts an @name glued to the word before it', async () => {
+  const ref = createRef<ComposerHandle>();
+  renderWithProviders(
+    <Composer
+      ref={ref}
+      room="build"
+      roomMembers={['team']}
+      buddies={[{ handle: 'team', status: 'live' }]}
+    />
+  );
+  const box = screen.getByRole('textbox');
+  await userEvent.type(box, 'contact kai@team');
+  act(() => ref.current!.insertMention('team'));
+  expect(box).toHaveValue('contact kai@team @team ');
+});

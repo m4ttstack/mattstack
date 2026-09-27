@@ -446,7 +446,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
       const caret = el?.selectionStart ?? value.length;
       const shown = nameOf(handle);
       const escaped = shown.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const textHas = new RegExp(`@${escaped}(?![A-Za-z0-9._-])`).test(value);
+      const textHas = new RegExp(`(?:^|\\s)@${escaped}(?![A-Za-z0-9._-])`).test(
+        value
+      );
       if (textHas && mentions.includes(handle)) {
         focusAt(caret);
         return;
