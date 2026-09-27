@@ -45,6 +45,10 @@ export interface SettingDef {
   teamLocked?: boolean;
   secret?: boolean;
   repoScoped?: boolean;
+  /** Only the repo rungs (and the registry default) may hold it: a value in a
+      global team/user/machine section is refused on read and write. Implies
+      repoScoped. */
+  repoOnly?: boolean;
   migrated?: boolean;
   legacyFile?: string;
   pathGuardFields?: string[];

@@ -145,6 +145,7 @@ function LayerLine({
   // set through a free-text control.
   const editable =
     def.key !== APPROVAL_KEY &&
+    !(def.repoOnly && !isRung(scope)) &&
     writable &&
     (composite ? EDITOR_KINDS.has(edit) : kind === 'scalar' || kind === 'enum');
   // Fix seeds editing open only when the row is editable; a row with no
@@ -625,20 +626,30 @@ function ExplainBody({
           ))}
         </Stack>
       ) : (
-        rows.map(r => (
-          <LayerLine
-            key={`${r.scope}:${r.file ?? 'default'}`}
-            def={def}
-            row={r}
-            role={roleOf(r)}
-            busy={layers.status === 'saving'}
-            onSet={(scope, v) => layers.setAt(scope, v)}
-            onRemove={scope => layers.clear(scope)}
-            startEditing={r.scope === fix && r.present}
-            replaceWith={replaceWithFor(r)}
-            reported={reportedFor(r)}
-          />
-        ))
+        rows
+          // A repo-only key's global layers only matter when one holds a
+          // stray value to remove.
+          .filter(
+            r =>
+              !def.repoOnly ||
+              r.present ||
+              rungBase(r.scope) === null ||
+              isRung(r.scope)
+          )
+          .map(r => (
+            <LayerLine
+              key={`${r.scope}:${r.file ?? 'default'}`}
+              def={def}
+              row={r}
+              role={roleOf(r)}
+              busy={layers.status === 'saving'}
+              onSet={(scope, v) => layers.setAt(scope, v)}
+              onRemove={scope => layers.clear(scope)}
+              startEditing={r.scope === fix && r.present}
+              replaceWith={replaceWithFor(r)}
+              reported={reportedFor(r)}
+            />
+          ))
       )}
       {layers.error && (
         <Text fz={12} ff="monospace" c="var(--tk-text-bad-small)" pt={8}>

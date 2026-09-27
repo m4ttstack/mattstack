@@ -99,9 +99,9 @@ describe("rt settings migrate", () => {
 
   test("--write reaches the team store", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), { "rt.roles": { web: { hook: "./dev.sh" } } });
+      write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } } } } });
       await settingsMigrate(["--write"], noPrompt);
-      expect(read(teamSettingsPath(TEAM))["rt.roles@2"]).toEqual({ web: { devHook: "./dev.sh" } });
+      expect((read(teamSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles@2"]).toEqual({ web: { devHook: "./dev.sh" } });
     });
   });
 
@@ -134,13 +134,13 @@ describe("rt settings migrate", () => {
 
   test("--prune leaves the team store alone without --team, and prunes it with --team", async () => {
     await withMigrationAsync("rt.roles", ROLES_BUMP, async () => {
-      write(teamSettingsPath(TEAM), { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } });
+      write(teamSettingsPath(TEAM), { repos: { [IDENTITY]: { "rt.roles": { web: { hook: "./dev.sh" } }, "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       await settingsMigrate(["--prune", "--yes"], noPrompt);
-      expect(read(teamSettingsPath(TEAM))["rt.roles"]).toBeDefined();
+      expect((read(teamSettingsPath(TEAM)).repos as Record<string, Record<string, unknown>>)[IDENTITY]!["rt.roles"]).toBeDefined();
       expect(process.exitCode).toBe(1);
       process.exitCode = 0;
       await settingsMigrate(["--prune", "--team", "--yes"], noPrompt);
-      expect(read(teamSettingsPath(TEAM))).toEqual({ "rt.roles@2": { web: { devHook: "./dev.sh" } } });
+      expect(read(teamSettingsPath(TEAM))).toEqual({ repos: { [IDENTITY]: { "rt.roles@2": { web: { devHook: "./dev.sh" } } } } });
       expect(process.exitCode).toBe(0);
     });
   });
