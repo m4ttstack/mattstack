@@ -111,11 +111,25 @@ export interface ApiDeps extends Drivers {
   readyFetch?: typeof fetch;
   /** Tests inject an absolute fake path; production resolves cloudflared on the service PATH. */
   resolveCloudflared?: () => string | null;
-  /** How long /api/apps waits on `bootSweep` before answering 503. */
+  /** How long /api/apps and /api/v1/apps wait on `bootSweep` before answering 503. */
   bootSweepWaitMs?: number;
 }
 
 const BOOT_SWEEP_WAIT_MS = 10_000;
+
+function bootSweepPending(headers: Record<string, string>): Response {
+  return new Response(
+    JSON.stringify({ error: 'deck is still starting its apps' }),
+    {
+      status: 503,
+      headers: {
+        'content-type': 'application/json',
+        'retry-after': '1',
+        ...headers,
+      },
+    }
+  );
+}
 
 async function settlesWithin(
   promise: Promise<unknown> | undefined,
@@ -225,6 +239,8 @@ function rowsByName(rows: StatusRow[]): Map<string, StatusRow> {
 
 export function startApi(deps: ApiDeps) {
   const selfLabel = selfLabelCache(deps.deckOwner);
+  const bootSweepSettled = () =>
+    settlesWithin(deps.bootSweep, deps.bootSweepWaitMs ?? BOOT_SWEEP_WAIT_MS);
   return Bun.serve({
     port: deps.port,
     hostname: '127.0.0.1',
@@ -305,25 +321,8 @@ export function startApi(deps: ApiDeps) {
         if (req.method === 'OPTIONS')
           return new Response(null, { status: 204, headers: cors });
         if (pathname === '/api/apps' && req.method === 'GET') {
-          if (
-            !(await settlesWithin(
-              deps.bootSweep,
-              deps.bootSweepWaitMs ?? BOOT_SWEEP_WAIT_MS
-            ))
-          ) {
-            return new Response(
-              JSON.stringify({ error: 'deck is still starting its apps' }),
-              {
-                status: 503,
-                headers: {
-                  'content-type': 'application/json',
-                  'retry-after': '1',
-                  vary: 'origin',
-                  ...cors,
-                },
-              }
-            );
-          }
+          if (!(await bootSweepSettled()))
+            return bootSweepPending({ vary: 'origin', ...cors });
           const base = deckBaseFor(host); // https://deck.<tld> from the request host
           const apps = (
             await buildDiscoveryApps(statusOpts, serveShapeDeps)
@@ -364,6 +363,7 @@ export function startApi(deps: ApiDeps) {
           return json(await buildStatus(statusOpts));
         }
         if (pathname === '/api/v1/apps' && req.method === 'GET') {
+          if (!(await bootSweepSettled())) return bootSweepPending({});
           // Every registered record, through the shared safe-row join.
           const byName = rowsByName((await buildStatus(statusOpts)).apps);
           const apps: StatusRow[] = listRecords().map(record =>
