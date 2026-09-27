@@ -451,6 +451,15 @@ describe("setupIntent", () => {
   test("realIntentDeps() builds without throwing", () => {
     expect(() => realIntentDeps()).not.toThrow();
   });
+
+  test("rt setup intent solo writes the solo intent and prints it", async () => {
+    const deps = baseIntentDeps();
+
+    await setupIntent(["solo", "--json"], {}, deps);
+
+    expect(readIntent(deps.probes)?.mode).toBe("solo");
+    expect(JSON.parse(deps.lines[0]!)).toMatchObject({ contract: 1, mode: "solo" });
+  });
 });
 
 describe("setupApply — hard-precondition gate", () => {

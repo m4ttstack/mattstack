@@ -2527,7 +2527,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "setupIntent",
         hidden: true,
         args: [
-          { name: "Mode", type: "text", placeholder: "restore", hint: "restore <org>/<repo> | clear" },
+          { name: "Mode", type: "text", placeholder: "restore", hint: "restore <org>/<repo> | solo | clear" },
           { name: "HomeRepo", type: "text", placeholder: "org/repo", hint: "org/repo of the home repo to restore (restore only)" },
           SETUP_JSON_ARG,
         ],

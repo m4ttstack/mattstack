@@ -428,10 +428,15 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
     if (sub === "restore") {
       const homeRepo = args[1];
       if (!homeRepo || !HOME_REPO_PATTERN.test(homeRepo)) {
-        throw new UserActionableError("bad-args", "usage: rt setup intent restore <org>/<repo>");
+        throw new UserActionableError("bad-args", "usage: rt setup intent restore <org>/<repo> | rt setup intent solo | rt setup intent clear");
       }
       writeIntent(deps.probes, { v: 1, at: deps.probes.now().toISOString(), mode: "restore", restore: { homeRepo } });
       printIntentResult(deps, json, { mode: "restore", homeRepo });
+      return;
+    }
+    if (sub === "solo") {
+      writeIntent(deps.probes, { v: 1, at: deps.probes.now().toISOString(), mode: "solo" });
+      printIntentResult(deps, json, { mode: "solo" });
       return;
     }
     if (sub === "clear") {
@@ -439,7 +444,7 @@ export async function setupIntent(args: string[], _ctx: CommandContext = {}, dep
       printIntentResult(deps, json, { mode: "clear" });
       return;
     }
-    throw new UserActionableError("bad-args", "usage: rt setup intent restore <org>/<repo> | rt setup intent clear");
+    throw new UserActionableError("bad-args", "usage: rt setup intent restore <org>/<repo> | rt setup intent solo | rt setup intent clear");
   } catch (err) {
     if (err instanceof UserActionableError) {
       deps.print(json ? JSON.stringify(userErrorPayload(err, deps.probes.now())) : `rt setup intent: ${err.message}`);
