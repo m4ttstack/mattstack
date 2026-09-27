@@ -1,4 +1,5 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { GitLabProvider } from '../src/GitLabProvider.ts';
 import { createDashboard } from '../src/MRDashboard.ts';
 import type { FetchPullRequestsOptions, GitProvider } from '../src/GitProvider.ts';
 import type { WatcherStatus, WatcherSubscribeCallbacks } from '../src/RealtimeWatcher.ts';
@@ -209,8 +210,8 @@ describe('group dashboard over the shared cable', () => {
       await pastDebounce();
       expect(rec.fetches.at(-1)).toEqual([1, 2, 3]);
       expect(latest.has(3)).toBe(true);
-      expect(rec.subscriptions.at(-1)?.map((p) => p.iid)).toEqual([1, 2, 3]);
-      expect(rec.live).toBe(1);
+      expect(rec.subscriptions.at(-1)?.map((p) => p.iid)).toEqual([3]);
+      expect(rec.live).toBe(2);
 
       const before = rec.fetches.length;
       rec.cable?.onEvent();
@@ -220,5 +221,85 @@ describe('group dashboard over the shared cable', () => {
       group.dispose();
     }
     expect(rec.live).toBe(0);
+  });
+});
+
+class FakeSocket {
+  static readonly OPEN = 1;
+  static instances: FakeSocket[] = [];
+  readyState = FakeSocket.OPEN;
+  sent: Array<{ command: string; identifier: string }> = [];
+  closed = false;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+
+  constructor(readonly url: string) {
+    FakeSocket.instances.push(this);
+  }
+  send(raw: string): void {
+    this.sent.push(JSON.parse(raw));
+  }
+  close(): void {
+    this.closed = true;
+  }
+  deliver(frame: Record<string, unknown>): void {
+    this.onmessage?.({ data: JSON.stringify(frame) });
+  }
+  identifiers(command: string, gid: string): string[] {
+    return this.sent
+      .filter((c) => c.command === command && c.identifier.includes(`"${gid}\\"`))
+      .map((c) => c.identifier);
+  }
+}
+
+describe('group dashboard over the real GitLab shared cable', () => {
+  const realWebSocket = globalThis.WebSocket;
+  afterEach(() => {
+    globalThis.WebSocket = realWebSocket;
+    FakeSocket.instances = [];
+  });
+
+  test('a late MR joins push without costing the MRs already subscribed theirs', async () => {
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const gitlab = new GitLabProvider('https://gitlab.example', 'tok');
+    const omit = new Set([3]);
+    let fetches = 0;
+    (gitlab as unknown as { fetchPullRequests: GitProvider['fetchPullRequests'] }).fetchPullRequests = async (
+      options?: FetchPullRequestsOptions
+    ) => {
+      fetches++;
+      return (options?.iids ?? []).filter((iid) => !omit.has(iid)).map(stubPR);
+    };
+    const group = createDashboard({ provider: gitlab, projectPath: 'g/p', mrIid: [1, 2, 3], userId: null });
+    group.subscribe(() => {});
+    await settle();
+
+    try {
+      const sock = FakeSocket.instances[0]!;
+      sock.deliver({ type: 'welcome' });
+      const mr1 = sock.identifiers('subscribe', 'gid://gitlab/MergeRequest/100');
+      expect(mr1).toHaveLength(3);
+
+      omit.clear();
+      sock.deliver({ identifier: mr1[0], message: {} });
+      await pastDebounce();
+      const mr3 = sock.identifiers('subscribe', 'gid://gitlab/MergeRequest/300');
+      expect(mr3).toHaveLength(3);
+      expect(sock.identifiers('unsubscribe', 'gid://gitlab/MergeRequest/100')).toEqual([]);
+
+      let before = fetches;
+      sock.deliver({ identifier: mr1[1], message: {} });
+      await pastDebounce();
+      expect(fetches - before).toBe(1);
+
+      before = fetches;
+      sock.deliver({ identifier: mr3[0], message: {} });
+      await pastDebounce();
+      expect(fetches - before).toBe(1);
+    } finally {
+      group.dispose();
+    }
+    expect(FakeSocket.instances[0]!.closed).toBe(true);
   });
 });
