@@ -19,10 +19,16 @@ import { tunnelRowHealth } from '../edge/edge-health.ts';
 import { edgeDrift } from '../edge/edge-reconcile.ts';
 import { getOAuth, type OAuth } from '../edge/oauth.ts';
 import { allocatePort } from '../registry/allocate.ts';
-import { statusIconUrl } from '../registry/bundled-identity.ts';
+import {
+  effectiveIdentity,
+  requiresTeamFor,
+  statusIconUrl,
+} from '../registry/bundled-identity.ts';
 import { withCatalogReport } from '../registry/catalog-report.ts';
 import {
+  isEnabled,
   listRecords,
+  type AppRecord,
   type RemoteState,
   type SyncIssue,
 } from '../registry/records.ts';
@@ -66,6 +72,10 @@ export interface StatusService {
 
 export interface StatusRow {
   name: string;
+  /** Launcher name from the effective identity; the record name when none. */
+  displayName: string;
+  enabled: boolean;
+  requiresTeam: boolean;
   /** TLD the row's identity renders under (ownership-driven locally, the
       tunnel domain when served publicly); null for rows with no hostname
       identity (orphan services, tunnels). */
@@ -146,6 +156,100 @@ export interface Status {
   autoHeal: { at: number; ok: boolean | null } | null;
 }
 
+/**
+ * An AppRecord with everything an API response must not carry stripped out:
+ * env VALUES (real secrets once the add-app form populates them) and the
+ * local-only command/workingDirectory. Redaction is unconditional, because
+ * GETs are always allowed through, public host or not, so there is no caller
+ * policy to gate on. envKeys names the variables an app has, never the values.
+ */
+export interface SafeRecord {
+  name: string;
+  managedBy: string;
+  port: number;
+  kind: AppRecord['kind'];
+  label?: string;
+  grandfathered?: boolean;
+  createdAt: string;
+  issues: SyncIssue[];
+  envKeys: string[];
+  enabled: boolean;
+  requiresTeam: boolean;
+}
+
+export function safeRecord(record: AppRecord): SafeRecord {
+  return {
+    name: record.name,
+    managedBy: record.managedBy,
+    port: record.port,
+    kind: record.kind,
+    ...(record.label !== undefined && { label: record.label }),
+    ...(record.grandfathered !== undefined && {
+      grandfathered: record.grandfathered,
+    }),
+    createdAt: record.createdAt,
+    issues: record.issues ?? [],
+    envKeys: Object.keys(record.env ?? {}),
+    enabled: isEnabled(record),
+    requiresTeam: requiresTeamFor(record),
+  };
+}
+
+/**
+ * A record's live (route-joined, health-probed) StatusRow when one exists. A
+ * record with no route yet (just-registered, before the edge driver's alias
+ * lands) has no row to join against; synthesize a "not yet live" stand-in using
+ * ONLY the same safe, non-secret StatusRow fields — never spread the raw
+ * AppRecord, which carries command/env/workingDirectory. Shared by the list and
+ * single-record endpoints so the two shapes cannot drift apart.
+ *
+ * `redact` mirrors buildStatus: the row's `record` shape feeds the board's
+ * local-only edit dialog, so through a public host command/workingDirectory
+ * must be null here exactly as they are on a joined row.
+ */
+export function rowFor(
+  record: AppRecord,
+  byName: Map<string, StatusRow>,
+  redact: boolean
+): StatusRow {
+  return (
+    byName.get(record.name) ?? {
+      name: record.name,
+      displayName: effectiveIdentity(record).displayName,
+      enabled: isEnabled(record),
+      requiresTeam: requiresTeamFor(record),
+      // Same ownership rule as buildStatus: a managed record is a mattstack
+      // product and surfaces as name.mattstack even before its route lands.
+      displayTld:
+        record.managedBy != null && record.managedBy !== 'user'
+          ? MATTSTACK_TLD
+          : 'localhost',
+      port: record.port,
+      url: null,
+      publicUrl: null,
+      health: null,
+      service: null,
+      published: false,
+      hasPassword: false,
+      isTunnel: false,
+      override: null,
+      publicFollowsOverride: false,
+      self: false,
+      managedBy: record.managedBy,
+      icon: statusIconUrl(record),
+      issues: record.issues ?? [],
+      record: {
+        kind: record.kind,
+        command: redact ? null : (record.command ?? null),
+        workingDirectory: redact ? null : (record.workingDirectory ?? null),
+      },
+      oauth: getOAuth(record.name),
+      publicOrigin: 'tunnel' as const,
+      remote: null,
+    }
+  );
+}
+
 export function serviceJson(
   s: LaunchdService,
   health: Health | null,
@@ -222,6 +326,9 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
       const displayTld = publicDomain ?? (owned ? MATTSTACK_TLD : 'localhost');
       return {
         name: a.name,
+        displayName: record ? effectiveIdentity(record).displayName : a.name,
+        enabled: record ? isEnabled(record) : true,
+        requiresTeam: record ? requiresTeamFor(record) : false,
         displayTld,
         port: a.port,
         // The href must match the rendered identity: an owned app joins on
@@ -297,6 +404,12 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
       s.label,
       servicePrefixes(getPlatformSettings().legacyPrefixes)
     ),
+    displayName: shortLabel(
+      s.label,
+      servicePrefixes(getPlatformSettings().legacyPrefixes)
+    ),
+    enabled: true,
+    requiresTeam: false,
     displayTld: null,
     port: null,
     url: null,

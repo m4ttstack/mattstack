@@ -73,6 +73,7 @@ import {
 import { renderedEnvironment } from '../services/plist.ts';
 import { getPlatformSettings } from './platform-settings.ts';
 import { logsDir } from './state.ts';
+import { safeRecord } from './status.ts';
 import { reconcileMattstackTld } from './tld-reconcile.ts';
 
 export interface Drivers {
@@ -829,6 +830,7 @@ export async function editApp(
     env?: Record<string, string>;
     port?: number;
     dev?: { workingDirectory: string } | null;
+    enabled?: boolean;
   },
   caller: string,
   force: boolean,
@@ -836,6 +838,24 @@ export async function editApp(
 ): Promise<FlowResult> {
   const record = getRecord(name);
   if (!record) return { status: 404, body: { error: 'unknown app' } };
+
+  if (patch.enabled !== undefined) {
+    if (Object.keys(patch).length !== 1)
+      return {
+        status: 400,
+        body: { error: 'enabled must be patched on its own' },
+      };
+    if (typeof patch.enabled !== 'boolean')
+      return { status: 400, body: { error: 'enabled must be a boolean' } };
+    const verdict = authorizeStructural(record, caller, force);
+    if (!verdict.ok) return { status: verdict.status, body: verdict.body };
+    putRecord({ ...record, enabled: patch.enabled ? undefined : false });
+    await reresolveManagedApps(drivers);
+    return {
+      status: 200,
+      body: { record: safeRecord(getRecord(record.name)!) },
+    };
+  }
 
   // Computed from the patch's own keys, not a hand-listed set of the other
   // fields: a future patch field must not be silently swept into this carve-out.

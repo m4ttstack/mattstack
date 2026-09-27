@@ -1424,7 +1424,15 @@ test('reresolve: a disabled rt row loses its plist and is reported under disable
   const counting = new CountingManager();
   const reresolveDrivers = { manager: counting, edge: drivers.edge };
   const h = bundleHelpers('board');
-  await registerApp({ ...input, name: 'board', managedBy: 'rt', command: h.command('board', 'serve') }, reresolveDrivers);
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    reresolveDrivers
+  );
   const label = `${LABEL_PREFIX}board`;
   expect(counting.installed.has(label)).toBe(true);
   counting.installCalls = [];
@@ -1438,13 +1446,25 @@ test('reresolve: a disabled rt row loses its plist and is reported under disable
 
   putRecord({ ...getRecord('board')!, enabled: undefined });
   const on = await reresolveManagedApps(reresolveDrivers);
-  expect(on.body).toMatchObject({ ok: true, disabled: [], restarted: ['board'] });
+  expect(on.body).toMatchObject({
+    ok: true,
+    disabled: [],
+    restarted: ['board'],
+  });
   expect(counting.installed.has(label)).toBe(true);
 });
 
 test('restartManagedApps skips a disabled row', async () => {
   const h = bundleHelpers('board');
-  await registerApp({ ...input, name: 'board', managedBy: 'rt', command: h.command('board', 'serve') }, drivers);
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
   putRecord({ ...getRecord('board')!, enabled: false });
   drivers.manager.kickstarts = [];
   const r = await restartManagedApps(drivers);
@@ -1980,6 +2000,63 @@ test('reinstallSupervised in prod reinstalls the catalog app and skips an rt row
 });
 
 // ─── editApp: never uninstall a shape the patch can't replace ─────────────
+
+test('editApp: enabled alone flips the record and re-sweeps; mixed with other fields it is refused', async () => {
+  const h = bundleHelpers('board');
+  await registerApp(
+    {
+      ...input,
+      name: 'board',
+      managedBy: 'rt',
+      command: h.command('board', 'serve'),
+    },
+    drivers
+  );
+  const manager = drivers.manager;
+  const label = `${LABEL_PREFIX}board`;
+  expect(manager.installed.has(label)).toBe(true);
+
+  const off = await editApp('board', { enabled: false }, 'rt', false, drivers);
+  expect(off.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBe(false);
+  expect(manager.installed.has(label)).toBe(false);
+
+  const mixed = await editApp(
+    'board',
+    { enabled: true, port: 11007 },
+    'rt',
+    false,
+    drivers
+  );
+  expect(mixed).toEqual({
+    status: 400,
+    body: { error: 'enabled must be patched on its own' },
+  });
+  const notRegistrar = await editApp(
+    'board',
+    { enabled: true },
+    'user',
+    false,
+    drivers
+  );
+  expect(notRegistrar.status).toBe(409);
+  const bad = await editApp(
+    'board',
+    { enabled: 'yes' as never },
+    'rt',
+    false,
+    drivers
+  );
+  expect(bad).toEqual({
+    status: 400,
+    body: { error: 'enabled must be a boolean' },
+  });
+
+  const on = await editApp('board', { enabled: true }, 'rt', false, drivers);
+  expect(on.status).toBe(200);
+  expect(getRecord('board')?.enabled).toBeUndefined();
+  expect(manager.installed.has(label)).toBe(true);
+});
 
 test('edit: unlinking a slim row with no bundle installed is rejected before any teardown', async () => {
   setServeShapeDeps({ helpersDir: null });

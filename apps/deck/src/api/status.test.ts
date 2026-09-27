@@ -85,6 +85,23 @@ test('a route with a registry record carries managedBy and issues on its row', a
   expect(row.issues).toHaveLength(1);
 });
 
+test('status rows carry enabled, requiresTeam and displayName', async () => {
+  putRecord({
+    name: 'myapp',
+    managedBy: 'rt',
+    port: 19999,
+    kind: 'service',
+    enabled: false,
+    requiresTeam: true,
+    displayName: 'My App',
+    createdAt: '2026-08-10T00:00:00Z',
+  });
+  const row = (await buildStatus(opts)).apps.find(a => a.name === 'myapp')!;
+  expect(row.enabled).toBe(false);
+  expect(row.requiresTeam).toBe(true);
+  expect(row.displayName).toBe('My App');
+});
+
 test('a route with no record is managedBy null (legacy, pre-migrate)', async () => {
   const status = await buildStatus(opts);
   expect(status.apps[0]!.managedBy).toBeNull();
