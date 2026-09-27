@@ -424,6 +424,7 @@ mod tests {
     fn presence(handle: &str, status: &str) -> Presence {
         Presence {
             handle: handle.to_string(),
+            name: None,
             status: status.to_string(),
             rooms: Vec::new(),
         }

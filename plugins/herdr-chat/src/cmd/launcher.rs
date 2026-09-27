@@ -140,8 +140,7 @@ pub fn room_tokens(rooms: &[rt::Room]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut any_dm = false;
     for room in rooms {
-        let dm = room.kind.as_deref() == Some("dm") || room.room.starts_with("dm-");
-        if dm {
+        if room.is_dm() {
             any_dm = true;
         } else {
             out.push(format!("#{}", room.room));
@@ -503,6 +502,7 @@ mod tests {
     fn buddy(handle: &str, status: &str, pane: Option<&str>, session: Option<&str>) -> rt::Buddy {
         rt::Buddy {
             handle: handle.to_string(),
+            name: None,
             status: status.to_string(),
             session_id: session.map(str::to_string),
             pane: pane.map(str::to_string),
@@ -544,6 +544,7 @@ mod tests {
             unread: 0,
             mentions: 0,
             kind: kind.map(str::to_string),
+            participants: None,
         };
         let tokens = room_tokens(&[
             room("build", None),

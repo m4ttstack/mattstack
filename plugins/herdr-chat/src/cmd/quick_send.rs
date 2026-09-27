@@ -437,16 +437,19 @@ mod tests {
                 unread: 0,
                 mentions: 0,
                 kind: None,
+                participants: None,
             },
             rt::Room {
                 room: "ops".to_string(),
                 unread: 0,
                 mentions: 0,
                 kind: None,
+                participants: None,
             },
         ];
         let buddies = vec![rt::Buddy {
             handle: "fred".to_string(),
+            name: None,
             status: "live".to_string(),
             session_id: None,
             pane: None,

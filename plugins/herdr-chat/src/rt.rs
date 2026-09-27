@@ -13,11 +13,25 @@ use crate::run::{rt_bin, Output, Runner};
 #[derive(serde::Deserialize, Clone)]
 pub struct Presence {
     pub handle: String,
+    #[serde(default)]
+    pub name: Option<String>,
     pub status: String,
     // A presence row that ever omits `rooms` must not fail the whole `pane_list`
     // deserialize, which would break picker, broadcast, and detect at once.
     #[serde(default)]
     pub rooms: Vec<String>,
+}
+
+impl Presence {
+    pub fn display_name(&self) -> &str {
+        name_or(&self.name, &self.handle)
+    }
+}
+
+/// An rt from before display names sends none, and there the handle is the
+/// name; an empty string is read the same way.
+fn name_or<'a>(name: &'a Option<String>, handle: &'a str) -> &'a str {
+    name.as_deref().filter(|n| !n.is_empty()).unwrap_or(handle)
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -62,6 +76,17 @@ pub fn agent_details(panes: &[ChatPane]) -> std::collections::HashMap<String, Ag
     out
 }
 
+/// The two sides of a DM room: ids rt keys on, names a row shows.
+#[derive(serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Participants {
+    pub a: String,
+    pub b: String,
+    #[serde(default, rename = "aName")]
+    pub a_name: Option<String>,
+    #[serde(default, rename = "bName")]
+    pub b_name: Option<String>,
+}
+
 #[derive(serde::Deserialize, Clone)]
 pub struct Room {
     pub room: String,
@@ -72,6 +97,27 @@ pub struct Room {
     /// `"dm"` for a direct-message room; older daemons omit the field.
     #[serde(default)]
     pub kind: Option<String>,
+    #[serde(default)]
+    pub participants: Option<Participants>,
+}
+
+impl Room {
+    pub fn is_dm(&self) -> bool {
+        self.kind.as_deref() == Some("dm") || self.room.starts_with("dm-")
+    }
+
+    /// A DM room's own name is a hash, so a row names it by who is in it
+    /// whenever rt sent the participants.
+    pub fn label(&self) -> String {
+        match &self.participants {
+            Some(p) if self.is_dm() => format!(
+                "{} \u{2194} {}",
+                name_or(&p.a_name, &p.a),
+                name_or(&p.b_name, &p.b)
+            ),
+            _ => self.room.clone(),
+        }
+    }
 }
 
 // `rt chat buddies --json` rows are rt-client's `PresenceRow & { status }`,
@@ -79,6 +125,8 @@ pub struct Room {
 #[derive(serde::Deserialize, Clone)]
 pub struct Buddy {
     pub handle: String,
+    #[serde(default)]
+    pub name: Option<String>,
     pub status: String,
     #[serde(default, rename = "sessionId")]
     pub session_id: Option<String>,
@@ -86,6 +134,12 @@ pub struct Buddy {
     pub pane: Option<String>,
     #[serde(default)]
     pub rooms: Vec<String>,
+}
+
+impl Buddy {
+    pub fn display_name(&self) -> &str {
+        name_or(&self.name, &self.handle)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -623,5 +677,62 @@ mod tests {
     fn parse_error_maps_to_err() {
         let r = FakeRunner::json("pane list", "not json");
         assert!(pane_list(&r).is_err());
+    }
+
+    #[test]
+    fn buddies_carry_the_display_name_rt_sends() {
+        let r = FakeRunner::json(
+            "chat buddies",
+            r#"{"ok":true,"buddies":[{"handle":"remy.k3f9","name":"remy","status":"live","pane":"w1:p1"}]}"#,
+        );
+        let b = &buddies(&r).unwrap()[0];
+        assert_eq!(b.handle, "remy.k3f9");
+        assert_eq!(b.display_name(), "remy");
+    }
+
+    #[test]
+    fn a_buddy_from_an_rt_with_no_names_shows_its_handle() {
+        let r = FakeRunner::json(
+            "chat buddies",
+            r#"{"ok":true,"buddies":[{"handle":"meg","status":"live"}]}"#,
+        );
+        let b = &buddies(&r).unwrap()[0];
+        assert_eq!(b.name, None);
+        assert_eq!(b.display_name(), "meg");
+    }
+
+    #[test]
+    fn pane_presence_carries_the_display_name_and_falls_back_without_one() {
+        let r = FakeRunner::json(
+            "pane list",
+            r#"{"panes":[{"paneId":"w1:p1","workspace":"acme","agentStatus":"idle","presence":{"handle":"remy.k3f9","name":"remy","status":"live"}},{"paneId":"w1:p2","workspace":"acme","agentStatus":"idle","presence":{"handle":"meg","status":"idle"}}]}"#,
+        );
+        let panes = pane_list(&r).unwrap();
+        assert_eq!(panes[0].presence.as_ref().unwrap().display_name(), "remy");
+        assert_eq!(panes[1].presence.as_ref().unwrap().display_name(), "meg");
+    }
+
+    #[test]
+    fn an_empty_name_is_treated_as_absent() {
+        let r = FakeRunner::json(
+            "chat buddies",
+            r#"{"ok":true,"buddies":[{"handle":"meg","name":"","status":"live"}]}"#,
+        );
+        assert_eq!(buddies(&r).unwrap()[0].display_name(), "meg");
+    }
+
+    #[test]
+    fn a_dm_room_is_labelled_by_its_participants_names() {
+        let r = FakeRunner::json(
+            "chat rooms",
+            r#"{"ok":true,"rooms":[{"room":"dm-3f9a","kind":"dm","participants":{"a":"kai","b":"remy.k3f9","aName":"kai","bName":"remy"}},{"room":"dm-77","kind":"dm","participants":{"a":"kai","b":"meg"}},{"room":"dm-old","kind":"dm"},{"room":"rt"}]}"#,
+        );
+        let rooms = rooms(&r).unwrap();
+        assert_eq!(rooms[0].label(), "kai \u{2194} remy");
+        assert_eq!(rooms[1].label(), "kai \u{2194} meg");
+        assert_eq!(rooms[2].label(), "dm-old");
+        assert!(rooms[2].is_dm());
+        assert_eq!(rooms[3].label(), "rt");
+        assert!(!rooms[3].is_dm());
     }
 }

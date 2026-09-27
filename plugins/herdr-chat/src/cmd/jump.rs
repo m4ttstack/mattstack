@@ -100,6 +100,7 @@ mod tests {
             session_id: None,
             presence: Some(rt::Presence {
                 handle: handle.to_string(),
+                name: None,
                 status: "live".to_string(),
                 rooms: Vec::new(),
             }),

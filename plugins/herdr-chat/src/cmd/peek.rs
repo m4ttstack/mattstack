@@ -394,6 +394,7 @@ mod tests {
     fn buddy(handle: &str, status: &str) -> rt::Buddy {
         rt::Buddy {
             handle: handle.to_string(),
+            name: None,
             status: status.to_string(),
             session_id: None,
             pane: None,
@@ -407,6 +408,7 @@ mod tests {
             unread,
             mentions,
             kind: None,
+            participants: None,
         }
     }
 
@@ -577,6 +579,7 @@ mod tests {
             session_id: None,
             presence: Some(rt::Presence {
                 handle: "kay".to_string(),
+                name: None,
                 status: "live".to_string(),
                 rooms: Vec::new(),
             }),

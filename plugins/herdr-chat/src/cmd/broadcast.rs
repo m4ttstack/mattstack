@@ -572,6 +572,7 @@ mod tests {
             session_id: None,
             presence: handle.map(|h| rt::Presence {
                 handle: h.to_string(),
+                name: None,
                 status: "live".to_string(),
                 rooms: Vec::new(),
             }),
