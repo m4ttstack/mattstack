@@ -528,6 +528,15 @@ const MERGEABLE_BY_TIMESTAMP = "run-history.jsonl";
  * parity anchor — the two must not drift.
  */
 const WORKTREE_REGISTRY_NS = "worktree-registry";
+/** Parity anchor with `NAME_CURSOR_NS` in `lib/worktree/registry.ts`. */
+const WORKTREE_NAME_CURSOR_NS = "worktree-name-cursor";
+
+/** A dropped cursor restarts the name rotation at the pool head, which can hand out a just-disposed name. */
+function migrateNameCursor(from: string, to: string): void {
+  const cursor = getKvValue<unknown>(WORKTREE_NAME_CURSOR_NS, from, null);
+  if (cursor !== null && !hasKvValue(WORKTREE_NAME_CURSOR_NS, to)) setKvValue(WORKTREE_NAME_CURSOR_NS, to, cursor);
+  deleteKvValue(WORKTREE_NAME_CURSOR_NS, from);
+}
 
 /**
  * Moves the retired name's worktree registry onto the live name.
@@ -568,6 +577,7 @@ function migrateWorktreeRegistry(from: string, to: string, opts: { dryRun?: bool
     return "refused";
   }
   deleteKvValue(WORKTREE_REGISTRY_NS, from);
+  migrateNameCursor(from, to);
   return outcome;
 }
 
@@ -754,6 +764,7 @@ export function pruneRepoIndex(opts: { dryRun?: boolean } = {}): PrunedEntry[] {
     if (r.retained) continue;
     if (r.registry === "dropped") {
       deleteKvValue(WORKTREE_REGISTRY_NS, r.repoName);
+      deleteKvValue(WORKTREE_NAME_CURSOR_NS, r.repoName);
       // deleteKvValue is warn-and-defer: a busy db swallows the delete. The
       // index row must not go first — that orphans the registry under a key
       // nothing iterates, the incident the retention exists for.

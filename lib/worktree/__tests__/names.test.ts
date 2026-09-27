@@ -4,19 +4,40 @@ import { slugifyTicketTitle, disambiguate } from "../branch-name.ts";
 import { GOLDEN_NAME } from "../registry.ts";
 
 describe("pickName", () => {
-  it("picks a random unused name from pool", () => {
-    const pool = ["alpha", "bravo", "charlie"];
-    const used = new Set(["bravo"]);
+  const pool = ["alpha", "bravo", "charlie", "delta"];
 
-    // Monkeypatch Math.random to return 0.5 (middle of pool after filter)
-    const spy = spyOn(Math, "random").mockReturnValue(0.5);
+  it("starts at the head of the pool when there is no previous pick", () => {
+    expect(pickName(pool, new Set())).toBe("alpha");
+  });
 
-    const result = pickName(pool, used);
+  it("takes the next pool name after the previous pick, skipping names in use", () => {
+    expect(pickName(pool, new Set(["charlie"]), "bravo")).toBe("delta");
+  });
 
-    // With random 0.5 and pool ["alpha", "charlie"], should pick "charlie" (index 1)
-    expect(result).toBe("charlie");
+  it("wraps from the end of the pool back to the head", () => {
+    expect(pickName(pool, new Set(["alpha"]), "delta")).toBe("bravo");
+  });
 
-    spy.mockRestore();
+  it("starts at the head when the previous pick is no longer in the pool", () => {
+    expect(pickName(pool, new Set(), "zulu")).toBe("alpha");
+  });
+
+  it("a duplicated pool name does not pull the rotation back to its first copy", () => {
+    expect(pickName(["alpha", "bravo", "alpha", "charlie"], new Set(), "alpha")).toBe("bravo");
+    expect(pickName(["alpha", "bravo", "alpha", "charlie"], new Set(), "bravo")).toBe("charlie");
+  });
+
+  it("a freed name comes back only after every other free name has had a turn", () => {
+    const used = new Set<string>();
+    let last: string | undefined;
+    const picks: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const name = pickName(pool, used, last);
+      picks.push(name);
+      last = name;
+      if (i === 0) used.add(name);
+    }
+    expect(picks).toEqual(["alpha", "bravo", "charlie", "delta", "bravo", "charlie"]);
   });
 
   it("falls back to neutral generator when pool is exhausted", () => {
@@ -41,14 +62,9 @@ describe("pickName", () => {
   });
 
   it("never picks GOLDEN_NAME from a custom pool, even when it is unused", () => {
-    const pool = [GOLDEN_NAME, "bravo"];
     const used = new Set<string>(); // the donor doesn't exist yet, so "golden" reads unused
 
-    const spy = spyOn(Math, "random").mockReturnValue(0);
-    const result = pickName(pool, used);
-    spy.mockRestore();
-
-    expect(result).toBe("bravo");
+    expect(pickName([GOLDEN_NAME, "bravo"], used)).toBe("bravo");
   });
 
   it("falls back to the neutral generator when the pool is only GOLDEN_NAME", () => {
