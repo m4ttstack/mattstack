@@ -157,7 +157,12 @@ export function mcpTools(): McpToolDef[] {
         required: ["id", "answers"],
         additionalProperties: false,
       },
-      shellForms: ["rt gate answer"],
+      shellForms: [{
+        id: "rt gate answer",
+        pattern: /(?<![\w-])rt\s+gate\s+answer(?![\w-])/,
+        example: "rt gate answer abc --answers {}",
+        note: "answers as this pane; the shepherd's --by shepherd answer stays on Bash",
+      }],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "id", type: "string" }, { name: "answers", type: "object" }]);
         if (bad) return err(bad);

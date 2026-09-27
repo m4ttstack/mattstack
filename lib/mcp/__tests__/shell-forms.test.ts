@@ -23,7 +23,9 @@ describe("shellForms on the roster", () => {
   test("every chat tool declares its rt chat verb", () => {
     for (const t of tools.filter((x) => x.name.startsWith("chat_"))) {
       const verb = `rt chat ${t.name.slice("chat_".length).replace(/_/g, "-")}`;
-      expect(Array.isArray(t.shellForms) ? t.shellForms : [], t.name).toContain(verb);
+      const forms = Array.isArray(t.shellForms) ? t.shellForms : [];
+      const declares = forms.some((f) => (typeof f === "string" ? f === verb : f.id === verb));
+      expect(declares, t.name).toBe(true);
     }
   });
   test("no object form's pattern carries the g or y flag: pickRule uses exec, and a stateful regex would skip hits", () => {

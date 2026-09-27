@@ -268,7 +268,12 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
         properties: { cwd: { type: "string" }, as: { type: "string" }, room: { type: "string" }, noRoom: { type: "boolean" }, status: { type: "string" } },
         additionalProperties: false,
       },
-      shellForms: ["rt chat sign-in"],
+      shellForms: [{
+        id: "rt chat sign-in",
+        pattern: /(?<![\w-])rt\s+chat\s+sign-in(?![\w-])/,
+        example: "rt chat sign-in",
+        note: "after a /clear the tool refuses and Bash is correct; mark that line <!-- mcp-lint: allow -->",
+      }],
       async handler(input, env) {
         const sessionId = env.CLAUDE_CODE_SESSION_ID;
         if (!sessionId) return err(NO_SESSION);

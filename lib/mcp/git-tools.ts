@@ -373,7 +373,7 @@ export function gitToolDefs(deps: GitToolDeps): McpToolDef[] {
       name: "git_rebase",
       description: "Rebase the tree's current branch onto a named branch or ref; a remote-tracking ref (origin/<branch>) is fetched first. On a conflict it returns status conflict with the conflicted files and leaves the tree mid-rebase for you to resolve (then finish with git rebase --continue in Bash), or pass abort: true to abort one in progress.",
       inputSchema: { type: "object", properties: { ...TREE_PROP, onto: { type: "string" }, abort: { type: "boolean" } }, required: ["tree"], additionalProperties: false },
-      shellForms: ["rt git rebase", { id: "git-rebase", pattern: /\bgit rebase\b(?!\s+--(continue|skip)\b)/, example: "git rebase origin/main", note: 'onto: "origin/<default>" (it fetches), or abort: true' }],
+      shellForms: ["rt git rebase", { id: "git-rebase", pattern: /(?<![\w-])git\s+rebase\b(?!\s+--(continue|skip)\b)/, example: "git rebase origin/main", note: 'onto: "origin/<default>" (it fetches), or abort: true' }],
       handler: guarded(async (path, input) => {
         const bad = checkOptional(input, [{ name: "onto", type: "string" }, { name: "abort", type: "boolean" }]);
         if (bad) return err(bad);

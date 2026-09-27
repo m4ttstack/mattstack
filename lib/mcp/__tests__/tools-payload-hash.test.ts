@@ -19,7 +19,8 @@ function refreshSteps(hash: string): string {
     "2. Merge.",
     "3. From an rt checkout at the merge commit, in mattstack-skills:",
     "   bun <rt>/cli.ts mcp tools --json | bun scripts/gen-mcp-tools.ts > attachments/mcp-tools/reference.md",
-    "4. Move the rt ref: in mattstack-skills' .github/workflows/purity.yml to that merge commit.",
+    "4. Run bun <rt>/cli.ts skills check --pack-dir <mattstack-skills> --strict and clear every strict hit (a regenerated reference.md drops hand allow markers) before moving the pin.",
+    "5. Move the rt ref: in mattstack-skills' .github/workflows/purity.yml to that merge commit.",
   ].join("\n");
 }
 

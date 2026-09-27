@@ -128,7 +128,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
         required: ["flags", "skillDir"],
         additionalProperties: false,
       },
-      shellForms: ["rt runs run-start", { id: "run-db-env", pattern: /\b(export|unset)\s+RT_RUN_DB\b/, example: "export RT_RUN_DB=/x", note: "keep the runDb run_start returns and pass it on every run_* call" }],
+      shellForms: ["rt runs run-start", { id: "run-db-env", pattern: /(?<![\w-])(export|unset)\s+RT_RUN_DB\b/, example: "export RT_RUN_DB=/x", note: "keep the runDb run_start returns and pass it on every run_* call" }],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "flags", type: "string" }, { name: "skillDir", type: "string" }]) ?? checkOptional(input, [{ name: "ticket", type: "string" }, { name: "spawnedBy", type: "string" }]);
         if (bad) return err(bad);
@@ -233,7 +233,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       name: "run_status",
       description: "Set the run's terminal status: done, failed or abandoned.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, status: { type: "string", enum: ["done", "failed", "abandoned"] } }, required: ["status"], additionalProperties: false },
-      shellForms: ["rt runs run-status"],
+      shellForms: ["rt runs run-status", "rt runs abandon"],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "status", type: "string" }]);
         if (bad) return err(bad);
@@ -251,7 +251,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       name: "run_list",
       description: "List runs the daemon knows, newest first, optionally narrowed to one repo directory name.",
       inputSchema: { type: "object", properties: { repo: { type: "string" } }, additionalProperties: false },
-      shellForms: [{ id: "rt-runs", pattern: /\brt\s+runs\b/, example: "rt runs --repo x", note: "run_start, run_stage, run_field_set, run_field_get, run_decision, run_status, run_snapshot, run_list" }],
+      shellForms: [{ id: "rt-runs", pattern: /(?<![\w-])rt\s+runs\b/, example: "rt runs --repo x", note: "run_start, run_stage, run_field_set, run_field_get, run_decision, run_status, run_snapshot, run_list" }],
       async handler(input) {
         const bad = checkOptional(input, [{ name: "repo", type: "string" }]);
         if (bad) return err(bad);
