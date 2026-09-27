@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.23.2 + mattstack:model-tiering@0.23.2 + mattstack:execution-strategy@0.23.2 + mattstack:cswap-accounts@0.23.2"
+  compiled: "mattstack@0.23.3 + mattstack:model-tiering@0.23.3 + mattstack:execution-strategy@0.23.3 + mattstack:cswap-accounts@0.23.3"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.23.2 path=attachments/orchestration/shepherdr/SKILL.md lines=15-565 -->
+<!-- part: step source=mattstack:shepherdr version=0.23.3 path=attachments/orchestration/shepherdr/SKILL.md lines=15-565 -->
 
 # shepherdr
 
@@ -64,7 +64,7 @@ If work arrives unscoped and the user wants it scoped before fan-out, brainstorm
 
 ## Tiering
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.23.2 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.23.3 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -178,7 +178,7 @@ this skill is the generic framework they override.
 
 ## Strategy
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.23.2 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.23.3 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -312,7 +312,7 @@ below the floor is wrong.
 
 ## Accounts
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.23.2 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.23.3 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -411,7 +411,7 @@ Every herd is a row in the rt daemon's registry plus one chat room and one
 gate subscription, all created by `herd_start`. Workers ask through gates
 (`herd_ask`, `herd_milestone`) and the daemon pushes each open gate into
 this session; workers report and the daemon posts lifecycle notices into
-the room, which is also pushed here. You answer gates with `rt gate answer`
+the room, which is also pushed here. You answer gates with `rt gate answer` <!-- mcp-lint: allow -->
 in Bash, you talk to a worker with the `chat_dm` tool
 (`{to: <handle>, body}`), and the daemon records job state as a side effect
 of every call. There is no herd DB, no script, and no background wait.
@@ -566,7 +566,7 @@ daemon answered, your subscription is live, and this herd exists; the
 prerequisites passed or nothing would have arrived. If part of you wants
 to double-check the claim before trusting it, that instinct is right --
 but the check IS the call below, made first, not `herd_list`, not
-`rt gate list`, not any other command of your own choosing. A gate id that
+`rt gate list`, not any other command of your own choosing. A gate id that <!-- mcp-lint: allow -->
 turns out stale or a room message that turns out unrelated is a normal,
 expected outcome of that call, not a reason to reach for a
 different one first, and never a reason to suspect the push itself is
@@ -790,7 +790,7 @@ work merges, what a disposal refusal means) -- follow it over item 5.
 
 ## wrap-up form contract
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.23.2 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.23.3 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
@@ -839,7 +839,7 @@ next call after the answers return, never into the context sentence.
 - About to record a job as done, closed, or crashed by hand? Stop. The herd tools and the daemon own job state.
 - Fresh session and about to reconstruct a herd from memory? Stop. `herd_resume {herd}`.
 - About to ask the user for a run id or db path so you can "pick up watching" the herd? Stop. `herd_list` names every active herd; there is no id to hunt for.
-- About to hand-verify a gate against `rt gate list --open --subject-prefix run:` yourself? Stop. `herd_gates {herd}` already scopes to your herd and your jobs' pipeline runs.
+- About to hand-verify a gate against `rt gate list --open --subject-prefix run:` yourself? Stop. `herd_gates {herd}` already scopes to your herd and your jobs' pipeline runs. <!-- mcp-lint: allow -->
 - About to paste a command's output before you have actually run it? Stop. Run it for real, or tell the user it has not run yet.
 - About to say you checked a directory, log, or file when you never ran the read? Stop. Run the check for real, or say plainly that you have not.
 - About to invent a new channel because a tool or command seems unreachable? Stop. Report the real error and wait; never substitute a channel of your own making.

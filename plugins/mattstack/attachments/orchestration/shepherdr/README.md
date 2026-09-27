@@ -16,7 +16,7 @@ it.
 
 **hidden** (`hidden: true` on the shepherd's `herd_start`). agents land on the daemon's
 shared background herdr server, whose panes never appear in your UI (rt
-prints them as `bg:<pane>` refs, and `rt pane peek/send/focus` take those
+prints them as `bg:<pane>` refs, and `rt pane peek/send/focus` take those <!-- mcp-lint: allow -->
 refs directly). you see
 nothing until something needs you. this is the mode to ask for when a
 six-agent fan-out would bury your sidebar.

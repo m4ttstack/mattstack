@@ -12,6 +12,6 @@ const out: string[] = [
   "",
 ];
 for (const t of input.tools) {
-  out.push(`### ${t.name}`, "", t.description, "", "```json", JSON.stringify(t.inputSchema, null, 2), "```", "");
+  out.push(`### ${t.name}`, "", "<!-- mcp-lint: allow -->", t.description, "", "```json", JSON.stringify(t.inputSchema, null, 2), "```", "");
 }
 process.stdout.write(out.join("\n"));

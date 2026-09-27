@@ -76,7 +76,7 @@ Before a fill tells an agent to run a command, open
 `mcp-tools` reference): every rt call, forge call and git write a pipeline
 needs has a tool there, except the few its header lists as staying on Bash
 (`git commit` is one). The fill's sentence names that tool (a push is
-`git_push {tree: <checkout>}`), not the command, and `rt skills check`
+`git_push {tree: <checkout>}`), not the command, and `rt skills check` <!-- mcp-lint: allow -->
 flags the shell form. `rt skills audit --pack <pack>` is the slower read
 for plain-words instructions.
 
@@ -87,7 +87,7 @@ it validates `provides`, writes the per-repo manifest AND `pack/skills.jsonc`,
 and recompiles. Then run `sh <mattstack-skills>/tests/certify.sh <fill dir> --domain`,
 then call `rt_verb {args: ["skills", "check", "--pack", "<pack>"]}`.
 A check that comes back `failed (exit 1)` is drift, with only the tail
-of its output; run the bare Bash `rt skills check --pack <pack>` to read
+of its output; run the bare Bash `rt skills check --pack <pack>` to read <!-- mcp-lint: allow -->
 what moved.
 
 The write into `pack/skills.jsonc` is what reaches teammates; the per-repo

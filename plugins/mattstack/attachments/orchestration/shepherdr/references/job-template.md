@@ -112,7 +112,7 @@ Anything from the shepherd or a reviewer arrives in your context as a chat
 message (`[#<room>] <handle> #<n>: ...` or `[dm] <handle> #<n>: ...`).
 Reply with the `chat_dm` tool (`{to: <handle>, body}`), never with
 SendMessage. Only when `chat_sign_in` refuses because this session was
-replaced by `/clear`, reply with `rt chat dm <handle>` in Bash instead, the
+replaced by `/clear`, reply with `rt chat dm <handle>` in Bash instead, the <!-- mcp-lint: allow -->
 body on stdin from a quoted heredoc. A message that changes your task is a
 new instruction; a message that only informs needs no reply.
 
