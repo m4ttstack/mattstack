@@ -1,3 +1,4 @@
+<!-- author -->
 # shepherdr job brief template
 
 Copy this template verbatim for every brief; fill the angle-bracket
@@ -5,7 +6,8 @@ slots. The formats are embedded because the contract must survive even
 when the worker loads nothing else. A brief is assembled from two
 verbatim copies, never composed: this template, plus one strategy body
 copied verbatim into `## Method` from the bound strategy skill's
-`references/strategies.md`. The sections below need no fill: the tools read `HERD_ID`, `HERD_JOB`, and `HERD_ROOM` from the environment the herd spawn gave this pane.
+`references/strategies.md`.
+<!-- /author -->
 
 # JOB: <name>
 
@@ -28,6 +30,10 @@ plans, often gitignored and outside the worktree. "none" if none.>
 <the gate skills that bind this job, named with absolute paths; task A0
 for untracked state (dependency install, env or secrets sync); and the
 branch name. "none" if the repo has no rules.>
+
+## Herd tools
+
+The herd_* tools read your herd, job and room from this pane's environment; never pass them to those tools.
 
 ## Pipeline runs
 When your Method runs a pipeline verb (`work`, `ship`, `review`, ...),
