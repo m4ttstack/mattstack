@@ -12,6 +12,7 @@ import {
   commit,
   addNamedWorktree,
   addWorkSlot,
+  rejectRefUpdates,
   runCli,
   type SandboxRepo,
   type SandboxRepoWithRemote,
@@ -858,7 +859,66 @@ describe('gitq CLI', () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.success).toBe(true);
-    expect(parsed.restoredBranches.sort()).toEqual(['feat/branch-1', 'main']);
+    expect(parsed.restoredBranches).toEqual(['feat/branch-1']);
+  });
+
+  test('undo on a dirty tree exits 1 with the dirty-tree error and leaves refs and the stack record alone', async () => {
+    const { repo, configDir } = await makeRepoWithStack(2);
+    const reparent = await runCli(['reparent', 'feat/branch-2', '--onto', 'main', '--json'], repo.dir, configDir);
+    expect(reparent.exitCode).toBe(0);
+    const headsAfter = ['feat/branch-1', 'feat/branch-2'].map((b) => repo.git('rev-parse', b));
+    await Bun.write(`${repo.dir}/README.md`, 'uncommitted\n');
+    const stacksAfter = (await runCli(['stacks', '--json'], repo.dir, configDir)).stdout;
+
+    const undo = await runCli(['undo', '--json'], repo.dir, configDir);
+
+    expect(undo.exitCode).toBe(1);
+    expect(JSON.parse(undo.stdout).error).toContain('uncommitted changes');
+    expect(['feat/branch-1', 'feat/branch-2'].map((b) => repo.git('rev-parse', b))).toEqual(headsAfter);
+    expect((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout).toBe(stacksAfter);
+  });
+
+  test('undo refuses a branch committed to since the recorded reparent, moving nothing', async () => {
+    const { repo, configDir } = await makeRepoWithStack(3);
+    const reparent = await runCli(['reparent', 'feat/branch-2', '--onto', 'main', '--json'], repo.dir, configDir);
+    expect(reparent.exitCode).toBe(0);
+    repo.git('checkout', 'feat/branch-3');
+    await commit(repo.dir, repo.git, 'after-reparent.txt', 'newer\n', 'work after the reparent');
+    repo.git('checkout', 'main');
+    const branches = ['feat/branch-1', 'feat/branch-2', 'feat/branch-3'];
+    const heads = branches.map((b) => repo.git('rev-parse', b));
+
+    const undo = await runCli(['undo', '--json'], repo.dir, configDir);
+
+    expect(undo.exitCode).toBe(1);
+    const parsed = JSON.parse(undo.stdout);
+    expect(parsed.error).toContain('feat/branch-3');
+    expect(parsed.restoredBranches).toEqual([]);
+    expect(parsed).not.toHaveProperty('restoredStack');
+    expect(branches.map((b) => repo.git('rev-parse', b))).toEqual(heads);
+  });
+
+  test('a partial undo leaves the stack record alone, and a retry restores refs and record', async () => {
+    const { repo, configDir } = await makeRepoWithStack(3);
+    const parentOf = async (branch: string) => {
+      const out = JSON.parse((await runCli(['stacks', '--json'], repo.dir, configDir)).stdout);
+      return (out.stacks[0].nodes as { branch: string; parent: string }[]).find((n) => n.branch === branch)?.parent;
+    };
+    const b3Before = repo.git('rev-parse', 'feat/branch-3');
+    expect((await runCli(['reparent', 'feat/branch-2', '--onto', 'main', '--json'], repo.dir, configDir)).exitCode).toBe(0);
+    expect(await parentOf('feat/branch-2')).toBe('main');
+
+    const removeHook = await rejectRefUpdates(repo, 'feat/branch-3');
+    const partial = await runCli(['undo', '--json'], repo.dir, configDir);
+    expect(partial.exitCode).toBe(1);
+    expect(JSON.parse(partial.stdout).error).toContain('feat/branch-3');
+    expect(await parentOf('feat/branch-2')).toBe('main');
+
+    await removeHook();
+    const retry = await runCli(['undo', '--json'], repo.dir, configDir);
+    expect(retry.exitCode).toBe(0);
+    expect(await parentOf('feat/branch-2')).toBe('feat/branch-1');
+    expect(repo.git('rev-parse', 'feat/branch-3')).toBe(b3Before);
   });
 
   test('undo drops a branch git no longer has instead of re-tracking it', async () => {
