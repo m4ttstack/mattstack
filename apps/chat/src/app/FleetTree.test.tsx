@@ -418,6 +418,29 @@ test('workstream and offline rows show names; the overflow line reads pairs by n
   );
 });
 
+test("the overflow line carries each hidden pair's unread as the rows' badge, not trailing text", () => {
+  renderTree({
+    dms: [
+      dm('max', 'stan'),
+      dm('jay', 'max'),
+      dm('edie', 'stan'),
+      dm('kai', 'max'),
+      dm('kai', 'remy.m2p4', {
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+        unread: 2,
+      }),
+      dm('kai', 'wren'),
+    ],
+  });
+  const more = screen.getByTestId('dm-more');
+  const badges = within(more).getAllByTestId('unread-badge');
+  expect(badges).toHaveLength(1);
+  expect(badges[0]).toHaveTextContent(/^2$/);
+  expect(badges[0]).toHaveAttribute('aria-label', '2 unread');
+  expect(within(more).queryByText(/remy 2/)).toBeNull();
+  expect(more).toHaveTextContent('2 more · kai ↔ remy 2, kai ↔ wren');
+});
+
 test('the daemon down withholds every presence claim in the tree', () => {
   renderTree({
     rooms: [room('rt')],

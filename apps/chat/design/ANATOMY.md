@@ -93,7 +93,9 @@ radius 6px):
   message** (`stan: holding the console settings page…`) when neither end
   has one, or `last known` when the daemon is down.
 
-Overflow DMs collapse into a `.ws.more` line: `3 more · kai ↔ max 1, …`.
+Overflow DMs collapse into a `.ws.more` line: `3 more · kai ↔ max [1], …`,
+each hidden pair's unread drawn as the rows' own unread badge, never bare
+digits that could read as part of a name (`remy 2`).
 
 Every room row and DM row closes: a 22px `.close` control after the badges
 (hover, keyboard focus, or open menu; Tooltip `Close`) and a right-click

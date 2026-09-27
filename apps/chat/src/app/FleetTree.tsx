@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import {
   ActionIcon,
   Box,
@@ -166,13 +166,27 @@ export function visibleDms(
   return active ? [...head.slice(0, cap - 1), active] : head;
 }
 
-/** `3 more · kai ↔ max 1, max ↔ wren 8`: every hidden pair with its unread,
-    truncating when the line runs past the sidebar. */
-function overflowLabel(hidden: FleetRoom[]): string {
-  const pairs = hidden.map(
-    d => `${dmPairLabel(d.participants!)}${d.unread > 0 ? ` ${d.unread}` : ''}`
+/** `3 more · kai ↔ max [1], max ↔ wren [8]`: every hidden pair with its
+    unread as the rows' own badge, since bare trailing digits read as part of
+    a name. Truncates when the line runs past the sidebar. */
+function overflowLabel(hidden: FleetRoom[]): ReactNode {
+  return (
+    <>
+      {hidden.length} more ·{' '}
+      {hidden.map((d, i) => (
+        <Fragment key={d.room}>
+          {i > 0 && ', '}
+          {dmPairLabel(d.participants!)}
+          {d.unread > 0 && (
+            <>
+              {' '}
+              <UnreadBadge count={d.unread} />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </>
   );
-  return `${hidden.length} more · ${pairs.join(', ')}`;
 }
 
 /** `.dot`: 8px, hollow whenever it has no live status to claim. */
