@@ -596,7 +596,7 @@ test("chat:sign-in viaPane joins the SAME room the CLI's own codec would derive 
   // the real repo initRepo() created, through the real runCapture.
   const exec: typeof runCapture = async (argv, opts) =>
     argv.includes("--abbrev-ref") ? { stdout: "feat/pane-sign-in\n", stderr: "", exitCode: 0 } : runCapture(argv, opts);
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr, repoIndex, exec });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr, repoIndex, exec }), db);
 
   const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai" });
   expect(res.ok).toBe(true);
@@ -632,7 +632,7 @@ test("chat:sign-in viaPane degrades to no room, without failing sign-in, when ro
     if (argv.includes("--abbrev-ref")) return { stdout: "main\n", stderr: "", exitCode: 0 };
     throw new Error("EACCES: permission denied, mkdir '/read-only-home/.mattstack'");
   };
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr, exec });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr, exec }), db);
 
   const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai" });
   expect(res.ok).toBe(true);
@@ -652,7 +652,7 @@ test("chat:sign-in viaPane with a cwd that isn't a git work tree at all joins no
 
   const db = openStateDb(join(tmpdir(), `chat-viapane-stray-${process.pid}-${n++}.db`));
   const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr }), db);
 
   const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai" });
   expect(res.ok).toBe(true);
@@ -672,7 +672,7 @@ test("chat:sign-in viaPane --no-room skips the join even with a real repo cwd", 
   stops.push(stop);
   const db = openStateDb(join(tmpdir(), `chat-viapane-noroom-${process.pid}-${n++}.db`));
   const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr }), db);
 
   const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai", noRoom: true });
   expect(res.ok).toBe(true);
@@ -691,7 +691,7 @@ test("chat:sign-in viaPane --room overrides the derived room with the explicit o
   stops.push(stop);
   const db = openStateDb(join(tmpdir(), `chat-viapane-explicit-${process.pid}-${n++}.db`));
   const herdr: typeof herdrRequest = (m, p, o) => herdrRequest(m, p, { ...o, sockPath: herdrSock });
-  const h = createChatHandlers({ db, emitEvent: () => 0, herdr });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, herdr }), db);
 
   const res = await h["chat:sign-in"]({ pane: "w1:p1", viaPane: true, continue: "kai", room: "warroom" });
   expect(res.ok).toBe(true);
@@ -1003,7 +1003,7 @@ test("chat:buddies and chat:who read the registry mirror through the injected re
   const db = openStateDb(join(tmpdir(), `chat-h-registry-${process.pid}-${n++}.db`));
   const busyBinding = { pid: process.pid, socketPath: fakeSocketPath(), status: "busy" as const };
   const registryDeps = { resolve: () => busyBinding, alive: () => true, resolveAll: () => new Map([["s1", busyBinding]]) };
-  const h = createChatHandlers({ db, emitEvent: () => 0, registryDeps });
+  const h = adoptingLegacy(createChatHandlers({ db, emitEvent: () => 0, registryDeps }), db);
 
   await h["chat:sign-in"]({ sessionId: "s1", continue: "x" });
   const buddies = await h["chat:buddies"]({});

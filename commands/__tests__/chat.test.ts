@@ -464,8 +464,9 @@ describe("rt chat CLI — additional verb behavior", () => {
 describe("rt chat CLI — sign-in / sign-out (presence)", () => {
   test("flag values never splice into a body: --session is FLAGS_WITH_VALUES", async () => {
     await runChat(["join", "r", "--as", "x"]);
+    await runChat(["join", "r", "--as", "y"]);
     await runChat(["post", "r", "hello there", "--session", "s1", "--as", "x"]);
-    const read = JSON.parse(await runChat(["read", "r", "--as", "x", "--json"]));
+    const read = JSON.parse(await runChat(["read", "r", "--as", "y", "--json"]));
     expect(read.rooms[0].messages[0].body).toBe("hello there");
     const { code, stderr } = await runChatRaw(["post", "r", "hello there", "--status", "busy", "--as", "x"]);
     expect(code).toBe(1);
@@ -874,8 +875,8 @@ describe("rt chat CLI — buddies, away, back, dm", () => {
 
     const now = Date.now();
     const db = getStateDb();
-    db.run("UPDATE chat_presence SET status_text = ? WHERE handle = ?", ["rebasing #67", "idle1"]);
-    db.run("UPDATE chat_presence SET signed_out_at = ? WHERE handle = ?", [now, "off1"]);
+    db.run("UPDATE chat_presence SET status_text = ? WHERE session_id = ?", ["rebasing #67", "sid"]);
+    db.run("UPDATE chat_presence SET signed_out_at = ? WHERE session_id = ?", [now, "soff"]);
 
     // live1's session (sessionId "slv") resolves alive+busy; idle1's
     // (sessionId "sid") resolves alive but not busy. off1 gets no binding
@@ -988,7 +989,8 @@ describe("rt chat CLI — buddies, away, back, dm", () => {
 
     const out = await runChat(["dm", "b", "again", "--json", "--session", "s1"]);
     const parsed = JSON.parse(out);
-    expect(parsed).toMatchObject({ ok: true, room: dmRoomName, recipients: ["b"] });
+    const bId = JSON.parse(readFileSync(sessionFilePath("s2"), "utf8")).handle;
+    expect(parsed).toMatchObject({ ok: true, room: dmRoomName, recipients: [bId], recipientNames: ["b"] });
   });
 
   test("dm's viewer link follows chat.viewerUrl, same as post", async () => {
@@ -1041,9 +1043,15 @@ describe("rt chat CLI — buddies, away, back, dm", () => {
     const rooms = JSON.parse(await runChat(["rooms", "--json", "--session", "s1"]));
     const dmRoom = rooms.rooms.find((r: { kind?: string }) => r.kind === "dm").room;
 
+    const ids = ["s1", "s2"].map((s) => JSON.parse(readFileSync(sessionFilePath(s), "utf8")).handle as string);
+    expect(ids.map((id) => id.split(".")[0])).toEqual(["a", "b"]);
+
     const out = await runChat(["who", dmRoom, "--session", "s1"]);
-    expect(out).toContain("a ↔ b");
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("a ↔ b");
+    expect(lines.slice(1).map((l) => l.trim().split(/\s+/)[0])).toEqual(["a", "b"]);
     expect(out).not.toContain(`#${dmRoom}`);
+    for (const id of ids) expect(out).not.toContain(id);
   });
 
   test("read renders a DM room's heading as a ↔ b, never the hashed room id", async () => {
@@ -1225,7 +1233,9 @@ describe("rt chat CLI: read --last, invite", () => {
     const r = await runChatRaw(["invite", "w1:p1", "--room", "build", "--session", "sess-c"]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("refused: at a prompt");
-    expect((seen.find((s) => s.cmd === "chat:invite")!.payload as { from: string }).from).toBe("carol");
+    const carolId = JSON.parse(readFileSync(sessionFilePath("sess-c"), "utf8")).handle;
+    expect(carolId).not.toBe("carol");
+    expect((seen.find((s) => s.cmd === "chat:invite")!.payload as { from: string }).from).toBe(carolId);
   });
 
   test("invite requires a pane and --room", async () => {

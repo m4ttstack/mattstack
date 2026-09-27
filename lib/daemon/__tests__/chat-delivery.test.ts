@@ -683,7 +683,7 @@ test("the human's post reaches a mention-mode member through the sweep when the 
   await h["chat:join"]({ room: "general", handle: "matt", wakeOn: "mention" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "mention" });
   const signIn = (await import("../../state/index.ts")).signIn;
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
   const posted = await h["chat:post"]({ room: "general", handle: "matt", body: "restart in 60s" });
   if (!posted.ok) throw new Error("unreachable");
   await Bun.sleep(0);
@@ -1086,7 +1086,7 @@ test("the sweep re-delivers a stale cursor for a signed-in, alive-bound recipien
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
 
   const signIn = (await import("../../state/index.ts")).signIn;
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   if (!posted.ok) throw new Error("unreachable");
@@ -1114,7 +1114,7 @@ test("the sweep never re-delivers a poster's own message back to themselves", as
   await h["chat:join"]({ room: "general", handle: "a", wakeOn: "all" });
 
   const signIn = (await import("../../state/index.ts")).signIn;
-  signIn({ sessionId: "sess-a", baseHandle: "a" }, db);
+  signIn({ sessionId: "sess-a", continueId: "a" }, db);
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   await Bun.sleep(0);
@@ -1142,7 +1142,7 @@ test("the sweep never delivers to a wake_on:none member even with a genuinely st
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "none" });
 
   const signIn = (await import("../../state/index.ts")).signIn;
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   if (!posted.ok) throw new Error("unreachable");
@@ -1168,7 +1168,7 @@ test("the sweep never delivers to a wake_on:mention member who was never mention
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "mention" });
 
   const signIn = (await import("../../state/index.ts")).signIn;
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "no mention here" });
   if (!posted.ok) throw new Error("unreachable");
@@ -1201,7 +1201,7 @@ test("the sweep DOES deliver to a wake_on:mention member once a pending message 
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "mention" });
 
   const signIn = (await import("../../state/index.ts")).signIn;
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "@b hi" });
   if (!posted.ok) throw new Error("unreachable");
@@ -1229,9 +1229,9 @@ test("the sweep skips a signed-out recipient and a recipient with a dead binding
   await h["chat:join"]({ room: "general", handle: "c" });
 
   const { signIn, signOut } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
   signOut("sess-b", undefined, db); // signed out: a live binding must not matter
-  signIn({ sessionId: "sess-c", baseHandle: "c" }, db); // resolver never answers for sess-c: dead binding
+  signIn({ sessionId: "sess-c", continueId: "c" }, db); // resolver never answers for sess-c: dead binding
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   await Bun.sleep(0);
@@ -1271,9 +1271,9 @@ test("the sweep resolves the registry once per run, not once per stale candidate
   await h["chat:join"]({ room: "general", handle: "d" });
 
   const { signIn } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
-  signIn({ sessionId: "sess-c", baseHandle: "c" }, db);
-  signIn({ sessionId: "sess-d", baseHandle: "d" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
+  signIn({ sessionId: "sess-c", continueId: "c" }, db);
+  signIn({ sessionId: "sess-d", continueId: "d" }, db);
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" }); // 3 stale candidates (b, c, d) in one run
   await Bun.sleep(0);
@@ -1331,7 +1331,7 @@ test("the sweep never checks binding-aliveness for a signed-out presence", async
   await h["chat:join"]({ room: "general", handle: "away" });
 
   const { signIn, signOut } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-away", baseHandle: "away" }, db);
+  signIn({ sessionId: "sess-away", continueId: "away" }, db);
   signOut("sess-away", undefined, db);
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
@@ -1367,7 +1367,7 @@ test("the sweep backs off a pair for one tick immediately after its consecutive-
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
 
   const { signIn } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   await Bun.sleep(0); // resolver not ready: the normal push misses entirely, no deliver() calls yet
@@ -1406,8 +1406,8 @@ test("a pair's consecutive-failure streak does not cap a different, healthy pair
   await h["chat:join"]({ room: "general", handle: "c" });
 
   const { signIn } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
-  signIn({ sessionId: "sess-c", baseHandle: "c" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
+  signIn({ sessionId: "sess-c", continueId: "c" }, db);
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   await Bun.sleep(0);
@@ -1442,7 +1442,7 @@ test("a delivery that succeeds before the ceiling resets the pair's failure coun
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
 
   const { signIn } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   await Bun.sleep(0);
@@ -1475,7 +1475,7 @@ test("a capped pair's failure counter is forgotten once it stops being stale", a
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
 
   const { signIn, markDelivered } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   if (!posted.ok) throw new Error("unreachable");
@@ -1525,7 +1525,7 @@ test("a pair past the ceiling backs off, then retries and delivers on the next e
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
 
   const { signIn } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   await Bun.sleep(0); // resolver not ready: the normal push misses entirely
@@ -1575,7 +1575,7 @@ test("a sweep re-delivery chains behind an in-flight post delivery to the same r
   await h["chat:join"]({ room: "general", handle: "a", wakeOn: "all" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
   const { signIn } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "one" });
   if (!posted.ok) throw new Error("unreachable");
@@ -1613,7 +1613,7 @@ test("a sweep tick landing while the previous one is still running is skipped, n
   await h["chat:join"]({ room: "general", handle: "a", wakeOn: "all" });
   await h["chat:join"]({ room: "general", handle: "b", wakeOn: "all" });
   const { signIn } = await import("../../state/index.ts");
-  signIn({ sessionId: "sess-b", baseHandle: "b" }, db);
+  signIn({ sessionId: "sess-b", continueId: "b" }, db);
 
   const posted = await h["chat:post"]({ room: "general", handle: "a", body: "hi" });
   if (!posted.ok) throw new Error("unreachable");
