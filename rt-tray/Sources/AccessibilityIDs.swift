@@ -107,6 +107,7 @@ enum AXID {
     static let settingsFastBrowserSkipped = "settings.fastBrowser.skipped"
     static let settingsFastBrowserUnskip = "settings.fastBrowser.unskip"
     static let settingsFastBrowserError = "settings.fastBrowser.error"
+    static func settingsAppToggle(_ name: String) -> String { "settings.apps.toggle.\(name)" }
     static let settingsWritingStyleRow = "settings.writingStyle.row"
     static let settingsWritingStyleRowAction = "settings.writingStyle.row.action"
     static let settingsWritingStyleRowStatus = "settings.writingStyle.row.status"

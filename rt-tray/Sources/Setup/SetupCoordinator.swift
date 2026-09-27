@@ -22,6 +22,7 @@ final class SetupCoordinator {
     private let install: InstallRunModel
     private let statusInstall: InstallRunModel
     private let teamSettings: TeamSettingsModel
+    private let appsSettings: AppsSettingsModel
     private var setupWindow: SetupWindowController?
     /// "Setup status…" reuses this SAME controller across repeat opens —
     /// never a fresh one per click. A second `SetupWindowController` here
@@ -59,6 +60,7 @@ final class SetupCoordinator {
         // live `rt setup apply` the onboarding window owns.
         statusInstall = InstallRunModel(stream: { _ in AsyncThrowingStream { $0.finish() } }, needs: needs)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
+        appsSettings = AppsSettingsModel(rt: rt)
     }
 
     var setupIsComplete: Bool {
@@ -98,7 +100,7 @@ final class SetupCoordinator {
 
     func showSettings(pane: SettingsPane? = nil) {
         if settingsWindow == nil {
-            let env = SettingsEnvironment(rt: rt, permissions: permissions, readiness: readiness, updater: updater, team: teamSettings,
+            let env = SettingsEnvironment(rt: rt, permissions: permissions, readiness: readiness, updater: updater, apps: appsSettings, team: teamSettings,
                                           waivers: WaiverClient(rt: rt),
                                           isDevBuild: BundleFlavor.isDevBuild,
                                           version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",

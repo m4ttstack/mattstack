@@ -128,4 +128,26 @@ let settingsChecks: [Check] = [
         c.expectEqual(await MainActor.run { m.isSolo }, true)
         c.expect(await MainActor.run { m.info?.remote == nil }, "a solo status carries no remote")
     },
+    Check("AppsSettingsModel lists rt apps and flips one through rt, exact argv") { c in
+        let rt = ScriptedRt()
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":false,"requiresTeam":true},{"name":"chat","displayName":"Chat","enabled":true,"requiresTeam":false}]}"#)
+        rt.answers["apps enable board"] = (0, #"{"contract":1,"name":"board","enabled":true}"#)
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        await m.load()
+        c.expectEqual(await MainActor.run { m.apps.map(\.name) }, ["board", "chat"])
+        await m.setEnabled("board", true)
+        try c.require(rt.calls.count == 3, "expected list, enable, list; got \(rt.calls.map(\.args))")
+        c.expectEqual(rt.calls[1].args, ["apps", "enable", "board", "--json"])
+        c.expectEqual(rt.calls[2].args, ["apps", "list", "--json"])
+    },
+    Check("AppsSettingsModel keeps rt's error and the last list on a failed flip") { c in
+        let rt = ScriptedRt()
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[{"name":"board","displayName":"Board","enabled":false,"requiresTeam":true}]}"#)
+        rt.answers["apps disable board"] = (2, #"{"contract":1,"error":{"code":"deck-not-running","message":"deck is not running; open mattstack.app, then retry"}}"#)
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        await m.load()
+        await m.setEnabled("board", false)
+        c.expectEqual(await MainActor.run { m.error }, "deck is not running; open mattstack.app, then retry")
+        c.expectEqual(await MainActor.run { m.apps.count }, 1)
+    },
 ]

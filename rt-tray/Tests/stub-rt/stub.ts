@@ -318,6 +318,13 @@ else if (a0 === "team" && a1 === "join") {
   else emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "ok", peering: "idle", intent: "written", message: "Joining Acme (owner matt)" });
 }
 else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { slug: "acme", name: "Acme", remote: "git@github.com:acme/mattstack-team-acme.git", lastPush: "2026-08-21T03:00:00Z", members: [{ username: "matt" }, { username: "bob" }] });
+else if (a0 === "apps" && a1 === "list") emit({ apps: [
+  { name: "board", displayName: "Board", description: "Open MRs ready for review.", enabled: scenario !== "solo", requiresTeam: true },
+  { name: "boxscore", displayName: "boxscore", description: "Team scoreboard.", enabled: scenario !== "solo", requiresTeam: true },
+  { name: "console", displayName: "Console", description: "Settings and logs for this Mac.", enabled: true, requiresTeam: false },
+  { name: "chat", displayName: "Chat", description: "Rooms and DMs for the agents on this Mac.", enabled: true, requiresTeam: false },
+] });
+else if (a0 === "apps" && (a1 === "enable" || a1 === "disable")) emit({ name: a2, enabled: a1 === "enable" });
 else if (a0 === "team" && a1 === "invite") emit({ code: "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567", expiresAt: "2026-08-28T00:00:00Z",
   pasteBlock: "Install mattstack from https://github.com/m4ttstack/rt/releases, then open mattstack://join/ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567 or paste the code into Setup → Join a team.",
   forgeAccess: "granted", manualSteps: [], link: "https://mattstack.dev/join#ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567" });

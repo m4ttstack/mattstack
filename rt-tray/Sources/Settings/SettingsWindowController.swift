@@ -4,13 +4,14 @@ import Combine
 import MattstackCore
 
 enum SettingsPane: String, CaseIterable {
-    case general, permissions, fastBrowser, team, uninstall
+    case general, permissions, fastBrowser, apps, team, uninstall
 
     var title: String {
         switch self {
         case .general: return "General"
         case .permissions: return "Permissions"
         case .fastBrowser: return "Fast Browser"
+        case .apps: return "Apps"
         case .team: return "Team"
         case .uninstall: return "Uninstall"
         }
@@ -21,6 +22,7 @@ enum SettingsPane: String, CaseIterable {
         case .general: return "gearshape"
         case .permissions: return "lock.shield"
         case .fastBrowser: return "globe"
+        case .apps: return "square.grid.2x2"
         case .team: return "person.3"
         case .uninstall: return "trash"
         }
@@ -145,6 +147,7 @@ struct SettingsEnvironment {
     let permissions: PermissionsService
     let readiness: ReadinessModel
     let updater: UpdaterController
+    let apps: AppsSettingsModel
     let team: TeamSettingsModel
     let waivers: WaiverClient
     let isDevBuild: Bool
