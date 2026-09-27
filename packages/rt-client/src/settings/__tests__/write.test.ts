@@ -16,10 +16,19 @@ import { machineSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSet
 import { setSetting, unsetSetting } from "../write.ts";
 import * as isolation from "../../test-isolation.ts";
 import { withSchema } from "./with-schema.ts";
+import { suspendRepoOnly } from "./without-repo-only.ts";
 
 const IDENTITY = "gitlab.com/acme/acme-dev";
 const TEAM = "acme";
 const OTHER_TEAM = "otherteam";
+
+// rt.worktrees stands in for any global key in these store-mechanics tests;
+// the repo-only refusal itself is pinned with rt.roles below.
+let restoreRepoOnly: () => void;
+beforeEach(() => {
+  restoreRepoOnly = suspendRepoOnly(["rt.worktrees"]);
+});
+afterEach(() => restoreRepoOnly());
 
 describe("settings/write", () => {
   const origHome = process.env.HOME;
@@ -141,11 +150,11 @@ describe("settings/write", () => {
 
     test("a global-scope key written alongside a repos section leaves the repos section intact", () => {
       setSetting("rt.roles", { backend: {} }, "user", { repoIdentity: IDENTITY });
-      setSetting("rt.worktrees", { onDeck: 3 }, "user");
+      setSetting("rt.gitStatus", { sweep: false }, "user");
 
       const parsed = JSON.parse(readUser().replace(/^\/\/.*\n/, ""));
       expect(parsed.repos[IDENTITY]["rt.roles"]).toEqual({ backend: {} });
-      expect(parsed["rt.worktrees"]).toEqual({ onDeck: 3 });
+      expect(parsed["rt.gitStatus"]).toEqual({ sweep: false });
     });
   });
 
@@ -154,6 +163,17 @@ describe("settings/write", () => {
   describe("refusals", () => {
     test("refuses an unregistered key", () => {
       expect(() => setSetting("rt.doesNotExist", 1, "user")).toThrow(/unknown setting|not.*registry/i);
+    });
+
+    test("refuses a repo-only key written with no repo, naming --repo", () => {
+      expect(() => setSetting("rt.roles", { backend: {} }, "user")).toThrow(/repo-only.*--repo/);
+      expect(existsSync(userSettingsPath())).toBe(false);
+    });
+
+    test("unset of a repo-only key with no repo still removes a stray global value", () => {
+      write(userSettingsPath(), `{ "rt.roles": { "backend": {} } }\n`);
+      expect(unsetSetting("rt.roles", "user")).toBe(true);
+      expect(JSON.parse(readUser())).toEqual({});
     });
 
     test("refuses a scope the def does not allow", () => {
@@ -628,7 +648,7 @@ describe("settings/write: test-run guard", () => {
     mkdirSync(dirname(store), { recursive: true });
     writeFileSync(store, "// acme team store\n{}\n");
     actAsAccountHome(home);
-    expect(() => setSetting("rt.roles", { reviewer: {} }, "team")).toThrow(/Run bun test from the repo root/);
+    expect(() => setSetting("rt.roles", { reviewer: {} }, "team", { repoIdentity: IDENTITY })).toThrow(/Run bun test from the repo root/);
     expect(readFileSync(store, "utf8")).toBe("// acme team store\n{}\n");
   });
 

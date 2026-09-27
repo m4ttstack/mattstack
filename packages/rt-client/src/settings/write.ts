@@ -509,6 +509,7 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
   if (!def) refuse(`unknown setting "${key}"; not in the settings registry (see \`rt settings list\`)`);
   if (!def.scopes.includes(scope)) refuse(`"${key}" is not stored in the ${scope} store (allowed: ${def.scopes.join(", ")})`);
   if (opts.repoIdentity !== undefined && def.repoScoped !== true) refuse(`"${key}" is not repo-scoped; omit the repo identity`);
+  if (opts.repoIdentity === undefined && def.repoOnly === true) refuse(`"${key}" is repo-only: name the repo (--repo)`);
   if (!olderStoreNames(def).some((o) => o.name === storeName)) refuse(`"${storeName}" is not an older store name of "${key}"`);
 
   const storePath = resolveStorePathForUnset(scope, opts);
