@@ -2,16 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { TREE } from "../../command-tree-def.ts";
 import { listAgentSafe } from "../../command-tree-resolve.ts";
 import { mcpTools } from "../../mcp/tools.ts";
-import { deriveRules } from "../mcp-lint.ts";
+import { deriveRules, KEPT_ON_BASH } from "../mcp-lint.ts";
 
 // mattstack-skills packs with "strictLint": true are checked against this
 // rule set, so a change here can newly fail their strict lint.
-const RULES_SHA256 = "9de7bde0fd0520ead49b1164704b26a4ad50397b18fbdc5520fff08fa950e5ec";
+const RULES_SHA256 = "3d12668a9bfde2c73ce6bfa5314c5eadf40ec4fc4a3248423cc80641320ffd64";
 
 function rulesHash(): string {
-  const rules = deriveRules(mcpTools(), listAgentSafe(TREE).map((l) => l.path));
+  const leaves = listAgentSafe(TREE).map((l) => ({ path: l.path, deniedFlags: l.node.agentDeniedFlags, noCwd: l.node.agentNoCwd }));
+  const rules = deriveRules(mcpTools(), leaves);
   const h = new Bun.CryptoHasher("sha256");
-  h.update(JSON.stringify(rules.map((r) => [r.id, r.pattern.source, r.tool])));
+  h.update(JSON.stringify([
+    rules.map((r) => [r.id, r.pattern.source, r.pattern.flags, r.tool]),
+    KEPT_ON_BASH.map((r) => `${r.source}/${r.flags}`),
+  ]));
   return h.digest("hex");
 }
 

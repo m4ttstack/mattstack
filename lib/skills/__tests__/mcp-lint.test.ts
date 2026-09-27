@@ -9,8 +9,9 @@ import { HEADER_COMMENT } from "../compile.ts";
 import { commandPattern, deriveRules, formatHit, KEPT_ON_BASH, lintedMarkdownFiles, lintPackDir, lintPackScripts, lintScriptText, lintSkillText, pickRule, SCRIPT_ONLY_RULES } from "../mcp-lint.ts";
 
 const md = (...lines: string[]) => lines.join("\n");
-const LEAVES = listAgentSafe(TREE).map((l) => l.path);
-const RULES = deriveRules(mcpTools(), LEAVES);
+const LEAF_ENTRIES = listAgentSafe(TREE).map((l) => ({ path: l.path, deniedFlags: l.node.agentDeniedFlags, noCwd: l.node.agentNoCwd }));
+const LEAVES = LEAF_ENTRIES.map((l) => l.path);
+const RULES = deriveRules(mcpTools(), LEAF_ENTRIES);
 
 describe("deriveRules on the real roster", () => {
   test("every rule hits its own example and wins it", () => {
@@ -45,6 +46,25 @@ describe("deriveRules on the real roster", () => {
   });
   test("a tool with { none } derives no rule", () => {
     expect(RULES.some((r) => r.tool === "whoami")).toBe(false);
+  });
+});
+
+describe("leaf rules on denied flags and noCwd", () => {
+  test("a denied flag later on the line takes the leaf off rt_verb", () => {
+    expect(pickRule("rt skills compile --pack x --pack-dir /y", RULES)).toBeNull();
+  });
+  test("the same leaf with no denied flag still hits rt_verb", () => {
+    expect(pickRule("rt skills compile --pack x", RULES)!.id).toBe("rt skills compile");
+  });
+  test("a noCwd leaf's note tells the agent to pass --pack", () => {
+    for (const id of ["rt skills compile", "rt skills sync", "rt skills surface", "rt skills bind"]) {
+      const r = RULES.find((x) => x.id === id)!;
+      expect(r.note, id).toContain("rt_verb runs it with no cwd, so pass --pack");
+    }
+  });
+  test("a leaf with no noCwd carries no such note", () => {
+    const r = RULES.find((x) => x.id === "rt skills check")!;
+    expect(r.note).not.toContain("no cwd");
   });
 });
 
@@ -106,6 +126,10 @@ describe("lintSkillText: no hits", () => {
     );
     expect(lintSkillText(kept, "k.md", RULES)).toEqual([]);
     expect(KEPT_ON_BASH.length).toBeGreaterThan(0);
+  });
+  test("the shepherd's --by=shepherd and --by  shepherd forms are kept on Bash too", () => {
+    expect(lintSkillText("```bash\nrt gate answer <id> --answers '<json>' --by=shepherd\n```", "k.md", RULES)).toEqual([]);
+    expect(lintSkillText("```bash\nrt gate answer <id> --answers '<json>' --by  shepherd\n```", "k.md", RULES)).toEqual([]);
   });
   test("prose that names a tool", () => {
     const prose = md(
@@ -206,6 +230,23 @@ describe("lintPackDir on disk", () => {
       rmSync(pack, { recursive: true, force: true });
     }
   });
+
+  test("skips a dot-directory, venv and __pycache__ during the real walk", () => {
+    const pack = mkdtempSync(join(tmpdir(), "rt-mcp-lint-skipdirs-"));
+    try {
+      mkdirSync(join(pack, "skills", "a", ".venv", "lib"), { recursive: true });
+      writeFileSync(join(pack, "skills", "a", ".venv", "lib", "x.py"), "git push\n");
+      mkdirSync(join(pack, "skills", "a", "venv", "lib"), { recursive: true });
+      writeFileSync(join(pack, "skills", "a", "venv", "lib", "y.py"), "git push\n");
+      mkdirSync(join(pack, "skills", "a", "__pycache__"), { recursive: true });
+      writeFileSync(join(pack, "skills", "a", "__pycache__", "z.py"), "git push\n");
+      mkdirSync(join(pack, "skills", "a", "scripts"), { recursive: true });
+      writeFileSync(join(pack, "skills", "a", "scripts", "real.py"), "git push\n");
+      expect(lintPackScripts(pack, RULES).map((h) => h.file)).toEqual([join(pack, "skills", "a", "scripts", "real.py")]);
+    } finally {
+      rmSync(pack, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("lintScriptText", () => {
@@ -216,6 +257,10 @@ describe("lintScriptText", () => {
   test("skips comment lines and allow-marked lines", () => {
     const text = ["# never git push here", "  // git push is the tool's job", "git push # mcp-lint: allow", "glab mr view 1  // mcp-lint: allow"].join("\n");
     expect(lintScriptText(text, "s.sh", SCRIPT_RULES)).toEqual([]);
+  });
+  test("the allow marker only counts inside a trailing comment", () => {
+    const hits = lintScriptText('echo "mcp-lint: allow"; git push\n', "s.sh", SCRIPT_RULES);
+    expect(hits.map((h) => h.tool)).toEqual(["git_push"]);
   });
   test("gh pr and gh api are flagged with no tool named", () => {
     const hits = lintScriptText("gh pr view 3\ngh api repos/x\ngh auth status\n", "s.sh", SCRIPT_RULES);

@@ -8,7 +8,7 @@ export interface LintHit { file: string; line: number; text: string; rule: strin
 
 // Written in one bare form by the skills; each stays on Bash on purpose.
 export const KEPT_ON_BASH: RegExp[] = [
-  /\brt gate answer\b.*--by shepherd\b/,
+  /\brt\s+gate\s+answer\b.*--by[=\s]+shepherd\b/,
   /\brt gate wait\b/,
   /\brt events wait\b/,
 ];
@@ -20,7 +20,22 @@ export function commandPattern(command: string): RegExp {
   return new RegExp(`(?<![\\w-])${command.trim().split(/\s+/).map(escape).join("\\s+")}(?![\\w-])`);
 }
 
-export function deriveRules(tools: ReadonlyArray<{ name: string; shellForms: ShellForms }>, leafPaths: ReadonlyArray<readonly string[]>): LintRule[] {
+/** A denied flag anywhere later on the line takes the leaf off rt_verb: that
+    call would be refused, so Bash (where the permission prompt applies) is
+    the correct call and must not also be flagged. */
+function leafPattern(command: string, deniedFlags: readonly string[]): RegExp {
+  const base = command.trim().split(/\s+/).map(escape).join("\\s+");
+  const denies = deniedFlags.map((f) => `(?!.*\\s${escape(f)}(?![\\w-]))`).join("");
+  return new RegExp(`(?<![\\w-])${base}${denies}(?![\\w-])`);
+}
+
+export interface LeafInput {
+  path: readonly string[];
+  deniedFlags?: readonly string[];
+  noCwd?: boolean;
+}
+
+export function deriveRules(tools: ReadonlyArray<{ name: string; shellForms: ShellForms }>, leaves: ReadonlyArray<LeafInput>): LintRule[] {
   const rules: LintRule[] = [];
   for (const t of tools) {
     if (!Array.isArray(t.shellForms)) continue;
@@ -31,10 +46,20 @@ export function deriveRules(tools: ReadonlyArray<{ name: string; shellForms: She
     }
   }
   const named = new Set(rules.map((r) => r.id));
-  for (const path of leafPaths) {
-    const id = `rt ${path.join(" ")}`;
+  for (const leaf of leaves) {
+    const id = `rt ${leaf.path.join(" ")}`;
     if (named.has(id)) continue;
-    rules.push({ id, pattern: commandPattern(id), tool: "rt_verb", note: `args: ${JSON.stringify(path).replace(/,/g, ", ")}`, example: id, source: "leaf" });
+    const deniedFlags = leaf.deniedFlags ?? [];
+    const notes = [`args: ${JSON.stringify(leaf.path).replace(/,/g, ", ")}`];
+    if (leaf.noCwd) notes.push("rt_verb runs it with no cwd, so pass --pack");
+    rules.push({
+      id,
+      pattern: deniedFlags.length > 0 ? leafPattern(id, deniedFlags) : commandPattern(id),
+      tool: "rt_verb",
+      note: notes.join("; "),
+      example: id,
+      source: "leaf",
+    });
   }
   return rules;
 }
@@ -93,7 +118,7 @@ function walkLintedRoots(dir: string): string[] {
       const p = join(d, name);
       let isDir = false;
       try { isDir = lstatSync(p).isDirectory(); } catch { continue; }
-      if (isDir) { if (name !== "node_modules" && name !== ".git") visit(p); } else out.push(p);
+      if (isDir) { if (name !== "node_modules" && name !== "venv" && name !== "__pycache__" && !name.startsWith(".")) visit(p); } else out.push(p);
     }
   };
   for (const root of LINTED_ROOTS) {
@@ -149,7 +174,7 @@ export const SCRIPT_ONLY_RULES: LintRule[] = [
 ];
 
 const SCRIPT_EXTS = [".sh", ".py", ".ts"];
-const SCRIPT_ALLOW = /mcp-lint:\s*allow/;
+const SCRIPT_ALLOW = /(#|\/\/).*mcp-lint:\s*allow/;
 const COMMENT = /^\s*(#|\/\/)/;
 
 export function lintScriptText(text: string, file: string, rules: readonly LintRule[]): LintHit[] {

@@ -1105,7 +1105,7 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // nothing to compare against, so it would only cost a real filesystem scan
   // for a null result.
   const installed = resolved.pluginRoots.list.length === 0 ? null : installedInfoFor(resolved, discoverPacks());
-  const rules = deriveRules(mcpTools(), listAgentSafe(TREE).map((l) => l.path));
+  const rules = deriveRules(mcpTools(), listAgentSafe(TREE).map((l) => ({ path: l.path, deniedFlags: l.node.agentDeniedFlags, noCwd: l.node.agentNoCwd })));
   const mcpLint = lintPackDir(resolved.packDir, rules);
   const scriptLint = lintPackScripts(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
@@ -1160,7 +1160,7 @@ export async function skillsCheck(args: string[]): Promise<void> {
         ? "strict: --strict and rt skills sync fail on them"
         : flags.strict ? "--strict fails on them" : "advisory; --strict fails on them";
       console.log(payload.mcpLint.length > 0 ? `mcp lint: ${payload.mcpLint.length} hits (${policy})` : "mcp lint: clean");
-      for (const hit of payload.scriptLint) console.log(formatHit(hit));
+      for (const hit of payload.scriptLint) console.log(`(advisory) ${formatHit(hit)}`);
       if (payload.scriptLint.length > 0) console.log(`mcp lint (pack scripts, advisory): ${payload.scriptLint.length} ${payload.scriptLint.length === 1 ? "hit" : "hits"}`);
     }
 
