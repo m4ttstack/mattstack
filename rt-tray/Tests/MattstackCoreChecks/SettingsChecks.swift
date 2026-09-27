@@ -150,4 +150,29 @@ let settingsChecks: [Check] = [
         c.expectEqual(await MainActor.run { m.error }, "deck is not running; open mattstack.app, then retry")
         c.expectEqual(await MainActor.run { m.apps.count }, 1)
     },
+    Check("SettingsRefresher reloads team and apps on every show, so an already-open Settings window refreshes") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"mode":"solo"}"#)
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[]}"#)
+        let refresher = await MainActor.run {
+            SettingsRefresher(team: makeTeamSettings(rt).0, apps: AppsSettingsModel(rt: rt))
+        }
+        await refresher.reload()
+        await refresher.reload()
+        c.expectEqual(rt.calls.filter { $0.args == ["team", "status", "--json"] }.count, 2, "a second show must run team status again")
+        c.expectEqual(rt.calls.filter { $0.args == ["apps", "list", "--json"] }.count, 2, "a second show must run apps list again")
+    },
+    Check("SettingsRefresher reloads after an upgrade's setup window closes on a finished apply, never on a first run or an unfinished apply") { c in
+        let rt = ScriptedRt()
+        rt.answers["team status"] = (0, #"{"contract":1,"name":"Acme"}"#)
+        rt.answers["apps list"] = (0, #"{"contract":1,"apps":[]}"#)
+        let refresher = await MainActor.run {
+            SettingsRefresher(team: makeTeamSettings(rt).0, apps: AppsSettingsModel(rt: rt))
+        }
+        await refresher.setupWindowClosed(entry: .firstRun, applied: true)
+        await refresher.setupWindowClosed(entry: .upgrade, applied: false)
+        c.expectEqual(rt.calls.count, 0, "a first run or an unfinished upgrade must not reload Settings")
+        await refresher.setupWindowClosed(entry: .upgrade, applied: true)
+        c.expectEqual(rt.calls.map(\.args), [["team", "status", "--json"], ["apps", "list", "--json"]])
+    },
 ]

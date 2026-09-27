@@ -28,6 +28,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     /// though `flow` itself hasn't reached `.done` — a wizard step must never
     /// double as a trap once there's nothing left to walk the user through.
     var allowsCloseAlways = false
+    var onClose: (@MainActor (SetupEntry) -> Void)?
     private let environment: SetupEnvironment
     private var activeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
@@ -98,5 +99,6 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
             environment.readiness.becameHidden()
         }
         if let o = activeObserver { NotificationCenter.default.removeObserver(o) }
+        onClose?(flow.entry)
     }
 }

@@ -23,6 +23,7 @@ final class SetupCoordinator {
     private let statusInstall: InstallRunModel
     private let teamSettings: TeamSettingsModel
     private let appsSettings: AppsSettingsModel
+    private let settingsRefresher: SettingsRefresher
     private var setupWindow: SetupWindowController?
     /// "Setup status…" reuses this SAME controller across repeat opens —
     /// never a fresh one per click. A second `SetupWindowController` here
@@ -61,6 +62,7 @@ final class SetupCoordinator {
         statusInstall = InstallRunModel(stream: { _ in AsyncThrowingStream { $0.finish() } }, needs: needs)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
         appsSettings = AppsSettingsModel(rt: rt)
+        settingsRefresher = SettingsRefresher(team: teamSettings, apps: appsSettings)
     }
 
     var setupIsComplete: Bool {
@@ -72,7 +74,13 @@ final class SetupCoordinator {
             let env = SetupEnvironment(rt: rt, readiness: readiness, install: install, permissions: permissions,
                                        isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
                                        bundlePath: Bundle.main.bundlePath)
-            setupWindow = SetupWindowController(environment: env)
+            let wc = SetupWindowController(environment: env)
+            wc.onClose = { [weak self, weak wc] entry in
+                guard let self, let wc else { return }
+                let applied = wc.flow.step == .done && self.install.phase == .succeeded
+                Task { @MainActor in await self.settingsRefresher.setupWindowClosed(entry: entry, applied: applied) }
+            }
+            setupWindow = wc
         }
         // Re-entering an already-complete setup must never trap the user
         // behind a titlebar with no close button.
@@ -115,6 +123,7 @@ final class SetupCoordinator {
             settingsWindow = SettingsWindowController(env: env)
         }
         settingsWindow?.show(pane: pane)
+        Task { @MainActor in await settingsRefresher.reload() }
     }
 
     /// A join link while setup is already complete is "join a DIFFERENT
