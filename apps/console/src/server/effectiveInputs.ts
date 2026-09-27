@@ -1,4 +1,9 @@
-import { getDef, getRun, getSetting, parseIdentity } from '@mattstack/rt-client';
+import {
+  getDef,
+  getRun,
+  getSetting,
+  parseIdentity,
+} from '@mattstack/rt-client';
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 
