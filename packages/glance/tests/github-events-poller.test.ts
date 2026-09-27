@@ -113,6 +113,49 @@ describe('GitHubEventsPoller', () => {
     expect(r.cursor.seenIds).not.toContain('100');
   });
 
+  test('cold tick that throws stays cold: the retry reports coldStart and no invalidations', async () => {
+    let shouldThrow = true;
+    const fetchPage: FetchGitHubEventsPage = async () => {
+      if (shouldThrow) throw new Error('network down');
+      return { status: 200, events: [ev('1', 1), ev('2', 2)], etag: null, pollIntervalSec: null };
+    };
+    const p = new GitHubEventsPoller({ fetchPage });
+
+    await expect(p.tick()).rejects.toThrow('network down');
+
+    shouldThrow = false;
+    const r = await p.tick();
+    expect(r.coldStart).toBe(true);
+    expect(r.requests).toBe(1);
+    expect(r.invalidations).toEqual([]);
+  });
+
+  test('a tick whose page 2 throws keeps the previous etag, so the next tick refetches instead of 304ing', async () => {
+    const calls: Array<{ page: number; etag: string | null }> = [];
+    const responses: Array<Awaited<ReturnType<FetchGitHubEventsPage>> | Error> = [
+      { status: 200, events: [ev('10', 1)], etag: 'W/"a"', pollIntervalSec: null },
+      { status: 200, events: [ev('12', 12), ev('11', 11)], etag: 'W/"b"', pollIntervalSec: null },
+      new Error('page 2 failed'),
+      { status: 200, events: [ev('12', 12), ev('11', 11), ev('10', 1)], etag: 'W/"b"', pollIntervalSec: null },
+    ];
+    const fetchPage: FetchGitHubEventsPage = async (opts) => {
+      calls.push(opts);
+      const next = responses.shift();
+      if (!next) throw new Error('scripted fetch exhausted');
+      if (next instanceof Error) throw next;
+      return next;
+    };
+    const p = new GitHubEventsPoller({ fetchPage });
+    await p.tick();
+
+    await expect(p.tick()).rejects.toThrow('page 2 failed');
+
+    const r = await p.tick();
+    expect(calls[3]).toEqual({ page: 1, etag: 'W/"a"' });
+    expect(r.freshEvents).toBe(2);
+    expect(r.invalidations.map((k) => k.ref).sort()).toEqual(['11', '12']);
+  });
+
   test('cursor JSON round-trip resumes with no replay (the rt persistence path)', async () => {
     const { fetch } = scriptedFetch([
       { status: 200, events: [ev('50', 1)], etag: null, pollIntervalSec: null },
