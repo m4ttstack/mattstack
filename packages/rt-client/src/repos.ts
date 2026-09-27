@@ -9,6 +9,7 @@
  * lib/repo-index.ts `repoIndexCompatPath` for the write side.
  */
 import { existsSync, readFileSync } from "fs";
+import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
 
@@ -35,10 +36,17 @@ type BunSqliteDatabaseCtor = new (path: string, opts?: { readonly?: boolean }) =
  * Loads bun:sqlite defensively: only Bun's runtime provides this built-in.
  * A non-Bun consumer throws resolving the specifier, caught here so the
  * caller degrades to the repos.json path instead of throwing.
+ *
+ * The require is built here from the module URL rather than written as a
+ * bare `require`, which Bun's bundler would turn into a module-scope
+ * createRequire(import.meta.url) that a CJS bundle of dist executes at load
+ * with an empty import.meta. No URL means that CJS bundle, which runs
+ * outside Bun, so there is no bun:sqlite to find.
  */
-function loadBunSqliteDatabase(): BunSqliteDatabaseCtor | null {
+export function loadBunSqliteDatabase(moduleUrl: string | undefined): BunSqliteDatabaseCtor | null {
+  if (!moduleUrl) return null;
   try {
-    return (require("bun:sqlite") as { Database: BunSqliteDatabaseCtor }).Database;
+    return (createRequire(moduleUrl)("bun:sqlite") as { Database: BunSqliteDatabaseCtor }).Database;
   } catch {
     return null;
   }
@@ -52,7 +60,7 @@ function loadBunSqliteDatabase(): BunSqliteDatabaseCtor | null {
  */
 function repoNameFromStateDb(repoPath: string, dbPath: string): string | null {
   if (!existsSync(dbPath)) return null;
-  const DatabaseCtor = loadBunSqliteDatabase();
+  const DatabaseCtor = loadBunSqliteDatabase(import.meta.url);
   if (!DatabaseCtor) return null;
   try {
     const db = new DatabaseCtor(dbPath, { readonly: true });

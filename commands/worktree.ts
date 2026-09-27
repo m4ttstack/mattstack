@@ -751,7 +751,7 @@ export async function worktreeReadyApprove(args: string[], _ctx: unknown): Promi
     // approve deliberately (mirrors the leaf-picker gate).
     failText(
       json,
-      `team \`ready\` steps for ${repoLabel(repoName)} need approval (hash ${info.hash}). Re-run in a TTY, or: rt settings set rt.worktreeReadyApproval '${info.hash}' --scope user`,
+      `team \`ready\` steps for ${repoLabel(repoName)} need approval (hash ${info.hash}). Re-run in a TTY, or: rt settings set rt.worktreeReadyApproval '"${info.hash}"' --scope user --repo ${shellQuote(repoName)}`,
     );
   }
 

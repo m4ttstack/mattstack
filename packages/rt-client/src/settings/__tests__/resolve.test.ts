@@ -32,6 +32,7 @@ import {
 } from "../resolve.ts";
 import { withMigration } from "./with-migration.ts";
 import { withSchema } from "./with-schema.ts";
+import { suspendRepoOnly } from "./without-repo-only.ts";
 
 const SNAPSHOT = { type: "object", properties: { enabled: { type: "boolean" }, debounceSec: { type: "number" } }, required: ["enabled", "debounceSec"] };
 
@@ -43,13 +44,19 @@ describe("settings/resolve", () => {
   let home: string;
   let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
 
+  // These keys stand in for any repo-scoped key in the generic ladder tests;
+  // repoOnly itself is pinned in its own describe below.
+  let restoreRepoOnly: () => void;
+
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-resolve-")));
     process.env.HOME = home;
     warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    restoreRepoOnly = suspendRepoOnly(["rt.intercepts", "rt.worktrees", "rt.roles"]);
   });
 
   afterEach(() => {
+    restoreRepoOnly();
     warnSpy.mockRestore();
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
@@ -102,6 +109,36 @@ describe("settings/resolve", () => {
       def.scopes = prev;
     }
   }
+
+  // ─── repoOnly: global sections are refused ─────────────────────────────────
+
+  describe("repoOnly keys", () => {
+    beforeEach(() => {
+      restoreRepoOnly();
+      restoreRepoOnly = () => {};
+    });
+
+    test("a global value is refused: explain marks it invalid and getSetting ignores it", () => {
+      writeUser({ "rt.intercepts": [{ id: "global" }] });
+      writeTeam(TEAM, { repos: { [IDENTITY]: { "rt.intercepts": [{ id: "team.repo" }] } } });
+
+      const got = getSetting("rt.intercepts", { repoIdentity: IDENTITY });
+      expect(got.value).toEqual([{ id: "team.repo" }]);
+      expect(got.provenance).toEqual([{ scope: "team.repo", file: teamSettingsPath(TEAM) }]);
+
+      const user = explainSetting("rt.intercepts", { repoIdentity: IDENTITY }).find((r) => r.scope === "user");
+      expect(user?.present).toBe(true);
+      expect(user?.invalid).toMatch(/repo-only/);
+    });
+
+    test("with no repo, a repo-only key resolves to its registry default and nothing else", () => {
+      writeMachine({ "rt.worktrees": { onDeck: 4 } });
+
+      const got = getSetting("rt.worktrees");
+      expect(got.value).toEqual({ onDeck: 0 });
+      expect(got.provenance).toEqual([{ scope: "default", file: null }]);
+    });
+  });
 
   // ─── precedence: the full scope ladder ─────────────────────────────────────
 

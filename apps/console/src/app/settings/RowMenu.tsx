@@ -16,7 +16,7 @@ import {
   type StoreScope,
 } from './view';
 
-const SLOT = 28;
+export const SLOT = 28;
 
 /** Move and remove for the layer a writable row's value comes from, plus an
     Edit as JSON entry for a composite row when one is offered. Rows with

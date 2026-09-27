@@ -13,6 +13,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath, userSettingsPath } from "../../rt-paths.ts";
 import { createSettingsHandlers } from "../handlers/settings.ts";
+import { suspendRepoOnly } from "../../../packages/rt-client/src/settings/__tests__/without-repo-only.ts";
 
 const IDENTITY = "gitlab.com/acme/acme-dev";
 
@@ -21,15 +22,19 @@ describe("settings handlers", () => {
   let home: string;
   let handlers: ReturnType<typeof createSettingsHandlers>;
   let warnSpy: ReturnType<typeof spyOn<Console, "warn">>;
+  let restoreRepoOnly: () => void;
 
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-handlers-")));
     process.env.HOME = home;
     handlers = createSettingsHandlers();
     warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    // These keys stand in for any repo-scoped key in the handler plumbing tests.
+    restoreRepoOnly = suspendRepoOnly(["rt.intercepts", "rt.roles", "rt.hooks"]);
   });
 
   afterEach(() => {
+    restoreRepoOnly();
     warnSpy.mockRestore();
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });

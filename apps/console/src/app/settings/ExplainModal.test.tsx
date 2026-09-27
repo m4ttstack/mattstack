@@ -87,6 +87,47 @@ function renderModal(s: ExplainStore, settingKey: string | null = KEY) {
 afterEach(() => explainGet.mockReset());
 
 describe('ExplainModal', () => {
+  it('a repo-only key hides empty global layers and offers only Remove on a stray global value', async () => {
+    const repoOnly: SettingDefWire = {
+      ...DEF,
+      key: 'rt.logDir',
+      type: 'string',
+      scopes: ['team', 'user', 'machine'],
+      repoScoped: true,
+      repoOnly: true,
+      effective: { scope: null, file: null },
+    };
+    const rows: ExplainRowWire[] = [
+      { scope: 'default', file: null, present: false },
+      { scope: 'team', file: '/home/team/settings.team.jsonc', present: false },
+      {
+        scope: 'user',
+        file: '/home/user/settings.user.jsonc',
+        present: true,
+        value: 'stray',
+        invalid:
+          'repo-only: set it in a repo section (--repo), not the global user store',
+      },
+      {
+        scope: 'machine',
+        file: '/home/user/local/settings.local.jsonc',
+        present: false,
+      },
+    ];
+    explainGet.mockResolvedValue(ok({ def: repoOnly, rows }));
+    renderModal(store({ defs: [repoOnly] }), 'rt.logDir');
+
+    const user = await screen.findByTestId('layer-user');
+    expect(screen.queryByTestId('layer-team')).toBeNull();
+    expect(screen.queryByTestId('layer-machine')).toBeNull();
+    expect(
+      within(user).queryByRole('button', { name: /^set rt\.logDir/ })
+    ).toBeNull();
+    expect(
+      within(user).getByRole('button', { name: 'remove rt.logDir from user' })
+    ).toBeInTheDocument();
+  });
+
   it('renders the settings row, the verdict and every layer', async () => {
     explainGet.mockResolvedValue(ok({ def: DEF, rows: ROWS }));
     renderModal(store());
