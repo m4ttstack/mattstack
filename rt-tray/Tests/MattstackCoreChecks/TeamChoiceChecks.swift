@@ -265,4 +265,23 @@ let teamChoiceChecks: [Check] = [
         await MainActor.run { m.choice = .solo }
         c.expectEqual(await m.validateAndPrepare(), "cannot record intent")
     },
+    Check("entering setup picks the requested choice: Create selects create, Join selects join, a join code wins, and an upgrade never lands on Just me") { c in
+        let m = await MainActor.run { TeamChoiceModel(rt: ScriptedRt(), pasteboard: FakePasteboard(nil)) }
+        await MainActor.run {
+            m.choice = .solo
+            m.enter(.upgrade, choice: .join, joinCode: nil)
+            c.expectEqual(m.choice, .join, "Join a team with no pending code opens on join")
+            m.enter(.upgrade, choice: .create, joinCode: nil)
+            c.expectEqual(m.choice, .create)
+            m.choice = .solo
+            m.enter(.upgrade, choice: nil, joinCode: nil)
+            c.expectEqual(m.choice, .create, "an upgrade with no stated choice leaves Just me")
+            m.enter(.upgrade, choice: .join, joinCode: "CODE")
+            c.expectEqual(m.choice, .join)
+            c.expectEqual(m.inviteCode, "CODE")
+            m.choice = .solo
+            m.enter(.firstRun, choice: nil, joinCode: nil)
+            c.expectEqual(m.choice, .solo, "a first run keeps what the person picked")
+        }
+    },
 ]

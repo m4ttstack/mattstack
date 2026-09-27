@@ -70,7 +70,7 @@ final class SetupCoordinator {
         !FirstRunDetector.needsSetup(home: AppHome.current) { FileManager.default.fileExists(atPath: $0) }
     }
 
-    func showSetup(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun) {
+    func showSetup(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
         if setupWindow == nil {
             let env = SetupEnvironment(rt: rt, readiness: readiness, install: install, permissions: permissions,
                                        isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
@@ -86,7 +86,7 @@ final class SetupCoordinator {
         // Re-entering an already-complete setup must never trap the user
         // behind a titlebar with no close button.
         setupWindow?.allowsCloseAlways = setupIsComplete
-        setupWindow?.show(step: step, joinCode: joinCode, entry: entry)
+        setupWindow?.show(step: step, joinCode: joinCode, entry: entry, choice: choice)
     }
 
     /// "Setup status…": screen 3 as a read-only health view over
@@ -113,13 +113,21 @@ final class SetupCoordinator {
                                           waivers: WaiverClient(rt: rt),
                                           isDevBuild: BundleFlavor.isDevBuild,
                                           version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
+                                          // An unfinished first run is only brought forward: re-entering it
+                                          // as an upgrade would jump a live run back to Team, and a second
+                                          // Install there SIGTERMs its running `rt setup apply`.
                                           onJoinAnotherTeam: { [weak self] in
                                               guard let self else { return }
+                                              guard self.setupIsComplete else { self.showSetup(); return }
                                               let code = self.pendingTeamJoinCode
                                               self.pendingTeamJoinCode = nil
-                                              self.showSetup(step: .team, joinCode: code, entry: .upgrade)
+                                              self.showSetup(step: .team, joinCode: code, entry: .upgrade, choice: .join)
                                           },
-                                          onCreateTeam: { [weak self] in self?.showSetup(step: .team, entry: .upgrade) },
+                                          onCreateTeam: { [weak self] in
+                                              guard let self else { return }
+                                              guard self.setupIsComplete else { self.showSetup(); return }
+                                              self.showSetup(step: .team, entry: .upgrade, choice: .create)
+                                          },
                                           onQuitForUninstall: { NSApp.terminate(nil) })
             settingsWindow = SettingsWindowController(env: env)
         }

@@ -54,6 +54,13 @@ public final class TeamChoiceModel: ObservableObject {
         self.pasteboard = pasteboard
     }
 
+    /// Just me is offered only on a first run, so an upgrade must never be
+    /// left sitting on it.
+    public func enter(_ entry: SetupEntry, choice requested: TeamChoice?, joinCode: String?) {
+        if let requested { choice = requested } else if entry == .upgrade, choice == .solo { choice = .create }
+        if let joinCode { choice = .join; inviteCode = joinCode }
+    }
+
     public var slugPreview: String { Slug.make(teamName) }
     public var ghRepoPreview: String { "\(ghOwner ?? ghHandle ?? "you")/mattstack-team-\(slugPreview)" }
     public var normalizedInviteCode: String {
