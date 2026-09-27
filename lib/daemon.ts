@@ -178,7 +178,7 @@ function credentialHealthCtxFor(id: Integration, team: TeamSnapshot, overrides: 
 
 const RENAME_DETECT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-const EMPTY_TEAM_SNAPSHOT: TeamSnapshot ={ slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+const EMPTY_TEAM_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
 
 type HandleCommand = (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
 
@@ -1336,7 +1336,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         });
         stopRenameDetector = startRenameDetector(
           bootIdentityMigration,
-          () => detectRenamedRepos(renameDeps).catch((err) => { log.warn({ err }, "rename-detect: pass failed"); }),
+          (isStopped) => detectRenamedRepos(renameDeps, { stopped: isStopped }).catch((err) => { log.warn({ err }, "rename-detect: pass failed"); }),
           RENAME_DETECT_INTERVAL_MS,
         );
       },
