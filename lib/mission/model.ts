@@ -110,6 +110,7 @@ export const EMPTY_GIT_BADGE: GitWorktreeBadge = {
   updatedAt: "",
 };
 
+// Not clean: the board draws its clean check only for a badge a git read produced.
 const EMPTY_BADGE: MissionBadge = {
   ahead: 0,
   behind: 0,
@@ -117,7 +118,7 @@ const EMPTY_BADGE: MissionBadge = {
   unstaged: 0,
   untracked: 0,
   conflicted: 0,
-  clean: true,
+  clean: false,
   lastFetchedAt: "",
 };
 
