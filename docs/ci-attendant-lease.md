@@ -210,8 +210,10 @@ and `next`, a one line hint for what to do next.
   the pushed sha yet; call again.
 - `superseded`: the MR's head moved past the pushed sha before a matching
   pipeline settled; watch the new head instead.
-- `lease_lost`: the caller no longer holds the lease (or never did); stand
-  down, or claim it first if `next` says so.
+- `lease_lost`: the caller no longer holds the lease (or never did). A
+  watch under the caller's own lease says in `next` whether to stand down or
+  claim first; with `underBoardLease` (a doctor the board launched) it always
+  says stand down, since that doctor never claims.
 - `aborted`: the call was cancelled (signal, or Ctrl-C at the CLI); call
   again to resume.
 

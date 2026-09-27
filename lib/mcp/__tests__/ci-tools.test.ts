@@ -140,16 +140,23 @@ describe("ci_watch", () => {
   });
   test("underBoardLease returns lease_lost when another owner holds the MR", async () => {
     await tool("ci_lease_claim").handler({ mrUrl: MR }, B);
-    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A)).toMatchObject({ body: { state: "lease_lost" } });
+    const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A);
+    expect(r).toMatchObject({ body: { state: "lease_lost", holder: { owner: "session:bbb" } } });
+    expect((r as any).body.next).toContain("stand down");
   });
-  test("underBoardLease returns lease_lost when no lease exists", async () => {
-    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A)).toMatchObject({ body: { state: "lease_lost" } });
+  test("underBoardLease returns lease_lost with a stand-down hint, never a claim hint, when no lease exists", async () => {
+    const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A);
+    expect(r).toMatchObject({ body: { state: "lease_lost", holder: null } });
+    expect((r as any).body.next).toContain("stand down");
+    expect((r as any).body.next).not.toContain("ci_lease_claim");
   });
   test("underBoardLease refuses a stale board doctor lease", async () => {
     const { claimCiLease, boardDoctorOwner } = await import("../../../packages/rt-client/src/index.ts");
     claimCiLease({ mrUrl: MR, owner: boardDoctorOwner(MR), holder: "doctor", ttlSeconds: 60 }, { dir, now: () => 0 });
     const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A);
-    expect(r).toMatchObject({ ok: true, body: { state: "lease_lost" } });
+    expect(r).toMatchObject({ ok: true, body: { state: "lease_lost", holder: null } });
+    expect((r as any).body.next).toContain("stand down");
+    expect((r as any).body.next).not.toContain("ci_lease_claim");
   });
   test("refuses a GitHub-shaped MR", async () => {
     const t = watchTool({

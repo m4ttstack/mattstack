@@ -151,7 +151,9 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const lc = deps.leaseCheck();
     polls++;
     if (!lc.ok) {
-      const next = lc.reason === "none" ? "no lease held for this MR; call ci_lease_claim first" : "another owner attends this MR now; stand down";
+      const next = lc.reason === "none"
+        ? "no lease held for this MR; call ci_lease_claim first"
+        : lc.holder ? "another owner attends this MR now; stand down" : "this MR's lease is gone; stand down";
       return result("lease_lost", last.mr, next, { holder: lc.holder, lease: null });
     }
     lease = lc.lease;

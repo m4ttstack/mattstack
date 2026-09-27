@@ -180,7 +180,8 @@ export function ciToolDefs(overrides: Partial<CiLeaseToolDeps> & { watch?: Parti
             if (underBoard) {
               const { lease } = readCiLease(mrUrl, deps.leaseOpts());
               if (lease && lease.owner === boardDoctorOwner(mrUrl)) return { ok: true, lease };
-              return { ok: false, holder: lease, reason: lease ? "lost" : "none" };
+              // A board-launched doctor never claims, so a missing board lease is a stand-down, not a cue to claim.
+              return { ok: false, holder: lease, reason: "lost" };
             }
             const hb = heartbeatCiLease(mrUrl, owner, deps.leaseOpts());
             return hb.ok ? { ok: true, lease: hb.lease } : { ok: false, holder: hb.reason === "lost" ? hb.holder : null, reason: hb.reason };
