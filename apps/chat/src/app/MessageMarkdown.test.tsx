@@ -125,9 +125,7 @@ test('mentions: only listed handles, never inside code, the human washed', () =>
 
 test('a mention highlights by name and carries the id', () => {
   render('@remy can you look', ['remy.m2p4'], 'matt', ['remy']);
-  const span = screen
-    .getByTestId('body')
-    .querySelector('[data-mention]')!;
+  const span = screen.getByTestId('body').querySelector('[data-mention]')!;
   expect(span).toHaveTextContent('@remy');
   expect(span).toHaveAttribute('data-mention', 'remy.m2p4');
   expect(span).not.toHaveAttribute('data-me');
@@ -135,9 +133,7 @@ test('a mention highlights by name and carries the id', () => {
 
 test('a mention spelled by id still highlights and carries that id', () => {
   render('@remy.m2p4 can you look', ['remy.m2p4'], 'matt', ['remy']);
-  const span = screen
-    .getByTestId('body')
-    .querySelector('[data-mention]')!;
+  const span = screen.getByTestId('body').querySelector('[data-mention]')!;
   expect(span).toHaveTextContent('@remy.m2p4');
   expect(span).toHaveAttribute('data-mention', 'remy.m2p4');
 });

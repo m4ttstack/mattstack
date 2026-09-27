@@ -206,7 +206,11 @@ test('daemon down: the composer is disabled and keeps the pre-tagged draft', asy
 });
 
 test('a reply to a recycled name tags the name in the text and the id in mentions', async () => {
-  const recycled: InboxCardData = { ...card, handle: 'remy.m2p4', name: 'remy' };
+  const recycled: InboxCardData = {
+    ...card,
+    handle: 'remy.m2p4',
+    name: 'remy',
+  };
   serveWindow([{ ...opened, handle: 'remy.m2p4', name: 'remy' }]);
   renderReader({ card: recycled });
   const message = await screen.findByTestId('reader-message-412');

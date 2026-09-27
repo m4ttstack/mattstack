@@ -241,28 +241,29 @@ const DM_ROOM: Record<string, string> = {
 /** design/build.py's LAST table: the newest message per pair, which the tree's
     DM second line falls back to. `jay|max` has none on purpose -- jay's pane
     title wins there, so the fallback never runs. */
-const DM_LAST: Record<string, { handle: string; name: string; body: string }> = {
-  'max|stan': {
-    handle: 'stan',
-    name: 'stan',
-    body: 'holding the console settings page until 2.8.1 lands',
-  },
-  'edie|stan': {
-    handle: 'edie',
-    name: 'edie',
-    body: 'pack compile is green, cutting the loop over',
-  },
-  'kai|remy': {
-    handle: 'remy',
-    name: 'remy',
-    body: 'tail died again at 03:12, restarting the daemon',
-  },
-  'kai|remy.m2p4': {
-    handle: 'remy.m2p4',
-    name: 'remy',
-    body: 'picked up the chat identity lane',
-  },
-};
+const DM_LAST: Record<string, { handle: string; name: string; body: string }> =
+  {
+    'max|stan': {
+      handle: 'stan',
+      name: 'stan',
+      body: 'holding the console settings page until 2.8.1 lands',
+    },
+    'edie|stan': {
+      handle: 'edie',
+      name: 'edie',
+      body: 'pack compile is green, cutting the loop over',
+    },
+    'kai|remy': {
+      handle: 'remy',
+      name: 'remy',
+      body: 'tail died again at 03:12, restarting the daemon',
+    },
+    'kai|remy.m2p4': {
+      handle: 'remy.m2p4',
+      name: 'remy',
+      body: 'picked up the chat identity lane',
+    },
+  };
 const dmPartners = new Set(DMS.flatMap(([a, c]) => [a, c]));
 
 export function fixtureBuddies(now = Date.now()): Buddy[] {

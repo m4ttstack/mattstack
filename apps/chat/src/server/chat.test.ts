@@ -1050,9 +1050,7 @@ test('fixtures mode pages GET /api/chat/messages like the daemon: the newest `li
   expect(await ids('?limit=2')).toEqual([608, 609]);
   expect(await ids('?before=605&limit=2')).toEqual([603, 604]);
   expect(await ids('?before=601&limit=2')).toEqual([]);
-  expect(await ids('')).toEqual([
-    601, 602, 603, 604, 605, 606, 607, 608, 609,
-  ]);
+  expect(await ids('')).toEqual([601, 602, 603, 604, 605, 606, 607, 608, 609]);
   expect(rt.chatMessages).not.toHaveBeenCalled();
 });
 
@@ -1209,8 +1207,24 @@ test('buddies that share a name keep their own rooms, keyed by id', async () => 
     ok: true,
     data: {
       buddies: [
-        { sessionId: 's1', handle: 'remy', baseHandle: 'remy', name: 'remy', signedInAt: 1, lastSeenAt: 1, status: 'idle' },
-        { sessionId: 's2', handle: 'remy.m2p4', baseHandle: 'remy', name: 'remy', signedInAt: 2, lastSeenAt: 2, status: 'live' },
+        {
+          sessionId: 's1',
+          handle: 'remy',
+          baseHandle: 'remy',
+          name: 'remy',
+          signedInAt: 1,
+          lastSeenAt: 1,
+          status: 'idle',
+        },
+        {
+          sessionId: 's2',
+          handle: 'remy.m2p4',
+          baseHandle: 'remy',
+          name: 'remy',
+          signedInAt: 2,
+          lastSeenAt: 2,
+          status: 'live',
+        },
       ],
     },
   });
@@ -1227,7 +1241,12 @@ test('buddies that share a name keep their own rooms, keyed by id', async () => 
                 unread: 0,
                 mentions: 0,
                 kind: 'dm' as const,
-                participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+                participants: {
+                  a: 'kai',
+                  b: 'remy.m2p4',
+                  aName: 'kai',
+                  bName: 'remy',
+                },
               },
             ],
     },
@@ -1251,17 +1270,34 @@ test('a DM tail carries its author name beside the id', async () => {
           unread: 1,
           mentions: 0,
           kind: 'dm',
-          participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+          participants: {
+            a: 'kai',
+            b: 'remy.m2p4',
+            aName: 'kai',
+            bName: 'remy',
+          },
         },
       ],
     },
   });
-  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({ ok: true, data: { buddies: [] } });
+  vi.mocked(rt.chatBuddies).mockResolvedValueOnce({
+    ok: true,
+    data: { buddies: [] },
+  });
   vi.mocked(rt.chatMessages).mockResolvedValue({
     ok: true,
     data: {
       messages: [
-        { id: 812, room: 'dm-2c9b7e41d0a5', handle: 'remy.m2p4', name: 'remy', body: 'on it', mentions: [], mentionNames: [], postedAt: 1 },
+        {
+          id: 812,
+          room: 'dm-2c9b7e41d0a5',
+          handle: 'remy.m2p4',
+          name: 'remy',
+          body: 'on it',
+          mentions: [],
+          mentionNames: [],
+          postedAt: 1,
+        },
       ],
     },
   });

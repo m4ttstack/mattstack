@@ -1439,7 +1439,12 @@ test('the invite result line names a pane by its display name', () => {
             paneId: 'w9:p1',
             workspace: 'repo-tools',
             agentStatus: 'idle',
-            presence: { handle: 'remy.m2p4', name: 'remy', status: 'live', rooms: [] },
+            presence: {
+              handle: 'remy.m2p4',
+              name: 'remy',
+              status: 'live',
+              rooms: [],
+            },
           },
         ]
       )}
