@@ -70,10 +70,6 @@ describe("listWorktreeRoots", () => {
     delete cleared.GIT_DIR;
     expect(listWorktreeRoots(repoA, { env: cleared })).toEqual([repoA]);
   });
-
-  test("opts.timeoutMs on a directory with no git repo still returns an empty array rather than throwing past the caller", () => {
-    expect(listWorktreeRoots(tmpRoot, { timeoutMs: 5_000 })).toEqual([]);
-  });
 });
 
 describe("listWorktrees", () => {

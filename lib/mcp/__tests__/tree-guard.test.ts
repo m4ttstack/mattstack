@@ -163,6 +163,26 @@ describe("realTreeGuardDeps.worktreeRoots", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("stops discovery at a checkout with no .git of its own, so it does not list an outer repo's worktrees", () => {
+    // Resolve symlinks (macOS /var → /private/var) so paths match what
+    // `git worktree list --porcelain` returns.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "tree-guard-ceiling-")));
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false", ...args], { cwd, stdio: "pipe" });
+    try {
+      const outer = join(root, "outer");
+      mkdirSync(outer);
+      git(outer, "init");
+      git(outer, "commit", "--allow-empty", "-m", "init");
+      git(outer, "worktree", "add", "-b", "feat/x", join(root, "outer-linked"));
+      const subdir = join(outer, "subdir");
+      mkdirSync(subdir);
+      expect(realTreeGuardDeps.worktreeRoots(subdir)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("checkRegisteredTree against a real git worktree nested in its checkout", () => {

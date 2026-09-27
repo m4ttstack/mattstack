@@ -15,7 +15,7 @@
  * directory's own .git must not decide whether it is admitted.
  */
 import { realpathSync } from "fs";
-import { isAbsolute } from "path";
+import { dirname, isAbsolute } from "path";
 import { listWorktreeRoots } from "../git-worktrees.ts";
 import { loadRepoIndex } from "../repo-index.ts";
 import { childEnv } from "../subprocess.ts";
@@ -68,8 +68,16 @@ export const realTreeGuardDeps: TreeGuardDeps = {
     findTreeByPath(p) ??
     findTreeByRealpath(p, listKvValues<Array<{ name: string; path: string }>>(WORKTREE_REGISTRY_NS), realpathSync),
   realpath: (p) => realpathSync(p),
+  // GIT_CEILING_DIRECTORIES stops .git discovery from walking up past the
+  // checkout: without it, a stale registered path whose own .git is gone
+  // but that still sits inside another repo would resolve to that OUTER
+  // repo, listing an unregistered repo's worktrees as if they belonged to
+  // the registered checkout.
   worktreeRoots: (checkout) =>
-    listWorktreeRoots(checkout, { env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0" }), timeoutMs: 10_000 }),
+    listWorktreeRoots(checkout, {
+      env: gitChildEnv(childEnv(), { GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: dirname(checkout) }),
+      timeoutMs: 10_000,
+    }),
 };
 
 export const UNREGISTERED_TREE =
