@@ -1,5 +1,5 @@
 import { describe, test, expect, spyOn } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { buildAskPayload, buildBriefInputs, buildSpawnPayload, buildWrapUpPayload, brief, jobEnv, renderAnswer, renderHerdRow, renderStatus, soleHerdId, withCallerAccount, workerEnv } from "../../commands/herd.ts";
@@ -257,6 +257,16 @@ describe("rt herd brief", () => {
     const r = await run(brief, ["--job", "widget", "--template", template, "--method-file", methodFile, "--fill", "goal=x", "--out", badOut]);
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("cannot write --out");
+  });
+
+  test("brief exits 1 on an unclosed author note and writes no --out file", async () => {
+    const template = tmpFile("t.md", ["<!-- author -->", TEMPLATE].join("\n"));
+    const methodFile = tmpFile("m.md", "Do the thing.");
+    const outPath = join(mkdtempSync(join(tmpdir(), "rt-herd-brief-out-")), "brief.md");
+    const r = await run(brief, ["--job", "widget", "--template", template, "--method-file", methodFile, "--fill", "goal=x", "--out", outPath]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("author note opened at template line 1 is never closed");
+    expect(existsSync(outPath)).toBe(false);
   });
 });
 
