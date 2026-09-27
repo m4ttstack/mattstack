@@ -16,7 +16,7 @@ import type { HerdLifecycle } from "./herd-lifecycle.ts";
 import type { HerdStore } from "./herd-store.ts";
 import type { WatchdogActuators, WatchdogConfig, WatchdogSensors } from "./herd-watchdog.ts";
 import { injectIntoPane } from "./inject.ts";
-import { driveRelocationAccept, driveTrustAccept } from "./trust-accept.ts";
+import { cwdPath, driveRelocationAccept, driveTrustAccept } from "./trust-accept.ts";
 import { paneStatuses } from "./pane-statuses.ts";
 import { findTreeByPath } from "../worktree/registry.ts";
 
@@ -172,13 +172,18 @@ export function createWatchdogActuators(deps: WatchdogActuatorDeps): WatchdogAct
         return false;
       }
     },
-    async acceptTrustModal(herd, job, pane) {
+    async acceptTrustModal(herd, job, pane, worktreePath) {
       if (!deps.herdr) return false;
+      // Fail closed on a job with no worktree path recorded: never fall back
+      // to the registry, which would admit any tree rt tracks, not just this
+      // job's own.
+      if (!worktreePath) return false;
       const sockPath = deps.socketFor(pane);
       try {
         const outcome = await driveTrustAccept({
           herdr: deps.herdr, sock: { sockPath }, pane: parsePaneRef(pane).paneId,
           log, context: { herd, job },
+          trustsPath: cwdPath(worktreePath),
           ...(deps.trustSettleMs !== undefined && { settleMs: deps.trustSettleMs }),
           ...(deps.trustStepMs !== undefined && { stepMs: deps.trustStepMs }),
         });

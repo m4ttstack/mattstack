@@ -14,6 +14,7 @@ import { DAEMON_SOCK_PATH } from "../../daemon-config.ts";
 import type { HerdrRunner } from "../../agent-herdr.ts";
 import { repoLabel } from "../../repo-arg.ts";
 import { herdSubject } from "../herd-store.ts";
+import { workspaceScreen } from "./trust-workspace-fixtures.ts";
 
 let n = 0;
 const REPO = "remote:example.com%2Fa%2Fb";
@@ -200,6 +201,26 @@ test("a headless launch never touches the trust driver", async () => {
   if (!res.ok) throw new Error("unreachable");
   expect(seen).toEqual([]);
   expect(res.data.trust).toBeUndefined();
+});
+
+test("agent:start accepts the 2.1.283 workspace dialog for the folder it launched", async () => {
+  const seen: Array<{ method: string; sock?: string }> = [];
+  const h = fresh({ runner: okRunner([]), herdr: trustHerdr({ "w1:p1": workspaceScreen({ path: "/tmp/fresh-dir", cursor: "no" }) }, seen) });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/fresh-dir", prompt: "hi", surface: "herdr" });
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error("unreachable");
+  expect(seen.some((c) => c.method === "pane.send_keys")).toBe(true);
+  expect(res.data.trust).toBe("accepted");
+});
+
+test("agent:start leaves a workspace dialog naming another folder for the human", async () => {
+  const seen: Array<{ method: string; sock?: string }> = [];
+  const h = fresh({ runner: okRunner([]), herdr: trustHerdr({ "w1:p1": workspaceScreen({ path: "/tmp/elsewhere", cursor: "no" }) }, seen) });
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/fresh-dir", prompt: "hi", surface: "herdr" });
+  expect(res.ok).toBe(true);
+  if (!res.ok) throw new Error("unreachable");
+  expect(seen.some((c) => c.method === "pane.send_keys")).toBe(false);
+  expect(res.data.trust).toBe("stuck");
 });
 
 // Pins the rollback: a launch failure must not leave a phantom record that
