@@ -14,6 +14,7 @@ Stages and their tasks: Stage 1 (Task 1), Stage 2a (Tasks 2 to 10), Stage 2b (Ta
 
 ## Global Constraints
 
+- RT-328 (Just me solo setup, branch `just-me-solo-setup`, worktree radagast, driven by the session `hazel`) is in flight on the same repo. Before every stage's PR, merge origin/main into the stage branch; before Stage 2b and before the Stage 2c sweep, confirm with hazel over rt chat whether RT-328 has merged. If RT-328 merges first, the 2c sweep greps the merged tree (its files `rt-tray/Tests/stub-rt/stub.ts` and the generated `website/docs/reference/apps/*.mdx` name the repo; the generated pages come right from `docs:gen`). If the rename's 2c lands first, tell hazel to merge main and rerun `bun run docs:gen` on her branch. `lib/command-tree-def.ts` and `lib/module-registry.ts` gain entries in both efforts; resolve those merge conflicts by keeping both sides. Stage 2b's folder move waits until hazel's session has no cwd inside `~/Documents/GitHub/repo-tools` (her worktree lives under `~/.mattstack`, so it is unaffected).
 - rt code style: double quotes, two-space indent, no `.tsx`, no UI code in `commands/` or `lib/`. Imported plugins keep their own style (herdr-chat is rustfmt Rust; the skills tree is Markdown plus shell); never reformat one with the other's rules.
 - No em dashes or en dashes anywhere: code, comments, commit messages, workflow text, READMEs, the plan's own edits.
 - Comments state constraints the code cannot show; never task numbers, rulings, review findings or history.
