@@ -149,6 +149,18 @@ export {
 export { dmRoomFor, dmParticipants, listDms } from "./dm-store.ts";
 
 export {
+  bindIdentitySession,
+  getIdentity,
+  identityForSession,
+  identityName,
+  identityNames,
+  isKnownId,
+  mintIdentity,
+  renameIdentity,
+  type IdentityRow,
+} from "./identity-store.ts";
+
+export {
   signIn,
   signOut,
   setAway,
