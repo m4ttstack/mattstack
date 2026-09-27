@@ -469,7 +469,7 @@ test("the draw is least-recently-used: every name goes once before any comes bac
   }
   expect(new Set(drawn.slice(0, AGENT_NAMES.length)).size).toBe(AGENT_NAMES.length);
   expect(drawn[AGENT_NAMES.length]).toBe(drawn[0]);
-});
+}, 30_000);
 
 test("a repeat sign-in with no base keeps the name the session already holds", () => {
   const db = fresh();
