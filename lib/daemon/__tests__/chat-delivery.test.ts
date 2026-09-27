@@ -561,7 +561,7 @@ async function claimScenario() {
 test("a won claim wakes only the message's author, with a one-line receipt", async () => {
   const { h, calls, id, sockA } = await claimScenario();
   const res = await h["chat:claim"]({ id, handle: "b" });
-  expect(res).toEqual({ ok: true, data: { outcome: "claimed", author: "a", room: "general" } });
+  expect(res).toEqual({ ok: true, data: { outcome: "claimed", author: "a", authorName: "a", room: "general" } });
   await Bun.sleep(0);
   expect(calls).toEqual([
     [sockA, `<cross-session-message from-name="b (claim)">\nb claimed your message #${id}: "one of you: write the TLDR"\n</cross-session-message>`],
@@ -589,7 +589,7 @@ test("taking over an expired claim receipts the previous holder and tells the au
   calls.length = 0;
   h.db.query("UPDATE chat_claims SET claimed_at = claimed_at - ? WHERE message_id = ?;").run(6 * 60_000, id);
   const took = await h["chat:claim"]({ id, handle: "c" });
-  expect(took).toEqual({ ok: true, data: { outcome: "claimed", author: "a", room: "general", previousHolder: "b" } });
+  expect(took).toEqual({ ok: true, data: { outcome: "claimed", author: "a", authorName: "a", room: "general", previousHolder: "b", previousHolderName: "b" } });
   await Bun.sleep(0);
   expect(calls).toEqual([
     [sockA, `<cross-session-message from-name="c (claim)">\nc claimed your message #${id} (took over from b): "one of you: write the TLDR"\n</cross-session-message>`],
@@ -603,7 +603,7 @@ test("release frees the id for the next claimant and wakes nobody", async () => 
   await Bun.sleep(0);
   calls.length = 0;
   expect(await h["chat:release"]({ id, handle: "c" })).toEqual({ ok: false, error: `you are neither the holder of #${id} nor its author` });
-  expect(await h["chat:release"]({ id, handle: "b" })).toEqual({ ok: true, data: { holder: "b" } });
+  expect(await h["chat:release"]({ id, handle: "b" })).toEqual({ ok: true, data: { holder: "b", holderName: "b" } });
   expect(await h["chat:release"]({ id, handle: "b" })).toEqual({ ok: false, error: `#${id} is not claimed` });
   const next = await h["chat:claim"]({ id, handle: "c" });
   expect(next).toMatchObject({ ok: true, data: { outcome: "claimed" } });
@@ -1658,4 +1658,25 @@ test("a delivery from a minted identity shows its name in the label and lines, a
     `<cross-session-message from-name="ada (#general)">\n[#general] ada #${posted.data.id}: @b hi\n` +
       `reply via rt chat post <room> "..." or rt chat dm ${a.data.handle} "..." (never SendMessage; this arrived through rt chat)\n</cross-session-message>`,
   ]]);
+});
+
+test("an ack receipt is labelled and worded with the acker's name, never its id", async () => {
+  const calls: Array<[string, string]> = [];
+  const sockA = fakeSocketPath();
+  const inboxDeps: InboxDeps = {
+    resolve: (sessionId) => (sessionId === "sess-a" ? { pid: process.pid, socketPath: sockA, status: "idle" } : null),
+    deliver: async (socketPath, content) => { calls.push([socketPath, content]); return { ok: true }; },
+  };
+  const h = freshHandlers(inboxDeps);
+  await h["chat:sign-in"]({ sessionId: "sess-a", continue: "a" });
+  const bea = await h["chat:sign-in"]({ sessionId: "sess-b", baseHandle: "bea" });
+  if (!bea.ok) throw new Error(bea.error);
+  await settleWelcome(calls);
+  await h["chat:join"]({ room: "general", handle: "a" });
+  await h["chat:join"]({ room: "general", handle: bea.data.handle });
+  const posted = await h["chat:post"]({ room: "general", handle: "a", body: "status?" });
+  if (!posted.ok) throw new Error(posted.error);
+  await h["chat:ack"]({ id: posted.data.id, handle: bea.data.handle });
+  await waitFor(() => calls.length > 0);
+  expect(calls[0]![1]).toBe(`<cross-session-message from-name="bea (ack)">\nbea acknowledged your message #${posted.data.id}: "status?"\n</cross-session-message>`);
 });

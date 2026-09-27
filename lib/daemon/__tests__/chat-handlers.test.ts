@@ -1452,3 +1452,76 @@ test("the human's @here is never resolved as a name", async () => {
   if (!posted.ok) throw new Error(posted.error);
   expect(posted.data.recipients).toEqual(["b"]);
 });
+
+test("responses carry display names next to every id", async () => {
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  const kai = await h["chat:sign-in"]({ sessionId: "s2", baseHandle: "kai" });
+  const eli = await h["chat:sign-in"]({ sessionId: "s3", baseHandle: "eli" });
+  if (!remy.ok || !kai.ok || !eli.ok) throw new Error("sign-in failed");
+
+  const joined = await h["chat:join"]({ room: "build", handle: remy.data.handle });
+  if (!joined.ok) throw new Error(joined.error);
+  expect(joined.data).toMatchObject({ handle: remy.data.handle, name: "remy" });
+  await h["chat:join"]({ room: "build", handle: kai.data.handle });
+  await h["chat:join"]({ room: "build", handle: eli.data.handle });
+
+  const posted = await h["chat:post"]({ room: "build", handle: kai.data.handle, body: "who takes this?", mentions: [remy.data.handle] });
+  if (!posted.ok) throw new Error(posted.error);
+  expect(posted.data).toMatchObject({ recipients: [remy.data.handle], recipientNames: ["remy"] });
+
+  const acked = await h["chat:ack"]({ id: posted.data.id, handle: remy.data.handle });
+  if (!acked.ok) throw new Error(acked.error);
+  expect(acked.data).toMatchObject({ author: kai.data.handle, authorName: "kai" });
+
+  const claimed = await h["chat:claim"]({ id: posted.data.id, handle: remy.data.handle });
+  if (!claimed.ok) throw new Error(claimed.error);
+  expect(claimed.data).toMatchObject({ outcome: "claimed", author: kai.data.handle, authorName: "kai" });
+  const held = await h["chat:claim"]({ id: posted.data.id, handle: remy.data.handle });
+  if (!held.ok) throw new Error(held.error);
+  expect(held.data).toMatchObject({ outcome: "held", authorName: "kai" });
+  const lost = await h["chat:claim"]({ id: posted.data.id, handle: eli.data.handle });
+  if (!lost.ok) throw new Error(lost.error);
+  expect(lost.data).toMatchObject({ outcome: "lost", holder: remy.data.handle, holderName: "remy" });
+
+  const released = await h["chat:release"]({ id: posted.data.id, handle: remy.data.handle });
+  expect(released).toEqual({ ok: true, data: { holder: remy.data.handle, holderName: "remy" } });
+
+  const dm = await h["chat:dm"]({ from: kai.data.handle, to: remy.data.handle, body: "hi", sessionId: "s2" });
+  if (!dm.ok) throw new Error(dm.error);
+  expect(dm.data).toMatchObject({ recipients: [remy.data.handle], recipientNames: ["remy"] });
+
+  const rooms = await h["chat:rooms"]({ handle: kai.data.handle });
+  if (!rooms.ok) throw new Error(rooms.error);
+  const dmRow = rooms.data.rooms.find((r) => r.room === dm.data.room)!;
+  const p = dmRow.participants!;
+  expect(new Map([[p.a, p.aName], [p.b, p.bName]])).toEqual(new Map([[kai.data.handle, "kai"], [remy.data.handle, "remy"]]));
+
+  const who = await h["chat:who"]({ room: "build" });
+  if (!who.ok) throw new Error(who.error);
+  expect(who.data.members.map((m) => m.name).sort()).toEqual(["eli", "kai", "remy"]);
+});
+
+test("the desk alert for a DM to the human is titled and worded with the sender's name", async () => {
+  setSetting("chat.humanHandle", "matt", "user");
+  drainNotifications();
+  const h = freshHandlers();
+  const remy = await h["chat:sign-in"]({ sessionId: "s1", baseHandle: "remy" });
+  if (!remy.ok) throw new Error(remy.error);
+  await h["chat:dm"]({ from: remy.data.handle, to: "matt", body: "ping", sessionId: "s1" });
+  const [notice] = peekNotifications();
+  expect(notice).toMatchObject({ title: "DM from remy", message: "remy: ping" });
+});
+
+test("chat:invite attributes the note to the inviter's name, never its id", async () => {
+  const { h, seen } = inviteHarness((method, params) => {
+    if (method === "agent.get") return agent("idle");
+    if (method === "agent.prompt") return { type: "agent_prompted", agent: { ...agent("working").agent, text: params.text } };
+    return new HerdrFakeError("invalid_request", method);
+  });
+  const remy = await h["chat:sign-in"]({ sessionId: "s-inv", baseHandle: "remy" });
+  if (!remy.ok) throw new Error(remy.error);
+  await h["chat:invite"]({ paneId: "w1:p1", room: "build", from: remy.data.handle, note: "you own vite" });
+  const prompt = seen.find((s) => s.method === "agent.prompt")!;
+  expect(prompt.params.text).toBe("/chat:join build note from remy: you own vite");
+});
