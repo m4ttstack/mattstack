@@ -187,7 +187,9 @@ let settingsChecks: [Check] = [
         let m = await MainActor.run { AppsSettingsModel(rt: rt) }
         let hookCalls = await MainActor.run { HookCounter() }
         await MainActor.run { m.onAppsChanged = { hookCalls.count += 1 } }
+        c.expectEqual(await MainActor.run { m.loaded }, false, "nothing reads as an empty list before the first load")
         await m.load()
+        c.expectEqual(await MainActor.run { m.loaded }, true)
         c.expectEqual(await MainActor.run { m.apps.map(\.name) }, ["board", "chat"])
         await m.setEnabled("board", true)
         try c.require(rt.calls.count == 3, "expected list, enable, list; got \(rt.calls.map(\.args))")
@@ -210,6 +212,16 @@ let settingsChecks: [Check] = [
         c.expectEqual(await MainActor.run { hookCalls.count }, 0, "a failed flip must not refresh the window's tabs")
         c.expectEqual(await MainActor.run { m.apps[0].enabled }, true, "a failed flip reverts the optimistic switch to its prior value")
         c.expectEqual(await MainActor.run { m.inFlight }, [], "a failed flip clears its in-flight guard")
+    },
+    Check("AppsSettingsModel stays unloaded when apps list fails, so the pane shows the error and no empty-list hint") { c in
+        let rt = ScriptedRt()
+        rt.answers["apps list"] = (1, "")
+        let m = await MainActor.run { AppsSettingsModel(rt: rt) }
+        await m.load()
+        await MainActor.run {
+            c.expectEqual(m.loaded, false)
+            c.expectEqual(m.error, "rt apps list failed (exit 1).")
+        }
     },
     Check("AppsSettingsModel flips the switch before rt answers and refuses a second flip of the same app while one is in flight") { c in
         let rt = GatedRt()

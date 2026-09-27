@@ -22,8 +22,8 @@ struct TeamPane: View {
                     LabeledContent("Name") { Text(model.info?.name ?? "—") }
                     LabeledContent("Remote") {
                         HStack { Text(model.maskedRemote).textSelection(.enabled)
-                            // Copies the masked form, never `model.info?.remote` —
-                            // an HTTPS remote can carry a token in its userinfo.
+                            // Copies the masked form, never `model.info?.remote`,
+                            // since an HTTPS remote can carry a token in its userinfo.
                             Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(model.maskedRemote, forType: .string) } label: { Image(systemName: "doc.on.doc") }
                                 .buttonStyle(.borderless)
                                 .accessibilityIdentifier(AXID.settingsTeamCopyRemote) }

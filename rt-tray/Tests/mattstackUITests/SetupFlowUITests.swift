@@ -4,6 +4,8 @@ final class SetupFlowUITests: XCTestCase {
     private var app: XCUIApplication!
     private var stateDir: URL!
     private var home: URL!
+    /// Every dir `prepare` made, since a test can call it more than once.
+    private var createdDirs: [URL] = []
 
     /// A short random hex string, not a UUID: `home`'s tray.sock path
     /// (`<home>/.mattstack/rt/tray.sock`) has to fit in `sockaddr_un.sun_path`
@@ -31,8 +33,8 @@ final class SetupFlowUITests: XCTestCase {
 
     override func tearDown() {
         app?.terminate()
-        if let home { try? FileManager.default.removeItem(at: home) }
-        if let stateDir { try? FileManager.default.removeItem(at: stateDir) }
+        for dir in createdDirs { try? FileManager.default.removeItem(at: dir) }
+        createdDirs = []
         super.tearDown()
     }
 
@@ -45,6 +47,7 @@ final class SetupFlowUITests: XCTestCase {
         app = XCUIApplication()
         stateDir = URL(fileURLWithPath: "/tmp/ms-state-\(shortHex())")
         home = URL(fileURLWithPath: "/tmp/ms-\(shortHex())")
+        createdDirs += [stateDir, home]
         try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let stub = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("stub-rt/stub.ts").path

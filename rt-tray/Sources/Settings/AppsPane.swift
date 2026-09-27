@@ -24,7 +24,7 @@ struct AppsPane: View {
                         }
                     }
                 }
-                if model.apps.isEmpty { Text("No apps listed. Is deck running?").foregroundStyle(.secondary) }
+                if model.loaded, model.apps.isEmpty, model.error == nil { Text("No apps listed. Is deck running?").foregroundStyle(.secondary) }
             }
             if let e = model.error { Text(e).font(.caption).foregroundStyle(.red) }
         }

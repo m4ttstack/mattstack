@@ -23,8 +23,15 @@ public final class AppsSettingsModel: ObservableObject {
     private let rt: RtRunning
     public init(rt: RtRunning) { self.rt = rt }
 
+    /// True once `apps list` has answered, so an empty list reads as "none"
+    /// rather than "not asked yet".
+    @Published public private(set) var loaded = false
+
     public func load() async {
-        if let r = await runJSON(["apps", "list", "--json"], verb: "apps list", as: AppsListResult.self) { apps = r.apps }
+        if let r = await runJSON(["apps", "list", "--json"], verb: "apps list", as: AppsListResult.self) {
+            apps = r.apps
+            loaded = true
+        }
     }
 
     public func setEnabled(_ name: String, _ on: Bool) async {
@@ -46,20 +53,11 @@ public final class AppsSettingsModel: ObservableObject {
         if let i = apps.firstIndex(where: { $0.name == name }) { apps[i].enabled = enabled }
     }
 
-    /// Same failure shape as `TeamSettingsModel.runJSON`.
     private func runJSON<T: Decodable>(_ args: [String], verb: String, as type: T.Type) async -> T? {
         error = nil
-        do {
-            let r = try await rt.run(args, stdin: nil)
-            if let e = r.userError { error = e.message; return nil }
-            guard r.exitCode == 0, let decoded = try? r.decode(T.self) else {
-                error = r.failureCopy(verb: verb)
-                return nil
-            }
-            return decoded
-        } catch {
-            self.error = (error as? RtClientError)?.copy ?? "rt \(verb) failed to start."
-            return nil
+        switch await rt.runJSON(args, verb: verb, as: T.self) {
+        case .success(let decoded): return decoded
+        case .failure(let failure): error = failure.copy; return nil
         }
     }
 }
