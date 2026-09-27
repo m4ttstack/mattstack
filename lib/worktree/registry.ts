@@ -205,6 +205,19 @@ export function findByBranch(trees: TreeRecord[], branch: string): TreeRecord[] 
   return trees.filter((t) => t.branch === branch);
 }
 
+/** Parity anchor with `WORKTREE_NAME_CURSOR_NS` in `lib/repo-index.ts`, which carries it through a repo rename. */
+const NAME_CURSOR_NS = "worktree-name-cursor";
+
+/** The pool name this repo's last tree was given; `pickName` continues after it. */
+export function lastPickedName(repoName: string): string | undefined {
+  const name = getKvValue<unknown>(NAME_CURSOR_NS, repoName, null);
+  return typeof name === "string" ? name : undefined;
+}
+
+export function rememberPickedName(repoName: string, name: string): void {
+  setKvValue(NAME_CURSOR_NS, repoName, name);
+}
+
 export function usedNames(trees: TreeRecord[]): Set<string> {
   return new Set(trees.map((t) => t.name));
 }

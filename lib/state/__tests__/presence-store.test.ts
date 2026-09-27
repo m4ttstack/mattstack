@@ -84,6 +84,16 @@ test("a base held by a live row is suffixed; the suffix is stable", () => {
   for (const r of [a, b, c]) expect(r.handle).toMatch(/^x\.[a-z0-9]{4}$/);
 });
 
+test("a new session in a pane leaves that pane to itself: an earlier session's row stops naming it", () => {
+  const db = fresh();
+  mustSignIn({ sessionId: "s1", baseHandle: "ida", pane: "w1:p2", now }, db);
+  signOut("s1", now + MIN, db);
+  const tony = mustSignIn({ sessionId: "s2", baseHandle: "tony", pane: "w1:p2", now: now + 2 * MIN }, db);
+
+  const inPane = listBuddies(now + 2 * MIN, db, NO_BINDING).filter((b) => b.pane === "w1:p2");
+  expect(inPane.map((b) => b.handle)).toEqual([tony.handle]);
+});
+
 test("a session-stale holder with no live binding is never reclaimed inside the session-stale window", () => {
   const db = fresh();
   mustSignIn({ sessionId: "s1", baseHandle: "x", cwd: "/w", now }, db);

@@ -1,4 +1,4 @@
-import { GOLDEN_NAME } from "./registry.ts";
+import { GOLDEN_NAME, lastPickedName, rememberPickedName } from "./registry.ts";
 
 // Adjectives for neutral name generator
 const ADJECTIVES = [
@@ -41,25 +41,36 @@ const NOUNS = [
 ];
 
 /**
- * Pick a random unused name from pool, or generate neutral name if pool exhausted/absent.
- * Neutral names are generated in format "<adj>-<noun>" with numeric suffixes on collision.
+ * Take the next unused pool name after `after`, wrapping to the head, or
+ * generate a neutral name when the pool is exhausted or absent.
+ *
+ * Round-robin, not random: a disposed tree's name must not come straight
+ * back, because a session idle in the old tree still holds that path as its
+ * cwd and would act on whoever claims the new one.
  */
-export function pickName(pool: string[] | undefined, used: Set<string>): string {
-  // Filter pool to unused names
-  if (pool && pool.length > 0) {
-    // GOLDEN_NAME is reserved even when a custom pool names it explicitly:
-    // a member minted "golden" before the donor exists collides with it
-    // later, and name-keyed verbs (freshen --only, dispose by name) would
-    // then match two rows.
-    const available = pool.filter((name) => !used.has(name) && name !== GOLDEN_NAME);
-    if (available.length > 0) {
-      const randomIndex = Math.floor(Math.random() * available.length);
-      return available[randomIndex]!;
+export function pickName(pool: string[] | undefined, used: Set<string>, after?: string): string {
+  const names = [...new Set(pool)];
+  if (names.length > 0) {
+    const start = after === undefined ? 0 : names.indexOf(after) + 1;
+    for (let i = 0; i < names.length; i++) {
+      const name = names[(start + i) % names.length]!;
+      // GOLDEN_NAME is reserved even when a custom pool names it explicitly:
+      // a member minted "golden" before the donor exists collides with it
+      // later, and name-keyed verbs (freshen --only, dispose by name) would
+      // then match two rows.
+      if (!used.has(name) && name !== GOLDEN_NAME) return name;
     }
   }
 
   // Fall back to neutral generator
   return generateNeutralName(used);
+}
+
+/** A new pool member's name for this repo, continuing after the last one handed out. */
+export function nextTreeName(repoName: string, pool: string[] | undefined, used: Set<string>): string {
+  const name = pickName(pool, used, lastPickedName(repoName));
+  if (pool?.includes(name)) rememberPickedName(repoName, name);
+  return name;
 }
 
 /**

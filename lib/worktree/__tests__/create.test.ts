@@ -118,6 +118,18 @@ describe("createTree", () => {
     expect(events.some((e) => e.type === "worktree:created")).toBe(true);
   });
 
+  test("a tree takes the pool name after the previous tree's, even once that tree is gone", async () => {
+    await declareWorktrees(repo, repoName, { namePool: ["alpha", "bravo", "charlie"] });
+    const deps = makeDeps(repoName, repo, events);
+
+    const first = await createTree(deps);
+    expect(first.ok && first.tree.name).toBe("alpha");
+    saveRegistry(repoName, []);
+
+    const second = await createTree(deps);
+    expect(second.ok && second.tree.name).toBe("bravo");
+  });
+
   test("out-of-repo default root leaves .git/info/exclude untouched", async () => {
     const deps = makeDeps(repoName, repo, events);
     const result = await createTree(deps);

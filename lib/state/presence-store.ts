@@ -140,7 +140,8 @@ const SELECT_ALL_PRESENCE_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence;`
 const SELECT_ROSTER_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE signed_out_at IS NULL OR signed_out_at >= ?;`;
 const SELECT_PRUNE_CANDIDATES_SQL = `SELECT ${PRESENCE_COLUMNS} FROM chat_presence WHERE ${PRUNABLE_SQL};`;
 const DELETE_PRESENCE_BY_SESSION_SQL = `DELETE FROM chat_presence WHERE session_id = ?;`;
-const INSERT_PRESENCE_SQL = `INSERT INTO chat_presence (session_id, handle, base_handle, cwd, repo, branch, pane, status_text, signed_in_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
+const RELEASE_PANE_SQL = `UPDATE chat_presence SET pane = NULL WHERE pane = ? AND session_id <> ?;`;
+const INSERT_PRESENCE_SQL =`INSERT INTO chat_presence (session_id, handle, base_handle, cwd, repo, branch, pane, status_text, signed_in_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
 const UPDATE_SIGN_OUT_SQL = `UPDATE chat_presence SET signed_out_at = ? WHERE session_id = ?;`;
 const UPDATE_STATUS_TEXT_SQL = `UPDATE chat_presence SET status_text = ? WHERE session_id = ?;`;
 const UPDATE_LAST_SEEN_SQL = `UPDATE chat_presence SET last_seen_at = ? WHERE session_id = ?;`;
@@ -333,6 +334,10 @@ export function signIn(
     } else {
       handle = mintIdentity({ base: baseHandle, name, sessionId, now }, db).id;
     }
+    // A pane runs one session. Since every session mints its own identity, an
+    // earlier session's signed-out row outlives it; left naming the pane, it
+    // is the first match for pane-keyed lookups (herdr-chat's status, flock).
+    if (pane !== null) db.query(RELEASE_PANE_SQL).run(pane, sessionId);
     db.query(INSERT_PRESENCE_SQL).run(sessionId, handle, baseHandle, cwd, repo, branch, pane, statusText ?? null, now, now);
     recordPoolNameUse(baseHandle, now, db);
 

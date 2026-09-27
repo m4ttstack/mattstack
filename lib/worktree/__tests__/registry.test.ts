@@ -10,7 +10,9 @@ import {
   registryEpoch,
   saveRegistry,
   findByBranch,
+  lastPickedName,
   registryPath,
+  rememberPickedName,
   usedNames,
   type TreeRecord,
 } from "../registry.ts";
@@ -41,6 +43,13 @@ describe("worktree registry", () => {
       rec({ name: "dobby", path: "/b", branch: "x" }),
     ];
     expect(findByBranch(trees, "x").length).toBe(2);
+  });
+  test("the last picked pool name round-trips per repo", () => {
+    expect(lastPickedName("r")).toBeUndefined();
+    rememberPickedName("r", "arwen");
+    rememberPickedName("other", "bilbo");
+    expect(lastPickedName("r")).toBe("arwen");
+    expect(lastPickedName("other")).toBe("bilbo");
   });
   test("usedNames includes creating", () => {
     expect(usedNames([rec({ state: "creating" })]).has("bellatrix")).toBe(true);
