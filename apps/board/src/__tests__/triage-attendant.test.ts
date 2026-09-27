@@ -1,166 +1,118 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
-  claimLease,
-  DEFAULT_ATTENDANT_TTL_SECONDS,
-  heartbeatLease,
-  leaseFileName,
-  readLease,
-  readLeaseByBranch,
-  releaseLease,
-  type AttendantLease,
-} from '../triage/attendant.ts';
+  boardDoctorOwner,
+  ciLeaseFileName,
+  claimCiLease,
+  readCiLease,
+} from '@mattstack/rt-client';
+
+import { createBoardAttendants } from '../triage/attendant.ts';
 
 const MR = 'https://gitlab.example.com/acme/webapp/-/merge_requests/4821';
-const IID = 4821;
-const NOW = 1_700_000_000_000;
 
 let dir: string;
+let t: number;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'attendants-'));
+  t = 1_700_000_000_000;
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function lease(over: Partial<AttendantLease> = {}): AttendantLease {
-  return {
-    mr: MR,
-    holder: 'watch-ci',
-    startedAt: NOW,
-    heartbeatAt: NOW,
-    ttlSeconds: DEFAULT_ATTENDANT_TTL_SECONDS,
-    ...over,
-  };
-}
-
-describe('leaseFileName', () => {
-  test('keys on project path + iid, filesystem-safe, no collisions across projects', () => {
-    const a = leaseFileName(
-      'https://gitlab.example.com/acme/webapp/-/merge_requests/7',
-      7
+describe('createBoardAttendants', () => {
+  test('claim uses the board doctor owner and refuses a live watch-ci lease', () => {
+    claimCiLease(
+      { mrUrl: MR, owner: 'session:w', holder: 'watch-ci' },
+      { dir, now: () => t }
     );
-    const b = leaseFileName(
-      'https://gitlab.example.com/acme/other-repo/-/merge_requests/7',
-      7
-    );
-    expect(a).not.toBe(b);
-    expect(a).toMatch(/^[a-z0-9._-]+\.json$/);
-    expect(a).toContain('7');
-  });
-});
-
-describe('claim/read/release', () => {
-  test('claim on empty dir succeeds and readLease returns the fresh record', () => {
-    const r = claimLease(dir, lease(), NOW);
-    expect(r.ok).toBe(true);
-    const got = readLease(dir, MR, IID, NOW);
-    expect(got?.holder).toBe('watch-ci');
+    const port = createBoardAttendants({ dir, now: () => t });
+    expect(port.claim(MR, 42, 'feat')).toBe(false);
   });
 
-  test('claim creates the directory when missing', () => {
-    const nested = join(dir, 'does', 'not', 'exist');
-    expect(claimLease(nested, lease(), NOW).ok).toBe(true);
+  test('claim then heartbeat and release through the port', () => {
+    const port = createBoardAttendants({ dir, now: () => t });
+    expect(port.claim(MR, 42, 'feat')).toBe(true);
+    expect(readCiLease(MR, { dir, now: () => t }).lease).toMatchObject({
+      owner: boardDoctorOwner(MR),
+      holder: 'doctor',
+      branch: 'feat',
+      sessionLabel: 'mr-board-triage',
+    });
+    t += 1_000;
+    port.heartbeat(MR, 42);
+    expect(readCiLease(MR, { dir, now: () => t }).lease?.heartbeatAt).toBe(t);
+    port.release(MR, 42);
+    expect(readCiLease(MR, { dir, now: () => t }).lease).toBeNull();
   });
 
-  test('a fresh foreign lease blocks a claim and reports the holder', () => {
-    expect(claimLease(dir, lease({ holder: 'watch-ci' }), NOW).ok).toBe(true);
-    const r = claimLease(dir, lease({ holder: 'doctor' }), NOW + 1_000);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.holder.holder).toBe('watch-ci');
-  });
-
-  test('a stale lease is replaced by a new claim', () => {
-    const ttlMs = DEFAULT_ATTENDANT_TTL_SECONDS * 1_000;
-    expect(claimLease(dir, lease({ holder: 'watch-ci' }), NOW).ok).toBe(true);
-    const r = claimLease(
-      dir,
-      lease({
+  test('heartbeat adopts a legacy doctor lease so an in-flight doctor does not lapse', () => {
+    writeFileSync(
+      join(dir, ciLeaseFileName(MR)),
+      JSON.stringify({
+        mr: MR,
         holder: 'doctor',
-        startedAt: NOW + ttlMs + 1_000,
-        heartbeatAt: NOW + ttlMs + 1_000,
-      }),
-      NOW + ttlMs + 1_000
+        startedAt: t,
+        heartbeatAt: t,
+        ttlSeconds: 600,
+      })
     );
-    expect(r.ok).toBe(true);
-    expect(readLease(dir, MR, IID, NOW + ttlMs + 1_000)?.holder).toBe('doctor');
+    const port = createBoardAttendants({ dir, now: () => t + 1 });
+    port.heartbeat(MR, 42);
+    expect(readCiLease(MR, { dir, now: () => t + 1 }).lease).toMatchObject({
+      owner: boardDoctorOwner(MR),
+      heartbeatAt: t + 1,
+    });
   });
 
-  test('readLease returns null for missing, stale, or malformed leases', () => {
-    expect(readLease(dir, MR, IID, NOW)).toBeNull();
-    claimLease(dir, lease(), NOW);
-    const ttlMs = DEFAULT_ATTENDANT_TTL_SECONDS * 1_000;
-    expect(readLease(dir, MR, IID, NOW + ttlMs + 1)).toBeNull();
-    writeFileSync(join(dir, leaseFileName(MR, IID)), 'not json');
-    expect(readLease(dir, MR, IID, NOW)).toBeNull();
+  test('heartbeat never touches a watch-ci lease', () => {
+    claimCiLease(
+      { mrUrl: MR, owner: 'session:w', holder: 'watch-ci' },
+      { dir, now: () => t }
+    );
+    createBoardAttendants({ dir, now: () => t + 5 }).heartbeat(MR, 42);
+    expect(readCiLease(MR, { dir, now: () => t + 5 }).lease?.heartbeatAt).toBe(
+      t
+    );
   });
 
-  test("release removes only the named holder's lease", () => {
-    claimLease(dir, lease({ holder: 'doctor' }), NOW);
-    releaseLease(dir, MR, IID, 'watch-ci');
-    expect(readLease(dir, MR, IID, NOW)?.holder).toBe('doctor');
-    releaseLease(dir, MR, IID, 'doctor');
-    expect(readLease(dir, MR, IID, NOW)).toBeNull();
+  test('read and readByBranch return fresh leases', () => {
+    claimCiLease(
+      { mrUrl: MR, owner: 'session:w', holder: 'watch-ci', branch: 'feat' },
+      { dir, now: () => t }
+    );
+    const port = createBoardAttendants({ dir, now: () => t });
+    expect(port.read(MR, 42)?.holder).toBe('watch-ci');
+    expect(port.readByBranch('feat')?.mr).toBe(MR);
   });
 
-  test('release on a missing lease is a no-op', () => {
-    expect(() => releaseLease(dir, MR, IID, 'doctor')).not.toThrow();
-  });
-});
-
-describe('heartbeat', () => {
-  test("heartbeat refreshes only the named holder's lease", () => {
-    claimLease(dir, lease({ holder: 'doctor' }), NOW);
-    heartbeatLease(dir, MR, IID, 'watch-ci', NOW + 5_000);
-    expect(readLease(dir, MR, IID, NOW)?.heartbeatAt).toBe(NOW);
-    heartbeatLease(dir, MR, IID, 'doctor', NOW + 5_000);
-    expect(readLease(dir, MR, IID, NOW)?.heartbeatAt).toBe(NOW + 5_000);
-  });
-
-  test('heartbeat keeps a lease alive past its original TTL', () => {
-    const ttlMs = DEFAULT_ATTENDANT_TTL_SECONDS * 1_000;
-    claimLease(dir, lease({ holder: 'doctor' }), NOW);
-    heartbeatLease(dir, MR, IID, 'doctor', NOW + ttlMs - 1_000);
-    expect(readLease(dir, MR, IID, NOW + ttlMs + 1_000)?.holder).toBe('doctor');
-  });
-});
-
-describe('readLeaseByBranch (BOARD-12)', () => {
-  test('finds a fresh lease by the branch it names, whatever MR it belongs to', () => {
+  test('a busy lock makes claim return false instead of throwing', () => {
+    const lockPath = join(dir, ciLeaseFileName(MR).replace(/\.json$/, '.lock'));
     writeFileSync(
-      join(dir, leaseFileName(MR, IID)),
-      JSON.stringify(lease({ branch: 'feat-parent' }))
+      lockPath,
+      JSON.stringify({ token: 'x', at: Date.now() })
     );
-    expect(readLeaseByBranch(dir, 'feat-parent', NOW)?.mr).toBe(MR);
+    const port = createBoardAttendants({ dir, now: () => t, lockWaitMs: 5 });
+    expect(() => port.claim(MR, 42, 'feat')).not.toThrow();
+    expect(port.claim(MR, 42, 'feat')).toBe(false);
   });
 
-  test('ignores a stale lease, a mismatched branch, and a lease with no branch at all', () => {
-    writeFileSync(
-      join(dir, leaseFileName(MR, IID)),
-      JSON.stringify(lease({ branch: 'feat-parent' }))
+  test('a busy lock makes heartbeat and release no-ops instead of throwing', () => {
+    claimCiLease(
+      { mrUrl: MR, owner: boardDoctorOwner(MR), holder: 'doctor' },
+      { dir, now: () => t }
     );
-    expect(readLeaseByBranch(dir, 'feat-parent', NOW + 601_000)).toBeNull();
-    expect(readLeaseByBranch(dir, 'other-branch', NOW)).toBeNull();
+    const lockPath = join(dir, ciLeaseFileName(MR).replace(/\.json$/, '.lock'));
     writeFileSync(
-      join(dir, leaseFileName(MR, 999)),
-      JSON.stringify(lease({ branch: undefined }))
+      lockPath,
+      JSON.stringify({ token: 'x', at: Date.now() })
     );
-    expect(readLeaseByBranch(dir, '', NOW)).toBeNull();
-  });
-
-  test('a missing directory or unparseable file is null, never a throw', () => {
-    expect(readLeaseByBranch(join(dir, 'nope'), 'feat-parent', NOW)).toBeNull();
-    writeFileSync(join(dir, 'garbage.json'), '{not json');
-    expect(readLeaseByBranch(dir, 'feat-parent', NOW)).toBeNull();
+    const port = createBoardAttendants({ dir, now: () => t, lockWaitMs: 5 });
+    expect(() => port.heartbeat(MR, 42)).not.toThrow();
+    expect(() => port.release(MR, 42)).not.toThrow();
   });
 });

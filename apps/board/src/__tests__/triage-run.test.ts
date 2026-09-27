@@ -412,6 +412,85 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     expect(fa.calls.heartbeats).toEqual([1]);
     expect(fa.calls.releases).toEqual([2]);
   });
+
+  test('the lease is claimed before the queued state is written', async () => {
+    const order: string[] = [];
+    const d = deps({
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => {
+          order.push('claim');
+          return true;
+        },
+        heartbeat: () => {},
+        release: () => {},
+      },
+      writeDoctorState: (path, patch) => {
+        order.push(`state:${patch.status}`);
+        return {
+          mrUrl: patch.mrUrl ?? '',
+          iid: patch.iid ?? 0,
+          status: patch.status,
+          origin: patch.origin,
+          startedAt: 0,
+          updatedAt: 0,
+        };
+      },
+    });
+    await runTriage(d);
+    expect(order.indexOf('claim')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('claim')).toBeLessThan(order.indexOf('state:queued'));
+  });
+
+  test('a refused claim skips as attended and writes no state row', async () => {
+    const writes: unknown[] = [];
+    const d = deps({
+      attendants: {
+        // The lease appeared between the earlier read-based check and this
+        // claim; read stays null so only the claim's own refusal is exercised.
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => false,
+        heartbeat: () => {},
+        release: () => {},
+      },
+      writeDoctorState: (path, patch) => {
+        writes.push(patch);
+        return {
+          mrUrl: patch.mrUrl ?? '',
+          iid: patch.iid ?? 0,
+          status: patch.status,
+          origin: patch.origin,
+          startedAt: 0,
+          updatedAt: 0,
+        };
+      },
+    });
+    const result = await runTriage(d);
+    expect(result.skipped).toBe(1);
+    expect(writes).toHaveLength(0);
+    expect(d.launches).toHaveLength(0);
+    expect(d.audit.some(e => e.reason === 'attended')).toBe(true);
+  });
+
+  test('a launch that throws releases the claim', async () => {
+    const releases: Array<[string, number]> = [];
+    const d = deps({
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => true,
+        heartbeat: () => {},
+        release: (mrUrl: string, iid: number) => releases.push([mrUrl, iid]),
+      },
+      launchDoctor: async () => {
+        throw new Error('boom');
+      },
+    });
+    await runTriage(d);
+    expect(releases).toEqual([['https://x/mr/1', 1]]);
+  });
 });
 
 describe('runTriage stack chain (BOARD-12)', () => {

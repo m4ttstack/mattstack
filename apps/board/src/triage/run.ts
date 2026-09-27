@@ -337,6 +337,26 @@ export async function runTriage(
       continue;
     }
     // dispatch
+    if (
+      deps.attendants &&
+      !deps.attendants.claim(
+        edge.mrUrl,
+        edge.iid,
+        byUrl.get(edge.mrUrl)?.sourceBranch
+      )
+    ) {
+      result.skipped++;
+      deps.appendAudit({
+        ts: now,
+        mrUrl: edge.mrUrl,
+        iid: edge.iid,
+        event: edge.kind,
+        decision: 'skip',
+        reason: 'attended',
+        pipelineId: edge.pipelineId,
+      });
+      continue;
+    }
     const statePath = deps.doctorFilePath(edge.mrUrl);
     // The wrapper treats an absent tier as the historical checkout
     // (fix-and-push) behavior; "api" stays the explicit no-checkout tier.
@@ -401,11 +421,6 @@ export async function runTriage(
           });
         }
       }
-      deps.attendants?.claim(
-        edge.mrUrl,
-        edge.iid,
-        byUrl.get(edge.mrUrl)?.sourceBranch
-      );
       result.dispatched++;
       activeAuto++;
       markHandled(deps.memory, edge);
@@ -421,6 +436,7 @@ export async function runTriage(
         attempt: m.attemptsToday,
       });
     } catch (err) {
+      deps.attendants?.release(edge.mrUrl, edge.iid);
       deps.writeDoctorState(statePath, {
         status: 'error',
         message: 'failed to launch doctor pane',
