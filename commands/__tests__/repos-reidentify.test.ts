@@ -70,6 +70,11 @@ describe("rt repos reidentify", () => {
     expect(out.at(-1)).toContain("refused: kv:repo-index");
   });
 
+  test("nothing under the old identity says so instead of claiming a move", async () => {
+    await reposReidentify(["github.com/acme/typo", "github.com/acme/new"], {}, { print: (s) => out.push(s) });
+    expect(out[0]).toBe("nothing under remote:github.com%2Facme%2Ftypo to move (local)");
+  });
+
   test("a refused --json run prints exactly one document carrying the report", async () => {
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fold", "/x");
     setKvValue(REPO_INDEX_NS, "remote:github.com%2Facme%2Fnew", "/y");

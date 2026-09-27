@@ -40,13 +40,14 @@ export function moveKvKey(ns: string, from: string, to: string, opts: { dryRun?:
   if (!hasFrom) return { store, status: "none", count: 0 };
   const value = getKvValue<unknown>(ns, from, UNREADABLE);
   if (value === UNREADABLE) return { store, status: "refused", count: 1, detail: `unparseable value under ${from}` };
-  // Equal values under both keys are what a move interrupted before its
-  // delete leaves behind; only the delete is left to do.
-  const interrupted = hasTo && isDeepStrictEqual(value, getKvValue<unknown>(ns, to, UNREADABLE));
-  if (hasTo && !interrupted) return { store, status: "refused", count: 1, detail: BOTH };
+  // Equal values under both keys come from the CLI re-registering the path
+  // after a set-url, or from a move that stopped before its delete; only the
+  // delete is left to do.
+  const sameValue = hasTo && isDeepStrictEqual(value, getKvValue<unknown>(ns, to, UNREADABLE));
+  if (hasTo && !sameValue) return { store, status: "refused", count: 1, detail: BOTH };
   if (opts.dryRun) return { store, status: "moved", count: 1 };
   return attempt(store, 1, () => {
-    if (!interrupted) {
+    if (!sameValue) {
       setKvValue(ns, to, value);
       if (!isDeepStrictEqual(getKvValue<unknown>(ns, to, UNREADABLE), value)) {
         return { store, status: "refused", count: 1, detail: `${to} did not persist` };

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { REPO_INDEX_NS, loadRepoIndex } from "../repo-index.ts";
@@ -8,6 +8,8 @@ import { loadMachineRepoTrackingRaw, saveRepoTrackingRaw } from "../repo-trackin
 import { repoDataDir, rtDir } from "../rt-paths.ts";
 import { closeStateDb, getKvValue, getStateDb, setKvValue } from "../state/index.ts";
 import { CURSOR_NS } from "../state/cursors-store.ts";
+import { getSetting } from "../settings/resolve.ts";
+import { setSetting } from "../settings/write.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../worktree/registry.ts";
 import { machineSettingsPath, teamsDir, userSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { readStore } from "../../packages/rt-client/src/settings/stores.ts";
@@ -74,6 +76,7 @@ describe("reidentify", () => {
     const tree: TreeRecord = { name: "main", path: join(home, "checkout"), kind: "main", branch: "main", state: "claimed", createdAt: "2026-01-01T00:00:00.000Z" } as TreeRecord;
     saveRegistry(id, [tree]);
     saveRepoTrackingRaw({ [id]: { mode: "full" } });
+    setSetting("rt.workspacePrefs", { editors: { [id]: "zed" }, workspaces: {}, defaultEditor: "cursor" }, "machine");
     setKvValue(CURSOR_NS, id, 42);
     const db = getStateDb();
     db.run(
@@ -103,6 +106,9 @@ describe("reidentify", () => {
     expect(byStore["herds.repo"]).toBe("moved");
     expect(byStore["settings:machine"]).toBe("moved");
     expect(byStore["settings:user"]).toBe("moved");
+    expect(byStore["settings:workspacePrefs.editors"]).toBe("moved");
+    expect(getSetting<unknown>("rt.workspacePrefs").value).toEqual({ editors: { [NEW]: "zed" }, workspaces: {}, defaultEditor: "cursor" });
+    expect(Object.keys(JSON.parse(readFileSync(join(rtDir(), "repos.json"), "utf8")))).toEqual([NEW]);
     expect(loadRepoIndex()[NEW]).toBe(join(home, "checkout"));
     expect(loadRepoIndex()[OLD]).toBeUndefined();
     expect(loadRegistry(NEW).map((t) => t.name)).toEqual(["main"]);
@@ -216,6 +222,29 @@ describe("reidentify", () => {
     } finally {
       chmodSync(teamsDir(), 0o755);
     }
+  });
+
+  test("editor prefs: equal entries under both keys finish, different ones are refused and kept", async () => {
+    mkdirSync(join(machineSettingsPath(), ".."), { recursive: true });
+    setSetting("rt.workspacePrefs", { editors: { [OLD]: "zed", [NEW]: "zed" }, workspaces: {} }, "machine");
+    let r = await reidentify(OLD_RAW, NEW_RAW);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.stores.find((s) => s.store === "settings:workspacePrefs.editors")!.status).toBe("moved");
+    expect(getSetting<{ editors: Record<string, string> }>("rt.workspacePrefs").value.editors).toEqual({ [NEW]: "zed" });
+
+    setSetting("rt.workspacePrefs", { editors: { [OLD]: "zed", [NEW]: "code" }, workspaces: {} }, "machine");
+    r = await reidentify(OLD_RAW, NEW_RAW);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.stores.find((s) => s.store === "settings:workspacePrefs.editors")).toMatchObject({ status: "refused", detail: "both populated" });
+    expect(getSetting<{ editors: Record<string, string> }>("rt.workspacePrefs").value.editors).toEqual({ [OLD]: "zed", [NEW]: "code" });
+  });
+
+  test("editor prefs in an unparseable machine store are refused", async () => {
+    mkdirSync(join(machineSettingsPath(), ".."), { recursive: true });
+    writeFileSync(machineSettingsPath(), `{ "rt.workspacePrefs": { "editors": { "${OLD}": "zed" } }\n`);
+    const r = await reidentify(OLD_RAW, NEW_RAW);
+    if ("error" in r) throw new Error(r.error);
+    expect(r.stores.find((s) => s.store === "settings:workspacePrefs.editors")!.status).toBe("refused");
   });
 
   test("refuses a path-kind identity", async () => {
