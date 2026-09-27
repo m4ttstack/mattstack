@@ -26,4 +26,14 @@ describe("shellForms on the roster", () => {
       expect(Array.isArray(t.shellForms) ? t.shellForms : [], t.name).toContain(verb);
     }
   });
+  test("no object form's pattern carries the g or y flag: pickRule uses exec, and a stateful regex would skip hits", () => {
+    for (const t of tools) {
+      if (!Array.isArray(t.shellForms)) continue;
+      for (const f of t.shellForms) {
+        if (typeof f === "string") continue;
+        expect(f.pattern.global, `${t.name} ${f.id}`).toBe(false);
+        expect(f.pattern.sticky, `${t.name} ${f.id}`).toBe(false);
+      }
+    }
+  });
 });

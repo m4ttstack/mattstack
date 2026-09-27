@@ -17,7 +17,7 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The trailing guard stops `rt herd wrap` from matching `rt herd wrap-up`. */
 export function commandPattern(command: string): RegExp {
-  return new RegExp(`\\b${command.trim().split(/\s+/).map(escape).join("\\s+")}(?![\\w-])`);
+  return new RegExp(`(?<![\\w-])${command.trim().split(/\s+/).map(escape).join("\\s+")}(?![\\w-])`);
 }
 
 export function deriveRules(tools: ReadonlyArray<{ name: string; shellForms: ShellForms }>, leafPaths: ReadonlyArray<readonly string[]>): LintRule[] {
@@ -39,8 +39,8 @@ export function deriveRules(tools: ReadonlyArray<{ name: string; shellForms: She
   return rules;
 }
 
-/** Earliest match, then longest, then rule order: precedence never depends
-    on where a tool sits in the roster. */
+/** The earliest match wins; among matches starting at the same position, the
+    longest wins; only an exact tie on both falls back to rule order. */
 export function pickRule(code: string, rules: readonly LintRule[]): LintRule | null {
   let best: { rule: LintRule; start: number; len: number } | null = null;
   for (const rule of rules) {
@@ -165,9 +165,11 @@ export function lintScriptText(text: string, file: string, rules: readonly LintR
 }
 
 /** Advisory by contract: packs ship domain scripts on purpose, so these hits
-    never reach --strict, strictLint or the sync refusal. */
+    never reach --strict, strictLint or the sync refusal. The subst rule is
+    dropped here: a script capturing a command's output in a variable is the
+    normal shape, and the inner call is what names the right tool. */
 export function lintPackScripts(dir: string, rules: readonly LintRule[], deps: LintDeps = DISK): LintHit[] {
-  const all = [...rules, ...SCRIPT_ONLY_RULES];
+  const all = [...rules.filter((r) => r.id !== "subst"), ...SCRIPT_ONLY_RULES];
   return lintedSources(dir, deps, SCRIPT_EXTS).flatMap((s) => lintScriptText(s.text, s.path, all));
 }
 

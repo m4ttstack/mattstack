@@ -15,11 +15,11 @@ function payloadHash(): string {
 function refreshSteps(hash: string): string {
   return [
     "The rt mcp tools --json payload changed, so mattstack-skills' reference.md is stale.",
-    "1. Merge this rt change.",
-    "2. From an rt checkout at the merge commit, in mattstack-skills:",
+    `1. Set PAYLOAD_SHA256 in lib/mcp/__tests__/tools-payload-hash.test.ts to ${hash} in this change.`,
+    "2. Merge.",
+    "3. From an rt checkout at the merge commit, in mattstack-skills:",
     "   bun <rt>/cli.ts mcp tools --json | bun scripts/gen-mcp-tools.ts > attachments/mcp-tools/reference.md",
-    "3. Move the rt ref: in mattstack-skills' .github/workflows/purity.yml to that merge commit.",
-    `4. Set PAYLOAD_SHA256 in lib/mcp/__tests__/tools-payload-hash.test.ts to ${hash}`,
+    "4. Move the rt ref: in mattstack-skills' .github/workflows/purity.yml to that merge commit.",
   ].join("\n");
 }
 

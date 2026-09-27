@@ -100,7 +100,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_view",
       description: `GitLab only. One MR by iid from the daemon's open-MR cache; pass a small maxAgeMs (e.g. 5000) when the read must be live. The body carries scope and syncError when the daemon reports them. ${CACHE_NOTE}. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, maxAgeMs: { type: "number" } }, additionalProperties: false },
-      shellForms: ["glab mr view", { id: "glab", pattern: /\bglab\b/, example: "glab api projects/1", note: "mr_view, mr_list, mr_for_branch, mr_threads, mr_pipeline, mr_job_trace, mr_merge, or an mr_* write" }],
+      shellForms: ["glab mr view", { id: "glab", pattern: /(?<![\w-])glab\b/, example: "glab api projects/1", note: "mr_view, mr_list, mr_for_branch, mr_threads, mr_pipeline, mr_job_trace, mr_merge, or an mr_* write" }],
       async handler(input) {
         const bad = checkMaxAge(input);
         if (bad) return err(bad);
@@ -136,7 +136,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
       name: "mr_for_branch",
       description: `GitLab only. The MR (or null) for each named source branch. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, branches: { type: "array", items: { type: "string" }, minItems: 1 } }, required: ["branches"], additionalProperties: false },
-      shellForms: [{ id: "subst", pattern: /\b[A-Za-z_][A-Za-z0-9_]*=\$\(\s*(rt|glab)\b/, example: "IID=$(glab mr list --json)", note: "a tool returns the value; nothing needs a shell variable" }],
+      shellForms: [{ id: "subst", pattern: /\b[A-Za-z_][A-Za-z0-9_]*=\$\(\s*(rt|glab)\b/, example: "IID=$(glab mr list --json)", note: "a tool returns the value; nothing needs a shell variable (the inner call names the tool: glab mr list is mr_for_branch or mr_list, rt runs is run_*)" }],
       async handler(input) {
         const bad = checkStringArray(input, "branches");
         if (bad) return err(bad);
