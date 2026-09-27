@@ -19,12 +19,17 @@ class ExitSentinel extends Error {
   }
 }
 
-async function run(fn: (args: string[]) => Promise<void>, args: string[]): Promise<{ code: number; stdout: string }> {
-  const chunks: string[] = [];
+async function run(fn: (args: string[]) => Promise<void>, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const outChunks: string[] = [];
+  const errChunks: string[] = [];
   const writeSpy = spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array) => {
-    chunks.push(String(chunk));
+    outChunks.push(String(chunk));
     return true;
   }) as typeof process.stdout.write);
+  const errSpy = spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array) => {
+    errChunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write);
   const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
     throw new ExitSentinel(code ?? 0);
   }) as unknown as typeof process.exit);
@@ -36,9 +41,10 @@ async function run(fn: (args: string[]) => Promise<void>, args: string[]): Promi
     else throw e;
   } finally {
     writeSpy.mockRestore();
+    errSpy.mockRestore();
     exitSpy.mockRestore();
   }
-  return { code, stdout: chunks.join("") };
+  return { code, stdout: outChunks.join(""), stderr: errChunks.join("") };
 }
 
 describe("cliOwner", () => {
@@ -90,10 +96,41 @@ describe("rt ci lease CLI (in-process)", () => {
     expect(JSON.parse(stdout)).toHaveProperty("error");
   });
 
+  test("a plain-text error goes to stderr, not stdout; --json puts the same failure on stdout", async () => {
+    const plain = await run(ciLeaseClaim, ["not-a-url"]);
+    expect(plain.code).toBe(2);
+    expect(plain.stdout).toBe("");
+    expect(plain.stderr).toContain("usage: rt ci lease claim <mr-url>");
+
+    const json = await run(ciLeaseClaim, ["not-a-url", "--json"]);
+    expect(json.code).toBe(2);
+    expect(json.stderr).toBe("");
+    expect(JSON.parse(json.stdout).error).toContain("usage: rt ci lease claim <mr-url>");
+  });
+
+  test("each lease verb's usage message names the verb, not a generic placeholder", async () => {
+    expect((await run(ciLeaseHeartbeat, ["bad"])).stderr).toContain("usage: rt ci lease heartbeat <mr-url>");
+    expect((await run(ciLeaseRelease, ["bad"])).stderr).toContain("usage: rt ci lease release <mr-url>");
+    expect((await run(ciLeaseShow, ["bad"])).stderr).toContain("usage: rt ci lease show <mr-url>");
+  });
+
   test("claim --holder rejects anything but watch-ci or doctor", async () => {
     const { code, stdout } = await run(ciLeaseClaim, [MR_URL, "--holder", "bogus", "--json"]);
     expect(code).toBe(2);
     expect(JSON.parse(stdout).error).toContain("--holder must be watch-ci or doctor");
+  });
+
+  test("a dangling --holder (no value) is a usage error, not a silent default", async () => {
+    const { code, stdout } = await run(ciLeaseClaim, [MR_URL, "--holder", "--json"]);
+    // --holder consumed "--json" as its value here (still a usage error, just
+    // the enum check), so assert with the plain form where --holder really
+    // has nothing after it.
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout)).toHaveProperty("error");
+
+    const plain = await run(ciLeaseClaim, [MR_URL, "--holder"]);
+    expect(plain.code).toBe(2);
+    expect(plain.stderr).toContain("--holder requires a value");
   });
 
   test("a second claim from another session is refused with exit 3", async () => {
@@ -155,12 +192,12 @@ describe("rt ci lease CLI (in-process)", () => {
     expect(JSON.parse(stdout)).toMatchObject({ ok: false, reason: "lost", holder: { owner: "session:s1" } });
   });
 
-  test("release frees the owner's lease and always exits 0, even when refused", async () => {
+  test("release frees the owner's lease; a non-owner's refusal exits 3 (matching claim/heartbeat), but releasing nothing is idempotent and exits 0", async () => {
     await run(ciLeaseClaim, [MR_URL, "--json"]);
 
     process.env.CLAUDE_CODE_SESSION_ID = "s2";
     const refused = await run(ciLeaseRelease, [MR_URL, "--json"]);
-    expect(refused.code).toBe(0);
+    expect(refused.code).toBe(3);
     expect(JSON.parse(refused.stdout)).toMatchObject({ released: false, reason: "not-owner", holder: { owner: "session:s1" } });
 
     process.env.CLAUDE_CODE_SESSION_ID = "s1";

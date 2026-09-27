@@ -29,18 +29,30 @@ function flag(args: string[], name: string): string | undefined {
   return i >= 0 ? args[i + 1] : undefined;
 }
 
+/** True when `name` is present as the last token, so `flag`'s undefined means "no value given" rather than "flag absent" (a defaulted flag must not conflate the two). */
+function danglingFlag(args: string[], name: string): boolean {
+  const i = args.indexOf(name);
+  return i >= 0 && args[i + 1] === undefined;
+}
+
 function positional(args: string[]): string | undefined {
   return args.find((a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1]!.startsWith("--") && args[i - 1] !== "--json"));
 }
 
+/** json always goes to stdout regardless of exit code (a caller parsing --json output needs it there even on failure); plain text follows exit code: 0 to stdout, non-zero to stderr — matching commands/mr.ts's fail() and commands/chat.ts's fail(). */
 function emit(json: boolean, body: unknown, text: string, code = 0): never {
-  process.stdout.write(json ? `${JSON.stringify(body)}\n` : `${text}\n`);
+  if (json) process.stdout.write(`${JSON.stringify(body)}\n`);
+  else if (code === 0) process.stdout.write(`${text}\n`);
+  else process.stderr.write(`${text}\n`);
   process.exit(code);
 }
 
-function mrArg(args: string[], json: boolean): string {
+function mrArg(args: string[], json: boolean, verb: string): string {
   const mr = positional(args);
-  if (!mr || parseMrIid(mr) === null) emit(json, { error: "usage: rt ci lease <verb> <mr-url>" }, "usage: rt ci lease <verb> <mr-url> (an MR or PR URL)", 2);
+  if (!mr || parseMrIid(mr) === null) {
+    const usage = `usage: rt ci lease ${verb} <mr-url>`;
+    emit(json, { error: usage }, `${usage} (an MR or PR URL)`, 2);
+  }
   return mr;
 }
 
@@ -55,7 +67,8 @@ function guard<T>(json: boolean, run: () => T): T {
 
 export async function ciLeaseClaim(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const mrUrl = mrArg(args, json);
+  const mrUrl = mrArg(args, json, "claim");
+  if (danglingFlag(args, "--holder")) emit(json, { error: "--holder requires a value: watch-ci or doctor" }, "--holder requires a value: watch-ci or doctor", 2);
   const holder = (flag(args, "--holder") ?? "watch-ci") as CiLeaseHolder;
   if (holder !== "watch-ci" && holder !== "doctor") emit(json, { error: "--holder must be watch-ci or doctor" }, "--holder must be watch-ci or doctor", 2);
   const branch = flag(args, "--branch");
@@ -66,7 +79,7 @@ export async function ciLeaseClaim(args: string[]): Promise<void> {
 
 export async function ciLeaseHeartbeat(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const mrUrl = mrArg(args, json);
+  const mrUrl = mrArg(args, json, "heartbeat");
   const r = guard(json, () => heartbeatCiLease(mrUrl, cliOwner(process.env)));
   if (r.ok) emit(json, r, "heartbeat recorded");
   emit(json, r, r.reason === "lost" ? `lost: held by ${leaseOwner(r.holder)}` : "no lease", 3);
@@ -74,14 +87,18 @@ export async function ciLeaseHeartbeat(args: string[]): Promise<void> {
 
 export async function ciLeaseRelease(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const mrUrl = mrArg(args, json);
+  const mrUrl = mrArg(args, json, "release");
   const r = guard(json, () => releaseCiLease(mrUrl, cliOwner(process.env)));
-  emit(json, r, r.released ? "released" : r.reason === "not-owner" ? `not yours: held by ${leaseOwner(r.holder)}` : "no lease");
+  if (r.released) emit(json, r, "released");
+  // not-owner is a refusal, exit 3, matching claim and heartbeat; none is
+  // idempotent (nothing to release) and stays exit 0.
+  if (r.reason === "not-owner") emit(json, r, `not yours: held by ${leaseOwner(r.holder)}`, 3);
+  emit(json, r, "no lease");
 }
 
 export async function ciLeaseShow(args: string[]): Promise<void> {
   const json = args.includes("--json");
-  const mrUrl = mrArg(args, json);
+  const mrUrl = mrArg(args, json, "show");
   const r = guard(json, () => readCiLease(mrUrl));
   const mine = r.lease !== null && leaseOwner(r.lease) === cliOwner(process.env);
   emit(json, { ...r, mine }, r.lease ? `${leaseOwner(r.lease)} (${r.lease.holder}), heartbeat ${new Date(r.lease.heartbeatAt).toISOString()}` : "none", r.lease ? 0 : 1);
