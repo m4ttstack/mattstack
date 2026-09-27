@@ -182,6 +182,7 @@ export {
   type PresenceRow,
   type PresenceThresholds,
   type RegistryDeps,
+  type SignInResult,
 } from "./presence-store.ts";
 
 export {

@@ -17,6 +17,7 @@ import {
   assertSessionSignedIn,
   buddyStatus,
   listBuddies,
+  presenceForHandle,
   presenceForSession,
   presenceThresholds,
   paneHandleFor,
@@ -27,10 +28,13 @@ import {
   signOut,
   touchLastSeen,
   type RegistryDeps,
+  type SignInResult,
 } from "../presence-store.ts";
 import type { InboxBinding } from "../../claude-registry.ts";
 import { AGENT_NAMES } from "../../chat-names.ts";
 import { getKvValue } from "../kv-blob.ts";
+import { identityForSession, mintIdentity } from "../identity-store.ts";
+import { setKvValue } from "../kv-blob.ts";
 
 /** No binding for any session id: the default in every test that doesn't care about the registry (matches the real resolver's behavior for a fake test session id it will never find on disk). */
 const NO_BINDING: RegistryDeps = { resolve: () => null, alive: () => false, resolveAll: () => new Map() };
@@ -63,7 +67,7 @@ function fresh() {
 /** signIn(), asserted non-undefined: every ordinary (non-contention) test
  *  call is expected to succeed, so this narrows the R057 `| undefined`
  *  return without repeating a non-null assertion at every call site. */
-function mustSignIn(...args: Parameters<typeof signIn>): { handle: string; baseHandle: string; reclaimed: boolean } {
+function mustSignIn(...args: Parameters<typeof signIn>): SignInResult {
   const result = signIn(...args);
   if (!result) throw new Error("mustSignIn: signIn() unexpectedly returned undefined");
   return result;
@@ -74,23 +78,27 @@ const MIN = 60_000, HOUR = 3_600_000;
 
 test("a base held by a live row is suffixed; the suffix is stable", () => {
   const db = fresh();
-  expect(mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db).handle).toBe("x");
-  expect(mustSignIn({ sessionId: "s2", baseHandle: "x", now }, db).handle).toBe("x-2");
-  expect(mustSignIn({ sessionId: "s3", baseHandle: "x", now }, db).handle).toBe("x-3");
+  const a = mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  const b = mustSignIn({ sessionId: "s2", baseHandle: "x", now }, db);
+  const c = mustSignIn({ sessionId: "s3", baseHandle: "x", now }, db);
+  expect([a.name, b.name, c.name]).toEqual(["x", "x-2", "x-3"]);
+  expect(new Set([a.handle, b.handle, c.handle]).size).toBe(3);
+  for (const r of [a, b, c]) expect(r.handle).toMatch(/^x\.[a-z0-9]{4}$/);
 });
 
 test("a session-stale holder with no live binding is never reclaimed inside the session-stale window", () => {
   const db = fresh();
   mustSignIn({ sessionId: "s1", baseHandle: "x", cwd: "/w", now }, db);
   const r = mustSignIn({ sessionId: "s2", baseHandle: "x", cwd: "/w", now: now + MIN }, db);
-  expect(r).toMatchObject({ handle: "x-2", reclaimed: false });
+  expect(r).toMatchObject({ name: "x-2", reclaimed: false });
 });
 
-test("a stale same-seat row is reclaimed by deletion and the handle comes back", () => {
+test("a stale same-seat row gives up its display name to a restarted process, which gets a new id", () => {
   const db = fresh();
-  mustSignIn({ sessionId: "s1", baseHandle: "x", cwd: "/w", pane: "3", now }, db);
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "x", cwd: "/w", pane: "3", now }, db);
   const r = mustSignIn({ sessionId: "s2", baseHandle: "x", cwd: "/w", pane: "3", now: now + 2 * HOUR }, db);
-  expect(r).toMatchObject({ handle: "x", reclaimed: true });
+  expect(r).toMatchObject({ name: "x", reclaimed: true });
+  expect(r.handle).not.toBe(first.handle);
   expect(db.query("SELECT COUNT(*) c FROM chat_presence").get()).toMatchObject({ c: 1 });
 });
 
@@ -98,14 +106,14 @@ test("a live registry binding blocks reclaim even when the session heartbeat is 
   const db = fresh();
   mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
   const deps = fakeBinding("idle");
-  expect(mustSignIn({ sessionId: "s2", baseHandle: "x", now: now + 3 * HOUR + MIN }, db, deps).handle).toBe("x-2");
+  expect(mustSignIn({ sessionId: "s2", baseHandle: "x", now: now + 3 * HOUR + MIN }, db, deps).name).toBe("x-2");
 });
 
 test("a dead registry binding does not block reclaim once session-stale", () => {
   const db = fresh();
   mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
   const r = mustSignIn({ sessionId: "s2", baseHandle: "x", now: now + 3 * HOUR + MIN }, db, NO_BINDING);
-  expect(r).toMatchObject({ handle: "x", reclaimed: true });
+  expect(r).toMatchObject({ name: "x", reclaimed: true });
 });
 
 test("buddyStatus: offline beats everything (signed out, unresolvable, or a dead pid); otherwise the registry mirror decides live vs idle, regardless of how stale last_seen_at is", () => {
@@ -164,8 +172,8 @@ test("listBuddies: a live-binding row with a 25h-old stamp still appears, classi
   const deps = fakeBinding("busy", "s1"); // only s1 resolves; s2 has no registry entry
   const buddies = listBuddies(now, db, deps);
 
-  const live = buddies.find((b) => b.handle === "live-stale");
-  const dead = buddies.find((b) => b.handle === "dead-stale");
+  const live = buddies.find((b) => b.name === "live-stale");
+  const dead = buddies.find((b) => b.name === "dead-stale");
   expect(live?.status).toBe("live");
   expect(dead?.status).toBe("offline");
 });
@@ -181,17 +189,17 @@ test("signIn scans the registry exactly once per call, even while probing severa
   mustSignIn({ sessionId: "s3", baseHandle: "x", now }, db);
   const deps = countingRegistryDeps();
   const r = mustSignIn({ sessionId: "s4", baseHandle: "x", now }, db, deps);
-  expect(r.handle).toBe("x-4");
+  expect(r.name).toBe("x-4");
   expect(deps.scans).toBe(1);
 });
 
 test("assertSessionOwnsHandle throws only on a mismatched signed handle", () => {
   const db = fresh();
-  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
-  expect(() => assertSessionOwnsHandle("x", "s1", db)).not.toThrow();
-  expect(() => assertSessionOwnsHandle("x", "s2", db)).toThrow(/handle reclaimed/);
-  expect(() => assertSessionOwnsHandle("unsigned", "s2", db)).not.toThrow(); // plan-1 path: no presence row, no enforcement
-  expect(() => assertSessionOwnsHandle("x", undefined, db)).not.toThrow(); // no session id offered, no enforcement
+  const { handle } = mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  expect(() => assertSessionOwnsHandle(handle, "s1", db)).not.toThrow();
+  expect(() => assertSessionOwnsHandle(handle, "s2", db)).toThrow(/handle reclaimed/);
+  expect(() => assertSessionOwnsHandle("unsigned", "s2", db)).not.toThrow();
+  expect(() => assertSessionOwnsHandle(handle, undefined, db)).not.toThrow();
 });
 
 test("S073: signIn's read-then-write transaction uses .immediate() (BEGIN IMMEDIATE), not a deferred BEGIN", () => {
@@ -353,81 +361,66 @@ test("a creating join with wake-on stamps the room default and later joins inher
   expect(listMembers("calm", db).map((m) => m.wakeOn)).toEqual(["mention", "mention"]);
 });
 
-test("a repeat sign-in from the same session, same base, retakes its own seat", () => {
+test("a repeat sign-in from the same session, same base, keeps its id and name", () => {
   const db = fresh();
-  expect(mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db).handle).toBe("x");
-  // Before the fix this threw a raw UNIQUE violation on "x": the scan found
-  // s1's own (non-reclaimable, fresh) row still holding it.
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
   const r = mustSignIn({ sessionId: "s1", baseHandle: "x", now: now + MIN }, db);
-  expect(r.handle).toBe("x");
+  expect(r).toMatchObject({ handle: first.handle, name: "x" });
   expect(db.query("SELECT COUNT(*) c FROM chat_presence").get()).toMatchObject({ c: 1 });
 });
 
 test("a repeat sign-in from the same session comes back to its own higher suffix rather than filling a lower gap", () => {
   const db = fresh();
-  mustSignIn({ sessionId: "s0", baseHandle: "x", now }, db); // holds "x", stays live throughout
-  mustSignIn({ sessionId: "s-mid", baseHandle: "x", now }, db); // holds "x-2"
-  expect(mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db).handle).toBe("x-3");
-  db.run("DELETE FROM chat_presence WHERE session_id = 's-mid'"); // "x-2" is now a genuine gap
-  // Without the same-seat rule this would refill the gap at "x-2" — the
-  // suffix churn the reclaim predicate exists to prevent.
-  const r = mustSignIn({ sessionId: "s1", baseHandle: "x", now: now + MIN }, db);
-  expect(r.handle).toBe("x-3");
+  mustSignIn({ sessionId: "s0", baseHandle: "x", now }, db);
+  mustSignIn({ sessionId: "s-mid", baseHandle: "x", now }, db);
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  expect(first.name).toBe("x-3");
+  db.run("DELETE FROM chat_presence WHERE session_id = 's-mid'");
+  expect(mustSignIn({ sessionId: "s1", baseHandle: "x", now: now + MIN }, db)).toMatchObject({ handle: first.handle, name: "x-3" });
 });
 
-test("a repeat sign-in with a different base releases the old seat and takes a fresh one", () => {
+test("a repeat sign-in with a different base keeps the id, shows the new name, and frees the old one", () => {
   const db = fresh();
-  expect(mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db).handle).toBe("x");
-  expect(mustSignIn({ sessionId: "s1", baseHandle: "y", now: now + MIN }, db).handle).toBe("y");
-  // the old base's slot was released outright, not left behind as a ghost
-  expect(mustSignIn({ sessionId: "s2", baseHandle: "x", now: now + 2 * MIN }, db)).toMatchObject({ handle: "x", reclaimed: false });
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  expect(mustSignIn({ sessionId: "s1", baseHandle: "y", now: now + MIN }, db)).toMatchObject({ handle: first.handle, name: "y" });
+  expect(mustSignIn({ sessionId: "s2", baseHandle: "x", now: now + 2 * MIN }, db)).toMatchObject({ name: "x", reclaimed: false });
 });
 
-test("signIn skips a candidate handle that's globally held by an unrelated base family", () => {
+test("signIn skips a display name that's held by an unrelated base family", () => {
   const db = fresh();
-  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db); // "x"
-  mustSignIn({ sessionId: "s2", baseHandle: "x", now }, db); // "x-2" — base_handle "x", live
-  // s3's OWN derived base happens to be the literal string "x-2" (e.g. a
-  // worktree dir named "2"). Scoping seat selection to base_handle="x-2"
-  // alone would see no rows at all and hand out "x-2" — already taken.
-  const r = mustSignIn({ sessionId: "s3", baseHandle: "x-2", now }, db);
-  expect(r.handle).toBe("x-2-2");
+  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  mustSignIn({ sessionId: "s2", baseHandle: "x", now }, db);
+  expect(mustSignIn({ sessionId: "s3", baseHandle: "x-2", now }, db).name).toBe("x-2-2");
 });
 
-test("signIn reclaims a globally-held candidate rather than just skipping it", () => {
+test("signIn reclaims a display name held by a reclaimable row of another family", () => {
   const db = fresh();
-  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db); // "x"
-  mustSignIn({ sessionId: "s2", baseHandle: "x-2", now }, db); // base_handle "x-2", handle "x-2"
-  // s2 goes silent for 2h with no tail — reclaimable by the time s3 arrives.
-  const later = now + 2 * HOUR;
-  const r = mustSignIn({ sessionId: "s3", baseHandle: "x-2", now: later }, db);
-  expect(r).toMatchObject({ handle: "x-2", reclaimed: true });
+  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  mustSignIn({ sessionId: "s2", baseHandle: "x-2", now }, db);
+  const r = mustSignIn({ sessionId: "s3", baseHandle: "x-2", now: now + 2 * HOUR }, db);
+  expect(r).toMatchObject({ name: "x-2", reclaimed: true });
 });
 
 test("own-seat preference: a reclaimable row with matching cwd+pane wins over an earlier lower-suffix reclaimable row", () => {
   const db = fresh();
-  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db); // "x"
-  mustSignIn({ sessionId: "s2", baseHandle: "x", cwd: "/other", now }, db); // "x-2"
-  mustSignIn({ sessionId: "s3", baseHandle: "x", cwd: "/mine", pane: "7", now }, db); // "x-3"
+  mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
+  mustSignIn({ sessionId: "s2", baseHandle: "x", cwd: "/other", now }, db);
+  mustSignIn({ sessionId: "s3", baseHandle: "x", cwd: "/mine", pane: "7", now }, db);
   const later = now + 2 * HOUR;
-  db.run("UPDATE chat_presence SET last_seen_at = ? WHERE handle = 'x'", [later]); // "x" stays live
-  // "x-2" and "x-3" are both stale (untouched last_seen_at) and reclaimable
-  // by `later`; only "x-3"'s cwd+pane matches the incoming session.
+  db.run("UPDATE chat_presence SET last_seen_at = ? WHERE session_id = 's1'", [later]);
   const r = mustSignIn({ sessionId: "s4", baseHandle: "x", cwd: "/mine", pane: "7", now: later }, db);
-  expect(r).toMatchObject({ handle: "x-3", reclaimed: true });
-  // "x-2" — the lower-suffix reclaimable row a plain first-by-suffix scan
-  // would have picked — is left completely untouched.
-  expect(db.query("SELECT session_id FROM chat_presence WHERE handle = 'x-2'").get()).toMatchObject({ session_id: "s2" });
+  expect(r).toMatchObject({ name: "x-3", reclaimed: true });
+  expect(presenceForSession("s2", db)?.name).toBe("x-2");
 });
 
 test("the joinRoom cwd guard is scoped to unsigned handles", () => {
   const db = fresh();
   joinRoom({ room: "a", handle: "x", cwd: "/one" }, db);
-  expect(() => joinRoom({ room: "b", handle: "x", cwd: "/two" }, db)).toThrow(/--as/); // unsigned: as shipped
+  expect(() => joinRoom({ room: "b", handle: "x", cwd: "/two" }, db)).toThrow(/--as/);
   const db2 = fresh();
-  mustSignIn({ sessionId: "s1", baseHandle: "y", now }, db2);
-  joinRoom({ room: "a", handle: "y", cwd: "/one" }, db2);
-  expect(() => joinRoom({ room: "b", handle: "y", cwd: "/two" }, db2)).not.toThrow(); // signed: presence owns uniqueness
+  const y = mustSignIn({ sessionId: "s1", baseHandle: "y", now }, db2);
+  joinRoom({ room: "a", handle: y.handle, cwd: "/one" }, db2);
+  expect(() => joinRoom({ room: "b", handle: y.handle, cwd: "/two" }, db2)).not.toThrow();
 });
 
 // presenceThresholds smoke test: not in the plan's verbatim block, but the
@@ -458,7 +451,8 @@ test("signIn without a base draws a pool name that no live session holds", () =>
   const b = mustSignIn({ sessionId: "s2", now }, db);
   expect(AGENT_NAMES).toContain(a.baseHandle);
   expect(AGENT_NAMES).toContain(b.baseHandle);
-  expect(a.handle).toBe(a.baseHandle);
+  expect(a.name).toBe(a.baseHandle);
+  expect(a.handle).toMatch(new RegExp(`^${a.baseHandle}\\.[a-z0-9]{4}$`));
   expect(b.baseHandle).not.toBe(a.baseHandle);
 });
 
@@ -538,4 +532,79 @@ test("re-pinning an old pane survives the cap as a most-recent write, even shari
   expect(paneHandleFor("w:p1", db)).toBe("repinned"); // re-pinned oldest survives
   expect(paneHandleFor("w:p2", db)).toBeUndefined();   // genuinely-old untouched key evicted
   expect(paneHandleFor("w:p205", db)).toBe("h205");    // newest survives
+});
+
+// ─── Identities ──────────────────────────────────────────────────────────────
+
+test("a chosen name mints a new id with that display name, even when an older identity carries the name", () => {
+  const db = fresh();
+  const old = mintIdentity({ base: "remy", name: "remy", sessionId: "s-old", now: 1 }, db);
+  const r = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  expect(r).toMatchObject({ name: "remy", baseHandle: "remy", continued: false });
+  expect(r.handle).not.toBe(old.id);
+  expect(identityForSession("s1", db)?.id).toBe(r.handle);
+});
+
+// Review Focus 1
+test("a session whose presence row was pruned signs back in under the same id", () => {
+  const db = fresh();
+  const first = mustSignIn({ sessionId: "s1", now }, db, NO_BINDING);
+  signOut("s1", now, db);
+  expect(prunePresence(now + 25 * HOUR, db, NO_BINDING)).toBe(1);
+  expect(presenceForSession("s1", db)).toBeNull();
+  const again = mustSignIn({ sessionId: "s1", now: now + 25 * HOUR }, db, NO_BINDING);
+  expect(again).toMatchObject({ handle: first.handle, name: first.name, baseHandle: first.baseHandle });
+});
+
+// Review Focus 1
+test("a returning session keeps its id when its name was taken meanwhile, and shows a suffix instead", () => {
+  const db = fresh();
+  const first = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  signOut("s1", now, db);
+  prunePresence(now + 25 * HOUR, db, NO_BINDING);
+  const other = mustSignIn({ sessionId: "s2", baseHandle: "remy", now: now + 25 * HOUR }, db, NO_BINDING);
+  expect(other.name).toBe("remy");
+  expect(other.handle).not.toBe(first.handle);
+  const again = mustSignIn({ sessionId: "s1", now: now + 25 * HOUR + MIN }, db, NO_BINDING);
+  expect(again).toMatchObject({ handle: first.handle, name: "remy-2" });
+});
+
+// Review Focus 2
+test("two connections signing in the same display name at once get remy and remy-2 under distinct ids", () => {
+  const path = join(tmpdir(), `presence-race-${process.pid}-${n++}.db`);
+  const one = openStateDb(path, "daemon");
+  const two = openStateDb(path, "cli");
+  const a = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, one, NO_BINDING);
+  const b = mustSignIn({ sessionId: "s2", baseHandle: "remy", now }, two, NO_BINDING);
+  expect([a.name, b.name]).toEqual(["remy", "remy-2"]);
+  expect(a.handle).not.toBe(b.handle);
+  for (const r of [a, b]) expect(r.handle).toMatch(/^remy\.[a-z0-9]{4}$/);
+  expect(one.query("SELECT COUNT(*) AS n FROM chat_identities").get()).toEqual({ n: 2 });
+});
+
+test("a session still holding a legacy presence row keeps that handle as its id", () => {
+  const db = fresh();
+  db.run("INSERT INTO chat_presence (session_id, handle, base_handle, signed_in_at, last_seen_at) VALUES ('s1', 'kai-2', 'kai', ?, ?)", [now, now]);
+  const r = mustSignIn({ sessionId: "s1", now: now + MIN }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: "kai-2", name: "kai-2", baseHandle: "kai" });
+  expect(identityForSession("s1", db)).toMatchObject({ id: "kai-2", name: "kai-2", baseName: "kai" });
+});
+
+test("presence rows carry the display name", () => {
+  const db = fresh();
+  mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  const second = mustSignIn({ sessionId: "s2", baseHandle: "remy", now }, db, NO_BINDING);
+  db.run("INSERT INTO chat_presence (session_id, handle, base_handle, signed_in_at, last_seen_at) VALUES ('s3', 'kai', 'kai', ?, ?)", [now, now]);
+  expect(presenceForSession("s2", db)?.name).toBe("remy-2");
+  expect(presenceForHandle(second.handle, db)?.name).toBe("remy-2");
+  expect(listBuddies(now, db, NO_BINDING).map((b) => b.name).sort()).toEqual(["kai", "remy", "remy-2"]);
+});
+
+test("the pool draw skips a name a live session shows, even though its id carries a suffix", () => {
+  const db = fresh();
+  const remyOldest = (at: number) => Object.fromEntries(AGENT_NAMES.map((name) => [name, name === "remy" ? 0 : at]));
+  setKvValue("chat", "names", remyOldest(now), db);
+  expect(mustSignIn({ sessionId: "s1", now }, db, NO_BINDING).name).toBe("remy");
+  setKvValue("chat", "names", remyOldest(now), db);
+  expect(mustSignIn({ sessionId: "s2", now: now + MIN }, db, NO_BINDING).baseHandle).not.toBe("remy");
 });
