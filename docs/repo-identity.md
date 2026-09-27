@@ -58,7 +58,7 @@ Never swap the forms: settings lookups miss on the wire form, and daemon
 verbs refuse the raw one (silently — see below). A `path`-kind repo has no
 `host/path`, so it gets no repo-scoped settings sections at all
 (`repoIdentityFor` in `lib/daemon/handlers/endpoint.ts` resolves it to null
-on purpose).
+on purpose); for a `repoOnly` key that leaves only the registry default.
 
 ## The codec
 

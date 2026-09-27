@@ -8,7 +8,8 @@ import type {
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@mattstack/rt-client', () => ({
+vi.mock('@mattstack/rt-client', async importOriginal => ({
+  ...(await importOriginal<typeof import('@mattstack/rt-client')>()),
   getRun: vi.fn(),
   getSetting: vi.fn(),
   getDef: vi.fn(),
@@ -204,6 +205,37 @@ describe('effective-inputs route', () => {
     expect(body.packVersions).toBeNull();
     expect(rtFake.run).not.toHaveBeenCalled();
     expect(git.run).not.toHaveBeenCalled();
+  });
+
+  it("reads each config key for the run's own repo, so repo-only keys resolve", async () => {
+    vi.mocked(rt.getRun).mockResolvedValue({
+      ok: true,
+      data: baseDetail({ run: baseRun({ pack_commits: null }) }),
+    });
+    vi.mocked(rt.getSetting).mockClear();
+    vi.mocked(rt.getSetting).mockImplementation(() => ({
+      value: 1,
+      provenance: [],
+    }));
+    const app = mountEffectiveInputs(
+      new Hono(),
+      fakeRt({ code: 0, stdout: packsStdout([]), stderr: '' }).run,
+      fakeRun(() => ({ code: 0, stdout: '', stderr: '' })).run
+    );
+    const repo = rt.serializeIdentity({
+      kind: 'remote',
+      id: 'gitlab.example.com/acme/app',
+    });
+
+    const res = await app.request(
+      `/api/runs/${encodeURIComponent(repo)}/run-1/effective-inputs`
+    );
+
+    expect(res.status).toBe(200);
+    for (const key of CONFIG_DEPS)
+      expect(rt.getSetting).toHaveBeenCalledWith(key, {
+        repoIdentity: 'gitlab.example.com/acme/app',
+      });
   });
 
   it('skips a config key whose getSetting throws rather than 500ing the panel', async () => {

@@ -3,9 +3,9 @@ import * as path from 'path';
 import { homedir } from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { identityFromRemote } from '@mattstack/rt-client';
 import type { BranchInfo, WorktreeEntry, GitExtensionExports, GitAPI, GitRepository } from './types';
 import { parseWorktreePorcelain } from './worktreeParse';
+import { repoIdentityFromRemote } from './repoIdentity';
 
 const execFileAsync = promisify(execFile);
 
@@ -336,5 +336,5 @@ export function resolveDataDir(repo: GitRepository): string | null {
 export function resolveRepoIdentity(repo: GitRepository): string | null {
   const remoteUrl = getRemoteUrl(repo);
   if (!remoteUrl) return null;
-  return identityFromRemote(remoteUrl);
+  return repoIdentityFromRemote(remoteUrl);
 }

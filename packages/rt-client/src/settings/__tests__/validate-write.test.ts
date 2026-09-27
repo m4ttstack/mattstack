@@ -13,6 +13,7 @@ import { getDef } from "../registry-machinery.ts";
 import { setSettingsWarnSink } from "../resolve.ts";
 import { validateWrite } from "../validate-write.ts";
 import { withSchema } from "./with-schema.ts";
+import { suspendRepoOnly } from "./without-repo-only.ts";
 
 const IDENTITY = "gitlab.com/acme/acme-dev";
 const IDENTITY2 = "gitlab.com/acme/acme-other";
@@ -29,12 +30,17 @@ describe("settings/validate-write", () => {
   const origHome = process.env.HOME;
   let home: string;
 
+  // rt.roles and rt.worktrees stand in for any repo-scoped key here.
+  let restoreRepoOnly: () => void;
+
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-settings-validate-write-")));
     process.env.HOME = home;
+    restoreRepoOnly = suspendRepoOnly(["rt.roles", "rt.worktrees", "rt.intercepts"]);
   });
 
   afterEach(() => {
+    restoreRepoOnly();
     process.env.HOME = origHome;
     rmSync(home, { recursive: true, force: true });
   });

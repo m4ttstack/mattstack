@@ -86,6 +86,7 @@ export function planStoreMigrations(): MigrationPlan {
     for (const def of allDefs()) {
       if (!def.scopes.includes(s.scope)) continue;
       if (s.repo !== undefined && def.repoScoped !== true) continue;
+      if (s.repo === undefined && def.repoOnly === true) continue;
       const read = readSection(def, s.section, { layer: true });
       if (!read.present) continue;
       const current = currentStoreName(def);

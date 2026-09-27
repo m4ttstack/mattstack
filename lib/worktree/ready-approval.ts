@@ -18,12 +18,12 @@ import type { ReadyStep } from "./config.ts";
 export const READY_APPROVAL_KEY = "rt.worktreeReadyApproval";
 
 /**
- * The scopes an approval may come from. The key allows all three (a repoScoped
- * invariant), but a team-authored approval is never trusted... otherwise a team
- * store could approve its own shell, defeating the gate. So the read ignores
- * team / team.repo and honors only the user's and this machine's own rungs.
+ * The scopes an approval may come from. A team-authored approval is never
+ * trusted... otherwise a team store could approve its own shell, defeating the
+ * gate. The key is repo-only, so only the user's and this machine's own repo
+ * rungs count; a global value is refused by the resolver anyway.
  */
-const TRUSTED_APPROVAL_SCOPES = new Set(["machine.repo", "machine", "user.repo", "user"]);
+const TRUSTED_APPROVAL_SCOPES = new Set(["machine.repo", "user.repo"]);
 const SCOPE_STRONGEST_FIRST = [...SCOPE_ORDER].reverse();
 
 /** Order-sensitive content hash of a ready ladder; a stable id for approval. */
@@ -50,7 +50,7 @@ export function readReadyApproval(repoIdentity: string | null): string | undefin
   for (const scope of SCOPE_STRONGEST_FIRST) {
     if (!TRUSTED_APPROVAL_SCOPES.has(scope)) continue;
     const row = byScope.get(scope);
-    if (row?.present && typeof row.value === "string" && row.value.length > 0) return row.value;
+    if (row?.present && !row.invalid && typeof row.value === "string" && row.value.length > 0) return row.value;
   }
   return undefined;
 }

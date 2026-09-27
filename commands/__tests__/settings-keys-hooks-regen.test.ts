@@ -8,7 +8,7 @@
  * so it's safe to call in-process.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execSync } from "child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -58,9 +58,18 @@ describe("rt settings set rt.hooks --repo -> hooks.json regeneration seam", () =
     expect(cache).toEqual({ enabled: false, hooks: { "pre-commit": true } });
   });
 
-  test("a write with no --repo (global scope) does NOT regenerate any repo's cache — the documented gap", async () => {
-    await settingsSet(["rt.hooks", '{"enabled":false,"hooks":{}}', "--scope", "user"]);
-
+  test("a write with no --repo is refused: rt.hooks is repo-only, so nothing is written or regenerated", async () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit sentinel");
+    });
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(settingsSet(["rt.hooks", '{"enabled":false,"hooks":{}}', "--scope", "user"])).rejects.toThrow("process.exit sentinel");
+      expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toMatch(/repo-only/);
+    } finally {
+      exitSpy.mockRestore();
+      errSpy.mockRestore();
+    }
     expect(() => readFileSync(hooksConfigPath(repoDataDir("hooks-regen-repo")), "utf8")).toThrow();
   });
 
