@@ -2,7 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { auditJsonPayload, buildAuditInvocation, buildAuditPrompt, resolveAuditInputs, skillsAudit } from "../skills-audit.ts";
+import { auditJsonPayload, buildAuditInvocation, buildAuditPrompt, buildAuditRun, resolveAuditInputs, skillsAudit } from "../skills-audit.ts";
 import { buildClaudeArgv } from "../../lib/agent-argv/claude.ts";
 
 const paths = ["/p/skills/ship/SKILL.md", "/p/attachments/f/SKILL.md"];
@@ -51,6 +51,14 @@ describe("buildAuditInvocation", () => {
     const start = argv.indexOf(LOCKDOWN[0]!);
     expect(argv.slice(start, start + LOCKDOWN.length)).toEqual(LOCKDOWN);
     expect(argv.slice(start + LOCKDOWN.length)).toEqual([]);
+  });
+});
+
+describe("buildAuditRun", () => {
+  test("the audit run carries its prompt on stdin, never in argv", () => {
+    const run = buildAuditRun("PROMPT TEXT", SESSION, "/bin/claude", "/pack");
+    expect(run.argv.some((a) => a.includes("PROMPT TEXT"))).toBe(false);
+    expect(run.opts).toMatchObject({ cwd: "/pack", stderr: "pipe", stdin: "PROMPT TEXT" });
   });
 });
 

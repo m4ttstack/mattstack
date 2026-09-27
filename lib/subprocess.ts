@@ -42,6 +42,8 @@ export function outputTail(output: string, maxChars: number): string {
  *
  * Children inherit the caller's live `process.env` unless `opts.env` overrides it.
  *
+ * `opts.stdin` is written to the child's stdin, then EOF; otherwise stdin is closed.
+ *
  * `opts.signal` cancels the run: an already-aborted signal returns failure
  * without spawning, and an abort mid-run kills the child (SIGTERM then a SIGKILL
  * grace) and settles as a failure, so a caller past its deadline stops paying
@@ -54,6 +56,7 @@ export async function runCapture(
     timeoutMs?: number;
     stderr?: "ignore" | "pipe";
     env?: Record<string, string | undefined>;
+    stdin?: string;
     signal?: AbortSignal;
   } = {},
 ): Promise<RunResult> {
@@ -68,7 +71,7 @@ export async function runCapture(
       // (lib/daemon.ts) and leaves `#!/usr/bin/env node` shebangs unresolvable
       // under launchd. execSync, which this replaces, reads process.env per call.
       env: opts.env ?? childEnv(),
-      stdin: "ignore",
+      stdin: opts.stdin !== undefined ? new Blob([opts.stdin]) : "ignore",
       stdout: "pipe",
       stderr: captureStderr ? "pipe" : "ignore",
     });
