@@ -62,11 +62,25 @@ export function isKnownId(x: string, db: Database = getStateDb()): boolean {
 /** Parity: lib/daemon/handlers/herd.ts SYSTEM_HANDLE. Fixed like the human's handle: never minted, never continued. */
 export const HERD_SYSTEM_ID = "herdr";
 
+function humanHandle(): string {
+  return getSetting<string>("chat.humanHandle").value;
+}
+
 /** Why `x` can never be continued by an agent session, or undefined when it can. */
 export function fixedIdentityRefusal(x: string): string | undefined {
-  if (x === getSetting<string>("chat.humanHandle").value) return "that handle speaks for the human";
+  if (x === humanHandle()) return "that handle speaks for the human";
   if (x === HERD_SYSTEM_ID) return "that handle is the herd's system poster";
   return undefined;
+}
+
+/**
+ * The three names no session may resolve to, mint as, or shadow: the
+ * human's handle, the herd's system poster, and the "here" mention sigil.
+ * A live identity minted under one of these as its display name (a shadow)
+ * must never be what a lookup for that name reaches.
+ */
+export function isFixedChatName(x: string): boolean {
+  return x === humanHandle() || x === HERD_SYSTEM_ID || x === "here";
 }
 
 const SELECT_LIVE_BY_NAME_SQL = `
@@ -77,6 +91,7 @@ const SELECT_LATEST_BY_NAME_SQL = `SELECT id FROM chat_identities WHERE name = ?
 
 /** Spec "Resolving a typed name": minted id (chat_identities row), else live display name, else most recent minted identity by name, else `x` as a legacy id. */
 export function resolveHandle(x: string, db: Database = getStateDb()): string {
+  if (isFixedChatName(x)) return x;
   if (db.query(SELECT_MINTED_SQL).get(x)) return x;
   const live = db.query(SELECT_LIVE_BY_NAME_SQL).get(x) as { id: string } | null;
   if (live) return live.id;

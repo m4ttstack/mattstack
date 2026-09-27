@@ -641,6 +641,18 @@ test("an explicit mention by name and by id collapse to one stored id", () => {
   expect(listMessages({ room: "r", limit: 5 }, db)[0]!.mentions).toEqual([remy.id]);
 });
 
+test("@here stays the room-wide wake sigil, never resolved to a live identity shadowing the name", () => {
+  const db = freshDb();
+  const shadow = mintIdentity({ base: "here", name: "here", sessionId: "s-here", now: 1 }, db);
+  db.run(
+    "INSERT INTO chat_presence (session_id, handle, base_handle, signed_in_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+    ["s-here", shadow.id, "here", 1, 1],
+  );
+  joinRoom({ room: "r", handle: "kai" }, db);
+  postMessage({ room: "r", handle: "kai", body: "@here ping", mentions: ["here"] }, db);
+  expect(listMessages({ room: "r", limit: 5 }, db)[0]!.mentions).toEqual(["here"]);
+});
+
 test("members carry display names; a legacy handle is its own name", () => {
   const db = freshDb();
   const remy = mintIdentity({ base: "remy", name: "remy-2", sessionId: "s1", now: 1 }, db);

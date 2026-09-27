@@ -195,7 +195,16 @@ test("a legacy handle containing a dot resolves as itself, never as base remy pl
 test("a dotted legacy handle known only as a DM participant is never read as base plus suffix", () => {
   const db = fresh();
   db.run("INSERT INTO chat_dms (room, a, b, created_at) VALUES ('dm-old', 'chat.c6', 'kai', 1)");
-  const remy = mintIdentity({ base: "chat", name: "chat", sessionId: "s1", now: 5 }, db);
+  const chat = mintIdentity({ base: "chat", name: "chat", sessionId: "s1", now: 5 }, db);
   expect(resolveHandle("chat.c6", db)).toBe("chat.c6");
-  expect(resolveHandle("chat", db)).toBe(remy.id);
+  expect(resolveHandle("chat", db)).toBe(chat.id);
+});
+
+test("resolveHandle returns the human handle, the herd system poster and here as themselves even when a live identity shadows that name", () => {
+  const db = fresh();
+  for (const name of ["matt", "herdr", "here"]) {
+    const shadow = mintIdentity({ base: name, name, sessionId: `s-${name}`, now: 1 }, db);
+    seat(db, `s-${name}`, shadow.id, name, 1);
+    expect(resolveHandle(name, db)).toBe(name);
+  }
 });

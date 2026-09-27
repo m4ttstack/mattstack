@@ -582,7 +582,11 @@ test("the pool draw skips a name a live session shows, even though its id carrie
   expect(mustSignIn({ sessionId: "s2", now: now + MIN }, db, NO_BINDING).baseHandle).not.toBe("remy");
 });
 
-// Review Focus 3
+test("a session signing in as the human handle displays under a suffix, never the bare name", () => {
+  const db = fresh();
+  expect(mustSignIn({ sessionId: "s1", baseHandle: "matt", now }, db, NO_BINDING).name).toBe("matt-2");
+});
+
 test("signIn never mints an id equal to a dotted legacy handle", () => {
   const db = fresh();
   const hash = (seed: string, length: number) =>

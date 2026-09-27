@@ -17,6 +17,7 @@ import {
   identityForSession,
   identityName,
   identityNames,
+  isFixedChatName,
   isKnownId,
   mintIdentity,
   renameIdentity,
@@ -229,7 +230,7 @@ function pickDisplayName(
   seat: { cwd: string | null; pane: string | null },
   seats: Map<string, Seat>,
 ): string {
-  const free = (name: string): boolean => seats.get(name)?.reclaimable ?? true;
+  const free = (name: string): boolean => !isFixedChatName(name) && (seats.get(name)?.reclaimable ?? true);
   if (preferred !== undefined && suffixOf(preferred, baseHandle) !== null && free(preferred)) return preferred;
   const sameSeat = [...seats.values()]
     .filter((row) => row.reclaimable && row.cwd === seat.cwd && row.pane === seat.pane && suffixOf(row.name, baseHandle) !== null)
