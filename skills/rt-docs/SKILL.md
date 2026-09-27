@@ -121,6 +121,10 @@ Quote the reference drift `docs:check` still reports after two regeneration roun
 
 Quote the `docs:check` failure output (a failure outright, not reference drift or coverage gaps). Take means Matt ran it clean himself; the add proceeds. Iterate means he fixed the cause and `bun run docs:check` runs again, counted by `Docs:check failed: gate rounds = 2?`. Hold ends the turn naming this gate. Hand back reports the failure.
 
+## How gates ask
+
+A gate always puts its question rather than resolving itself: the form waits for Matt, and Matt being away is exactly when the gate matters most, never a reason to skip it. Take, iterate, hold, and hand back are Matt's answers to that question, never a choice the agent makes for him. A hold leaves the question open; the turn's final message names the gate, and a `#rt` post is never the question.
+
 ## URL facts
 
 Use these when cross-linking between docs so links resolve correctly:
