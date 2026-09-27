@@ -73,6 +73,7 @@ import { loadRepoIndex } from "./daemon/repo-index.ts";
 import { primeTeamTrackingIdentityMap } from "./repo-tracking.ts";
 import { createHooksGuard } from "./daemon/hooks-guard.ts";
 import { runBootIdentityMigration } from "./daemon/boot-migrate.ts";
+import { detectRenamedRepos, realRenameDetectDeps, startRenameDetector } from "./daemon/rename-detect.ts";
 import { runCapture } from "./subprocess.ts";
 import { buildRoutedHandlers } from "./daemon/command-router.ts";
 import { findRunningRunByWorktree } from "./runs/store.ts";
@@ -175,7 +176,9 @@ function credentialHealthCtxFor(id: Integration, team: TeamSnapshot, overrides: 
   return { ...base, host: null };
 }
 
-const EMPTY_TEAM_SNAPSHOT: TeamSnapshot = { slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+const RENAME_DETECT_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+const EMPTY_TEAM_SNAPSHOT: TeamSnapshot ={ slug: "", integrations: {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
 
 type HandleCommand = (cmd: string, payload: any, signal?: AbortSignal) => Promise<any>;
 
@@ -369,6 +372,8 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
   let handlerCtx: HandlerContext;
   let freshnessEnv: FreshnessEnv;
   let routedHandlers: ReturnType<typeof buildRoutedHandlers> | undefined;
+  let bootIdentityMigration: Promise<unknown> = Promise.resolve();
+  let stopRenameDetector: (() => void) | undefined;
   let pollersHandle: ReturnType<typeof startPollers> | null = null;
   let discussionsPoller: ReturnType<typeof createDiscussionsPoller> | null = null;
   let freshnessInitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -825,7 +830,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         // serialized repo identity. Fire-and-forget: it must be on the boot
         // path (before anything prunes the repo index) but not block the
         // socket bind: a prune only arrives as a command to a running daemon.
-        runBootIdentityMigration(log).catch((err) => {
+        bootIdentityMigration = runBootIdentityMigration(log).catch((err) => {
           log.warn({ err }, "boot identity migration failed");
         });
         // Best-effort presence prune at startup; a concurrent CLI writer's
@@ -1322,8 +1327,21 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           { bootDelayMs: watchdogSweepMs, intervalMs: watchdogSweepMs },
           log,
         ));
+        // Applies through the routed handler so a detected rename gets the
+        // reconciler hold, memo clear, watcher refresh and event a CLI one does.
+        const reidentifyHandler = routedHandlers["repos:reidentify"]!;
+        const renameDeps = realRenameDetectDeps(log, fetch, async (from, to) => {
+          const res = (await reidentifyHandler({ from, to })) as { ok?: boolean; error?: unknown } | null;
+          return res?.ok === true ? { ok: true } : { error: String(res?.error ?? "repos:reidentify failed") };
+        });
+        stopRenameDetector = startRenameDetector(
+          bootIdentityMigration,
+          () => detectRenamedRepos(renameDeps).catch((err) => { log.warn({ err }, "rename-detect: pass failed"); }),
+          RENAME_DETECT_INTERVAL_MS,
+        );
       },
       stop() {
+        stopRenameDetector?.();
         herdLifecycle?.stop();
       },
     },
