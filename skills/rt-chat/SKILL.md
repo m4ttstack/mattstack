@@ -381,6 +381,9 @@ digraph chat_recruit {
     "Recruit form: attended session?" [shape=diamond];
     "AskUserQuestion {questions}: panes, room name, seed draft" [shape=plaintext];
     "gate_ask {questions, context}: panes, room name, seed draft" [shape=plaintext];
+    "recruit form gate_ask result?" [shape=diamond];
+    "rt gate wait <id>: the recruit form gate" [shape=plaintext];
+    "Waiting: the recruit form answer arrives when rt gate wait returns" [shape=doublecircle];
     "Form answer?" [shape=diamond];
     "Sign in by the Sign in graph, keeping the repository room" [shape=box];
     "Sign in graph outcome?" [shape=diamond];
@@ -405,7 +408,10 @@ digraph chat_recruit {
     "Recruit form: attended session?" -> "AskUserQuestion {questions}: panes, room name, seed draft" [label="yes"];
     "Recruit form: attended session?" -> "gate_ask {questions, context}: panes, room name, seed draft" [label="no: unattended pane"];
     "AskUserQuestion {questions}: panes, room name, seed draft" -> "Form answer?";
-    "gate_ask {questions, context}: panes, room name, seed draft" -> "Form answer?";
+    "gate_ask {questions, context}: panes, room name, seed draft" -> "recruit form gate_ask result?";
+    "recruit form gate_ask result?" -> "Form answer?" [label="an answer recorded"];
+    "recruit form gate_ask result?" -> "rt gate wait <id>: the recruit form gate" [label="presentation: wait"];
+    "rt gate wait <id>: the recruit form gate" -> "Waiting: the recruit form answer arrives when rt gate wait returns" [label="end the turn"];
     "Form answer?" -> "Sign in by the Sign in graph, keeping the repository room" [label="panes chosen"];
     "Form answer?" -> "Not recruited: the form was cancelled" [label="none chosen"];
     "Form answer?" -> "STOP: sign in keeping the repository room; never room on chat_sign_in" [label="tempted to sign in straight into the new room"];
