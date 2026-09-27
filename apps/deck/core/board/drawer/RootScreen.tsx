@@ -256,7 +256,7 @@ export function buildAppRoot(
             control like publish (not dev-mode gated), but pushing to
             Railway and toggling the local tunnel's publish flag are
             different axes and stay visually separate rows/groups. */}
-        {data.canManage && (
+        {data.canManage && row.enabled !== false && (
           <ListGroup footer={remoteFooter(row)}>
             <OptimisticGatedToggleRow
               label="remote"
@@ -278,7 +278,7 @@ export function buildAppRoot(
             )}
           </ListGroup>
         )}
-        {data.canManage && row.remote && (
+        {data.canManage && row.enabled !== false && row.remote && (
           <ListGroup>
             <ListGroup.Action
               label="Push to Railway"
@@ -327,20 +327,22 @@ export function buildAppRoot(
             />
           )}
         </ListGroup>
-        {data.canManage && (
+        {data.canManage && (row.enabled !== false || !isMattstack(row)) && (
           <ListGroup>
-            <ListGroup.Action
-              label={
-                restarting ? (
-                  'restarting…'
-                ) : (
-                  <>{ICONS['refresh-cw']} restart service</>
-                )
-              }
-              busy={restarting}
-              disabled={!row.service}
-              onClick={() => board.onRestart(row)}
-            />
+            {row.enabled !== false && (
+              <ListGroup.Action
+                label={
+                  restarting ? (
+                    'restarting…'
+                  ) : (
+                    <>{ICONS['refresh-cw']} restart service</>
+                  )
+                }
+                busy={restarting}
+                disabled={!row.service}
+                onClick={() => board.onRestart(row)}
+              />
+            )}
             {/* Managed rows have no record-level shape to edit: the resolver
                 owns serving and the manifest owns commands, so the edit
                 screen (a guaranteed dead end there) is user-apps only. */}

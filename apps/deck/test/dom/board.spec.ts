@@ -355,6 +355,14 @@ test('an off app: muted off badge with the settings hint, no restart, no command
       expect(
         await drawer.locator('[aria-label="publish ledger"]').count()
       ).toBe(0);
+      expect(
+        await drawer.locator('button', { hasText: 'restart service' }).count()
+      ).toBe(0);
+      expect(
+        await drawer.locator('[aria-label="push ledger to Railway"]').count()
+      ).toBe(0);
+      for (const group of await drawer.locator('[data-part="listgroup"]').all())
+        expect((await group.textContent())?.trim()).not.toBe('');
       expect(consoleErrors(page)).toEqual([]);
     },
     { fixture: 'status-off.json' }
