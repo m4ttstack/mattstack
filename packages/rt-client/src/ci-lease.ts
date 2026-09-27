@@ -1,0 +1,309 @@
+import { randomUUID } from "node:crypto";
+import { linkSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+export type CiLeaseHolder = "watch-ci" | "doctor";
+
+export interface CiLease {
+  mr: string;
+  branch?: string;
+  holder: CiLeaseHolder;
+  owner?: string;
+  sessionLabel?: string;
+  pid?: number;
+  startedAt: number;
+  heartbeatAt: number;
+  ttlSeconds: number;
+}
+
+export interface CiLeaseOpts {
+  dir?: string;
+  now?: () => number;
+  lockStaleMs?: number;
+}
+
+export class CiLeaseError extends Error {}
+
+export const DEFAULT_CI_LEASE_TTL_SECONDS = 600;
+const LOCK_STALE_MS = 10_000;
+const LOCK_WAIT_MS = 5_000;
+const MR_IID = /\/(?:-\/merge_requests|pull)\/(\d+)(?=[/?#]|$)/;
+
+export function ciLeaseDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.MATTSTACK_ATTENDANTS_DIR || join(env.HOME ?? homedir(), ".mattstack", "ci-attendants");
+}
+
+export function parseMrIid(mrUrl: string): number | null {
+  const m = MR_IID.exec(mrUrl);
+  const n = m ? Number(m[1]) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// Parity anchor: the slug rule is identical to the watch-ci pack's
+// ci-attendant.sh, which reads and writes the same files until it is retired.
+export function ciLeaseFileName(mrUrl: string): string {
+  const iid = parseMrIid(mrUrl);
+  if (iid === null) throw new CiLeaseError(`not an MR or PR URL: ${mrUrl}`);
+  let project: string;
+  try {
+    project = new URL(mrUrl).pathname.split("/-/")[0] ?? "";
+  } catch {
+    project = mrUrl;
+  }
+  const slug = project.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${slug}-${iid}.json`;
+}
+
+export function leaseOwner(lease: CiLease): string {
+  return lease.owner ?? `legacy:${lease.holder}`;
+}
+
+export function boardDoctorOwner(mrUrl: string): string {
+  return `board:doctor:${ciLeaseFileName(mrUrl)}`;
+}
+
+export function isLeaseFresh(lease: CiLease, now: number): boolean {
+  return now - lease.heartbeatAt <= lease.ttlSeconds * 1_000;
+}
+
+function parseLease(raw: string): CiLease | null {
+  try {
+    const l = JSON.parse(raw) as CiLease;
+    if (typeof l !== "object" || l === null) return null;
+    if (typeof l.heartbeatAt !== "number" || typeof l.ttlSeconds !== "number" || !l.holder) return null;
+    return l;
+  } catch {
+    return null;
+  }
+}
+
+function readFileLease(path: string): CiLease | null {
+  try {
+    return parseLease(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function paths(mrUrl: string, opts: CiLeaseOpts) {
+  const dir = opts.dir ?? ciLeaseDir();
+  const name = ciLeaseFileName(mrUrl);
+  return { dir, lease: join(dir, name), lock: join(dir, name.replace(/\.json$/, ".lock")) };
+}
+
+function clock(opts: CiLeaseOpts): number {
+  return (opts.now ?? Date.now)();
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function lockToken(path: string): { token: string; at: number } | null {
+  try {
+    const v = JSON.parse(readFileSync(path, "utf8")) as { token?: unknown; at?: unknown };
+    return typeof v.token === "string" && typeof v.at === "number" ? { token: v.token, at: v.at } : null;
+  } catch {
+    return null;
+  }
+}
+
+class LockLost extends Error {}
+
+/** The holder of `lock` runs `body`; body must call `stillMine()` right before
+    its final write so a holder whose lock was broken as stale never writes. */
+function withLock<T>(lock: string, opts: CiLeaseOpts, body: (stillMine: () => void) => T): T {
+  const staleMs = opts.lockStaleMs ?? LOCK_STALE_MS;
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    const token = randomUUID();
+    try {
+      writeFileSync(lock, JSON.stringify({ token, at: Date.now() }), { flag: "wx" });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      breakIfStale(lock, staleMs);
+      if (Date.now() > deadline) throw new CiLeaseError(`lease lock busy: ${lock}`);
+      sleepSync(15);
+      continue;
+    }
+    const stillMine = () => {
+      if (lockToken(lock)?.token !== token) throw new LockLost();
+    };
+    try {
+      return body(stillMine);
+    } catch (e) {
+      if (!(e instanceof LockLost)) throw e;
+      if (Date.now() > deadline) throw new CiLeaseError(`lease lock lost repeatedly: ${lock}`);
+    } finally {
+      if (lockToken(lock)?.token === token) {
+        try { unlinkSync(lock); } catch { /* already gone */ }
+      }
+    }
+  }
+}
+
+function breakIfStale(lock: string, staleMs: number): void {
+  const seen = lockToken(lock);
+  if (seen && Date.now() - seen.at <= staleMs) return;
+  const aside = `${lock}.${randomUUID()}.broken`;
+  try {
+    renameSync(lock, aside);
+  } catch {
+    return;
+  }
+  const moved = lockToken(aside);
+  if (seen && moved?.token !== seen.token) {
+    // We moved a newer holder's lock: put it back, never over a third lock.
+    try { linkSync(aside, lock); } catch { /* a newer lock exists */ }
+  }
+  try { unlinkSync(aside); } catch { /* already gone */ }
+}
+
+function writeReplace(path: string, lease: CiLease): void {
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(lease, null, 2));
+  renameSync(tmp, path);
+}
+
+/** Exclusive create: false when a lockless writer (the pack script) got there first. */
+function writeCreate(path: string, lease: CiLease): boolean {
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(tmp, JSON.stringify(lease, null, 2));
+  try {
+    linkSync(tmp, path);
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw e;
+  } finally {
+    try { unlinkSync(tmp); } catch { /* already gone */ }
+  }
+}
+
+function fileExists(path: string): boolean {
+  try {
+    readFileSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readCiLease(mrUrl: string, opts: CiLeaseOpts = {}): { lease: CiLease | null; stale: CiLease | null } {
+  const lease = readFileLease(paths(mrUrl, opts).lease);
+  if (!lease) return { lease: null, stale: null };
+  return isLeaseFresh(lease, clock(opts)) ? { lease, stale: null } : { lease: null, stale: lease };
+}
+
+export function readCiLeaseByBranch(branch: string, opts: CiLeaseOpts = {}): CiLease | null {
+  if (!branch) return null;
+  const dir = opts.dir ?? ciLeaseDir();
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const lease = readFileLease(join(dir, name));
+    if (lease && lease.branch === branch && isLeaseFresh(lease, clock(opts))) return lease;
+  }
+  return null;
+}
+
+export type ClaimRequest = {
+  mrUrl: string;
+  owner: string;
+  holder: CiLeaseHolder;
+  branch?: string;
+  sessionLabel?: string;
+  ttlSeconds?: number;
+  pid?: number;
+};
+
+export type ClaimResult = { claimed: true; lease: CiLease; previousOwner?: string } | { claimed: false; holder: CiLease };
+
+export function claimCiLease(req: ClaimRequest, opts: CiLeaseOpts = {}): ClaimResult {
+  const p = paths(req.mrUrl, opts);
+  mkdirSync(p.dir, { recursive: true });
+  return withLock(p.lock, opts, (stillMine) => {
+    for (;;) {
+      const now = clock(opts);
+      const existing = readFileLease(p.lease);
+      if (existing && isLeaseFresh(existing, now) && leaseOwner(existing) !== req.owner) {
+        return { claimed: false, holder: existing };
+      }
+      const lease: CiLease = {
+        mr: req.mrUrl,
+        ...(req.branch !== undefined && { branch: req.branch }),
+        holder: req.holder,
+        owner: req.owner,
+        ...(req.sessionLabel !== undefined && { sessionLabel: req.sessionLabel }),
+        pid: req.pid ?? process.pid,
+        startedAt: existing && leaseOwner(existing) === req.owner ? existing.startedAt : now,
+        heartbeatAt: now,
+        ttlSeconds: req.ttlSeconds ?? DEFAULT_CI_LEASE_TTL_SECONDS,
+      };
+      stillMine();
+      if (!fileExists(p.lease)) {
+        if (!writeCreate(p.lease, lease)) continue;
+      } else {
+        writeReplace(p.lease, lease);
+      }
+      const previous = existing && leaseOwner(existing) !== req.owner ? leaseOwner(existing) : undefined;
+      return previous ? { claimed: true, lease, previousOwner: previous } : { claimed: true, lease };
+    }
+  });
+}
+
+export type HeartbeatResult =
+  | { ok: true; lease: CiLease }
+  | { ok: false; reason: "lost"; holder: CiLease }
+  | { ok: false; reason: "none" };
+
+export function heartbeatCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts = {}): HeartbeatResult {
+  const p = paths(mrUrl, opts);
+  if (!readFileLease(p.lease)) return { ok: false, reason: "none" };
+  return withLock(p.lock, opts, (stillMine) => {
+    const existing = readFileLease(p.lease);
+    if (!existing) return { ok: false, reason: "none" };
+    if (leaseOwner(existing) !== owner) return { ok: false, reason: "lost", holder: existing };
+    const lease = { ...existing, heartbeatAt: clock(opts) };
+    stillMine();
+    writeReplace(p.lease, lease);
+    return { ok: true, lease };
+  });
+}
+
+export type ReleaseResult =
+  | { released: true }
+  | { released: false; reason: "not-owner"; holder: CiLease }
+  | { released: false; reason: "none" };
+
+export function releaseCiLease(mrUrl: string, owner: string, opts: CiLeaseOpts = {}): ReleaseResult {
+  const p = paths(mrUrl, opts);
+  if (!readFileLease(p.lease)) return { released: false, reason: "none" };
+  return withLock(p.lock, opts, (stillMine) => {
+    const existing = readFileLease(p.lease);
+    if (!existing) return { released: false, reason: "none" };
+    if (leaseOwner(existing) !== owner) return { released: false, reason: "not-owner", holder: existing };
+    stillMine();
+    try { unlinkSync(p.lease); } catch { /* already gone */ }
+    return { released: true };
+  });
+}
+
+export function adoptLegacyCiLease(mrUrl: string, owner: string, holder: CiLeaseHolder, opts: CiLeaseOpts = {}): { adopted: boolean } {
+  const p = paths(mrUrl, opts);
+  const first = readFileLease(p.lease);
+  if (!first || first.owner !== undefined || first.holder !== holder) return { adopted: false };
+  return withLock(p.lock, opts, (stillMine) => {
+    const existing = readFileLease(p.lease);
+    if (!existing || existing.owner !== undefined || existing.holder !== holder) return { adopted: false };
+    stillMine();
+    writeReplace(p.lease, { ...existing, owner });
+    return { adopted: true };
+  });
+}

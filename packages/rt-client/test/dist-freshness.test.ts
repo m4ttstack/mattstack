@@ -64,6 +64,14 @@ function buildIntoTempDir(): string {
   );
   if (gate.exitCode !== 0) throw new Error(`bun build (gate) failed:\n${gate.stderr.toString()}`);
 
+  // Mirrors the package build's fourth entry: the CI attendant lease
+  // (target node, node:fs/crypto/os/path) for the ./ci-lease subpath.
+  const ciLease = Bun.spawnSync(
+    ["bun", "build", "src/ci-lease.ts", "--outfile", join(outDir, "ci-lease.js"), "--target", "node", "--format", "esm", "--packages", "external"],
+    { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
+  );
+  if (ciLease.exitCode !== 0) throw new Error(`bun build (ci-lease) failed:\n${ciLease.stderr.toString()}`);
+
   const types = Bun.spawnSync(
     ["bunx", "tsc", "-p", "tsconfig.json", "--outDir", outDir],
     { cwd: pkgDir, stdout: "pipe", stderr: "pipe" },
