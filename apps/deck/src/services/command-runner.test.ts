@@ -1,4 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { beforeEach, expect, test } from 'bun:test';
@@ -8,6 +14,7 @@ import {
   resetRuns,
   startCommandRun,
 } from './command-runner.ts';
+import { composeCommandPath } from './exec-env.ts';
 
 beforeEach(() => resetRuns());
 
@@ -234,4 +241,40 @@ test('a synchronous spawn failure cleans up the run record instead of leaving th
     { spawn, logDir }
   );
   expect(retry.started).toBe(true);
+});
+
+test("a run spawns with the command PATH, not deck's own", () => {
+  const logDir = mkdtempSync(join(tmpdir(), 'runlog-'));
+  const bundle = join(mkdtempSync(join(tmpdir(), 'bundle-')), 'M.app');
+  const helpers = join(bundle, 'Contents', 'Helpers');
+  mkdirSync(helpers, { recursive: true });
+  writeFileSync(join(bundle, 'Contents', 'Info.plist'), '');
+  const saved = { root: process.env.DECK_BUNDLE_ROOT, path: process.env.PATH };
+  const envs: Array<Record<string, string | undefined>> = [];
+  try {
+    process.env.DECK_BUNDLE_ROOT = bundle;
+    process.env.PATH = `${helpers}:/usr/bin:/bin`;
+    startCommandRun(
+      {
+        name: 'chat',
+        cmd: 'build',
+        shell: 'bun run build',
+        workingDirectory: '/tmp',
+      },
+      {
+        spawn: (_argv, opts) => {
+          envs.push(opts.env);
+          return { exited: new Promise<number>(() => {}) };
+        },
+        logDir,
+      }
+    );
+    expect(envs[0]?.PATH).toBe(composeCommandPath());
+    expect(envs[0]?.PATH).not.toBe(process.env.PATH);
+    expect(envs[0]?.HOME).toBe(process.env.HOME);
+  } finally {
+    if (saved.root === undefined) delete process.env.DECK_BUNDLE_ROOT;
+    else process.env.DECK_BUNDLE_ROOT = saved.root;
+    process.env.PATH = saved.path;
+  }
 });

@@ -28,6 +28,19 @@ export type Exists = (path: string) => boolean;
 
 const defaultExists: Exists = p => existsSync(p);
 
+const OS_PATH_DIRS = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+
+function existingUnique(dirs: string[], exists: Exists): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const dir of dirs) {
+    if (!dir || seen.has(dir) || !exists(dir)) continue;
+    seen.add(dir);
+    out.push(dir);
+  }
+  return out;
+}
+
 /**
  * Directories a supervised service may rely on, in precedence order.
  *
@@ -54,10 +67,7 @@ export function stablePathDirs(
     '/opt/homebrew/sbin',
     '/usr/local/bin',
     '/usr/local/sbin',
-    '/usr/bin',
-    '/bin',
-    '/usr/sbin',
-    '/sbin',
+    ...OS_PATH_DIRS,
   ];
 }
 
@@ -76,19 +86,14 @@ export interface ComposePathOpts {
 
 /** PATH for a supervised service: extras first, then the stable set, existing dirs only, deduped. */
 export function composeServicePath(opts: ComposePathOpts = {}): string {
-  const exists = opts.exists ?? defaultExists;
-  const seen = new Set<string>();
-  const out: string[] = [];
   const stable = stablePathDirs(
     opts.home ?? homedir(),
     opts.bundleHelpers !== undefined ? opts.bundleHelpers : bundleHelpersDir()
   );
-  for (const dir of [...(opts.extraDirs ?? []), ...stable]) {
-    if (!dir || seen.has(dir) || !exists(dir)) continue;
-    seen.add(dir);
-    out.push(dir);
-  }
-  return out.join(':');
+  return existingUnique(
+    [...(opts.extraDirs ?? []), ...stable],
+    opts.exists ?? defaultExists
+  ).join(':');
 }
 
 /**
@@ -107,6 +112,41 @@ export function adoptHelperPath(
     .split(':')
     .filter(dir => dir && !composed.includes(dir));
   env.PATH = [...composed, ...extra].join(':');
+}
+
+export interface ComposeCommandPathOpts {
+  /** The PATH deck itself runs on; defaults to process.env.PATH. */
+  inherited?: string;
+  home?: string;
+  exists?: Exists;
+  bundleHelpers?: string | null;
+}
+
+/**
+ * PATH for a command run (dev build, deploy, `deck cmd`): the user's tool
+ * dirs, then whatever else the inherited PATH carried, then the bundle's
+ * Helpers, then the OS dirs.
+ *
+ * Nothing the user installed may sit behind Helpers: `Helpers/bun` is signed
+ * without disable-library-validation, so a build it runs cannot load a native
+ * addon (rolldown's) that the user's own bun loads fine. Helpers stays on the
+ * path for the tools only the bundle ships.
+ */
+export function composeCommandPath(opts: ComposeCommandPathOpts = {}): string {
+  const inherited = opts.inherited ?? process.env.PATH ?? '';
+  const helpers =
+    opts.bundleHelpers !== undefined ? opts.bundleHelpers : bundleHelpersDir();
+  if (!helpers) return inherited;
+  const userDirs = stablePathDirs(opts.home ?? homedir(), null).filter(
+    dir => !OS_PATH_DIRS.includes(dir)
+  );
+  const exists = opts.exists ?? defaultExists;
+  const user = existingUnique(userDirs, exists);
+  const tail = existingUnique([helpers, ...OS_PATH_DIRS], exists);
+  const extra = inherited
+    .split(':')
+    .filter(dir => dir && !user.includes(dir) && !tail.includes(dir));
+  return [...user, ...new Set(extra), ...tail].join(':');
 }
 
 function isExecutableFile(path: string): boolean {
