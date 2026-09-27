@@ -357,27 +357,32 @@ export async function runTriage(
       });
       continue;
     }
-    const statePath = deps.doctorFilePath(edge.mrUrl);
-    // The wrapper treats an absent tier as the historical checkout
-    // (fix-and-push) behavior; "api" stays the explicit no-checkout tier.
-    // Persisted onto the state file (not just passed to launchDoctor) so a
-    // resumed pane can re-announce the same tier/fixClasses -- see
-    // DoctorState.tier.
-    const tier = deps.triage.tier === 'checkout' ? undefined : 'api';
-    const fixClasses = composeFixClasses(
-      deps.triage.fixClasses,
-      edge.author,
-      deps.identity
-    );
-    deps.writeDoctorState(statePath, {
-      mrUrl: edge.mrUrl,
-      iid: edge.iid,
-      status: 'queued',
-      origin: 'auto',
-      tier,
-      fixClasses,
-    });
+    // Declared outside the try (rather than let-bound inside it) so the
+    // catch below can still write an error row once statePath is known --
+    // everything from here through launchDoctor now shares one try, so a
+    // throw at any point after the claim above still reaches the release.
+    let statePath: string | undefined;
     try {
+      statePath = deps.doctorFilePath(edge.mrUrl);
+      // The wrapper treats an absent tier as the historical checkout
+      // (fix-and-push) behavior; "api" stays the explicit no-checkout tier.
+      // Persisted onto the state file (not just passed to launchDoctor) so a
+      // resumed pane can re-announce the same tier/fixClasses -- see
+      // DoctorState.tier.
+      const tier = deps.triage.tier === 'checkout' ? undefined : 'api';
+      const fixClasses = composeFixClasses(
+        deps.triage.fixClasses,
+        edge.author,
+        deps.identity
+      );
+      deps.writeDoctorState(statePath, {
+        mrUrl: edge.mrUrl,
+        iid: edge.iid,
+        status: 'queued',
+        origin: 'auto',
+        tier,
+        fixClasses,
+      });
       const launchResult = await deps.launchDoctor({
         mrUrl: edge.mrUrl,
         iid: edge.iid,
@@ -437,10 +442,15 @@ export async function runTriage(
       });
     } catch (err) {
       deps.attendants?.release(edge.mrUrl, edge.iid);
-      deps.writeDoctorState(statePath, {
-        status: 'error',
-        message: 'failed to launch doctor pane',
-      });
+      // statePath is unset only when deps.doctorFilePath itself threw, before
+      // any row existed to mark 'error' -- the audit entry below still
+      // records the failure.
+      if (statePath !== undefined) {
+        deps.writeDoctorState(statePath, {
+          status: 'error',
+          message: 'failed to launch doctor pane',
+        });
+      }
       deps.appendAudit({
         ts: now,
         mrUrl: edge.mrUrl,

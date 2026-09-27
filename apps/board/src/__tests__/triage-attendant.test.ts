@@ -7,6 +7,7 @@ import {
   boardDoctorOwner,
   ciLeaseFileName,
   claimCiLease,
+  DEFAULT_CI_LEASE_TTL_SECONDS,
   readCiLease,
 } from '@mattstack/rt-client';
 
@@ -90,6 +91,17 @@ describe('createBoardAttendants', () => {
     expect(port.readByBranch('feat')?.mr).toBe(MR);
   });
 
+  test('read and readByBranch treat a stale lease as gone', () => {
+    claimCiLease(
+      { mrUrl: MR, owner: 'session:w', holder: 'watch-ci', branch: 'feat' },
+      { dir, now: () => t }
+    );
+    const stale = t + DEFAULT_CI_LEASE_TTL_SECONDS * 1_000 + 1_000;
+    const port = createBoardAttendants({ dir, now: () => stale });
+    expect(port.read(MR, 42)).toBeNull();
+    expect(port.readByBranch('feat')).toBeNull();
+  });
+
   test('a busy lock makes claim return false instead of throwing', () => {
     const lockPath = join(dir, ciLeaseFileName(MR).replace(/\.json$/, '.lock'));
     writeFileSync(
@@ -114,5 +126,49 @@ describe('createBoardAttendants', () => {
     const port = createBoardAttendants({ dir, now: () => t, lockWaitMs: 5 });
     expect(() => port.heartbeat(MR, 42)).not.toThrow();
     expect(() => port.release(MR, 42)).not.toThrow();
+  });
+
+  test('an fs failure (ENOTDIR) makes claim return false; every other method still does not throw', () => {
+    const blockerFile = join(dir, 'not-a-directory');
+    writeFileSync(blockerFile, 'x');
+    const badDir = join(blockerFile, 'nested');
+    const port = createBoardAttendants({ dir: badDir, now: () => t });
+    expect(port.claim(MR, 42, 'feat')).toBe(false);
+    expect(() => port.heartbeat(MR, 42)).not.toThrow();
+    expect(() => port.release(MR, 42)).not.toThrow();
+    expect(port.read(MR, 42)).toBeNull();
+    expect(port.readByBranch('feat')).toBeNull();
+  });
+
+  test('claim warns once on a non-lock-busy failure and stays silent on lock contention', () => {
+    const warns: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warns.push(args);
+    };
+    try {
+      const blockerFile = join(dir, 'not-a-directory');
+      writeFileSync(blockerFile, 'x');
+      createBoardAttendants({
+        dir: join(blockerFile, 'nested'),
+        now: () => t,
+      }).claim(MR, 42, 'feat');
+      expect(warns).toHaveLength(1);
+
+      warns.length = 0;
+      const lockPath = join(
+        dir,
+        ciLeaseFileName(MR).replace(/\.json$/, '.lock')
+      );
+      writeFileSync(lockPath, JSON.stringify({ token: 'x', at: Date.now() }));
+      createBoardAttendants({ dir, now: () => t, lockWaitMs: 5 }).claim(
+        MR,
+        42,
+        'feat'
+      );
+      expect(warns).toHaveLength(0);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });

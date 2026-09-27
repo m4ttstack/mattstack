@@ -426,7 +426,7 @@ describe('runTriage attendant lease (BOARD-10)', () => {
         heartbeat: () => {},
         release: () => {},
       },
-      writeDoctorState: (path, patch) => {
+      writeDoctorState: (_path, patch) => {
         order.push(`state:${patch.status}`);
         return {
           mrUrl: patch.mrUrl ?? '',
@@ -455,7 +455,7 @@ describe('runTriage attendant lease (BOARD-10)', () => {
         heartbeat: () => {},
         release: () => {},
       },
-      writeDoctorState: (path, patch) => {
+      writeDoctorState: (_path, patch) => {
         writes.push(patch);
         return {
           mrUrl: patch.mrUrl ?? '',
@@ -490,6 +490,25 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     });
     await runTriage(d);
     expect(releases).toEqual([['https://x/mr/1', 1]]);
+  });
+
+  test('a throw between the claim and the launch (doctorFilePath) still releases the claim', async () => {
+    const releases: Array<[string, number]> = [];
+    const d = deps({
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => true,
+        heartbeat: () => {},
+        release: (mrUrl: string, iid: number) => releases.push([mrUrl, iid]),
+      },
+      doctorFilePath: () => {
+        throw new Error('no state dir');
+      },
+    });
+    await runTriage(d);
+    expect(releases).toEqual([['https://x/mr/1', 1]]);
+    expect(d.launches).toHaveLength(0);
   });
 });
 
