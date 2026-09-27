@@ -336,10 +336,8 @@ As in GitHub Desktop, a wheel tick moves the view under the pointer by
 three rows and leaves every cursor and selection where it is, even when
 that scrolls them out of sight. This holds for the Changes list (so
 scrolling never changes which file's diff is shown), the diff pane, the
-History commit list, and the repo, branch and worktree foldouts; the
-context menu already worked this way. The committed panes' file column
-(History and stash) is the one exception: its wheel still steps the file
-cursor.
+History commit list, the History and stash file columns, and the repo,
+branch and worktree foldouts; the context menu already worked this way.
 
 Each of these regions keeps a stored top plus a free-scroll flag
 (`picker.FreeWindow` clamps it). A key that moves the cursor clears the
@@ -347,7 +345,9 @@ flag, so the cursor moves one step from where it was and the window
 follows it back into view with the usual scrolloff. A click inside a
 wheel-scrolled region hits the row painted there and leaves the view
 where it is; hover is re-resolved after every tick because the rows
-slide under a pointer that did not move.
+slide under a pointer that did not move. A worktree switch drops the
+Changes list's and the diff's free scroll, a new commit selection drops
+the History file column's, and reopening the stash view drops its own.
 
 ## Terminal-fidelity deltas (same set the picker ratified)
 
