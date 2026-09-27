@@ -234,7 +234,7 @@ write a title and a description.
   that it has to happen in the forge's own UI.
 
 On an iterate answer from the publish gate, rewrite the drafts the note
-names and keep the rest as approved.
+names and keep the rest as drafted.
 
 ### Save the mr-meta JSON to a mktemp .json file
 
@@ -262,12 +262,12 @@ Context, quoted and never trimmed:
   `What gitq publish does per branch`);
 - each title and description exactly as saved in `<tempPath>`;
 - any branch diagnose shows as behind or conflicted, with a note that
-  syncing first is an option: answer hand back, run gitq:sync, then publish
-  again.
+  syncing first is an option: the human answers hand back, and running
+  gitq:sync and then this publish again is the human's next move.
 
 | Question | Options (recommended first) |
 |---|---|
-| Publish this MR chain? | `take: approve and publish`: I run gitq publish with these drafts, pushing new branches and opening or updating their MRs. `iterate: revise the drafts`: I rewrite the titles and descriptions with your note and ask again. `hold: keep it unpublished`: nothing is pushed, and the pane waits with no status written. `hand back: do not publish`: nothing is pushed and I mark the run failed as declined at the publish gate; pick this to sync first. |
+| Publish this MR chain? | `take: approve and publish`: I run gitq publish with these drafts, pushing new branches and opening or updating their MRs. `iterate: revise the drafts`: I rewrite the titles and descriptions with your note and ask again. `hold: leave it with you`: this run ends with nothing pushed and writes no status. `hand back: do not publish`: nothing is pushed and I mark the run failed as declined at the publish gate; pick this to sync first yourself. |
 
 Three revision rounds spend the budget: the next iterate answer is written
 as an error ("publish drafts not settled after 3 rounds") and reported.
@@ -276,9 +276,11 @@ as an error ("publish drafts not settled after 3 rounds") and reported.
 
 Opens when `gitq publish` exits 1 with a `gitq:` line on stderr and no JSON
 on stdout, and whenever you are tempted to push the branches or open the
-MRs some other way, or to supply a token yourself. The commonest refusal is a
-missing token for the repo's forge. gitq reads the remote's host to decide
-which it needs:
+MRs some other way, or to supply a token yourself. Refusals that reach it
+include a missing token, an unknown self-hosted host, a stack that is busy
+or parked, a stack gitq cannot find, and a malformed mr-meta file. The
+commonest is a missing token for the repo's forge. gitq reads the remote's
+host to decide which it needs:
 
 - `GITLAB_TOKEN` for GitLab, `GITHUB_TOKEN` for GitHub;
 - else a grant-gated token from the rt daemon, which needs the repo tracked
@@ -287,18 +289,20 @@ which it needs:
   the error says so.
 
 The human supplies every token and every forge entry. Setting a variable,
-tracking the repo or adding the entry is the human's move; this gate hands
-it over with the run still alive, and the take answer runs the publish
-again. An `invalid --mr-meta` refusal is this run's own file: say so, and an
-iterate answer lets you rewrite it to the mr-meta shape before publishing
-again.
+tracking the repo, adding the entry or freeing the stack is the human's
+move; this gate hands it over with the run still alive, and the take answer
+runs the publish again. An `invalid --mr-meta` refusal is this run's own
+file: say so. An iterate answer then lets you fix only the JSON shape or
+escaping; the approved titles and descriptions stay verbatim, so no text
+the human never saw ships.
 
-Context: the `gitq:` stderr line verbatim, the remote's host, and which of
-the token sources above it points at.
+Context: the `gitq:` stderr line verbatim and, when the refusal is a token
+refusal, the remote's host and which of the token sources above it points
+at.
 
 | Question | Options (recommended first) |
 |---|---|
-| gitq publish refused. What next? | `take: fixed it, publish again`: you set the token or the forge entry, and I run gitq publish again. `iterate: publish again with a note`: I act on your note, then run gitq publish again. `hold: leave it with you`: this run ends with nothing published and writes no status. `hand back: stop with an error`: I mark the run failed with the refusal as the reason. |
+| gitq publish refused. What next? | `take: fixed it, publish again`: you fixed what the refusal names (a token, a forge entry, the stack), and I run gitq publish again. `iterate: publish again with a note`: I act on your note, then run gitq publish again. `hold: leave it with you`: this run ends with nothing published and writes no status. `hand back: stop with an error`: I mark the run failed with the refusal as the reason. |
 
 ### Name each skipped branch and its reason (publish, exit 0)
 
@@ -359,9 +363,13 @@ Report every branch that went through.
   cascade is paused.
 - Publish never edits branches, rebases or otherwise mutates git. A stack
   that needs a rebase is gitq:sync's job, named at the gate.
-- Every path but a hold ends through a `done` or `error` write, so the
-  board badge never sticks. A hold, and a pane parked at a gate the human
-  has not answered, writes no `done`.
+- Every path but a hold or the missing-gitq stop ends through a `done` or
+  `error` write, so the board badge never sticks. A hold, and a pane parked
+  at a gate the human has not answered, writes no `done`. On a hold, tell
+  the human in the pane what is waiting on them: after a publish gate hold,
+  the drafts saved at `<tempPath>`; after a refusal gate hold, the quoted
+  `gitq:` line. Nothing was pushed either way, and running the publish again
+  starts fresh.
 - Each counter counts per run: draft rounds across the publish gate,
   attempts and rounds across the refusal gate. A counter diamond's `yes`
   edge is taken once its count has reached the number.
@@ -370,11 +378,11 @@ Report every branch that went through.
 
 | Thought | Reality |
 |---|---|
-| "The skill has no path to get a token or retry, so I stop and wait." | A refusal opens `publish off-script gate: gitq publish refused`. The human supplies the token and answers take; I publish again. |
-| "Exit 1 only calls for marking error with the stderr text." | The refusal gate comes first. The error is written only on hand back or a spent budget. |
-| "Status is already terminal, so no further write is owed." | The error write is the end of a path, not a checkpoint. A refusal waits at its gate with no write. |
-| "Setting a token or tracking the repo is outside this runner's scope." | Right, they are the human's. The refusal gate hands them over and keeps the run alive. |
-| "I can't tell which token applies, so I ask in prose." | The gate's context names the host and every token source; the human answers through `gate_ask`. |
+| "the skill has no path for the runner to obtain a token or retry on its own, so it stops there and waits on the human" | A refusal opens `publish off-script gate: gitq publish refused`. The human supplies the token and answers take; I publish again. |
+| "the skill authorizes only 'mark error with the stderr text' here" | The refusal gate comes first. The error is written only on hand back or a spent budget. |
+| "status is already terminal (`error`, written in step 2), so no further status write is owed" | The error write is the end of a path, not a checkpoint. A refusal waits at its gate with no write. |
+| "Setting `GITHUB_TOKEN` or running `rt daemon track` are actions outside this runner's scope" | Right, they are the human's. The refusal gate hands them over and keeps the run alive. |
+| "I can't tell from here which one applies" (then asking in prose) | For a token refusal, the gate's context names the host and every token source; the human answers through `gate_ask`. |
 | "The human said there is no need to show them, so a prose check will do." | Behind branches and a waived preview still go through the publish gate. The plain-text pane ask is only for a session with no `gate_ask` tool. |
 | "I can export a token from another CLI's login and retry." | The human supplies forge tokens. Take the refusal gate. |
 | "The stack is behind, so I sync it before publishing." | Publish never rewrites git. Behind branches are named at the gate, and sync first is the hand back answer. |
