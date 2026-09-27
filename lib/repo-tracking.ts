@@ -34,7 +34,8 @@
  */
 
 import { getSetting } from "./settings/resolve.ts";
-import { setSetting } from "./settings/write.ts";
+import { setSetting, storeUnparseable } from "./settings/write.ts";
+import { machineSettingsPath } from "../packages/rt-client/src/settings/paths.ts";
 import { deriveRepoIdentity, parseIdentity, serializeIdentity } from "./settings/identity.ts";
 import type { StoreReport } from "./state/reidentify.ts";
 import { isDeepStrictEqual } from "util";
@@ -166,14 +167,17 @@ interface MachineTrackingRead {
 }
 
 function readMachineTracking(): MachineTrackingRead {
-  let rawValue: unknown;
   try {
-    rawValue = getSetting<unknown>("rt.repoTracking").value;
+    return resolveMachineTracking();
   } catch (err) {
     console.warn(`rt: rt.repoTracking could not be resolved (${err instanceof Error ? err.message : err}) — tracking nothing`);
     return { out: {}, rawIdentities: new Set(), raw: {} };
   }
+}
 
+/** `readMachineTracking` without the fallback: a resolve failure throws. */
+function resolveMachineTracking(): MachineTrackingRead {
+  const rawValue = getSetting<unknown>("rt.repoTracking").value;
   const out: RepoTracking = {};
   const rawIdentities = new Set<string>();
   const raw: Record<string, unknown> = {};
@@ -405,7 +409,17 @@ export async function rekeyRepoTrackingSettings(
  */
 export function moveRepoTrackingEntry(from: string, to: string, opts: { dryRun?: boolean } = {}): StoreReport {
   const store = "rt.repoTracking";
-  const raw = loadMachineRepoTrackingRaw();
+  // Both fallbacks below read as an empty map, which would report a stranded
+  // grant as `none`.
+  if (storeUnparseable(machineSettingsPath())) {
+    return { store, status: "refused", count: 0, detail: `unparseable store ${machineSettingsPath()}` };
+  }
+  let raw: Record<string, unknown>;
+  try {
+    raw = resolveMachineTracking().raw;
+  } catch (err) {
+    return { store, status: "refused", count: 0, detail: `rt.repoTracking could not be resolved: ${String(err)}` };
+  }
   const hasFrom = Object.prototype.hasOwnProperty.call(raw, from);
   const hasTo = Object.prototype.hasOwnProperty.call(raw, to);
   if (!hasFrom && hasTo) return { store, status: "already", count: 0 };

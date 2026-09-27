@@ -536,6 +536,23 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
   return { removed, authored };
 }
 
+/**
+ * True when a store file exists with content the writer would refuse to edit.
+ * `readStore` reads such a file as empty, so a caller that treats "no section
+ * found" as an all-clear must ask this first.
+ */
+export function storeUnparseable(storePath: string): boolean {
+  if (!existsSync(storePath)) return false;
+  const content = readFileSync(storePath, "utf8");
+  if (content.trim() === "") return false;
+  try {
+    assertEditableJsonc(storePath, content);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export type SectionRename = "moved" | "already" | "none" | "refused";
 
 /**
@@ -552,6 +569,7 @@ export function renameRepoSection(
   opts: { dryRun?: boolean } = {},
 ): { status: SectionRename; keys: number; detail?: string } {
   if (!existsSync(storePath)) return { status: "none", keys: 0 };
+  if (storeUnparseable(storePath)) return { status: "refused", keys: 0, detail: `unparseable store ${storePath}` };
   const before = readStore(storePath);
   const oldSection = before.repos[oldId];
   const newSection = before.repos[newId];
