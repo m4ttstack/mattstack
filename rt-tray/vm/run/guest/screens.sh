@@ -12,6 +12,24 @@ relaunch_app() {
   bash "$HERE/install-app.sh" launch $DRIVER_LAUNCH_ARGS >>"$AX_LOG" 2>&1 || return 1
 }
 
+# A solo install's Finish leaves the menu-bar app with no window, so the
+# Settings window is opened from the status item's menu.
+ax_open_settings_team() {
+  local deadline
+  ax_click_menu_item tray.settings "Settings…"
+  ax_wait_window "Settings" 30 || ax_fail "Settings window never appeared"
+  sleep 1
+  # The toolbar tabs are SwiftUI toolbar items with no AXIdentifier System
+  # Events can see, so the Team tab is clicked by its visible name instead.
+  ax_click_toolbar_button "Team" || ax_click_button_named "Team" || ax_fail "Team tab not found in Settings toolbar"
+  deadline=$((SECONDS + 30))
+  until ax_find settings.team.create >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || ax_fail "settings.team.create never appeared"
+    sleep 1
+  done
+  ax_shot 06-settings-team
+}
+
 screen_welcome() {
   ax_wait_window "mattstack" 60 || ax_fail "setup window never appeared"
   ax_wait_screen welcome 10 || ax_fail "setup.welcome.screen axid missing"
