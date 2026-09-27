@@ -54,10 +54,12 @@ digraph deck_add_app {
     "Repair attempts = 2 (deck)?" [shape=diamond];
     "deck logs <name> --lines 100" [shape=plaintext];
     "Fix what the logs name (deck)" [shape=box];
+    "Fix changed the manifest (deck)?" [shape=diamond];
     "deck restart <name>" [shape=plaintext];
     "deck gate: app will not come up" [shape=box];
     "Come-up answer (deck)?" [shape=diamond];
     "Come-up rounds = 2 (deck)?" [shape=diamond];
+    "Come-up takes = 2 (deck)?" [shape=diamond];
     "Apply the human's fix (deck)" [shape=box];
     "Held (deck): app not serving, waiting on the user" [shape=doublecircle];
     "App registered and serving (deck)" [shape=doublecircle style=filled fillcolor=lightgreen];
@@ -65,7 +67,8 @@ digraph deck_add_app {
     "Visibility move (deck)?" [shape=diamond];
     "deck publish <name> off" [shape=plaintext];
     "deck publish <name> on" [shape=plaintext];
-    "deck password <name>" [shape=plaintext];
+    "Hand the deck password command to the user (deck)" [shape=box];
+    "Password step handed to the user (deck)" [shape=doublecircle];
     "deck password <name> --clear" [shape=plaintext];
     "deck domain (check before access)" [shape=plaintext];
     "Domain bound for access (deck)?" [shape=diamond];
@@ -99,6 +102,7 @@ digraph deck_add_app {
     "deck off-script gate: domain bind failed" [shape=box];
     "Bind-failure answer (deck)?" [shape=diamond];
     "Bind-failure rounds = 2 (deck)?" [shape=diamond];
+    "Bind runs after the failure = 2 (deck)?" [shape=diamond];
     "deck domain unbind" [shape=plaintext];
     "deck domain unbind result (deck)?" [shape=diamond];
     "STOP: --force only on the user's word (deck domain unbind)" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -148,7 +152,7 @@ digraph deck_add_app {
     "Manifest or quick add (deck)?" -> "deck config init" [label="manifest: preferred for anything kept"];
     "Manifest or quick add (deck)?" -> "Supervised or routed (deck)?" [label="quick add: no manifest"];
     "Manifest or quick add (deck)?" -> "STOP: deck is the only writer of plists, ports and routes" [label="tempted to hand-write a plist, alias or launchd entry"];
-    "STOP: deck is the only writer of plists, ports and routes" -> "deck register --dir <appDir>";
+    "STOP: deck is the only writer of plists, ports and routes" -> "deck config init";
     "deck config init" -> "Edit the manifest (deck)";
     "Edit the manifest (deck)" -> "deck register --dir <appDir>";
     "deck register --dir <appDir>" -> "deck register result (deck)?";
@@ -157,11 +161,11 @@ digraph deck_add_app {
     "deck register result (deck)?" -> "STOP: a refused register goes to its gate, never to a hand-written plist" [label="tempted to write the plist deck refused to write"];
     "STOP: a refused register goes to its gate, never to a hand-written plist" -> "deck off-script gate: deck register refused";
     "deck off-script gate: deck register refused" -> "Register answer (deck)?";
-    "Register answer (deck)?" -> "deck register --dir <appDir>" [label="take: the human fixed it, register again"];
+    "Register answer (deck)?" -> "Register rounds = 2 (deck)?" [label="take: the human fixed it, register again"];
     "Register answer (deck)?" -> "Register rounds = 2 (deck)?" [label="iterate: a note to try again"];
     "Register answer (deck)?" -> "Held (deck): nothing changed after the refusal" [label="hold"];
     "Register answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
-    "Register rounds = 2 (deck)?" -> "Edit the manifest (deck)" [label="no: fix the manifest with the note"];
+    "Register rounds = 2 (deck)?" -> "Edit the manifest (deck)" [label="no: apply the note, if any, then register again"];
     "Register rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
 
     "Supervised or routed (deck)?" -> "deck add <name> --cmd \"<start>\" --dir <path>" [label="supervised: deck runs the start command"];
@@ -173,7 +177,7 @@ digraph deck_add_app {
     "deck add result (deck)?" -> "STOP: a refused deck add goes to its gate, never to a hand-written plist" [label="tempted to write the plist or route deck refused to write"];
     "STOP: a refused deck add goes to its gate, never to a hand-written plist" -> "deck off-script gate: deck add refused";
     "deck off-script gate: deck add refused" -> "Add answer (deck)?";
-    "Add answer (deck)?" -> "Supervised or routed (deck)?" [label="take: the human fixed it, add again"];
+    "Add answer (deck)?" -> "Add rounds = 2 (deck)?" [label="take: the human fixed it, add again"];
     "Add answer (deck)?" -> "Add rounds = 2 (deck)?" [label="iterate: a note to try again"];
     "Add answer (deck)?" -> "Held (deck): nothing changed after the refusal" [label="hold"];
     "Add answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
@@ -190,20 +194,25 @@ digraph deck_add_app {
     "Repair attempts = 2 (deck)?" -> "deck logs <name> --lines 100" [label="no"];
     "Repair attempts = 2 (deck)?" -> "deck gate: app will not come up" [label="yes: budget spent"];
     "deck logs <name> --lines 100" -> "Fix what the logs name (deck)";
-    "Fix what the logs name (deck)" -> "deck restart <name>";
+    "Fix what the logs name (deck)" -> "Fix changed the manifest (deck)?";
+    "Fix changed the manifest (deck)?" -> "deck register --dir <appDir>" [label="yes"];
+    "Fix changed the manifest (deck)?" -> "deck restart <name>" [label="no"];
     "deck restart <name>" -> "deck status";
     "deck gate: app will not come up" -> "Come-up answer (deck)?";
-    "Come-up answer (deck)?" -> "Apply the human's fix (deck)" [label="take: the human names the fix"];
+    "Come-up answer (deck)?" -> "Come-up takes = 2 (deck)?" [label="take: the human names the fix"];
+    "Come-up takes = 2 (deck)?" -> "Apply the human's fix (deck)" [label="no"];
+    "Come-up takes = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
     "Come-up answer (deck)?" -> "Come-up rounds = 2 (deck)?" [label="iterate: a note to try again"];
     "Come-up answer (deck)?" -> "Held (deck): app not serving, waiting on the user" [label="hold"];
     "Come-up answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
     "Come-up rounds = 2 (deck)?" -> "deck logs <name> --lines 100" [label="no: repair again with the note"];
     "Come-up rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
-    "Apply the human's fix (deck)" -> "deck restart <name>";
+    "Apply the human's fix (deck)" -> "Fix changed the manifest (deck)?";
 
     "Visibility move (deck)?" -> "deck publish <name> off" [label="hide from the public edge"];
     "Visibility move (deck)?" -> "deck publish <name> on" [label="re-expose on the public edge"];
-    "Visibility move (deck)?" -> "deck password <name>" [label="gate behind a password"];
+    "Visibility move (deck)?" -> "Hand the deck password command to the user (deck)" [label="gate behind a password"];
+    "Hand the deck password command to the user (deck)" -> "Password step handed to the user (deck)";
     "Visibility move (deck)?" -> "deck password <name> --clear" [label="remove the password"];
     "Visibility move (deck)?" -> "deck domain (check before access)" [label="Google sign-in gate"];
     "deck domain (check before access)" -> "Domain bound for access (deck)?";
@@ -214,7 +223,6 @@ digraph deck_add_app {
     "Access move (deck)?" -> "deck access <name> off" [label="remove the sign-in gate"];
     "deck publish <name> off" -> "Visibility move result (deck)?";
     "deck publish <name> on" -> "Visibility move result (deck)?";
-    "deck password <name>" -> "Visibility move result (deck)?";
     "deck password <name> --clear" -> "Visibility move result (deck)?";
     "deck access <name> emails <a,b>" -> "Visibility move result (deck)?";
     "deck access <name> domains <c,d>" -> "Visibility move result (deck)?";
@@ -222,7 +230,7 @@ digraph deck_add_app {
     "Visibility move result (deck)?" -> "Visibility set (deck)" [label="applied"];
     "Visibility move result (deck)?" -> "deck off-script gate: visibility move refused" [label="refused or errored"];
     "deck off-script gate: visibility move refused" -> "Visibility answer (deck)?";
-    "Visibility answer (deck)?" -> "Visibility move (deck)?" [label="take: the human fixed it, move again"];
+    "Visibility answer (deck)?" -> "Visibility rounds = 2 (deck)?" [label="take: the human fixed it, move again"];
     "Visibility answer (deck)?" -> "Visibility rounds = 2 (deck)?" [label="iterate: a note to try again"];
     "Visibility answer (deck)?" -> "Held (deck): nothing changed after the refusal" [label="hold"];
     "Visibility answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
@@ -254,7 +262,9 @@ digraph deck_add_app {
     "Bound with the edge healthy (deck)?" -> "deck off-script gate: domain bind failed" [label="no: the bind errored or the edge is not ready"];
     "Bound with the edge healthy (deck)?" -> "STOP: the user sets the deck Cloudflare secrets" [label="tempted to fix a missing secret yourself"];
     "deck off-script gate: domain bind failed" -> "Bind-failure answer (deck)?";
-    "Bind-failure answer (deck)?" -> "deck domain <domain>" [label="take: the user fixed the prereq, bind again"];
+    "Bind-failure answer (deck)?" -> "Bind runs after the failure = 2 (deck)?" [label="take: the user fixed the prereq, bind again"];
+    "Bind runs after the failure = 2 (deck)?" -> "deck domain <domain>" [label="no: bind again"];
+    "Bind runs after the failure = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
     "Bind-failure answer (deck)?" -> "Bind-failure rounds = 2 (deck)?" [label="iterate: a note to try again"];
     "Bind-failure answer (deck)?" -> "Held (deck): domain not bound" [label="hold"];
     "Bind-failure answer (deck)?" -> "Report the refusal to the user (deck)" [label="hand back"];
@@ -424,14 +434,16 @@ keep the rest.
 Opens when `deck register --dir <appDir>` exits non-zero or prints an error,
 and whenever you are tempted to write the plist deck refused to write.
 Refusals that reach it include a port another process holds, a name another
-row already has, and a manifest deck rejects (a bad `commands` key, a `port`
-next to `commands.start`).
+row already has, and a manifest deck rejects (a bad `commands` key).
 
 Context, quoted and never trimmed: deck's refusal text and the manifest it
 read.
 
 | Question | Options (recommended first) |
 |---|---|
+Take and iterate share one budget: both pass `Register rounds = 2 (deck)?`,
+and the second spent round is reported instead of retried.
+
 | deck register refused. What next? | `take: fixed it, register again`: you fixed what the refusal names (freed the port, renamed the app), and I run deck register again. `iterate: try again with a note`: I edit the manifest with your note, then register again. `hold: leave it with you`: this run ends with nothing changed. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### deck off-script gate: deck add refused
@@ -444,6 +456,8 @@ passed (`--cmd` and `--dir`, or `--port`).
 
 | Question | Options (recommended first) |
 |---|---|
+Take and iterate share one budget: both pass `Add rounds = 2 (deck)?`.
+
 | deck add refused. What next? | `take: fixed it, add again`: you fixed what the refusal names, and I choose supervised or routed again and rerun deck add. `iterate: try again with a note`: I choose between a manifest and a quick add again, using your note. `hold: leave it with you`: this run ends with nothing changed. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### Fix what the logs name (deck)
@@ -451,9 +465,10 @@ passed (`--cmd` and `--dir`, or `--port`).
 Read the stderr `deck logs <name> --lines 100` tailed and fix the cause it
 names in the app itself: a wrong start command, a missing env var, a build
 that was never run, a server bound to a fixed port instead of `$PORT`. A fix
-that needs the manifest changed needs a register this loop does not run: name
-it in the come-up gate's context instead. Never touch the plist or the route:
-those are deck's, and `deck restart <name>` is the only kickstart.
+to `mattstack.deck.json` (a start command, an env var) goes through
+`deck register --dir <appDir>` so deck syncs it; any other fix goes straight
+to the restart. Never touch the plist or the route: those are deck's, and
+`deck restart <name>` is the only kickstart.
 
 ### deck gate: app will not come up
 
@@ -465,25 +480,38 @@ with what it changed.
 
 | Question | Options (recommended first) |
 |---|---|
-| The app will not come up. What next? | `take: apply your named fix`: you name the fix, and I apply exactly that and restart through deck. `iterate: repair again with a note`: I run another logs, fix and restart round using your note. `hold: leave it with you`: this run ends with the app registered but not serving. `hand back: stop and report`: I report the status row, the logs and both repairs. |
+Take passes `Come-up takes = 2 (deck)?`, iterate passes
+`Come-up rounds = 2 (deck)?`; either one spent goes to the report.
+
+| The app will not come up. What next? | `take: apply your named fix`: you name the fix, and I apply exactly that, register if it changed the manifest, and restart through deck. `iterate: repair again with a note`: I run another logs, fix and restart round using your note. `hold: leave it with you`: this run ends with the app registered but not serving. `hand back: stop and report`: I report the status row, the logs and both repairs. |
 
 ### Apply the human's fix (deck)
 
-Apply exactly the fix the user named, nothing more, then restart through
-`deck restart <name>`. A fix that means writing a plist, a route or a port
-by hand is not one this skill applies: quote it back at the gate instead.
+Apply exactly the fix the user named, nothing more. A manifest change then
+syncs through `deck register --dir <appDir>`; anything else goes straight to
+`deck restart <name>`. A fix that means writing a plist, a route or a port by
+hand is not one this skill applies: quote it back at the gate instead.
+
+### Hand the deck password command to the user (deck)
+
+`deck password <name>` prompts for the password on stdin, and an empty answer
+clears it, so run by you it would clear the gate instead of setting one. Hand
+the user `deck password <name>` to run in their own terminal, where they type
+the password. You never choose, echo or store one.
 
 ### deck off-script gate: visibility move refused
 
-Opens when a `deck publish`, `deck password` or `deck access` call exits
-non-zero or prints an error, for example an access gate asked for on a
-machine with no bound domain.
+Opens when a `deck publish`, `deck password <name> --clear` or `deck access`
+call exits non-zero or prints an error, for example an access gate asked for
+on a machine with no bound domain.
 
 Context, quoted and never trimmed: deck's refusal text and the exact move
 tried.
 
 | Question | Options (recommended first) |
 |---|---|
+Take and iterate share one budget: both pass `Visibility rounds = 2 (deck)?`.
+
 | The visibility change was refused. What next? | `take: fixed it, move again`: you fixed what the refusal names, and I pick the visibility move again. `iterate: try again with a note`: I pick the move again using your note. `hold: leave it with you`: this run ends with visibility unchanged. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### Check the Cloudflare prereqs (deck)
@@ -498,9 +526,10 @@ can bind:
 4. The deck secrets `cfZoneId` and `cfDnsToken`, the second a Cloudflare
    token with Zone.DNS:Edit.
 
-Check what you can read (the binary on PATH, the cert file, what
-`deck domain` already reported) and list each prereq as present, missing or
-unknown. An unknown one counts as missing.
+Check each one you can read: `cloudflared` on PATH, the cert file for the
+login, and `rt secrets list deck` for the two secret names (it prints names
+only, never values). Treat the zone as present unless the user says
+otherwise; a zone deck cannot find lands at the bind-failure gate.
 
 ### Hand the prereq steps to the user (deck)
 
@@ -525,7 +554,7 @@ app is then reachable at `https://<name>.<domain>`. Binding or rebinding
 moves every published app's public hostname at once, so the domain is the
 user's to confirm.
 
-Context: the domain to bind (for example `notes.example.dev`), what bare
+Context: the domain to bind (for example `example.dev`), what bare
 `deck domain` showed (the bound domain or none, the tunnel identity, the
 edge health), and every published app whose public hostname moves.
 
@@ -540,14 +569,17 @@ shows the edge not ready, and whenever you are tempted to fix a missing
 secret yourself. A bind that asks for one step first (the tunnel login)
 prints that command; a missing secret, a zone deck cannot find, and a
 connector that never comes up land here too. A rebind that deck refuses
-because it would move live apps asks for `--force`: this graph has no forced
-bind, so quote it and let the user run it or hand back.
+because it would move live apps asks for `--force`: the forced rebind is the
+user's to run, so quote it and let them run it or hand back.
 
 Context, quoted and never trimmed: the bind's error text, or the verify's
 edge line.
 
 | Question | Options (recommended first) |
 |---|---|
+Take passes `Bind runs after the failure = 2 (deck)?`, iterate passes
+`Bind-failure rounds = 2 (deck)?`; either one spent goes to the report.
+
 | The domain bind failed. What next? | `take: fixed it, bind again`: you fixed the prereq the error names, and I run deck domain again. `iterate: recheck with a note`: I recheck the Cloudflare prereqs using your note. `hold: leave it with you`: this run ends with no domain bound. `hand back: stop and report`: I report the error and what was checked. |
 
 ### deck off-script gate: deck domain unbind refused
@@ -566,15 +598,16 @@ it names as going offline.
 
 ### Tell the user deck's own row is never removed (deck)
 
-Deck's own row shares the supervisor's launchd label, so removing it stops
-the platform. Say that deck's row stays and why, and offer nothing in its
-place.
+Deck's own rows are `deck` and the legacy `local`. Each shares the
+supervisor's launchd label, so removing it stops the platform. Say that the
+row stays and why, and offer nothing in its place.
 
 ### Relay the 409 message verbatim (deck)
 
-A 409 from `deck remove` means another registrar owns the app. Relay deck's
-message word for word, since it names the command that owner uses, and
-never retry with `--force`.
+A 409 from `deck remove` means another registrar owns the app. The CLI shows
+it only as the message naming the app's owner, with no status code, so
+recognize it by that message. Relay it word for word, since it names the
+command that owner uses, and never retry with `--force`.
 
 ### deck off-script gate: deck remove refused
 
@@ -599,21 +632,20 @@ changed beyond what the report names.
 - Every deck command changes state: run it against the user's actual app,
   its real directory, name and port, never a guess.
 - `deck config init` and a bare `deck register` act on the current
-  directory. This skill always passes `--dir <appDir>` to register, so it
-  works from anywhere.
+  directory, so run `deck config init` from the app directory. This skill
+  always passes `--dir <appDir>` to register, so it works from anywhere.
 - Apps are published by default. Publish controls visibility only at the
   bound public domain; `<name>.localhost` and `<name>.mattstack` are always
   local to this machine, so a teammate on another machine reaches an app
   only once a domain is bound.
-- `deck password <name>` prompts for the password. The user types it; you
-  never choose, echo or store one.
 - Deck's `migrate` exists to clean up hand-written plists and portless
   aliases. That is why none are ever written, even when deck refuses or is
   missing.
 - A teardown covering several apps walks the teardown path once per row,
   and a request that covers the public edge walks the unbind branch for it.
   Deck's own row always reaches the tell box, never `deck remove`.
-- Each counter counts per run: repair attempts, and each gate's rounds. A
+- Each counter counts per run: repair attempts, each gate's rounds, and the
+  take counters. A
   counter diamond's `yes` edge is taken once its count has reached the
   number.
 
@@ -624,7 +656,7 @@ changed beyond what the report names.
 | "removing it is the one fix the skill actually authorizes" | A refused register opens `deck off-script gate: deck register refused`. Removing another app to free its port is a teardown the user asks for, never a repair. |
 | "the skill gives no troubleshooting path for a registration-time allocator conflict" | The register gate is that path: quote the refusal, and the user frees the port or answers iterate. |
 | "the one-time, browser-based login the skill lists as a prereq for the tunnel" | The tunnel login is the user's step, in the prereq hand-over list. |
-| "Reply to Matt in chat, not as a command" | The prereq hand-over is the reply. A token pasted in chat is never passed to `rt secrets set`; the user runs it. |
+| "Reply to [the user] in chat, not as a command" | The prereq hand-over is the reply. A token pasted in chat is never passed to `rt secrets set`; the user runs it. |
 | "(per the skill's Teardown section) to tear it down" | Teardown is `Row to remove (deck)?` once per row. Deck's own row reaches the tell box, never `deck remove`. |
 | "rather than have me guess" | Keeping deck's row is an outcome, not an open question. A refused remove goes to its gate. |
 | "pending the human's confirmation on how to proceed" | A question to the user is `gate_ask`, per `Asking the human`, never a prose "pending confirmation". |
