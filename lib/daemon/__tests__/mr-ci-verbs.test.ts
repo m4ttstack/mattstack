@@ -34,6 +34,14 @@ describe("mr:commit-parents", () => {
     }
   });
 
+  test("a malformed sha names the rule; a missing one reads as missing", async () => {
+    const h = handlers({ fetchCommitParents: async () => ["t"] });
+    for (const sha of ["m1", "abc; rm", ""]) {
+      expect(await h["mr:commit-parents"]!({ repoName: REPO, iid: 4, sha })).toEqual({ ok: false, error: '"sha" must be 7 to 40 hex characters' });
+    }
+    expect(await h["mr:commit-parents"]!({ repoName: REPO, iid: 4 })).toEqual({ ok: false, error: "missing repoName/iid/sha" });
+  });
+
   test("refuses a display name instead of failing open", async () => {
     const h = handlers({ fetchCommitParents: async () => ["t"] });
     const r = await h["mr:commit-parents"]!({ repoName: "proj", iid: 4, sha: "abc1234" });
@@ -58,6 +66,15 @@ describe("mr:pipeline-failed-jobs", () => {
   test("validates pipelineId", async () => {
     const r = await handlers({})["mr:pipeline-failed-jobs"]!({ repoName: REPO, iid: 4 });
     expect(r).toMatchObject({ ok: false });
+  });
+
+  test("pipelineId must be a positive integer", async () => {
+    let called = 0;
+    const h = handlers({ fetchPipelineFailedJobs: async () => { called++; return []; } });
+    for (const pipelineId of [0, -3, 1.5, Number.NaN]) {
+      expect(await h["mr:pipeline-failed-jobs"]!({ repoName: REPO, iid: 4, pipelineId })).toMatchObject({ ok: false });
+    }
+    expect(called).toBe(0);
   });
 
   test("refuses a display name instead of failing open", async () => {

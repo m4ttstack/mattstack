@@ -373,9 +373,10 @@ export function createMRHandlers(
 
     "mr:commit-parents": async (payload) => {
       const p = payload as { iid?: number; sha?: string } | undefined;
-      if (typeof p?.iid !== "number" || typeof p.sha !== "string" || !/^[0-9a-f]{7,40}$/i.test(p.sha)) {
+      if (typeof p?.iid !== "number" || typeof p.sha !== "string") {
         return { ok: false, error: "missing repoName/iid/sha" };
       }
+      if (!/^[0-9a-f]{7,40}$/i.test(p.sha)) return { ok: false, error: '"sha" must be 7 to 40 hex characters' };
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
@@ -392,6 +393,7 @@ export function createMRHandlers(
       if (typeof p?.iid !== "number" || typeof p.pipelineId !== "number") {
         return { ok: false, error: "missing repoName/iid/pipelineId" };
       }
+      if (!(Number.isInteger(p.pipelineId) && p.pipelineId > 0)) return { ok: false, error: '"pipelineId" must be a positive integer' };
       const decoded = decodeIndexedRepo(payload);
       if (!decoded.ok) return { ok: false, error: decoded.error };
       try {
