@@ -22,6 +22,12 @@
       "import": "./dist/gate.js",
       "default": "./dist/gate.js"
     },
+    "./ci-lease": {
+      "types": "./dist/ci-lease.d.ts",
+      "bun": "./src/ci-lease.ts",
+      "import": "./dist/ci-lease.js",
+      "default": "./dist/ci-lease.js"
+    },
     "./test/fake-daemon.ts": "./test/fake-daemon.ts"
   },
   "peerDependencies": {
@@ -53,7 +59,7 @@
     "bun": ">=1.0.0"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --packages external && bun build src/settings/identity-codec.ts --outfile dist/settings/identity-codec.js --target browser --format esm && bun build src/gate.ts --outfile dist/gate.js --target browser --format esm && tsc -p tsconfig.json",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --packages external && bun build src/settings/identity-codec.ts --outfile dist/settings/identity-codec.js --target browser --format esm && bun build src/gate.ts --outfile dist/gate.js --target browser --format esm && bun build src/ci-lease.ts --outfile dist/ci-lease.js --target node --format esm --packages external && tsc -p tsconfig.json",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "prepack": "bun run build"
   },

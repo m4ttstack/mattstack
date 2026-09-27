@@ -188,6 +188,7 @@ const EXPECTED_TOOL_NAMES = [
   "chat_read", "chat_mark", "chat_rooms", "chat_who", "chat_buddies", "chat_join", "chat_leave", "chat_away", "chat_back",
   "chat_sign_in", "chat_sign_out", "chat_archive", "chat_invite",
   "whoami",
+  "ci_lease_claim", "ci_lease_heartbeat", "ci_lease_release", "ci_lease_read", "ci_watch",
 ];
 
 describe("rt mcp serve e2e", () => {

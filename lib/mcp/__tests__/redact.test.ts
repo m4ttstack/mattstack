@@ -96,4 +96,12 @@ describe("callTool", () => {
     const res = await callTool(tool(async () => ({ ok: true, body: { trace: `line1\n${FAKE_GL}` } })), {}, {});
     expect(JSON.parse(res.content[0]!.text).trace).toBe("line1\n[redacted]");
   });
+
+  test("callTool hands the abort signal to the handler", async () => {
+    let seen: AbortSignal | undefined;
+    const tool = { name: "x", description: "", inputSchema: {}, shellForms: { none: "test" }, async handler(_i: Record<string, unknown>, _e: NodeJS.ProcessEnv, s?: AbortSignal) { seen = s; return { ok: true, body: {} }; } };
+    const ac = new AbortController();
+    await callTool(tool as any, {}, {}, ac.signal);
+    expect(seen).toBe(ac.signal);
+  });
 });

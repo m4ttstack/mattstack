@@ -9,6 +9,8 @@
  *   mr:update            - edit title/description (glance) and labels/squash (REST), glance first
  *   mr:fetch-job-detail  — unified detail fetch (returns trace or bridge)
  *   mr:fetch-job-trace   — raw job trace text
+ *   mr:commit-parents        - a commit's parent shas (GitLab providers only)
+ *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab providers only)
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
  * for the repo (missing token, unparseable remote), the handler returns
@@ -93,6 +95,8 @@ export function createMRHandlers(
   & { "mr:update": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:update">> }
   & { "mr:fetch-job-detail": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:fetch-job-detail">> }
   & { "mr:fetch-job-trace": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:fetch-job-trace">> }
+  & { "mr:commit-parents": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:commit-parents">> }
+  & { "mr:pipeline-failed-jobs": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:pipeline-failed-jobs">> }
   & HandlerMap {
   const getContext = overrides.getContext
     ?? ((repoName: string) => getRepoContext(repoName, ctx.repoIndex()[repoName]));
@@ -362,6 +366,40 @@ export function createMRHandlers(
         const { provider, projectPath } = await contextFor(repoName);
         const trace = await provider.fetchJobTrace(projectPath, jobId);
         return { ok: true, data: trace };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:commit-parents": async (payload) => {
+      const p = payload as { iid?: number; sha?: string } | undefined;
+      if (typeof p?.iid !== "number" || typeof p.sha !== "string") {
+        return { ok: false, error: "missing repoName/iid/sha" };
+      }
+      if (!/^[0-9a-f]{7,40}$/i.test(p.sha)) return { ok: false, error: '"sha" must be 7 to 40 hex characters' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.fetchCommitParents !== "function") return { ok: false, error: "unsupported: mr:commit-parents needs a GitLab repo" };
+        return { ok: true, data: await provider.fetchCommitParents(projectPath, p.sha) };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:pipeline-failed-jobs": async (payload) => {
+      const p = payload as { iid?: number; pipelineId?: number } | undefined;
+      if (typeof p?.iid !== "number" || typeof p.pipelineId !== "number") {
+        return { ok: false, error: "missing repoName/iid/pipelineId" };
+      }
+      if (!(Number.isInteger(p.pipelineId) && p.pipelineId > 0)) return { ok: false, error: '"pipelineId" must be a positive integer' };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.fetchPipelineFailedJobs !== "function") return { ok: false, error: "unsupported: mr:pipeline-failed-jobs needs a GitLab repo" };
+        return { ok: true, data: await provider.fetchPipelineFailedJobs(projectPath, p.pipelineId) };
       } catch (err) {
         return { ok: false, error: String(err) };
       }

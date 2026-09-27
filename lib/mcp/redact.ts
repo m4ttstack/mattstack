@@ -45,9 +45,9 @@ export function toCallResult(res: ToolResult): CallResult {
 
 /** A throw inside a handler would otherwise reach the SDK, which sends its
     message to the client as a JSON-RPC error without passing through here. */
-export async function callTool(tool: McpToolDef, args: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<CallResult> {
+export async function callTool(tool: McpToolDef, args: Record<string, unknown>, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<CallResult> {
   try {
-    return toCallResult(await tool.handler(args, env));
+    return toCallResult(await tool.handler(args, env, signal));
   } catch (e) {
     return toCallResult(err(e instanceof Error ? e.message : String(e)));
   }

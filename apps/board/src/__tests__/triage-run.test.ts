@@ -1,5 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, test } from 'bun:test';
 
+import { boardDoctorOwner, readCiLease } from '@mattstack/rt-client';
+import type { DoctorState } from '../doctor-state.ts';
+import { createBoardAttendants } from '../triage/attendant.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
 import type { OwnMrFacts } from '../triage/edge.ts';
@@ -411,6 +417,170 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     await runTriage(d);
     expect(fa.calls.heartbeats).toEqual([1]);
     expect(fa.calls.releases).toEqual([2]);
+  });
+
+  test('the lease is claimed before the queued state is written', async () => {
+    const order: string[] = [];
+    const d = deps({
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => {
+          order.push('claim');
+          return true;
+        },
+        heartbeat: () => {},
+        release: () => {},
+      },
+      writeDoctorState: (_path, patch) => {
+        order.push(`state:${patch.status}`);
+        return {
+          mrUrl: patch.mrUrl ?? '',
+          iid: patch.iid ?? 0,
+          status: patch.status,
+          origin: patch.origin,
+          startedAt: 0,
+          updatedAt: 0,
+        };
+      },
+    });
+    await runTriage(d);
+    expect(order.indexOf('claim')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('claim')).toBeLessThan(order.indexOf('state:queued'));
+  });
+
+  test('a refused claim skips as attended and writes no state row', async () => {
+    const writes: unknown[] = [];
+    const d = deps({
+      attendants: {
+        // The lease appeared between the earlier read-based check and this
+        // claim; read stays null so only the claim's own refusal is exercised.
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => false,
+        heartbeat: () => {},
+        release: () => {},
+      },
+      writeDoctorState: (_path, patch) => {
+        writes.push(patch);
+        return {
+          mrUrl: patch.mrUrl ?? '',
+          iid: patch.iid ?? 0,
+          status: patch.status,
+          origin: patch.origin,
+          startedAt: 0,
+          updatedAt: 0,
+        };
+      },
+    });
+    const result = await runTriage(d);
+    expect(result.skipped).toBe(1);
+    expect(writes).toHaveLength(0);
+    expect(d.launches).toHaveLength(0);
+    expect(d.audit.some(e => e.reason === 'attended')).toBe(true);
+  });
+
+  test('a launch that throws releases the claim', async () => {
+    const releases: Array<[string, number]> = [];
+    const d = deps({
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => true,
+        heartbeat: () => {},
+        release: (mrUrl: string, iid: number) => releases.push([mrUrl, iid]),
+      },
+      launchDoctor: async () => {
+        throw new Error('boom');
+      },
+    });
+    await runTriage(d);
+    expect(releases).toEqual([['https://x/mr/1', 1]]);
+  });
+
+  test('a throw between the claim and the launch (doctorFilePath) still releases the claim', async () => {
+    const releases: Array<[string, number]> = [];
+    const d = deps({
+      attendants: {
+        read: () => null,
+        readByBranch: () => null,
+        claim: () => true,
+        heartbeat: () => {},
+        release: (mrUrl: string, iid: number) => releases.push([mrUrl, iid]),
+      },
+      doctorFilePath: () => {
+        throw new Error('no state dir');
+      },
+    });
+    await runTriage(d);
+    expect(releases).toEqual([['https://x/mr/1', 1]]);
+    expect(d.launches).toHaveLength(0);
+  });
+
+  test('a throw AFTER launchDoctor resolves (post-launch bookkeeping) keeps the claim and the in-flight row across the next pass', async () => {
+    // createBoardAttendants runs through rt-client's real ciLeaseFileName,
+    // which needs a parseable /merge_requests/<iid> segment.
+    const mrUrl =
+      'https://gitlab.example.com/acme/webapp/-/merge_requests/1821';
+    const dir = mkdtempSync(join(tmpdir(), 'attendants-run-'));
+    const now = () => 1_000_000_000;
+    try {
+      const attendants = createBoardAttendants({ dir, now });
+      const rows = new Map<string, DoctorState>();
+      let readDoctorStatesCalls = 0;
+      const d = deps({
+        attendants,
+        fetchOwnMrs: async () => [
+          {
+            mrUrl,
+            iid: 1821,
+            pipelineId: 100,
+            pipelineState: 'failed',
+            needsRebase: false,
+            author: 'matt',
+            sourceBranch: 'feat',
+            targetBranch: 'master',
+            isStacked: false,
+          } satisfies OwnMrFacts,
+        ],
+        writeDoctorState: (path, patch) => {
+          const prev = rows.get(path);
+          const row = {
+            mrUrl: patch.mrUrl ?? prev?.mrUrl ?? '',
+            iid: patch.iid ?? prev?.iid ?? 0,
+            status: patch.status ?? prev?.status,
+            origin: patch.origin ?? prev?.origin,
+            startedAt: 0,
+            updatedAt: 0,
+          } as DoctorState;
+          rows.set(path, row);
+          return row;
+        },
+        // Call 2 is the post-launch race-guard read of the first pass: only
+        // that one fails, after the doctor pane already holds the lease.
+        readDoctorStates: () => {
+          readDoctorStatesCalls++;
+          if (readDoctorStatesCalls === 2) throw new Error('disk read failed');
+          return new Map([...rows.values()].map(r => [r.mrUrl, r]));
+        },
+      });
+      await runTriage(d);
+      expect(d.launches).toHaveLength(1);
+      expect(readCiLease(mrUrl, { dir, now }).lease?.owner).toBe(
+        boardDoctorOwner(mrUrl)
+      );
+      const row = [...rows.values()].find(r => r.mrUrl === mrUrl);
+      expect(row?.status).not.toBe('error');
+      expect(d.audit.some(e => e.action === 'post-launch-failed')).toBe(true);
+
+      await runTriage(d);
+      expect(d.launches).toHaveLength(1);
+      expect(readCiLease(mrUrl, { dir, now }).lease?.owner).toBe(
+        boardDoctorOwner(mrUrl)
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

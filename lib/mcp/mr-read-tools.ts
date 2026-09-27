@@ -165,7 +165,7 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_pipeline",
-      description: `GitLab only. The MR's head pipeline (live by default, maxAgeMs 5000) and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. pipeline.jobs may be empty for a cache entry written at list weight; pass jobId for one job's detail. ${JOB_ID_NOTE}. ${CACHE_NOTE}. ${REPO_NAME_RULE}`,
+      description: `GitLab only. The MR's head pipeline (live by default, maxAgeMs 5000), carrying sha, ref and mergeRequestEventType ("merged_result", "detached", "merge_train" or null; for merged-results pipelines sha is the merge commit, not the source branch head), and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. pipeline.jobs may be empty for a cache entry written at list weight; pass jobId for one job's detail. ${JOB_ID_NOTE}. ${CACHE_NOTE}. ${REPO_NAME_RULE}`,
       inputSchema: { type: "object", properties: { ...MR_TARGET_PROPS, maxAgeMs: { type: "number" }, jobId: { type: "number" } }, additionalProperties: false },
       shellForms: ["glab ci view", "glab ci status"],
       async handler(input) {

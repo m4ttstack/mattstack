@@ -33,15 +33,7 @@ import {
   readReviewStates,
   resurrectReviewState,
 } from '../src/review-state.ts';
-import {
-  claimLease,
-  DEFAULT_ATTENDANT_TTL_SECONDS,
-  defaultAttendantsDir,
-  heartbeatLease,
-  readLease,
-  readLeaseByBranch,
-  releaseLease,
-} from '../src/triage/attendant.ts';
+import { createBoardAttendants } from '../src/triage/attendant.ts';
 import { appendAudit } from '../src/triage/audit.ts';
 import { loadReReviewConfig, loadTriageConfig } from '../src/triage/config.ts';
 import type { OwnMrFacts } from '../src/triage/edge.ts';
@@ -201,42 +193,7 @@ try {
     readFreshMemory: readMemory,
     sendPaneText,
     now: () => Date.now(),
-    // BOARD-10: one CI attendant per MR (plain files under ~/.mattstack/ci-attendants).
-    attendants: {
-      read: (mrUrl, iid) =>
-        readLease(defaultAttendantsDir(), mrUrl, iid, Date.now()),
-      // BOARD-12: lets the stack preflight see an attendant on a parent MR
-      // that falls outside the board's scope window.
-      readByBranch: branch =>
-        readLeaseByBranch(defaultAttendantsDir(), branch, Date.now()),
-      claim: (mrUrl, _iid, branch) =>
-        claimLease(
-          defaultAttendantsDir(),
-          {
-            mr: mrUrl,
-            // BOARD-12: watch-ci has always recorded its branch; the doctor
-            // now does too, so readByBranch sees both holders.
-            branch,
-            holder: 'doctor',
-            sessionLabel: 'mr-board-triage',
-            pid: process.pid,
-            startedAt: Date.now(),
-            heartbeatAt: Date.now(),
-            ttlSeconds: DEFAULT_ATTENDANT_TTL_SECONDS,
-          },
-          Date.now()
-        ).ok,
-      heartbeat: (mrUrl, iid) =>
-        heartbeatLease(
-          defaultAttendantsDir(),
-          mrUrl,
-          iid,
-          'doctor',
-          Date.now()
-        ),
-      release: (mrUrl, iid) =>
-        releaseLease(defaultAttendantsDir(), mrUrl, iid, 'doctor'),
-    },
+    attendants: createBoardAttendants(),
   });
   console.log(
     `triage: dispatched ${result.dispatched}, escalated ${result.escalated}, skipped ${result.skipped}`

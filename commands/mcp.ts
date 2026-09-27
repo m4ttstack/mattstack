@@ -39,12 +39,12 @@ export async function mcpServe(_args: string[]): Promise<void> {
   // these to settle rather than close underneath them.
   const pending = new Set<Promise<unknown>>();
 
-  server.setRequestHandler(CallToolRequestSchema, (request) => {
+  server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
     const call = (async () => {
       const tool = toolByName.get(request.params.name);
       if (!tool) return { isError: true, content: [{ type: "text" as const, text: `unknown tool: ${request.params.name}` }] };
 
-      return callTool(tool, (request.params.arguments ?? {}) as Record<string, unknown>, process.env);
+      return callTool(tool, (request.params.arguments ?? {}) as Record<string, unknown>, process.env, extra.signal);
     })();
     pending.add(call);
     call.finally(() => pending.delete(call));
