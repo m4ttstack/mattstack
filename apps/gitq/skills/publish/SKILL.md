@@ -189,6 +189,13 @@ Pass each gate's questions as `{id, label, multi: false, options}` with
 the gate's answer diamond. An answer that carries a note brings it in the
 answer's `note` or `text`.
 
+The presentation comes from `gate_ask`'s result alone: `gate_ask result (publish)?`
+branches on the `presentation` it returns, never on your own choice or on
+the launch flags. On `form`, put up the AskUserQuestion form and call
+`gate_answer {id, answers}` with its answers in the same turn, back to
+back: the answer is not recorded until `gate_answer` runs, so a turn that
+ends between the two leaves the gate open and unanswered.
+
 ### End the turn until the answer arrives (publish)
 
 End the turn with one line saying what the gate asks. Do not poll, do not
@@ -238,15 +245,17 @@ names and keep the rest as drafted.
 
 ### Save the mr-meta JSON to a mktemp .json file
 
-Create the file with `mktemp` and a `.json` suffix, and write the entries in
-gitq's mr-meta shape, keyed by branch name:
+BSD `mktemp` only fills an X run at the end of its template, so a `.json`
+suffix does not work. Create a directory with `mktemp -d` and write
+`meta.json` inside it, in gitq's mr-meta shape, keyed by branch name:
 
 ```json
 { "<branch>": { "title": "...", "description": "..." } }
 ```
 
-That path is `<tempPath>` in the publish call. After an iterate round,
-overwrite the same file so the gate and the publish read one version.
+`<dir>/meta.json` is `<tempPath>` in the publish call. After an iterate
+round, overwrite that same file so the gate and the publish read one
+version.
 
 ### publish gate: approve the MR chain
 
@@ -302,7 +311,7 @@ at.
 
 | Question | Options (recommended first) |
 |---|---|
-| gitq publish refused. What next? | `take: fixed it, publish again`: you fixed what the refusal names (a token, a forge entry, the stack), and I run gitq publish again. `iterate: publish again with a note`: I act on your note, then run gitq publish again. `hold: leave it with you`: this run ends with nothing published and writes no status. `hand back: stop with an error`: I mark the run failed with the refusal as the reason. |
+| gitq publish refused. What next? | `take: fixed it, publish again`: you fixed what the refusal names (a token, a forge entry, the stack), and I run gitq publish again. `iterate: publish again with a note`: I act on your note, then run gitq publish again. `hold: leave it with you`: this run ends with nothing published and writes no status. `hand back: fail on the refusal`: I mark the run failed with the refusal as the reason. |
 
 ### Name each skipped branch and its reason (publish, exit 0)
 

@@ -249,6 +249,13 @@ Pass each gate's questions as `{id, label, multi: false, options}` with
 the gate's answer diamond. An answer that carries a resolution or a note
 brings it in the answer's `note` or `text`.
 
+The presentation comes from `gate_ask`'s result alone: `gate_ask result (sync)?`
+branches on the `presentation` it returns, never on your own choice or on
+the launch flags. On `form`, put up the AskUserQuestion form and call
+`gate_answer {id, answers}` with its answers in the same turn, back to
+back: the answer is not recorded until `gate_answer` runs, so a turn that
+ends between the two leaves the gate open and unanswered.
+
 ### End the turn until the answer arrives (sync)
 
 End the turn with one line saying what the gate asks. Do not poll, do not
@@ -367,6 +374,15 @@ on what was tried.
 |---|---|
 | This pause keeps coming back. What next? | `take: I name the resolution`: you give the content for the files still conflicted, and I apply it. `iterate: try again with a note`: I resolve the files again, steered by your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack and mark the run failed. |
 
+An iterate does not restart the resolve-attempt count: this pause's count
+stays at 3, so when the next continue re-pauses on the same branch and
+commit, or unmerged paths survive staging again, the run comes straight back
+to this gate, and `Pause rounds = 2 (sync)?` bounds how often. A new pause
+starts its own count.
+
+On hand back the error reason is "pause on <branch> (commit <i>/<total>)
+will not clear: <files still conflicted>".
+
 ### Apply the human's resolution (sync pause gate)
 
 Write exactly what the human named into each file it covers in
@@ -399,6 +415,10 @@ Context: the `gitq:` stderr line verbatim, plus any hook output it printed.
 |---|---|
 | gitq continue refused. What next? | `take: fixed it, run again`: you fixed what the refusal names, and I run the continue again. `iterate: run again with a note`: I run the continue again after acting on your note. `hold: leave the cascade paused`: the pause stays for you and this run ends with the badge on conflict. `hand back: abort the cascade`: I abort the rebase for this stack and mark the run failed. |
 
+A hold reaches `Held (sync): cascade paused for the human`: the pause stays
+in `<rebaseDir>` for the human. On hand back the error reason is "gitq
+continue refused on <branch>: <the gitq: line>".
+
 ### sync off-script gate: gitq sync refused
 
 Opens when `gitq sync` exits 1 for any reason but a parked lease: a hook, a
@@ -417,13 +437,19 @@ Context: the `gitq:` stderr line verbatim, or the failing JSON entry.
 Say why the run stopped, in the words of the reason just written. The
 error write's reason is the string the board shows:
 
-- A dirty launch worktree, reason "worktree has uncommitted changes": tell
-  the human to commit or stash first, or run gitq:absorb, which exists for
-  exactly this.
+- A dirty launch worktree, reason "worktree has uncommitted changes": list
+  the modified paths, then tell the human to commit or stash first, or run
+  gitq:absorb, which exists for exactly this. Preflight's `report.dirty` is
+  only a flag, so read the paths from `git -C <repoPath> status --porcelain`.
 - A hand back at the judgment gate, reason "conflict on <file> needs human
   judgment: <why>": lay out the conflict and both sides so the human can
-  resolve it by hand. A hand back at the other conflict gates names the
-  pause and why it would not settle.
+  resolve it by hand.
+- A hand back at the pause gate, reason "pause on <branch> (commit
+  <i>/<total>) will not clear: <files still conflicted>": list each attempt
+  and what it tried. A hand back at the twenty-pause gate names the pauses
+  so far.
+- A hand back at the continue-refused gate, reason "gitq continue refused
+  on <branch>: <the gitq: line>": quote any hook output with it.
 - A hand back at the take-over gate, reason "stack has a parked cascade
   owned elsewhere": quote the lease.
 - A refusal: quote the `gitq:` line.
@@ -478,3 +504,4 @@ updated.
 | "the skill's exit-1 handling only calls for marking error and reporting" | A refusal opens its own off-script gate; the human fixes it and answers take. |
 | "fixing application/lint issues is outside what this skill's steps describe" | Right, you do not fix it: the continue-refused gate hands the fix to the human and keeps the cascade. |
 | "The tools being present is a distractor" | Every question to the human is `gate_ask`, per `Asking the human`. |
+| "They said keep it moving, I'm in a meeting, so I answer the gate for them" | A remark in the pane before any gate opened is not an answer to a gate. Open it through `gate_ask` and act only on the answer it records. |

@@ -365,6 +365,13 @@ trimmed. Each option's `value` is its edge keyword (`take`, `iterate`,
 diamond. An answer that carries a fix, a domain or a note brings it in the
 answer's `note` or `text`.
 
+The presentation comes from `gate_ask`'s result alone: `gate_ask result (deck)?`
+branches on the `presentation` it returns, never on your own choice or on
+the launch flags. On `form`, put up the AskUserQuestion form and call
+`gate_answer {id, answers}` with its answers in the same turn, back to
+back: the answer is not recorded until `gate_answer` runs, so a turn that
+ends between the two leaves the gate open and unanswered.
+
 ### End the turn until the answer arrives (deck)
 
 End the turn with one line naming the gate and what it asks. Do not poll, do
@@ -439,11 +446,11 @@ row already has, and a manifest deck rejects (a bad `commands` key).
 Context, quoted and never trimmed: deck's refusal text and the manifest it
 read.
 
-| Question | Options (recommended first) |
-|---|---|
 Take and iterate share one budget: both pass `Register rounds = 2 (deck)?`,
 and the second spent round is reported instead of retried.
 
+| Question | Options (recommended first) |
+|---|---|
 | deck register refused. What next? | `take: fixed it, register again`: you fixed what the refusal names (freed the port, renamed the app), and I run deck register again. `iterate: try again with a note`: I edit the manifest with your note, then register again. `hold: leave it with you`: this run ends with nothing changed. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### deck off-script gate: deck add refused
@@ -454,10 +461,10 @@ you are tempted to write the plist or route deck refused to write.
 Context, quoted and never trimmed: deck's refusal text and the exact flags
 passed (`--cmd` and `--dir`, or `--port`).
 
-| Question | Options (recommended first) |
-|---|---|
 Take and iterate share one budget: both pass `Add rounds = 2 (deck)?`.
 
+| Question | Options (recommended first) |
+|---|---|
 | deck add refused. What next? | `take: fixed it, add again`: you fixed what the refusal names, and I choose supervised or routed again and rerun deck add. `iterate: try again with a note`: I choose between a manifest and a quick add again, using your note. `hold: leave it with you`: this run ends with nothing changed. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### Fix what the logs name (deck)
@@ -478,11 +485,11 @@ Context, quoted and never trimmed: the app's `deck status` row, the last
 `deck logs <name> --lines 100` output, and each of the two repairs tried
 with what it changed.
 
-| Question | Options (recommended first) |
-|---|---|
 Take passes `Come-up takes = 2 (deck)?`, iterate passes
 `Come-up rounds = 2 (deck)?`; either one spent goes to the report.
 
+| Question | Options (recommended first) |
+|---|---|
 | The app will not come up. What next? | `take: apply your named fix`: you name the fix, and I apply exactly that, register if it changed the manifest, and restart through deck. `iterate: repair again with a note`: I run another logs, fix and restart round using your note. `hold: leave it with you`: this run ends with the app registered but not serving. `hand back: stop and report`: I report the status row, the logs and both repairs. |
 
 ### Apply the human's fix (deck)
@@ -508,10 +515,10 @@ on a machine with no bound domain.
 Context, quoted and never trimmed: deck's refusal text and the exact move
 tried.
 
-| Question | Options (recommended first) |
-|---|---|
 Take and iterate share one budget: both pass `Visibility rounds = 2 (deck)?`.
 
+| Question | Options (recommended first) |
+|---|---|
 | The visibility change was refused. What next? | `take: fixed it, move again`: you fixed what the refusal names, and I pick the visibility move again. `iterate: try again with a note`: I pick the move again using your note. `hold: leave it with you`: this run ends with visibility unchanged. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### Check the Cloudflare prereqs (deck)
@@ -575,11 +582,11 @@ user's to run, so quote it and let them run it or hand back.
 Context, quoted and never trimmed: the bind's error text, or the verify's
 edge line.
 
-| Question | Options (recommended first) |
-|---|---|
 Take passes `Bind runs after the failure = 2 (deck)?`, iterate passes
 `Bind-failure rounds = 2 (deck)?`; either one spent goes to the report.
 
+| Question | Options (recommended first) |
+|---|---|
 | The domain bind failed. What next? | `take: fixed it, bind again`: you fixed the prereq the error names, and I run deck domain again. `iterate: recheck with a note`: I recheck the Cloudflare prereqs using your note. `hold: leave it with you`: this run ends with no domain bound. `hand back: stop and report`: I report the error and what was checked. |
 
 ### deck off-script gate: deck domain unbind refused

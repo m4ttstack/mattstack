@@ -343,6 +343,13 @@ maps straight onto the gate's answer diamond. Set `recommended: true` on the
 option each table lists first, unless the gate's section names another. An
 answer that carries a note brings it in the answer's `note` or `text`.
 
+The presentation comes from `gate_ask`'s result alone: `gate_ask result (track)?`
+branches on the `presentation` it returns, never on your own choice or on
+the launch flags. On `form`, put up the AskUserQuestion form and call
+`gate_answer {id, answers}` with its answers in the same turn, back to
+back: the answer is not recorded until `gate_answer` runs, so a turn that
+ends between the two leaves the gate open and unanswered.
+
 ### End the turn until the answer arrives (track)
 
 End the turn with one line saying what the gate asks. Do not poll, do not

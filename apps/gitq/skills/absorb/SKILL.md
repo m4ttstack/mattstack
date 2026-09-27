@@ -297,6 +297,13 @@ straight onto the gate's answer diamond; the one second question, at
 `absorb gate: surprising attribution`, says how its values map. An answer that carries a branch, a resolution or
 a note brings it in the answer's `note` or `text`.
 
+The presentation comes from `gate_ask`'s result alone: `gate_ask result (absorb)?`
+branches on the `presentation` it returns, never on your own choice or on
+the launch flags. On `form`, put up the AskUserQuestion form and call
+`gate_answer {id, answers}` with its answers in the same turn, back to
+back: the answer is not recorded until `gate_answer` runs, so a turn that
+ends between the two leaves the gate open and unanswered.
+
 ### End the turn until the answer arrives (absorb)
 
 End the turn with one line saying what the gate asks. Do not poll, do not

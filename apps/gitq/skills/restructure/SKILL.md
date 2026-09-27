@@ -274,6 +274,13 @@ Pass each gate's questions as `{id, label, multi: false, options}` with
 the gate's answer diamond. An answer that carries an instruction, a
 resolution or a note brings it in the answer's `note` or `text`.
 
+The presentation comes from `gate_ask`'s result alone: `gate_ask result (restructure)?`
+branches on the `presentation` it returns, never on your own choice or on
+the launch flags. On `form`, put up the AskUserQuestion form and call
+`gate_answer {id, answers}` with its answers in the same turn, back to
+back: the answer is not recorded until `gate_answer` runs, so a turn that
+ends between the two leaves the gate open and unanswered.
+
 ### End the turn until the answer arrives (restructure)
 
 End the turn with one line saying what the gate asks. Do not poll, do not
