@@ -54,8 +54,10 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
     }
     required init?(coder: NSCoder) { fatalError("not supported") }
 
-    func show(step: SetupStep? = nil, joinCode: String? = nil) {
+    func show(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun) {
+        flow.entry = entry
         if let step { flow.jump(to: step) }
+        if entry == .upgrade, team.choice == .solo { team.choice = .create }
         if let joinCode { team.choice = .join; team.inviteCode = joinCode }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)

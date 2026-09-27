@@ -65,7 +65,7 @@ final class SetupCoordinator {
         !FirstRunDetector.needsSetup(home: AppHome.current) { FileManager.default.fileExists(atPath: $0) }
     }
 
-    func showSetup(step: SetupStep? = nil, joinCode: String? = nil) {
+    func showSetup(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun) {
         if setupWindow == nil {
             let env = SetupEnvironment(rt: rt, readiness: readiness, install: install, permissions: permissions,
                                        isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
@@ -75,7 +75,7 @@ final class SetupCoordinator {
         // Re-entering an already-complete setup must never trap the user
         // behind a titlebar with no close button.
         setupWindow?.allowsCloseAlways = setupIsComplete
-        setupWindow?.show(step: step, joinCode: joinCode)
+        setupWindow?.show(step: step, joinCode: joinCode, entry: entry)
     }
 
     /// "Setup status…": screen 3 as a read-only health view over
@@ -106,7 +106,7 @@ final class SetupCoordinator {
                                               guard let self else { return }
                                               let code = self.pendingTeamJoinCode
                                               self.pendingTeamJoinCode = nil
-                                              self.showSetup(step: .team, joinCode: code)
+                                              self.showSetup(step: .team, joinCode: code, entry: .upgrade)
                                           },
                                           onQuitForUninstall: { NSApp.terminate(nil) })
             settingsWindow = SettingsWindowController(env: env)
