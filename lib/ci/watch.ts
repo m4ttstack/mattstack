@@ -125,8 +125,11 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     if (pid === null) return false;
     if (input.priorPipelineId !== undefined) return pid > input.priorPipelineId;
     // firstSeenPipelineId is assigned unconditionally right before every call to matches(),
-    // so it is never undefined here; the type stays wide because a closure defeats TS's flow analysis.
-    if (pid === firstSeenPipelineId) return "unprovable";
+    // so it is never undefined here; the cast is needed because a closure defeats TS's flow analysis.
+    const firstSeen = firstSeenPipelineId as number | null;
+    // Head pipeline ids only grow, so this must agree with the priorPipelineId branch above:
+    // only a strictly greater id proves a new pipeline; an equal or lower id is unprovable.
+    if (firstSeen !== null && pid <= firstSeen) return "unprovable";
     // A null first-seen id means the head had no pipeline, so any pipeline is new;
     // pid - 1 is then the tightest bound under which a later call still proves this one.
     const bound = firstSeenPipelineId ?? pid - 1;
@@ -180,9 +183,10 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const mr = read.mr;
 
     if (!shaMatches(mr.sha, input.sha)) {
-      // A null head is an unsynced cache entry, not a moved head, so it never starts the grace clock.
+      // A null head is an unsynced cache entry, not a moved head, so it never starts or reports the grace clock:
+      // a stale mismatch clock from an earlier non-null head must not fire superseded against a null head.
       if (mr.sha !== null) mismatchSince ??= deps.now();
-      if (mismatchSince !== null && deps.now() - mismatchSince >= HEAD_LAG_GRACE_MS) {
+      if (mr.sha !== null && mismatchSince !== null && deps.now() - mismatchSince >= HEAD_LAG_GRACE_MS) {
         return result("superseded", mr, `the MR head is not at the pushed sha (head: ${mr.sha})`);
       }
       last = { state: "waiting", mr, hint: "the MR head has not reached the pushed sha yet; call again" };

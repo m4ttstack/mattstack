@@ -172,16 +172,19 @@ A head pipeline is "for" `sha` when:
   its merge commit's parents include `sha`. Fast-forward and squash merge
   trains build a commit whose parents never include `sha`, so when a merge
   train's parents do not match (event type `merge_train` or a `/train` ref),
-  the fallback applies; a merged-results pipeline whose parents miss `sha` is
-  no match, since its commit always has the source head as a parent: the MR's `diffHeadSha` equals `sha` and
-  the pipeline is new since the push, meaning its id is greater than
-  `priorPipelineId` when that is given, else its id differs from the head
-  pipeline id seen on the first poll of this call where `diffHeadSha` equalled
-  `sha`. Without `priorPipelineId`, a pipeline that already existed when the
-  call first saw the head at `sha` cannot be proved new, so it stays `waiting`
-  with a `next` hint to pass `priorPipelineId`. A match proved against that
-  first-seen id returns it as `priorPipelineId` in the result, and `next`
-  says to pass it, so the next call keeps the proof.
+  the fallback applies: the pipeline is new since the push, meaning its id is
+  greater than `priorPipelineId` when that is given, else its id is greater
+  than the head pipeline id seen on the first poll of this call where
+  `diffHeadSha` equalled `sha` (any pipeline counts when that first poll saw
+  none, since head pipeline ids only grow). Without `priorPipelineId`, a
+  pipeline that already existed when the call first saw the head at `sha`
+  cannot be proved new, so it stays `waiting` with a `next` hint to pass
+  `priorPipelineId`. A match proved against the first-seen id returns, as
+  `priorPipelineId` in the result, the bound to pass on the next call: the
+  first-seen pipeline id, or one less than the matched id when the first poll
+  saw no pipeline. `next` says to pass it, so the next call keeps the proof.
+  A merged-results pipeline whose parents miss `sha` is no match, since its
+  commit always has the source head as a parent.
 - Parents are fetched once per pipeline id per call, and only a successful
   fetch is cached: a failed fetch is retried on the next poll, never cached as
   "no match".
@@ -232,6 +235,9 @@ domain:
   failedJobs: [{ jobId, name, stage, allowFailure, webUrl, traceTail? }],
   blockingFailures: <count of failed jobs without allowFailure>,
   lease: { owner, heartbeatAt, expiresAt } | null,
+  holder?: <the other lease, present only on state "lease_lost">,
+  priorPipelineId?: <the bound to pass on the next call, present only when a
+    merge-train match was proved against a first-seen pipeline id>,
   waitedSeconds, polls, next }
 ```
 

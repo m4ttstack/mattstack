@@ -240,6 +240,12 @@ describe("watchPipeline", () => {
     const r2 = await watchPipeline({ ...base, priorPipelineId: r1.priorPipelineId! }, second.deps);
     expect(r2).toMatchObject({ state: "success", pipeline: { id: "gitlab:pipeline:12" } });
   });
+  test("a train pipeline with an id lower than first-seen is not proved", async () => {
+    const train = (id: string, status: string) => pipe({ id, sha: "m".repeat(40), mergeRequestEventType: "merge_train", status });
+    const { deps } = fake([mr(SHA, train("gitlab:pipeline:12", "running")), mr(SHA, train("gitlab:pipeline:11", "success"))]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps);
+    expect(r).toMatchObject({ state: "waiting" });
+  });
   test("a first-seen head with no pipeline proves any later pipeline new, and exposes a bound that still proves it", async () => {
     const train = pipe({ id: "gitlab:pipeline:12", sha: "m".repeat(40), mergeRequestEventType: "merge_train", status: "running" });
     const { deps } = fake([mr(SHA, null), mr(SHA, train)]);
@@ -296,6 +302,13 @@ describe("watchPipeline", () => {
   test("a null head sha keeps waiting past the grace window, never superseded", async () => {
     const { deps } = fake([mr(null, null)]);
     expect(await watchPipeline(base, deps)).toMatchObject({ state: "waiting" });
+  });
+  test("a null head after a mismatched head never supersedes on a stale mismatch clock", async () => {
+    const other = "c".repeat(40);
+    const graceSeconds = HEAD_LAG_GRACE_MS / 1_000;
+    const { deps } = fake([mr(other, pipe({ sha: other })), mr(null, null)]);
+    const r = await watchPipeline({ sha: SHA, maxWaitSeconds: graceSeconds + 10, intervalSeconds: 1 }, deps);
+    expect(r).toMatchObject({ state: "waiting" });
   });
   test("a read error is returned as an error", async () => {
     const { deps } = fake([], { readMr: async () => ({ ok: false, error: "daemon down" }) });

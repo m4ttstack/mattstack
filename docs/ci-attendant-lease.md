@@ -212,9 +212,10 @@ and `underBoardLease` (default false, see below).
 A merged-results pipeline counts only when its merge commit's parents
 include the pushed sha; only a merge train falls back to "new since the
 push". Without `priorPipelineId`, a train pipeline is proved new against the
-head pipeline the call first saw; the result then carries that id as
-`priorPipelineId`, and `next` says to pass it on the next call so the proof
-survives across calls.
+head pipeline the call first saw; the result then carries, as
+`priorPipelineId`, the bound to pass on the next call: the first-seen
+pipeline id, or one less than the matched id when the first poll saw no
+pipeline. `next` says to pass it, so the proof survives across calls.
 
 Returns `state`, `sha`, `headSha`, the matching `pipeline` (or null),
 `failedJobs` (with a 40 line trace tail for up to five blocking failures on
