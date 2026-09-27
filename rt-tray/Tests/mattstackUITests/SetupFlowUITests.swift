@@ -157,6 +157,19 @@ final class SetupFlowUITests: XCTestCase {
         waitFor("setup.checklist.screen")
     }
 
+    func testJustMeContinuesWithNoFieldsAndReachesChecklist() {
+        launch("solo")
+        waitFor("setup.welcome.screen")
+        el("setup.welcome.continue").click()
+        waitFor("setup.team.screen")
+        el("setup.team.card.solo").click()
+        XCTAssertTrue(app.staticTexts[TeamChoiceModel.soloExplainer].waitForExistence(timeout: 3))
+        XCTAssertTrue(el("setup.team.continue").isEnabled, "Just me needs no fields")
+        el("setup.team.continue").click()
+        waitFor("setup.checklist.screen")
+        XCTAssertFalse(app.staticTexts["Team repo reachable"].exists, "a solo plan carries no access rows")
+    }
+
     /// A denial rt actually checked warns instead of blocking, so the warning
     /// is only readable back on the team screen: Continue has already carried
     /// the joiner to the checklist by the time it renders.

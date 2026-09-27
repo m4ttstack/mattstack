@@ -26,6 +26,7 @@ enum AXID {
     static let teamCardCreate = "setup.team.card.create"
     static let teamCardJoin = "setup.team.card.join"
     static let teamCardRestore = "setup.team.card.restore"
+    static let teamCardSolo = "setup.team.card.solo"
     static let teamCreateName = "setup.team.create.name"
     static let teamCreateOthers = "setup.team.create.others"
     static let teamCreateUseGh = "setup.team.create.useGh"
