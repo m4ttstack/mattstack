@@ -30,6 +30,7 @@ pub struct Status {
 #[serde(rename_all = "camelCase")]
 pub struct PeekBuddy {
     pub handle: String,
+    pub name: String,
     pub pane_id: Option<String>,
     pub status: String,
     pub repo: Option<String>,
@@ -42,6 +43,8 @@ pub struct PeekBuddy {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct PeekRoom {
     pub room: String,
+    /// What to draw: a DM room's participant names, else the room itself.
+    pub label: String,
     pub unread: u32,
     pub mentions: u32,
 }
@@ -71,8 +74,10 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPa
             crate::cmd::peek::RowKind::Buddy => {
                 if let Some(handle) = row.handle.clone() {
                     let pane_id = pane_for(&handle);
+                    let name = row.name.clone().unwrap_or_else(|| handle.clone());
                     buddies.push(PeekBuddy {
                         handle,
+                        name,
                         pane_id,
                         status: row.status.clone().unwrap_or_else(|| "unknown".to_string()),
                         repo: row.repo.clone(),
@@ -85,8 +90,10 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPa
             }
             crate::cmd::peek::RowKind::Room => {
                 if let Some(room) = row.room.clone() {
+                    let label = row.room_label.clone().unwrap_or_else(|| room.clone());
                     rooms.push(PeekRoom {
                         room,
+                        label,
                         unread: row.unread,
                         mentions: row.mentions,
                     });
@@ -303,6 +310,7 @@ mod tests {
     fn peek_buddy_serializes_pane_id_as_camel_case() {
         let out = serde_json::to_string(&PeekBuddy {
             handle: "kay".to_string(),
+            name: "kay".to_string(),
             pane_id: Some("w1:p1".to_string()),
             status: "live".to_string(),
             repo: None,
