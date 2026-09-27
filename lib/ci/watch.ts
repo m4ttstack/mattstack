@@ -1,0 +1,184 @@
+import type { CiLease } from "../../packages/rt-client/src/index.ts";
+
+export interface WatchJob { id: string; name: string; stage: string; status: string; allowFailure: boolean; webUrl: string | null }
+export interface WatchPipeline { id: string; status: string; sha: string | null; ref: string | null; mergeRequestEventType: string | null; webUrl: string | null; createdAt: string | null; jobs: WatchJob[] }
+export interface WatchMr { iid: number; sha: string | null; webUrl: string | null; pipeline: WatchPipeline | null }
+export type LeaseCheck = { ok: true; lease: CiLease | null } | { ok: false; holder: CiLease | null };
+
+export interface WatchDeps {
+  now(): number;
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
+  leaseCheck(): LeaseCheck;
+  readMr(): Promise<{ ok: true; mr: WatchMr } | { ok: false; error: string }>;
+  commitParents(sha: string): Promise<string[] | null>;
+  failedJobs(pipelineId: number): Promise<WatchJob[] | null>;
+  traceTail(jobId: number): Promise<string | null>;
+}
+
+export interface WatchInput { sha: string; maxWaitSeconds: number; intervalSeconds: number; priorPipelineId?: number; signal?: AbortSignal }
+
+export type WatchState =
+  | "success" | "success_with_warnings" | "failed" | "canceled" | "skipped" | "manual"
+  | "running" | "waiting" | "superseded" | "lease_lost" | "aborted";
+
+export interface WatchResult {
+  state: WatchState;
+  sha: string;
+  headSha: string | null;
+  pipeline: Omit<WatchPipeline, "jobs"> | null;
+  failedJobs: Array<{ jobId: number; name: string; stage: string; allowFailure: boolean; webUrl: string | null; traceTail?: string }>;
+  blockingFailures: number;
+  lease: { owner: string; heartbeatAt: number; expiresAt: number } | null;
+  holder?: CiLease | null;
+  waitedSeconds: number;
+  polls: number;
+  next: string;
+}
+
+export const HEAD_LAG_GRACE_MS = 120_000;
+export const TERMINAL: ReadonlySet<string> = new Set(["success", "success_with_warnings", "failed", "canceled", "skipped", "manual"]);
+const TRACE_JOBS = 5;
+const MERGE_REF = /^refs\/merge-requests\/(\d+)\/(merge|train)$/;
+
+export function shaMatches(full: string | null, given: string): boolean {
+  if (!full) return false;
+  return full.toLowerCase().startsWith(given.toLowerCase());
+}
+
+export function isMergeRefPipeline(p: WatchPipeline, iid: number): boolean {
+  if (p.mergeRequestEventType === "merged_result" || p.mergeRequestEventType === "merge_train") return true;
+  const m = p.ref ? MERGE_REF.exec(p.ref) : null;
+  return m !== null && Number(m[1]) === iid;
+}
+
+function idNumber(id: string | null | undefined): number | null {
+  const m = /:(\d+)$/.exec(id ?? "");
+  return m ? Number(m[1]) : null;
+}
+
+function leaseView(lease: CiLease | null): WatchResult["lease"] {
+  if (!lease) return null;
+  return { owner: lease.owner ?? `legacy:${lease.holder}`, heartbeatAt: lease.heartbeatAt, expiresAt: lease.heartbeatAt + lease.ttlSeconds * 1_000 };
+}
+
+function stripJobs(p: WatchPipeline | null): WatchResult["pipeline"] {
+  if (!p) return null;
+  const { jobs: _jobs, ...rest } = p;
+  return rest;
+}
+
+export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise<WatchResult | { error: string }> {
+  const start = deps.now();
+  const deadline = start + input.maxWaitSeconds * 1_000;
+  // Cache key is the pipeline id, not the sha: two different pipelines under
+  // watch across polls (a stale one, then the real one) must not share it.
+  const parents = new Map<string, string[]>();
+  let polls = 0;
+  let mismatchSince: number | null = null;
+  // undefined = not yet observed; null = observed but no pipeline present.
+  // Both distinct from a real id, which is what "new since first seen" tests against.
+  let firstSeenPipelineId: number | null | undefined;
+  let lease: CiLease | null = null;
+  let last: { state: WatchState; mr: WatchMr | null; hint: string } = { state: "waiting", mr: null, hint: "call again" };
+
+  const result = (state: WatchState, mr: WatchMr | null, next: string, extra: Partial<WatchResult> = {}): WatchResult => ({
+    state,
+    sha: input.sha,
+    headSha: mr?.sha ?? null,
+    pipeline: stripJobs(mr?.pipeline ?? null),
+    failedJobs: [],
+    blockingFailures: 0,
+    lease: leaseView(lease),
+    waitedSeconds: Math.round((deps.now() - start) / 1_000),
+    polls,
+    next,
+    ...extra,
+  });
+
+  async function matches(mr: WatchMr, p: WatchPipeline): Promise<boolean | "undetermined" | "unprovable"> {
+    if (!isMergeRefPipeline(p, mr.iid)) return shaMatches(p.sha, input.sha);
+    if (p.sha) {
+      let ps = parents.get(p.id);
+      if (!ps) {
+        const fetched = await deps.commitParents(p.sha);
+        if (fetched === null) return "undetermined";
+        parents.set(p.id, fetched);
+        ps = fetched;
+      }
+      if (ps.some((x) => shaMatches(x, input.sha))) return true;
+    }
+    // Fast-forward / squash merge trains build a commit whose parents never
+    // include the pushed sha, so a non-matching parent set falls back to
+    // "is this pipeline new since the push" rather than reporting no match.
+    const pid = idNumber(p.id);
+    if (pid === null) return false;
+    if (input.priorPipelineId !== undefined) return pid > input.priorPipelineId;
+    if (firstSeenPipelineId === undefined) return false;
+    if (pid !== firstSeenPipelineId) return true;
+    return "unprovable";
+  }
+
+  async function failures(p: WatchPipeline, withTraces: boolean): Promise<Pick<WatchResult, "failedJobs" | "blockingFailures">> {
+    let jobs = p.jobs;
+    const pid = idNumber(p.id);
+    if (jobs.length === 0 && pid !== null && p.status !== "success") jobs = (await deps.failedJobs(pid)) ?? [];
+    const failed = jobs.filter((j) => j.status === "failed");
+    const out: WatchResult["failedJobs"] = [];
+    let traced = 0;
+    for (const j of failed) {
+      const jobId = idNumber(j.id);
+      if (jobId === null) continue;
+      const row: WatchResult["failedJobs"][number] = { jobId, name: j.name, stage: j.stage, allowFailure: j.allowFailure, webUrl: j.webUrl };
+      if (withTraces && !j.allowFailure && traced < TRACE_JOBS) {
+        traced++;
+        const tail = await deps.traceTail(jobId);
+        if (tail !== null) row.traceTail = tail;
+      }
+      out.push(row);
+    }
+    return { failedJobs: out, blockingFailures: failed.filter((j) => !j.allowFailure).length };
+  }
+
+  for (;;) {
+    if (input.signal?.aborted) return result("aborted", last.mr, "the call was cancelled; call again to resume");
+    const lc = deps.leaseCheck();
+    polls++;
+    if (!lc.ok) return result("lease_lost", last.mr, "another owner attends this MR now; stand down", { holder: lc.holder });
+    lease = lc.lease;
+
+    const read = await deps.readMr();
+    if (!read.ok) return { error: read.error };
+    const mr = read.mr;
+
+    if (!shaMatches(mr.sha, input.sha)) {
+      mismatchSince ??= deps.now();
+      if (deps.now() - mismatchSince >= HEAD_LAG_GRACE_MS) {
+        return result("superseded", mr, "the MR head moved past the pushed sha; watch the new head");
+      }
+      last = { state: "waiting", mr, hint: "the MR head has not reached the pushed sha yet; call again" };
+    } else {
+      mismatchSince = null;
+      if (firstSeenPipelineId === undefined) firstSeenPipelineId = idNumber(mr.pipeline?.id);
+      const p = mr.pipeline;
+      const m = p ? await matches(mr, p) : false;
+      if (p && m === true) {
+        if (TERMINAL.has(p.status)) {
+          const f = await failures(p, p.status === "failed");
+          const next = p.status === "failed" ? "read more of a job's log with mr_job_trace" : "done";
+          return result(p.status as WatchState, mr, next, f);
+        }
+        last = { state: "running", mr, hint: "the pipeline for the pushed sha is still running; call again" };
+      } else {
+        const hint = m === "unprovable"
+          ? "cannot prove this merge-train pipeline is new since the push; call again with priorPipelineId (the head pipeline id read before the push)"
+          : "no pipeline for the pushed sha yet; call again";
+        last = { state: "waiting", mr, hint };
+      }
+    }
+
+    const remaining = deadline - deps.now();
+    if (remaining <= 0) return result(last.state, last.mr, last.hint);
+    await deps.sleep(Math.min(input.intervalSeconds * 1_000, remaining), input.signal);
+    if (input.signal?.aborted) return result("aborted", last.mr, "the call was cancelled; call again to resume");
+  }
+}
