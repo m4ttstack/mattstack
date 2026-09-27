@@ -270,17 +270,25 @@ function herdrPaneHandle(): string | null {
  * `--name` asks for a fresh identity with that display name and never
  * continues one (the MCP chat_sign_in `as` spawns it).
  */
+/** A flag's value, failing when the flag is given with no value or an empty one; undefined only when the flag is absent. */
+function identityFlagValue(args: string[], flag: "--as" | "--name"): string | undefined {
+  if (!args.includes(flag)) return undefined;
+  const value = flagValue(args, flag);
+  if (!value) fail(`sign-in ${flag} needs a non-empty value`);
+  return value;
+}
+
 function resolveSignInRequest(args: string[]): { baseHandle?: string; continue?: string } {
-  const explicit = flagValue(args, "--as");
-  if (explicit !== undefined && flagValue(args, "--name") !== undefined) {
+  const explicit = identityFlagValue(args, "--as");
+  const named = identityFlagValue(args, "--name");
+  if (explicit !== undefined && named !== undefined) {
     fail("sign-in takes --as or --name, not both: --as continues an identity, --name starts a fresh one");
   }
-  if (explicit) {
+  if (explicit !== undefined) {
     requireValidName("handle", explicit);
     return { continue: explicit };
   }
-  const named = flagValue(args, "--name");
-  if (named) {
+  if (named !== undefined) {
     requireValidName("handle", named);
     return { baseHandle: named };
   }
@@ -307,9 +315,9 @@ function readChatHandleSetting(): string | undefined {
  * own to have a prior handle for.
  */
 function resolvePaneRequest(args: string[]): { continue?: string } {
-  if (flagValue(args, "--name") !== undefined) fail("sign-in --pane takes --as only, not --name");
-  const explicit = flagValue(args, "--as");
-  if (!explicit) return {};
+  if (args.includes("--name")) fail("sign-in --pane takes --as only, not --name");
+  const explicit = identityFlagValue(args, "--as");
+  if (explicit === undefined) return {};
   requireValidName("handle", explicit);
   return { continue: explicit };
 }

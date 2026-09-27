@@ -694,6 +694,20 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
   });
 
+  for (const argv of [
+    ["sign-in", "--name", "", "--no-room", "--session", "s1"],
+    ["sign-in", "--as", "", "--no-room", "--session", "s1"],
+    ["sign-in", "--no-room", "--session", "s1", "--name"],
+    ["sign-in", "--pane", "w1:p1", "--as", ""],
+  ]) {
+    test(`sign-in refuses an empty or missing identity flag value (${argv.join(" ")}), before contacting the daemon`, async () => {
+      const { code, stderr } = await runChatRaw(argv);
+      expect(code).not.toBe(0);
+      expect(stderr).toMatch(/--as|--name/);
+      expect(seen.find((s) => s.cmd === "chat:sign-in")).toBeUndefined();
+    });
+  }
+
   test("--no-room signs in without joining any room", async () => {
     const out = await runChat(["sign-in", "--as", "y", "--no-room", "--session", "s2"]);
     expect(out).toMatch(/signed in as y/);
