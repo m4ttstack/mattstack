@@ -182,6 +182,12 @@ ax_click_button_named() {  # <name> [<process>]
   ax_log "clicked button '$1' in $p"
 }
 
+ax_click_toolbar_button() {  # <name>
+  local nm; nm=$(ax_esc "$1")
+  ax_osa "tell application \"System Events\" to tell process \"$AX_APP\" to click button \"$nm\" of toolbar 1 of window 1" >/dev/null || return 1
+  ax_log "clicked toolbar button '$1'"
+}
+
 ax_set_field() {  # <axid> <text>   (text never logged)
   local id text; id=$(ax_esc "$1"); text=$(ax_esc "$2")
   ax_osa "$AX_WALK_AS

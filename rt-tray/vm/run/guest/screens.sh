@@ -17,12 +17,9 @@ relaunch_app() {
 ax_open_settings_team() {
   local deadline
   ax_click_menu_item tray.settings "Settings…"
-  deadline=$((SECONDS + 30))
-  until ax_find settings.tab.team >/dev/null 2>&1; do
-    [ "$SECONDS" -lt "$deadline" ] || ax_fail "settings.tab.team never appeared"
-    sleep 1
-  done
-  ax_click settings.tab.team
+  # The toolbar tabs are SwiftUI toolbar items with no AXIdentifier System
+  # Events can see, so the Team tab is clicked by its visible name instead.
+  ax_click_toolbar_button "Team" || ax_click_button_named "Team" || ax_fail "Team tab not found in Settings toolbar"
   deadline=$((SECONDS + 30))
   until ax_find settings.team.create >/dev/null 2>&1; do
     [ "$SECONDS" -lt "$deadline" ] || ax_fail "settings.team.create never appeared"
