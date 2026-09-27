@@ -333,6 +333,22 @@ describe("chat_sign_in", () => {
     expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
   });
 
+  test("the held refusal names the holder by display name, never by id", async () => {
+    const f = fake({ buddiesRows: [{ sessionId: "s2", handle: "bob.k3f9", baseHandle: "bob", name: "bob" }] });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("another session holds or held (bob)");
+    expect(r.error).not.toContain("bob.k3f9");
+  });
+
+  test("as refuses a display name another session holds, with no spawn", async () => {
+    const f = fake({ buddiesRows: [{ sessionId: "s2", handle: "bob.k3f9", baseHandle: "bob", name: "bob-2" }] });
+    const r = await f.tool("chat_sign_in").handler({ as: "bob-2" }, ENV);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("another session holds or held (bob-2)");
+    expect(f.calls.map((c) => c.fn)).toEqual(["buddies"]);
+  });
+
   test("as allows retaking this session's own prior base handle without calling buddies", async () => {
     const f = fake();
     const r = await f.tool("chat_sign_in").handler({ as: "ann" }, ENV);

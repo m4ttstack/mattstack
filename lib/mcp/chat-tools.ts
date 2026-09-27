@@ -306,8 +306,8 @@ export function chatToolDefs(deps: ChatToolDeps = realChatToolDeps): McpToolDef[
             // the own-seat exemption the session file gives above.
             const ownRow = rows.some((b) => b.sessionId === sessionId && b.baseHandle === input.as);
             if (!ownRow) {
-              const held = rows.find((b) => (b.baseHandle === input.as || b.handle === input.as) && b.sessionId !== sessionId);
-              if (held) return err(`"as" names a handle another session holds or held (${held.handle}); omit as, or pick an unused name`);
+              const held = rows.find((b) => (b.baseHandle === input.as || b.handle === input.as || b.name === input.as) && b.sessionId !== sessionId);
+              if (held) return err(`"as" names a handle another session holds or held (${held.name ?? held.handle}); omit as, or pick an unused name`);
               // includeArchived: archived rooms, DMs included, keep their history, and the buddies roster only covers about a day past sign-out.
               const rooms = await deps.rooms({ handle: input.as, includeArchived: true });
               if (!rooms.ok) return fromResponse(rooms);
