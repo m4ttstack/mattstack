@@ -905,8 +905,10 @@ export class GitLabProvider implements GitProvider {
   private readonly onRequest?: OnRequestHook;
 
   // ── Shared ActionCable connection ────────────────────────────────────
-  // All watchMR calls multiplex over one WebSocket instead of N.
+  // Every watchMR and subscribePullRequestEvents call multiplexes over one WebSocket.
   private sharedCable: ActionCableClient | null = null;
+  /** Welcomed and not since dropped; a watcher attached while false waits for the next welcome. */
+  private cableUp = false;
   private cableWatcherCount = 0;
   // Maps subscription identifier → per-watcher onEvent callback
   private readonly cableEventHandlers = new Map<string, () => void>();
@@ -1962,6 +1964,7 @@ export class GitLabProvider implements GitProvider {
         this.token,
         {
           onConnected: () => {
+            this.cableUp = true;
             for (const handler of this.cableConnectHandlers) handler();
           },
           onMessage: (id: string, _msg: unknown) => {
@@ -1969,20 +1972,21 @@ export class GitLabProvider implements GitProvider {
           },
           onConfirm: () => {},
           onReject: (id: string) => {
-            this.log.warn('watchMR: subscription rejected', { id });
+            this.log.warn('sharedCable: subscription rejected', { id });
           },
           onDisconnected: (intentional: boolean, reason: string) => {
+            this.cableUp = false;
             if (!intentional) {
               for (const handler of this.cableDisconnectHandlers) handler();
             } else {
-              this.log.debug('watchMR: WS disconnected intentionally', { reason });
+              this.log.debug('sharedCable: WS disconnected intentionally', { reason });
             }
           },
         },
-        { logger: this.log, logContext: 'watchMR:shared' },
+        { logger: this.log, logContext: 'sharedCable' },
       );
       this.sharedCable.connect();
-    } else if (this.sharedCable) {
+    } else if (this.sharedCable && this.cableUp) {
       doSubscribe();
       onConnected();
     }
@@ -1999,6 +2003,7 @@ export class GitLabProvider implements GitProvider {
       if (this.cableWatcherCount === 0 && this.sharedCable) {
         this.sharedCable.disconnect();
         this.sharedCable = null;
+        this.cableUp = false;
       }
     };
   }

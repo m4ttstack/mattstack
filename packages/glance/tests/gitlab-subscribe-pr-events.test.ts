@@ -89,6 +89,50 @@ describe('GitLabProvider.subscribePullRequestEvents', () => {
     }
   });
 
+  test('a watcher attached before the first welcome is not told it is connected until the welcome', () => {
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const gitlab = new GitLabProvider('https://gitlab.example', 'tok');
+    const first = recorder();
+    const second = recorder();
+
+    const disposeFirst = gitlab.subscribePullRequestEvents!('g/p', [{ id: 'gitlab:mr:101', iid: 1 }], first.callbacks);
+    const disposeSecond = gitlab.subscribePullRequestEvents!('g/p', [{ id: 'gitlab:mr:202', iid: 2 }], second.callbacks);
+    try {
+      expect(second.counts.connected).toBe(0);
+
+      FakeSocket.instances[0]!.deliver({ type: 'welcome' });
+      expect(first.counts.connected).toBe(1);
+      expect(second.counts.connected).toBe(1);
+    } finally {
+      disposeSecond();
+      disposeFirst();
+    }
+  });
+
+  test('a watcher attached while the cable is down waits for the next welcome', () => {
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const gitlab = new GitLabProvider('https://gitlab.example', 'tok');
+    const first = recorder();
+    const late = recorder();
+
+    const disposeFirst = gitlab.subscribePullRequestEvents!('g/p', [{ id: 'gitlab:mr:101', iid: 1 }], first.callbacks);
+    const sock = FakeSocket.instances[0]!;
+    sock.deliver({ type: 'welcome' });
+    sock.onclose?.({ code: 1006, reason: '' });
+
+    const disposeLate = gitlab.subscribePullRequestEvents!('g/p', [{ id: 'gitlab:mr:202', iid: 2 }], late.callbacks);
+    try {
+      expect(late.counts.connected).toBe(0);
+
+      sock.deliver({ type: 'welcome' });
+      expect(late.counts.connected).toBe(1);
+      expect(identifiersFor(sock, 'subscribe', 'gid://gitlab/MergeRequest/202')).toHaveLength(3);
+    } finally {
+      disposeLate();
+      disposeFirst();
+    }
+  });
+
   test('dispose unsubscribes every channel and closes the last shared socket', () => {
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const gitlab = new GitLabProvider('https://gitlab.example', 'tok');
@@ -100,6 +144,52 @@ describe('GitLabProvider.subscribePullRequestEvents', () => {
     dispose();
 
     expect(identifiersFor(sock, 'unsubscribe', 'gid://gitlab/MergeRequest/101')).toHaveLength(3);
+    expect(sock.closed).toBe(true);
+  });
+});
+
+describe('GitLabProvider.watchMR over the shared cable', () => {
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  test('subscribes after its first fetch, refetches on an event, resubscribes on reconnect, unsubscribes on dispose', async () => {
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const gitlab = new GitLabProvider('https://gitlab.example', 'tok');
+    let fetches = 0;
+    (gitlab as unknown as { fetchSingleMRWithRetry: () => Promise<unknown> }).fetchSingleMRWithRetry = async () => {
+      fetches++;
+      return { id: 'gitlab:mr:777', iid: 7 };
+    };
+    const statuses: string[] = [];
+
+    const dispose = gitlab.watchMR('g/p', 7, null, () => {}, {
+      onStatusChange: (s) => statuses.push(s.connection),
+    });
+    await settle();
+    await settle();
+    try {
+      expect(FakeSocket.instances).toHaveLength(1);
+      const sock = FakeSocket.instances[0]!;
+
+      sock.deliver({ type: 'welcome' });
+      const subscribed = identifiersFor(sock, 'subscribe', 'gid://gitlab/MergeRequest/777');
+      expect(subscribed).toHaveLength(3);
+      expect(statuses.at(-1)).toBe('connected');
+
+      const before = fetches;
+      sock.deliver({ identifier: subscribed[0], message: {} });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(fetches - before).toBe(1);
+
+      sock.onclose?.({ code: 1006, reason: '' });
+      expect(statuses.at(-1)).toBe('disconnected');
+      sock.deliver({ type: 'welcome' });
+      expect(identifiersFor(sock, 'subscribe', 'gid://gitlab/MergeRequest/777')).toHaveLength(6);
+      expect(statuses.at(-1)).toBe('connected');
+    } finally {
+      dispose();
+    }
+    const sock = FakeSocket.instances[0]!;
+    expect(identifiersFor(sock, 'unsubscribe', 'gid://gitlab/MergeRequest/777')).toHaveLength(3);
     expect(sock.closed).toBe(true);
   });
 });
