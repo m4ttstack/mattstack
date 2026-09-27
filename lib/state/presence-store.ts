@@ -362,20 +362,20 @@ function recordPoolNameUse(name: string, now: number, db: Database): void {
 }
 
 /**
- * Draws a pool name for an agent that has not signed in yet (`rt agent
- * start`), against the same live-presence-held set and LRU ledger `signIn`'s
- * own draw uses, and records the draw immediately -- so a second
- * reservation or a sign-in racing before this agent's own chat:sign-in
- * lands does not also land on it.
+ * Mints the identity for an agent that has not signed in yet (`rt agent
+ * start`) under a pool name drawn against the same held set and LRU ledger
+ * `signIn` uses, and records the draw at once, so a second reservation or a
+ * racing sign-in does not also land on the name. Returns the id; the agent's
+ * sign-in continues it.
  */
 export function reserveAgentHandle(db: Database = getStateDb(), now: number = Date.now()): string {
   const run = db.transaction((): string => {
     const name = drawPoolName(db);
     recordPoolNameUse(name, now, db);
-    return name;
+    return mintIdentity({ base: name, name, sessionId: null, now }, db).id;
   });
   // BEGIN IMMEDIATE: read-then-write must lock up front or SQLITE_BUSY_SNAPSHOT
-  // bypasses busy_timeout (same reason as signIn's S073 fix above).
+  // bypasses busy_timeout (same reason as signIn's).
   return run.immediate();
 }
 

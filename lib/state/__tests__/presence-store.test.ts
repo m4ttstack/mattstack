@@ -23,6 +23,7 @@ import {
   paneHandleFor,
   prunePresence,
   rememberPaneHandle,
+  reserveAgentHandle,
   setAway,
   signIn,
   signOut,
@@ -532,6 +533,26 @@ test("re-pinning an old pane survives the cap as a most-recent write, even shari
   expect(paneHandleFor("w:p1", db)).toBe("repinned"); // re-pinned oldest survives
   expect(paneHandleFor("w:p2", db)).toBeUndefined();   // genuinely-old untouched key evicted
   expect(paneHandleFor("w:p205", db)).toBe("h205");    // newest survives
+});
+
+// ─── Agent handle reservations ───────────────────────────────────────────────
+
+test("reserveAgentHandle mints an unbound identity under a drawn pool name and returns its id", () => {
+  const db = fresh();
+  const id = reserveAgentHandle(db, now);
+  const row = getIdentity(id, db)!;
+  expect(AGENT_NAMES).toContain(row.baseName);
+  expect(row).toMatchObject({ name: row.baseName, sessionId: null, mintedAt: now });
+  expect(id).toMatch(new RegExp(`^${row.baseName}\\.[a-z0-9]{4}$`));
+  expect(getKvValue<Record<string, number>>("chat", "names", {}, db)[row.baseName]).toBe(now);
+  expect(getIdentity(reserveAgentHandle(db, now), db)!.baseName).not.toBe(row.baseName);
+});
+
+test("an agent signing in with its reservation takes the reserved id and name", () => {
+  const db = fresh();
+  const id = reserveAgentHandle(db, now);
+  const r = mustSignIn({ sessionId: "s1", continueId: id, now: now + MIN }, db, NO_BINDING);
+  expect(r).toMatchObject({ handle: id, name: getIdentity(id, db)!.name, continued: true });
 });
 
 // ─── Identities ──────────────────────────────────────────────────────────────
