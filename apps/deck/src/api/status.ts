@@ -199,7 +199,7 @@ export function safeRecord(record: AppRecord): SafeRecord {
  * A record's live (route-joined, health-probed) StatusRow when one exists. A
  * record with no route yet (just-registered, before the edge driver's alias
  * lands) has no row to join against; synthesize a "not yet live" stand-in using
- * ONLY the same safe, non-secret StatusRow fields — never spread the raw
+ * ONLY the same safe, non-secret StatusRow fields, never spreading the raw
  * AppRecord, which carries command/env/workingDirectory. Shared by the list and
  * single-record endpoints so the two shapes cannot drift apart.
  *
@@ -399,40 +399,44 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
         })
       : null;
 
-  const orphanRows: StatusRow[] = orphans.map(s => ({
-    name: shortLabel(
+  const orphanRows: StatusRow[] = orphans.map(s => {
+    const name = shortLabel(
       s.label,
       servicePrefixes(getPlatformSettings().legacyPrefixes)
-    ),
-    displayName: shortLabel(
-      s.label,
-      servicePrefixes(getPlatformSettings().legacyPrefixes)
-    ),
-    enabled: true,
-    requiresTeam: false,
-    displayTld: null,
-    port: null,
-    url: null,
-    publicUrl: null,
-    health: s.label === TUNNEL_LABEL ? edgeHealth : null,
-    // The tunnel's own health (may be pid!=null but disconnected) decides its stderr tail;
-    // every other orphan service still falls back to the pid-null check inside serviceJson.
-    service: serviceJson(s, s.label === TUNNEL_LABEL ? edgeHealth : null, null),
-    published: true,
-    hasPassword: false,
-    // cloudflared tunnels are infrastructure, not stray app services.
-    isTunnel: s.program.some(p => p.includes('cloudflared')),
-    override: null,
-    publicFollowsOverride: false,
-    self: false,
-    managedBy: null,
-    icon: null,
-    issues: [],
-    record: null,
-    oauth: { mode: 'off' },
-    publicOrigin: 'tunnel' as const,
-    remote: null,
-  }));
+    );
+    return {
+      name,
+      displayName: name,
+      enabled: true,
+      requiresTeam: false,
+      displayTld: null,
+      port: null,
+      url: null,
+      publicUrl: null,
+      health: s.label === TUNNEL_LABEL ? edgeHealth : null,
+      // The tunnel's own health (may be pid!=null but disconnected) decides its stderr tail;
+      // every other orphan service still falls back to the pid-null check inside serviceJson.
+      service: serviceJson(
+        s,
+        s.label === TUNNEL_LABEL ? edgeHealth : null,
+        null
+      ),
+      published: true,
+      hasPassword: false,
+      // cloudflared tunnels are infrastructure, not stray app services.
+      isTunnel: s.program.some(p => p.includes('cloudflared')),
+      override: null,
+      publicFollowsOverride: false,
+      self: false,
+      managedBy: null,
+      icon: null,
+      issues: [],
+      record: null,
+      oauth: { mode: 'off' },
+      publicOrigin: 'tunnel' as const,
+      remote: null,
+    };
+  });
 
   return {
     suffix: publicDomain ?? 'localhost',
