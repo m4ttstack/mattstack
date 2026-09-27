@@ -51,7 +51,7 @@ digraph gitq_restructure {
     "restructure gate: approve the plan" [shape=box];
     "Plan answer (restructure)?" [shape=diamond];
     "Plan rounds = 3 (restructure)?" [shape=diamond];
-    "Held (restructure): nothing executed" [shape=doublecircle];
+    "Held (restructure): the plan waits on the human" [shape=doublecircle];
     "Next approved operation (restructure)?" [shape=diamond];
     "STOP: surgery runs only through gitq operations the plan approved" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Operation exit (restructure)?" [shape=diamond];
@@ -124,7 +124,7 @@ digraph gitq_restructure {
     "restructure gate: approve the plan" -> "Plan answer (restructure)?";
     "Plan answer (restructure)?" -> "Next approved operation (restructure)?" [label="take: approve the plan"];
     "Plan answer (restructure)?" -> "Plan rounds = 3 (restructure)?" [label="iterate: revise the plan with the note"];
-    "Plan answer (restructure)?" -> "Held (restructure): nothing executed" [label="hold"];
+    "Plan answer (restructure)?" -> "Held (restructure): the plan waits on the human" [label="hold"];
     "Plan answer (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="hand back"];
     "Plan rounds = 3 (restructure)?" -> "Map the instruction to surgery operations (restructure)" [label="no"];
     "Plan rounds = 3 (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="yes: budget spent"];
@@ -346,7 +346,9 @@ Then choose from the surgery set, one node in the graph per operation:
   surgery, and refuse cleanly when a branch sits dirty in some worktree.
   Plan for the tree as it is; clearing a worktree is the human's move.
 - Write the done summary as you plan, one clause per operation, like "split
-  feature-x at abc1234 into feature-x-ui, reparented api onto main".
+  feature-x at abc1234 into feature-x-ui, reparented api onto main". After
+  a mid-run re-plan or a refusal, revise it to match the operations that
+  actually ran.
 
 When the stack shows the instruction has two plausible readings after all,
 plan neither guess: lay out both readings at the plan gate with the
@@ -371,11 +373,13 @@ Context, quoted and never trimmed:
   `gitq undo`, and not one whose cascade paused on a conflict; `split`,
   `fold` and `rename` are one-way; `reset` is not recorded in the operation
   log at all. Treat every approved operation as irreversible.
-- when a STOP brought you here, the move you reached for and why.
+- when a STOP brought you here, the move you reached for and why;
+- when the gate reopens mid-run, the operations already run, which stay
+  applied whatever the answer.
 
 | Question | Options (recommended first) |
 |---|---|
-| Run this restructure plan? | `take: approve the plan`: I run the operations in order, each one irreversible in practice. `iterate: revise the plan`: I rework the operations with your note and ask again. `hold: leave it with you`: this run ends with nothing executed and no done write. `hand back: do not restructure`: nothing runs and I mark the run failed as declined at the plan gate. |
+| Run this restructure plan? | `take: approve the plan`: I run the operations in order, each one irreversible in practice. `iterate: revise the plan`: I rework the operations with your note and ask again. `hold: leave it with you`: this run ends with no further operation run and no done write; any operations already run stay applied. `hand back: do not restructure`: no further operation runs, any already run stay applied, and I mark the run failed as declined at the plan gate. |
 
 Three revision rounds spend the budget: the next iterate answer is written
 as an error ("restructure plan not settled after 3 rounds").
@@ -386,8 +390,9 @@ Opens when a surgery operation exits 1. A refusal prints a `gitq:` line on
 stderr and changes nothing; the shapes that reach this gate include:
 
 - a reparent refused upfront because the branch itself cannot be replayed
-  onto the new parent: nothing moved, and the stack needs a sync first
-  (gitq:sync is the human's next move, so hand back is the likely answer);
+  onto the new parent: nothing moved, and the stack needs a sync first.
+  gitq:sync is the human's next move, so for this shape set
+  `recommended: true` on hand back and list it first;
 - a branch dirty or checked out in another worktree, or held by a gitq
   slot: freeing it (commit, stash, switch away) is the human's move, never
   this run's;
@@ -401,14 +406,16 @@ An operation counts as run once gitq applied it: exit 0, exit 0 from the
 continue after its pause, or exit 1 after JSON that shows it landed.
 `Next approved operation (restructure)?` always takes the first approved
 operation not yet run, so take and iterate run the refused one again and
-never repeat one that ran.
+never repeat one that ran. For a reparent that landed with a failed
+cascade, that means take and iterate move on to the next operation: say so
+in the context, and the fix the human makes is to the failed descendant.
 
 Context: the `gitq:` stderr line verbatim (or the failing JSON entry), the
 refused operation's call, the operations that ran, and the ones that did not.
 
 | Question | Options (recommended first) |
 |---|---|
-| A gitq operation refused. What next? | `take: fixed it, run again`: you fixed what the refusal names, and I run that operation again, then the rest of the plan. `iterate: run again with a note`: I act on your note, then run that operation again. `hold: leave it with you`: this run ends here, the operations that ran stay applied, and no status is written. `hand back: stop with an error`: the rest of the plan does not run and I mark the run failed with the refusal as the reason. |
+| A gitq operation refused. What next? | `take: fixed it, run again`: you fixed what the refusal names, and I run that operation again (or the next one, when it landed), then the rest of the plan. `iterate: run again with a note`: I act on your note, then run that operation again (or the next one, when it landed). `hold: leave it with you`: this run ends here, the operations that ran stay applied, and no status is written. `hand back: stop with an error`: the rest of the plan does not run and I mark the run failed with the refusal as the reason. |
 
 A note that adds, drops or reorders operations is a move off the plan: it
 goes back through the plan gate.
@@ -524,7 +531,7 @@ only a logged `reparent` can be walked back with `gitq undo`.
 | Path | Reason written, and what the report adds |
 |---|---|
 | hand back at the instruction gate, or its rounds spent | "no clear restructure instruction", or "restructure instruction still unclear after 2 rounds"; nothing ran |
-| hand back at the plan gate, or its rounds spent | "declined at the plan gate", or "restructure plan not settled after 3 rounds"; nothing ran, and the last plan |
+| hand back at the plan gate, or its rounds spent | "declined at the plan gate", or "restructure plan not settled after 3 rounds"; the last plan, and, when the gate reopened mid-run, the operations already run, which stay applied |
 | refusal handed back, or its budget spent | the `gitq:` stderr line; for an upfront reparent refusal, that the stack needs a sync first (gitq:sync) |
 | hand back at a conflict gate, or its rounds spent | "conflict on <file> needs human judgment: <why>" for the judgment gate, else the pause and why it would not settle; the conflict and both sides, so the human can resolve it by hand |
 | continue refused, handed back or budget spent | the `gitq:` stderr line and any hook output |
@@ -554,7 +561,8 @@ operation log, so `gitq undo` cannot walk it back.
 - Every path but a hold or the missing-gitq stop ends through a `done` or
   `error` write, so the board badge never sticks. On a hold, tell the human
   in the pane what is waiting on them and which operations ran. At the
-  instruction or plan gate nothing ran. At the refusal gate, quote the
+  instruction gate nothing ran; at the plan gate nothing ran unless it
+  reopened mid-run, and then the operations already run stay applied. At the refusal gate, quote the
   `gitq:` line. When a cascade is paused, say where it sits (`<rebaseDir>`,
   branch, conflicted files) and that the operations after it did not run;
   gitq:sync takes over a parked pause on this stack.
