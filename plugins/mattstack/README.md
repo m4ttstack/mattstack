@@ -9,11 +9,11 @@ marketplace.
 
 mattstack is one piece of a small estate of tools. [rt](https://github.com/m4ttstack/rt)
 is the developer CLI (daemon, tray app, plugin system) that some of these
-skills shell out to. [gitq](https://github.com/m4ttstack/gitq) is a
-deterministic stacked-branch engine for git. [board](https://github.com/m4ttstack/board)
-is a one-page view of a team's open GitLab MRs. [glance](https://github.com/m4ttstack/glance)
+skills shell out to. [gitq](https://github.com/m4ttstack/rt/tree/main/apps/gitq) is a
+deterministic stacked-branch engine for git. [board](https://github.com/m4ttstack/rt/tree/main/apps/board)
+is a one-page view of a team's open GitLab MRs. [glance](https://github.com/m4ttstack/rt/tree/main/packages/glance)
 is one client for GitHub and GitLab behind a single set of types.
-[deck](https://github.com/m4ttstack/deck) gives a local app a name, keeps it
+[deck](https://github.com/m4ttstack/rt/tree/main/apps/deck) gives a local app a name, keeps it
 running, and gives it a real address. [fast-browser](https://github.com/m4ttstack/fast-browser)
 drives the Chrome already open on the machine (see [Browser](#browser)
 below). Agent-to-agent coordination runs over [herdr](https://github.com/herdrdev/herdr)
