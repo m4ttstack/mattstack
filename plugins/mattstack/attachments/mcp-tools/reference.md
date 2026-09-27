@@ -197,7 +197,7 @@ Open a decision gate with the daemon-side ceremony: subject resolves from this s
 ### chat_post
 
 <!-- mcp-lint: allow -->
-Post a message to an rt chat room as the signed-in handle. Requires a signed-in chat session; call chat_sign_in first.
+Post a message to an rt chat room as the signed-in identity. mentions are names or ids; a name reaches whoever holds it now. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
 {
@@ -230,7 +230,7 @@ Post a message to an rt chat room as the signed-in handle. Requires a signed-in 
 ### chat_dm
 
 <!-- mcp-lint: allow -->
-Send a direct message to another rt chat handle. Requires a signed-in chat session; call chat_sign_in first.
+Send a direct message to another rt chat identity. to is a name or an id: a name reaches whoever holds it now, and the id from a delivery's reply hint reaches that exact sender even after the name has changed hands. Requires a signed-in chat session; call chat_sign_in first.
 
 ```json
 {
@@ -2015,7 +2015,7 @@ Clear this session's chat away message.
 ### chat_sign_in
 
 <!-- mcp-lint: allow -->
-Sign this session in to rt chat (presence, a handle, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as picks this session's base handle and may not be the human's handle. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.
+Sign this session in to rt chat (presence, an identity, and the repo room derived from cwd unless room or noRoom says otherwise). cwd is the checkout this session works in; the server's own directory is fixed at session start. as picks the display name for a fresh identity and never continues an existing one: it may not be the human's handle, a name another session holds or held, or a name with room memberships. After a /clear this tool refuses; run `rt chat sign-in` in Bash instead.
 
 ```json
 {
@@ -2109,7 +2109,7 @@ Invite another herdr pane into a chat room: types /chat:join <room> (with an opt
 ### whoami
 
 <!-- mcp-lint: allow -->
-Report this session's identity as the other tools see it: its Claude Code session id, herdr pane, the chat handle every chat_* tool acts as (null, with a sign-in hint, when this session has no chat session file), and the herd id, job and room when this is a herd worker. Reads only this server's environment and the session file, so it shows what the tools would act as, not live presence.
+Report this session's identity as the other tools see it: its Claude Code session id, herdr pane, the chat identity every chat_* tool acts as, as its name (what others see and type) and its handle (the id the tools send; null, with a sign-in hint, when this session has no chat session file), and the herd id, job and room when this is a herd worker. Reads only this server's environment and the session file, so it shows what the tools would act as, not live presence.
 
 ```json
 {

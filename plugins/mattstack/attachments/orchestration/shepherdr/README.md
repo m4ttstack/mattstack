@@ -64,8 +64,11 @@ picks it up with `herd_resume`; by hand it is:
 rt herd resume <id>  # <!-- mcp-lint: allow -->
 ```
 
-that re-points the herd's gate subscription and chat handle at the session
-you're in now, so new questions start arriving here.
+that re-points the herd's gate subscription at the session you're in now
+and continues the shepherd's chat identity there, so new questions and the
+herd's DMs start arriving here. A new herd mints its shepherd and every
+worker a fresh identity (a worker's display name is its job name), so it
+never inherits an earlier herd's DMs.
 
 ## teardown
 
