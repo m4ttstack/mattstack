@@ -19,7 +19,9 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   `docs/superpowers/specs/2026-08-28-rt-chat-delivery-v2-design.md` (the
   current socket-push delivery model; the 2026-08-2{3,4} wake/presence
   specs it supersedes carry pointers), and `packages/rt-client/README.md`
-  (the wire shapes `src/rt.rs` mirrors).
+  (the wire shapes `src/rt.rs` mirrors), and
+  `docs/superpowers/specs/2026-09-27-chat-identity-design.md` (every
+  identity is a hidden `handle` id plus a display `name`).
 - **The other half of the product**, the web viewer that owns read/compose: the
   `chat` repo (`CLAUDE.md`, `ARCHITECTURE.md`), served at
   <https://chat.mattstack>.
@@ -28,7 +30,10 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 
 - `src/rt.rs`: the only place rt's `--json` wire shapes live. `pane_send`
   (broadcast/inject), `pane_list` / `buddies` / `rooms`, and `agent_details`
-  (index the pane roster by handle for the row context).
+  (index the pane roster by handle for the row context). Every identity
+  shape carries `handle` (the id) and an optional `name`; `display_name()` is
+  the one place the fallback to the handle lives, and `Room::label()` names a
+  DM room by its participants.
 - `src/json.rs`: the other direction of the wire. Every shape a `--json` verb
   prints, the mappers that build them out of this crate's own types, and
   `emit`/`fail`. A field name here is a contract with a front end that cannot
@@ -37,9 +42,9 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   workspace/tab, `pane zoom`), and `open_popup`.
 - `src/deck.rs`: the viewer URL via `deck url chat`, falling back to
   `~/.mattstack/deck/api.json` → `GET /api/v1/apps/chat` → `.row.url`.
-- `src/state.rs`: broadcast history (`push_broadcast`/`recent_broadcasts`),
-  the launcher's origin-pane stash (`stash_origin_pane`/`read_origin_pane`),
-  and `state_dir`.
+- `src/state.rs`: broadcast history (`push_broadcast`/`recent_broadcasts`;
+  each recipient keeps `handle` and `name`), the launcher's origin-pane stash
+  (`stash_origin_pane`/`read_origin_pane`), and `state_dir`.
 - `src/theme.rs`: reads herdr's `[theme]` so popups match the host.
 - `src/ui.rs`: the shared popup loop and `content()` (see gotchas).
 - `src/run.rs`: the `Runner` seam. Every subprocess goes through it; tests fake
@@ -49,7 +54,8 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 
 ## Dev loop
 
-- Build `cargo build --release`; test `cargo test --release`.
+- Build `cargo build --release`; test
+  `unset HERDR_BIN_PATH RT_BIN_PATH DECK_BIN_PATH; cargo test --release`.
 - Iterate against live herdr: `herdr plugin link <this dir>`. Re-run
   `herdr plugin link` after **any manifest edit** so herdr re-reads popup sizes
   and commands; code-only changes apply on the next popup open, since each pane
@@ -87,6 +93,14 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   hands off through `herdr plugin action invoke` (the action runs as herdr's
   own child), and `herdr::open_popup` retries the busy refusal briefly while
   the old popup is reaped. Every other failure still surfaces at once.
+- **Inside a herdr pane, `cargo test` fails five tests unless
+  `HERDR_BIN_PATH` is unset.** herdr exports it into every pane, and
+  `run::herdr_bin` honors it, so the argv assertions see an absolute path.
+- **Show `name`, act on `handle`.** Every row, header and result line renders
+  `display_name()`. Every lookup, map key, jump, send and broadcast record
+  uses `handle`. A check that a pane title "just echoes the identity"
+  compares against the name, since the name is what the title would repeat.
+  A test that renders a row asserts the id's suffix is absent.
 
 ## Status
 
