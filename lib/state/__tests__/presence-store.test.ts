@@ -31,9 +31,8 @@ import {
 } from "../presence-store.ts";
 import type { InboxBinding } from "../../claude-registry.ts";
 import { AGENT_NAMES } from "../../chat-names.ts";
-import { getKvValue } from "../kv-blob.ts";
+import { getKvValue, setKvValue } from "../kv-blob.ts";
 import { getIdentity, identityForSession, mintIdentity } from "../identity-store.ts";
-import { setKvValue } from "../kv-blob.ts";
 
 /** No binding for any session id: the default in every test that doesn't care about the registry (matches the real resolver's behavior for a fake test session id it will never find on disk). */
 const NO_BINDING: RegistryDeps = { resolve: () => null, alive: () => false, resolveAll: () => new Map() };
@@ -179,10 +178,9 @@ test("listBuddies: a live-binding row with a 25h-old stamp still appears, classi
 
 test("signIn scans the registry exactly once per call, even while probing several suffix candidates", () => {
   const db = fresh();
-  // Three existing "x" rows (x, x-2, x-3) so the incoming sign-in's own
-  // family scan, plus findOpenSuffix's fallback walk if it reaches that far,
-  // both have several rows to check reclaimability for -- all against the
-  // one map a single signIn call is allowed to build.
+  // Three existing "x" rows (x, x-2, x-3) give pickDisplayName several
+  // suffix candidates to check reclaimability against, all against the one
+  // seat map a single signIn call is allowed to build.
   mustSignIn({ sessionId: "s1", baseHandle: "x", now }, db);
   mustSignIn({ sessionId: "s2", baseHandle: "x", now }, db);
   mustSignIn({ sessionId: "s3", baseHandle: "x", now }, db);
@@ -518,7 +516,6 @@ test("a chosen name mints a new id with that display name, even when an older id
   expect(identityForSession("s1", db)?.id).toBe(r.handle);
 });
 
-// Review Focus 1
 test("a session whose presence row was pruned signs back in under the same id", () => {
   const db = fresh();
   const first = mustSignIn({ sessionId: "s1", now }, db, NO_BINDING);
@@ -529,7 +526,6 @@ test("a session whose presence row was pruned signs back in under the same id", 
   expect(again).toMatchObject({ handle: first.handle, name: first.name, baseHandle: first.baseHandle });
 });
 
-// Review Focus 1
 test("a returning session keeps its id when its name was taken meanwhile, and shows a suffix instead", () => {
   const db = fresh();
   const first = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
@@ -542,7 +538,6 @@ test("a returning session keeps its id when its name was taken meanwhile, and sh
   expect(again).toMatchObject({ handle: first.handle, name: "remy-2" });
 });
 
-// Review Focus 2
 test("two connections signing in the same display name at once get remy and remy-2 under distinct ids", () => {
   const path = join(tmpdir(), `presence-race-${process.pid}-${n++}.db`);
   const one = openStateDb(path, "daemon");
@@ -625,7 +620,6 @@ test("a dead session's id can be continued (the herd:resume takeover)", () => {
   expect(r).toMatchObject({ handle: first.handle, continued: true });
 });
 
-// Review Focus 5
 test("continuing an id live in another session is refused with the reclaimed wording and changes nothing", () => {
   const db = fresh();
   const live = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
@@ -638,7 +632,6 @@ test("continuing an id live in another session is refused with the reclaimed wor
   expect(identityForSession("s1", db)?.id).toBe(live.handle);
 });
 
-// Review Focus 5
 test("continuing the human or the herd system poster is refused, whether or not either has rows yet", () => {
   const db = fresh();
   expect(() => signIn({ sessionId: "s1", continueId: "matt", now }, db, NO_BINDING)).toThrow(
@@ -658,7 +651,6 @@ test("a continueId that names nobody mints a fresh id with that display name", (
   expect(r.handle).toMatch(/^newbie\.[a-z0-9]{4}$/);
 });
 
-// Review Focus 3 and 5
 test("continuing a legacy handle, dotted or not, keeps it as the id", () => {
   const db = fresh();
   db.run("INSERT INTO chat_members (room, handle, joined_at, last_read_id, wake_on) VALUES ('r', 'kai', 1, 0, 'mention'), ('r', 'remy.old', 1, 0, 'mention')");

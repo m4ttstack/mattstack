@@ -178,7 +178,6 @@ test("resolveHandle: an adopted legacy kai never matches as a minted id, but is 
   expect(resolveHandle("kai", db)).toBe("kai");
 });
 
-// Review Focus 3
 test("a legacy handle containing a dot resolves as itself, never as base remy plus a suffix", () => {
   const db = fresh();
   db.run("INSERT INTO chat_dms (room, a, b, created_at) VALUES ('dm-old', 'kai', 'remy.old', 1)");

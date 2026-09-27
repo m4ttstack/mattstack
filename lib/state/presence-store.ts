@@ -300,7 +300,6 @@ export function signIn(
   const sessionStaleCutoff = now - th.sessionStaleMs;
 
   const run = db.transaction((): SignInResult => {
-    // One registry scan for the whole transaction.
     const scoped = snapshotRegistryDeps(deps);
     prunePresence(now, db, scoped);
 
