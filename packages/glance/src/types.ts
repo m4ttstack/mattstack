@@ -89,6 +89,10 @@ export interface Pipeline {
   id: string;
   /** Normalized status. */
   status: string;
+  /** The pipeline's commit. For a merged-results or merge-train pipeline this is the synthetic merge commit, not the MR head. */
+  sha: string | null;
+  ref: string | null;
+  mergeRequestEventType: 'merged_result' | 'detached' | 'merge_train' | null;
   createdAt: string | null;
   webUrl: string | null;
   jobs: PipelineJob[];

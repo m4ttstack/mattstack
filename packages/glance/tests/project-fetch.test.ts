@@ -164,6 +164,9 @@ describe('fetchPullRequests({ projectPath })', () => {
     expect(prs[0]?.pipeline).toEqual({
       id: 'gitlab:pipeline:1',
       status: 'success',
+      sha: null,
+      ref: null,
+      mergeRequestEventType: null,
       createdAt: undefined,
       webUrl: null,
       jobs: [],

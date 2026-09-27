@@ -9,6 +9,7 @@ import type {
   MergeRequestMetrics,
   MRDetail,
   Pipeline,
+  PipelineJob,
   PipelineSummary,
   ProjectRef,
   ProviderCapabilities,
@@ -575,6 +576,12 @@ export interface GitProvider {
    * Returns plain text log content.
    */
   fetchJobTrace(projectPath: string, jobId: number): Promise<string>;
+
+  /** The commit's parent shas. GitLab only. */
+  fetchCommitParents?(projectPath: string, sha: string): Promise<string[]>;
+
+  /** The pipeline's failed jobs, independent of the MR cache's fragment weight. GitLab only. */
+  fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
 
   /**
    * Fetch the child/downstream pipeline for a trigger bridge job.

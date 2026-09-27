@@ -107,7 +107,7 @@ export const MR_DASHBOARD_FRAGMENT = `
     mergeabilityChecks { identifier status }
     blockingMergeRequests { totalCount }
     headPipeline {
-      id iid status
+      id iid status sha ref mergeRequestEventType
       createdAt
       path
       stages(first: 20) { nodes {
@@ -166,7 +166,7 @@ export const MR_LIST_FRAGMENT = `
     mergeabilityChecks { identifier status }
     blockingMergeRequests { totalCount }
     headPipeline {
-      id status
+      id status sha ref mergeRequestEventType
     }
   }
 `;
@@ -241,6 +241,9 @@ interface GQLPipeline {
   status: string;
   createdAt: string | null;
   path: string | null;
+  sha?: string | null;
+  ref?: string | null;
+  mergeRequestEventType?: string | null;
   /** Absent on list-weight fragment responses (no stages/jobs trees). */
   stages?: { nodes: GQLStage[] };
 }
@@ -365,10 +368,18 @@ function toPipeline(p: GQLPipeline, baseURL: string): Pipeline {
   return {
     id: domainId('pipeline', numericId(p.id)),
     status: normalizePipelineStatus(p),
+    sha: p.sha ?? null,
+    ref: p.ref ?? null,
+    mergeRequestEventType: toEventType(p.mergeRequestEventType),
     createdAt: p.createdAt,
     webUrl: p.path ? `${baseURL}${p.path}` : null,
     jobs: allJobs,
   };
+}
+
+function toEventType(v: string | null | undefined): Pipeline['mergeRequestEventType'] {
+  const t = v?.toLowerCase();
+  return t === 'merged_result' || t === 'detached' || t === 'merge_train' ? t : null;
 }
 
 /**
@@ -2124,6 +2135,9 @@ export class GitLabProvider implements GitProvider {
     return {
       id: domainId('pipeline', dp.id),
       status: (dp.status || '').toLowerCase(),
+      sha: dp.sha || null,
+      ref: dp.ref || null,
+      mergeRequestEventType: null,
       createdAt: dp.created_at || null,
       webUrl: dp.web_url || null,
       jobs: pipelineJobs.map((j: any) => ({
@@ -2213,6 +2227,37 @@ export class GitLabProvider implements GitProvider {
       return typeof log === 'string' ? log : String(log);
     } catch (err) {
       throw this.legacyError('fetchJobTrace', err);
+    }
+  }
+
+  /**
+   * A merged-results or merge-train pipeline's sha is the synthetic merge
+   * commit, not the pushed source sha; the source sha is this commit's
+   * first parent.
+   */
+  async fetchCommitParents(projectPath: string, sha: string): Promise<string[]> {
+    try {
+      const c: any = await this.gb.Commits.show(projectPath, sha);
+      return Array.isArray(c?.parent_ids) ? c.parent_ids.map(String) : [];
+    } catch (err) {
+      throw this.legacyError('fetchCommitParents', err);
+    }
+  }
+
+  async fetchPipelineFailedJobs(projectPath: string, pipelineId: number): Promise<PipelineJob[]> {
+    try {
+      const jobs: any[] = await this.gb.Jobs.all(projectPath, { pipelineId, scope: ['failed'] } as any);
+      return jobs.map((j) => ({
+        id: domainId('job', j.id),
+        name: String(j.name),
+        stage: String(j.stage),
+        status: String(j.status).toLowerCase(),
+        allowFailure: Boolean(j.allow_failure),
+        duration: typeof j.duration === 'number' ? Math.round(j.duration) : null,
+        webUrl: typeof j.web_url === 'string' ? j.web_url : null,
+      }));
+    } catch (err) {
+      throw this.legacyError('fetchPipelineFailedJobs', err);
     }
   }
 

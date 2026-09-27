@@ -139,6 +139,14 @@ export const GITHUB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
     support: 'absent',
     capability: 'canFetchUserEvents',
     note: 'Not implemented on GitHub yet; the user events feed would stand in for GitLab user events.'
+  },
+  fetchCommitParents: {
+    support: 'absent',
+    note: 'GitLab only. GitHub commits are addressed directly, with no synthetic merge-commit sha whose parents need unwinding.'
+  },
+  fetchPipelineFailedJobs: {
+    support: 'absent',
+    note: 'GitLab only. GitHub check runs are already fetched per PR with no separate failed-jobs read.'
   }
 };
 
@@ -193,7 +201,9 @@ export const GITLAB_EXPECTATIONS: Record<ProviderMethod, Expectation> = {
   fetchGroupProjects: { support: 'supported', capability: 'canFetchGroupProjects' },
   fetchProject: { support: 'supported', capability: 'canFetchProject' },
   fetchProjectPipelines: { support: 'supported', capability: 'canFetchProjectPipelines' },
-  fetchUserEvents: { support: 'supported', capability: 'canFetchUserEvents' }
+  fetchUserEvents: { support: 'supported', capability: 'canFetchUserEvents' },
+  fetchCommitParents: { support: 'supported' },
+  fetchPipelineFailedJobs: { support: 'supported' }
 };
 
 export function expectationFor(
