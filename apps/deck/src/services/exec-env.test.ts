@@ -149,7 +149,7 @@ describe('composeCommandPath', () => {
     );
   });
 
-  test('keeps the OS dirs after Helpers and inherited extras last', () => {
+  test('puts inherited extras ahead of Helpers and the OS dirs last', () => {
     const present = new Set([
       HELPERS,
       '/usr/local/bin',
@@ -167,7 +167,23 @@ describe('composeCommandPath', () => {
     });
 
     expect(path).toBe(
-      `/usr/local/bin:${HELPERS}:/usr/bin:/bin:/usr/sbin:/sbin:/custom/bin`
+      `/usr/local/bin:/custom/bin:${HELPERS}:/usr/bin:/bin:/usr/sbin:/sbin`
+    );
+  });
+
+  test("an inherited manager dir's bun wins over Helpers/bun", () => {
+    const present = new Set([HELPERS, '/usr/bin']);
+    const execs = new Set(['/home/t/.mise/shims/bun', `${HELPERS}/bun`]);
+
+    const path = composeCommandPath({
+      home: HOME,
+      bundleHelpers: HELPERS,
+      exists: p => present.has(p),
+      inherited: `${HELPERS}:/home/t/.mise/shims:/usr/bin`,
+    });
+
+    expect(resolveProgram('bun', path, p => execs.has(p))).toBe(
+      '/home/t/.mise/shims/bun'
     );
   });
 
