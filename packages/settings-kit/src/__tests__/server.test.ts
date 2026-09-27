@@ -10,6 +10,7 @@ interface FakeDef {
   secret?: boolean;
   teamLocked?: boolean;
   repoScoped?: boolean;
+  repoOnly?: boolean;
   default?: unknown;
   schema?: Record<string, unknown>;
   layerSchema?: Record<string, unknown>;
@@ -31,7 +32,7 @@ const DEFS: Record<string, FakeDef> = {
     schema: { type: "object", required: ["webhookUrl"], properties: { webhookUrl: { type: "string" }, emoji: { type: "string" } } },
     layerSchema: { type: "object", properties: { webhookUrl: { type: "string" }, emoji: { type: "string" } } },
   },
-  "rt.roles": { key: "rt.roles", type: "object", scopes: ["team", "user", "machine"], merge: "deep", description: "Role bindings", repoScoped: true, schema: { type: "object", properties: { dev: { type: "object" } } } },
+  "rt.roles": { key: "rt.roles", type: "object", scopes: ["team", "user", "machine"], merge: "deep", description: "Role bindings", repoScoped: true, repoOnly: true, schema: { type: "object", properties: { dev: { type: "object" } } } },
 };
 
 const setCalls: unknown[][] = [];
@@ -471,6 +472,12 @@ describe("schema on the wire", () => {
     const body = (await (await handle(get("/api/settings/defs?repo=gitlab.example.com%2Facme%2Fapp")))!.json()) as any;
     const roles = body.defs.find((d: any) => d.key === "rt.roles");
     expect(roles.issues.filter((i: any) => i.scope === "team.repo")).toHaveLength(1);
+  });
+
+  test("repoOnly is on the wire: true for a repo-only key, false otherwise", async () => {
+    const body = (await (await handle(get("/api/settings/defs")))!.json()) as any;
+    expect(body.defs.find((d: any) => d.key === "rt.roles").repoOnly).toBe(true);
+    expect(body.defs.find((d: any) => d.key === "board.title").repoOnly).toBe(false);
   });
 
   test("GET /repos lists store identities with labels", async () => {
