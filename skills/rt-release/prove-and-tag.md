@@ -137,8 +137,9 @@ as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
 
 Counters: the first dispatch is not a rerun, so `Rehearsal reruns = 2?` is yes after the second
 `gh run rerun <run-id> --failed` has also gone red. `Walkthrough runs = 2?` counts every
-walkthrough run, the first included, so it is yes after the second one fails. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
-once Matt has answered iterate twice.
+walkthrough run, the first included, so it is yes after the second one fails. Every
+`<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
+Matt has answered iterate twice.
 
 ### Watch the rehearsal run to completion
 
@@ -183,10 +184,12 @@ The push is the publish: never `gh release create`.
 ### Off-script gate: rehearsal ran another sha
 
 Quote the run id, its `headSha`, the exercised sha, and the commits between them. A new dispatch
-runs main's head again, so iterate clears this only if Matt moves main back; recommend hold or
-hand back. Take: Matt accepts the run's sha as the exercised sha, and the tag then points at a sha
-the approved notes do not fully describe; say so in the option. Iterate: Matt fixed the cause, and
-a new dispatch runs.
+runs main's head again, so iterate clears this only if Matt moves main back. Recommend hold; when
+a fix landed on main, the hold's resume point is re-entering the release, which routes through
+`notes commit on origin/main with commits after it, no tag` to Prepare for notes that cover it.
+Take: Matt accepts the run's sha as the exercised sha, and the tag then points at a sha the
+approved notes do not fully describe; say so in the option. Iterate: Matt fixed the cause, and a
+new dispatch runs.
 
 ### Off-script gate: rehearsal run wedged
 
@@ -197,8 +200,9 @@ at the exercised sha. Iterate: Matt cancelled or cleared it, and a new dispatch 
 
 Quote the failing job, step and error lines (`gh run view <run-id> --log-failed`). Take: Matt
 names a green run at the exercised sha. Iterate: Matt fixed an outside cause, and the failed jobs
-rerun. A fix that needs a code change moves main past the notes commit, so recommend hold or hand
-back for it, not iterate.
+rerun. A fix that needs a code change moves main past the notes commit, so recommend hold for
+it, not iterate: once the fix lands on main, the hold's resume point is re-entering the release,
+which routes through `notes commit on origin/main with commits after it, no tag` to Prepare.
 
 ### Off-script gate: walkthrough still red
 

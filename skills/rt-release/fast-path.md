@@ -90,8 +90,9 @@ resumes through the verb.
 Counters: `Fast-path approval rounds = 3?` counts the approve answers received at the approval
 gate so far. `Fast-path verify reruns = 4?` counts verify resumes run after the first `pending`,
 so it is yes after the fourth. `Fast-path resumes = 2?` counts resumes of the failed step after
-the first failure, so it is yes after the second resume also fails. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
-once Matt has answered iterate twice.
+the first failure, so it is yes after the second resume also fails. Every
+`<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes once
+Matt has answered iterate twice.
 
 ### Gate: approve the fast-path tag and notes
 

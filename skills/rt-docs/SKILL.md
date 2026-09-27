@@ -123,7 +123,9 @@ Quote the `docs:check` failure output (a failure outright, not reference drift o
 
 ## How gates ask
 
-A gate always puts its question rather than resolving itself: the form waits for Matt, and Matt being away is exactly when the gate matters most, never a reason to skip it. Take, iterate, hold, and hand back are Matt's answers to that question, never a choice the agent makes for him. A hold leaves the question open; the turn's final message names the gate, and a `#rt` post is never the question.
+Attended, a gate is an AskUserQuestion form in the pane; inside a herd, `herd_ask`; inside a pipeline run, `gate_ask`. The first option is the recommendation, and the question quotes the refusal or failing output. Record the answer before acting on it.
+
+A gate always puts its question, even when Matt is away: that is when it matters most. Take, iterate, hold and hand back are Matt's answers, never the agent's pick. A hold leaves the question open, and the turn's final message names the gate. A #rt post is never the question.
 
 ## URL facts
 

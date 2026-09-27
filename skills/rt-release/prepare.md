@@ -139,8 +139,8 @@ CI reads `RELEASE_NOTES.md` at the tagged commit as the release body, so the not
 tag target. This stage never tags: the tag comes after the rehearsal, at the exercised sha.
 
 Counters: `Notes revision rounds = 3?` counts the revise answers received at the approval gate
-so far. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
-once Matt has answered iterate twice.
+so far. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it
+is yes once Matt has answered iterate twice.
 
 ### Choose the version bump
 
@@ -178,9 +178,12 @@ range, which may have grown since it was written.
 ### Update the guides the range changed
 
 Follow `rt:docs` from its `Read the diff of each behavior change` node: update the guides,
-getting-started pages or `_partials` the range's behavior changes require. Do the judgment in this
-session; never shell out to a nested headless Claude. Command flag and arg tables come only from
-`bun run docs:gen` (update-docs runs it); never hand-write one.
+getting-started pages or `_partials` the range's behavior changes require. Entering mid-graph
+skips its `Base given?`, so the base is `<last-tag>`. Leave rt:docs at its `Staged for review`
+and continue at `Write the release notes`. A hold inside rt:docs is this stage's `Held: release
+paused, resume point named`, resuming at `Update the guides the range changed`. Do the judgment in
+this session; never shell out to a nested headless Claude. Command flag and arg tables come only
+from `bun run docs:gen` (update-docs runs it); never hand-write one.
 
 ### Write the release notes
 

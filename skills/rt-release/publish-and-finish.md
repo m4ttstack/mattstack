@@ -6,6 +6,12 @@ leaf is agent-safe, so `rt_verb` refuses them.
 
 Verify what release.yml published, deploy rt.cool, and bring this machine onto the release.
 
+Verify reports rows, not a status; `Verify status?` reads them. Every row ok reads as `released`;
+only pending rows (the rest ok) read as `pending`; any stale row reads as `failed run`,
+`draft left behind` or `missing assets` by its detail. An `error` row (verify could not check,
+for example "could not reach gh") takes the `pending, or an error row` edge: verify reruns
+through `Verify reruns = 4?`.
+
 ```dot
 digraph publish_and_finish {
     rankdir=TB;
@@ -62,7 +68,7 @@ digraph publish_and_finish {
     "rt release verify <tag> --json" -> "Verify status?";
     "rt release verify <tag> --json, rerun after the wait" -> "Verify status?";
     "Verify status?" -> "bash scripts/deploy-docs.sh" [label="released"];
-    "Verify status?" -> "Verify reruns = 4?" [label="pending"];
+    "Verify status?" -> "Verify reruns = 4?" [label="pending, or an error row"];
     "Verify status?" -> "Failure is the asset-upload 500 flake?" [label="failed run"];
     "Verify status?" -> "Draft flips = 1?" [label="draft left behind"];
     "Off-script gate: assets missing" -> "rt release verify <tag> --json, rerun after the wait" [label="take: Matt hand-completed them with rt:mattstack-release"];
@@ -179,8 +185,8 @@ Counters: the first `rt release verify <tag> --json` is not a rerun, so `Verify 
 yes after the fourth rerun. `Publish recoveries = 1?` counts delete-and-rerun pairs done and
 `Draft flips = 1?` counts flips done, so each is yes after the first. `Docs deploy attempts = 2?`
 counts every deploy run, the first included. `Update-machine runs = 2?` counts every `--yes` run
-in this release, the first included. Every `<origin>: gate rounds = 2?` counts the iterate answers received at that gate: it is yes
-once Matt has answered iterate twice.
+in this release, the first included. Every `<origin>: gate rounds = 2?` counts the iterate
+answers received at that gate: it is yes once Matt has answered iterate twice.
 
 ### Gate: approve the update-machine legs
 
@@ -224,8 +230,8 @@ re-derive, appcast re-sign, draft flip). Iterate: Matt fixed the cause, and veri
 
 ### Off-script gate: publish still pending
 
-Quote the rows still pending after four reruns (past the releases/latest lag). Take: Matt confirms
-the release is live. Iterate: Matt fixed the cause, and verify runs again.
+Quote the rows still pending or in error after four reruns (past the releases/latest lag). Take:
+Matt confirms the release is live. Iterate: Matt fixed the cause, and verify runs again.
 
 ### Off-script gate: publish run failed another way
 

@@ -207,11 +207,13 @@ gate: it is yes once Matt has answered iterate twice.
 | rt CLI or daemon source (`lib/`, `commands/`) | the same pull, then the source restart announce and `rt daemon restart` |
 | gitq source | nothing to do: deck neither registers nor serves gitq, so a merge and pull change nothing running; the CLI only picks up the change at the next release |
 
-The shared checkout is `~/Documents/GitHub/mattstack/apps/<name>`, or the
-older `~/Documents/GitHub/repo-tools` folder on a machine that has not moved
-it; on this machine that folder is `/Users/matt/Documents/GitHub/repo-tools`.
-Run `git branch --show-current` there with the Bash tool's working directory
-set to that folder, not by `cd`-ing into it from elsewhere.
+The shared checkout is `~/Documents/GitHub/mattstack` (served apps live under
+its `apps/<name>`), or the older `~/Documents/GitHub/repo-tools` folder on a
+machine that has not moved it. Run `cd <shared checkout>` as its own Bash
+call, then `git branch --show-current` as the next one. Never `git -C`.
+
+`rt daemon restart` runs on Bash: it is not agent-safe, so `rt_verb` refuses
+it.
 
 ### Tell Matt to click New build · Restart
 
@@ -335,8 +337,13 @@ unresolved.
 
 Attended, a gate is an AskUserQuestion form in the pane; inside a herd,
 `herd_ask`; inside a pipeline run, `gate_ask`. The first option is the
-recommendation, labels are 2 to 6 words, each description is one sentence,
-and the question quotes the refusal or failing output.
+recommendation, and the question quotes the refusal or failing output.
+Record the answer before acting on it.
+
+A gate always puts its question, even when Matt is away: that is when it
+matters most. Take, iterate, hold and hand back are Matt's answers, never
+the agent's pick. A hold leaves the question open, and the turn's final
+message names the gate. A #rt post is never the question.
 
 ## What the script already does
 

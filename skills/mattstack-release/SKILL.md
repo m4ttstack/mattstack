@@ -13,7 +13,7 @@ revision of this skill: step lists copied into prose are exactly what went stale
 Division of duties: `rt:release` owns version judgment, docs, `RELEASE_NOTES.md`, the tag push,
 verifying the run, and deploying rt.cool. It is current; follow it for a normal release. Its
 Publish and finish stage's `upload flake persists` and `assets missing` takes land here on the
-`sent by rt:release: its one rerun already ran` edge, which skips the delete and rerun and goes
+`sent by rt:release after its publish recovery` edge, which skips the delete and rerun and goes
 straight to verify. This skill is the other half: running or debugging the build, sign and publish
 pipeline itself. Distribution reality, key material and the footguns are in `reference.md`
 beside this file.
@@ -103,7 +103,7 @@ digraph mattstack_release {
     "What does the run need?" -> "gh workflow run release.yml --ref <branch>" [label="a rehearsal"];
     "What does the run need?" -> "Run the step with the workflow's env" [label="one step by hand"];
     "What does the run need?" -> "gh release delete <tag>" [label="asset uploads failed on a tag"];
-    "What does the run need?" -> "rt release verify <tag> --json" [label="sent by rt:release: its one rerun already ran"];
+    "What does the run need?" -> "rt release verify <tag> --json" [label="sent by rt:release after its publish recovery"];
     "What does the run need?" -> "Run every pipeline step with the workflow's env" [label="a fully by-hand pipeline, CI not involved"];
     "What does the run need?" -> "Handed to Matt: second-user smoke or key backup" [label="a Matt-gated step"];
     "gh workflow run release.yml --ref <branch>" -> "Watch the dispatch run";
@@ -261,15 +261,17 @@ branch, never a by-hand publish.
 ### Watch the dispatch run
 
 `gh workflow run release.yml` (no inputs) runs the whole pipeline against a synthetic
-`v0.0.0-ci<run>` tag and skips only the publish. This pipeline's defects are invisible until the step
-before them works, and a tag that fails midway has already re-signed the app, so a release is
-rehearsed at the exact commit its tag will point to. After a merge, a PR branch's commit is not
-that commit: rehearsing main again before the tag belongs to `rt:release`.
+`v0.0.0-ci<run>` tag and skips only the publish. This pipeline's defects are invisible until the
+step before them works, and a tag that fails midway has already re-signed the app, so a release is
+rehearsed at the exact commit its tag will point to. After a merge, a PR branch's commit is not that
+commit: rehearsing main again before the tag belongs to `rt:release`.
 
-Poll `gh run view <run-id> -R m4ttstack/mattstack --json status,conclusion,jobs` every few
-minutes (the run id from `gh run list -R m4ttstack/mattstack --workflow release.yml --limit 1`,
-its `headSha` the commit dispatched), never a blocking watch past the tool timeout. The ceiling is
-90 minutes: the SPM hang wedges a run silently inside `swift build`, with no output and no failure.
+Poll `gh run view <run-id> -R m4ttstack/mattstack --json status,conclusion,jobs` every few minutes,
+never a blocking watch past the tool timeout. The run id comes from
+`gh run list -R m4ttstack/mattstack --workflow release.yml --event workflow_dispatch --limit 5 --json databaseId,createdAt,headSha`:
+take the newest run created after the dispatch (a tag push's run never matches), and its `headSha`
+is the commit dispatched. The ceiling is 90 minutes: the SPM hang wedges a run silently inside
+`swift build`, with no output and no failure.
 
 ### Diagnose the failing rehearsal step
 
@@ -329,7 +331,8 @@ metadata instead:
 ### Gate: upload the hand-completed assets
 
 Quote the files to upload, their SHA256SUMS lines, and which assets CI already landed. Approve
-uploads them with `--clobber`. Hold resumes at this gate with the files in place. Hand back reports the completed files, not uploaded.
+uploads them with `--clobber`. Hold resumes at this gate with the files in place. Hand back reports
+the completed files, not uploaded.
 
 ### Wait a few minutes before the next upload
 
@@ -349,9 +352,9 @@ onward when nothing upstream changed; after an upstream change, run from the cha
 
 ### Gate: publish the by-hand release
 
-Quote the tag, the assets in
-`out/`, SHA256SUMS, and confirm no release.yml run exists for this tag. Approve runs the create
-with `--notes-file RELEASE_NOTES.md`. Hold resumes at this gate with `out/` intact. Hand back reports the built assets, unpublished.
+Quote the tag, the assets in `out/`, SHA256SUMS, and confirm no release.yml run exists for this tag.
+Approve runs the create with `--notes-file RELEASE_NOTES.md`. Hold resumes at this gate with `out/`
+intact. Hand back reports the built assets, unpublished.
 
 ### Off-script gate: dispatch run wedged
 
