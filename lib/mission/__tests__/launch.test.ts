@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveGlitterStart, type LaunchDeps, type PickResult } from "../launch.ts";
+import { pickableRepos, resolveGlitterStart, type LaunchDeps, type PickResult } from "../launch.ts";
 
 function deps(over: Partial<LaunchDeps> = {}): LaunchDeps & { picks: number } {
   const d = {
@@ -14,6 +14,13 @@ function deps(over: Partial<LaunchDeps> = {}): LaunchDeps & { picks: number } {
   return d;
 }
 
+describe("pickableRepos", () => {
+  test("drops cached rows whose path is missing", () => {
+    const row = (repoName: string, missing?: boolean) => ({ repoName, worktrees: [{ path: `/${repoName}`, branch: "main", isBare: false }], dataDir: "/d", ...(missing ? { missing: true as const } : {}) });
+    expect(pickableRepos([row("a"), row("b", true)]).map((r) => r.repoName)).toEqual(["a"]);
+  });
+});
+
 describe("resolveGlitterStart", () => {
   test("inside a repo: that repo, never the last one or the picker", async () => {
     const d = deps({ repoRoot: () => "/here", readLast: () => ({ identity: "path:/last", worktree: "/last" }) });
@@ -22,12 +29,28 @@ describe("resolveGlitterStart", () => {
   });
 
   test("outside a repo: the last-opened repo when its worktree exists", async () => {
-    const d = deps({ readLast: () => ({ identity: "gh:me/a", worktree: "/last" }) });
+    const d = deps({
+      readLast: () => ({ identity: "gh:me/a", worktree: "/last" }),
+      repoRoot: (cwd) => cwd ?? null,
+      identityOf: (root) => (root === "/last" ? "gh:me/a" : `path:${root}`),
+    });
     expect(await resolveGlitterStart(d)).toEqual({ kind: "start", repo: "gh:me/a", worktree: "/last" });
   });
 
   test("a stale last repo falls through to the picker", async () => {
     const d = deps({ readLast: () => ({ identity: "gh:me/a", worktree: "/gone" }), pathExists: (p) => p !== "/gone" });
+    expect(await resolveGlitterStart(d)).toEqual({ kind: "start", repo: "path:/picked", worktree: "/picked" });
+    expect(d.picks).toBe(1);
+  });
+
+  test("a saved worktree that is no longer a git repo falls through to the picker", async () => {
+    const d = deps({ readLast: () => ({ identity: "gh:me/a", worktree: "/last" }), repoRoot: () => null });
+    expect(await resolveGlitterStart(d)).toEqual({ kind: "start", repo: "path:/picked", worktree: "/picked" });
+    expect(d.picks).toBe(1);
+  });
+
+  test("a saved worktree now holding a different repo falls through to the picker", async () => {
+    const d = deps({ readLast: () => ({ identity: "gh:me/a", worktree: "/last" }), repoRoot: (cwd) => cwd ?? null });
     expect(await resolveGlitterStart(d)).toEqual({ kind: "start", repo: "path:/picked", worktree: "/picked" });
     expect(d.picks).toBe(1);
   });

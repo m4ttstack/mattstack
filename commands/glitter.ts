@@ -8,7 +8,7 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { createFileActions } from "../lib/file-actions.ts";
 import { MissionDriver, type MissionDeps } from "../lib/mission/driver.ts";
 import { publishRepo, runAction } from "../lib/mission/git-actions.ts";
-import { resolveGlitterStart, readLastRepo, writeLastRepo, type PickResult } from "../lib/mission/launch.ts";
+import { pickableRepos, resolveGlitterStart, readLastRepo, writeLastRepo, type PickResult } from "../lib/mission/launch.ts";
 import { randomSkewMs } from "../lib/mission/indicator-updater.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
 import { interactive } from "../lib/ui/gate.ts";
@@ -26,7 +26,7 @@ import { listWorktreesAsync } from "../lib/worktree/git-async.ts";
 import { launchEditorDetached, resolveEditorForDir } from "./code.ts";
 
 async function pickRepoRoot(): Promise<PickResult> {
-  const repos = getKnownReposCached({ includeMissing: false });
+  const repos = pickableRepos(getKnownReposCached({ includeMissing: false }));
   if (repos.length === 0) return { kind: "no-repos" };
   const picked = await filterableSelect({ message: "Pick a repo for rt glitter", options: repoOptions(repos), breadcrumb: ["rt", "glitter"] });
   const root = picked ? repoFromOptionValue(repos, picked)?.worktrees[0]?.path : undefined;
@@ -40,7 +40,7 @@ export async function glitterCommand(_args: string[], _ctx: CommandContext): Pro
   }
 
   const start = await resolveGlitterStart({
-    repoRoot: () => getRepoRoot(),
+    repoRoot: getRepoRoot,
     identityOf: identityForRootReadOnly,
     readLast: readLastRepo,
     pathExists: existsSync,

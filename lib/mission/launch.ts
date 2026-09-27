@@ -1,4 +1,5 @@
 // Never registers a repo: identity comes only from identityForRootReadOnly.
+import type { KnownRepo } from "../repo-index.ts";
 import { getKvValue, setKvValue } from "../state/kv-blob.ts";
 
 export const LAST_REPO_NS = "glitter";
@@ -10,7 +11,7 @@ export interface LastRepo {
 }
 
 export interface LaunchDeps {
-  repoRoot: () => string | null;
+  repoRoot: (cwd?: string) => string | null;
   identityOf: (root: string) => string;
   readLast: () => LastRepo | null;
   pathExists: (p: string) => boolean;
@@ -26,11 +27,19 @@ export async function resolveGlitterStart(deps: LaunchDeps): Promise<LaunchResul
   if (root) return { kind: "start", repo: deps.identityOf(root), worktree: root };
 
   const last = deps.readLast();
-  if (last && deps.pathExists(last.worktree)) return { kind: "start", repo: last.identity, worktree: last.worktree };
+  if (last && deps.pathExists(last.worktree)) {
+    const lastRoot = deps.repoRoot(last.worktree);
+    if (lastRoot && deps.identityOf(lastRoot) === last.identity) return { kind: "start", repo: last.identity, worktree: last.worktree };
+  }
 
   const picked = await deps.pick();
   if (picked.kind !== "picked") return picked;
   return { kind: "start", repo: deps.identityOf(picked.root), worktree: picked.root };
+}
+
+/** The repo cache returns its rows verbatim on a hit, missing ones included, whatever includeMissing asked for. */
+export function pickableRepos(repos: KnownRepo[]): KnownRepo[] {
+  return repos.filter((r) => !r.missing);
 }
 
 export function readLastRepo(): LastRepo | null {
