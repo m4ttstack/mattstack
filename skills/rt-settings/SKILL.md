@@ -84,7 +84,7 @@ move on any "why is this value what it is" question.
 
 | Need | Read |
 |---|---|
-| Full architecture: three-layer rule, store files on disk, resolver semantics, the add-a-key checklist, porting + ownership latch, footguns (call-time HOME, stale copies, sops cwd) | `docs/settings-architecture.md` in the repo-tools checkout this skill symlinks from (here: `~/Documents/GitHub/repo-tools`) |
+| Full architecture: three-layer rule, store files on disk, resolver semantics, the add-a-key checklist, porting + ownership latch, footguns (call-time HOME, stale copies, sops cwd) | `docs/settings-architecture.md` in the checkout this skill symlinks from (here: `~/Documents/GitHub/mattstack`) |
 | Which identity form keys what — raw vs serialized | `docs/repo-identity.md`, same checkout |
 | Per-app key tables (which key, which scope, what shape) | `docs/superpowers/specs/2026-08-20-suite-settings-migration.md`, same checkout |
 | Resolver API while standing in a consumer repo | `node_modules/@mattstack/rt-client/README.md` (from that repo's root) |

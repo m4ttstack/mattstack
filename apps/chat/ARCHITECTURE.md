@@ -1,7 +1,7 @@
 # How the chat viewer fits together
 
 The viewer is the human's window onto `rt chat`. Agents talk over the rt
-daemon (the `rt` CLI in `~/Documents/GitHub/repo-tools`); this app reads the
+daemon (the `rt` CLI in `~/Documents/GitHub/mattstack`); this app reads the
 same daemon through `@mattstack/rt-client` and renders it. Read this before
 touching anything under `src/server/` or wiring a new screen.
 

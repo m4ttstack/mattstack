@@ -381,7 +381,7 @@ why.
      way as the prod app, opens it, and polls briefly for a fresh pid
      (`open` hands off to LaunchServices and returns before the app is
      actually up).
-   - **Shared checkout sync**: the shared `~/Documents/GitHub/repo-tools`
+   - **Shared checkout sync**: the shared `~/Documents/GitHub/mattstack`
      checkout that served-suite registers apps from; this leg refuses
      unless it is on `main`, then `git pull --ff-only` and `bun install
      --frozen-lockfile`.
@@ -393,7 +393,7 @@ why.
      both directions; a prod daemon's null sourceRev is reported as a
      mismatch, never a silent pass).
    - **Served suite**: re-registers board, console, chat, boxscore, and
-     deck with `deck register --dir ~/Documents/GitHub/repo-tools/apps/<name>`
+     deck with `deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`
      when their registry `dev.workingDirectory` differs from that path,
      then `deck restart --managed`, then polls each managed app's pid
      for a bit (a `deck restart` is a kickstart, not a readiness
@@ -420,3 +420,7 @@ why.
 - Committing, tagging, and deploying happen only after the step 6 approval. The
   step 3 push may run earlier, but only once the user has confirmed it (or
   pre-authorized the release).
+- The old repo name `m4ttstack/rt` is never recreated after the rename: every
+  app installed before it fetches its Sparkle feed through GitHub's redirect
+  from the old name, and a new repo under that name would capture those
+  requests.
