@@ -5,7 +5,7 @@ title: Glitter
 
 # Glitter
 
-`rt glitter` is a git client in your terminal: repos, changes, diff, history, and commit on one board. It follows GitHub Desktop closely, so if you know Desktop you already know the layout. Run it from inside a repo rt tracks; it needs an interactive terminal.
+`rt glitter` is a git client in your terminal: repos, changes, diff, history, and commit on one board. It follows GitHub Desktop closely, so if you know Desktop you already know the layout. Run it from inside any git repo, or from anywhere to reopen the last repo you had open (a picker asks the first time). It never registers the repo with rt. It needs an interactive terminal.
 
 ```bash
 rt glitter
@@ -54,8 +54,8 @@ The button on the right of the top bar always offers the next sensible remote st
 
 ## Repos, worktrees and branches
 
-- `r` opens the repository foldout. Repos are grouped by host and owner, and each repo shows a badge with its dirty count and ahead and behind arrows.
-- `w` opens the worktree foldout, including the on-deck pool. `ctrl+n` turns the filter into a name field for a new worktree. The name you type is the **branch** name; rt picks the folder name itself.
+- `r` opens the repository foldout. Repos are grouped by host and owner, and each repo shows a badge with its dirty count and ahead and behind arrows. The list is every repo `rt cd` finds, tracked or not. Untracked repos refresh their badges in the background every 15 minutes while glitter has focus, and fetch at most every 30 minutes.
+- `w` opens the worktree foldout, including the on-deck pool. `ctrl+n` turns the filter into a name field for a new worktree. The name you type is the **branch** name; rt picks the folder name itself. In a repo rt does not track, the foldout lists git's own worktrees and has no provision action.
 - `b` opens the branch foldout, and `ctrl+n` there names a new branch. A branch that is checked out in another worktree, or that a gitq stack protects, is refused. Desktop would switch to the other worktree instead.
 
 Switching branches with uncommitted changes asks what to do: **Leave** them on the current branch as a stash, or **Bring** them to the new branch.

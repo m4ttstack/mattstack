@@ -38,7 +38,9 @@ shadows, no radii).
   checked out in another worktree refuse checkout), section grouping, and a
   new-branch action row.
 - `WorktreeModal.png`: the worktree foldout (no GitHub Desktop analog): the
-  current worktree, per-tree badges, on-deck pool rows, provision action.
+  current worktree, per-tree badges, on-deck pool rows and the provision
+  action; for a repo rt does not track it lists git's own worktrees, with no
+  pool rows and no provision action.
 - `History.png`: the History tab (GitHub Desktop's app/src/ui/history):
   the two-line commit list with cursor, hover, tag pills, and unpushed ↑;
   the collapsed commit header; the changed-file column; the read-only diff
