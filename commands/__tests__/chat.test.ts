@@ -420,6 +420,15 @@ describe("rt chat CLI — additional verb behavior", () => {
     expect(await runChat(["release", String(id), "--as", "asker"])).toBe(`released #${id} (was held by c)`);
   });
 
+  test("post, ack and release --json pair each identity with its display name", async () => {
+    const id = await postedId();
+    const posted = JSON.parse(await runChat(["post", "r", "hi @b", "--as", "asker", "--json"]));
+    expect(posted.recipientNames).toEqual(posted.recipients);
+    expect(JSON.parse(await runChat(["ack", String(id), "--as", "b", "--json"]))).toMatchObject({ author: "asker", authorName: "asker" });
+    await runChat(["claim", String(id), "--as", "b"]);
+    expect(JSON.parse(await runChat(["release", String(id), "--as", "b", "--json"]))).toMatchObject({ holder: "b", holderName: "b" });
+  });
+
   test("claim and release refuse a non-id the same way ack does", async () => {
     const { code, stderr } = await runChatRaw(["claim", "m-412", "--as", "b"]);
     expect(code).toBe(1);

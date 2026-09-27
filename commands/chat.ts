@@ -735,7 +735,7 @@ async function runPost(args: string[]): Promise<void> {
   // at the prompt that caused it), plus the viewer link when configured.
   const url = chatViewerUrl(readChatViewerUrlSetting(), room, data.id);
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, id: data.id, quiet, recipients: data.recipients, url: url ?? null }));
+    console.log(JSON.stringify({ ok: true, id: data.id, quiet, recipients: data.recipients, recipientNames: data.recipientNames, url: url ?? null }));
     return;
   }
   // A quiet post's empty recipient list is the point, not the "woke nobody"
@@ -766,7 +766,7 @@ async function runAck(args: string[]): Promise<void> {
   const res = await chatAck({ id, handle }, sockOpts(args));
   const data = unwrap(res, "ack");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, id, author: data.author, room: data.room, already: data.already }));
+    console.log(JSON.stringify({ ok: true, id, author: data.author, authorName: data.authorName, room: data.room, already: data.already }));
     return;
   }
   const author = data.authorName ?? data.author;
@@ -826,7 +826,7 @@ async function runRelease(args: string[]): Promise<void> {
   const res = await chatRelease({ id, handle }, sockOpts(args));
   const data = unwrap(res, "release");
   if (args.includes("--json")) {
-    console.log(JSON.stringify({ ok: true, id, holder: data.holder }));
+    console.log(JSON.stringify({ ok: true, id, holder: data.holder, holderName: data.holderName }));
     return;
   }
   console.log(`released #${id} (was held by ${data.holderName ?? data.holder})`);
