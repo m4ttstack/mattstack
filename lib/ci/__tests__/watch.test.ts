@@ -211,6 +211,92 @@ describe("watchPipeline", () => {
     expect(r.failedJobs).toHaveLength(1);
     expect(r.blockingFailures).toBe(1);
   });
+  test("merged_result: a successful parent fetch that misses the sha is no match, even for a pipeline new since the push", async () => {
+    const { deps } = fake([mr(SHA, pipe({ id: "gitlab:pipeline:12", sha: "m".repeat(40), mergeRequestEventType: "merged_result", status: "success" }))], {
+      commitParents: async () => ["t".repeat(40), OLD],
+    });
+    expect(await watchPipeline({ ...base, priorPipelineId: 11, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "waiting" });
+  });
+  test("a /merge ref with no event type is merged results, not a train: a parent miss is no match", async () => {
+    const { deps } = fake([mr(SHA, pipe({ id: "gitlab:pipeline:12", sha: "m".repeat(40), ref: "refs/merge-requests/4/merge", status: "success" }))], {
+      commitParents: async () => ["t".repeat(40), OLD],
+    });
+    expect(await watchPipeline({ ...base, priorPipelineId: 11, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "waiting" });
+  });
+  test("a /train ref with no event type keeps the new-since-push fallback", async () => {
+    const { deps } = fake([mr(SHA, pipe({ id: "gitlab:pipeline:12", sha: "m".repeat(40), ref: "refs/merge-requests/4/train", status: "success" }))], {
+      commitParents: async () => ["t".repeat(40), OLD],
+    });
+    expect(await watchPipeline({ ...base, priorPipelineId: 11 }, deps)).toMatchObject({ state: "success" });
+  });
+  test("a match proved against the first-seen pipeline exposes that id, and a second call passing it keeps the proof", async () => {
+    const train = (id: string, status: string) => pipe({ id, sha: "m".repeat(40), mergeRequestEventType: "merge_train", status });
+    const first = fake([mr(SHA, train("gitlab:pipeline:11", "success")), mr(SHA, train("gitlab:pipeline:12", "running"))]);
+    const r1 = await watchPipeline({ ...base, maxWaitSeconds: 60 }, first.deps) as { state: string; priorPipelineId?: number; next: string };
+    expect(r1).toMatchObject({ state: "running", priorPipelineId: 11 });
+    expect(r1.next).toContain("priorPipelineId 11");
+
+    const second = fake([mr(SHA, train("gitlab:pipeline:12", "success"))]);
+    const r2 = await watchPipeline({ ...base, priorPipelineId: r1.priorPipelineId! }, second.deps);
+    expect(r2).toMatchObject({ state: "success", pipeline: { id: "gitlab:pipeline:12" } });
+  });
+  test("a first-seen head with no pipeline proves any later pipeline new, and exposes a bound that still proves it", async () => {
+    const train = pipe({ id: "gitlab:pipeline:12", sha: "m".repeat(40), mergeRequestEventType: "merge_train", status: "running" });
+    const { deps } = fake([mr(SHA, null), mr(SHA, train)]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps) as { state: string; priorPipelineId?: number };
+    expect(r).toMatchObject({ state: "running", priorPipelineId: 11 });
+  });
+  test("a match through priorPipelineId or parents exposes no priorPipelineId", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running" }))]);
+    const r = await watchPipeline({ ...base, maxWaitSeconds: 30 }, deps);
+    expect("priorPipelineId" in (r as object)).toBe(false);
+  });
+  test("the poll interval never exceeds half the lease's ttl", async () => {
+    const slept: number[] = [];
+    const short = { ...LEASE, ttlSeconds: 60 };
+    const { deps } = fake([mr(SHA, pipe({ status: "running" }))], {
+      leaseCheck: () => ({ ok: true, lease: short }),
+    });
+    const inner = deps.sleep;
+    deps.sleep = async (ms, s) => { slept.push(ms); await inner(ms, s); };
+    await watchPipeline({ ...base, maxWaitSeconds: 120, intervalSeconds: 120 }, deps);
+    expect(slept.length).toBeGreaterThan(0);
+    expect(Math.max(...slept)).toBe(30_000);
+  });
+  test("a terminal result heartbeats once more before returning", async () => {
+    const { deps, calls } = fake([mr(SHA, pipe({ status: "success" }))]);
+    const r = await watchPipeline(base, deps) as { polls: number };
+    expect(r).toMatchObject({ state: "success" });
+    expect(calls.heartbeats).toBe(r.polls + 1);
+  });
+  test("a lease lost while fetching a terminal pipeline's traces returns lease_lost with the settled pipeline", async () => {
+    const other = { ...LEASE, owner: "session:b" };
+    let n = 0;
+    const jobs = [{ id: "gitlab:job:1", name: "j", stage: "test", status: "failed", allowFailure: false, webUrl: null }];
+    const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs }))], {
+      leaseCheck: () => (n++ === 0 ? { ok: true, lease: LEASE } : { ok: false, holder: other, reason: "lost" }),
+    });
+    const r = await watchPipeline(base, deps) as { next: string };
+    expect(r).toMatchObject({ state: "lease_lost", holder: { owner: "session:b" }, lease: null, pipeline: { status: "failed" } });
+    expect(r.next).toContain("stand down");
+  });
+  test("a failed pipeline with no failed job rows points at the downstream pipeline", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs: [] }))], { failedJobs: async () => [] });
+    const r = await watchPipeline(base, deps) as { state: string; next: string };
+    expect(r.state).toBe("failed");
+    expect(r.next).toContain("mr_pipeline");
+    expect(r.next).not.toContain("mr_job_trace");
+  });
+  test("superseded names the head the MR is at", async () => {
+    const other = "c".repeat(40);
+    const { deps } = fake([mr(other, pipe({ sha: other }))]);
+    const r = await watchPipeline(base, deps) as { next: string };
+    expect(r.next).toBe(`the MR head is not at the pushed sha (head: ${other})`);
+  });
+  test("a null head sha keeps waiting past the grace window, never superseded", async () => {
+    const { deps } = fake([mr(null, null)]);
+    expect(await watchPipeline(base, deps)).toMatchObject({ state: "waiting" });
+  });
   test("a read error is returned as an error", async () => {
     const { deps } = fake([], { readMr: async () => ({ ok: false, error: "daemon down" }) });
     expect(await watchPipeline(base, deps)).toEqual({ error: "daemon down" });
