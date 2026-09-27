@@ -381,3 +381,60 @@ test('a pane row reads its display name, and a title equal to it is not repeated
     screen.getAllByTestId(/^pane-row-/).map(r => r.getAttribute('data-testid'))
   ).toEqual(['pane-row-w9:p2']);
 });
+
+test('pane rows that share a name show avatars and an ordinal in list order; a unique name gets neither', async () => {
+  const pane = (
+    paneId: string,
+    handle: string,
+    name: string,
+    status: 'live' | 'idle'
+  ): ChatPane => ({
+    paneId,
+    workspace: 'repo-tools',
+    title: name,
+    cwd: '/r/repo-tools',
+    repo: 'repo-tools',
+    branch: 'main',
+    agentStatus: 'idle',
+    presence: { handle, name, status, rooms: [] },
+  });
+  route({
+    'GET /api/panes': () =>
+      json({
+        available: true,
+        panes: [
+          // Idle sorts after live, so the recycled remy lists second.
+          pane('w2:p1', 'remy.m2p4', 'remy', 'idle'),
+          pane('w2:p2', 'remy', 'remy', 'live'),
+          pane('w2:p3', 'kai', 'kai', 'live'),
+        ],
+      }),
+  });
+  mount();
+  await userEvent.click(screen.getByText('open'));
+  await screen.findByTestId('pane-row-w2:p1');
+  const avatars = (paneId: string) =>
+    screen
+      .getByTestId(`pane-row-${paneId}`)
+      .querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+
+  expect(screen.getByTestId('pane-check-w2:p2')).toHaveAttribute(
+    'aria-label',
+    'select remy (1 of 2)'
+  );
+  expect(screen.getByTestId('pane-check-w2:p1')).toHaveAttribute(
+    'aria-label',
+    'select remy (2 of 2)'
+  );
+  expect(avatars('w2:p2')).toBe(1);
+  expect(avatars('w2:p1')).toBe(1);
+  expect(screen.getByTestId('pane-check-w2:p3')).toHaveAttribute(
+    'aria-label',
+    'select kai'
+  );
+  expect(avatars('w2:p3')).toBe(0);
+
+  expect(document.body.textContent).not.toContain('m2p4');
+  for (const el of document.body.querySelectorAll('[aria-label]'))
+    expect(el.getAttribute('aria-label')).not.toContain('m2p4');
+});

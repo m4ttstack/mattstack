@@ -10,6 +10,7 @@ import {
 import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 
+import { AgentName } from '../AgentName';
 import { DOT_COLOR, headTruncatePath } from '../presence-bits';
 import type { AgentStatus, ChatPane } from './types';
 
@@ -92,6 +93,9 @@ export interface PaneRowProps {
   trailing?: ReactNode;
   /** First row in its list: no top border (the list container's own border stands in for it). */
   first?: boolean;
+  /** Set when another listed row shares this name: `remy (1 of 2)`. The
+      row then shows its id-seeded avatar and labels itself by this. */
+  ordinal?: string;
 }
 
 export function PaneRow({
@@ -104,6 +108,7 @@ export function PaneRow({
   extra,
   trailing,
   first,
+  ordinal,
 }: PaneRowProps) {
   const disabled = !!disabledReason;
   const name = pane.presence
@@ -142,7 +147,7 @@ export function PaneRow({
           role="checkbox"
           aria-checked={!!selected}
           aria-disabled={disabled}
-          aria-label={`select ${name ?? pane.paneId}`}
+          aria-label={`select ${ordinal ?? name ?? pane.paneId}`}
           data-testid={`pane-check-${pane.paneId}`}
           onClick={() => {
             if (!disabled) onToggle();
@@ -195,7 +200,15 @@ export function PaneRow({
           />
           {name ? (
             <Text component="span" size="sm" fw={600}>
-              {name}
+              {ordinal && pane.presence ? (
+                <AgentName
+                  handle={pane.presence.handle}
+                  name={name}
+                  withCard={false}
+                />
+              ) : (
+                name
+              )}
             </Text>
           ) : (
             <Text component="span" size="sm" style={{ color: MUTED }}>

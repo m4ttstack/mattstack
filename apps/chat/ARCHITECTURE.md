@@ -74,9 +74,10 @@ shows names and acts on ids:
   DM rows that read the same pair show their avatars, and so does the open
   DM's title in the page bar and phone header (`DmPairTitle`). Both read
   `repeatedPairLabels` over the rail's listed DMs, so they cannot disagree.
-- Fleet tree workstream rows that share a name each show their avatar,
-  and their aria-labels carry the row's place among them in render order
-  (`Message remy (2 of 2)`), from `sameNameOrdinals` in `display-name.ts`.
+- Fleet tree workstream rows and pane picker rows that share a name each
+  show their avatar, and their aria-labels carry the row's place among them
+  in render order (`Message remy (2 of 2)`, `select remy (2 of 2)`), from
+  `sameNameOrdinals` in `display-name.ts`.
 - The collapsed DIRECT overflow line draws each hidden pair's unread as the
   rows' `UnreadBadge`, so a count never reads as part of a name.
 - The Composer's `@` autocomplete matches names and posts ids; options that

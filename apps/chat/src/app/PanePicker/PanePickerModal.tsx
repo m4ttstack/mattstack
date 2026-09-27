@@ -11,6 +11,7 @@ import { useIsMobile } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 import { notifications } from '@mattstack/app-kit/notifications';
 
+import { sameNameOrdinals } from '../display-name';
 import { NewPaneForm } from './NewPaneForm';
 import { PaneRow } from './PaneRow';
 import type { ChatPane, PickPanesOptions } from './types';
@@ -89,6 +90,10 @@ export function PanePickerModal({
   const visible = useMemo(
     () => panes.filter(p => matchesFilter(p, filter)),
     [panes, filter]
+  );
+  const ordinals = sameNameOrdinals(
+    visible,
+    p => p.presence && (p.presence.name ?? p.presence.handle)
   );
 
   function reasonFor(pane: ChatPane): string | null {
@@ -271,6 +276,7 @@ export function PanePickerModal({
                     onToggle={() => toggle(pane)}
                     onPeek={() => peek(pane)}
                     peek={peeks[pane.paneId]}
+                    ordinal={ordinals.get(pane)}
                   />
                 ))}
               </Stack>

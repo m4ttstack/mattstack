@@ -265,7 +265,10 @@ the room reads `not in #room — DM instead`; `@here` sits last with its cost
 
 Unchanged from the previous round (rows, states, peek, new-pane view); see
 the `PanePicker`, `NewPane` artboards. Rows show display names; a pane title
-equal to the name is not repeated.
+equal to the name is not repeated. Listed rows that share a name each carry
+their id-seeded avatar before the name, and the checkbox label names the row
+with its place in the list (`select remy (2 of 2)`); a unique name gets
+neither.
 
 ## New room
 
