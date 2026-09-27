@@ -595,6 +595,17 @@ test("a room whose only backlog is the reader's own posts has nothing unread", (
   postMessage({ room: "r", handle: "a", body: "notes to self" }, db);
   expect(peekUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
   expect(readUnread({ handle: "a", limit: 20 }, db)).toEqual([]);
+  expect(listRooms("a", db).map((r) => [r.unread, r.mentions])).toEqual([[0, 0]]);
+});
+
+test("listRooms reports nothing unread once a trailing own post is the newest message", () => {
+  const db = freshDb();
+  joinRoom({ room: "r", handle: "a" }, db);
+  joinRoom({ room: "r", handle: "b" }, db);
+  postMessage({ room: "r", handle: "b", body: "q1" }, db);
+  postMessage({ room: "r", handle: "a", body: "reply" }, db);
+  readUnread({ handle: "a", limit: 20 }, db);
+  expect(listRooms("a", db).map((r) => [r.unread, r.mentions])).toEqual([[0, 0]]);
 });
 
 test("messages carry the author's display name and mention names parallel to mentions", () => {

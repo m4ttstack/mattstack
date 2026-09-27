@@ -134,8 +134,8 @@ const REVIVE_ROOM_SQL = `UPDATE chat_rooms SET archived_at = NULL WHERE name = ?
 const SELECT_ROOM_MEMBER_COUNT_SQL = `SELECT COUNT(*) AS n FROM chat_members WHERE room = ?;`;
 const SELECT_ROOM_MAX_ID_SQL = `SELECT COALESCE(MAX(id), 0) AS maxId FROM chat_messages WHERE room = ?;`;
 const SELECT_ROOM_LAST_POSTED_SQL = `SELECT MAX(posted_at) AS lastPostedAt FROM chat_messages WHERE room = ?;`;
-const SELECT_ROOM_UNREAD_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ?;`;
-const SELECT_ROOM_UNREAD_MENTIONS_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ? AND mentions LIKE ? ESCAPE '\\';`;
+const SELECT_ROOM_UNREAD_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ? AND handle <> ?;`;
+const SELECT_ROOM_UNREAD_MENTIONS_SQL = `SELECT COUNT(*) AS n FROM chat_messages WHERE room = ? AND id > ? AND handle <> ? AND mentions LIKE ? ESCAPE '\\';`;
 const UPSERT_ROOM_SQL = `INSERT INTO chat_rooms (name, created_at) VALUES (?, ?) ON CONFLICT(name) DO NOTHING;`;
 const SELECT_ROOM_DEFAULT_WAKE_SQL = `SELECT wake_on FROM chat_room_defaults WHERE room = ?;`;
 const INSERT_ROOM_DEFAULT_WAKE_SQL = `INSERT INTO chat_room_defaults (room, wake_on) VALUES (?, ?) ON CONFLICT(room) DO NOTHING;`;
@@ -331,9 +331,9 @@ export function listRooms(
   const rows = opts.includeArchived ? all : all.filter((r) => r.archived_at === null);
   return rows.map((row) => {
     const memberCount = (db.query(SELECT_ROOM_MEMBER_COUNT_SQL).get(row.room) as { n: number }).n;
-    const unread = (db.query(SELECT_ROOM_UNREAD_SQL).get(row.room, row.last_read_id) as { n: number }).n;
+    const unread = (db.query(SELECT_ROOM_UNREAD_SQL).get(row.room, row.last_read_id, handle) as { n: number }).n;
     const mentions = (
-      db.query(SELECT_ROOM_UNREAD_MENTIONS_SQL).get(row.room, row.last_read_id, `%"${escapeLike(handle)}"%`) as { n: number }
+      db.query(SELECT_ROOM_UNREAD_MENTIONS_SQL).get(row.room, row.last_read_id, handle, `%"${escapeLike(handle)}"%`) as { n: number }
     ).n;
     const lastPosted = (db.query(SELECT_ROOM_LAST_POSTED_SQL).get(row.room) as { lastPostedAt: number | null }).lastPostedAt;
 
