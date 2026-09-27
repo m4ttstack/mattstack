@@ -1210,6 +1210,7 @@ const inboxPayload = {
       kind: 'room' as const,
       messageId: 412,
       handle: 'meg',
+      name: 'meg',
       postedAt: Date.now() - 60_000,
       excerpt: '@matt is the exporter ready to ship?',
       reason: 'mention' as const,

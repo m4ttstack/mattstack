@@ -170,3 +170,33 @@ test('the open card is marked, so the list says which one the reader holds', () 
   renderCard(mention, { open: true });
   expect(screen.getByTestId('inbox-card-412').dataset.open).toBe('true');
 });
+
+test('a DM card reads names: the author and the pair, never an id', () => {
+  const card: InboxCardData = {
+    room: 'dm-2c9b7e41d0a5',
+    kind: 'dm',
+    participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+    messageId: 812,
+    handle: 'remy.m2p4',
+    name: 'remy',
+    postedAt: NOW - 60_000,
+    excerpt: 'picked up the chat identity lane',
+    reason: 'dm-turn',
+  };
+  renderWithProviders(
+    <InboxCard
+      card={card}
+      now={NOW}
+      onOpen={vi.fn()}
+      onMarkRead={vi.fn()}
+      onOpenRoom={vi.fn()}
+    />
+  );
+  const el = screen.getByTestId('inbox-card-812');
+  expect(el).toHaveTextContent('kai ↔ remy');
+  expect(el).not.toHaveTextContent('m2p4');
+  expect(screen.getByTestId('card-lead-812')).toHaveAttribute(
+    'aria-label',
+    "Read remy's message in kai ↔ remy"
+  );
+});

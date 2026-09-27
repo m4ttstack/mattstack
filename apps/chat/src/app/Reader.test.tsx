@@ -204,3 +204,26 @@ test('daemon down: the composer is disabled and keeps the pre-tagged draft', asy
     screen.getByText(/rt daemon unreachable\. Your draft is kept\./i)
   ).toBeInTheDocument();
 });
+
+test('a reply to a recycled name tags the name in the text and the id in mentions', async () => {
+  const recycled: InboxCardData = { ...card, handle: 'remy.m2p4', name: 'remy' };
+  serveWindow([{ ...opened, handle: 'remy.m2p4', name: 'remy' }]);
+  renderReader({ card: recycled });
+  const message = await screen.findByTestId('reader-message-412');
+  expect(message).not.toHaveTextContent('m2p4');
+  const box = screen.getByRole('textbox');
+  expect(box).toHaveValue('@remy ');
+  await userEvent.type(box, 'thanks{Enter}');
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/chat/post',
+      expect.objectContaining({
+        body: JSON.stringify({
+          room: 'boxscore',
+          body: '@remy thanks',
+          mentions: ['remy.m2p4'],
+        }),
+      })
+    )
+  );
+});

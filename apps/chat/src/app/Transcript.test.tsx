@@ -1163,3 +1163,31 @@ test('a DM never carries the unclaimed chip, even for an unanswered @here', () =
   );
   expect(screen.queryByTestId('unclaimed-chip')).toBeNull();
 });
+
+test('two identities that share a name read the same and keep their own hue', () => {
+  renderWithProviders(
+    <Transcript
+      room="rt"
+      messages={[
+        { id: 1, room: 'rt', handle: 'remy', name: 'remy', body: 'old tail is mine', mentions: [], mentionNames: [], postedAt: 1 },
+        { id: 2, room: 'rt', handle: 'remy.m2p4', name: 'remy', body: 'new here', mentions: [], mentionNames: [], postedAt: 2 },
+        { id: 3, room: 'rt', handle: 'max', name: 'max', body: '@remy welcome', mentions: ['remy.m2p4'], mentionNames: ['remy'], postedAt: 3 },
+      ]}
+    />
+  );
+  const chips = screen.getAllByTestId('speaker-chip');
+  expect(chips[0]).toHaveTextContent(/^remy$/);
+  expect(chips[1]).toHaveTextContent(/^remy$/);
+  expect(screen.getByTestId('message-2')).not.toHaveTextContent('m2p4');
+  const hue = (chip: HTMLElement) =>
+    chip.style.getPropertyValue('--speaker-hue');
+  expect(hue(chips[0]!)).not.toBe(hue(chips[1]!));
+  const avatar = (chip: HTMLElement) =>
+    chip.querySelector('svg')!.getAttribute('fill');
+  expect(avatar(chips[0]!)).not.toBe(avatar(chips[1]!));
+  const mention = screen
+    .getByTestId('message-3')
+    .querySelector('[data-mention]')!;
+  expect(mention).toHaveTextContent('@remy');
+  expect(mention).toHaveAttribute('data-mention', 'remy.m2p4');
+});
