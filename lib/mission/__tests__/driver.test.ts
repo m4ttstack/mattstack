@@ -3431,6 +3431,55 @@ describe("unregistered repos", () => {
     expect(last.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
   });
 
+  test("refuses a scanned path that now holds a different repo, and re-resolves it next pass", async () => {
+    const timers: (() => void)[] = [];
+    const asked: string[] = [];
+    let replaced = false;
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf: (root) => { asked.push(root); return replaced && root === "/u/a" ? "gh:other/x" : identityOf(root); },
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    replaced = true;
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } });
+    await flushMicrotasks();
+    const refused = session.pushed.at(-1) as MissionModel;
+    expect(refused.current.repo).toBe("repo-tools");
+    expect(refused.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
+    asked.length = 0;
+    timers[0]!();
+    await flushMicrotasks();
+    expect(asked).toContain("/u/a");
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("refuses a scanned path whose identity can no longer be read", async () => {
+    let broken = false;
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf: (root) => { if (broken) throw new Error("not a git repo"); return identityOf(root); },
+      pathExists: () => true,
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    broken = true;
+    session.send({ t: "intent", name: "mission:repo", payload: { repo: "gh:me/a" } });
+    await flushMicrotasks();
+    const refused = session.pushed.at(-1) as MissionModel;
+    expect(refused.current.repo).toBe("repo-tools");
+    expect(refused.notice).toBe(`no known worktree for ${repoLabel("gh:me/a")}`);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
   test("the updater skips registered repos and publishes badges", async () => {
     const timers: (() => void)[] = [];
     const refreshed: string[] = [];

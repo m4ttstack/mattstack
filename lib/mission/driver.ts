@@ -1349,11 +1349,24 @@ export class MissionDriver {
     this.push();
   }
 
+  /** Reads identity fresh, bypassing the scan memo: the directory may have been replaced since it was cached. */
+  private stillHolds(path: string, identity: string): boolean {
+    let current: string | null;
+    try {
+      current = this.deps.identityOf(path);
+    } catch {
+      current = null;
+    }
+    if (current === identity) return true;
+    this.scannedIdentities.delete(path);
+    return false;
+  }
+
   private async handleRepo(payload: RepoPayload | undefined): Promise<void> {
     if (!payload || typeof payload.repo !== "string") return;
     const known = this.rows.find((r) => r.repo === payload.repo)?.worktrees[0]?.worktree;
     const scanned = this.unregistered.find((u) => u.identity === payload.repo)?.path;
-    const target = known ?? (scanned && this.deps.pathExists(scanned) ? scanned : undefined);
+    const target = known ?? (scanned && this.deps.pathExists(scanned) && this.stillHolds(scanned, payload.repo) ? scanned : undefined);
     if (!target) {
       // Refuse rather than half-switch: a repo without a known worktree has
       // no directory to point the git client at.
