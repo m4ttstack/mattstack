@@ -72,6 +72,12 @@ digraph mattstack_release {
     "Handed to Matt: second-user smoke or key backup" [shape=doublecircle];
     "Off-script gate: dispatch run wedged" [shape=box];
     "Dispatch run wedged: gate rounds = 2?" [shape=diamond];
+    "Fix needs a commit on the branch?" [shape=diamond];
+    "Commit the fix on the rehearsal branch" [shape=box];
+    "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
+    "Fix push result?" [shape=diamond];
+    "Off-script gate: rehearsal fix push refused" [shape=box];
+    "Rehearsal fix push refused: gate rounds = 2?" [shape=diamond];
     "Off-script gate: rehearsal keeps failing" [shape=box];
     "Rehearsal keeps failing: gate rounds = 2?" [shape=diamond];
     "Off-script gate: hand step keeps failing" [shape=box];
@@ -106,7 +112,19 @@ digraph mattstack_release {
     "Dispatch run wedged: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Dispatch run result?" -> "Off-script gate: dispatch run wedged" [label="still running past 90 minutes"];
     "Rehearsal attempts = 3?" -> "Diagnose the failing rehearsal step" [label="no"];
-    "Diagnose the failing rehearsal step" -> "gh workflow run release.yml --ref <branch>";
+    "Diagnose the failing rehearsal step" -> "Fix needs a commit on the branch?";
+    "Fix needs a commit on the branch?" -> "gh workflow run release.yml --ref <branch>" [label="no: a transient failure"];
+    "Fix needs a commit on the branch?" -> "Commit the fix on the rehearsal branch" [label="yes"];
+    "Commit the fix on the rehearsal branch" -> "git_push {tree: <root>, setUpstream: true}";
+    "git_push {tree: <root>, setUpstream: true}" -> "Fix push result?";
+    "Fix push result?" -> "gh workflow run release.yml --ref <branch>" [label="ok"];
+    "Off-script gate: rehearsal fix push refused" -> "gh workflow run release.yml --ref <branch>" [label="take: Matt pushed the fix himself"];
+    "Off-script gate: rehearsal fix push refused" -> "Rehearsal fix push refused: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: rehearsal fix push refused" -> "Held: the turn ends naming the gate" [label="hold"];
+    "Off-script gate: rehearsal fix push refused" -> "Handed back to Matt" [label="hand back"];
+    "Rehearsal fix push refused: gate rounds = 2?" -> "git_push {tree: <root>, setUpstream: true}" [label="no: retry"];
+    "Rehearsal fix push refused: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Fix push result?" -> "Off-script gate: rehearsal fix push refused" [label="refused"];
     "Off-script gate: rehearsal keeps failing" -> "Rehearsed" [label="take: Matt names a green run"];
     "Off-script gate: rehearsal keeps failing" -> "Rehearsal keeps failing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: rehearsal keeps failing" -> "Held: the turn ends naming the gate" [label="hold"];
@@ -241,6 +259,12 @@ Read the first failing step of `gh run view <run-id> -R m4ttstack/mattstack --lo
 failure after a fix is often progress: the step before it works now. Name the cause and the fix
 before the next dispatch; `reference.md`'s footguns hold the causes seen so far.
 
+### Commit the fix on the rehearsal branch
+
+`git add` the files the fix touched by name, never a wildcard, and commit them on the branch the
+dispatch runs against. That branch is a non-default branch: `git_push` refuses main, so a fix meant
+for main goes through a PR first, and the rehearsal dispatches against that PR's branch.
+
 ### Run the step with the workflow's env
 
 Mirror the workflow's env and order. The deltas that matter outside CI:
@@ -326,6 +350,12 @@ again.
 
 Quote the failing step's log from the third red run and the causes tried. Take: Matt names a green
 run. Iterate: Matt fixed the cause, and the dispatch runs again.
+
+### Off-script gate: rehearsal fix push refused
+
+Quote `git_push`'s refusal and the branch it was asked to push. Take: Matt pushed the fix himself,
+and the dispatch runs. Iterate: Matt fixed the cause (a branch that tracks the wrong remote, a fix
+committed on main instead of a PR branch), and `git_push` runs again.
 
 ### Off-script gate: hand step keeps failing
 
