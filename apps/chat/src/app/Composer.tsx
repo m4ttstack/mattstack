@@ -194,14 +194,20 @@ function BuddyOption({
     >
       <Dot status={status} />
       <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-        <Text component="span" size="sm" fw={600} truncate>
-          <AgentName
-            handle={handle}
-            name={name}
-            withCard={false}
-            withAvatar={withAvatar}
-          />
-        </Text>
+        {withAvatar ? (
+          <Text component="span" size="sm" fw={600} truncate>
+            <AgentName
+              handle={handle}
+              name={name}
+              withCard={false}
+              withAvatar
+            />
+          </Text>
+        ) : (
+          <Text component="span" size="sm" fw={600} truncate>
+            {name}
+          </Text>
+        )}
         {subtext && (
           <Text
             component="span"
@@ -440,16 +446,27 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(
     function insertMentionAtCaret(handle: string) {
       const el = textareaRef.current;
       const caret = el?.selectionStart ?? value.length;
-      // Keyed on the id, not the text: two agents can share a name, so an
-      // `@name` already in the draft may be the other one.
-      if (mentions.includes(handle)) {
+      const shown = nameOf(handle);
+      const escaped = shown.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const textHas = new RegExp(`@${escaped}(?![A-Za-z0-9._-])`).test(value);
+      if (textHas && mentions.includes(handle)) {
+        focusAt(caret);
+        return;
+      }
+      // An `@name` already typed can only be adopted when the name maps to
+      // one agent; a shared name may belong to the other one.
+      if (
+        textHas &&
+        buddies.filter(b => (b.name ?? b.handle) === shown).length === 1
+      ) {
+        setMentions(prev => (prev.includes(handle) ? prev : [...prev, handle]));
         focusAt(caret);
         return;
       }
       const before = value.slice(0, caret);
       const after = value.slice(caret);
       const needsSpace = before.length > 0 && !/\s$/.test(before);
-      const inserted = `${needsSpace ? ' ' : ''}@${nameOf(handle)} `;
+      const inserted = `${needsSpace ? ' ' : ''}@${shown} `;
       setValue(before + inserted + after);
       setMentions(prev => (prev.includes(handle) ? prev : [...prev, handle]));
       focusAt(before.length + inserted.length);

@@ -274,3 +274,50 @@ test('options that share a name show their avatars; a unique name shows none', a
   expect(recycled).not.toHaveTextContent('m2p4');
   expect(fills(screen.getByTestId('composer-option-kai'))).toEqual([]);
 });
+
+test('re-picking a buddy after deleting its mention text inserts it again', async () => {
+  const ref = createRef<ComposerHandle>();
+  renderWithProviders(
+    <Composer
+      ref={ref}
+      room="build"
+      roomMembers={['kai']}
+      buddies={[{ handle: 'kai', status: 'live' }]}
+    />
+  );
+  const box = screen.getByRole('textbox');
+  act(() => ref.current!.insertMention('kai'));
+  expect(box).toHaveValue('@kai ');
+  await userEvent.clear(box);
+  act(() => ref.current!.insertMention('kai'));
+  expect(box).toHaveValue('@kai ');
+});
+
+test('a roster pick adopts a hand-typed mention of a unique name instead of repeating it', async () => {
+  const ref = createRef<ComposerHandle>();
+  renderWithProviders(
+    <Composer
+      ref={ref}
+      room="build"
+      roomMembers={['kai']}
+      buddies={[{ handle: 'kai', status: 'live' }]}
+    />
+  );
+  const box = screen.getByRole('textbox');
+  await userEvent.type(box, 'ping @kai{Escape} ');
+  act(() => ref.current!.insertMention('kai'));
+  expect(box).toHaveValue('ping @kai ');
+  await userEvent.type(box, '{Enter}');
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/chat/post',
+      expect.objectContaining({
+        body: JSON.stringify({
+          room: 'build',
+          body: 'ping @kai',
+          mentions: ['kai'],
+        }),
+      })
+    )
+  );
+});
