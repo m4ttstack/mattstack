@@ -177,3 +177,25 @@ test("resolveHandle: an adopted legacy kai never matches as a minted id, but is 
   db.run("DELETE FROM chat_presence WHERE session_id = 's-new'");
   expect(resolveHandle("kai", db)).toBe("kai");
 });
+
+// Review Focus 3
+test("a legacy handle containing a dot resolves as itself, never as base remy plus a suffix", () => {
+  const db = fresh();
+  db.run("INSERT INTO chat_dms (room, a, b, created_at) VALUES ('dm-old', 'kai', 'remy.old', 1)");
+  db.run("INSERT INTO chat_messages (room, handle, body, posted_at) VALUES ('dm-old', 'remy.old', 'hi', 1)");
+  const live = mintIdentity({ base: "remy", name: "remy", sessionId: "s1", now: 5 }, db);
+  seat(db, "s1", live.id, "remy", 5);
+  expect(isKnownId("remy.old", db)).toBe(true);
+  expect(resolveHandle("remy.old", db)).toBe("remy.old");
+  expect(identityName("remy.old", db)).toBe("remy.old");
+  expect(resolveHandle("remy", db)).toBe(live.id);
+  expect(resolveHandle(live.id, db)).toBe(live.id);
+});
+
+test("a dotted legacy handle known only as a DM participant is never read as base plus suffix", () => {
+  const db = fresh();
+  db.run("INSERT INTO chat_dms (room, a, b, created_at) VALUES ('dm-old', 'chat.c6', 'kai', 1)");
+  const remy = mintIdentity({ base: "chat", name: "chat", sessionId: "s1", now: 5 }, db);
+  expect(resolveHandle("chat.c6", db)).toBe("chat.c6");
+  expect(resolveHandle("chat", db)).toBe(remy.id);
+});

@@ -608,3 +608,15 @@ test("the pool draw skips a name a live session shows, even though its id carrie
   setKvValue("chat", "names", remyOldest(now), db);
   expect(mustSignIn({ sessionId: "s2", now: now + MIN }, db, NO_BINDING).baseHandle).not.toBe("remy");
 });
+
+// Review Focus 3
+test("signIn never mints an id equal to a dotted legacy handle", () => {
+  const db = fresh();
+  const hash = (seed: string, length: number) =>
+    BigInt(`0x${new Bun.CryptoHasher("sha256").update(seed).digest("hex")}`).toString(36).slice(-length);
+  const legacy = `remy.${hash(`s1:${now}`, 4)}`;
+  db.run("INSERT INTO chat_members (room, handle, joined_at, last_read_id, wake_on) VALUES ('r', ?, 1, 0, 'mention')", [legacy]);
+  const r = mustSignIn({ sessionId: "s1", baseHandle: "remy", now }, db, NO_BINDING);
+  expect(r.handle).toBe(`remy.${hash(`s1:${now}`, 6)}`);
+  expect(r.name).toBe("remy");
+});
