@@ -1,5 +1,10 @@
 # rt chat QoL round 1: archive a room, DM as a room, a readable transcript
 
+> **Superseded in part:** `2026-09-27-chat-identity-design.md` replaces this
+> document's handle-as-identity statements: a handle is an identity id
+> behind a display name, and every new session is a new identity unless it
+> explicitly continues one.
+
 Extends `2026-08-23-rt-chat-design.md` and `2026-08-24-rt-chat-presence-design.md`,
 and sits beside `2026-08-26-rt-chat-invite-design.md` (the two overlap in files,
 not in behaviour; see **Overlap with the invite lane**). Where this document
