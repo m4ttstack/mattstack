@@ -6,7 +6,7 @@ source "$(cd "$(dirname "$0")/.." && pwd)/lib/common.sh"
 usage() { sed -n '2p' "$0"; cat <<'EOF'
 usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
          [--scenario create|join|headless|solo] [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT]
-         [--invite-code-file <p>] [--team-remote <url>] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
+         [--invite-code-file <p>] [--team-remote <url> (solo scenario: runs the team-upgrade phase)] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
          [--fresh-team-repo] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
          [--golden <name>]
 EOF
@@ -141,6 +141,7 @@ if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
   vm_log "fresh team repo: $TEAM_REMOTE"
 fi
 if [ "$SCENARIO" != headless ] && [ -z "${!PAT_ENV:-}" ]; then vm_warn "\$$PAT_ENV empty — the forge account row cannot be connected; the screens phase will fail there if the app shows it"; fi
+if [ "$SCENARIO" = solo ] && [ -n "$TEAM_REMOTE" ] && [ -z "${!PAT_ENV:-}" ]; then vm_warn "\$$PAT_ENV empty; the team-upgrade phase needs the token to connect the forge row"; fi
 cp -R "$VM_ROOT/run/guest" "$VM_RUN_DIR/in/guest"; cp "$VM_ROOT/../../scripts/e2e-cleanroom.sh" "$VM_RUN_DIR/in/guest/" 2>/dev/null || true
 # The headless recipe's check-bundle step parses deps.lock with bun; CI gets
 # bun from setup-bun, but a clean-room guest has none, so the harness hands it
@@ -249,6 +250,20 @@ else
   n=$(grep -c 'ASSERT FAIL' "$VM_RUN_DIR/logs/assert.log")
   if [ "$n" -gt 0 ]; then vm_phase_end assert fail "$n assertion(s) failed (logs/assert.log)"
   else vm_phase_end assert fail "script exited $rc (logs/assert.log)"; fi
+fi
+
+# ── team-upgrade ─────────────────────────────────────────────────────────────
+vm_phase_begin team-upgrade
+if [ "$SCENARIO" != solo ]; then
+  vm_phase_end team-upgrade skip "scenario is $SCENARIO, not solo"
+elif [ -z "$TEAM_REMOTE" ]; then
+  vm_phase_end team-upgrade skip "no --team-remote given"
+else
+  if vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1; then
+    vm_phase_end team-upgrade pass
+  else
+    vm_phase_end team-upgrade fail "upgrade-to-team.sh failed (logs/upgrade.log)"
+  fi
 fi
 
 # ── update ───────────────────────────────────────────────────────────────────
