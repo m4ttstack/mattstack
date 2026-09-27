@@ -104,8 +104,9 @@ Push with the `git_push` tool (`tree` = the worktree root, the absolute
 path `git rev-parse --show-toplevel` prints; `setUpstream: true`). An
 error starting `tree must be the absolute path of the root` fires for a
 subdirectory as well as for a repo not registered with rt: retry once with
-that root, and only when the root is refused too, push with plain git on
-Bash instead (`git push -u origin <branch>`). <!-- mcp-lint: allow -->
+that root. When the root is refused too, do not push any other way: stop
+and hand the push back through the ship gate, quoting the refusal, so the
+human pushes or fixes the registration.
 Then create the MR/PR against the
 repo's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`,
 minus `origin/`): on GitLab the `mr_create` tool (`draft: false` only when

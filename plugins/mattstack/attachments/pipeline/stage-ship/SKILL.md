@@ -66,9 +66,10 @@ Unbound (generic fallback): push with the `git_push` tool (`tree` = the
 worktree root, the absolute path `git rev-parse --show-toplevel` prints;
 `setUpstream: true`). An error starting
 `tree must be the absolute path of the root` fires for a subdirectory as
-well as for a repo not registered with rt: retry once with that root, and
-only when the root is refused too, push with plain git on Bash instead
-(`git push -u origin <branch>`). <!-- mcp-lint: allow -->
+well as for a repo not registered with rt: retry once with that root. When
+the root is refused too, do not push any other way: stop and hand the push
+back through the ship gate, quoting the refusal, so the human pushes or
+fixes the registration.
 Then open
 the MR/PR the way the forge-host rule names, as draft unless the gate said ready, title
 from the ticket or first commit subject, body linking the ticket and the `evidence` field's entries. Never
