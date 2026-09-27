@@ -709,30 +709,25 @@ function createDashboardGroup(
     if (!listener || currentIids.length === 0) return;
 
     // The watcher subscribes after its init fetch, from that fetch's PRs. A
-    // later fetch that returns an MR no subscription covers re-attaches.
+    // later fetch that returns MRs no subscription covers adds a subscription
+    // for just those: providers key channels by MR, so re-subscribing a
+    // covered MR and disposing the old subscription would unsubscribe it.
+    // Only the first subscription reports connection changes; the added ones
+    // ride the same cable and forward events only.
     let fetchedPrs: PullRequest[] = [];
     let push: {
       callbacks: WatcherSubscribeCallbacks;
       subscribed: Set<number>;
-      dispose: () => void;
+      disposers: (() => void)[];
     } | null = null;
 
-    // New before old, so the shared cable's watcher count never reaches zero
-    // in between. A re-attach drops the immediate onConnected: the watcher is
-    // already connected, and a second connect would read as a reconnect.
-    const attachPush = (callbacks: WatcherSubscribeCallbacks, reattach: boolean) => {
-      let quiet = reattach;
-      const dispose = provider.subscribePullRequestEvents!(projectPath, fetchedPrs, {
-        onEvent: callbacks.onEvent,
-        onDisconnected: callbacks.onDisconnected,
-        onConnected: () => {
-          if (!quiet) callbacks.onConnected();
-        }
-      });
-      quiet = false;
-      const previous = push;
-      push = { callbacks, subscribed: new Set(fetchedPrs.map(pr => pr.iid)), dispose };
-      previous?.dispose();
+    const attachPush = (prs: PullRequest[], first: boolean) => {
+      const p = push!;
+      const callbacks = first
+        ? p.callbacks
+        : { onEvent: p.callbacks.onEvent, onConnected: () => {}, onDisconnected: () => {} };
+      p.disposers.push(provider.subscribePullRequestEvents!(projectPath, prs, callbacks));
+      for (const pr of prs) p.subscribed.add(pr.iid);
     };
 
     disposeWatcher = createRealtimeWatcher<Map<number, PullRequest>>({
@@ -743,9 +738,10 @@ function createDashboardGroup(
           callbacks.onConnected();
           return () => {};
         }
-        attachPush(callbacks, false);
+        push = { callbacks, subscribed: new Set(), disposers: [] };
+        attachPush(fetchedPrs, true);
         return () => {
-          push?.dispose();
+          for (const dispose of push?.disposers ?? []) dispose();
           push = null;
         };
       },
@@ -753,9 +749,8 @@ function createDashboardGroup(
       onUpdate: (freshMap) => {
         _isInitialLoading = false;
         fetchedPrs = [...freshMap.values()];
-        if (push && fetchedPrs.some(pr => !push!.subscribed.has(pr.iid))) {
-          attachPush(push.callbacks, true);
-        }
+        const uncovered = push ? fetchedPrs.filter(pr => !push!.subscribed.has(pr.iid)) : [];
+        if (uncovered.length > 0) attachPush(uncovered, false);
         for (const [iid, pr] of freshMap) {
           state.set(iid, getMRDashboardProps(pr, connectionState));
         }
