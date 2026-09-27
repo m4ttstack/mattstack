@@ -151,9 +151,9 @@ user is in a hurry.
 
 ### Several matches: attended session?
 
-One question, one option per plausible match, each labelled with the
-connection's `label` and described by its `tier` and `key`. Nothing else
-goes in the question.
+One question, the four closest matches as options, each labelled with the
+connection's `label` and described by its `tier` and `key`; name any
+further matches in the question text instead of adding more options.
 
 ### No match: attended session?
 
