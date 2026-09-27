@@ -504,6 +504,45 @@ describe('/api/apps during the boot sweep', () => {
       writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH!, '[]');
     }
   });
+
+  test('/api/v1/apps answers 503 past the wait, then the rows the sweep created', async () => {
+    const sweep = Promise.withResolvers<void>();
+    const booting = bootingServer(sweep.promise, 20);
+    try {
+      const waiting = await fetch(`http://127.0.0.1:${BOOT_PORT}/api/v1/apps`);
+      expect(waiting.status).toBe(503);
+      expect(waiting.headers.get('retry-after')).toBe('1');
+      expect(await waiting.json()).toEqual({
+        error: 'deck is still starting its apps',
+      });
+
+      sweptApp();
+      sweep.resolve();
+      const ready = await fetch(`http://127.0.0.1:${BOOT_PORT}/api/v1/apps`);
+      expect(ready.status).toBe(200);
+      expect(await appNames(ready)).toEqual(['bs-app']);
+    } finally {
+      booting.stop(true);
+      writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH!, '[]');
+    }
+  });
+
+  test('/api/v1/apps mid-sweep waits for the rows the sweep creates', async () => {
+    const sweep = Promise.withResolvers<void>();
+    const booting = bootingServer(sweep.promise, 10_000);
+    try {
+      const pending = fetch(`http://127.0.0.1:${BOOT_PORT}/api/v1/apps`);
+      await Bun.sleep(20);
+      sweptApp();
+      sweep.resolve();
+      const res = await pending;
+      expect(res.status).toBe(200);
+      expect(await appNames(res)).toEqual(['bs-app']);
+    } finally {
+      booting.stop(true);
+      writeFileSync(process.env.LOCAL_APPS_ROUTES_PATH!, '[]');
+    }
+  });
 });
 
 test('publish flips settings through the versioned path', async () => {

@@ -7,6 +7,7 @@ import { afterEach, expect, test } from 'bun:test';
 import {
   effectiveIdentity,
   readBundledIdentity,
+  requiresTeamFor,
   setBundledResourcesDir,
   statusIconUrl,
 } from './bundled-identity.ts';
@@ -19,7 +20,7 @@ import type { AppRecord } from './records.ts';
 // both repos' tests.
 const FIXTURE_SHA256 = {
   'mattstack.deck.json':
-    '50f5e9e8ac66f05befbe8d819f8d2a8d23c1d190e39fb5d505d2aa199f668523',
+    '998fddd2621726f465df3f478d0eeefa8c0186ce3e5c8fd1de7c0edb7193faf5',
   'src/favicon.svg':
     '1226b22e369865eaf8b319d5aba863a7c531f313552cf47b4f0dbcec6d199142',
 };
@@ -71,6 +72,7 @@ test('reads the staged identity build-apps ships', () => {
     displayName: 'Board',
     description: 'Open MRs ready for review.',
     badge: '/api/badge',
+    requiresTeam: true,
     iconFile: BOARD_ICON,
   });
 });
@@ -151,6 +153,7 @@ test('an unlinked managed row takes its identity from the bundle', () => {
     displayName: 'Board',
     description: 'Open MRs ready for review.',
     badge: '/api/badge',
+    requiresTeam: true,
     iconFile: BOARD_ICON,
   });
 });
@@ -207,4 +210,12 @@ test('statusIconUrl follows the effective identity through the seam', () => {
   expect(statusIconUrl(record({ managedBy: 'deck' }))).toBe('/favicon.svg');
   setBundledResourcesDir(null);
   expect(statusIconUrl(record())).toBeNull();
+});
+
+test('requiresTeamFor reads the effective identity: bundled beats a stored record without it', () => {
+  setBundledResourcesDir(FIXTURE_RESOURCES);
+  expect(requiresTeamFor(record())).toBe(true);
+  setBundledResourcesDir(null);
+  expect(requiresTeamFor(record())).toBe(false);
+  expect(requiresTeamFor(record({ requiresTeam: true }))).toBe(true);
 });

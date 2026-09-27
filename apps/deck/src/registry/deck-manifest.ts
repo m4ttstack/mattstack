@@ -13,6 +13,8 @@ export interface DeckManifest {
   commands: Record<string, string>;
   /** Marks the app bundle-ready and in scope for the dev/prod serve switch (field name provisional; fox owns this file's schema). */
   includeInBundle?: boolean;
+  /** The app only means something on a team (board, boxscore); rt idles it on a solo install. */
+  requiresTeam?: boolean;
   /** Dev-only shell strings: `start` is the source serve command; every other key is a dev action command. */
   dev?: Record<string, string>;
   /** Environment for the supervised `start` service (specFor layers PORT on top). Overlays may not override it. */
@@ -95,6 +97,12 @@ export function readDeckManifest(dir: string): ParseResult {
     if (typeof m.includeInBundle !== 'boolean')
       return err('includeInBundle must be a boolean');
     out.includeInBundle = m.includeInBundle;
+  }
+
+  if (m.requiresTeam !== undefined) {
+    if (typeof m.requiresTeam !== 'boolean')
+      return err('requiresTeam must be a boolean');
+    out.requiresTeam = m.requiresTeam;
   }
 
   if (m.dev !== undefined) {

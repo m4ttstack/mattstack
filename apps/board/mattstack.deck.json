@@ -6,6 +6,7 @@
   "port": 11006,
   "includeInBundle": true,
   "badge": "/api/badge",
+  "requiresTeam": true,
   "dev": {
     "start": "caffeinate -s bun src/server.ts",
     "build": "bun run build",
