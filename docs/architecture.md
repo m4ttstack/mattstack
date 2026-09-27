@@ -1,8 +1,9 @@
 # Architecture: where the design docs live
 
-rt is one piece of a larger plan that spans five repos. Because it spans repos,
-the governing documents do **not** live in any one of them. They live in Linear,
-in the `mattstack` workspace.
+rt is one piece of a larger plan that once spanned five repos. The apps, glance
+and gitq now live in this repo (`apps/*`, `packages/glance`, `apps/gitq`; the
+old repos are archived), but the governing documents still do **not** live in
+any one repo. They live in Linear, in the `mattstack` workspace.
 
 Read these before proposing anything about rt's scope, board's shape, glance,
 gitq, or the acme skills:
