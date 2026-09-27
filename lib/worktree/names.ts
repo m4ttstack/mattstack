@@ -41,20 +41,23 @@ const NOUNS = [
 ];
 
 /**
- * Pick a random unused name from pool, or generate neutral name if pool exhausted/absent.
- * Neutral names are generated in format "<adj>-<noun>" with numeric suffixes on collision.
+ * Take the next unused pool name after `after`, wrapping to the head, or
+ * generate a neutral name when the pool is exhausted or absent.
+ *
+ * Round-robin, not random: a disposed tree's name must not come straight
+ * back, because a session idle in the old tree still holds that path as its
+ * cwd and would act on whoever claims the new one.
  */
-export function pickName(pool: string[] | undefined, used: Set<string>): string {
-  // Filter pool to unused names
+export function pickName(pool: string[] | undefined, used: Set<string>, after?: string): string {
   if (pool && pool.length > 0) {
-    // GOLDEN_NAME is reserved even when a custom pool names it explicitly:
-    // a member minted "golden" before the donor exists collides with it
-    // later, and name-keyed verbs (freshen --only, dispose by name) would
-    // then match two rows.
-    const available = pool.filter((name) => !used.has(name) && name !== GOLDEN_NAME);
-    if (available.length > 0) {
-      const randomIndex = Math.floor(Math.random() * available.length);
-      return available[randomIndex]!;
+    const start = after === undefined ? 0 : pool.indexOf(after) + 1;
+    for (let i = 0; i < pool.length; i++) {
+      const name = pool[(start + i) % pool.length]!;
+      // GOLDEN_NAME is reserved even when a custom pool names it explicitly:
+      // a member minted "golden" before the donor exists collides with it
+      // later, and name-keyed verbs (freshen --only, dispose by name) would
+      // then match two rows.
+      if (!used.has(name) && name !== GOLDEN_NAME) return name;
     }
   }
 
