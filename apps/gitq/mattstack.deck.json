@@ -7,8 +7,7 @@
   "includeInBundle": true,
   "dev": {
     "start": "bun src/server/server.ts",
-    "build": "bun run build:client",
-    "deploy": "bun run build:client && deck restart gitq"
+    "build": "bun run build:client"
   },
   "bundle": {
     "build": "bun run build:binary",
