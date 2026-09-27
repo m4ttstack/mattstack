@@ -52,14 +52,13 @@ describe("checkPack strictness", () => {
     }
   });
 
-  test("only rules naming a tool the server publishes report", async () => {
+  test("every hit names a published tool", async () => {
     const published = new Set(mcpTools().map((t) => t.name));
-    const dir = makePack({ name: "acme", version: "1.0.0" }, "Push with `git push`, then `rt runs snapshot`.");
+    const dir = makePack({ name: "acme", version: "1.0.0" }, "Push with `git push`, then `rt chat dm x hi`, then `rt skills check`.");
     try {
       const payload = await checkPack({ packDir: dir });
-      expect(payload.mcpLint.every((h) => published.has(h.tool))).toBe(true);
-      expect(payload.mcpLint.map((h) => h.rule)).toContain("rt-runs");
-      expect(payload.mcpLint.some((h) => h.rule === "git-push")).toBe(published.has("git_push"));
+      expect(payload.mcpLint.map((h) => h.tool)).toEqual(["git_push", "chat_dm", "rt_verb"]);
+      expect(payload.mcpLint.every((h) => h.tool !== null && published.has(h.tool))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -131,8 +130,8 @@ describe("skills check --strict", () => {
     try {
       const { logs } = await runCheck(["--pack-dir", dir, "--json"]);
       const parsed = JSON.parse(logs.at(-1)!) as { mcpLint: Array<{ rule: string; tool: string }>; strictLint: boolean };
-      expect(parsed.mcpLint.map((h) => h.rule)).toEqual(["rt-runs"]);
-      expect(parsed.mcpLint[0]!.tool).toBe("run_stage");
+      expect(parsed.mcpLint.map((h) => h.rule)).toEqual(["rt runs snapshot"]);
+      expect(parsed.mcpLint[0]!.tool).toBe("run_snapshot");
       expect(parsed.strictLint).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });

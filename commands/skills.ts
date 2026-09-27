@@ -40,7 +40,9 @@ import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.t
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
-import { formatHit, lintPackDir, type LintHit } from "../lib/skills/mcp-lint.ts";
+import { deriveRules, formatHit, lintPackDir, type LintHit } from "../lib/skills/mcp-lint.ts";
+import { listAgentSafe } from "../lib/command-tree-resolve.ts";
+import { TREE } from "../lib/command-tree-def.ts";
 import { findPlaceholders } from "../lib/skills/placeholders.ts";
 import { buildStageEntries, hostDir, outDirFor, otherSideDir, targetOutDirs } from "../lib/skills/layout.ts";
 import { computePackSha, maskProvenance, mattstackProvenance, packPluginIdentity } from "../lib/skills/provenance.ts";
@@ -1102,7 +1104,8 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   // nothing to compare against, so it would only cost a real filesystem scan
   // for a null result.
   const installed = resolved.pluginRoots.list.length === 0 ? null : installedInfoFor(resolved, discoverPacks());
-  const mcpLint = lintPackDir(resolved.packDir, undefined, new Set(mcpTools().map((t) => t.name)));
+  const rules = deriveRules(mcpTools(), listAgentSafe(TREE).map((l) => l.path));
+  const mcpLint = lintPackDir(resolved.packDir, rules);
   const strictLint = packStrictLint(resolved.packDir);
 
   return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, strictLint };
