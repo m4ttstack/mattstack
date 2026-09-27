@@ -79,7 +79,7 @@ export async function driveTrustAccept(deps: TrustDriveDeps): Promise<TrustDrive
     if (prompt?.kind !== "accept" || prompt.path === undefined) return prompt;
     const admitted = pinned === undefined ? deps.trustsPath?.(prompt.path) === true : prompt.path === pinned;
     if (!admitted) {
-      log?.warn({ ...context, pane, path: prompt.path, pinned }, "trust: the dialog names a folder this spawn did not launch; leaving it for the human");
+      log?.warn({ ...context, pane, path: prompt.path, pinned }, "trust: the dialog names a folder this caller does not admit; leaving it for the human");
       return { kind: "undrivable" };
     }
     pinned = prompt.path;

@@ -1,9 +1,10 @@
 /**
  * Claude Code 2.1.283's folder-trust dialog, captured with `rt pane peek`
- * from a herd worker stuck on it. The wide capture is byte-exact at 174
- * columns; the narrow one is the same pane at 120 columns, with the tail of
- * the shell's echo of claude's command line above the dialog. Only the
- * employer path segment and the cswap account email are replaced.
+ * from a herd worker stuck on it. Only the wide capture is byte-exact, at
+ * 174 columns; the narrow capture's dialog text is verbatim from the same
+ * pane at 120 columns, but its 120-column rule was rebuilt from the pane's
+ * observed wrap width rather than captured directly. Only the employer path
+ * segment and the cswap account email are replaced.
  */
 export const FIXTURE_PATH = "/Users/matt/.mattstack/teams/acme/.worktrees/t38fix-devservers";
 

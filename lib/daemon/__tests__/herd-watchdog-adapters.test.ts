@@ -11,7 +11,7 @@ import type { HerdRow } from "../herd-store.ts";
 import type { HerdJobRow } from "../herd-store.ts";
 import { createWatchdogActuators, createWatchdogSensors, readWatchdogConfig } from "../herd-watchdog-adapters.ts";
 import { HerdWatchdog, type WatchdogConfig } from "../herd-watchdog.ts";
-import { saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
+import { deleteRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
 
 const log = pino({ level: "silent" });
@@ -329,24 +329,28 @@ describe("watchdog actuators", () => {
     saveRegistry("trust-modal-fixture", [
       { name: "t1", path: "/pool/trust-modal-fixture/t1", kind: "ephemeral", branch: "t1", createdAt: new Date().toISOString() } satisfies TreeRecord,
     ]);
-    const screens: Record<string, string> = { "w1:p1": workspaceScreen({ path: "/pool/trust-modal-fixture/t1", cursor: "no" }) };
-    const herdr = (async (method: string, params: any) => {
-      const pane = params.pane_id;
-      if (method === "pane.read") return { ok: true, result: { read: { text: screens[pane] ?? "" } } };
-      if (method === "pane.send_keys") { screens[pane] = "$ claude\n> \n"; return { ok: true, result: {} }; }
-      return { ok: false, code: "invalid_request", message: method };
-    }) as any;
-    const a = createWatchdogActuators({
-      herdStore: { setJobStatus: () => {} },
-      db: freshDb(),
-      socketFor: () => DEFAULT,
-      herdr,
-      enqueue: () => true,
-      log,
-      trustSettleMs: 1,
-      trustStepMs: 1,
-    });
-    expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1")).toBe(true);
+    try {
+      const screens: Record<string, string> = { "w1:p1": workspaceScreen({ path: "/pool/trust-modal-fixture/t1", cursor: "no" }) };
+      const herdr = (async (method: string, params: any) => {
+        const pane = params.pane_id;
+        if (method === "pane.read") return { ok: true, result: { read: { text: screens[pane] ?? "" } } };
+        if (method === "pane.send_keys") { screens[pane] = "$ claude\n> \n"; return { ok: true, result: {} }; }
+        return { ok: false, code: "invalid_request", message: method };
+      }) as any;
+      const a = createWatchdogActuators({
+        herdStore: { setJobStatus: () => {} },
+        db: freshDb(),
+        socketFor: () => DEFAULT,
+        herdr,
+        enqueue: () => true,
+        log,
+        trustSettleMs: 1,
+        trustStepMs: 1,
+      });
+      expect(await a.acceptTrustModal("demo-1", "job-a", "w1:p1")).toBe(true);
+    } finally {
+      deleteRegistry("trust-modal-fixture");
+    }
   });
 
   test("acceptTrustModal leaves a workspace dialog naming an unregistered path, sending no key", async () => {

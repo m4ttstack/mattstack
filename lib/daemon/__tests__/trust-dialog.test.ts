@@ -118,10 +118,32 @@ describe("readTrustPrompt: the 2.1.283 workspace dialog", () => {
     expect(readTrustPrompt(quoted)).toBeNull();
   });
 
-  test("a painted rule narrower than the screen's text is not the dialog's top", () => {
+  test("a painted rule narrower than the screen's text is undrivable, never no dialog: the live options are present", () => {
     const lines = CAPTURED_WIDE.split("\n");
     lines[0] = "─".repeat(40);
-    expect(readTrustPrompt(lines.join("\n"))).toBeNull();
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("the wide capture with its first row (the rule) removed is undrivable", () => {
+    const lines = CAPTURED_WIDE.split("\n").slice(1);
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("the wide capture with its first three rows removed is undrivable", () => {
+    const lines = CAPTURED_WIDE.split("\n").slice(3);
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("a 175-character row inserted above the rule is undrivable", () => {
+    const lines = CAPTURED_WIDE.split("\n");
+    lines.unshift("x".repeat(175));
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "undrivable" });
+  });
+
+  test("a row above the rule at the rule's own code-point width, but wider in UTF-16 units, still parses", () => {
+    const lines = CAPTURED_WIDE.split("\n");
+    lines.unshift("x".repeat(172) + "😀😀");
+    expect(readTrustPrompt(lines.join("\n"))).toEqual({ kind: "accept", variant: "workspace", path: FIXTURE_PATH, keys: ["down", "enter"] });
   });
 
   test("a footer under some other layout is no dialog", () => {
