@@ -3,7 +3,17 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { repoNameForPath } from "../src/repos.ts";
+import { loadBunSqliteDatabase, repoNameForPath } from "../src/repos.ts";
+
+describe("loadBunSqliteDatabase", () => {
+  test("with no module URL, as in a CJS bundle, returns null instead of throwing", () => {
+    expect(loadBunSqliteDatabase(undefined)).toBeNull();
+  });
+
+  test("from ESM under Bun it still loads bun:sqlite", () => {
+    expect(loadBunSqliteDatabase(import.meta.url)).toBe(Database);
+  });
+});
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs.length = 0; });
