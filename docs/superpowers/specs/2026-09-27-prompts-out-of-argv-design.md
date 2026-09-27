@@ -56,8 +56,11 @@ The one place every herdr and headless agent launch passes through.
   command when it is the literal first message it receives, so wrapping a
   `/board:review ...`-shaped prompt (the board app's slash-command dispatch;
   see "Out of scope" below) in a pointer would break the expansion. The
-  residual argv exposure this accepts: a board operator note appended to the
-  slash command, capped at 2000 characters by the board.
+  passthrough keys on the first character, so any herdr prompt starting with
+  `/` stays in argv in full; herd briefs and rt agent prompts are not slash
+  commands in practice. The residual argv exposure this accepts: a board
+  operator note appended to the slash command, capped at 2000 characters by
+  the board.
 - herdr surface, any other prompt: write it with
   `writePromptFile(join(rtDir(), "agent-prompts", rec.id), "prompt.md", prompt)`
   and put `pointerPrompt(path)` in `inv.prompt`. The per-agent directory
@@ -110,11 +113,11 @@ audit passes the prompt there.
 - The board app (`apps/board/src/agent-launch.ts`, `herdr.ts`'s
   `dispatchPrompt`) does call `agent:start`/`agent:resume` with `surface:
   "herdr"`, same as any other herdr caller; it is not outside this change's
-  write fence. What keeps its prompts out of the pointer file is the
-  slash-command passthrough above, since every board-dispatched prompt is a
-  `/board:review`/`/board:respond`/`/board:doctor`-shaped slash command. The
-  gitq app launches panes with short slash commands too and sits outside this
-  change's write fence the same way.
+  write fence. Some board prompts are `/board:review`/`/board:respond`/`/board:doctor`-shaped
+  slash commands that stay in argv via the passthrough above. Others, like
+  the reopen path's bare "Operator note ..." prompt, go through the pointer file.
+  The gitq app launches panes with short slash commands; those invocations lie
+  outside this change's write fence.
 - Pruning old `agent-prompts/<id>/` directories: they live beside the
   existing `agents/<id>.json` result files, which are not pruned either.
 

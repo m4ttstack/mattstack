@@ -1265,10 +1265,8 @@ test("agent:resume with a new prompt goes through the pointer; without one it em
   expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("Your instructions");
 });
 
-// Pins the rollback for the new failure mode F2 introduces: agent-prompts
-// existing as a plain file (not a directory) makes writePromptFile's mkdir
-// throw, and that must roll back the record the same as any other launch
-// failure, leaving no phantom.
+// Pins the rollback: a failed prompt-file write rolls the record back and
+// launches nothing.
 test("agent:start herdr rolls back the record when agent-prompts is a file, not a dir", async () => {
   mkdirSync(rtDir(), { recursive: true });
   rmSync(join(rtDir(), "agent-prompts"), { recursive: true, force: true });
