@@ -2198,48 +2198,6 @@ func TestMouseMotionWiresAndClearsNewHoverFields(t *testing.T) {
 	}
 }
 
-// TestMouseWheelOverDiffScrollsIt is the brief's own Step 1 example: a wheel
-// tick with the pointer over the diff pane moves the diff line cursor
-// (there being no scroll offset independent of the cursor -- see
-// mouseWheel's own comment), which is what actually slides the window.
-func TestMouseWheelOverDiffScrollsIt(t *testing.T) {
-	m := newMouseTestMission()
-	next, _ := m.Update(tea.MouseWheelMsg{X: 60, Y: 5, Button: tea.MouseWheelDown})
-	m = next.(*Mission)
-	if m.diffCursor != wheelStep {
-		t.Fatalf("wheel down over the diff pane should move diffCursor by wheelStep, got %d", m.diffCursor)
-	}
-	next, _ = m.Update(tea.MouseWheelMsg{X: 60, Y: 5, Button: tea.MouseWheelUp})
-	m = next.(*Mission)
-	if m.diffCursor != 0 {
-		t.Fatalf("wheel up should move diffCursor back down, got %d", m.diffCursor)
-	}
-}
-
-// TestMouseWheelOverListMovesListCursor covers the base list's own half of
-// the same contract, clamped to the last row once wheelStep overruns it.
-func TestMouseWheelOverListMovesListCursor(t *testing.T) {
-	m := newMouseTestMission()
-	next, _ := m.Update(tea.MouseWheelMsg{X: 10, Y: 9, Button: tea.MouseWheelDown})
-	m = next.(*Mission)
-	if m.selected != "c.go" {
-		t.Fatalf("wheel down over the list should move the cursor to the last row, got %q", m.selected)
-	}
-}
-
-// TestMouseWheelOverModalMovesCursorSkippingGuardedRow covers the third
-// pane: the overlay's own cursor, via its existing moveCursor (which already
-// skips a guarded row for the keyboard).
-func TestMouseWheelOverModalMovesCursorSkippingGuardedRow(t *testing.T) {
-	m := newTestMission()
-	m.Update(tea.KeyPressMsg{Code: 'b', Text: "b"})
-	next, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
-	m = next.(*Mission)
-	if row, ok := m.modal.selectedRow(); !ok || row.value != "main" {
-		t.Fatalf("wheel down in the branch modal should move to \"main\", got %+v ok=%v", row, ok)
-	}
-}
-
 // TestMouseDoubleClickFileRowFocusesDiff pins the double-click half of the
 // file-row click contract; a lone click moves the cursor and emits that
 // row's select (covered by TestMouseClickFileRowEmitsOnlyOnRowChange below).

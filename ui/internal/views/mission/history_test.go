@@ -2064,11 +2064,14 @@ func TestHistoryWheelScrollsTheRegionUnderThePointer(t *testing.T) {
 	if _, ok := cmd().(historyDebounceMsg); !ok {
 		t.Fatal("a wheel move over the file column should route through the file debounce")
 	}
-	m.model.Diff.Lines = append(m.model.Diff.Lines, DiffLine{Kind: "context", Text: "y"}, DiffLine{Kind: "context", Text: "z"}, DiffLine{Kind: "context", Text: "w"})
+	for range 60 {
+		m.model.Diff.Lines = append(m.model.Diff.Lines, DiffLine{Kind: "context", Text: "y"})
+	}
+	m.View()
 	filesW := historyFilesWidth(m.diffWidth())
 	m.Update(tea.MouseWheelMsg{X: historyPaneX(filesW + 5), Y: y, Button: tea.MouseWheelDown})
-	if m.diffCursor != wheelStep {
-		t.Fatalf("a wheel tick over the diff should move the diff cursor %d lines, got %d", wheelStep, m.diffCursor)
+	if m.diffCursor != 0 || m.diffTop == 0 {
+		t.Fatalf("a wheel tick over the diff should scroll its view and hold the cursor, cursor %d top %d", m.diffCursor, m.diffTop)
 	}
 }
 

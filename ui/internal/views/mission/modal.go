@@ -76,8 +76,11 @@ type modalState struct {
 	// scrollTop is the row region's own scroll window top (an index into
 	// modalDisplayLines), the same role Mission.diffTop/changesTop play for
 	// their own scrolling regions -- persisted across renders so a click
-	// resolves against the exact window the last render painted.
-	scrollTop int
+	// resolves against the exact window the last render painted. While
+	// freeScroll is set (the wheel moved the view) it holds as the wheel
+	// left it instead of following the cursor.
+	scrollTop  int
+	freeScroll bool
 }
 
 func newModal(zone zoneID, intent, placeholder, namePlaceholder string, buildPayload func(string) json.RawMessage, rows []modalRow, action *modalActionRow) *modalState {
@@ -268,6 +271,7 @@ func (ms *modalState) onActionSlot() bool {
 // not there. Running off either end leaves the cursor exactly where it was
 // -- there is nowhere selectable in that direction, not a wraparound.
 func (ms *modalState) moveCursor(delta int) {
+	ms.freeScroll = false
 	n := ms.slotCount()
 	if n == 0 {
 		return
@@ -316,6 +320,7 @@ func (ms *modalState) refilter() {
 	matches := picker.Rank(ms.query, targets, false)
 	ms.matches = picker.GroupContiguous(matches, groups)
 	ms.cursor = ms.firstSelectableMatch()
+	ms.freeScroll = false
 }
 
 // selectedRow reports the row under the cursor, or ok=false when the cursor
@@ -854,6 +859,20 @@ func modalFixedRows(ms *modalState) (above, below int) {
 	return above, below
 }
 
+// modalRowRegionHeight is the scrollable row region's height inside a box
+// boxInnerHeight rows tall, shared by the painter, the hit test and the wheel.
+func modalRowRegionHeight(ms *modalState, boxInnerHeight int) int {
+	above, below := modalFixedRows(ms)
+	return max(boxInnerHeight-above-below, 0)
+}
+
+// scroll is the wheel over the row region: it moves the view by delta lines
+// and leaves the cursor alone.
+func (ms *modalState) scroll(delta, boxInnerHeight int) {
+	ms.freeScroll = true
+	ms.scrollTop, _ = picker.FreeWindow(ms.scrollTop+delta, len(modalDisplayLines(ms)), modalRowRegionHeight(ms, boxInnerHeight))
+}
+
 // modalDisplayLine is one line of the scrollable row region: either a group
 // header (display-only, never a cursor target) or a match row.
 type modalDisplayLine struct {
@@ -883,6 +902,9 @@ func modalDisplayLines(ms *modalState) []modalDisplayLine {
 // shared picker.Viewport primitive -- the same one the diff pane and
 // Changes list use -- keeping the cursor's own display line visible.
 func modalRowViewport(ms *modalState, lines []modalDisplayLine, rowRegionH, prevTop int) (top, h int) {
+	if ms.freeScroll {
+		return picker.FreeWindow(prevTop, len(lines), rowRegionH)
+	}
 	cursorLine := 0
 	for i, l := range lines {
 		if l.header == "" && l.matchIdx == ms.cursor {
@@ -920,11 +942,7 @@ func modalThumbCell(rowInWindow, thumbTop, thumbH int) string {
 // space; docs/design/mission/README.md's ratified-deviations entry records
 // this superseding the boards' content-height drawing.
 func modalBoxLines(ms *modalState, width, boxInnerHeight int) []string {
-	above, below := modalFixedRows(ms)
-	rowRegionH := boxInnerHeight - above - below
-	if rowRegionH < 0 {
-		rowRegionH = 0
-	}
+	rowRegionH := modalRowRegionHeight(ms, boxInnerHeight)
 
 	lines := []string{modalFilterLine(ms, width), modalRuleLine(width)}
 

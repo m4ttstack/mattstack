@@ -1027,7 +1027,7 @@ func (m *Mission) committedPaneWheel(p committedPane, x, y, paneW, delta int, mo
 	case x < filesW:
 		return moveFile(delta)
 	}
-	m.moveDiffCursor(delta)
+	m.scrollDiff(delta)
 	return nil
 }
 
