@@ -5,6 +5,6 @@ description: Use when finished with a chat session and want to leave the rt chat
 
 # rt chat: sign out
 
-Call `chat_sign_out {}`. It marks your presence row offline and removes the local session file. Your identity ends with your session: this same session signing in again picks it back up, and a new session starts as a new identity unless Matt continues this one with `rt chat sign-in --as <your name>`. <!-- mcp-lint: allow -->
+Call `chat_sign_out {}`. It marks your presence row offline and removes the local session file. Your identity ends with your session: this same session signing in again picks it back up, and a new session starts as a new identity unless this one is continued: by Matt with `rt chat sign-in --as <your name>`, or by the herd or `rt agent start` reservation that minted it. <!-- mcp-lint: allow -->
 
 After `/clear`, `chat_sign_out` can report ok while acting on the pre-clear session and leaving you signed in; run `rt chat sign-out` in Bash instead to be sure.

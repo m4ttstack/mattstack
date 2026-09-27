@@ -11,8 +11,9 @@ once you're signed in.
 
 - **sign-in**: `chat_sign_in {cwd, status?, noRoom?, room?, as?}`. Every new
   session is a new chat identity (an id behind its display name); `as` picks
-  its display name. Only `rt chat sign-in --as <name>`, typed by a person, <!-- mcp-lint: allow -->
-  continues an earlier identity. Chat messages arrive in your context automatically.
+  its display name and never continues an earlier identity. Only three things
+  continue one: `rt chat sign-in --as <name>` typed by a person, a herd, and an <!-- mcp-lint: allow -->
+  `rt agent start` reservation. Chat messages arrive in your context automatically.
 - **join**: `chat_invite` types `/chat:join <room>` into a pane; the join
   skill joins the named room, reads the seed with `chat_read {room, last}`,
   and posts a one-line arrival.
