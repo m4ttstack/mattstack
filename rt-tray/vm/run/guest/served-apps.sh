@@ -89,7 +89,7 @@ assert_served_apps() {  # <log-name> <timeout-s> [<launchd.json from record_serv
 }
 
 assert_mattstack_routes() {  # <trusted|untrusted> <log-name>
-  local mode="$1" hosts h
+  local mode="$1" hosts h app disabled
   cp "$HOME/.portless/routes.json" "$LOGS/$2-routes.json" 2>/dev/null
   hosts=$("$SERVED_JQ" -r '.[].hostname | select(endswith(".mattstack"))' "$HOME/.portless/routes.json" 2>/dev/null)
   if [ -z "$hosts" ]; then
@@ -97,6 +97,15 @@ assert_mattstack_routes() {  # <trusted|untrusted> <log-name>
     return
   fi
   for h in $hosts; do
+    app="${h%.mattstack}"
+    # A disabled app keeps its portless alias with an idle upstream: deck's
+    # own apps.json (from assert_served_apps' snapshot) is the one place that
+    # says so, so a missing or null snapshot leaves every app untouched here.
+    disabled=$("$SERVED_JQ" -r --arg n "$app" '(.apps // [])[] | select(.name == $n) | .enabled == false' "$LOGS/assert-served/apps.json" 2>/dev/null)
+    if [ "$disabled" = "true" ]; then
+      ok "$h: disabled, route kept, upstream idle"
+      continue
+    fi
     if [ "$mode" = untrusted ]; then
       # Serving and being trusted are separate claims: curl without --insecure
       # uses the same trust store a browser does.
