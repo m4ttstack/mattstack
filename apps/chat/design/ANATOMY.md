@@ -214,9 +214,9 @@ A DM transcript opens with `start of this conversation · <day>`.
 
 A `.pop`, 300px: dot + `.hpill` (the display name) + status word header;
 then **the task line** at `.sm` / 500 (omitted when the fallback is the
-muted folder form); then the `.kv` grid — repo, where (`branch · pane
+muted folder form); then the `.kv` grid (repo, where (`branch · pane
 wBT:p1`), path (`.path`, head-truncating), seen (`40s ago · signed in 1h
-22m ago`), rooms as tags — then the buttons: **`focus pane`** (terminal
+22m ago`), rooms as tags), then the buttons: **`focus pane`** (terminal
 icon, first), `@mention`, `DM`.
 
 ## Close sheet
