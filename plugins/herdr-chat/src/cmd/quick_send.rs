@@ -45,7 +45,7 @@ pub fn send_json(r: &dyn Runner, to: &str, body: &str) -> Result<crate::json::Se
         return Err("to is required".to_string());
     }
     let target = crate::json::parse_target(to)
-        .ok_or_else(|| format!("target must be #room or @handle, got {to:?}"))?;
+        .ok_or_else(|| format!("target must be #room or @name, got {to:?}"))?;
     send(r, target, body)?;
     Ok(crate::json::Sent {
         ok: true,
@@ -56,13 +56,17 @@ pub fn send_json(r: &dyn Runner, to: &str, body: &str) -> Result<crate::json::Se
 /// A pickable target plus, for a DM, the buddy's repo/branch/task detail so the
 /// row can show what that agent is doing. Rooms carry no such detail.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TargetRow {
-    target: Target,
-    detail: Option<rt::AgentDetail>,
+pub struct TargetRow {
+    pub target: Target,
+    /// What the row shows. Never what the send keys on: that is `target`.
+    pub label: String,
+    /// `'@'` for a buddy or a DM room, `'#'` for a channel.
+    pub sigil: char,
+    pub detail: Option<rt::AgentDetail>,
 }
 
 /// Recent rooms first, then buddies, each turned into a [`TargetRow`]; a buddy
-/// picks up its agent detail from the pane roster index.
+/// picks up its agent detail from the pane roster index, keyed by its id.
 fn targets(
     rooms: Vec<rt::Room>,
     buddies: Vec<rt::Buddy>,
@@ -71,17 +75,31 @@ fn targets(
     let mut out: Vec<TargetRow> = rooms
         .into_iter()
         .map(|r| TargetRow {
+            label: r.label(),
+            sigil: if r.is_dm() { '@' } else { '#' },
             target: Target::Room(r.room),
             detail: None,
         })
         .collect();
-    out.extend(buddies.into_iter().map(|b| {
-        let detail = details.get(&b.handle).cloned();
-        TargetRow {
-            target: Target::Dm(b.handle),
-            detail,
-        }
-    }));
+    let live_names: std::collections::HashSet<String> = buddies
+        .iter()
+        .filter(|b| b.status != "offline")
+        .map(|b| b.display_name().to_string())
+        .collect();
+    out.extend(
+        buddies
+            .into_iter()
+            .filter(|b| b.status != "offline" || !live_names.contains(b.display_name()))
+            .map(|b| {
+                let detail = details.get(&b.handle).cloned();
+                TargetRow {
+                    label: b.display_name().to_string(),
+                    sigil: '@',
+                    target: Target::Dm(b.handle),
+                    detail,
+                }
+            }),
+    );
     out
 }
 
@@ -95,11 +113,9 @@ pub fn targets_json(r: &dyn Runner) -> Result<crate::json::Targets, String> {
     let buddies = rt::buddies(r)?;
     let panes = rt::pane_list(r)?;
     let details = rt::agent_details(&panes);
-    let targets: Vec<Target> = targets(rooms, buddies, &details)
-        .into_iter()
-        .map(|row| row.target)
-        .collect();
-    Ok(crate::json::targets_from(&targets))
+    Ok(crate::json::targets_from(&targets(
+        rooms, buddies, &details,
+    )))
 }
 
 /// The workspace action: open the quick-send popup. A popup process carries
@@ -247,14 +263,14 @@ fn target_line<'a>(theme: &AppTheme, row: &'a TargetRow, cursor: bool) -> Line<'
     let marker = if cursor { "\u{203a} " } else { "  " };
     let row_style = if cursor { theme.selected } else { theme.base };
     match &row.target {
-        Target::Room(room) => Line::from(vec![
+        Target::Room(_) => Line::from(vec![
             Span::styled(marker, row_style),
-            Span::styled(format!("# {room}"), row_style),
+            Span::styled(format!("{} {}", row.sigil, row.label), row_style),
         ]),
-        Target::Dm(handle) => {
+        Target::Dm(_) => {
             let mut spans = vec![
                 Span::styled(marker, row_style),
-                Span::styled(format!("@ {handle:<8}"), row_style),
+                Span::styled(format!("{} {:<8}", row.sigil, row.label), row_style),
             ];
             // For a DM, show where the buddy is and what they're working on,
             // from the pane roster; a room row has no such detail.
@@ -264,7 +280,7 @@ fn target_line<'a>(theme: &AppTheme, row: &'a TargetRow, cursor: bool) -> Line<'
                     spans.push(Span::styled(format!("  {repo} \u{b7} {branch}"), theme.dim));
                 }
                 if let Some(title) = d.title.as_deref() {
-                    if title != handle && !title.is_empty() {
+                    if title != row.label && !title.is_empty() {
                         spans.push(Span::styled(format!("   {title}"), row_style));
                     }
                 }
@@ -302,6 +318,10 @@ mod tests {
     use crate::run::Output;
     use std::collections::VecDeque;
     use std::sync::Mutex;
+
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
 
     #[derive(Clone)]
     struct Call {
@@ -402,7 +422,7 @@ mod tests {
         let r = FakeRunner::sequence(&[]);
         assert_eq!(
             send_json(&r, "rt", "hello").unwrap_err(),
-            r#"target must be #room or @handle, got "rt""#
+            r#"target must be #room or @name, got "rt""#
         );
         assert_eq!(
             r.call_count(),
@@ -437,16 +457,19 @@ mod tests {
                 unread: 0,
                 mentions: 0,
                 kind: None,
+                participants: None,
             },
             rt::Room {
                 room: "ops".to_string(),
                 unread: 0,
                 mentions: 0,
                 kind: None,
+                participants: None,
             },
         ];
         let buddies = vec![rt::Buddy {
             handle: "fred".to_string(),
+            name: None,
             status: "live".to_string(),
             session_id: None,
             pane: None,
@@ -475,11 +498,158 @@ mod tests {
     #[test]
     fn targets_json_lists_rooms_with_their_hash_and_people_with_their_at() {
         let t = crate::json::targets_from(&[
-            Target::Room("rt".to_string()),
-            Target::Dm("scout".to_string()),
+            TargetRow {
+                target: Target::Room("rt".to_string()),
+                label: "rt".to_string(),
+                sigil: '#',
+                detail: None,
+            },
+            TargetRow {
+                target: Target::Dm("scout".to_string()),
+                label: "scout".to_string(),
+                sigil: '@',
+                detail: None,
+            },
         ]);
         assert_eq!(t.rooms, vec!["#rt".to_string()]);
         assert_eq!(t.people, vec!["@scout".to_string()]);
+        assert_eq!(t.labels.get("#rt").map(String::as_str), Some("#rt"));
+    }
+
+    #[test]
+    fn targets_json_names_people_by_display_name() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"rooms":[{"room":"rt"},{"room":"dm-3f9a","kind":"dm","participants":{"a":"kai","b":"remy.k3f9","aName":"kai","bName":"remy"}}]}"#,
+            r#"{"ok":true,"buddies":[{"handle":"remy.k3f9","name":"remy","status":"live"},{"handle":"meg","status":"idle"}]}"#,
+            r#"{"ok":true,"panes":[]}"#,
+        ]);
+        let t = targets_json(&r).unwrap();
+        assert_eq!(t.rooms, vec!["#rt", "#dm-3f9a"]);
+        assert_eq!(t.people, vec!["@remy", "@meg"]);
+        assert_eq!(
+            t.labels.get("#dm-3f9a").map(String::as_str),
+            Some("kai \u{2194} remy")
+        );
+        assert_eq!(t.labels.get("#rt").map(String::as_str), Some("#rt"));
+        assert_eq!(t.labels.get("@remy").map(String::as_str), Some("@remy"));
+        assert_eq!(t.labels.len(), 4);
+    }
+
+    /// A signed-out identity keeps its name while a live one holds it too, and
+    /// `@remy` reaches only the live one.
+    #[test]
+    fn people_are_listed_once_per_name() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"rooms":[]}"#,
+            r#"{"ok":true,"buddies":[{"handle":"remy","status":"offline"},{"handle":"remy.k3f9","name":"remy","status":"live"}]}"#,
+            r#"{"ok":true,"panes":[]}"#,
+        ]);
+        assert_eq!(targets_json(&r).unwrap().people, vec!["@remy"]);
+    }
+
+    /// A signed-out identity's row is dropped when a live one holds its name,
+    /// so the popup never shows two identical rows for the one name.
+    #[test]
+    fn the_popup_lists_one_row_per_name() {
+        let buddies = vec![
+            rt::Buddy {
+                handle: "remy.0001".to_string(),
+                name: Some("remy".to_string()),
+                status: "offline".to_string(),
+                session_id: None,
+                pane: None,
+                rooms: Vec::new(),
+            },
+            rt::Buddy {
+                handle: "remy.k3f9".to_string(),
+                name: Some("remy".to_string()),
+                status: "live".to_string(),
+                session_id: None,
+                pane: None,
+                rooms: Vec::new(),
+            },
+            rt::Buddy {
+                handle: "meg".to_string(),
+                name: None,
+                status: "idle".to_string(),
+                session_id: None,
+                pane: None,
+                rooms: Vec::new(),
+            },
+        ];
+        let rows = targets(vec![], buddies, &std::collections::HashMap::new());
+        let got: Vec<Target> = rows.into_iter().map(|r| r.target).collect();
+        assert_eq!(
+            got,
+            vec![
+                Target::Dm("remy.k3f9".to_string()),
+                Target::Dm("meg".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dm_target_passes_a_name_or_an_id_through_for_rt_to_resolve() {
+        let r = FakeRunner::capture("{}");
+        send_json(&r, "@remy", "hi").unwrap();
+        send_json(&r, "@remy.k3f9", "hi").unwrap();
+        let calls = r.calls();
+        assert_eq!(calls[0].argv, vec!["rt", "chat", "dm", "remy", "hi"]);
+        assert_eq!(calls[1].argv, vec!["rt", "chat", "dm", "remy.k3f9", "hi"]);
+    }
+
+    #[test]
+    fn a_buddy_target_sends_to_the_id_and_shows_the_name() {
+        let buddies = vec![rt::Buddy {
+            handle: "remy.k3f9".to_string(),
+            name: Some("remy".to_string()),
+            status: "live".to_string(),
+            session_id: None,
+            pane: None,
+            rooms: Vec::new(),
+        }];
+        let mut details = std::collections::HashMap::new();
+        details.insert(
+            "remy.k3f9".to_string(),
+            rt::AgentDetail {
+                repo: Some("rt".to_string()),
+                branch: Some("main".to_string()),
+                title: Some("remy".to_string()),
+            },
+        );
+        let rows = targets(vec![], buddies, &details);
+        assert_eq!(rows[0].target, Target::Dm("remy.k3f9".to_string()));
+        let text = line_text(&target_line(&theme::fallback(), &rows[0], false));
+        assert!(text.starts_with("  @ remy"), "got {text:?}");
+        assert!(
+            !text.contains("k3f9"),
+            "the id leaked onto the screen: {text:?}"
+        );
+        assert_eq!(
+            text.matches("remy").count(),
+            1,
+            "a title equal to the name is not repeated: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_dm_room_target_shows_its_participants_and_posts_to_the_room() {
+        let rooms = vec![rt::Room {
+            room: "dm-3f9a".to_string(),
+            unread: 0,
+            mentions: 0,
+            kind: Some("dm".to_string()),
+            participants: Some(rt::Participants {
+                a: "kai".to_string(),
+                b: "remy.k3f9".to_string(),
+                a_name: Some("kai".to_string()),
+                b_name: Some("remy".to_string()),
+            }),
+        }];
+        let rows = targets(rooms, vec![], &std::collections::HashMap::new());
+        assert_eq!(rows[0].target, Target::Room("dm-3f9a".to_string()));
+        let text = line_text(&target_line(&theme::fallback(), &rows[0], false));
+        assert_eq!(text, "  @ kai \u{2194} remy");
     }
 
     #[test]

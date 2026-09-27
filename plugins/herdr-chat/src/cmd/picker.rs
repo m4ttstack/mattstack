@@ -128,7 +128,7 @@ impl PickerModel {
         self.chosen.contains(pane_id)
     }
 
-    /// Case-insensitive substring match across handle, workspace, title, repo,
+    /// Case-insensitive substring match across display name, workspace, title, repo,
     /// and path. An empty filter matches everything.
     fn matches(&self, p: &rt::ChatPane) -> bool {
         if self.filter.is_empty() {
@@ -136,7 +136,7 @@ impl PickerModel {
         }
         let q = self.filter.to_lowercase();
         let fields = [
-            p.presence.as_ref().map(|pr| pr.handle.as_str()),
+            p.presence.as_ref().map(|pr| pr.display_name()),
             Some(p.workspace.as_str()),
             p.title.as_deref(),
             p.repo.as_deref(),
@@ -363,21 +363,21 @@ fn pane_lines<'a>(
     let checkbox = if selected { "[x] " } else { "[ ] " };
     let marker = if cursor { "\u{203a} " } else { "  " };
     let row_style = if cursor { theme.selected } else { theme.base };
-    let handle = p
+    let name = p
         .presence
         .as_ref()
-        .map(|pr| pr.handle.clone())
+        .map(|pr| pr.display_name().to_string())
         .unwrap_or_else(|| "not signed in".to_string());
 
     let mut spans = vec![
         Span::styled(marker, row_style),
         Span::styled(checkbox, if selected { theme.accent } else { row_style }),
         Span::styled(format!("{dot} "), dot_style),
-        Span::styled(handle.clone(), row_style),
+        Span::styled(name.clone(), row_style),
         Span::styled(format!("  {}", p.workspace), theme.dim),
     ];
     if let Some(title) = p.title.as_deref() {
-        if title != handle {
+        if title != name {
             spans.push(Span::styled(format!("  {title}"), row_style));
         }
     }
@@ -424,6 +424,7 @@ mod tests {
     fn presence(handle: &str, status: &str) -> Presence {
         Presence {
             handle: handle.to_string(),
+            name: None,
             status: status.to_string(),
             rooms: Vec::new(),
         }
@@ -467,6 +468,20 @@ mod tests {
 
     fn unsigned(id: &str) -> ChatPane {
         base(id)
+    }
+
+    fn named(id: &str, handle: &str, name: &str) -> ChatPane {
+        ChatPane {
+            presence: Some(Presence {
+                name: Some(name.to_string()),
+                ..presence(handle, "live")
+            }),
+            ..base(id)
+        }
+    }
+
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
     }
 
     #[test]
@@ -601,5 +616,34 @@ mod tests {
         assert_eq!(m.cursor(), 0);
         m.toggle_at_cursor();
         assert_eq!(m.selected(), vec!["p1"]);
+    }
+
+    #[test]
+    fn a_pane_row_shows_the_name_and_never_the_id() {
+        let mut p = named("w1:p1", "remy.k3f9", "remy");
+        p.title = Some("remy".to_string());
+        let (l1, _) = pane_lines(&crate::theme::fallback(), &p, false, false);
+        let text = line_text(&l1);
+        assert!(text.contains("remy"), "got {text:?}");
+        assert!(
+            !text.contains("k3f9"),
+            "the id leaked onto the screen: {text:?}"
+        );
+        assert_eq!(
+            text.matches("remy").count(),
+            1,
+            "a title equal to the name is not repeated: {text:?}"
+        );
+    }
+
+    /// The row never shows the id, so a filter that matched it would surface
+    /// a row for text the user cannot see.
+    #[test]
+    fn the_filter_matches_the_name_not_the_hidden_id() {
+        let mut m = PickerModel::new(vec![named("w1:p1", "remy.k3f9", "remy")]);
+        m.set_filter("remy");
+        assert_eq!(m.grouped().iter().map(|(_, v)| v.len()).sum::<usize>(), 1);
+        m.set_filter("k3f9");
+        assert!(m.grouped().is_empty());
     }
 }

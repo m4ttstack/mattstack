@@ -89,6 +89,7 @@ enum Mode {
 pub struct OriginStatus {
     pub pane: Option<String>,
     pub handle: Option<String>,
+    pub name: Option<String>,
     /// The buddy's wire status (`live`/`idle`/`offline`), `None` when the
     /// pane has no chat session at all.
     pub status: Option<String>,
@@ -103,6 +104,7 @@ pub fn origin_status(pane: Option<&str>, buddies: &[rt::Buddy]) -> OriginStatus 
     OriginStatus {
         pane: pane.map(str::to_string),
         handle: matched.map(|b| b.handle.clone()),
+        name: matched.map(|b| b.display_name().to_string()),
         status: matched.map(|b| b.status.clone()),
         rooms: Vec::new(),
     }
@@ -127,6 +129,7 @@ pub fn status_json(r: &dyn Runner, pane: Option<&str>) -> Result<crate::json::St
     };
     Ok(crate::json::Status {
         handle: base.handle,
+        name: base.name,
         state: base.status.unwrap_or_else(|| "not signed in".to_string()),
         pane: base.pane,
         signed_in,
@@ -140,8 +143,7 @@ pub fn room_tokens(rooms: &[rt::Room]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut any_dm = false;
     for room in rooms {
-        let dm = room.kind.as_deref() == Some("dm") || room.room.starts_with("dm-");
-        if dm {
+        if room.is_dm() {
             any_dm = true;
         } else {
             out.push(format!("#{}", room.room));
@@ -220,24 +222,26 @@ fn run_sign(r: &dyn Runner, item: Item, origin: Option<&str>) -> String {
     }
 }
 
-/// Render the sign verb's `--json` stdout (`{ok, handle, room}`) as the result
-/// line; a payload with no handle degrades to the generic verb.
+/// Render the sign verb's `--json` stdout (`{ok, handle, name, room}`) as the
+/// result line; a payload with neither degrades to the generic verb.
 fn sign_result_text(item: Item, body: &str) -> String {
     #[derive(serde::Deserialize, Default)]
     struct Reply {
         handle: Option<String>,
+        name: Option<String>,
         room: Option<String>,
     }
     let reply: Reply = serde_json::from_str(body).unwrap_or_default();
+    let who = reply.name.filter(|n| !n.is_empty()).or(reply.handle);
     match item {
-        Item::SignOut => match reply.handle {
-            Some(h) => format!("signed out {h}"),
+        Item::SignOut => match who {
+            Some(w) => format!("signed out {w}"),
             None => "signed out".to_string(),
         },
-        _ => match reply.handle {
-            Some(h) => match reply.room {
-                Some(room) => format!("signed in as {h} \u{b7} joined #{room}"),
-                None => format!("signed in as {h}"),
+        _ => match who {
+            Some(w) => match reply.room {
+                Some(room) => format!("signed in as {w} \u{b7} joined #{room}"),
+                None => format!("signed in as {w}"),
             },
             None => "signed in".to_string(),
         },
@@ -340,7 +344,7 @@ fn draw(frame: &mut Frame, theme: &AppTheme, cursor: usize, mode: &Mode, status:
     frame.render_widget(footer(theme, mode), parts[2]);
 }
 
-/// Who this popup acts for: dot + handle + status + pane on the first line,
+/// Who this popup acts for: dot + name + status + pane on the first line,
 /// the session's rooms on the second. Signed-out and pane-less launches say
 /// so in place of an identity.
 fn header(theme: &AppTheme, status: &OriginStatus) -> Paragraph<'static> {
@@ -362,8 +366,8 @@ fn header(theme: &AppTheme, status: &OriginStatus) -> Paragraph<'static> {
         None => "not signed in",
     };
     let mut line1 = vec![Span::styled(format!("  {dot} "), dot_style)];
-    if let Some(handle) = &status.handle {
-        line1.push(Span::styled(handle.clone(), theme.base));
+    if let Some(name) = &status.name {
+        line1.push(Span::styled(name.clone(), theme.base));
         line1.push(Span::styled(format!(" \u{b7} {word}"), theme.dim));
     } else {
         line1.push(Span::styled(word.to_string(), theme.dim));
@@ -503,10 +507,18 @@ mod tests {
     fn buddy(handle: &str, status: &str, pane: Option<&str>, session: Option<&str>) -> rt::Buddy {
         rt::Buddy {
             handle: handle.to_string(),
+            name: None,
             status: status.to_string(),
             session_id: session.map(str::to_string),
             pane: pane.map(str::to_string),
             rooms: Vec::new(),
+        }
+    }
+
+    fn named(handle: &str, name: &str, status: &str, pane: Option<&str>) -> rt::Buddy {
+        rt::Buddy {
+            name: Some(name.to_string()),
+            ..buddy(handle, status, pane, None)
         }
     }
 
@@ -544,6 +556,7 @@ mod tests {
             unread: 0,
             mentions: 0,
             kind: kind.map(str::to_string),
+            participants: None,
         };
         let tokens = room_tokens(&[
             room("build", None),
@@ -658,6 +671,7 @@ mod tests {
         assert_eq!(s.state, "not signed in");
         assert!(!s.signed_in);
         assert!(s.rooms.is_empty());
+        assert_eq!(s.name, None);
     }
 
     /// A status with no pane describes nobody, and reads exactly like a real
@@ -683,5 +697,54 @@ mod tests {
         assert_eq!(s.handle.as_deref(), Some("kay"));
         assert!(!s.signed_in);
         assert!(s.rooms.is_empty(), "an offline row has no rooms to list");
+    }
+
+    #[test]
+    fn origin_status_shows_the_display_name_and_keeps_the_id() {
+        let s = origin_status(
+            Some("w1:p1"),
+            &[named("remy.k3f9", "remy", "live", Some("w1:p1"))],
+        );
+        assert_eq!(s.handle.as_deref(), Some("remy.k3f9"));
+        assert_eq!(s.name.as_deref(), Some("remy"));
+    }
+
+    #[test]
+    fn status_json_reports_the_name_beside_the_id() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"buddies":[{"handle":"remy.k3f9","name":"remy","status":"live","sessionId":"s-remy","pane":"w1:p1"}]}"#,
+            r#"{"ok":true,"rooms":[{"room":"rt","unread":0}]}"#,
+        ]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert_eq!(s.handle.as_deref(), Some("remy.k3f9"));
+        assert_eq!(s.name.as_deref(), Some("remy"));
+    }
+
+    #[test]
+    fn status_json_names_a_pane_by_its_handle_when_rt_sends_no_name() {
+        let r = FakeRunner::sequence(&[
+            r#"{"ok":true,"buddies":[{"handle":"kay","status":"live","sessionId":"s-kay","pane":"w1:p1"}]}"#,
+            r#"{"ok":true,"rooms":[]}"#,
+        ]);
+        let s = status_json(&r, Some("w1:p1")).unwrap();
+        assert_eq!(s.name.as_deref(), Some("kay"));
+    }
+
+    #[test]
+    fn sign_results_name_the_display_name_not_the_id() {
+        assert_eq!(
+            sign_result_text(
+                Item::SignIn,
+                r#"{"ok":true,"handle":"remy.k3f9","name":"remy","room":"rt"}"#
+            ),
+            "signed in as remy \u{b7} joined #rt"
+        );
+        assert_eq!(
+            sign_result_text(
+                Item::SignOut,
+                r#"{"ok":true,"handle":"remy.k3f9","name":"remy"}"#
+            ),
+            "signed out remy"
+        );
     }
 }

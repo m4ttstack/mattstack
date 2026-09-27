@@ -106,10 +106,10 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Print where a handle's pane is. JSON only, and moves no focus.
+    /// Print where an agent's pane is. JSON only, and moves no focus.
     Jump {
-        /// The chat handle to locate. Required, and refused in the same error
-        /// envelope as every other missing flag.
+        /// The handle or display name to locate. Required, and refused in the
+        /// same error envelope as every other missing flag.
         #[arg(long)]
         handle: Option<String>,
         /// Accepted for symmetry with the other verbs. This one has no other

@@ -32,16 +32,20 @@ pub enum RowKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub kind: RowKind,
-    /// The buddy handle (buddy rows), else `None`.
+    /// The buddy's identity id (buddy rows), else `None`. Actions key on this.
     pub handle: Option<String>,
+    /// The buddy's display name (buddy rows), else `None`. The row shows this.
+    pub name: Option<String>,
     /// The buddy's presence status (buddy rows), else `None`.
     pub status: Option<String>,
     /// The buddy's repo / branch / task title, from the pane roster (buddy rows).
     pub repo: Option<String>,
     pub branch: Option<String>,
     pub title: Option<String>,
-    /// The room name (room rows), else `None`.
+    /// The room name (room rows), else `None`. The viewer link keys on this.
     pub room: Option<String>,
+    /// What a DM room row shows in place of its hashed name.
+    pub room_label: Option<String>,
     pub unread: u32,
     pub mentions: u32,
 }
@@ -53,9 +57,10 @@ pub struct Row {
 /// row always carries zero unread ... unread is a per-room count, sourced only
 /// from `rooms`. Order is attention-first and fully deterministic: by `mentions`
 /// desc, then `unread` desc, then (buddies) live before idle before deaf before
-/// the rest, then the identity label (handle or room) ascending. Since every
+/// the rest, then the shown label (name or room) ascending. Since every
 /// unread/mention room outranks every buddy (which sits at 0/0), the effect is
-/// hot rooms on top, then online buddies live-first and alphabetical.
+/// hot rooms on top, then online buddies live-first and alphabetical by
+/// display name.
 pub fn rows(
     buddies: Vec<rt::Buddy>,
     rooms: Vec<rt::Room>,
@@ -67,14 +72,17 @@ pub fn rows(
         if r.unread == 0 && r.mentions == 0 {
             continue;
         }
+        let room_label = r.is_dm().then(|| r.label());
         out.push(Row {
             kind: RowKind::Room,
             handle: None,
+            name: None,
             status: None,
             repo: None,
             branch: None,
             title: None,
             room: Some(r.room),
+            room_label,
             unread: r.unread,
             mentions: r.mentions,
         });
@@ -87,14 +95,17 @@ pub fn rows(
             continue;
         }
         let detail = details.get(&b.handle).cloned().unwrap_or_default();
+        let name = b.display_name().to_string();
         out.push(Row {
             kind: RowKind::Buddy,
             handle: Some(b.handle),
+            name: Some(name),
             status: Some(b.status),
             repo: detail.repo,
             branch: detail.branch,
             title: detail.title,
             room: None,
+            room_label: None,
             unread: 0,
             mentions: 0,
         });
@@ -123,9 +134,14 @@ fn status_rank(row: &Row) -> u8 {
     }
 }
 
-/// The row's identity for the final tie-break: a buddy's handle or a room's name.
+/// The row's shown text for the final tie-break: a buddy's name or a room's label.
 fn label(row: &Row) -> &str {
-    row.handle.as_deref().or(row.room.as_deref()).unwrap_or("")
+    row.name
+        .as_deref()
+        .or(row.room_label.as_deref())
+        .or(row.handle.as_deref())
+        .or(row.room.as_deref())
+        .unwrap_or("")
 }
 
 /// The row action the popup captured.
@@ -289,19 +305,20 @@ fn draw_list(
     frame.render_widget(para, area);
 }
 
-/// One launcher line: a status dot + handle for a buddy, or `# room` plus unread
-/// and mention badges for a room.
+/// One launcher line: a status dot + name for a buddy, or `# room` plus unread
+/// and mention badges for a room; a DM room row draws `@ <participants>` in
+/// place of its hashed name.
 fn row_line<'a>(theme: &AppTheme, row: &'a Row, cursor: bool) -> Line<'a> {
     let marker = if cursor { "\u{203a} " } else { "  " };
     let row_style = if cursor { theme.selected } else { theme.base };
     match row.kind {
         RowKind::Buddy => {
             let (dot, dot_style) = buddy_dot(theme, row.status.as_deref());
-            let handle = row.handle.as_deref().unwrap_or("?");
+            let name = row.name.as_deref().or(row.handle.as_deref()).unwrap_or("?");
             let mut spans = vec![
                 Span::styled(marker, row_style),
                 Span::styled(format!("{dot} "), dot_style),
-                Span::styled(format!("{handle:<8}"), row_style),
+                Span::styled(format!("{name:<8}"), row_style),
             ];
             // repo · branch, from the pane roster, so the row says where the
             // agent is, not just who; the dot already carries presence.
@@ -310,19 +327,22 @@ fn row_line<'a>(theme: &AppTheme, row: &'a Row, cursor: bool) -> Line<'a> {
                 spans.push(Span::styled(format!("  {repo} \u{b7} {branch}"), theme.dim));
             }
             // The pane title is the agent's task line; skip it when it just
-            // echoes the handle (nothing new to say).
+            // echoes the name (nothing new to say).
             if let Some(title) = row.title.as_deref() {
-                if title != handle && !title.is_empty() {
+                if title != name && !title.is_empty() {
                     spans.push(Span::styled(format!("   {title}"), row_style));
                 }
             }
             Line::from(spans)
         }
         RowKind::Room => {
-            let room = row.room.as_deref().unwrap_or("?");
+            let (sigil, text) = match row.room_label.as_deref() {
+                Some(label) => ("@", label),
+                None => ("#", row.room.as_deref().unwrap_or("?")),
+            };
             let mut spans = vec![
                 Span::styled(marker, row_style),
-                Span::styled(format!("# {room}"), row_style),
+                Span::styled(format!("{sigil} {text}"), row_style),
             ];
             if row.unread > 0 {
                 spans.push(Span::styled(
@@ -394,6 +414,7 @@ mod tests {
     fn buddy(handle: &str, status: &str) -> rt::Buddy {
         rt::Buddy {
             handle: handle.to_string(),
+            name: None,
             status: status.to_string(),
             session_id: None,
             pane: None,
@@ -407,6 +428,7 @@ mod tests {
             unread,
             mentions,
             kind: None,
+            participants: None,
         }
     }
 
@@ -527,14 +549,42 @@ mod tests {
         Row {
             kind: RowKind::Buddy,
             handle: Some(handle.to_string()),
+            name: None,
             status: Some("live".to_string()),
             repo: Some("flock".to_string()),
             branch: Some("phase-0".to_string()),
             title: None,
             room: None,
+            room_label: None,
             unread: 0,
             mentions: 0,
         }
+    }
+
+    fn named_buddy(handle: &str, name: &str, status: &str) -> rt::Buddy {
+        rt::Buddy {
+            name: Some(name.to_string()),
+            ..buddy(handle, status)
+        }
+    }
+
+    fn dm_room(name: &str, unread: u32) -> rt::Room {
+        rt::Room {
+            room: name.to_string(),
+            unread,
+            mentions: 0,
+            kind: Some("dm".to_string()),
+            participants: Some(rt::Participants {
+                a: "kai".to_string(),
+                b: "remy.k3f9".to_string(),
+                a_name: Some("kai".to_string()),
+                b_name: Some("remy".to_string()),
+            }),
+        }
+    }
+
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
     }
 
     #[test]
@@ -543,11 +593,13 @@ mod tests {
             Row {
                 kind: RowKind::Room,
                 handle: None,
+                name: None,
                 status: None,
                 repo: None,
                 branch: None,
                 title: None,
                 room: Some("rt".to_string()),
+                room_label: None,
                 unread: 3,
                 mentions: 1,
             },
@@ -577,6 +629,7 @@ mod tests {
             session_id: None,
             presence: Some(rt::Presence {
                 handle: "kay".to_string(),
+                name: None,
                 status: "live".to_string(),
                 rooms: Vec::new(),
             }),
@@ -605,16 +658,154 @@ mod tests {
         let rows = vec![Row {
             kind: RowKind::Buddy,
             handle: None,
+            name: None,
             status: None,
             repo: None,
             branch: None,
             title: None,
             room: None,
+            room_label: None,
             unread: 0,
             mentions: 0,
         }];
         let out = crate::json::peek_from_rows(&rows, &[]);
         assert!(out.buddies.is_empty());
         assert!(out.rooms.is_empty());
+    }
+
+    #[test]
+    fn a_buddy_row_keys_on_the_id_and_shows_the_name() {
+        let out = rows(
+            vec![named_buddy("remy.k3f9", "remy", "live")],
+            vec![],
+            &no_details(),
+        );
+        assert_eq!(out[0].handle.as_deref(), Some("remy.k3f9"));
+        assert_eq!(out[0].name.as_deref(), Some("remy"));
+    }
+
+    #[test]
+    fn a_buddy_from_an_rt_with_no_names_is_named_by_its_handle() {
+        let out = rows(vec![buddy("fred", "live")], vec![], &no_details());
+        assert_eq!(out[0].name.as_deref(), Some("fred"));
+    }
+
+    #[test]
+    fn buddies_sort_by_name_not_by_id() {
+        let out = rows(
+            vec![
+                named_buddy("zed.0001", "amy", "live"),
+                named_buddy("amy.0002", "zed", "live"),
+            ],
+            vec![],
+            &no_details(),
+        );
+        let names: Vec<&str> = out.iter().map(|r| r.name.as_deref().unwrap()).collect();
+        assert_eq!(names, vec!["amy", "zed"]);
+        assert_eq!(out[0].handle.as_deref(), Some("zed.0001"));
+    }
+
+    #[test]
+    fn buddy_details_join_on_the_id_not_the_name() {
+        let mut details = std::collections::HashMap::new();
+        details.insert(
+            "remy.k3f9".to_string(),
+            rt::AgentDetail {
+                repo: Some("rt".into()),
+                branch: None,
+                title: None,
+            },
+        );
+        let out = rows(
+            vec![named_buddy("remy.k3f9", "remy", "live")],
+            vec![],
+            &details,
+        );
+        assert_eq!(out[0].repo.as_deref(), Some("rt"));
+    }
+
+    #[test]
+    fn a_dm_room_row_keeps_its_room_and_carries_the_participant_label() {
+        let out = rows(vec![], vec![dm_room("dm-3f9a", 2)], &no_details());
+        assert_eq!(out[0].room.as_deref(), Some("dm-3f9a"));
+        assert_eq!(out[0].room_label.as_deref(), Some("kai \u{2194} remy"));
+    }
+
+    #[test]
+    fn a_channel_row_has_no_dm_label() {
+        let out = rows(vec![], vec![room("build", 1, 0)], &no_details());
+        assert_eq!(out[0].room_label, None);
+    }
+
+    #[test]
+    fn a_buddy_line_shows_the_name_and_never_the_id() {
+        let mut row = buddy_row("remy.k3f9");
+        row.name = Some("remy".to_string());
+        row.title = Some("remy".to_string());
+        let text = line_text(&row_line(&theme::fallback(), &row, false));
+        assert!(text.contains("remy"), "got {text:?}");
+        assert!(
+            !text.contains("k3f9"),
+            "the id leaked onto the screen: {text:?}"
+        );
+        assert_eq!(
+            text.matches("remy").count(),
+            1,
+            "a title equal to the name is not repeated: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_dm_room_line_reads_as_its_participants() {
+        let out = rows(vec![], vec![dm_room("dm-3f9a", 2)], &no_details());
+        let text = line_text(&row_line(&theme::fallback(), &out[0], false));
+        assert!(text.contains("@ kai \u{2194} remy"), "got {text:?}");
+        assert!(!text.contains("dm-3f9a"), "got {text:?}");
+    }
+
+    #[test]
+    fn a_peek_buddy_carries_its_id_and_its_name() {
+        let mut row = buddy_row("remy.k3f9");
+        row.name = Some("remy".to_string());
+        let panes = vec![rt::ChatPane {
+            pane_id: "w1:p1".to_string(),
+            workspace: "flock".to_string(),
+            title: None,
+            cwd: None,
+            repo: None,
+            branch: None,
+            agent_status: "idle".to_string(),
+            session_id: None,
+            presence: Some(rt::Presence {
+                handle: "remy.k3f9".to_string(),
+                name: Some("remy".to_string()),
+                status: "live".to_string(),
+                rooms: Vec::new(),
+            }),
+        }];
+        let out = crate::json::peek_from_rows(&[row], &panes);
+        assert_eq!(out.buddies[0].handle, "remy.k3f9");
+        assert_eq!(out.buddies[0].name, "remy");
+        assert_eq!(out.buddies[0].pane_id.as_deref(), Some("w1:p1"));
+    }
+
+    #[test]
+    fn a_peek_json_buddy_with_no_name_is_named_by_its_handle() {
+        let out = crate::json::peek_from_rows(&[buddy_row("kay")], &[]);
+        assert_eq!(out.buddies[0].name, "kay");
+    }
+
+    #[test]
+    fn a_peek_dm_room_keeps_its_raw_room_for_the_viewer_link() {
+        let rows = rows(
+            vec![],
+            vec![dm_room("dm-3f9a", 2), room("build", 1, 0)],
+            &no_details(),
+        );
+        let out = crate::json::peek_from_rows(&rows, &[]);
+        let dm = out.rooms.iter().find(|r| r.room == "dm-3f9a").unwrap();
+        assert_eq!(dm.label, "kai \u{2194} remy");
+        let channel = out.rooms.iter().find(|r| r.room == "build").unwrap();
+        assert_eq!(channel.label, "build");
     }
 }

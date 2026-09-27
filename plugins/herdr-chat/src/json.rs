@@ -16,6 +16,7 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub handle: Option<String>,
+    pub name: Option<String>,
     pub state: String,
     pub pane: Option<String>,
     pub signed_in: bool,
@@ -29,6 +30,7 @@ pub struct Status {
 #[serde(rename_all = "camelCase")]
 pub struct PeekBuddy {
     pub handle: String,
+    pub name: String,
     pub pane_id: Option<String>,
     pub status: String,
     pub repo: Option<String>,
@@ -41,6 +43,8 @@ pub struct PeekBuddy {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct PeekRoom {
     pub room: String,
+    /// What to draw: a DM room's participant names, else the room itself.
+    pub label: String,
     pub unread: u32,
     pub mentions: u32,
 }
@@ -70,8 +74,10 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPa
             crate::cmd::peek::RowKind::Buddy => {
                 if let Some(handle) = row.handle.clone() {
                     let pane_id = pane_for(&handle);
+                    let name = row.name.clone().unwrap_or_else(|| handle.clone());
                     buddies.push(PeekBuddy {
                         handle,
+                        name,
                         pane_id,
                         status: row.status.clone().unwrap_or_else(|| "unknown".to_string()),
                         repo: row.repo.clone(),
@@ -84,8 +90,10 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPa
             }
             crate::cmd::peek::RowKind::Room => {
                 if let Some(room) = row.room.clone() {
+                    let label = row.room_label.clone().unwrap_or_else(|| room.clone());
                     rooms.push(PeekRoom {
                         room,
+                        label,
                         unread: row.unread,
                         mentions: row.mentions,
                     });
@@ -97,24 +105,50 @@ pub fn peek_from_rows(rows: &[crate::cmd::peek::Row], panes: &[crate::rt::ChatPa
 }
 
 /// What a caller may send to. The prefixes are the wire form: `#room` and
-/// `@handle` are one namespace a caller passes straight back as `--to`, where
-/// a bare name would be ambiguous between a room and a person.
+/// `@name` are one namespace a caller passes straight back as `--to`, where
+/// a bare name would be ambiguous between a room and a person. `#room` is the
+/// room rt keys on; `@name` is a display name rt resolves to its live holder.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Targets {
     pub rooms: Vec<String>,
     pub people: Vec<String>,
+    /// Display text for every string above; a DM room's `#dm-<hash>` reads as
+    /// its participants' names.
+    pub labels: std::collections::BTreeMap<String, String>,
 }
 
-pub fn targets_from(targets: &[crate::cmd::quick_send::Target]) -> Targets {
+pub fn targets_from(rows: &[crate::cmd::quick_send::TargetRow]) -> Targets {
     let mut rooms = Vec::new();
-    let mut people = Vec::new();
-    for t in targets {
-        match t {
-            crate::cmd::quick_send::Target::Room(r) => rooms.push(format!("#{r}")),
-            crate::cmd::quick_send::Target::Dm(h) => people.push(format!("@{h}")),
+    let mut people: Vec<String> = Vec::new();
+    let mut labels = std::collections::BTreeMap::new();
+    for row in rows {
+        match &row.target {
+            crate::cmd::quick_send::Target::Room(r) => {
+                let target = format!("#{r}");
+                let text = if row.sigil == '@' {
+                    row.label.clone()
+                } else {
+                    target.clone()
+                };
+                labels.insert(target.clone(), text);
+                rooms.push(target);
+            }
+            crate::cmd::quick_send::Target::Dm(_) => {
+                // A signed-out identity can share a live one's name, and
+                // `@name` reaches only the live one.
+                let person = format!("@{}", row.label);
+                if !people.contains(&person) {
+                    labels.insert(person.clone(), person.clone());
+                    people.push(person);
+                }
+            }
         }
     }
-    Targets { rooms, people }
+    Targets {
+        rooms,
+        people,
+        labels,
+    }
 }
 
 /// The inverse of [`targets_from`]'s prefixes.
@@ -190,6 +224,7 @@ pub struct Jump {
     pub pane_id: String,
     pub workspace: String,
     pub handle: String,
+    pub name: String,
 }
 
 /// The chat viewer URL, deep-linked to a room when the caller asked for one.
@@ -222,6 +257,7 @@ mod tests {
     fn status_serializes_signed_in_as_camel_case() {
         let out = serde_json::to_string(&Status {
             handle: Some("kay".to_string()),
+            name: Some("kay".to_string()),
             state: "live".to_string(),
             pane: Some("w1:p1".to_string()),
             signed_in: true,
@@ -230,7 +266,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             out,
-            r##"{"handle":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
+            r##"{"handle":"kay","name":"kay","state":"live","pane":"w1:p1","signedIn":true,"rooms":["#rt"]}"##
         );
     }
 
@@ -238,6 +274,7 @@ mod tests {
     fn a_missing_handle_is_null_rather_than_absent() {
         let out = serde_json::to_string(&Status {
             handle: None,
+            name: None,
             state: "not signed in".to_string(),
             pane: None,
             signed_in: false,
@@ -246,7 +283,24 @@ mod tests {
         .unwrap();
         assert_eq!(
             out,
-            r#"{"handle":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+            r#"{"handle":null,"name":null,"state":"not signed in","pane":null,"signedIn":false,"rooms":[]}"#
+        );
+    }
+
+    #[test]
+    fn status_serializes_the_display_name_beside_the_id() {
+        let out = serde_json::to_string(&Status {
+            handle: Some("remy.k3f9".to_string()),
+            name: Some("remy".to_string()),
+            state: "live".to_string(),
+            pane: Some("w1:p1".to_string()),
+            signed_in: true,
+            rooms: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            out,
+            r#"{"handle":"remy.k3f9","name":"remy","state":"live","pane":"w1:p1","signedIn":true,"rooms":[]}"#
         );
     }
 
@@ -271,11 +325,12 @@ mod tests {
             pane_id: "w1:p1".to_string(),
             workspace: "flock".to_string(),
             handle: "kay".to_string(),
+            name: "kay".to_string(),
         })
         .unwrap();
         assert_eq!(
             out,
-            r#"{"paneId":"w1:p1","workspace":"flock","handle":"kay"}"#
+            r#"{"paneId":"w1:p1","workspace":"flock","handle":"kay","name":"kay"}"#
         );
     }
 
@@ -283,6 +338,7 @@ mod tests {
     fn peek_buddy_serializes_pane_id_as_camel_case() {
         let out = serde_json::to_string(&PeekBuddy {
             handle: "kay".to_string(),
+            name: "kay".to_string(),
             pane_id: Some("w1:p1".to_string()),
             status: "live".to_string(),
             repo: None,

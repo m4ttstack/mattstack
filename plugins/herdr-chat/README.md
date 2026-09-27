@@ -60,27 +60,49 @@ breaking it.
 
 | Verb | Input | Keys it prints |
 | --- | --- | --- |
-| `status` | `--pane <id>`, else `HERDR_PANE_ID`; required | `handle`, `state`, `pane`, `signedIn`, `rooms` |
-| `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same five, read back after the sign |
-| `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same five |
+| `status` | `--pane <id>`, else `HERDR_PANE_ID`; required | `handle`, `name`, `state`, `pane`, `signedIn`, `rooms` |
+| `sign-in` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same six, read back after the sign |
+| `sign-out` | `--pane <id>`, else `HERDR_PANE_ID`; required | the same six |
 | `peek` | none | `buddies`, `rooms` |
-| `targets` | none | `rooms`, `people` |
-| `quick-send` | `--to '#room'` or `--to '@handle'`, `--body <text>` | `ok`, `to` |
+| `targets` | none | `rooms`, `people`, `labels` |
+| `quick-send` | `--to '#room'` or `--to '@name'`, `--body <text>` | `ok`, `to` |
 | `broadcast` | `--panes <id,id>`, `--body <text>` | `ok`, `results` |
-| `jump` | `--handle <handle>` | `paneId`, `workspace`, `handle` |
+| `jump` | `--handle <name or handle>` | `paneId`, `workspace`, `handle`, `name` |
 | `open-viewer` | `--room <room>`, optional | `url` |
 
-The nested rows: a `peek` buddy is `handle`, `paneId`, `status`, `repo`,
-`branch`, `title`, `unread`, `mentions`, and a `peek` room is `room`, `unread`,
-`mentions`; a `broadcast` result is `paneId`, `ok`, `delivered`, `error`.
+The nested rows: a `peek` buddy is `handle`, `name`, `paneId`, `status`, `repo`,
+`branch`, `title`, `unread`, `mentions`, and a `peek` room is `room`, `label`,
+`unread`, `mentions` (`label` is what to draw: a DM room's participant names,
+`kai ↔ remy`, else the room); a `broadcast` result is `paneId`, `ok`,
+`delivered`, `error`.
 
-`targets` prints prefixed strings (`#room` under `rooms`, `@handle` under
+`targets` prints prefixed strings (`#room` under `rooms`, `@name` under
 `people`) and `quick-send --to` takes one back. A bare name is refused rather
-than guessed at between a room and a person.
+than guessed at between a room and a person. `labels` maps each of those
+strings to what to draw: a DM room's `#dm-...` reads as its participants'
+names, and every other string maps to itself.
 
-Absent values are `null`, never a missing key: `handle` and `pane` on a
+Absent values are `null`, never a missing key: `handle`, `name` and `pane` on a
 `status`, a peek buddy's `paneId` / `repo` / `branch` / `title`, and a
 broadcast result's `error`.
+
+### Handles and names
+
+rt gives every chat identity two strings. `handle` is the id rt keys
+everything on (`remy.k3f9`); `name` is what people see and type (`remy`).
+Show `name`, act on `handle`: a jump, a DM, or a check for "is this the
+same agent" goes by `handle`, because a name is reused after its holder
+signs out and a handle never is.
+
+Input goes the other way. `jump --handle` and `quick-send --to '@...'` take
+either one. `jump` matches a live agent's name first, then a handle exactly,
+the same order rt resolves a DM in. `quick-send` passes the value to rt,
+which resolves a name to the live identity holding it. `targets` lists each
+name once: a signed-out identity can still share a name with a live one,
+and only the live one answers to it.
+
+An rt from before names existed sends no `name`, and every verb then prints
+the handle in its place, so `name` is present wherever `handle` is.
 
 ### What `ok` does and does not tell you
 
