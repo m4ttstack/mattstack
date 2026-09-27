@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { basename, join } from 'node:path';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -12,6 +12,7 @@ import {
   commit,
   addNamedWorktree,
   addWorkSlot,
+  rejectRefUpdates,
   runCli,
   type SandboxRepo,
   type SandboxRepoWithRemote,
@@ -907,18 +908,13 @@ describe('gitq CLI', () => {
     expect((await runCli(['reparent', 'feat/branch-2', '--onto', 'main', '--json'], repo.dir, configDir)).exitCode).toBe(0);
     expect(await parentOf('feat/branch-2')).toBe('main');
 
-    const hook = join(repo.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'hooks', 'reference-transaction');
-    await writeFile(
-      hook,
-      `#!/bin/sh\n[ "$1" = prepared ] || exit 0\nif grep ' refs/heads/feat/branch-3$' >/dev/null; then exit 1; fi\nexit 0\n`,
-      { mode: 0o755 },
-    );
+    const removeHook = await rejectRefUpdates(repo, 'feat/branch-3');
     const partial = await runCli(['undo', '--json'], repo.dir, configDir);
     expect(partial.exitCode).toBe(1);
     expect(JSON.parse(partial.stdout).error).toContain('feat/branch-3');
     expect(await parentOf('feat/branch-2')).toBe('main');
 
-    await rm(hook);
+    await removeHook();
     const retry = await runCli(['undo', '--json'], repo.dir, configDir);
     expect(retry.exitCode).toBe(0);
     expect(await parentOf('feat/branch-2')).toBe('feat/branch-1');
