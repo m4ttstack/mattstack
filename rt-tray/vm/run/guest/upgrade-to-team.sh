@@ -1,8 +1,9 @@
 #!/bin/bash
 # Drive the upgrade-to-team leg on an already-solo install: Settings > Team >
 # Create a team… through the same wizard screens drive-setup.sh uses for a
-# fresh create, then assert the machine is now a team member. Run by the host,
-# by hand, against a guest left running with --scenario solo --keep.
+# fresh create, then assert the machine is now a team member. Run by
+# walkthrough.sh's team-upgrade phase when --team-remote is given for a
+# --scenario solo run.
 # Usage: upgrade-to-team.sh --team-slug vmtest --pat-env MATTSTACK_VMTEST_PAT --team-remote <url> [--forge github|gitlab]
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; source "$HERE/ax.sh"; source "$HERE/screens.sh"
@@ -21,7 +22,7 @@ DRIVER_LAUNCH_ARGS="${DRIVER_LAUNCH_ARGS:-}"
 JQ=/Applications/mattstack.app/Contents/Helpers/jq
 
 ax_log "upgrade-to-team: slug=$SLUG forge=$FORGE remote=$TEAM_REMOTE"
-ax_wait_window "mattstack" 60 || ax_fail "mattstack window never appeared (is the app running?)"
+ax_open_settings_team
 ax_click settings.team.create
 # settings.team.create reopens the same wizard the create scenario drives, so
 # the create-scenario screen functions apply unchanged from here.

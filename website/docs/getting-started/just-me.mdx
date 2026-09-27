@@ -1,0 +1,66 @@
+---
+sidebar_position: 2
+title: Just me
+---
+
+# Just me
+
+**Just me** is the solo install: rt, the daemon, and Claude Code on this Mac, with rt's integrations (flock among them), no team repo, and no forge account. It's for one person setting up a personal machine rather than joining or starting a team.
+
+## Pick Just me
+
+On the Team screen (see [Install](/getting-started/install#your-team)), pick the **Just me** card: "rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."
+
+## What the checklist asks for
+
+The rest of the checklist is unchanged, except:
+
+- **Your Mac** rows (macOS, Command Line Tools, PATH, permissions) still apply as usual.
+- No team repo, no switchboard. The **Repo folder** row appears once you track a repo, as it does on a team.
+- **Accounts** has a GitHub row, and it's optional: "Works without this. Connect a GitHub or GitLab account later to open PRs and MRs from rt." A GitLab row on the solo checklist is coming later.
+- **Fast Browser** is optional too: "Works without this; only the browser skills need it."
+- **Writing style** still has to resolve before Finish. The default preset ships in the plugin, so it resolves on its own.
+
+## What you get
+
+Install runs to a green `rt verify` with no team, no forge token, no `gh` login, and no git remote. The window shows console and chat. Board and boxscore, the team-only apps, are installed but off.
+
+## Settings > Apps
+
+**Settings → Apps** lists one row per app with a toggle. A team-only row (board, boxscore) stays toggleable, but carries a note: "Needs a team. Create or join one under Team to use this." Turn one on if you want to look at it anyway.
+
+From a terminal:
+
+```bash
+rt apps list              # every app and whether it's on
+rt apps enable board      # or disable
+```
+
+Deck's own board (`deck.mattstack`) shows an off app as off, with no switch of its own; Settings → Apps is the only place to flip it.
+
+## Upgrading to a team
+
+Nothing about a solo install is permanent. **Settings → Team** offers **Create a team…** and **Join a team…**; either one reopens the setup window at the Team screen and runs Install again, this time only for what a team needs: the team itself, a forge token, the team's marketplace, and board and boxscore turning on. Everything already set up (rt, the daemon, Claude Code) stays as it is.
+
+Until you do, `rt team status --json` reports `"mode": "solo"`.
+
+## Connecting a forge account
+
+Solo works without a GitHub or GitLab account, but connecting one adds a few things worth having as a solo developer:
+
+- worktrees auto-dispose once their PR merges
+- `rt` can open PRs and MRs directly
+- your home repo backup can push to a remote instead of staying local-only
+
+Today, the GitHub row on the setup checklist is the way in. A dedicated Settings door for connecting an account after Finish is coming later.
+
+## From a terminal
+
+The setup window's Just me flow is two rt commands:
+
+```bash
+rt setup intent solo   # record the choice
+rt setup apply         # run the install steps solo needs
+```
+
+See [Install](/getting-started/install#from-a-terminal) for the rest of the headless flow.

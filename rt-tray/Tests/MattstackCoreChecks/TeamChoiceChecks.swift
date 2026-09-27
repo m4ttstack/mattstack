@@ -284,4 +284,16 @@ let teamChoiceChecks: [Check] = [
             c.expectEqual(m.choice, .solo, "a first run keeps what the person picked")
         }
     },
+    Check("DoneRole reads the plan over the choice model, which a Full Disk Access relaunch resets to .create") { c in
+        let soloPlanTeam = TeamInfo(slug: "", name: nil, mode: .noTeam)
+        c.expectEqual(DoneRole.solo(planTeam: soloPlanTeam, choice: .create), true, "relaunch case: choice model reset to .create, plan still says solo")
+        c.expectEqual(DoneRole.owner(planTeam: soloPlanTeam, choice: .create), false)
+        let createdPlanTeam = TeamInfo(slug: "acme", name: "Acme", mode: .create)
+        c.expectEqual(DoneRole.owner(planTeam: createdPlanTeam, choice: .solo), true)
+        c.expectEqual(DoneRole.solo(planTeam: createdPlanTeam, choice: .solo), false)
+        c.expectEqual(DoneRole.solo(planTeam: nil, choice: .solo), true, "no plan team yet: fall back to the choice")
+        c.expectEqual(DoneRole.owner(planTeam: nil, choice: .create), true)
+        c.expectEqual(DoneRole.solo(planTeam: nil, choice: .create), false)
+        c.expectEqual(DoneRole.owner(planTeam: nil, choice: .join), false)
+    },
 ]

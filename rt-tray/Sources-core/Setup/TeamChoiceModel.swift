@@ -3,6 +3,21 @@ import Combine
 
 public enum TeamChoice: Equatable, Sendable { case create, join, restore, solo }
 
+/// Derives the Done screen's solo/owner framing from the plan the checklist
+/// loaded rather than from `TeamChoiceModel`, since a Full Disk Access
+/// relaunch (`AppRelaunch.swift`) resumes the wizard at the checklist with a
+/// fresh, default-`.create` choice model — the plan survives the relaunch.
+public enum DoneRole {
+    public static func solo(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
+        guard let planTeam else { return choice == .solo }
+        return planTeam.mode == .noTeam && (planTeam.slug ?? "").isEmpty
+    }
+    public static func owner(planTeam: TeamInfo?, choice: TeamChoice) -> Bool {
+        guard let planTeam else { return choice == .create }
+        return planTeam.mode == .create
+    }
+}
+
 public struct GitHubStatus: Codable, Equatable, Sendable {
     public var status: RowStatus
     public var handle: String?
