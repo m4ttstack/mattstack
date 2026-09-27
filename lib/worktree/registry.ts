@@ -205,6 +205,7 @@ export function findByBranch(trees: TreeRecord[], branch: string): TreeRecord[] 
   return trees.filter((t) => t.branch === branch);
 }
 
+/** Parity anchor with `WORKTREE_NAME_CURSOR_NS` in `lib/repo-index.ts`, which carries it through a repo rename. */
 const NAME_CURSOR_NS = "worktree-name-cursor";
 
 /** The pool name this repo's last tree was given; `pickName` continues after it. */
