@@ -60,8 +60,8 @@ digraph rt_release {
     "git fetch origin --tags" -> "Find where this release stands";
     "Find where this release stands" -> "Where does the release stand?";
     "Where does the release stand?" -> "rt release preflight --json" [label="nothing started"];
-    "Where does the release stand?" -> "Prove and tag (prove-and-tag.md)" [label="notes commit is origin/main's head, no tag"];
-    "Where does the release stand?" -> "Prepare the release (prepare.md)" [label="notes commit on origin/main with commits after it, no tag"];
+    "Where does the release stand?" -> "Prove and tag (prove-and-tag.md)" [label="notes commit on origin/main, no tag"];
+    "Where does the release stand?" -> "Prepare the release (prepare.md)" [label="notes commit on origin/main, a fix for this release merged after it, no tag"];
     "Where does the release stand?" -> "Publish and finish (publish-and-finish.md)" [label="tag pushed"];
     "rt release preflight --json" -> "Preflight verdict?";
     "Preflight verdict?" -> "Which gate does the diff imply?" [label="every row current"];
@@ -130,13 +130,16 @@ lag origin/main), then take the first edge that matches:
    A match names its `<tag>`; `git ls-remote --tags origin <tag>` says whether that tag is on origin.
 3. Whether the newest tag's publish verified: `rt release verify <newest-tag> --json --no-wait`.
 
-- `notes commit on origin/main with commits after it, no tag`: fact 2 matched, `ls-remote`
-  printed nothing, and `git log --oneline <notes-sha>..origin/main` is not empty, where
-  `<notes-sha>` is fact 2's newest match (a rehearsal fix, or anything else, landed after the
-  notes). The tag must cover those commits, so Prepare runs again: its copy-aside keeps the
+- `notes commit on origin/main, a fix for this release merged after it, no tag`: fact 2 matched,
+  `ls-remote` printed nothing, and the earlier hold recorded "re-prepare on the new main" as its
+  resume point, in the turn's final message or in the answer to the rehearsal gate that
+  recommended it, and that fix has merged. The evidence is that record, never a count of commits
+  after the notes. The tag must cover the fix, so Prepare runs again: its copy-aside keeps the
   curated notes, and Matt re-approves the notes against the grown range.
-- `notes commit is origin/main's head, no tag`: fact 2 matched, `ls-remote` printed nothing, and
-  that log is empty. Prove and tag reuses a dispatch run whose `headSha` is that notes commit.
+- `notes commit on origin/main, no tag`: fact 2 matched, `ls-remote` printed nothing, and no fix
+  for this release merged after it. Unrelated commits after the notes commit do not count: Prove
+  and tag reuses a dispatch run whose `headSha` is that notes commit and tags the exercised sha
+  as before.
 - `tag pushed`: fact 2 matched and `ls-remote` printed its tag (that tag is the release in
   flight); or the newest tag's verify is not `released`; or Matt or the brief says the last
   release stopped before rt.cool or update-machine.
