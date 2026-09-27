@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { boardDoctorOwner, readCiLease } from '@mattstack/rt-client';
 
+import type { DoctorState } from '../doctor-state.ts';
 import { createBoardAttendants } from '../triage/attendant.ts';
 import type { AuditEntry } from '../triage/audit.ts';
 import { parseTriageBlock } from '../triage/config.ts';
@@ -517,16 +518,15 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     expect(d.launches).toHaveLength(0);
   });
 
-  test('a throw AFTER launchDoctor resolves (post-launch bookkeeping) does not release the claim', async () => {
-    // A real GitLab-shaped MR URL: createBoardAttendants runs through
-    // rt-client's actual ciLeaseFileName, which (unlike the fake
-    // 'https://x/mr/1' URLs elsewhere in this file) requires a parseable
-    // /merge_requests/<iid> segment.
+  test('a throw AFTER launchDoctor resolves (post-launch bookkeeping) keeps the claim and the in-flight row across the next pass', async () => {
+    // createBoardAttendants runs through rt-client's real ciLeaseFileName,
+    // which needs a parseable /merge_requests/<iid> segment.
     const mrUrl = 'https://gitlab.example.com/acme/webapp/-/merge_requests/1821';
     const dir = mkdtempSync(join(tmpdir(), 'attendants-run-'));
     const now = () => 1_000_000_000;
     try {
       const attendants = createBoardAttendants({ dir, now });
+      const rows = new Map<string, DoctorState>();
       let readDoctorStatesCalls = 0;
       const d = deps({
         attendants,
@@ -543,19 +543,41 @@ describe('runTriage attendant lease (BOARD-10)', () => {
             isStacked: false,
           } satisfies OwnMrFacts,
         ],
-        // The first call builds runTriage's own `doctors` map; the second is
-        // the post-launch race-guard read -- only that one must fail here,
-        // after the doctor pane already exists and holds the lease.
+        writeDoctorState: (path, patch) => {
+          const prev = rows.get(path);
+          const row = {
+            mrUrl: patch.mrUrl ?? prev?.mrUrl ?? '',
+            iid: patch.iid ?? prev?.iid ?? 0,
+            status: patch.status ?? prev?.status,
+            origin: patch.origin ?? prev?.origin,
+            startedAt: 0,
+            updatedAt: 0,
+          } as DoctorState;
+          rows.set(path, row);
+          return row;
+        },
+        // Call 2 is the post-launch race-guard read of the first pass: only
+        // that one fails, after the doctor pane already holds the lease.
         readDoctorStates: () => {
           readDoctorStatesCalls++;
-          if (readDoctorStatesCalls > 1) throw new Error('disk read failed');
-          return new Map();
+          if (readDoctorStatesCalls === 2) throw new Error('disk read failed');
+          return new Map([...rows.values()].map(r => [r.mrUrl, r]));
         },
       });
       await runTriage(d);
       expect(d.launches).toHaveLength(1);
-      const lease = readCiLease(mrUrl, { dir, now }).lease;
-      expect(lease?.owner).toBe(boardDoctorOwner(mrUrl));
+      expect(readCiLease(mrUrl, { dir, now }).lease?.owner).toBe(
+        boardDoctorOwner(mrUrl)
+      );
+      const row = [...rows.values()].find(r => r.mrUrl === mrUrl);
+      expect(row?.status).not.toBe('error');
+      expect(d.audit.some(e => e.action === 'post-launch-failed')).toBe(true);
+
+      await runTriage(d);
+      expect(d.launches).toHaveLength(1);
+      expect(readCiLease(mrUrl, { dir, now }).lease?.owner).toBe(
+        boardDoctorOwner(mrUrl)
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

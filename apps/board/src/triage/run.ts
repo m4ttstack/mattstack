@@ -357,10 +357,7 @@ export async function runTriage(
       });
       continue;
     }
-    // Declared outside the try (rather than let-bound inside it) so the
-    // catch below can still write an error row once statePath is known --
-    // everything from here through launchDoctor now shares one try, so a
-    // throw at any point after the claim above still reaches the release.
+    // Outside the try so the catch can mark the row once statePath is known.
     let statePath: string | undefined;
     // Set the instant launchDoctor resolves: a throw from the POST-launch
     // bookkeeping below (the race-guard read, the queued-state update) must
@@ -446,26 +443,27 @@ export async function runTriage(
         attempt: m.attemptsToday,
       });
     } catch (err) {
-      // A throw after launchDoctor resolved means a doctor pane is actually
-      // running and still holds the lease; releasing it here would let a
-      // watch-ci agent claim alongside it. Only an unsuccessful launch
-      // releases.
-      if (!launched) deps.attendants?.release(edge.mrUrl, edge.iid);
-      // statePath is unset only when deps.doctorFilePath itself threw, before
-      // any row existed to mark 'error' -- the audit entry below still
-      // records the failure.
-      if (statePath !== undefined) {
-        deps.writeDoctorState(statePath, {
-          status: 'error',
-          message: 'failed to launch doctor pane',
-        });
+      // After launchDoctor resolved, a doctor pane is running and holds the
+      // lease: releasing it, or marking the row 'error' (not in IN_FLIGHT, so
+      // the next pass's maintenance releases the lease), would let a second
+      // attendant in alongside it. The row stays as the launch left it.
+      if (!launched) {
+        deps.attendants?.release(edge.mrUrl, edge.iid);
+        // statePath is unset only when deps.doctorFilePath itself threw,
+        // before any row existed; the audit entry still records the failure.
+        if (statePath !== undefined) {
+          deps.writeDoctorState(statePath, {
+            status: 'error',
+            message: 'failed to launch doctor pane',
+          });
+        }
       }
       deps.appendAudit({
         ts: now,
         mrUrl: edge.mrUrl,
         iid: edge.iid,
         event: edge.kind,
-        action: 'launch-failed',
+        action: launched ? 'post-launch-failed' : 'launch-failed',
         outcome: err instanceof Error ? err.message : String(err),
       });
     }
