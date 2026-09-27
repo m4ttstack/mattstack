@@ -150,13 +150,13 @@ stall to the user instead.
 
 Every herd is a row in the rt daemon's registry plus one chat room and one
 gate subscription, all created by `herd_start`. Workers ask through gates
-(`herd_ask`, `herd_milestone`) and the daemon pushes each open gate
-into this session; workers report and the daemon posts lifecycle notices
-into the room, which is also pushed here. You answer gates with
-`rt gate answer` in Bash, you talk to a worker with `rt chat dm <handle>`, and the
-daemon records job state as a side effect of every call. There is no herd
-DB, no script, and no background wait. `herd_status {herd}` is the whole
-picture at any moment.
+(`herd_ask`, `herd_milestone`) and the daemon pushes each open gate into
+this session; workers report and the daemon posts lifecycle notices into
+the room, which is also pushed here. You answer gates with `rt gate answer`
+in Bash, you talk to a worker with the `chat_dm` tool
+(`{to: <handle>, body}`), and the daemon records job state as a side effect
+of every call. There is no herd DB, no script, and no background wait.
+`herd_status {herd}` is the whole picture at any moment.
 
 ### job.md: assembled by herd_brief
 
@@ -396,12 +396,12 @@ rt herd spawn --herd <id> --job review-<job> --brief <review-brief.md> --dir <th
 ```
 
 **The reviewer spawn is this Bash line, never `herd_spawn`:** the tool
-never takes a dir, so it would land the reviewer in a fresh tree instead
-of the job's. Give it a brief that reads the artifact, sends its findings with
-`rt chat dm <job-handle>`, and reports a verdict; the daemon closes the
-reviewer's pane on that report. The job revises and opens a fresh
-milestone gate when it is ready; every round is gate, DM, gate. You do not
-read the artifact.
+never takes a dir, so it would land the reviewer in a fresh tree instead of
+the job's. Give it a brief that reads the artifact, sends its findings with
+the `chat_dm` tool (`to` = the job's handle), and reports a verdict; the
+daemon closes the reviewer's pane on that report. The job revises and opens
+a fresh milestone gate when it is ready; every round is gate, DM, gate. You
+do not read the artifact.
 
 ## completion
 
@@ -469,9 +469,9 @@ ask. Either way the hands-on work stays with workers, never with you.
 ## mid-flight changes
 
 A ruling that invalidates in-flight work, a scope change, or a reviewer's
-findings go to the worker as `rt chat dm <handle>` (the handle
-`herd_status` shows for the job). It lands in the worker's context mid-turn and
-is on the room record.
+findings go to the worker through the `chat_dm` tool, `to` = the handle
+`herd_status` shows for the job. It lands in the worker's context mid-turn
+and is on the room record.
 
 If the user redirects scope: one sentence naming the running agents, then the structured-question tool with **Let them finish** (recommended) / **Kill and respawn with the new briefs**; **Hold**. A kill is `herd_close {job, herd}`, then the Bash respawn with the new brief (the tree stays attached after the close, so never `herd_spawn`):
 
@@ -548,7 +548,7 @@ work merges, what a disposal refusal means) -- follow it over item 5.
 - About to restate the scope change as a heading and add a sentence explaining each option on the mid-flight form? Stop. One sentence naming the running agents, then the bare three options the text names -- no restated heading, no per-option description.
 - About to run a background wait, a watcher, or a sweep? Stop. The daemon pushes; nothing arms.
 - About to answer a gate from the push's text? Stop. It carries only an id; the registry read (`herd_gates`) is the question.
-- About to `herdr agent prompt` a worker? Stop. `rt chat dm <handle>` is the channel, and it is on the record.
+- About to `herdr agent prompt` a worker? Stop. The `chat_dm` tool is the channel, and it is on the record.
 - About to tell a worker "to revise" in prose? Stop. Revise is a gate answer with a note; findings are a DM.
 - About to record a job as done, closed, or crashed by hand? Stop. The herd tools and the daemon own job state.
 - Fresh session and about to reconstruct a herd from memory? Stop. `herd_resume {herd}`.
