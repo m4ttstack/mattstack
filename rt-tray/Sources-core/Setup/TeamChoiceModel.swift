@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-public enum TeamChoice: Equatable, Sendable { case create, join, restore }
+public enum TeamChoice: Equatable, Sendable { case create, join, restore, solo }
 
 public struct GitHubStatus: Codable, Equatable, Sendable {
     public var status: RowStatus
@@ -15,6 +15,7 @@ public struct GitHubStatus: Codable, Equatable, Sendable {
 public final class TeamChoiceModel: ObservableObject {
     public nonisolated static let inviteCodeLength = 77
     public static let explainer = "mattstack keeps your team settings in git. That keeps them safe and gives you a paper trail: skill edits and every change are visible in history. The same goes for your own settings home repo, created by the same step."
+    public static let soloExplainer = "rt, the daemon and Claude Code on this Mac. No team repo, no forge account. You can create or join a team later from Settings."
 
     @Published public var choice: TeamChoice = .create
     @Published public var teamName = ""
@@ -74,6 +75,8 @@ public final class TeamChoiceModel: ObservableObject {
         case .restore:
             let repo = restoreRepo.trimmingCharacters(in: .whitespaces)
             return !repo.isEmpty && (restoredRepo == repo || !restoreAgeKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        case .solo:
+            return true
         }
     }
 
@@ -152,6 +155,13 @@ public final class TeamChoiceModel: ObservableObject {
                 restoredRepo = repo
                 restoreAgeKey = ""
                 return nil
+            case .solo:
+                if let e = await homeInitCheck() { return e }
+                let r = try await rt.run(["setup", "intent", "solo", "--json"], stdin: nil)
+                if let e = r.userError { return e.message }
+                guard r.exitCode == 0 else { return r.failureCopy(verb: "setup intent solo") }
+                preparedFingerprint = fingerprint
+                return nil
             }
         } catch {
             return "Could not run rt: \(error)"
@@ -171,6 +181,8 @@ public final class TeamChoiceModel: ObservableObject {
             // (which is wiped after a successful restore) and only ever has to
             // answer "did the inputs change".
             return ["restore", restoreRepo.trimmingCharacters(in: .whitespaces), String(restoreAgeKey.hashValue)].joined(separator: "\u{1}")
+        case .solo:
+            return "solo"
         }
     }
 

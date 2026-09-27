@@ -96,6 +96,12 @@ test("team create answers the contract's flat shape, not nested under team", asy
   expect((created.lines[0] as Record<string, unknown>).team).toBeUndefined();
 });
 
+test("setup intent solo answers the contract shape", async () => {
+  const r = await run("join-happy", ["setup", "intent", "solo", "--json"]);
+  expect(r.code).toBe(0);
+  expect(r.lines[0]).toMatchObject({ contract: 1, mode: "solo" });
+});
+
 test("uninstall real run's done event matches apply's shape with failedStep: null", async () => {
   const real = await run("uninstall", ["uninstall", "--json"]);
   expect(real.code).toBe(0);
