@@ -1583,6 +1583,7 @@ export const TREE: Record<string, CommandNode> = {
       { name: "Room", type: "text", optional: true, placeholder: "build", hint: "Room name for join/leave/archive/post/read/who/mark; the target handle for dm; the pane id for invite; the message id for ack/claim/release; omit on read/rooms/who to span everything, and on prune/sign-in/sign-out/buddies/back/away, which take no room" },
       { name: "Text", type: "text", optional: true, placeholder: "@handle message", hint: "A one-line message body (every word after the room/handle) — post, dm; leave it out and feed the body on stdin (a heredoc) so paragraphs and lists survive; away takes this directly, with no room before it" },
       { name: "As handle", flag: "--as", type: "text", placeholder: "repo-tools-main", hint: "Override the derived handle for this invocation; refused while signed in (sign out first)" },
+      { name: "Name", flag: "--name", type: "text", placeholder: "remy", hint: "For sign-in: a fresh identity with this display name; never continues one (use --as for that)" },
       { name: "Wake on", flag: "--wake-on", type: "text", placeholder: "mention | all | none", hint: "For join: when this handle gets delivered a message (default mention)" },
       { name: "Reopen", flag: "--reopen", type: "boolean", default: false, hint: "For archive: clear the archive instead of setting it" },
       { name: "Limit", flag: "--limit", type: "text", placeholder: "20", hint: "For read: max messages (default 20)" },

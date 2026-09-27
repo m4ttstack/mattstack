@@ -403,7 +403,7 @@ describe("rt chat CLI — additional verb behavior", () => {
 
   test("claim --json carries the outcome discriminator for every branch", async () => {
     const id = await postedId();
-    expect(JSON.parse(await runChat(["claim", String(id), "--as", "b", "--json"]))).toEqual({ ok: true, id, outcome: "claimed", author: "asker", room: "r" });
+    expect(JSON.parse(await runChat(["claim", String(id), "--as", "b", "--json"]))).toEqual({ ok: true, id, outcome: "claimed", author: "asker", authorName: "asker", room: "r" });
     const lost = JSON.parse(await runChat(["claim", String(id), "--as", "c", "--json"]));
     expect(lost).toMatchObject({ ok: true, id, outcome: "lost", holder: "b" });
     expect(typeof lost.expiresAt).toBe("number");
@@ -505,18 +505,23 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(out).toMatch(/#warroom/);
   });
 
-  test("sign-in without --as draws a first name from the pool and keeps it on a repeat sign-in", async () => {
+  test("sign-in without --as draws a pool name and keeps the same identity on a repeat sign-in", async () => {
     const first = await runChat(["sign-in", "--no-room", "--session", "s7"]);
-    const handle = /signed in as (\S+)/.exec(first)?.[1] ?? "";
-    expect(AGENT_NAMES).toContain(handle);
+    const name = /signed in as (\S+)/.exec(first)?.[1] ?? "";
+    expect(AGENT_NAMES).toContain(name);
+    const id = JSON.parse(readFileSync(sessionFilePath("s7"), "utf8")).handle;
     const again = await runChat(["sign-in", "--no-room", "--session", "s7"]);
-    expect(again).toMatch(new RegExp(`signed in as ${handle}\\b`));
+    expect(again).toMatch(new RegExp(`signed in as ${name}\\b`));
+    expect(JSON.parse(readFileSync(sessionFilePath("s7"), "utf8")).handle).toBe(id);
   });
 
-  test("resolveSignInBaseHandle: a pane pin beats the pool draw but loses to chat.handle and --as", () => {
-    expect(__test__.resolveSignInBaseHandle(["--as", "kai"], "sp-unit")).toBe("kai");
+  test("resolveSignInRequest: --as continues, --name and chat.handle ask for a fresh identity with that name, neither draws", () => {
+    expect(__test__.resolveSignInRequest(["--as", "kai"])).toEqual({ continue: "kai" });
+    expect(__test__.resolveSignInRequest(["--name", "bob"])).toEqual({ baseHandle: "bob" });
+    expect(__test__.resolveSignInRequest([])).toEqual({});
     setSetting("chat.handle", "picked", "user");
-    expect(__test__.resolveSignInBaseHandle([], "sp-unit")).toBe("picked");
+    expect(__test__.resolveSignInRequest([])).toEqual({ baseHandle: "picked" });
+    expect(__test__.resolveSignInRequest(["--as", "kai"])).toEqual({ continue: "kai" });
   });
 
   test("sign-in never draws a name another live session holds", async () => {
@@ -557,12 +562,13 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
   test("sign-in --pane --json reports the handle and room from the response, and writes the session file under the daemon-resolved sessionId", async () => {
     canned["chat:sign-in"] = { ok: true, data: { handle: "kai", baseHandle: "kai", reclaimed: false, sessionId: "pane-sess-2", room: "build" } };
     const out = await runChat(["sign-in", "--pane", "w1:p1", "--json"]);
-    expect(JSON.parse(out)).toEqual({ ok: true, handle: "kai", room: "build" });
+    expect(JSON.parse(out)).toEqual({ ok: true, handle: "kai", name: "kai", room: "build", continued: false });
     expect(existsSync(sessionFilePath("pane-sess-2"))).toBe(true);
     expect(JSON.parse(readFileSync(sessionFilePath("pane-sess-2"), "utf8"))).toMatchObject({
       sessionId: "pane-sess-2",
       handle: "kai",
       baseHandle: "kai",
+      name: "kai",
       room: "build",
     });
   });
@@ -810,6 +816,51 @@ describe("rt chat CLI — sign-in / sign-out (presence)", () => {
     expect(code).not.toBe(0);
     expect(stdout).toBe("");
     expect(stderr).toContain("sign-out --pane needs a daemon that supports it");
+  });
+
+  test("a new session in the same herdr pane signs in as a new identity", async () => {
+    process.env.HERDR_PANE_ID = "wAR:p3";
+    await runChat(["sign-in", "--no-room", "--session", "sp1"]);
+    const first = JSON.parse(readFileSync(sessionFilePath("sp1"), "utf8"));
+    await runChat(["sign-out", "--session", "sp1"]);
+    await runChat(["sign-in", "--no-room", "--session", "sp2"]);
+    const second = JSON.parse(readFileSync(sessionFilePath("sp2"), "utf8"));
+    expect(second.handle).not.toBe(first.handle);
+  });
+
+  test("sign-in --as sends continue, never baseHandle, and the session file carries the name", async () => {
+    const out = JSON.parse(await runChat(["sign-in", "--as", "remy", "--no-room", "--session", "s11", "--json"]));
+    expect(out).toMatchObject({ ok: true, name: "remy", room: null, continued: false });
+    const sent = seen.find((s) => s.cmd === "chat:sign-in")!.payload as Record<string, unknown>;
+    expect(sent.continue).toBe("remy");
+    expect(sent.baseHandle).toBeUndefined();
+    expect(JSON.parse(readFileSync(sessionFilePath("s11"), "utf8"))).toMatchObject({ handle: out.handle, name: "remy" });
+  });
+
+  test("sign-in --name sends baseHandle, never continue", async () => {
+    const out = JSON.parse(await runChat(["sign-in", "--name", "bob", "--no-room", "--session", "s13", "--json"]));
+    expect(out).toMatchObject({ ok: true, name: "bob", continued: false });
+    const sent = seen.find((s) => s.cmd === "chat:sign-in")!.payload as Record<string, unknown>;
+    expect(sent.baseHandle).toBe("bob");
+    expect(sent.continue).toBeUndefined();
+  });
+
+  test("every line the CLI prints about a minted identity shows its name, never its id", async () => {
+    const out = await runChat(["sign-in", "--no-room", "--session", "s12"]);
+    const session = JSON.parse(readFileSync(sessionFilePath("s12"), "utf8"));
+    expect(session.handle).not.toBe(session.name);
+    expect(out).toContain(`signed in as ${session.name}`);
+    process.env.CLAUDE_CODE_SESSION_ID = "s12";
+    const joined = await runChat(["join", "r"]);
+    expect(joined).toContain(`as ${session.name}`);
+    await runChat(["post", "r", "hello there"]);
+    const who = await runChat(["who", "r"]);
+    const read = await runChat(["read", "r", "--last", "1"]);
+    const buddies = await runChat(["buddies"]);
+    const left = await runChat(["leave", "r"]);
+    expect(who).toContain(session.name);
+    expect(read).toContain(`${session.name}: hello there`);
+    for (const text of [out, joined, who, read, buddies, left]) expect(text).not.toContain(session.handle);
   });
 });
 
