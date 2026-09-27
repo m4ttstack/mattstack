@@ -10,7 +10,8 @@ export function randomSkewMs(): number {
 
 export interface IndicatorUpdaterDeps {
   targets: () => IndicatorTarget[];
-  refreshOne: (target: IndicatorTarget) => Promise<void>;
+  /** The signal aborts on pause or stop; an aborted repo is refreshed again once the pass resumes. */
+  refreshOne: (target: IndicatorTarget, signal: AbortSignal) => Promise<void>;
   onPassStart?: () => void;
   setTimer: (fn: () => void, ms: number) => unknown;
   clearTimer: (handle: unknown) => void;
@@ -27,6 +28,7 @@ export class IndicatorUpdater {
   private release: (() => void) | null = null;
   private lastPassStartedAt: number | null = null;
   private generation = 0;
+  private inFlight: AbortController | null = null;
 
   constructor(private readonly deps: IndicatorUpdaterDeps) {}
 
@@ -39,6 +41,7 @@ export class IndicatorUpdater {
   stop(): void {
     this.running = false;
     this.generation++;
+    this.inFlight?.abort();
     if (this.timer !== null) {
       this.deps.clearTimer(this.timer);
       this.timer = null;
@@ -49,6 +52,7 @@ export class IndicatorUpdater {
   pause(): void {
     if (this.paused) return;
     this.paused = true;
+    this.inFlight?.abort();
     this.pauseWaiter = new Promise((resolve) => { this.release = resolve; });
   }
 
@@ -71,20 +75,23 @@ export class IndicatorUpdater {
   }
 
   private async pass(): Promise<void> {
-    if (this.paused) await this.pauseWaiter;
-    if (!this.running) return;
     const gen = this.generation;
+    if (this.paused) await this.pauseWaiter;
+    if (!this.running || gen !== this.generation) return;
     this.lastPassStartedAt = this.deps.now();
     this.deps.onPassStart?.();
     const done = new Set<string>();
     let next: IndicatorTarget | undefined;
     while (this.running && gen === this.generation && (next = this.deps.targets().find((t) => !done.has(t.id))) !== undefined) {
+      const controller = new AbortController();
+      this.inFlight = controller;
       try {
-        await this.deps.refreshOne(next);
+        await this.deps.refreshOne(next, controller.signal);
       } catch {
         // refreshIndicator already maps git failures to a null badge; anything reaching here is a bug in a caller's publish and must not end the pass.
       }
-      done.add(next.id);
+      if (this.inFlight === controller) this.inFlight = null;
+      if (!controller.signal.aborted) done.add(next.id);
       if (this.paused) await this.pauseWaiter;
     }
     if (gen === this.generation) this.schedule();

@@ -15,7 +15,7 @@ export interface IndicatorRefreshDeps {
   pathExists: (absPath: string) => boolean;
   now: () => Date;
   fetchTimeoutMs?: number;
-  /** Aborting it kills an in-flight fetch child, which would otherwise hold the process open after the board quits. */
+  /** Aborting it kills an in-flight fetch child: on blur so no git runs unfocused, on quit so it cannot hold the process open. */
   signal?: AbortSignal;
 }
 

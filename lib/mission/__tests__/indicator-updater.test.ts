@@ -10,11 +10,13 @@ function harness(initial: IndicatorTarget[]) {
   const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
   const started: string[] = [];
   const pending: (() => void)[] = [];
+  const signals: AbortSignal[] = [];
   let passStarts = 0;
   const updater = new IndicatorUpdater({
     targets: () => targets,
-    refreshOne: (t) => {
+    refreshOne: (t, signal) => {
       started.push(t.id);
+      signals.push(signal);
       return new Promise<void>((resolve) => { pending.push(resolve); });
     },
     onPassStart: () => { passStarts++; },
@@ -25,7 +27,7 @@ function harness(initial: IndicatorTarget[]) {
   });
   const flush = () => new Promise((r) => setTimeout(r, 0));
   return {
-    updater, timers, started, pending, flush,
+    updater, timers, started, pending, signals, flush,
     setTargets: (t: IndicatorTarget[]) => { targets = t; },
     setNow: (n: number) => { now = n; },
     passStarts: () => passStarts,
@@ -77,19 +79,6 @@ describe("IndicatorUpdater", () => {
     h.setTargets([A, C]);
     await h.finishNext();
     expect(h.started).toEqual(["a", "c"]);
-  });
-
-  test("pause holds the pass between repos; resume continues it", async () => {
-    const h = harness([A, B]);
-    h.updater.start();
-    h.timers[0]!.fn();
-    await h.flush();
-    h.updater.pause();
-    await h.finishNext();
-    expect(h.started).toEqual(["a"]);
-    h.updater.resume();
-    await h.flush();
-    expect(h.started).toEqual(["a", "b"]);
   });
 
   test("a pass whose timer fires while paused waits for resume", async () => {
@@ -161,5 +150,45 @@ describe("IndicatorUpdater", () => {
     expect(h.timers).toHaveLength(2);
     await h.finishNext();
     expect(h.started).toEqual(["a"]);
+  });
+
+  test("a pass waiting out a pause does not run after a stop-start", async () => {
+    const h = harness([A]);
+    h.updater.start();
+    h.updater.pause();
+    h.timers[0]!.fn();
+    await h.flush();
+    h.updater.stop();
+    h.updater.start();
+    await h.flush();
+    expect(h.started).toEqual([]);
+    expect(h.timers).toHaveLength(2);
+  });
+
+  test("pause aborts the in-flight refresh and resume retries that repo", async () => {
+    const h = harness([A, B]);
+    h.updater.start();
+    h.timers[0]!.fn();
+    await h.flush();
+    expect(h.signals[0]!.aborted).toBe(false);
+    h.updater.pause();
+    expect(h.signals[0]!.aborted).toBe(true);
+    await h.finishNext();
+    expect(h.started).toEqual(["a"]);
+    h.updater.resume();
+    await h.flush();
+    expect(h.started).toEqual(["a", "a"]);
+    expect(h.signals[1]!.aborted).toBe(false);
+    await h.finishNext();
+    expect(h.started).toEqual(["a", "a", "b"]);
+  });
+
+  test("stop aborts the in-flight refresh", async () => {
+    const h = harness([A]);
+    h.updater.start();
+    h.timers[0]!.fn();
+    await h.flush();
+    h.updater.stop();
+    expect(h.signals[0]!.aborted).toBe(true);
   });
 });

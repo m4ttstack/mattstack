@@ -3539,6 +3539,92 @@ describe("unregistered repos", () => {
     expect(signals[0]?.aborted).toBe(true);
   });
 
+  test("blur aborts an in-flight background fetch and focus retries that repo", async () => {
+    const timers: (() => void)[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
+    const client = makeFakeClient();
+    client.fetch = (_remote?: string, signal?: AbortSignal) => {
+      signals.push(signal);
+      return new Promise((_resolve, reject) => { signal?.addEventListener("abort", () => reject(new Error("aborted"))); });
+    };
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      client,
+      readRepoCache: () => [cacheRow("/u/a")],
+      identityOf,
+      pathExists: () => true,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    timers[0]!();
+    await flushMicrotasks();
+    expect(signals).toHaveLength(1);
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: false } });
+    await flushMicrotasks();
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals).toHaveLength(1);
+    session.send({ t: "intent", name: "mission:focus", payload: { focused: true } });
+    await flushMicrotasks();
+    expect(signals).toHaveLength(2);
+    expect(signals[1]?.aborted).toBe(false);
+    session.send({ t: "intent", name: "quit" });
+    await run;
+    expect(signals[1]?.aborted).toBe(true);
+  });
+
+  test("a pass that drops the last unregistered repo repaints the list", async () => {
+    const timers: (() => void)[] = [];
+    let cache = [cacheRow("/u/a")];
+    const session = new QueueSession();
+    const deps = baseDeps({
+      session,
+      readRepoCache: () => cache,
+      identityOf,
+      indicatorTimers: { setTimer: (fn) => { timers.push(fn); return fn; }, clearTimer: () => {}, skewMs: 0 },
+    });
+    const run = new MissionDriver(deps, START).run();
+    await flushMicrotasks();
+    expect((session.pushed.at(-1) as MissionModel).repos.map((r) => r.id)).toContain("gh:me/a");
+    cache = [];
+    timers[0]!();
+    await flushMicrotasks();
+    expect((session.pushed.at(-1) as MissionModel).repos.map((r) => r.id)).not.toContain("gh:me/a");
+    session.send({ t: "intent", name: "quit" });
+    await run;
+  });
+
+  test("switching worktree saves it as the last repo", async () => {
+    const saved: unknown[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:worktree", payload: { path: "/repo2" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({ session, saveLastRepo: (v) => { saved.push(v); } });
+    await new MissionDriver(deps, START).run();
+    expect(saved.at(-1)).toEqual({ identity: "repo-tools", worktree: "/repo2" });
+  });
+
+  test("a provisioned worktree is saved as the last repo", async () => {
+    const saved: unknown[] = [];
+    const session = new FakeSession([
+      { t: "intent", name: "mission:worktree", payload: { new: true, name: "my-feature" } },
+      { t: "intent", name: "quit" },
+    ]);
+    const deps = baseDeps({
+      session,
+      saveLastRepo: (v) => { saved.push(v); },
+      daemonQuery: async (cmd: string) => {
+        if (cmd === "worktree:provision") return { ok: true, data: { path: "/trees/rohan", readyPending: false } };
+        if (cmd === "worktree:list") return { ok: true, data: { trees: [] } };
+        return { ok: true, data: { repos: [] } };
+      },
+    });
+    await new MissionDriver(deps, START).run();
+    expect(saved.at(-1)).toEqual({ identity: "repo-tools", worktree: "/trees/rohan" });
+  });
+
   test("mission:focus pauses and resumes the updater", async () => {
     const timers: (() => void)[] = [];
     const refreshed: string[] = [];

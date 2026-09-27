@@ -337,7 +337,6 @@ export class MissionDriver {
   /** Identity -> path of every unmanaged repo opened this session; the scan cache may never list one opened from an arbitrary cwd. */
   private readonly opened = new Map<string, string>();
   private readonly updater: IndicatorUpdater;
-  private readonly stopIndicators = new AbortController();
 
   constructor(private readonly deps: MissionDeps, start: { repo: string; worktree: string }) {
     this.state = {
@@ -363,16 +362,20 @@ export class MissionDriver {
       targets: () => this.unregistered
         .filter((u) => u.identity !== this.state.currentRepo)
         .map((u) => ({ id: u.identity, path: u.path })),
-      refreshOne: (target) => refreshIndicator(
+      refreshOne: (target, signal) => refreshIndicator(
         target,
-        { client: this.deps.client, pathExists: this.deps.pathExists, now: this.deps.now, signal: this.stopIndicators.signal },
+        { client: this.deps.client, pathExists: this.deps.pathExists, now: this.deps.now, signal },
         (id, badge) => {
           if (badge) this.indicatorBadges.set(id, badge);
           else this.indicatorBadges.delete(id);
           this.push();
         },
       ),
-      onPassStart: () => this.reloadRepoList(),
+      onPassStart: () => {
+        const before = this.unregistered;
+        this.reloadRepoList();
+        if (!sameRepos(before, this.unregistered)) this.push();
+      },
       setTimer: this.deps.indicatorTimers.setTimer,
       clearTimer: this.deps.indicatorTimers.clearTimer,
       now: () => this.deps.now().getTime(),
@@ -402,7 +405,6 @@ export class MissionDriver {
 
   stopBackground(): void {
     this.updater.stop();
-    this.stopIndicators.abort();
   }
 
   private repoRows(): RepoStatusRow[] {
@@ -1274,6 +1276,7 @@ export class MissionDriver {
     this.setCurrentWorktree(payload.path, false);
     this.state.selections = new Map();
     await this.refresh();
+    this.rememberRepo();
     this.push();
   }
 
@@ -1342,6 +1345,7 @@ export class MissionDriver {
     this.setCurrentWorktree(data.path, data.readyPending === true && cachedOk === undefined);
     this.state.selections = new Map();
     await this.refresh();
+    this.rememberRepo();
     this.push();
   }
 
