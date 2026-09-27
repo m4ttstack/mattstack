@@ -233,7 +233,7 @@ export function runToolDefs(deps: RunToolDeps = realRunToolDeps): McpToolDef[] {
       name: "run_status",
       description: "Set the run's terminal status: done, failed or abandoned.",
       inputSchema: { type: "object", properties: { ...RUN_DB_PROPS, status: { type: "string", enum: ["done", "failed", "abandoned"] } }, required: ["status"], additionalProperties: false },
-      shellForms: ["rt runs run-status", "rt runs abandon"],
+      shellForms: ["rt runs run-status"],
       async handler(input, env) {
         const bad = checkRequired(input, [{ name: "status", type: "string" }]);
         if (bad) return err(bad);
