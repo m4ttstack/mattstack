@@ -347,6 +347,8 @@ CREATE TABLE IF NOT EXISTS chat_identities (
 CREATE INDEX IF NOT EXISTS chat_identities_name ON chat_identities(name, minted_at);
 CREATE INDEX IF NOT EXISTS chat_identities_session ON chat_identities(session_id);
 CREATE INDEX IF NOT EXISTS chat_messages_handle ON chat_messages(handle);
+CREATE INDEX IF NOT EXISTS chat_members_handle ON chat_members(handle);
+CREATE INDEX IF NOT EXISTS chat_dms_b ON chat_dms(b);
 `;
 
 /**

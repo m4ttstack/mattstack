@@ -70,9 +70,17 @@ describe("openStateDb — fresh open", () => {
     const identityCols = (db.query("PRAGMA table_info(chat_identities);").all() as { name: string }[]).map(c => c.name);
     expect(identityCols).toEqual(["id", "name", "base_name", "minted_at", "minted", "session_id"]);
     const indexes = db
-      .query("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('chat_identities_name', 'chat_identities_session', 'chat_messages_handle') ORDER BY name;")
+      .query(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('chat_dms_b', 'chat_identities_name', 'chat_identities_session', 'chat_members_handle', 'chat_messages_handle') ORDER BY name;",
+      )
       .all();
-    expect(indexes).toEqual([{ name: "chat_identities_name" }, { name: "chat_identities_session" }, { name: "chat_messages_handle" }]);
+    expect(indexes).toEqual([
+      { name: "chat_dms_b" },
+      { name: "chat_identities_name" },
+      { name: "chat_identities_session" },
+      { name: "chat_members_handle" },
+      { name: "chat_messages_handle" },
+    ]);
     db.close();
   });
 
