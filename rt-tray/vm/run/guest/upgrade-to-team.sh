@@ -22,7 +22,7 @@ DRIVER_LAUNCH_ARGS="${DRIVER_LAUNCH_ARGS:-}"
 JQ=/Applications/mattstack.app/Contents/Helpers/jq
 
 ax_log "upgrade-to-team: slug=$SLUG forge=$FORGE remote=$TEAM_REMOTE"
-ax_wait_window "mattstack" 60 || ax_fail "mattstack window never appeared (is the app running?)"
+ax_open_settings_team
 ax_click settings.team.create
 # settings.team.create reopens the same wizard the create scenario drives, so
 # the create-scenario screen functions apply unchanged from here.

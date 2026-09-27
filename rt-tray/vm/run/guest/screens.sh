@@ -12,6 +12,25 @@ relaunch_app() {
   bash "$HERE/install-app.sh" launch $DRIVER_LAUNCH_ARGS >>"$AX_LOG" 2>&1 || return 1
 }
 
+# A solo install's Finish leaves the menu-bar app with no window, so the
+# Settings window is opened from the status item's menu.
+ax_open_settings_team() {
+  local deadline
+  ax_click_menu_item tray.settings "Settings…"
+  deadline=$((SECONDS + 30))
+  until ax_find settings.tab.team >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || ax_fail "settings.tab.team never appeared"
+    sleep 1
+  done
+  ax_click settings.tab.team
+  deadline=$((SECONDS + 30))
+  until ax_find settings.team.create >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || ax_fail "settings.team.create never appeared"
+    sleep 1
+  done
+  ax_shot 06-settings-team
+}
+
 screen_welcome() {
   ax_wait_window "mattstack" 60 || ax_fail "setup window never appeared"
   ax_wait_screen welcome 10 || ax_fail "setup.welcome.screen axid missing"
