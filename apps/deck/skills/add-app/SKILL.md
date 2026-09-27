@@ -473,8 +473,8 @@ read.
 Take and iterate share one budget: both pass `Register rounds = 2 (deck)?`,
 and the second spent round is reported instead of retried.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                          | Options (recommended first)                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | deck register refused. What next? | `take: fixed it, register again`: you fixed what the refusal names (freed the port, renamed the app), and I run deck register again. `iterate: try again with a note`: I edit the manifest with your note, then register again. `hold: leave it with you`: this run ends with nothing changed. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### deck off-script gate: deck add refused
@@ -487,8 +487,8 @@ passed (`--cmd` and `--dir`, or `--port`).
 
 Take and iterate share one budget: both pass `Add rounds = 2 (deck)?`.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                     | Options (recommended first)                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | deck add refused. What next? | `take: fixed it, add again`: you fixed what the refusal names, and I choose supervised or routed again and rerun deck add. `iterate: try again with a note`: I choose between a manifest and a quick add again, using your note. `hold: leave it with you`: this run ends with nothing changed. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### Fix what the logs name (deck)
@@ -512,8 +512,8 @@ with what it changed.
 Take passes `Come-up takes = 2 (deck)?`, iterate passes
 `Come-up rounds = 2 (deck)?`; either one spent goes to the report.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                             | Options (recommended first)                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | The app will not come up. What next? | `take: apply your named fix`: you name the fix, and I apply exactly that, register if it changed the manifest, and restart through deck. `iterate: repair again with a note`: I run another logs, fix and restart round using your note. `hold: leave it with you`: this run ends with the app registered but not serving. `hand back: stop and report`: I report the status row, the logs and both repairs. |
 
 ### Apply the human's fix (deck)
@@ -541,8 +541,8 @@ tried.
 
 Take and iterate share one budget: both pass `Visibility rounds = 2 (deck)?`.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                                      | Options (recommended first)                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The visibility change was refused. What next? | `take: fixed it, move again`: you fixed what the refusal names, and I pick the visibility move again. `iterate: try again with a note`: I pick the move again using your note. `hold: leave it with you`: this run ends with visibility unchanged. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### Check the Cloudflare prereqs (deck)
@@ -592,8 +592,8 @@ Context: the domain to bind (for example `example.dev`), what bare
 `deck domain` showed (the bound domain or none, the tunnel identity, the
 edge health), and every published app whose public hostname moves.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                                | Options (recommended first)                                                                                                                                                                                                                                                                              |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bind this domain for the whole machine? | `take: bind this domain`: I run deck domain with it and verify the edge. `iterate: a different domain`: you name another domain or add a note, and I ask again. `hold: leave it with you`: this run ends with no domain bound. `hand back: stop and report`: I report what was checked and bind nothing. |
 
 ### deck off-script gate: domain bind failed
@@ -612,8 +612,8 @@ edge line.
 Take passes `Bind runs after the failure = 2 (deck)?`, iterate passes
 `Bind-failure rounds = 2 (deck)?`; either one spent goes to the report.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                           | Options (recommended first)                                                                                                                                                                                                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | The domain bind failed. What next? | `take: fixed it, bind again`: you fixed the prereq the error names, and I run deck domain again. `iterate: recheck with a note`: I recheck the Cloudflare prereqs using your note. `hold: leave it with you`: this run ends with no domain bound. `hand back: stop and report`: I report the error and what was checked. |
 
 ### deck off-script gate: deck domain unbind refused
@@ -626,8 +626,8 @@ gate.
 Context, quoted and never trimmed: deck's refusal text, including every app
 it names as going offline.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                               | Options (recommended first)                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | deck domain unbind refused. What next? | `hold: leave it with you`: this run ends with the edge still up. `take: force the unbind`: you ask for it, and I run deck domain unbind with --force. `iterate: unbind again with a note`: I act on your note, then run deck domain unbind again. `hand back: stop and report`: I report the refusal and the apps it names. |
 
 ### deck gate: confirm the teardown
@@ -651,8 +651,8 @@ anything is removed.
 Take and iterate share one budget: both pass `Teardown rounds = 2 (deck)?`,
 and the second spent round is reported instead of retried.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                                  | Options (recommended first)                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Remove these rows and unbind this domain? | `take: remove the listed rows`: I run deck remove on exactly the rows named and deck domain unbind for exactly the domain named, nothing else. `iterate: edit the list`: you add, drop or correct a row or the domain, and I gate again with the updated list. `hold: leave it with you`: this run ends with nothing removed. `hand back: stop and report`: I report the list and remove nothing. |
 
 ### Tell the user deck's own row is never removed (deck)
@@ -679,8 +679,8 @@ word here.
 
 Context, quoted and never trimmed: deck's refusal text.
 
-| Question | Options (recommended first) |
-|---|---|
+| Question                        | Options (recommended first)                                                                                                                                                                                                                                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | deck remove refused. What next? | `hold: leave it with you`: this run ends with the app still registered. `take: force the remove`: you ask for it, and I run deck remove with --force. `iterate: remove again with a note`: I act on your note, then run deck remove again. `hand back: stop and report`: I report the refusal and what was tried. |
 
 ### Report the teardown (deck)
@@ -733,13 +733,13 @@ changed beyond what the report names.
 
 ## Rationalizations
 
-| Thought | Reality |
-|---|---|
-| "removing it is the one fix the skill actually authorizes" | A refused register opens `deck off-script gate: deck register refused`. Removing another app to free its port is a teardown the user asks for, never a repair. |
-| "the skill gives no troubleshooting path for a registration-time allocator conflict" | The register gate is that path: quote the refusal, and the user frees the port or answers iterate. |
-| "the one-time, browser-based login the skill lists as a prereq for the tunnel" | The tunnel login is the user's step, in the prereq hand-over list. |
-| "Reply to [the user] in chat, not as a command" | The prereq hand-over is the reply. A token pasted in chat is never passed to `rt secrets set`; the user runs it. |
-| "to tear it down" | Teardown is the confirm gate, then `Row to remove (deck)?` once per confirmed row. Deck's own row reaches the tell box, never `deck remove`. |
-| "rather than have me guess" | Keeping deck's row is settled, not an open question: the tell box says so and the loop moves on. A refused remove goes to its gate. |
-| "pending the human's confirmation on how to proceed" | A question to the user is `gate_ask`, per `Asking the human`, never a prose "pending confirmation". |
-| "The request says everything, so I remove every row now." | The confirm gate lists the rows and the domain first; the user answers before anything is removed. |
+| Thought                                                                              | Reality                                                                                                                                                        |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "removing it is the one fix the skill actually authorizes"                           | A refused register opens `deck off-script gate: deck register refused`. Removing another app to free its port is a teardown the user asks for, never a repair. |
+| "the skill gives no troubleshooting path for a registration-time allocator conflict" | The register gate is that path: quote the refusal, and the user frees the port or answers iterate.                                                             |
+| "the one-time, browser-based login the skill lists as a prereq for the tunnel"       | The tunnel login is the user's step, in the prereq hand-over list.                                                                                             |
+| "Reply to [the user] in chat, not as a command"                                      | The prereq hand-over is the reply. A token pasted in chat is never passed to `rt secrets set`; the user runs it.                                               |
+| "to tear it down"                                                                    | Teardown is the confirm gate, then `Row to remove (deck)?` once per confirmed row. Deck's own row reaches the tell box, never `deck remove`.                   |
+| "rather than have me guess"                                                          | Keeping deck's row is settled, not an open question: the tell box says so and the loop moves on. A refused remove goes to its gate.                            |
+| "pending the human's confirmation on how to proceed"                                 | A question to the user is `gate_ask`, per `Asking the human`, never a prose "pending confirmation".                                                            |
+| "The request says everything, so I remove every row now."                            | The confirm gate lists the rows and the domain first; the user answers before anything is removed.                                                             |
