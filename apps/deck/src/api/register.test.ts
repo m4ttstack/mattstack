@@ -1502,13 +1502,10 @@ test('reresolve: a sweep parked in an install finishes before an enabled PATCH s
 test('editApp: an enabled PATCH waits on the boot sweep before looking its row up', async () => {
   const boot = Promise.withResolvers<void>();
   const h = bundleHelpers('board');
-  const patch = editApp(
-    'board',
-    { enabled: false },
-    'rt',
-    false,
-    { ...drivers, bootSweep: boot.promise }
-  );
+  const patch = editApp('board', { enabled: false }, 'rt', false, {
+    ...drivers,
+    bootSweep: boot.promise,
+  });
   await registerApp(
     {
       ...input,
@@ -1563,7 +1560,7 @@ test('restartManagedApps skips a disabled row', async () => {
   drivers.manager.kickstarts = [];
   const r = await restartManagedApps(drivers);
   expect(drivers.manager.kickstarts).toEqual([]);
-  expect(r.body).toMatchObject({ restarted: [] });
+  expect(r.body).toMatchObject({ restarted: [], failed: [] });
 });
 
 test('reresolve: an installed plist whose environment lags the rendered one is reinstalled', async () => {
