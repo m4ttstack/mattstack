@@ -2,6 +2,7 @@ import { formatElapsed } from './statusDetail';
 
 export interface DoingInput {
   handle: string;
+  name?: string;
   status: 'live' | 'idle' | 'offline';
   branch?: string;
   cwd?: string;
@@ -63,7 +64,7 @@ export function doing(
     return { text: b.statusText, kind: 'away' };
   }
 
-  if (b.paneTitle && b.paneTitle !== b.handle) {
+  if (b.paneTitle && b.paneTitle !== (b.name ?? b.handle)) {
     return { text: b.paneTitle, kind: 'title' };
   }
 
