@@ -1172,6 +1172,7 @@ export async function reinstallSupervised(
     )
       continue;
     if (notServedHere(record, serveShapeDeps)) continue;
+    if (!isEnabled(record)) continue;
     const shape = serveShape(record, serveShapeDeps);
     if (!shape) {
       failed.push(record.name);

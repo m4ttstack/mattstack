@@ -2093,6 +2093,25 @@ test('reinstallSupervised in prod reinstalls the catalog app and skips an rt row
   expect(counting.installCalls).toEqual([`${LABEL_PREFIX}chat`]);
 });
 
+test('reinstallSupervised skips a disabled catalog row', async () => {
+  const counting = new CountingManager();
+  const h = bundleHelpers('chat');
+  setServeShapeDeps({
+    devMode: () => false,
+    helpersDir: h.dir,
+    catalog: CHAT_ONLY,
+  });
+  rtRow('chat', 11002, { enabled: false });
+
+  const res = await reinstallSupervised({
+    manager: counting,
+    edge: drivers.edge,
+  });
+
+  expect(res).toEqual({ reinstalled: [], failed: [] });
+  expect(counting.installCalls).toEqual([]);
+});
+
 // ─── editApp: never uninstall a shape the patch can't replace ─────────────
 
 test('editApp: enabled alone flips the record and re-sweeps; mixed with other fields it is refused', async () => {
