@@ -106,7 +106,7 @@ launched without its prompt.
 
 ## Testing (test-first)
 
-- `lib/agent-argv/__tests__`: `writePromptFile` sets 0700/0600 on fresh and
+- `lib/__tests__/agent-argv*.test.ts` (and a new `prompt-file.test.ts`): `writePromptFile` sets 0700/0600 on fresh and
   pre-existing paths; the pointer names the path; headless builders never
   emit the prompt.
 - `agent-handlers.test.ts`: a herdr launch's pane command (captured from the
