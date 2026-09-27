@@ -49,10 +49,11 @@ const NOUNS = [
  * cwd and would act on whoever claims the new one.
  */
 export function pickName(pool: string[] | undefined, used: Set<string>, after?: string): string {
-  if (pool && pool.length > 0) {
-    const start = after === undefined ? 0 : pool.indexOf(after) + 1;
-    for (let i = 0; i < pool.length; i++) {
-      const name = pool[(start + i) % pool.length]!;
+  const names = [...new Set(pool)];
+  if (names.length > 0) {
+    const start = after === undefined ? 0 : names.indexOf(after) + 1;
+    for (let i = 0; i < names.length; i++) {
+      const name = names[(start + i) % names.length]!;
       // GOLDEN_NAME is reserved even when a custom pool names it explicitly:
       // a member minted "golden" before the donor exists collides with it
       // later, and name-keyed verbs (freshen --only, dispose by name) would

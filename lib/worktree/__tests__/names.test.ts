@@ -22,7 +22,12 @@ describe("pickName", () => {
     expect(pickName(pool, new Set(), "zulu")).toBe("alpha");
   });
 
-  it("does not hand a just-freed name back until the rest of the pool has had a turn", () => {
+  it("a duplicated pool name does not pull the rotation back to its first copy", () => {
+    expect(pickName(["alpha", "bravo", "alpha", "charlie"], new Set(), "alpha")).toBe("bravo");
+    expect(pickName(["alpha", "bravo", "alpha", "charlie"], new Set(), "bravo")).toBe("charlie");
+  });
+
+  it("a freed name comes back only after every other free name has had a turn", () => {
     const used = new Set<string>();
     let last: string | undefined;
     const picks: string[] = [];
