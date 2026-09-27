@@ -60,6 +60,12 @@ export interface RealtimeWatcherOptions {
    * Default: 10_000 ms.
    */
   pollIntervalWsDownMs?: number;
+  /**
+   * Connection and health transitions. Lives here as well as on
+   * `createRealtimeWatcher`'s params because provider `watchMR` calls take
+   * only these options; the params field wins when both are set.
+   */
+  onStatusChange?: (status: WatcherStatus) => void;
   logger?: ForgeLogger;
   logContext?: string;
 }
@@ -85,7 +91,8 @@ export function createRealtimeWatcher<T>(params: {
   onStatusChange?: (status: WatcherStatus) => void;
   options?: RealtimeWatcherOptions;
 }): () => void {
-  const { subscribe, fetch: doFetch, onUpdate, onStatusChange, options = {} } = params;
+  const { subscribe, fetch: doFetch, onUpdate, options = {} } = params;
+  const onStatusChange = params.onStatusChange ?? options.onStatusChange;
   const log = options.logger ?? noopLogger;
   const ctx = options.logContext ?? 'RealtimeWatcher';
 
@@ -98,6 +105,7 @@ export function createRealtimeWatcher<T>(params: {
 
   let disposed = false;
   let wsConnected = false;
+  let hasConnected = false;
   let pollFailures = 0;
   let lastError: Error | undefined;
 
@@ -109,7 +117,9 @@ export function createRealtimeWatcher<T>(params: {
         ? 'connected'
         : pollFailures > 0
           ? 'reconnecting'
-          : 'connecting',
+          : hasConnected
+            ? 'disconnected'
+            : 'connecting',
       consecutiveErrors: pollFailures,
       lastError,
     });
@@ -205,6 +215,7 @@ export function createRealtimeWatcher<T>(params: {
 
   const onConnected = (): void => {
     wsConnected = true;
+    hasConnected = true;
     if (isFirstConnect) {
       // Skip refetch — init fetch just ran, no events could have been missed
       isFirstConnect = false;
