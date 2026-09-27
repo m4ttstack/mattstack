@@ -8,8 +8,8 @@
  *   GITHUB_TOKEN=… GITLAB_TOKEN=… bun tests/integration.live.ts
  *
  * Mutating steps write only to the sandboxes these name, and refuse (sending
- * no request) when one is unset. Read-only probes still use the token user's
- * own PR and MR lists.
+ * no request) when one is unset; any refusal makes the run exit non-zero.
+ * Read-only probes still use the token user's own PR and MR lists.
  *   GLANCE_HARNESS_GITHUB_SANDBOX=owner/repo        GitHub lifecycles create
  *                                                   their own PRs here
  *   GLANCE_HARNESS_GITLAB_SANDBOX=group/project!iid GitLab lifecycles create
@@ -50,7 +50,7 @@ if (!GITHUB_TOKEN || !GITLAB_TOKEN) {
 const ghSandbox = mutationTarget(
   'GLANCE_HARNESS_GITHUB_SANDBOX',
   process.env.GLANCE_HARNESS_GITHUB_SANDBOX,
-  'project'
+  'repo'
 );
 const glSandbox = mutationTarget(
   'GLANCE_HARNESS_GITLAB_SANDBOX',
@@ -568,9 +568,19 @@ if (glTestMR && glProjectId) {
 
 // 11. NoteMutator — create, update, delete (full CRUD cycle)
 console.log('\n▶ NoteMutator CRUD cycle');
-if (glNoteSandbox.ok) {
-  const noteMR = await gitlab.fetchSingleMR(glNoteSandbox.projectPath, glNoteSandbox.iid!, null);
-  if (!noteMR) throw new Error(`sandbox MR ${glNoteSandbox.projectPath}!${glNoteSandbox.iid} not found`);
+const noteMR = glNoteSandbox.ok
+  ? await gitlab.fetchSingleMR(glNoteSandbox.projectPath, glNoteSandbox.iid!, null).catch(() => null)
+  : null;
+if (!glNoteSandbox.ok) {
+  refuse(glNoteSandbox);
+} else if (!noteMR) {
+  assert(false, `sandbox MR ${glNoteSandbox.projectPath}!${glNoteSandbox.iid} not found`);
+} else if (noteMR.state !== 'opened') {
+  refuse({
+    ok: false,
+    refusal: `refused: sandbox MR ${glNoteSandbox.projectPath}!${noteMR.iid} is ${noteMR.state}, not open.`,
+  });
+} else {
   const noteProjectId = parseGitLabRepoId(noteMR.repositoryId);
   const mutator = new NoteMutator('https://gitlab.com', GITLAB_TOKEN);
   const testBody = `SDK integration test ${new Date().toISOString()}`;
@@ -592,8 +602,6 @@ if (glNoteSandbox.ok) {
   // Delete
   await mutator.deleteNote(noteProjectId, noteMR.iid, created.id);
   assert(true, `Deleted note ${created.id}`);
-} else {
-  refuse(glNoteSandbox);
 }
 
 // 12. restRequest (GitLab)
@@ -1035,4 +1043,4 @@ console.log(`\n${'═'.repeat(50)}`);
 console.log(`  ${passed} passed, ${failed} failed, ${refused} mutating steps refused`);
 console.log(`${'═'.repeat(50)}\n`);
 
-process.exit(failed > 0 ? 1 : 0);
+process.exit(failed > 0 || refused > 0 ? 1 : 0);
