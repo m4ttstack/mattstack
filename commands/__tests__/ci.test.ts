@@ -123,15 +123,31 @@ describe("rt ci lease CLI (in-process)", () => {
 
   test("a dangling --holder (no value) is a usage error, not a silent default", async () => {
     const { code, stdout } = await run(ciLeaseClaim, [MR_URL, "--holder", "--json"]);
-    // --holder consumed "--json" as its value here (still a usage error, just
-    // the enum check), so assert with the plain form where --holder really
-    // has nothing after it.
     expect(code).toBe(2);
-    expect(JSON.parse(stdout)).toHaveProperty("error");
+    expect(JSON.parse(stdout).error).toContain("--holder requires a value");
 
     const plain = await run(ciLeaseClaim, [MR_URL, "--holder"]);
     expect(plain.code).toBe(2);
     expect(plain.stderr).toContain("--holder requires a value");
+  });
+
+  test("a --branch followed by another flag or nothing is a usage error, never a branch named after the flag", async () => {
+    const { code, stdout } = await run(ciLeaseClaim, [MR_URL, "--branch", "--json"]);
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout).error).toContain("--branch requires a value");
+    const plain = await run(ciLeaseClaim, [MR_URL, "--branch"]);
+    expect(plain.code).toBe(2);
+    expect(plain.stderr).toContain("--branch requires a value");
+  });
+
+  test("a URL that is not https is a usage error for every lease verb", async () => {
+    for (const url of ["http://gitlab.example.com/acme/proj/-/merge_requests/7", "gitlab.example.com/acme/proj/-/merge_requests/7"]) {
+      for (const fn of [ciLeaseClaim, ciLeaseHeartbeat, ciLeaseRelease, ciLeaseShow]) {
+        const { code, stdout } = await run(fn, [url, "--json"]);
+        expect(code).toBe(2);
+        expect(JSON.parse(stdout).error).toContain("usage: rt ci lease");
+      }
+    }
   });
 
   test("a second claim from another session is refused with exit 3", async () => {
@@ -271,6 +287,20 @@ describe("rt ci watch exit codes (in-process)", () => {
     const { code, stdout } = await run((a) => runCiWatch(a, interrupt), [MR_URL, "--sha", SHA, "--json"]);
     expect(code).toBe(130);
     expect(JSON.parse(stdout).state).toBe("aborted");
+  });
+
+  test("a watch flag followed by another flag or nothing is a usage error naming the flag", async () => {
+    const cases: Array<[string[], string]> = [
+      [[MR_URL, "--sha", "--json"], "--sha"],
+      [[MR_URL, "--sha", SHA, "--interval", "--json"], "--interval"],
+      [[MR_URL, "--sha", SHA, "--json", "--max-wait"], "--max-wait"],
+      [[MR_URL, "--sha", SHA, "--json", "--prior-pipeline", "--max-wait", "60"], "--prior-pipeline"],
+    ];
+    for (const [args, name] of cases) {
+      const { code, stdout } = await run((a) => runCiWatch(a, fakes("success")), args);
+      expect(code).toBe(2);
+      expect(JSON.parse(stdout).error).toContain(`${name} requires a value`);
+    }
   });
 
   test("a missing --sha is a usage error, exit 2", async () => {

@@ -14,24 +14,31 @@
  */
 import { userInfo } from "node:os";
 import {
-  CiLeaseError, claimCiLease, heartbeatCiLease, leaseOwner, parseMrIid, readCiLease, releaseCiLease,
+  CiLeaseError, claimCiLease, heartbeatCiLease, leaseOwner, readCiLease, releaseCiLease,
   type CiLeaseHolder,
 } from "../packages/rt-client/src/index.ts";
-import { ciToolDefs, ownerFromEnv, type CiWatchToolDeps } from "../lib/mcp/ci-tools.ts";
+import { ciToolDefs, isHttpsMrUrl, ownerFromEnv, type CiWatchToolDeps } from "../lib/mcp/ci-tools.ts";
 
 export function cliOwner(env: NodeJS.ProcessEnv): string {
   return ownerFromEnv(env) ?? `user:${env.USER || userInfo().username}`;
 }
 
+/** A value that starts with `--` is the next flag, never this flag's value. */
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
+  const v = i >= 0 ? args[i + 1] : undefined;
+  return v === undefined || v.startsWith("--") ? undefined : v;
 }
 
-/** True when `name` is present as the last token, so `flag`'s undefined means "no value given" rather than "flag absent" (a defaulted flag must not conflate the two). */
+/** True when `name` is present with no value after it, so `flag`'s undefined means "no value given" rather than "flag absent" (a defaulted flag must not conflate the two). */
 function danglingFlag(args: string[], name: string): boolean {
-  const i = args.indexOf(name);
-  return i >= 0 && args[i + 1] === undefined;
+  return args.includes(name) && flag(args, name) === undefined;
+}
+
+function requireValues(args: string[], json: boolean, names: readonly string[]): void {
+  for (const name of names) {
+    if (danglingFlag(args, name)) emit(json, { error: `${name} requires a value` }, `${name} requires a value`, 2);
+  }
 }
 
 function positional(args: string[]): string | undefined {
@@ -48,9 +55,9 @@ function emit(json: boolean, body: unknown, text: string, code = 0): never {
 
 function mrArg(args: string[], json: boolean, verb: string): string {
   const mr = positional(args);
-  if (!mr || parseMrIid(mr) === null) {
+  if (!mr || !isHttpsMrUrl(mr)) {
     const usage = `usage: rt ci lease ${verb} <mr-url>`;
-    emit(json, { error: usage }, `${usage} (an MR or PR URL)`, 2);
+    emit(json, { error: usage }, `${usage} (an https MR or PR URL)`, 2);
   }
   return mr;
 }
@@ -68,6 +75,7 @@ export async function ciLeaseClaim(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = mrArg(args, json, "claim");
   if (danglingFlag(args, "--holder")) emit(json, { error: "--holder requires a value: watch-ci or doctor" }, "--holder requires a value: watch-ci or doctor", 2);
+  requireValues(args, json, ["--branch"]);
   const holder = (flag(args, "--holder") ?? "watch-ci") as CiLeaseHolder;
   if (holder !== "watch-ci" && holder !== "doctor") emit(json, { error: "--holder must be watch-ci or doctor" }, "--holder must be watch-ci or doctor", 2);
   const branch = flag(args, "--branch");
@@ -110,8 +118,9 @@ export async function ciWatch(args: string[]): Promise<void> {
 export async function runCiWatch(args: string[], watch: Partial<CiWatchToolDeps> = {}): Promise<void> {
   const json = args.includes("--json");
   const mrUrl = positional(args);
+  requireValues(args, json, ["--sha", "--max-wait", "--interval", "--prior-pipeline"]);
   const sha = flag(args, "--sha");
-  if (!mrUrl || parseMrIid(mrUrl) === null || !sha) {
+  if (!mrUrl || !isHttpsMrUrl(mrUrl) || !sha) {
     emit(json, { error: "usage: rt ci watch <mr-url> --sha <sha>" }, "usage: rt ci watch <mr-url> --sha <sha>", 2);
   }
   const tool = ciToolDefs({ owner: cliOwner, watch }).find((t) => t.name === "ci_watch")!;
