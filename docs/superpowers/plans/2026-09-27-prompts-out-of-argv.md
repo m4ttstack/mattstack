@@ -537,4 +537,4 @@ No code unless a check fails (then fix under superpowers:systematic-debugging an
 - [ ] `bash scripts/repo-purity.sh`: clean.
 - [ ] e2e covering herd or pane spawn: `ls e2e/tests e2e/pty | grep -i -e herd -e agent -e pane`; run any match with `bun test --preload ./e2e/setup.ts <file>`.
 - [ ] Manual isolated-HOME check (never the real `~/.mattstack`): with `HOME=$(mktemp -d)` run Task 4's real-process test file alone, `HOME=<tmp> bun test lib/daemon/__tests__/agent-handlers.test.ts -t "ps args"`, and additionally run the built pane command by hand with a stand-in `claude` that sleeps 30s, then `ps -o args= -p <that pid>` and confirm only the pointer appears; stop it by that PID.
-- [ ] `grep -rn "[—–]" $(git diff --name-only main...HEAD)`: no output.
+- [ ] `LC_ALL=C grep -n $'\xe2\x80[\x93\x94]' $(git diff --name-only main...HEAD)`: no output.
