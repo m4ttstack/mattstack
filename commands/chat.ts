@@ -263,8 +263,8 @@ function herdrPaneHandle(): string | null {
 
 /**
  * Sign-in's request. `--as` continues the identity it names: the daemon
- * resolves a name or an id, and gives a new id with a suffixed name when
- * that identity is live in another session. `chat.handle` asks for a fresh
+ * resolves a name or an id. A typed name live in another session gets a new
+ * id with a suffixed name; a typed id live elsewhere is refused. `chat.handle` asks for a fresh
  * identity with that display name. Neither means a pool draw. A repeat
  * sign-in from the same session keeps its id daemon-side, by session id.
  * `--name` asks for a fresh identity with that display name and never
