@@ -12,7 +12,7 @@ def deck_label($n): "com.mattstack.deck." + $n;
 ($catalog[0] // {apps: [], tools: []}) as $cat
 | ($status[0]) as $st
 | ($launchd[0] // {}) as $ld
-| ($apps[0].apps // []) as $adm
+| ((($ARGS.named.apps // [null])[0]).apps // []) as $adm
 | ($before[0]) as $bef
 | ([($routes[0] // [])[]?.hostname]) as $hosts
 | if ($cat.apps | length) == 0 then
