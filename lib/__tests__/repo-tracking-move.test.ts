@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
+import { machineSettingsPath } from "../../packages/rt-client/src/settings/paths.ts";
 import { closeStateDb } from "../state/index.ts";
 import { loadMachineRepoTrackingRaw, moveRepoTrackingEntry, saveRepoTrackingRaw } from "../repo-tracking.ts";
 
@@ -49,6 +50,14 @@ describe("moveRepoTrackingEntry", () => {
     const raw = loadMachineRepoTrackingRaw();
     expect(raw[OLD]).toBeUndefined();
     expect(raw[NEW]).toEqual({ mode: "full", caches: ["mrs"] });
+  });
+
+  test("an unparseable machine store is refused and left untouched", () => {
+    mkdirSync(dirname(machineSettingsPath()), { recursive: true });
+    const body = `{ "rt.repoTracking": { "${OLD}": { "mode": "full" } }\n`;
+    writeFileSync(machineSettingsPath(), body);
+    expect(moveRepoTrackingEntry(OLD, NEW)).toMatchObject({ status: "refused", detail: `unparseable store ${machineSettingsPath()}` });
+    expect(readFileSync(machineSettingsPath(), "utf8")).toBe(body);
   });
 
   test("refused leaves both differing entries in place", () => {

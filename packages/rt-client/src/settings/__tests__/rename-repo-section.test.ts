@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { readStore } from "../stores.ts";
@@ -58,6 +58,13 @@ describe("renameRepoSection", () => {
     const r = renameRepoSection(file, OLD, NEW);
     expect(r.status).toBe("refused");
     expect(readStore(file).repos[OLD]).toEqual({ x: 1 });
+  });
+
+  test("refuses an unparseable store that may hold the old section and leaves it untouched", () => {
+    const body = `{ "repos": { "${OLD}": { "x": 1 } }\n`;
+    const file = store(body);
+    expect(renameRepoSection(file, OLD, NEW)).toEqual({ status: "refused", keys: 0, detail: `unparseable store ${file}` });
+    expect(readFileSync(file, "utf8")).toBe(body);
   });
 
   test("dry run reports without writing", () => {
