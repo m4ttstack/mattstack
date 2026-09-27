@@ -92,3 +92,67 @@ describe("lease tools", () => {
     expect((r as any).body.lease.branch).toBeUndefined();
   });
 });
+
+describe("ci_watch", () => {
+  const SHA = "a".repeat(40);
+  function watchTool(over: Record<string, unknown> = {}, pipeline: Record<string, unknown> = { id: "gitlab:pipeline:10", status: "success", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] }) {
+    const t = ciToolDefs({
+      leaseOpts: () => ({ dir }),
+      label: () => undefined,
+      watch: {
+        resolve: async () => ({ ok: true, identity: "remote:x", iid: 42 }),
+        projectMrs: (async () => ({ ok: true, data: { mrs: { a: { pr: { iid: 42, sha: SHA, webUrl: MR, pipeline }, fetchedAt: 0 } }, syncedAt: 1 } })) as any,
+        command: (async () => ({ ok: true, data: [] })) as any,
+        now: () => 0,
+        sleep: async () => {},
+        ...over,
+      },
+    }).find((x) => x.name === "ci_watch")!;
+    return t;
+  }
+
+  test("watches under the caller's lease and heartbeats it", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success", lease: { owner: "session:aaa" } } });
+  });
+  test("without the lease it returns lease_lost", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, B);
+    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA }, A)).toMatchObject({ ok: true, body: { state: "lease_lost" } });
+  });
+  test("underBoardLease continues under a fresh board doctor lease and never writes it", async () => {
+    const { claimCiLease, boardDoctorOwner, readCiLease } = await import("../../../packages/rt-client/src/index.ts");
+    const claimed = claimCiLease({ mrUrl: MR, owner: boardDoctorOwner(MR), holder: "doctor" }, { dir });
+    const before = claimed.claimed ? claimed.lease.heartbeatAt : -1;
+    await Bun.sleep(5);
+    const r = await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A);
+    expect(r).toMatchObject({ ok: true, body: { state: "success" } });
+    expect(readCiLease(MR, { dir }).lease?.heartbeatAt).toBe(before);
+  });
+  test("underBoardLease returns lease_lost when another owner holds the MR", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, B);
+    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A)).toMatchObject({ body: { state: "lease_lost" } });
+  });
+  test("underBoardLease returns lease_lost when no lease exists", async () => {
+    expect(await watchTool().handler({ repoName: "remote:x", iid: 42, sha: SHA, underBoardLease: true }, A)).toMatchObject({ body: { state: "lease_lost" } });
+  });
+  test("daemon error surfaces", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const r = await watchTool({ projectMrs: (async () => ({ ok: false, error: "daemon down" })) as any }).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A);
+    expect(r.ok).toBe(false);
+  });
+  test("input bounds", async () => {
+    const t = watchTool();
+    expect((await t.handler({ repoName: "remote:x", iid: 42, sha: "xyz" }, A)).ok).toBe(false);
+    expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, maxWaitSeconds: 1801 }, A)).ok).toBe(false);
+    expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA, intervalSeconds: 5 }, A)).ok).toBe(false);
+    expect((await t.handler({ repoName: "remote:x", iid: 42, sha: SHA }, {})).ok).toBe(false);
+  });
+  test("the abort signal ends the call", async () => {
+    await tool("ci_lease_claim").handler({ mrUrl: MR }, A);
+    const ac = new AbortController();
+    const running = { id: "gitlab:pipeline:10", status: "running", sha: SHA, ref: "feat", mergeRequestEventType: null, webUrl: null, createdAt: null, jobs: [] };
+    const r = await watchTool({ sleep: async () => { ac.abort(); } }, running).handler({ repoName: "remote:x", iid: 42, sha: SHA }, A, ac.signal);
+    expect(r).toMatchObject({ ok: true, body: { state: "aborted" } });
+  });
+});
