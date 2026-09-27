@@ -91,22 +91,22 @@ describe("rt apps", () => {
   });
 
   describe("enable with no name", () => {
-    const stdin = process.stdin as { isTTY?: boolean };
+    const setTTY = (value: boolean | undefined) => Object.defineProperty(process.stdin, "isTTY", { value, configurable: true, writable: true });
     let savedTTY: boolean | undefined;
     let savedBatch: string | undefined;
     beforeEach(() => {
-      savedTTY = stdin.isTTY;
+      savedTTY = process.stdin.isTTY;
       savedBatch = process.env.RT_BATCH;
       delete process.env.RT_BATCH;
     });
     afterEach(() => {
-      stdin.isTTY = savedTTY;
+      setTTY(savedTTY);
       if (savedBatch === undefined) delete process.env.RT_BATCH;
       else process.env.RT_BATCH = savedBatch;
     });
 
     test("--json prints one usage line and exits 2, even on a TTY", async () => {
-      stdin.isTTY = true;
+      setTTY(true);
       const d = deps();
       await expect(appsEnable(["--json"], {}, d)).rejects.toThrow(/exit 2/);
       expect(d.out).toHaveLength(1);
@@ -114,7 +114,7 @@ describe("rt apps", () => {
     });
 
     test("text on a TTY lists the apps before the usage line", async () => {
-      stdin.isTTY = true;
+      setTTY(true);
       const d = deps();
       await expect(appsEnable([], {}, d)).rejects.toThrow(/exit 2/);
       expect(d.out).toHaveLength(3);
@@ -122,12 +122,12 @@ describe("rt apps", () => {
     });
 
     test("text without a TTY, or under RT_BATCH, prints only the usage line", async () => {
-      stdin.isTTY = false;
+      setTTY(false);
       const noTty = deps();
       await expect(appsEnable([], {}, noTty)).rejects.toThrow(/exit 2/);
       expect(noTty.out).toEqual(["rt apps enable: usage: rt apps enable <name> [--json]"]);
 
-      stdin.isTTY = true;
+      setTTY(true);
       process.env.RT_BATCH = "1";
       const batch = deps();
       await expect(appsEnable([], {}, batch)).rejects.toThrow(/exit 2/);
