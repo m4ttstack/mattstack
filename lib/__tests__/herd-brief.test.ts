@@ -465,6 +465,13 @@ describe("stripAuthorNotes", () => {
     expect(stripAuthorNotes(tilde, "template")).toEqual({ ok: true, text: tilde });
   });
 
+  test("an opener on the first line is recognized behind a byte order mark", () => {
+    const doc = lines("\uFEFF<!-- author -->", "note", "<!-- /author -->", "", "# T", "");
+    expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: lines("# T", "") });
+    const unmarked = lines("\uFEFF# T", "");
+    expect(stripAuthorNotes(unmarked, "template")).toEqual({ ok: true, text: unmarked });
+  });
+
   test("an indented marker or a marker sharing its line is text", () => {
     const doc = lines("    <!-- author -->", "<!-- author --> inline", "x <!-- /author -->", "");
     expect(stripAuthorNotes(doc, "template")).toEqual({ ok: true, text: doc });

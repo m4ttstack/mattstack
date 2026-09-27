@@ -22,6 +22,9 @@ const AUTHOR_OPEN = "<!-- author -->";
 const AUTHOR_CLOSE = "<!-- /author -->";
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
 
+// readFileSync(path, "utf8") keeps a leading BOM, which would hide an opener on line 1.
+const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
+
 export type StripResult = { ok: true; text: string } | { ok: false; error: string };
 
 /** Removes author-note blocks (marker lines included). Markers inside a
@@ -40,7 +43,8 @@ export function stripAuthorNotes(doc: string, source: "template" | "method", sta
     const line = lines[i]!;
     const lineNo = startLine + i;
     if (fence === null) {
-      const bare = line.replace(/\s+$/, "");
+      const withoutBom = i === 0 && line.startsWith(BYTE_ORDER_MARK) ? line.slice(1) : line;
+      const bare = withoutBom.replace(/\s+$/, "");
       if (bare === AUTHOR_OPEN) {
         if (openAt > 0) return { ok: false, error: `author note opened at ${source} line ${lineNo} is inside the one opened at line ${openAt}; author notes do not nest` };
         openAt = lineNo;
@@ -129,9 +133,7 @@ function parseStrategies(strategies: string): { name: string; body: string; body
     const name = match[1];
     const body = match[2];
     if (name === undefined || body === undefined) continue; // regex guarantees both groups when the overall match succeeds
-    // match[0]'s only "```\n" before the body is the opening fence: the
-    // heading and blank lines before it never contain backticks.
-    const bodyStart = match.index + match[0].indexOf("```\n") + 4;
+    const bodyStart = match.index + match[0].length - "\n```".length - body.length;
     const bodyLine = strategies.slice(0, bodyStart).split("\n").length;
     found.push({ name: name.trim(), body, bodyLine });
   }
