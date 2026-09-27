@@ -106,9 +106,11 @@ export function PaneRow({
   first,
 }: PaneRowProps) {
   const disabled = !!disabledReason;
-  const handle = pane.presence?.handle;
+  const name = pane.presence
+    ? (pane.presence.name ?? pane.presence.handle)
+    : undefined;
   const sub =
-    handle && pane.title === handle
+    name && pane.title === name
       ? pane.workspace
       : `${pane.workspace}${pane.title ? ` · ${pane.title}` : ''}`;
   const mobile = useIsMobile();
@@ -140,7 +142,7 @@ export function PaneRow({
           role="checkbox"
           aria-checked={!!selected}
           aria-disabled={disabled}
-          aria-label={`select ${handle ?? pane.paneId}`}
+          aria-label={`select ${name ?? pane.paneId}`}
           data-testid={`pane-check-${pane.paneId}`}
           onClick={() => {
             if (!disabled) onToggle();
@@ -191,9 +193,9 @@ export function PaneRow({
                   : `1px solid ${BORDER}`,
             }}
           />
-          {handle ? (
+          {name ? (
             <Text component="span" size="sm" fw={600}>
-              {handle}
+              {name}
             </Text>
           ) : (
             <Text component="span" size="sm" style={{ color: MUTED }}>
