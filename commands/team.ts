@@ -514,6 +514,12 @@ export async function teamStatus(args: string[], _ctx: CommandContext = {}, deps
   const json = args.includes("--json");
 
   try {
+    if (!flagValue(args, "--team") && listTeams().length === 0) {
+      const result = { mode: "solo" as const, slug: null, name: null, remote: null, lastPush: null, members: [] as never[] };
+      deps.print(json ? JSON.stringify(envelope(result)) : "rt team status: no team (Just me)");
+      return;
+    }
+
     const slug = resolveTeamSlug(args);
     const dir = join(deps.probes.home, ".mattstack", "teams", slug);
     if (!deps.probes.exists(dir)) {
