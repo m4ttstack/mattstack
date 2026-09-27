@@ -1,4 +1,4 @@
-import { GOLDEN_NAME } from "./registry.ts";
+import { GOLDEN_NAME, lastPickedName, rememberPickedName } from "./registry.ts";
 
 // Adjectives for neutral name generator
 const ADJECTIVES = [
@@ -63,6 +63,13 @@ export function pickName(pool: string[] | undefined, used: Set<string>, after?: 
 
   // Fall back to neutral generator
   return generateNeutralName(used);
+}
+
+/** A new pool member's name for this repo, continuing after the last one handed out. */
+export function nextTreeName(repoName: string, pool: string[] | undefined, used: Set<string>): string {
+  const name = pickName(pool, used, lastPickedName(repoName));
+  if (pool?.includes(name)) rememberPickedName(repoName, name);
+  return name;
 }
 
 /**
