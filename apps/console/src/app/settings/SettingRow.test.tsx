@@ -38,6 +38,39 @@ function store() {
 }
 
 describe('SettingRow', () => {
+  it('a repo-only key with no repo picked offers no editor or menu, only "set per repo"', () => {
+    const d = def('rt.logDir', {
+      repoScoped: true,
+      repoOnly: true,
+      scopes: ['team', 'user', 'machine'],
+    });
+    renderWithProviders(
+      <SettingRow def={d} store={store()} subhead={null} query="" />
+    );
+    expect(screen.getByText('set per repo')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'rt.logDir actions' })
+    ).toBeNull();
+  });
+
+  it('a repo-only key with a repo picked is edited as usual', () => {
+    const d = def('rt.logDir', {
+      repoScoped: true,
+      repoOnly: true,
+      scopes: ['team', 'user', 'machine'],
+    });
+    renderWithProviders(
+      <SettingsRepoContext.Provider value="gitlab.example.com/acme/app">
+        <SettingRow def={d} store={store()} subhead={null} query="" />
+      </SettingsRepoContext.Provider>
+    );
+    expect(screen.queryByText('set per repo')).toBeNull();
+    expect(
+      screen.getByRole('textbox', { name: 'rt.logDir' })
+    ).toBeInTheDocument();
+  });
+
   it('shows the key, the first sentence, the source, and an explain button', async () => {
     const onExplain = vi.fn();
     renderWithProviders(

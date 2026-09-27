@@ -45,7 +45,7 @@ export interface SettingDefWire {
   teamLocked: boolean;
   repoScoped: boolean;
   /** Only repo sections may hold it; a client never offers a global write. */
-  repoOnly: boolean;
+  repoOnly?: boolean;
   /** Computed once, server-side: migrated AND not secret AND (not composite,
       or composite writes admitted by `allowComposite`). Every client edit
       affordance keys off this instead of re-deriving it. */
