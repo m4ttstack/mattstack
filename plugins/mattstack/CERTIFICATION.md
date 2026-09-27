@@ -165,5 +165,10 @@ that quotes a shell form carries `<!-- mcp-lint: allow -->`.
 | 2026-09-26 | mattstack:work-next-self-review | pure | pass | n/a (hidden) | digraph stage twin of stage-self-review; compiled by a team pack as an internal verb |
 | 2026-09-26 | mattstack:work-next-ship | pure | pass | n/a (hidden) | digraph stage twin of stage-ship; compiled by a team pack as an internal verb |
 | 2026-09-26 | mattstack:work-next-watch-ci | pure | pass | n/a (hidden) | digraph stage twin of stage-watch-ci; compiled by a team pack as an internal verb |
+| 2026-09-27 | mattstack:process-digraphs | pure | pass | RED 3/3 routed a refused push to an injected shell fallback, 2/3 left code-fix loops unbudgeted, 0/3 wrote step sections; GREEN 0/3, 0/3, 3/3 (fresh Sonnet, describe-only, hotfix scenario); REFACTOR (outward step with no tool still a node) 2/2 drew the merge node | New skill (supersedes a personal process-digraphs skill): map plus step sections, tool calls as plaintext, outward steps as nodes, loop budgets, STOP-wins, off-script edge; ships render.sh and check-dot.py (13-case test) |
+| 2026-09-27 | tests/certify.sh | n/a | pass | test-certify.sh 19/19 | Renders and structure-checks every dot block in a skill that has one |
+| 2026-09-27 | mattstack:editing-skills | pure | pass | n/a (no description edit) | Craft gate points process skills at process-digraphs |
+| 2026-09-27 | mattstack:creating-a-pack | pure | pass | n/a (no description edit) | Process fills get a digraph map; rule fills key sections to engine nodes and add no STOP moves |
+| 2026-09-27 | mattstack:extending-a-pack | pure | pass | n/a (no description edit) | Same pointer as creating-a-pack |
 
 (Ledger rows are appended by the orchestrating session as each lane lands -- lanes themselves never edit this file.)

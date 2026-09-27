@@ -138,8 +138,9 @@ digraph ship {
     "mr_create {repoName: <root>, sourceBranch, targetBranch, title, description, draft, squash?, labels?}" -> "mr_create result?";
     "mr_create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="url, squash applied or not asked"];
     "mr_create result?" -> "mr_update {mrUrl, squash: true}" [label="squashApplied: false"];
-    "mr_create result?" -> "STOP: GitLab reads and writes go through mr_* tools, never the GitLab CLI" [label="error, or url null"];
-    "STOP: GitLab reads and writes go through mr_* tools, never the GitLab CLI" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="read it back; never create twice"];
+    "mr_create result?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="error, or url null: read it back; never create twice"];
+    "mr_create result?" -> "STOP: GitLab reads and writes go through mr_* tools, never the GitLab CLI" [label="tempted by the CLI"];
+    "STOP: GitLab reads and writes go through mr_* tools, never the GitLab CLI" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}";
     "mr_update {mrUrl, squash: true}" -> "run_field_set {key: mr, value: <url>, stage: ship}";
     "gh pr create, draft unless the gate said ready" -> "gh pr create result?";
     "gh pr create result?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="url printed"];

@@ -66,7 +66,8 @@ digraph provision {
     "worktree_provision result?" -> "EnterWorktree {path}" [label="ok: the result's path"];
     "worktree_provision result?" -> "Gate provision (table below)" [label="branch is already checked out in worktree"];
     "worktree_provision result?" -> "git -C <repo> rev-parse --git-dir; git -C <repo> switch -c <branch>" [label="daemon unreachable, or repo not registered"];
-    "worktree_provision result?" -> "STOP: never hand-roll a worktree; worktree_provision or the plain branch fallback" [label="any other error"];
+    "worktree_provision result?" -> "run_stage {action: fail, stage: provision, reason}" [label="any other error"];
+    "worktree_provision result?" -> "STOP: never hand-roll a worktree; worktree_provision or the plain branch fallback" [label="tempted to hand-roll one"];
     "STOP: never hand-roll a worktree; worktree_provision or the plain branch fallback" -> "run_stage {action: fail, stage: provision, reason}";
     "git -C <repo> rev-parse --git-dir; git -C <repo> switch -c <branch>" -> "run_field_set {key: branch}; run_field_set {key: worktree}" [label="worktree = the checkout"];
     "EnterWorktree {path}" -> "run_field_set {key: branch}; run_field_set {key: worktree}";

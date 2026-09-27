@@ -144,6 +144,20 @@ if [ -n "$STAGE" ]; then
 else ok stage-decl
 fi
 
+# A skill that carries process digraphs must render them cleanly and pass the
+# structure check (conventions: plugin/skills/process-digraphs/SKILL.md).
+if grep -qE '^[[:space:]]*```dot[[:space:]]*$' "$DIR/SKILL.md"; then
+  DG="$HERE/../plugin/skills/process-digraphs"
+  if ! command -v dot >/dev/null 2>&1; then
+    fail digraphs "graphviz dot is not installed (brew install graphviz)"
+  elif ! OUT=$(bash "$DG/render.sh" "$DIR/SKILL.md" 2>&1); then
+    fail digraph-render "$(printf '%s' "$OUT" | grep -E 'FAIL|Warning|Error' | head -5)"
+  elif ! OUT=$(python3 "$DG/check-dot.py" "$DIR/SKILL.md" 2>&1); then
+    fail digraph-structure "$(printf '%s' "$OUT" | grep -v 'graph(s) checked' | head -8)"
+  else ok digraphs
+  fi
+fi
+
 # Informational only: a provides-bearing skill that stays model-visible is
 # legal (independently useful); binding-only skills should disable.
 DMI=$(fm_top disable-model-invocation)
