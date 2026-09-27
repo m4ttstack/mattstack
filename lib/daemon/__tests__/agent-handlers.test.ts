@@ -7,7 +7,7 @@ import { AGENT_NAMES } from "../../chat-names.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { setSetting } from "../../settings/write.ts";
 import { getAgent, openStateDb, signIn } from "../../state/index.ts";
-import { pointerPrompt } from "../../agent-argv/index.ts";
+import { pointerPrompt, shellSingleQuote } from "../../agent-argv/index.ts";
 import { createAgentHandlers, extractSessionId, type HeadlessChild } from "../handlers/agent.ts";
 import { createBgClaimsStore, type BgClaimsStore } from "../bg-claims-store.ts";
 import { bgSocketPath } from "../bg-service.ts";
@@ -1209,17 +1209,20 @@ test("headless claude launch never requests session-id capture", async () => {
 
 const BRIEF = "# job\nrun `bun run test` then pkill nothing\nit's \"quoted\"";
 
-test("agent:start herdr puts only a pointer in the pane command; the prompt sits in an 0600 file", async () => {
+test("agent:start herdr puts only a pointer in the pane command; the prompt sits in an 0600 file, and its dir is granted via --add-dir before --session-id", async () => {
   const calls: string[][] = [];
   const h = fresh({ runner: okRunner(calls) });
   const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: BRIEF, surface: "herdr" });
   if (!res.ok) throw new Error(res.error);
   const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
-  const file = join(rtDir(), "agent-prompts", `${res.data.id}.md`);
+  const dir = join(rtDir(), "agent-prompts", res.data.id);
+  const file = join(dir, "prompt.md");
   expect(cmd).not.toContain("bun run test");
   expect(cmd).toContain(pointerPrompt(file));
+  expect(cmd).toContain(`'--add-dir' '${dir}' '--session-id'`);
   expect(readFileSync(file, "utf8")).toBe(BRIEF);
   expect(statSync(file).mode & 0o777).toBe(0o600);
+  expect(statSync(dir).mode & 0o777).toBe(0o700);
   expect(statSync(join(rtDir(), "agent-prompts")).mode & 0o777).toBe(0o700);
 });
 
@@ -1231,21 +1234,57 @@ test("agent:start herdr with no prompt emits no pointer", async () => {
   expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("Your instructions");
 });
 
+test("agent:start herdr with a slash-command prompt passes it through unchanged: no pointer, no prompt file", async () => {
+  const calls: string[][] = [];
+  const h = fresh({ runner: okRunner(calls) });
+  const slash = "/board:review https://x/mr/1 --state /s.json";
+  const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: slash, surface: "herdr" });
+  if (!res.ok) throw new Error(res.error);
+  const cmd = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
+  expect(cmd).toContain(shellSingleQuote(slash));
+  expect(cmd).not.toContain("Your instructions");
+  expect(existsSync(join(rtDir(), "agent-prompts", res.data.id))).toBe(false);
+});
+
 test("agent:resume with a new prompt goes through the pointer; without one it emits none", async () => {
   const calls: string[][] = [];
   const h = fresh({ runner: okRunner(calls) });
   const started = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: "first", surface: "herdr", label: "R" });
   if (!started.ok) throw new Error(started.error);
-  const file = join(rtDir(), "agent-prompts", `${started.data.id}.md`);
+  const dir = join(rtDir(), "agent-prompts", started.data.id);
+  const file = join(dir, "prompt.md");
   calls.length = 0;
   expect((await h["agent:resume"]({ id: started.data.id, prompt: BRIEF })).ok).toBe(true);
   const withPrompt = calls.find((c) => c[0] === "pane" && c[1] === "run")![3]!;
   expect(withPrompt).not.toContain("bun run test");
   expect(withPrompt).toContain(pointerPrompt(file));
+  expect(withPrompt).toContain(`'--add-dir' '${dir}' '--resume'`);
   expect(readFileSync(file, "utf8")).toBe(BRIEF);
   calls.length = 0;
   expect((await h["agent:resume"]({ id: started.data.id, tab: "again" })).ok).toBe(true);
   expect(calls.find((c) => c[0] === "pane" && c[1] === "run")![3]).not.toContain("Your instructions");
+});
+
+// Pins the rollback for the new failure mode F2 introduces: agent-prompts
+// existing as a plain file (not a directory) makes writePromptFile's mkdir
+// throw, and that must roll back the record the same as any other launch
+// failure, leaving no phantom.
+test("agent:start herdr rolls back the record when agent-prompts is a file, not a dir", async () => {
+  mkdirSync(rtDir(), { recursive: true });
+  rmSync(join(rtDir(), "agent-prompts"), { recursive: true, force: true });
+  writeFileSync(join(rtDir(), "agent-prompts"), "not a directory");
+  try {
+    const calls: string[][] = [];
+    const h = fresh({ runner: okRunner(calls) });
+    const res = await h["agent:start"]({ repo: REPO, cwd: "/tmp/x", prompt: BRIEF, surface: "herdr" });
+    expect(res.ok).toBe(false);
+    expect(calls.some((c) => c[0] === "pane" && c[1] === "run")).toBe(false);
+    const list = await h["agent:list"]({});
+    if (!list.ok) throw new Error("unreachable");
+    expect(list.data.agents).toHaveLength(0);
+  } finally {
+    rmSync(join(rtDir(), "agent-prompts"), { force: true });
+  }
 });
 
 test("agent:start headless feeds the prompt on stdin and keeps it out of argv", async () => {

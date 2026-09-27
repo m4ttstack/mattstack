@@ -19,7 +19,7 @@
  * resolveHookSettingsPath below.
  */
 
-import { mkdirSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Logger } from "pino";
@@ -156,8 +156,28 @@ function agentResultPath(id: string): string {
 }
 
 /** Owner-only: a prompt in argv is matched by any `pkill -f` pattern it quotes. */
-function agentPromptDir(): string {
+function agentPromptsRoot(): string {
   return join(rtDir(), "agent-prompts");
+}
+
+/** Per-agent, so an unattended pane's --add-dir grant (see resolveHerdrPrompt)
+    admits only its own prompt file, never every agent's. */
+function agentPromptDir(id: string): string {
+  return join(agentPromptsRoot(), id);
+}
+
+/** Herdr prompt handling: a slash-command prompt (the board's /board:review
+    etc.) passes through unchanged, since Claude Code only expands a slash
+    command when it is the literal first message; any other prompt is moved
+    into an owner-only file behind a pointer, with its directory named for
+    --add-dir so the launched pane can read it with no permission prompt. */
+function resolveHerdrPrompt(rec: AgentRecord, prompt: string | undefined): { prompt?: string; addDirs?: string[] } {
+  if (prompt === undefined || rec.surface !== "herdr" || prompt.startsWith("/")) return { prompt };
+  mkdirSync(agentPromptsRoot(), { recursive: true, mode: 0o700 });
+  chmodSync(agentPromptsRoot(), 0o700);
+  const dir = agentPromptDir(rec.id);
+  const path = writePromptFile(dir, "prompt.md", prompt);
+  return { prompt: pointerPrompt(path), addDirs: [dir] };
 }
 
 /** Deterministic from the id alone, mirroring agentResultPath above. */
@@ -330,6 +350,7 @@ export function createAgentHandlers(opts: {
       RT_DAEMON_SOCK: DAEMON_SOCK_PATH,
     };
     const settingsPath = resolveHookSettingsPath(rec, log);
+    const { prompt: resolvedPrompt, addDirs } = resolveHerdrPrompt(rec, prompt);
 
     const inv: AgentInvocation = {
       session,
@@ -340,14 +361,13 @@ export function createAgentHandlers(opts: {
       ...(rec.handle !== undefined && { inboundAccept: true }),
       ...(rec.extraArgs !== undefined && { extraArgs: rec.extraArgs }),
       ...(rec.yolo !== undefined && { yolo: rec.yolo }),
-      ...(prompt !== undefined && {
-        prompt: rec.surface === "herdr" ? pointerPrompt(writePromptFile(agentPromptDir(), `${rec.id}.md`, prompt)) : prompt,
-      }),
+      ...(resolvedPrompt !== undefined && { prompt: resolvedPrompt }),
       // Headless has no pane shell line for buildPaneCommand to interpolate
       // env into (see the payload.env rejection above); its gate env instead
       // rides the spawnHeadless call itself, below.
       ...(rec.surface === "herdr" && { env: { ...extra.env, ...gateEnv } }),
       ...(settingsPath !== undefined && { settingsPath }),
+      ...(addDirs !== undefined && { addDirs }),
     };
 
     if (rec.surface === "herdr") {

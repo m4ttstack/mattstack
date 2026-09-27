@@ -51,10 +51,24 @@ The helper is pure fs plus string; no daemon state.
 
 The one place every herdr and headless agent launch passes through.
 
-- herdr surface with a prompt: write it with
-  `writePromptFile(join(rtDir(), "agent-prompts"), "<agent id>.md", prompt)`
-  and put `pointerPrompt(path)` in `inv.prompt`. A resume with a new prompt
-  overwrites the same file; the previous launch has already read it.
+- herdr surface, prompt starts with `/`: passed through unchanged into
+  `inv.prompt`, no prompt file, no pointer. Claude Code only expands a slash
+  command when it is the literal first message it receives, so wrapping a
+  `/board:review ...`-shaped prompt (the board app's slash-command dispatch;
+  see "Out of scope" below) in a pointer would break the expansion. The
+  residual argv exposure this accepts: a board operator note appended to the
+  slash command, capped at 2000 characters by the board.
+- herdr surface, any other prompt: write it with
+  `writePromptFile(join(rtDir(), "agent-prompts", rec.id), "prompt.md", prompt)`
+  and put `pointerPrompt(path)` in `inv.prompt`. The per-agent directory
+  (rather than a flat `agent-prompts/<id>.md`) means the launch can also grant
+  read access to exactly that directory, and nothing else, via `addDirs:
+  [dir]` on the invocation -- `claudeArgs` emits this as `--add-dir <dir>`
+  immediately before `--session-id`/`--resume`, so an unattended pane (a herd
+  worker under non-auto permissions) can read its own pointer's target with
+  no permission prompt. `agent-prompts` itself is also kept 0700. A resume
+  with a new prompt overwrites the same file; the previous launch has already
+  read it.
 - headless surface: `inv.prompt` still carries the text (the builders use it
   to validate that a headless launch has a prompt), and `launch()` passes the
   same text to `spawnHeadless` as its stdin. `defaultSpawnHeadless` writes it
@@ -93,10 +107,16 @@ audit passes the prompt there.
 
 - `pane:spawn` already types its prompt into the pane after launch; nothing
   reaches argv.
-- The board and gitq apps (`apps/`) launch panes with short slash commands,
-  not prompts, and sit outside this change's write fence.
-- Pruning old `agent-prompts/*.md` files: they live beside the existing
-  `agents/<id>.json` result files, which are not pruned either.
+- The board app (`apps/board/src/agent-launch.ts`, `herdr.ts`'s
+  `dispatchPrompt`) does call `agent:start`/`agent:resume` with `surface:
+  "herdr"`, same as any other herdr caller; it is not outside this change's
+  write fence. What keeps its prompts out of the pointer file is the
+  slash-command passthrough above, since every board-dispatched prompt is a
+  `/board:review`/`/board:respond`/`/board:doctor`-shaped slash command. The
+  gitq app launches panes with short slash commands too and sits outside this
+  change's write fence the same way.
+- Pruning old `agent-prompts/<id>/` directories: they live beside the
+  existing `agents/<id>.json` result files, which are not pruned either.
 
 ## Error handling
 
