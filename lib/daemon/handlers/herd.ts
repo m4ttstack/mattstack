@@ -3,7 +3,7 @@
  * existing handlers (gate, chat, agent, worktree) so the herd owns no
  * delivery, CAS, or spawn semantics of its own.
  */
-import { existsSync, readFileSync, rmSync } from "fs";
+import { chmodSync, existsSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import type { Logger } from "pino";
 import type { Commands, GateQuestion, GateRow, HerdStatusData } from "../../../packages/rt-client/src/commands.ts";
@@ -421,10 +421,9 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (brief) writePromptFile(dir, "job.md", brief);
       else if (existsSync(briefPath)) {
         brief = readFileSync(briefPath, "utf8");
-        // A pre-existing job.md may predate this file's mode contract (an
-        // older rt wrote it 0644 in a 0755 dir); re-write through
-        // writePromptFile on every read-back so the modes are tightened too.
-        writePromptFile(dir, "job.md", brief);
+        // The read-back path tightens modes without rewriting the only copy of the brief.
+        chmodSync(dir, 0o700);
+        chmodSync(briefPath, 0o600);
       } else return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
 
       const prior = store.getJob(herdId, name);
