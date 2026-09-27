@@ -27,7 +27,7 @@ import {
   deleteAgent, finishAgent, getAgent, insertAgent, isValidChatName, listAgents, markAgentResumed,
   newAgentId, reserveAgentHandle, updateAgentPane, updateAgentSessionId, type AgentRecord, type AgentSurface,
 } from "../../state/index.ts";
-import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
+import { buildAgentArgv, buildAgentPaneCommand, CROSS_SESSION_INBOUND_SETTINGS, pointerPrompt, writePromptFile, type AgentInvocation, type AgentProvider } from "../../agent-argv/index.ts";
 import { mergeGateForkHookSettings, resolveGateForkHookPath } from "../../agent-hooks.ts";
 import { defaultHerdrRunner, herdrAgentSessionId, launchInWorkspace, type HerdrRunner } from "../../agent-herdr.ts";
 import { herdrRequest } from "../../herdr/client.ts";
@@ -111,12 +111,12 @@ export function extractSessionId(stream: ReadableStream<Uint8Array>): Promise<st
 
 function defaultSpawnHeadless(
   argv: string[], cwd: string, env: Record<string, string> = {},
-  opts: { captureSessionId?: boolean } = {},
+  opts: { captureSessionId?: boolean; stdin?: string } = {},
 ): HeadlessChild {
   const proc = Bun.spawn(argv as [string, ...string[]], {
     cwd,
     env: { ...process.env, ...env },
-    stdin: "ignore",
+    stdin: opts.stdin !== undefined ? new Blob([opts.stdin]) : "ignore",
     stdout: "pipe",
     stderr: "ignore",
   });
@@ -153,6 +153,11 @@ function fromSetting<T = string>(key: string, log: Logger): T | undefined {
     parses it today; whoever adds a consumer must branch on rec.provider. */
 function agentResultPath(id: string): string {
   return join(rtDir(), "agents", `${id}.json`);
+}
+
+/** Owner-only: a prompt in argv is matched by any `pkill -f` pattern it quotes. */
+function agentPromptDir(): string {
+  return join(rtDir(), "agent-prompts");
 }
 
 /** Deterministic from the id alone, mirroring agentResultPath above. */
@@ -282,7 +287,7 @@ export function createAgentHandlers(opts: {
   herdr?: typeof herdrRequest;
   /** Shortened budgets for tests; the driver's own defaults otherwise. */
   trustBudgets?: { registerBudgetMs?: number; waitBudgetMs?: number; settleMs?: number; stepMs?: number };
-  spawnHeadless?: (argv: string[], cwd: string, env: Record<string, string>, opts?: { captureSessionId?: boolean }) => HeadlessChild;
+  spawnHeadless?: (argv: string[], cwd: string, env: Record<string, string>, opts?: { captureSessionId?: boolean; stdin?: string }) => HeadlessChild;
   insertAgentFn?: typeof insertAgent;
   /** The daemon-owned background herdr server `--bg` launches onto (spec "The bg service"). Omitted, `bg: true` is refused. */
   bg?: Pick<BgService, "ensure" | "reprobe">;
@@ -335,7 +340,9 @@ export function createAgentHandlers(opts: {
       ...(rec.handle !== undefined && { inboundAccept: true }),
       ...(rec.extraArgs !== undefined && { extraArgs: rec.extraArgs }),
       ...(rec.yolo !== undefined && { yolo: rec.yolo }),
-      ...(prompt !== undefined && { prompt }),
+      ...(prompt !== undefined && {
+        prompt: rec.surface === "herdr" ? pointerPrompt(writePromptFile(agentPromptDir(), `${rec.id}.md`, prompt)) : prompt,
+      }),
       // Headless has no pane shell line for buildPaneCommand to interpolate
       // env into (see the payload.env rejection above); its gate env instead
       // rides the spawnHeadless call itself, below.
@@ -432,7 +439,7 @@ export function createAgentHandlers(opts: {
     // The caller inserts rec before invoking launch() for every headless
     // path (start and resume alike), so the row already exists here --
     // finishAgent below can never race an insert that hasn't happened yet.
-    const child = spawnHeadless(argv, rec.cwd, gateEnv, { captureSessionId: rec.provider === "codex" });
+    const child = spawnHeadless(argv, rec.cwd, gateEnv, { captureSessionId: rec.provider === "codex", ...(prompt !== undefined && { stdin: prompt }) });
     if (rec.provider === "codex") {
       // Same provisional-sessionId caveat as the herdr branch above: the
       // record this handler returns still carries rt's placeholder uuid, and
