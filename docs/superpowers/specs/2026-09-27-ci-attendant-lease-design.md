@@ -235,7 +235,9 @@ domain:
 `aborted` (the call was cancelled; distinct from the pipeline's `canceled`). On a terminal `failed`, the first five blocking failed jobs carry
 `traceTail` (last 40 lines, ANSI stripped, the `mr_job_trace` tail helper).
 When the cached pipeline was written at list weight and has no jobs, the watch
-fetches the full MR once before reporting failures. `next` is a one-line hint
+fetches the pipeline's failed jobs once (GitLab REST, a new optional
+`fetchPipelineFailedJobs` on the provider behind a daemon verb
+`mr:pipeline-failed-jobs`) before reporting failures. `next` is a one-line hint
 ("call again", "claim the lease", "read more with mr_job_trace"). The result
 goes through `callTool`'s redaction like every tool.
 
