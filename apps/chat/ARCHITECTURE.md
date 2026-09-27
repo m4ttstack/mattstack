@@ -71,7 +71,11 @@ shows names and acts on ids:
   agents named `remy` can still collide on hue, so the id-seeded avatar is
   the reliable tell.
 - DM labels are `aName ↔ bName` (`dmPairLabel` in `display-name.ts`). Two
-  DM rows that read the same pair show their avatars.
+  DM rows that read the same pair show their avatars, and so does the open
+  DM's title in the page bar and phone header (`DmPairTitle`). Both read
+  `repeatedPairLabels` over the rail's listed DMs, so they cannot disagree.
+- The collapsed DIRECT overflow line draws each hidden pair's unread as the
+  rows' `UnreadBadge`, so a count never reads as part of a name.
 - The Composer's `@` autocomplete matches names and posts ids; options that
   share a name each show their id-seeded avatar. A mention typed as an id
   (`@remy.m2p4`) highlights too. The pane picker and `doing()` compare a

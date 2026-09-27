@@ -13,7 +13,7 @@ import { Icon } from '@mattstack/app-kit/icons';
 import type { RoomSummary } from '@mattstack/rt-client';
 
 import { AgentName } from './AgentName';
-import { displayName, dmPairLabel } from './display-name';
+import { displayName, dmPairLabel, repeatedPairLabels } from './display-name';
 import { doing } from './doing';
 import classes from './fleet-tree.module.css';
 import { DOT_COLOR, MUTED_XS } from './presence-bits';
@@ -868,11 +868,7 @@ export function FleetTree({
   const namedDms = dms.filter(d => d.participants);
   const shownDms = dmsExpanded ? namedDms : visibleDms(namedDms, activeRoom);
   const hiddenDms = namedDms.filter(d => !shownDms.includes(d));
-  const labelCounts = new Map<string, number>();
-  for (const d of namedDms) {
-    const label = dmPairLabel(d.participants!);
-    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
-  }
+  const repeatedLabels = repeatedPairLabels(namedDms);
 
   return (
     <Fragment>
@@ -934,9 +930,7 @@ export function FleetTree({
               key={room.room}
               room={room}
               active={room.room === activeRoom}
-              withAvatars={
-                (labelCounts.get(dmPairLabel(room.participants!)) ?? 0) > 1
-              }
+              withAvatars={repeatedLabels.has(dmPairLabel(room.participants!))}
               onSelect={() => onOpenDm?.(room.room)}
               onClose={onClose}
               onMarkRead={onMarkRead}

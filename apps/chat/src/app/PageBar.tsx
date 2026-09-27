@@ -16,6 +16,7 @@ import type { BuddyStatus, RoomSummary } from '@mattstack/rt-client';
 
 import { AgentName } from './AgentName';
 import { dmPairLabel } from './display-name';
+import { DmPairTitle } from './DmPairTitle';
 import { doing, type DoingInput } from './doing';
 import { postMarkRead } from './mark-read';
 import { STATUS_WORD } from './statusDetail';
@@ -75,6 +76,9 @@ export interface PageBarProps {
   /** A prop, not `Date.now()` internally, so a DM's task chips are testable
       without fake timers. @default Date.now() */
   now?: number;
+  /** Set when another listed DM reads the same pair (`repeatedPairLabels`):
+      the title then carries each end's id-seeded avatar. */
+  withAvatars?: boolean;
 }
 
 function Dot({
@@ -375,6 +379,7 @@ export function PageBar({
   onMarkedRead,
   onAddAgents,
   now = Date.now(),
+  withAvatars = false,
 }: PageBarProps) {
   const [expandAll, setExpandAll] = useExpandAll();
   const handleMarkRead = () => {
@@ -403,9 +408,14 @@ export function PageBar({
         size="xl"
         lh={1.35}
         truncate
+        data-testid="page-bar-title"
         style={{ flex: 'none', maxWidth: '38%', minWidth: 0 }}
       >
-        {roomTitle(room)}
+        {room.kind === 'dm' && room.participants ? (
+          <DmPairTitle pair={room.participants} withAvatars={withAvatars} />
+        ) : (
+          roomTitle(room)
+        )}
       </Text>
       <Box style={{ width: 4.8, flex: 'none' }} />
     </>

@@ -272,6 +272,72 @@ const twoRooms = {
   members: [],
 };
 
+const kaiRemyDms = {
+  daemonReachable: true,
+  buddies: [],
+  rooms: [
+    {
+      room: 'dm-e41f7a3c68bd',
+      memberCount: 2,
+      unread: 0,
+      mentions: 0,
+      kind: 'dm' as const,
+      participants: { a: 'kai', b: 'remy', aName: 'kai', bName: 'remy' },
+    },
+    {
+      room: 'dm-2c9b7e41d0a5',
+      memberCount: 2,
+      unread: 0,
+      mentions: 0,
+      kind: 'dm' as const,
+      participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+    },
+    {
+      room: 'dm-jay-max',
+      memberCount: 2,
+      unread: 0,
+      mentions: 0,
+      kind: 'dm' as const,
+      participants: { a: 'jay', b: 'max', aName: 'jay', bName: 'max' },
+    },
+  ],
+  messages: [],
+  members: [],
+};
+
+const avatarCount = (el: HTMLElement) =>
+  el.querySelectorAll('svg[shape-rendering="crispEdges"]').length;
+
+test('an open DM whose pair repeats in the sidebar shows avatars in the page bar', () => {
+  window.history.replaceState(null, '', '/r/dm-2c9b7e41d0a5');
+  renderWithProviders(<App initialState={kaiRemyDms} />);
+  const bar = screen.getByTestId('page-bar');
+  expect(bar).toHaveTextContent('kai ↔ remy');
+  expect(bar).not.toHaveTextContent('m2p4');
+  expect(avatarCount(screen.getByTestId('page-bar-title'))).toBe(2);
+});
+
+test('an open DM whose pair is unique keeps a plain page-bar title', () => {
+  window.history.replaceState(null, '', '/r/dm-jay-max');
+  renderWithProviders(<App initialState={kaiRemyDms} />);
+  const title = screen.getByTestId('page-bar-title');
+  expect(title).toHaveTextContent(/^jay ↔ max$/);
+  expect(avatarCount(title)).toBe(0);
+});
+
+test('the phone header shows avatars only for a repeated pair', () => {
+  setViewportWidth(390);
+  window.history.replaceState(null, '', '/r/dm-e41f7a3c68bd');
+  const { unmount } = renderWithProviders(<App initialState={kaiRemyDms} />);
+  const header = screen.getByTestId('phone-header');
+  expect(header).toHaveTextContent('kai ↔ remy');
+  expect(avatarCount(header)).toBe(2);
+  unmount();
+  window.history.replaceState(null, '', '/r/dm-jay-max');
+  renderWithProviders(<App initialState={kaiRemyDms} />);
+  expect(avatarCount(screen.getByTestId('phone-header'))).toBe(0);
+});
+
 test('a malformed room escape renders not-found instead of throwing', () => {
   renderAt('/r/%E0%A4%A');
   expect(screen.getByText('Nothing lives at this address.')).toBeTruthy();

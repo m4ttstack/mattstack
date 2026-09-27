@@ -87,7 +87,9 @@ radius 6px):
 - line 1: the `.pair` (`aName ↔ bName`, both 600, `.arrows` in `--purple`),
   then the unread badge. **The hashed room name is never rendered.** When
   another listed DM reads the same pair (a recycled name), each name gets
-  its id-seeded avatar so the two rows stay tellable apart.
+  its id-seeded avatar so the two rows stay tellable apart. The open DM's
+  title (the page bar and the phone header) follows the same rule over the
+  same listed DMs; a pair that reads uniquely keeps its plain text title.
 - line 2: a `.doing` line — the two ends' task lines joined with `↔`
   (falling back to the repo for an end with no title), or the **last
   message** (`stan: holding the console settings page…`) when neither end

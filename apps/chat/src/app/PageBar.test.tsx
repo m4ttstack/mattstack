@@ -331,3 +331,46 @@ test('the expand-all toggle flips and persists the app-wide preference', async (
   expect(toggle).toHaveAttribute('aria-pressed', 'true');
   expect(window.localStorage.getItem('chat-expand-all')).toBe('true');
 });
+
+const avatars = (el: HTMLElement) =>
+  el.querySelectorAll('svg[shape-rendering="crispEdges"]');
+
+test("a DM title whose pair repeats shows both ends' avatars, still by name", () => {
+  renderWithProviders(
+    <PageBar
+      room={{
+        room: 'dm-2c9b7e41d0a5',
+        memberCount: 3,
+        unread: 0,
+        mentions: 0,
+        kind: 'dm',
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+      }}
+      buddies={[]}
+      withAvatars
+    />
+  );
+  const title = screen.getByTestId('page-bar-title');
+  expect(title).toHaveTextContent('kai ↔ remy');
+  expect(title).not.toHaveTextContent('m2p4');
+  expect(avatars(title)).toHaveLength(2);
+});
+
+test('a DM title whose pair is unique keeps the plain label, no avatars', () => {
+  renderWithProviders(
+    <PageBar
+      room={{
+        room: 'dm-2c9b7e41d0a5',
+        memberCount: 3,
+        unread: 0,
+        mentions: 0,
+        kind: 'dm',
+        participants: { a: 'kai', b: 'remy.m2p4', aName: 'kai', bName: 'remy' },
+      }}
+      buddies={[]}
+    />
+  );
+  const title = screen.getByTestId('page-bar-title');
+  expect(title).toHaveTextContent(/^kai ↔ remy$/);
+  expect(avatars(title)).toHaveLength(0);
+});
