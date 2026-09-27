@@ -51,6 +51,10 @@ digraph rt_release {
     "Preflight git state: gate rounds = 2?" [shape=diamond];
     "Off-script gate: preflight rows still not current" [shape=box];
     "Preflight rows still not current: gate rounds = 2?" [shape=diamond];
+    "git_pull {tree: <release checkout>}, after the cut merges" [shape=plaintext];
+    "Pull after the cuts result?" [shape=diamond];
+    "Off-script gate: local main diverged after the cuts" [shape=box];
+    "Local main diverged after the cuts: gate rounds = 2?" [shape=diamond];
 
     "Trigger: Matt asks for a release" -> "git fetch origin --tags";
     "git fetch origin --tags" -> "Find where this release stands";
@@ -81,7 +85,16 @@ digraph rt_release {
     "Gate: cut or hold each stale row" -> "Record each held row for the notes" [label="hold: noted in the release notes"];
     "Gate: cut or hold each stale row" -> "Held: release paused, resume point named" [label="hold the release"];
     "Gate: cut or hold each stale row" -> "Handed back to Matt" [label="hand back"];
-    "Land the fix each cut row needs" -> "Preflight runs = 3?";
+    "Land the fix each cut row needs" -> "git_pull {tree: <release checkout>}, after the cut merges";
+    "git_pull {tree: <release checkout>}, after the cut merges" -> "Pull after the cuts result?";
+    "Pull after the cuts result?" -> "Preflight runs = 3?" [label="ok"];
+    "Off-script gate: local main diverged after the cuts" -> "Preflight runs = 3?" [label="take: Matt synced main himself"];
+    "Off-script gate: local main diverged after the cuts" -> "Local main diverged after the cuts: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: local main diverged after the cuts" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: local main diverged after the cuts" -> "Handed back to Matt" [label="hand back"];
+    "Local main diverged after the cuts: gate rounds = 2?" -> "git_pull {tree: <release checkout>}, after the cut merges" [label="no: retry"];
+    "Local main diverged after the cuts: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Pull after the cuts result?" -> "Off-script gate: local main diverged after the cuts" [label="refused"];
     "Record each held row for the notes" -> "Which gate does the diff imply?";
     "Which gate does the diff imply?" -> "Fast path: rt release app (graph below)" [label="served-app fast path, one app"];
     "Which gate does the diff imply?" -> "Prepare the release (graph below)" [label="anything else, or several apps together"];
@@ -104,16 +117,18 @@ that) take the full path.
 
 ### Find where this release stands
 
-Read three facts after the fetch, then take the first edge that matches:
+Read three facts after the fetch, all against origin rather than the local checkout (which may
+lag origin/main), then take the first edge that matches:
 
-1. The newest tag: `git describe --tags --abbrev=0`.
+1. The newest tag on origin/main: `git describe --tags --abbrev=0 --match "v[0-9]*" origin/main`.
 2. A full-path notes commit after it: `git log <newest-tag>..origin/main --format='%H %s' --grep "chore(release): docs and notes for"`.
    A match names its `<tag>`; `git ls-remote --tags origin <tag>` says whether that tag is on origin.
 3. Whether the newest tag's publish verified: `rt release verify <newest-tag> --json --no-wait`.
 
 - `notes commit on origin/main, no tag`: fact 2 matched and `ls-remote` printed nothing. Prove
   and tag reuses a dispatch run whose `headSha` is that notes commit.
-- `tag pushed`: the newest tag's verify is not `released`, or Matt or the brief says the last
+- `tag pushed`: fact 2 matched and `ls-remote` printed its tag (that tag is the release in
+  flight); or the newest tag's verify is not `released`; or Matt or the brief says the last
   release stopped before rt.cool or update-machine.
 - `nothing started`: neither. A fast-path notes commit (`chore(release): notes for <tag>`)
   with no tag also lands here: `rt release app` resumes its own steps.
@@ -158,10 +173,21 @@ schedule and this release does not gate it.
 
 ### Land the fix each cut row needs
 
-Land each cut on main through a PR (a catalog refresh, a migration or revert, a deps.lock bump, a
-layer's own release) and wait for it to merge; the branch pushes with `git_push`. Every cut
-merges before the notes commit, since whatever lands after that commit misses the tag. Then
-preflight runs again through its counter.
+Land each cut on main through a PR (a catalog refresh, a migration or revert, a deps.lock bump)
+and wait for it to merge; the branch pushes with `git_push`. Every cut merges before the notes
+commit, since whatever lands after that commit misses the tag. Not every cut is a PR here: the
+Chrome extension cut lands in m4ttstack/fast-browser (the runtime-lock bump) plus a Web Store
+submit, and a layer's own release ships from its own repo.
+
+The pull comes next: the notes are written on this checkout, so it must hold the merged main, or
+the notes commit sits on a stale main and its push is refused every time. Then preflight runs
+again through its counter.
+
+### Off-script gate: local main diverged after the cuts
+
+Quote `git_pull`'s refusal (local main has commits origin/main does not). Never reset, rebase or
+stash to get past it. Take: Matt synced main himself. Iterate: Matt fixed the cause, and the pull
+runs again.
 
 ### Record each held row for the notes
 
@@ -170,7 +196,7 @@ into a held-pins line.
 
 ### Off-script gate: preflight git state
 
-Quote the `git state` row (off main, a dirty tree, no commits since the last tag). Take: Matt rules
+Quote the `git state` row (off main, or a dirty tree). Take: Matt rules
 the tree releasable as it is. Iterate: Matt fixed the cause, and preflight runs again. Never
 switch the branch, stash or clean the tree yourself.
 
@@ -258,8 +284,11 @@ next tag and the commands. The verb skips the rehearsal because its gate admits 
 served-app path, the notes and `website/`, and its qualify step has confirmed the newest tag
 verified. Every step detects its own completion, so rerunning the verb resumes, even after a run
 killed mid-wait, and a newest tag whose publish has not verified is re-verified before anything
-new starts. The verified
-outcome continues at Publish and finish for rt.cool and update-machine.
+new starts. The verified outcome continues at Publish and finish for rt.cool and update-machine.
+
+A verify rerun reports rows, not a status: every row ok reads as `released`, only pending rows as
+`pending`, and any stale or error row (a draft left behind, a missing asset) as `failed`, which
+resumes through the verb.
 
 ### Gate: approve the fast-path tag and notes
 
@@ -324,8 +353,12 @@ digraph prepare_release {
     "Early main push refused: gate rounds = 2?" [shape=diamond];
     "Off-script gate: update-docs failed" [shape=box];
     "Update-docs failed: gate rounds = 2?" [shape=diamond];
+    "git_pull {tree: <release checkout>}, after the release-day merges" [shape=plaintext];
+    "Pull after the release-day merges result?" [shape=diamond];
     "Off-script gate: release-day PRs still open" [shape=box];
     "Release-day PRs still open: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: local main diverged after the release-day merges" [shape=box];
+    "Local main diverged after the release-day merges: gate rounds = 2?" [shape=diamond];
     "Off-script gate: notes push refused" [shape=box];
     "Notes push refused: gate rounds = 2?" [shape=diamond];
 
@@ -384,8 +417,17 @@ digraph prepare_release {
     "Off-script gate: release-day PRs still open" -> "Release-day PRs still open: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: release-day PRs still open" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: release-day PRs still open" -> "Handed back to Matt" [label="hand back"];
-    "Release-day PRs still open: gate rounds = 2?" -> "Write the release notes" [label="no: retry"];
+    "Release-day PRs still open: gate rounds = 2?" -> "git_pull {tree: <release checkout>}, after the release-day merges" [label="no: retry"];
     "Release-day PRs still open: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "git_pull {tree: <release checkout>}, after the release-day merges" -> "Pull after the release-day merges result?";
+    "Pull after the release-day merges result?" -> "Curated notes already in RELEASE_NOTES.md?" [label="ok"];
+    "Off-script gate: local main diverged after the release-day merges" -> "Curated notes already in RELEASE_NOTES.md?" [label="take: Matt synced main himself"];
+    "Off-script gate: local main diverged after the release-day merges" -> "Local main diverged after the release-day merges: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: local main diverged after the release-day merges" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: local main diverged after the release-day merges" -> "Handed back to Matt" [label="hand back"];
+    "Local main diverged after the release-day merges: gate rounds = 2?" -> "git_pull {tree: <release checkout>}, after the release-day merges" [label="no: retry"];
+    "Local main diverged after the release-day merges: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Pull after the release-day merges result?" -> "Off-script gate: local main diverged after the release-day merges" [label="refused"];
     "Release-day PRs merged?" -> "Off-script gate: release-day PRs still open" [label="no"];
     "git add website RELEASE_NOTES.md" -> "git commit -m \"chore(release): docs and notes for <tag>\"";
     "git commit -m \"chore(release): docs and notes for <tag>\"" -> "git rev-parse HEAD";
@@ -495,7 +537,15 @@ generated reference to pass the check.
 
 List each open PR the notes or a cut row depend on, with its CI state. Take: Matt rules they ride
 the next release; recommend it only when the approved notes do not describe them. Iterate: Matt
-merged them, the range changed, and the notes are written again and go back through approval.
+merged them, and the pull runs next: the range changed, so the notes are re-scaffolded and written
+on the merged main and go back through approval. Written on a stale main, the notes commit's push
+is refused every time.
+
+### Off-script gate: local main diverged after the release-day merges
+
+Quote `git_pull`'s refusal (local main has commits origin/main does not). Never reset, rebase or
+stash to get past it. Take: Matt synced main himself. Iterate: Matt fixed the cause, and the pull
+runs again.
 
 ### Off-script gate: notes push refused
 
@@ -503,7 +553,8 @@ Quote the refusal and what landed on origin/main since (`git log --oneline main.
 Matt approved notes for a range that commit is not in, and the tag will point at whatever gets
 pushed, so folding it in is his call; "get it out today" or "I trust you" does not answer this
 gate. Take: Matt pushed it himself. Iterate: Matt fixed the cause (for example, he rebased the
-notes commit after reading the new one), and the push runs again with the exercised sha read anew.
+notes commit after reading the new one), and the push runs again. A rebase changes the notes
+commit's sha; Prove and tag re-derives the exercised sha from origin/main by the commit's subject.
 
 ### Prove and tag (graph below)
 
@@ -641,8 +692,11 @@ as `GITLAB_TOKEN`), `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
 
 ### Watch the rehearsal run to completion
 
-Find the run whose `headSha` is the exercised sha (a new dispatch takes a few seconds to list).
-Poll `gh run view <run-id> --json status,conclusion,headSha` every few minutes in the background;
+On the reuse path, the run is the one `gh run list` found with `headSha` equal to the exercised
+sha. After a fresh dispatch, take the newest `workflow_dispatch` run created after the dispatch (it
+takes a few seconds to list): `gh workflow run release.yml --ref main` runs main's head, so compare
+that run's `headSha` with the exercised sha rather than searching for it, since after main moves
+no run has it. Poll `gh run view <run-id> --json status,conclusion,headSha` every few minutes in the background;
 never a bare `gh run watch --exit-status`, which exits nonzero on a false failure while the run is
 still in progress. The rehearsal stamps `<next-patch>-ci<run>`, so read the artifact's actual dmg
 filename rather than assuming it. check-bundle asserts `Contents/Helpers/gate-fork.sh` exists and
@@ -678,8 +732,11 @@ The push is the publish: never `gh release create`.
 
 ### Off-script gate: rehearsal ran another sha
 
-Quote the run id, its `headSha` and the exercised sha. Take: Matt accepts the run's sha as the
-exercised sha. Iterate: Matt fixed the cause, and a new dispatch runs.
+Quote the run id, its `headSha`, the exercised sha, and the commits between them. A new dispatch
+runs main's head again, so iterate clears this only if Matt moves main back; recommend hold or
+hand back. Take: Matt accepts the run's sha as the exercised sha, and the tag then points at a sha
+the approved notes do not fully describe; say so in the option. Iterate: Matt fixed the cause, and
+a new dispatch runs.
 
 ### Off-script gate: rehearsal run wedged
 
