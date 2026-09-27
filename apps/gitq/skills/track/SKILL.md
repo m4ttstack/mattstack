@@ -69,6 +69,7 @@ digraph gitq_track {
     "gitq import exit (track)?" [shape=diamond];
     "STOP: --replace only after the human hears what it discards" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: the human supplies forge tokens (import)" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "gitq -C <repoPath> stacks (before replace)" [shape=plaintext];
     "track gate: replace every tracked stack" [shape=box];
     "Replace answer (track)?" [shape=diamond];
     "Replace rounds = 2 (track)?" [shape=diamond];
@@ -166,11 +167,12 @@ digraph gitq_track {
 
     "gitq -C <repoPath> import" -> "gitq import exit (track)?";
     "gitq import exit (track)?" -> "gitq -C <repoPath> stacks (after import)" [label="0"];
-    "gitq import exit (track)?" -> "track gate: replace every tracked stack" [label="refused: stacks exist, pass --replace"];
-    "gitq import exit (track)?" -> "track gate: gitq import refused" [label="refused: token, forge host or project"];
+    "gitq import exit (track)?" -> "gitq -C <repoPath> stacks (before replace)" [label="refused: stacks exist, pass --replace"];
+    "gitq import exit (track)?" -> "track gate: gitq import refused" [label="refused: anything else (token, forge host, forge error, active cascade)"];
     "gitq import exit (track)?" -> "STOP: --replace only after the human hears what it discards" [label="tempted to pass --replace unasked"];
     "gitq import exit (track)?" -> "STOP: the human supplies forge tokens (import)" [label="tempted to supply a forge token yourself"];
-    "STOP: --replace only after the human hears what it discards" -> "track gate: replace every tracked stack";
+    "STOP: --replace only after the human hears what it discards" -> "gitq -C <repoPath> stacks (before replace)";
+    "gitq -C <repoPath> stacks (before replace)" -> "track gate: replace every tracked stack";
     "STOP: the human supplies forge tokens (import)" -> "track gate: gitq import refused";
 
     "track gate: replace every tracked stack" -> "Replace answer (track)?";
@@ -436,9 +438,15 @@ you are tempted to pass `--replace` without asking. `--replace` discards
 rebuilds the whole store for the repo, re-minting stack ids. It runs only on
 this gate's take, after the human has heard what it destroys.
 
-Context: the `gitq:` refusal line verbatim, every stack slot 4 names and any
-further stack the refusal names, each marked as discarded, and one line
-saying the stack ids are re-minted for the whole repo.
+gitq's refusal gives only a count of stacks, so
+`gitq -C <repoPath> stacks (before replace)` runs first. Name each stack
+from its output, and correct slot 4 from it too, so an iterate answer's
+re-pick at `Path (track)?` sees the tracked stacks and does not send the run
+back to import.
+
+Context: the `gitq:` refusal line verbatim, each stack that output names,
+marked as discarded, and one line saying the stack ids are re-minted for
+the whole repo.
 
 Set `recommended: true` on iterate and list it first: track and add leaves
 every other stack alone.
@@ -461,16 +469,18 @@ Context: the `gitq:` stderr line verbatim and the remote's host.
 
 ### track gate: gitq import refused
 
-Opens when `gitq import` refuses for a token, a forge host, or a remote that
-names another project, and whenever you are tempted to supply a forge token
-yourself. The human supplies every token. An iterate answer can move the
-path to track + add.
+Opens when `gitq import` exits non-zero for anything but the stacks-exist
+refusal: a missing token, a forge host gitq cannot read from the remote, a
+forge or network error, or an active cascade anywhere in the repo (import
+refuses while any cascade is paused), and whenever you are tempted to supply
+a forge token yourself. The human supplies every token and finishes or
+aborts any cascade. An iterate answer can move the path to track + add.
 
 Context: the `gitq:` stderr line verbatim and the remote's host.
 
 | Question | Options (recommended first) |
 |---|---|
-| gitq import refused. What next? | `take: fixed it, retry`: you fixed the token or forge host, and I run gitq import again. `iterate: pick the path again`: I pick the path again with your note, for example track and add. `hold: leave it with you`: this run ends with nothing imported. `hand back: stop here`: I reproduce the Step 1 block and say why the run stopped. |
+| gitq import refused. What next? | `take: fixed it, retry`: you fixed what the refusal names, and I run gitq import again. `iterate: pick the path again`: I pick the path again with your note, for example track and add. `hold: leave it with you`: this run ends with nothing imported. `hand back: stop here`: I reproduce the Step 1 block and say why the run stopped. |
 
 ### track gate: imported chain differs
 
@@ -479,11 +489,24 @@ Opens when the chain `gitq stacks` prints after an import differs from slot
 parent from its MR target, so a difference is either a stale MR target or a
 wrong slot 2.
 
-Context: the imported chain and slot 2 side by side, and every branch that
-came along though you meant to exclude it.
+An empty store is its own case. When the remote names a different project
+than the one the MRs belong to (a renamed or transferred project), import
+exits 0, tracks nothing, and prints a `gitq: none of the <n> open MR(s) ...`
+line on stderr. A take there would hand back with nothing tracked: quote that
+line in the context, say the remote needs fixing before an import can work,
+and set `recommended: true` on hand back and list it first.
+
+An iterate answer means the human changed the tracking themselves, for
+example `gitq remove <branch>` to drop a branch that came along, or fixed
+the remote and imported again; I only read `gitq stacks` again.
+
+Context: the imported chain and slot 2 side by side, every branch that came
+along though you meant to exclude it, and, for an empty store, gitq's
+stderr line verbatim.
 
 When an excluded branch came along, set `recommended: true` on iterate and
-list it first; otherwise take stays first.
+list it first; for an empty store, hand back goes first; otherwise take
+stays first.
 
 | Question | Options (recommended first) |
 |---|---|
@@ -495,7 +518,8 @@ The stack name is a local label. There is no rename-stack command
 (`gitq rename` renames a *branch*), so a name you regret costs an `untrack`
 plus the `add`s again. Use the name the human gave, in the launch message or
 a gate answer. Otherwise take it from the shared branch prefix and say that
-you did in the hand back.
+you did in the hand back. When the branches share no prefix, pick a short
+label from the members' names and name it in the hand back.
 
 On an iterate answer from `track gate: gitq track refused`, pick again with
 the note on the name or the root.
@@ -527,8 +551,8 @@ added under, and the members added so far.
 
 Re-run the merge-base reasoning from `Fill the Root and Members slots
 (track)` for this one member, steered by the note, and update its line in
-slot 2. Keep parent-before-child order: the new parent is the root or a
-member already added.
+slot 2. Keep parent-before-child order: when the note names a parent not
+yet added, add that parent first, then this member.
 
 ### track gate: tracked chain differs
 
@@ -537,8 +561,10 @@ slot 2. An empty chain means `--root` named a member branch. The fix is
 `untrack`, then track and add again (take), and rebuilds are bounded by
 `Chain rebuilds = 2 (track)?`.
 
-Context: the printed chain and slot 2 side by side, and, for an empty
-chain, the root that was passed.
+Context: the printed chain and slot 2 side by side, for an empty chain the
+root that was passed, and the Root and Members the rebuild will use. On a
+take, update the Step 1 block to that Root and Members before the rebuild
+starts.
 
 | Question | Options (recommended first) |
 |---|---|
@@ -611,5 +637,5 @@ right now as `gitq stacks` last printed it.
 |---|---|
 | "`<branch-3>` and `<branch-4>` were added with `mrIid: null` because the forge timed out" | A timed-out forge writes "unknown" in Published for those branches, never "none", and the run ends at the 5b hand back naming them. |
 | "the skill requires stopping and naming the branches rather than guessing or forcing `import --replace` past it" | With another stack in slot 4 the path is track + add. A stacks-exist refusal opens `track gate: replace every tracked stack`, never a prose stop. |
-| "picking between the two 5b remediation paths is the human's call once they have the assessment, not mine to make unasked" | Right: the 5b hand back names both ways out and ends. Neither runs from this skill. |
+| "the human will want me to pick the 5b remedy" | The 5b hand back names both ways out, `gitq import --replace` and the state-file edit, and ends. Neither runs from this skill. |
 | "get it tracked, and make sure it works" means a sync to prove it | Tracking is read-only on git. `gitq stacks` is the check. |
