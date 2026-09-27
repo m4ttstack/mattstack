@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from 'bun:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GitShell } from '../../src/core/git-shell.ts';
 import { RebaseEngine } from '../../src/core/rebase-engine.ts';
@@ -135,8 +135,8 @@ describe('undo moves refs by compare-and-swap', () => {
     expect(head(repo, 'feat/branch-3')).toBe(newer.get('feat/branch-3')!);
   });
 
-  test('a move that fails mid-way names the branch and reports the branches already restored', async () => {
-    const { repo, entry, before, after } = await cascadedStack();
+  test('a dirty worktree holding a stack branch refuses the whole undo, naming the branch and the slot', async () => {
+    const { repo, entry, after } = await cascadedStack();
     const slot = await addNamedWorktree(repo, 'held', 'feat/branch-2');
     dirs.push(slot);
     await writeFile(join(slot, 'README.md'), 'dirty in the slot\n', 'utf-8');
@@ -145,9 +145,52 @@ describe('undo moves refs by compare-and-swap', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('feat/branch-2');
+    expect(result.error).toContain(slot);
+    expect(result.restoredBranches).toEqual([]);
+    for (const [branch, sha] of after) expect(head(repo, branch)).toBe(sha);
+  });
+
+  test('a ref update git rejects part way names the branch and reports the branches already restored', async () => {
+    const { repo, entry, before, after } = await cascadedStack();
+    const removeHook = await rejectRefUpdates(repo, 'feat/branch-2');
+
+    const result = await undo(repo.dir, entry);
+    await removeHook();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('feat/branch-2');
     expect(result.restoredBranches).toEqual(['feat/branch-1']);
     expect(head(repo, 'feat/branch-1')).toBe(before.get('feat/branch-1')!);
     expect(head(repo, 'feat/branch-2')).toBe(after.get('feat/branch-2')!);
     expect(head(repo, 'feat/branch-3')).toBe(after.get('feat/branch-3')!);
   });
+
+  test('a partial undo can be retried: branches already at their snapshot count as restored', async () => {
+    const { repo, entry, before } = await cascadedStack();
+    const removeHook = await rejectRefUpdates(repo, 'feat/branch-2');
+    expect((await undo(repo.dir, entry)).success).toBe(false);
+    await removeHook();
+
+    const retry = await undo(repo.dir, entry);
+
+    expect(retry.success).toBe(true);
+    expect(retry.restoredBranches).toEqual(['feat/branch-1', 'feat/branch-2', 'feat/branch-3']);
+    for (let i = 1; i <= 3; i++) {
+      expect(head(repo, `feat/branch-${i}`)).toBe(before.get(`feat/branch-${i}`)!);
+    }
+  });
 });
+
+/**
+ * Make git itself reject any ref transaction touching `branch`, the way a
+ * concurrent writer winning the race would. Returns the hook's remover.
+ */
+async function rejectRefUpdates(repo: SandboxRepo, branch: string): Promise<() => Promise<void>> {
+  const hook = join(repo.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'hooks', 'reference-transaction');
+  await writeFile(
+    hook,
+    `#!/bin/sh\n[ "$1" = prepared ] || exit 0\nif grep ' refs/heads/${branch}$' >/dev/null; then exit 1; fi\nexit 0\n`,
+    { mode: 0o755 },
+  );
+  return () => rm(hook);
+}
