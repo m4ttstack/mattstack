@@ -364,6 +364,7 @@ function HealthCell({ row, restarting }: { row: Row; restarting: boolean }) {
 }
 
 function ServiceCell({ row }: { row: Row }) {
+  if (row.enabled === false) return null;
   if (!row.service) return <span className="muted">no service</span>;
   const service = row.service;
   const pid = servicePid(service);

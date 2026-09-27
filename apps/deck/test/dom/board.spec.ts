@@ -322,6 +322,12 @@ test('an off app: muted off badge with the settings hint, no restart, no command
       // unscoped selector would also match the restart button.
       const commandsCell = ledger.locator('[data-part="table-cell"]').nth(6);
       expect(await commandsCell.locator('button').count()).toBe(0);
+      // Scoped the same way: service is cell index 3 (site, port, health,
+      // service, ...). An off app's launchd job is uninstalled, so a
+      // leftover exit status/pid would misreport it as broken.
+      const serviceCell = ledger.locator('[data-part="table-cell"]').nth(3);
+      expect(await serviceCell.locator('.t-bad').count()).toBe(0);
+      expect(await serviceCell.textContent()).toBe('');
       const fraction = page.locator('.board-subline .t-ok', {
         hasText: 'healthy',
       });
