@@ -156,6 +156,11 @@ describe("mr read tools", () => {
     const res = await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1, jobId: 7 }, {} as NodeJS.ProcessEnv);
     expect((res.body as any).job).toEqual(bridge);
   });
+  test("mr_pipeline passes sha, ref and mergeRequestEventType through unchanged", async () => {
+    const { deps } = fake({}, { mrs: { a: { pr: { ...pr(1, "opened"), pipeline: { ...pr(1, "opened").pipeline, sha: "abc", ref: "feat", mergeRequestEventType: null } }, fetchedAt: 1 } } });
+    const res = await tool(deps, "mr_pipeline").handler({ repoName: ID, iid: 1 }, {} as NodeJS.ProcessEnv);
+    expect((res.body as any).pipeline).toMatchObject({ sha: "abc", ref: "feat", mergeRequestEventType: null });
+  });
   test("mr_pipeline sends the head pipeline's numeric id as pipelineId", async () => {
     const payloads: unknown[] = [];
     const { deps } = fake({ command: (async (_name: string, payload: unknown) => { payloads.push(payload); return { ok: true, data: { type: "trace", content: "" } }; }) as any });

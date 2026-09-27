@@ -337,27 +337,53 @@ export async function runTriage(
       continue;
     }
     // dispatch
-    const statePath = deps.doctorFilePath(edge.mrUrl);
-    // The wrapper treats an absent tier as the historical checkout
-    // (fix-and-push) behavior; "api" stays the explicit no-checkout tier.
-    // Persisted onto the state file (not just passed to launchDoctor) so a
-    // resumed pane can re-announce the same tier/fixClasses -- see
-    // DoctorState.tier.
-    const tier = deps.triage.tier === 'checkout' ? undefined : 'api';
-    const fixClasses = composeFixClasses(
-      deps.triage.fixClasses,
-      edge.author,
-      deps.identity
-    );
-    deps.writeDoctorState(statePath, {
-      mrUrl: edge.mrUrl,
-      iid: edge.iid,
-      status: 'queued',
-      origin: 'auto',
-      tier,
-      fixClasses,
-    });
+    if (
+      deps.attendants &&
+      !deps.attendants.claim(
+        edge.mrUrl,
+        edge.iid,
+        byUrl.get(edge.mrUrl)?.sourceBranch
+      )
+    ) {
+      result.skipped++;
+      deps.appendAudit({
+        ts: now,
+        mrUrl: edge.mrUrl,
+        iid: edge.iid,
+        event: edge.kind,
+        decision: 'skip',
+        reason: 'attended',
+        pipelineId: edge.pipelineId,
+      });
+      continue;
+    }
+    // Outside the try so the catch can mark the row once statePath is known.
+    let statePath: string | undefined;
+    // Set the instant launchDoctor resolves: a throw from the POST-launch
+    // bookkeeping below (the race-guard read, the queued-state update) must
+    // not release a lease the now-running doctor pane still owns.
+    let launched = false;
     try {
+      statePath = deps.doctorFilePath(edge.mrUrl);
+      // The wrapper treats an absent tier as the historical checkout
+      // (fix-and-push) behavior; "api" stays the explicit no-checkout tier.
+      // Persisted onto the state file (not just passed to launchDoctor) so a
+      // resumed pane can re-announce the same tier/fixClasses -- see
+      // DoctorState.tier.
+      const tier = deps.triage.tier === 'checkout' ? undefined : 'api';
+      const fixClasses = composeFixClasses(
+        deps.triage.fixClasses,
+        edge.author,
+        deps.identity
+      );
+      deps.writeDoctorState(statePath, {
+        mrUrl: edge.mrUrl,
+        iid: edge.iid,
+        status: 'queued',
+        origin: 'auto',
+        tier,
+        fixClasses,
+      });
       const launchResult = await deps.launchDoctor({
         mrUrl: edge.mrUrl,
         iid: edge.iid,
@@ -373,6 +399,7 @@ export async function runTriage(
         fixClasses,
         draftBin: draftBinPath(),
       });
+      launched = true;
       if (!launchResult.focusedExisting) {
         // Race guard: an operator stand-down (a different process, the
         // board server) may have closed this row out while the launch
@@ -401,11 +428,6 @@ export async function runTriage(
           });
         }
       }
-      deps.attendants?.claim(
-        edge.mrUrl,
-        edge.iid,
-        byUrl.get(edge.mrUrl)?.sourceBranch
-      );
       result.dispatched++;
       activeAuto++;
       markHandled(deps.memory, edge);
@@ -421,16 +443,27 @@ export async function runTriage(
         attempt: m.attemptsToday,
       });
     } catch (err) {
-      deps.writeDoctorState(statePath, {
-        status: 'error',
-        message: 'failed to launch doctor pane',
-      });
+      // After launchDoctor resolved, a doctor pane is running and holds the
+      // lease: releasing it, or marking the row 'error' (not in IN_FLIGHT, so
+      // the next pass's maintenance releases the lease), would let a second
+      // attendant in alongside it. The row stays as the launch left it.
+      if (!launched) {
+        deps.attendants?.release(edge.mrUrl, edge.iid);
+        // statePath is unset only when deps.doctorFilePath itself threw,
+        // before any row existed; the audit entry still records the failure.
+        if (statePath !== undefined) {
+          deps.writeDoctorState(statePath, {
+            status: 'error',
+            message: 'failed to launch doctor pane',
+          });
+        }
+      }
       deps.appendAudit({
         ts: now,
         mrUrl: edge.mrUrl,
         iid: edge.iid,
         event: edge.kind,
-        action: 'launch-failed',
+        action: launched ? 'post-launch-failed' : 'launch-failed',
         outcome: err instanceof Error ? err.message : String(err),
       });
     }

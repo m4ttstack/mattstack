@@ -1413,6 +1413,73 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  ci: {
+    description: "CI attendant lease and pipeline watch",
+    subcommands: {
+      lease: {
+        description: "The one-attendant-per-MR CI lease",
+        subcommands: {
+          claim: {
+            description: "Claim the MR's CI lease for this session",
+            module: "./commands/ci.ts",
+            fn: "ciLeaseClaim",
+            omitBehavior: { exempt: "a free-text MR URL" },
+            args: [
+              { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR or PR URL" },
+              { name: "Holder", flag: "--holder", type: "text", placeholder: "watch-ci", hint: "watch-ci (default) or doctor" },
+              { name: "Branch", flag: "--branch", type: "text", placeholder: "feat", hint: "Source branch, recorded on the lease" },
+              { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+            ],
+          },
+          heartbeat: {
+            description: "Refresh this session's CI lease",
+            module: "./commands/ci.ts",
+            fn: "ciLeaseHeartbeat",
+            omitBehavior: { exempt: "a free-text MR URL" },
+            args: [
+              { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR or PR URL" },
+              { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+            ],
+          },
+          release: {
+            description: "Release this session's CI lease",
+            module: "./commands/ci.ts",
+            fn: "ciLeaseRelease",
+            omitBehavior: { exempt: "a free-text MR URL" },
+            args: [
+              { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR or PR URL" },
+              { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+            ],
+          },
+          show: {
+            description: "Show the MR's CI lease",
+            module: "./commands/ci.ts",
+            fn: "ciLeaseShow",
+            omitBehavior: { exempt: "a free-text MR URL" },
+            args: [
+              { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR or PR URL" },
+              { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+            ],
+          },
+        },
+      },
+      watch: {
+        description: "Watch the MR's pipeline for a pushed sha",
+        module: "./commands/ci.ts",
+        fn: "ciWatch",
+        omitBehavior: { exempt: "a free-text MR URL" },
+        args: [
+          { name: "MR", type: "text", placeholder: "https://host/group/project/-/merge_requests/1", hint: "MR URL" },
+          { name: "Sha", flag: "--sha", type: "text", placeholder: "abc1234", hint: "The pushed commit" },
+          { name: "Max wait", flag: "--max-wait", type: "text", placeholder: "300", hint: "Seconds, up to 1800" },
+          { name: "Interval", flag: "--interval", type: "text", placeholder: "30", hint: "Seconds, 10 to 120" },
+          { name: "Prior pipeline", flag: "--prior-pipeline", type: "text", placeholder: "123", hint: "Head pipeline id before the push" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the result as JSON" },
+        ],
+      },
+    },
+  },
+
   daemon: {
     description: "Manage the rt background daemon",
     subcommands: {

@@ -193,3 +193,10 @@ export {
   serializeIdentity, parseIdentity, resolveNameToIdentity,
   type RepoIdentity,
 } from "./settings/identity.ts";
+
+export {
+  adoptLegacyCiLease, boardDoctorOwner, ciLeaseDir, ciLeaseFileName, CiLeaseError, CiLeaseLockBusyError, claimCiLease,
+  DEFAULT_CI_LEASE_TTL_SECONDS, heartbeatCiLease, isLeaseFresh, leaseOwner, parseMrIid, readCiLease,
+  readCiLeaseByBranch, releaseCiLease,
+} from "./ci-lease.ts";
+export type { CiLease, CiLeaseHolder, CiLeaseOpts, ClaimRequest, ClaimResult, HeartbeatResult, ReleaseResult } from "./ci-lease.ts";

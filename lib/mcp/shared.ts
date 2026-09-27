@@ -19,7 +19,7 @@ export interface McpToolDef {
   description: string;
   inputSchema: Record<string, unknown>;
   shellForms: ShellForms;
-  handler(input: Record<string, unknown>, env: NodeJS.ProcessEnv): Promise<{ ok: boolean; body: unknown; error?: string }>;
+  handler(input: Record<string, unknown>, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<{ ok: boolean; body: unknown; error?: string }>;
 }
 
 export type ToolResult = { ok: boolean; body: unknown; error?: string };

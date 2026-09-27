@@ -20,6 +20,7 @@ import { reverseLookupByName } from "../repo-name-lookup.ts";
 import { parseIdentity } from "../settings/identity.ts";
 import { explainError } from "../explain-error.ts";
 import { chatToolDefs } from "./chat-tools.ts";
+import { ciToolDefs } from "./ci-tools.ts";
 import { whoamiToolDefs } from "./whoami-tool.ts";
 import { gitToolDefs, realGitToolDeps } from "./git-tools.ts";
 import { runRtVerb } from "./rt-verb.ts";
@@ -793,5 +794,6 @@ export function mcpTools(): McpToolDef[] {
     ...herdToolDefs(),
     ...chatToolDefs(),
     ...whoamiToolDefs(),
+    ...ciToolDefs(),
   ];
 }
