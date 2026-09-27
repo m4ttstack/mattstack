@@ -1217,16 +1217,10 @@ func (m *Mission) diffHit(diffX, y, paneW int) hit {
 // block (action/keybar) rather than there being nothing left to hit.
 func (m *Mission) modalHitTest(x, y int) hit {
 	ms := m.modal
-	inner := modalInnerWidth(ms, m.width)
-	boxW := inner + 2
-	bx := clampX(segmentOrigin(ms.zone, m.width), boxW, m.width)
-	by := m.layout().topH
-	boxH := m.height - by
-	if x < bx || x >= bx+boxW || y < by || y >= by+boxH {
+	li, boxInnerHeight, inside := m.modalBoxLine(x, y)
+	if !inside {
 		return hit{kind: hitModalOutside}
 	}
-	li := y - by - 1 // -1 for the box's own top border
-	boxInnerHeight := boxH - 2
 	if li < 0 || li >= boxInnerHeight {
 		return hit{}
 	}
@@ -1264,6 +1258,29 @@ func (m *Mission) modalHitTest(x, y int) hit {
 		return hit{}
 	}
 	return hit{} // the keybar: no click target
+}
+
+// modalBoxLine is the box's inner line under (x, y), counted below its top
+// border (so -1 and boxInnerHeight are the border rows); inside is false
+// off the box altogether.
+func (m *Mission) modalBoxLine(x, y int) (li, boxInnerHeight int, inside bool) {
+	ms := m.modal
+	boxW := modalInnerWidth(ms, m.width) + 2
+	bx := clampX(segmentOrigin(ms.zone, m.width), boxW, m.width)
+	by := m.layout().topH
+	boxH := m.height - by
+	if x < bx || x >= bx+boxW || y < by || y >= by+boxH {
+		return 0, 0, false
+	}
+	return y - by - 1, boxH - 2, true
+}
+
+// overModalRows reports whether (x, y) is inside the modal's scrollable row
+// region, the band modalHitTest resolves rows in.
+func (m *Mission) overModalRows(x, y int) bool {
+	li, boxInnerHeight, inside := m.modalBoxLine(x, y)
+	above, _ := modalFixedRows(m.modal)
+	return inside && li >= above && li-above < modalRowRegionHeight(m.modal, boxInnerHeight)
 }
 
 // mouseClick dispatches a button press against whatever hitTest resolves it
@@ -1574,11 +1591,11 @@ func (m *Mission) setHover(x, y int) {
 // History and stash file columns. A key that moves a cursor afterwards
 // brings the view back to it. An open menu takes every tick: over its
 // box they scroll a row region too tall to fit, and nowhere do they reach
-// the board beneath it. A modal claims every row like hitTest's own first
-// check; otherwise the tick must land inside the body's Y range (between
-// the topbar and the keybar/notice strip) -- mirroring hitTest's bodyY
-// bound -- or a tick over the keybar/notice row would scroll a pane nothing
-// under the pointer owns. Hover is re-resolved after every scroll, as the
+// the board beneath it. A modal claims every tick like hitTest's own first
+// check, but scrolls only when the pointer is over its row region.
+// Otherwise a tick scrolls only the region under the pointer: nothing on
+// the divider column, the keybar/notice row, the Changes filter and master
+// rows, or the docked commit block. Hover is re-resolved after every scroll, as the
 // rows slide under a pointer that did not move.
 func (m *Mission) mouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
@@ -1597,15 +1614,20 @@ func (m *Mission) mouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 	l := m.layout()
 	if m.modal != nil {
-		m.modal.scroll(delta, m.height-l.topH-2)
-		m.setHover(mouse.X, mouse.Y)
+		if m.overModalRows(mouse.X, mouse.Y) {
+			m.modal.scroll(delta, m.height-l.topH-2)
+			m.setHover(mouse.X, mouse.Y)
+		}
 		return m, nil
 	}
 	bodyY := mouse.Y - l.topH
 	if bodyY < 0 || bodyY >= l.bodyH {
 		return m, nil
 	}
-	if mouse.X >= sidebarWidth {
+	if mouse.X == sidebarWidth {
+		return m, nil
+	}
+	if mouse.X > sidebarWidth {
 		switch {
 		case m.historyTab():
 			m.historyWheel(mouse.X-sidebarWidth-1, bodyY, delta)
@@ -1622,6 +1644,9 @@ func (m *Mission) mouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 			m.historyScroll(delta)
 			m.setHover(mouse.X, mouse.Y)
 		}
+		return m, nil
+	}
+	if bodyY < sidebarFixedTopRows || bodyY >= sidebarFixedTopRows+l.listRegionH {
 		return m, nil
 	}
 	m.changesFreeScroll = true

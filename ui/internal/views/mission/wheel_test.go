@@ -177,6 +177,48 @@ func TestWheelInABranchModalScrollsTheListNotTheCursor(t *testing.T) {
 	}
 }
 
+func TestAModalWheelOffItsRowsScrollsNothing(t *testing.T) {
+	m := longBranchModalFixture(t)
+	m.View()
+	fx, fy, ok := paintedAt(m, "filter branches")
+	if !ok {
+		t.Fatal("filter line not painted")
+	}
+	diffTop, selected := m.diffTop, m.selected
+	for _, p := range [][2]int{{fx, fy}, {1, fy + 5}, {1, m.height - 1}} {
+		if cmd := wheel(m, p[0], p[1], tea.MouseWheelDown); cmd != nil {
+			t.Fatalf("a tick at %v must emit nothing", p)
+		}
+		if m.modal.scrollTop != 0 || m.modal.freeScroll || m.diffTop != diffTop || m.selected != selected {
+			t.Fatalf("a tick at %v off the modal's rows scrolls nothing, modal top %d diff top %d", p, m.modal.scrollTop, m.diffTop)
+		}
+	}
+}
+
+func TestAWheelOnTheDividerScrollsNothing(t *testing.T) {
+	m := longChangesMission()
+	_, y := diffBodyTopY(t, m)
+	wheel(m, sidebarWidth, y, tea.MouseWheelDown)
+	if m.diffTop != 0 || m.diffFreeScroll || m.changesTop != 0 || m.changesFreeScroll {
+		t.Fatalf("a tick on the divider scrolls nothing, diff top %d changes top %d", m.diffTop, m.changesTop)
+	}
+}
+
+func TestAWheelOffTheChangesRowsScrollsNothing(t *testing.T) {
+	m := longChangesMission()
+	below := changesRowY(m, m.layout().listRegionH)
+	for _, y := range []int{filterRowY(m), masterRowFrameY(m), below, below + 3} {
+		wheel(m, 5, y, tea.MouseWheelDown)
+		if m.changesTop != 0 || m.changesFreeScroll {
+			t.Fatalf("a tick at row %d off the Changes rows scrolls nothing, top %d", y, m.changesTop)
+		}
+	}
+	wheel(m, 5, below-1, tea.MouseWheelDown)
+	if m.changesTop != wheelStep {
+		t.Fatalf("a tick on the list's last row scrolls it, top %d", m.changesTop)
+	}
+}
+
 func TestAKeyAfterAModalWheelScrollReFollowsTheCursor(t *testing.T) {
 	m := longBranchModalFixture(t)
 	m.View()
