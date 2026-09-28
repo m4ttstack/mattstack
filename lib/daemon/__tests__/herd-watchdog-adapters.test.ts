@@ -627,7 +627,15 @@ describe("backgroundTask", () => {
     expect(backgroundTask(SHELL_MONITOR_FOOTER)).toBe("1 shell, 1 monitor");
   });
   test("a live agents panel under main is background work", () => {
-    expect(backgroundTask(AGENTS_PANEL)).toBe("subagent general-purpose Throwaway footer… 5s");
+    expect(backgroundTask(AGENTS_PANEL)).toBe("subagent general-purpose Throwaway footer…");
+  });
+  test("the subagent row's live timer is dropped, however many units it shows", () => {
+    for (const timer of ["1m 3s", "2h 4m", "1h 0m 12s"]) {
+      expect(backgroundTask(AGENTS_PANEL.replace("5s", timer))).toBe("subagent general-purpose Throwaway footer…");
+    }
+  });
+  test("a number that is part of the task's own description stays", () => {
+    expect(backgroundTask(AGENTS_PANEL.replace("Throwaway footer… 5s", "Implement Task 3  1m 3s"))).toBe("subagent general-purpose Implement Task 3");
   });
   test("a plain footer is not", () => {
     expect(backgroundTask(PLAIN_FOOTER)).toBeNull();
@@ -651,7 +659,7 @@ describe("backgroundTask", () => {
     });
     test("still reads as background work with the shell count gone, on the agents panel alone", () => {
       expect(withoutCount).not.toBe(CAPTURED);
-      expect(backgroundTask(withoutCount)).toStartWith("subagent ");
+      expect(backgroundTask(withoutCount)).toBe("subagent general-purpose Implement Task 3: watchdog exemptions");
     });
     test("reads as none with the count and the agents panel both gone, the transcript's ⏺ line above the rules notwithstanding", () => {
       expect(withoutPanel).toContain("⏺ Capturing");

@@ -52,6 +52,8 @@ const RULE_LINE = /^\s*─{10,}\s*$/;
 const FOOTER_TASK_COUNT = /\b[1-9]\d* (?:shells?|monitors?)\b/;
 const AGENTS_PANEL_MAIN = /^\s*⏺ main\s*$/;
 
+const LIVE_TIMER = /(?:\s+\d+[hms])+$/;
+
 export function backgroundTask(screen: string): string | null {
   const lines = screen.split("\n");
   let rule = -1;
@@ -66,7 +68,7 @@ export function backgroundTask(screen: string): string | null {
   if (main < 0) return null;
   const row = footer.slice(main + 1).find((line) => line.trim().length > 0);
   if (row === undefined) return null;
-  return `subagent ${row.split(" · ")[0]!.replace(/^\s*◯\s*/, "").replace(/\s+/g, " ").trim()}`;
+  return `subagent ${row.split(" · ")[0]!.replace(/^\s*◯\s*/, "").replace(/\s+/g, " ").trim().replace(LIVE_TIMER, "")}`;
 }
 
 /** The statuses this mapper names. Anything else a live claude reports still
