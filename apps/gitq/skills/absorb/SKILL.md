@@ -41,7 +41,7 @@ digraph gitq_absorb {
     "gitq --version (absorb)" [shape=plaintext];
     "gitq on PATH (absorb)?" [shape=diamond];
     "<status-bin> job-status <state> error \"gitq not on PATH\" (absorb)" [shape=plaintext];
-    "gitq missing: told the human to run bun link in the gitq checkout (absorb)" [shape=doublecircle];
+    "gitq missing: told the human to run rt deps link gitq (absorb)" [shape=doublecircle];
     "<status-bin> job-status <state> error \"<reason>\" (absorb)" [shape=plaintext];
     "Report the failure to the human (absorb)" [shape=box];
     "absorb failed: reported" [shape=doublecircle];
@@ -120,7 +120,7 @@ digraph gitq_absorb {
     "gitq --version (absorb)" -> "gitq on PATH (absorb)?";
     "gitq on PATH (absorb)?" -> "<status-bin> job-status <state> working \"absorbing into <stackName>\"" [label="yes"];
     "gitq on PATH (absorb)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (absorb)" [label="no"];
-    "<status-bin> job-status <state> error \"gitq not on PATH\" (absorb)" -> "gitq missing: told the human to run bun link in the gitq checkout (absorb)";
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (absorb)" -> "gitq missing: told the human to run rt deps link gitq (absorb)";
     "<status-bin> job-status <state> error \"<reason>\" (absorb)" -> "Report the failure to the human (absorb)";
     "Report the failure to the human (absorb)" -> "absorb failed: reported";
     "<status-bin> job-status <state> done \"absorbed <n> files into <m> branches\"" -> "Report what landed where (absorb)";

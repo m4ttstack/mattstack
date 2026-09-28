@@ -46,7 +46,7 @@ digraph gitq_track {
     "Trigger: /gitq:track [repoPath]" [shape=ellipse];
     "gitq --version (track)" [shape=plaintext];
     "gitq on PATH (track)?" [shape=diamond];
-    "gitq missing: told the human to run bun link in the gitq checkout (track)" [shape=doublecircle];
+    "gitq missing: told the human to run rt deps link gitq (track)" [shape=doublecircle];
 
     "Fill the Root and Members slots (track)" [shape=box];
     "Forge (track)?" [shape=diamond];
@@ -133,7 +133,7 @@ digraph gitq_track {
     "Trigger: /gitq:track [repoPath]" -> "gitq --version (track)";
     "gitq --version (track)" -> "gitq on PATH (track)?";
     "gitq on PATH (track)?" -> "Fill the Root and Members slots (track)" [label="yes"];
-    "gitq on PATH (track)?" -> "gitq missing: told the human to run bun link in the gitq checkout (track)" [label="no"];
+    "gitq on PATH (track)?" -> "gitq missing: told the human to run rt deps link gitq (track)" [label="no"];
 
     "Fill the Root and Members slots (track)" -> "Forge (track)?" [label="first member"];
     "Forge (track)?" -> "mr_for_branch {repoName: <repoPath>, branches: [<branch>]}" [label="GitLab"];
