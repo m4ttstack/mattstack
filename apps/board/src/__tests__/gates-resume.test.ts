@@ -428,12 +428,11 @@ function fakeEventIo(
   const pages = opts.pages ?? [];
 
   const io: GateResumeEventIo = {
-    resumers: {
-      'review-post': reviewIo,
-      'respond-plan': respondIo,
-      'respond-post': respondIo,
-      'doctor-escalation': doctorIo,
-    },
+    resumers: buildResumers({
+      review: reviewIo,
+      respond: respondIo,
+      doctor: doctorIo,
+    }),
     rowsForSubject: subject => rowsBySubject.get(subject) ?? [],
     applyRow: row => {
       calls.applyRow.push(row);
@@ -546,6 +545,40 @@ describe('handleAnsweredEvent', () => {
     expect(calls.resumeAgentPane.length).toBe(1);
     expect(calls.resumeAgentPane[0]!.prompt).toContain('/board:doctor');
     expect(doctor.get(MR_URL)?.resumedGateId).toBe(GATE_ID);
+  });
+
+  test('a review-escalation answered+parked gate resumes through the event path against review state, carrying its kind into the prompt', async () => {
+    const row = facilityRow({ kind: 'review-escalation' });
+    const { io, calls, review } = fakeEventIo({
+      rows: [row],
+      review: { [MR_URL]: baseReview({ gateId: row.id }) },
+    });
+    const frame: GateEventFrame = {
+      topic: `gate/answered/${GATE_ID}`,
+      payload: { id: GATE_ID, subject: SUBJECT },
+    };
+
+    await handleAnsweredEvent(frame, io, noSkillLookup);
+
+    expect(calls.resumeAgentPane.length).toBe(1);
+    expect(calls.resumeAgentPane[0]!.prompt).toContain('/board:review');
+    expect(calls.resumeAgentPane[0]!.prompt).toContain(
+      '--resumed-gate-kind review-escalation'
+    );
+    expect(review.get(MR_URL)?.resumedGateId).toBe(GATE_ID);
+  });
+
+  test('a never-parked answered review-escalation gate does not resume', async () => {
+    const row = facilityRow({ kind: 'review-escalation', parkedAt: null });
+    const { io, calls } = fakeEventIo({ rows: [row] });
+    const frame: GateEventFrame = {
+      topic: `gate/answered/${GATE_ID}`,
+      payload: { id: GATE_ID, subject: SUBJECT },
+    };
+
+    await handleAnsweredEvent(frame, io, noSkillLookup);
+
+    expect(calls.resumeAgentPane.length).toBe(0);
   });
 
   test('a failed pane dispatch does not mark the dedup, and the next event retries', async () => {
@@ -860,6 +893,8 @@ describe('buildResumers', () => {
     expect(resumers['respond-plan']).toBe(respond);
     expect(resumers['respond-post']).toBe(respond);
     expect(resumers['doctor-escalation']).toBe(doctor);
+    expect(resumers['review-escalation']).toBe(review);
+    expect(resumers['respond-escalation']).toBe(respond);
   });
 
   test('an unknown kind has no resumer', () => {

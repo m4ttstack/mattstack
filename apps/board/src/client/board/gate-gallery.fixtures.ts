@@ -1896,6 +1896,7 @@ export const respondEscalation: GalleryGate = {
     label: 'respond-escalation',
     status: 'open',
     openedAt: minutesAgo(19),
+    domain: 'respond',
     origin: { presentation: 'form', paneId: 'w10:p1' },
     context: `MR !713 ACME-2538. Renee escalated the tier-5 thread we pushed back on: new top-level "Re-review summary -- changes requested" (19:16 UTC) and MR set to requested_changes.
 
@@ -1930,6 +1931,65 @@ DRAFT CONCESSION REPLY (thread 3757ca16ba3d, Pat's voice):
             'hold',
             'Hold, I want to weigh in first',
             'post and change nothing yet'
+          ),
+        ]
+      ),
+    ],
+  },
+};
+
+export const reviewEscalation: GalleryGate = {
+  mr: MRS.scriptFrames,
+  gate: {
+    gateId: 'gallery-review-escalation',
+    subject: mrSubject(751),
+    kind: 'review-escalation',
+    label: 'review gate !751',
+    status: 'open',
+    openedAt: minutesAgo(8),
+    meta: { label: 'review gate !751' },
+    domain: 'review',
+    origin: {
+      presentation: 'form',
+      surface: 'board',
+      tabId: 'w12:t3',
+      worktree: `${TREES}/sorrel`,
+      paneId: 'w12:p3',
+    },
+    context: `ACME-3355 review of !751 (author dana). Four findings posted inline; the summary note would not post.
+
+mr_comment attempt 1: "503 Service Unavailable: the forge is currently unable to handle this request"
+mr_comment attempt 2: "422 Unprocessable Entity: note could not be saved, discussion is locked on this merge request"
+
+Note text:
+"Looks close. The frame filter drops tracker events cleanly, and the new unit test pins the vendor origin check. Two minors inline (f1, f2) are worth a look before merge; f3 and f4 are polish."
+
+Verdict held: approve, not yet applied.`,
+    questions: [
+      question(
+        'action',
+        'summary note refused twice on !751: 422 Unprocessable Entity: note could not be saved, discussion is locked on this merge request',
+        false,
+        [
+          opt(
+            'take: you post the summary note yourself, then I apply the verdict (mr_comment refused, round 1)',
+            'Post the summary yourself',
+            'You post the summary note and I carry on to the verdict.'
+          ),
+          opt(
+            'iterate: you fixed the cause, post the summary note again (mr_comment refused, round 1)',
+            'Fixed it, post again',
+            'You fixed what refused the note and I post it again.'
+          ),
+          opt(
+            'hold: keep this pane open with the summary unposted and no verdict applied (mr_comment refused, round 1)',
+            'Hold this pane',
+            'I stop here with the summary unposted and the verdict unapplied.'
+          ),
+          opt(
+            'hand back: write an error naming the refusal and what already posted (mr_comment refused, round 1)',
+            'Hand it back',
+            'I write an error naming the refusal and what posted, and you take over.'
           ),
         ]
       ),

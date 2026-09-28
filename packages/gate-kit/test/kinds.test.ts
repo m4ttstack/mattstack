@@ -8,10 +8,14 @@ test('every registered kind maps to a domain, and the map covers only registered
     'respond-plan',
     'respond-post',
     'doctor-escalation',
+    'review-escalation',
+    'respond-escalation',
   ]);
   expect(domainForKind('review-post')).toBe('review');
+  expect(domainForKind('review-escalation')).toBe('review');
   expect(domainForKind('respond-plan')).toBe('respond');
   expect(domainForKind('respond-post')).toBe('respond');
+  expect(domainForKind('respond-escalation')).toBe('respond');
   expect(domainForKind('doctor-escalation')).toBe('doctor');
   for (const kind of GATE_KINDS) {
     expect(domainForKind(kind)).toBeDefined();
