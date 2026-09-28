@@ -1,11 +1,11 @@
 /**
  * rt release verify... read-only confirmation that a tagged release actually
- * published (rt:release skill step 10): the release.yml run for the tag
- * completed successfully, the published body matches the committed
- * RELEASE_NOTES.md, the four build assets are attached, the release is
- * neither a draft nor a prerelease, and the public releases/latest endpoint
- * has caught up. Never mutates anything; a failing row names the matching
- * recovery command instead of running it.
+ * published (the rt:release skill's Publish and finish stage): the
+ * release.yml run for the tag completed successfully, the published body
+ * matches the committed RELEASE_NOTES.md, the four build assets are
+ * attached, the release is neither a draft nor a prerelease, and the public
+ * releases/latest endpoint has caught up. Never mutates anything; a failing
+ * row names the matching recovery command instead of running it.
  */
 import type { RunResult } from "../subprocess.ts";
 import type { RowStatus as PreflightRowStatus } from "./preflight.ts";
@@ -53,7 +53,7 @@ export interface ReleaseData {
   publishedAt: string | null;
 }
 
-const GH_REPO = "m4ttstack/rt";
+const GH_REPO = "m4ttstack/mattstack";
 const RELEASE_WORKFLOW = "release.yml";
 // A real release.yml run (macOS build, notarize, clean room) takes 25-50
 // minutes; a budget shorter than that would report "pending" on nearly
@@ -229,7 +229,7 @@ export function checkReleaseAssets(tag: string, data: ReleaseData): VerifyRow {
   const present = new Set((data.assets ?? []).map((a) => a.name));
   const missing = required.filter((n) => !present.has(n));
   if (missing.length === 0) return { id, label, status: "ok", detail: `all four assets attached: ${required.join(", ")}` };
-  return { id, label, status: "stale", detail: `missing asset(s): ${missing.join(", ")}; hand-completion recipe lives in the mattstack-release skill` };
+  return { id, label, status: "stale", detail: `missing asset(s): ${missing.join(", ")}; hand-completion recipe lives in the rt:mattstack-release skill` };
 }
 
 export function checkReleaseState(data: ReleaseData): VerifyRow {

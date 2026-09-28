@@ -5,424 +5,274 @@ description: Use when the user says release, cut a release, tag and release, shi
 
 # rt Release
 
-Update the rt.cool docs, write the GitHub release notes from the previous tag
-to HEAD, commit them, and push a version tag. Pushing the tag is what publishes:
-the `.github/workflows/release.yml` workflow (trigger `on: push: tags: v*`) builds
-and notarizes **mattstack.app**, creates the GitHub release from the committed
-`RELEASE_NOTES.md`, and attaches the `.dmg`, `.zip`, Sparkle deltas,
-`appcast.xml`, and `SHA256SUMS`. You never create the GitHub release yourself;
-CI owns the release object. Your job is docs, notes, the tag, verifying CI, and
-deploying rt.cool.
+Pushing a version tag is what publishes. `.github/workflows/release.yml` (`on: push: tags: v*`)
+builds and notarizes mattstack.app, creates the GitHub release from the committed
+`RELEASE_NOTES.md`, and attaches the dmg, the zip, the Sparkle deltas, `appcast.xml` and
+`SHA256SUMS`. CI owns the release object. The workflow's first step publishes the plugin
+catalog (`scripts/release/marketplace.sh` pushes `marketplace/` to
+`m4ttstack/mattstack-marketplace`) and needs `MARKETPLACE_TOKEN` only when the catalog changed.
+rt ships only inside mattstack.app (`Contents/MacOS/rt`, updated through Sparkle); there are
+no tarballs. The build, signing, notarization, clean-room and appcast half, and hand completion
+of a broken publish, is `rt:mattstack-release`. The old repo name `m4ttstack/rt` is never
+recreated after the rename: every app installed before it fetches its Sparkle feed through
+GitHub's redirect from the old name, and a new repo under that name would capture those requests.
 
-A release also republishes the Claude Code plugin catalog: the workflow's first
-step runs `scripts/release/marketplace.sh`, pushing `marketplace/` to
-`m4ttstack/mattstack-marketplace`, which `plugins.install` adds on every machine
-rt sets up. It needs the `MARKETPLACE_TOKEN` secret, but only on a release where
-that catalog actually changed — an unchanged one is a no-op that pushes nothing.
+## The map
 
-> **rt no longer ships as standalone tarballs.** The `rt-darwin-arm64-*.tar.gz`
-> / `rt-darwin-x64-*.tar.gz` artifacts this skill was written around are gone —
-> `rt` is now the binary embedded at `Contents/MacOS/rt` inside the app bundle,
-> and users update through Sparkle rather than by downloading a tarball.
->
-> This skill still owns the docs/notes/tag half of a release. The build,
-> signing, notarization, clean-room, and appcast half, plus the cross-repo
-> coordination a release needs (deck, board, console, chat, boxscore and
-> gitq build from this tree; fast-browser is the one vendored app in its
-> own repo), is `~/.claude/skills/mattstack-release/SKILL.md`. Read
-> that one before cutting a real release; read this one for the notes and
-> the tag.
+Every `rt release ...` command in this skill runs on Bash: no `rt release` leaf is agent-safe,
+so `rt_verb` refuses them all (from a source checkout, `bun run cli.ts release <verb>` is the
+same command). Status goes into the next gate's question, never into a `#rt`
+post; the only `#rt` post in a release is the one update-machine makes itself.
 
-This supersedes the local `.claude/commands/release.md` command; that file can be
-left as-is or reduced to a pointer here.
+```dot
+digraph rt_release {
+    rankdir=TB;
 
-## Fast path: one fast-path app fix
+    "Held: release paused, resume point named" [shape=doublecircle];
+    "Handed back to Matt" [shape=doublecircle];
+    "Released and this machine updated" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "Trigger: Matt asks for a release" [shape=ellipse];
+    "git fetch origin --tags" [shape=plaintext];
+    "Find where this release stands" [shape=box];
+    "Where does the release stand?" [shape=diamond];
+    "rt release preflight --json" [shape=plaintext];
+    "Preflight verdict?" [shape=diamond];
+    "Preflight runs = 3?" [shape=diamond];
+    "Gate: cut or hold each stale row" [shape=box];
+    "Land the fix each cut row needs" [shape=box];
+    "Record each held row for the notes" [shape=box];
+    "Which gate does the diff imply?" [shape=diamond];
+    "Fast path: rt release app (fast-path.md)" [shape=box];
+    "Fast path outcome?" [shape=diamond];
+    "Prepare the release (prepare.md)" [shape=box];
+    "Prove and tag (prove-and-tag.md)" [shape=box];
+    "Publish and finish (publish-and-finish.md)" [shape=box];
+    "Off-script gate: preflight git state" [shape=box];
+    "Preflight git state: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: preflight rows still not current" [shape=box];
+    "Preflight rows still not current: gate rounds = 2?" [shape=diamond];
+    "git_pull {tree: <release checkout>}, after the cut merges" [shape=plaintext];
+    "Pull after the cuts result?" [shape=diamond];
+    "Off-script gate: local main diverged after the cuts" [shape=box];
+    "Local main diverged after the cuts: gate rounds = 2?" [shape=diamond];
 
-When the diff since the last tag touches only fast-path app directories
-(`apps/board`, `apps/boxscore`, `apps/chat`, `apps/console`, `apps/gitq`),
-`RELEASE_NOTES.md` and `website/`, the release is one verb, `rt release app
-<name>` (bare `rt release app` on a terminal picks the app; from source,
-`bun run cli.ts release app <name>`). It qualifies origin/main against that
-path gate, writes the notes with a section per app that moved, commits
-them, tags the next patch without the step 8 rehearsal, and runs `rt
-release verify`.
+    "Trigger: Matt asks for a release" -> "git fetch origin --tags";
+    "git fetch origin --tags" -> "Find where this release stands";
+    "Find where this release stands" -> "Where does the release stand?";
+    "Where does the release stand?" -> "rt release preflight --json" [label="nothing started"];
+    "Where does the release stand?" -> "Prove and tag (prove-and-tag.md)" [label="notes commit on origin/main, no fix recorded, no tag"];
+    "Where does the release stand?" -> "rt release preflight --json" [label="notes commit on origin/main, a fix for this release merged after it, no tag"];
+    "Where does the release stand?" -> "Publish and finish (publish-and-finish.md)" [label="tag pushed"];
+    "rt release preflight --json" -> "Preflight verdict?";
+    "Preflight verdict?" -> "Which gate does the diff imply?" [label="every row current"];
+    "Off-script gate: preflight git state" -> "Which gate does the diff imply?" [label="take: Matt rules the tree releasable as it is"];
+    "Off-script gate: preflight git state" -> "Preflight git state: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: preflight git state" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: preflight git state" -> "Handed back to Matt" [label="hand back"];
+    "Preflight git state: gate rounds = 2?" -> "rt release preflight --json" [label="no: retry"];
+    "Preflight git state: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Preflight verdict?" -> "Off-script gate: preflight git state" [label="git state stale: off main or dirty"];
+    "Preflight verdict?" -> "Preflight runs = 3?" [label="a row unverifiable"];
+    "Preflight verdict?" -> "Gate: cut or hold each stale row" [label="a stale layer, schema-lock or store row"];
+    "Preflight runs = 3?" -> "rt release preflight --json" [label="no: rerun"];
+    "Off-script gate: preflight rows still not current" -> "Which gate does the diff imply?" [label="take: Matt accepts the rows as they stand"];
+    "Off-script gate: preflight rows still not current" -> "Preflight rows still not current: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: preflight rows still not current" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: preflight rows still not current" -> "Handed back to Matt" [label="hand back"];
+    "Preflight rows still not current: gate rounds = 2?" -> "rt release preflight --json" [label="no: retry"];
+    "Preflight rows still not current: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Preflight runs = 3?" -> "Off-script gate: preflight rows still not current" [label="yes: budget spent"];
+    "Gate: cut or hold each stale row" -> "Land the fix each cut row needs" [label="cut: land the fix, rerun preflight"];
+    "Gate: cut or hold each stale row" -> "Record each held row for the notes" [label="hold: noted in the release notes"];
+    "Gate: cut or hold each stale row" -> "Held: release paused, resume point named" [label="hold the release"];
+    "Gate: cut or hold each stale row" -> "Handed back to Matt" [label="hand back"];
+    "Land the fix each cut row needs" -> "git_pull {tree: <release checkout>}, after the cut merges";
+    "git_pull {tree: <release checkout>}, after the cut merges" -> "Pull after the cuts result?";
+    "Pull after the cuts result?" -> "Preflight runs = 3?" [label="ok"];
+    "Off-script gate: local main diverged after the cuts" -> "Preflight runs = 3?" [label="take: Matt synced main himself"];
+    "Off-script gate: local main diverged after the cuts" -> "Local main diverged after the cuts: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: local main diverged after the cuts" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: local main diverged after the cuts" -> "Handed back to Matt" [label="hand back"];
+    "Local main diverged after the cuts: gate rounds = 2?" -> "git_pull {tree: <release checkout>}, after the cut merges" [label="no: retry"];
+    "Local main diverged after the cuts: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Pull after the cuts result?" -> "Off-script gate: local main diverged after the cuts" [label="refused"];
+    "Record each held row for the notes" -> "Which gate does the diff imply?";
+    "Which gate does the diff imply?" -> "Fast path: rt release app (fast-path.md)" [label="served-app fast path, one app"];
+    "Which gate does the diff imply?" -> "Prepare the release (prepare.md)" [label="anything else, or several apps together"];
+    "Fast path: rt release app (fast-path.md)" -> "Fast path outcome?";
+    "Fast path outcome?" -> "Publish and finish (publish-and-finish.md)" [label="tag verified"];
+    "Fast path outcome?" -> "Prepare the release (prepare.md)" [label="refused: take the full path"];
+    "Fast path outcome?" -> "Held: release paused, resume point named" [label="held inside the fast path"];
+    "Fast path outcome?" -> "Handed back to Matt" [label="handed back inside the fast path"];
+    "Prepare the release (prepare.md)" -> "Prove and tag (prove-and-tag.md)";
+    "Prove and tag (prove-and-tag.md)" -> "Publish and finish (publish-and-finish.md)";
+    "Publish and finish (publish-and-finish.md)" -> "Released and this machine updated";
+}
+```
 
-1. `rt release app <name> --dry-run` and read the plan: the qualify
-   result, the next tag, the commands.
-2. Run it. On a terminal it asks y/N on the notes itself. From an agent,
-   run `rt release app <name> --json` in the background (it waits on the
-   tag's release.yml run) and read the envelope when it exits. When
-   the notes are not yet committed on main it stops at them (status
-   `awaiting-approval`), with the notes, their `notesHash` and a `resume`
-   command; when an earlier run already committed them it goes straight on
-   to the tag and verify. Show Matt the tag and the notes (step 6). After he approves,
-   run that `resume` command, `rt release app <name> --json --yes-notes
-   <notesHash>`, the same way (the flag takes only that hash); it commits, tags and waits on release.yml
-   (25-50 minutes). If that run stops at `awaiting-approval` again, the
-   notes changed after Matt approved (for example another served-app
-   commit landed) and nothing was committed: show Matt the new notes, and
-   run the new `resume` only once he approves them.
-3. Read the final envelope's `status`:
-   - `released`: go on to step 4.
-   - `pending`: tagged, but not verified yet. Either release.yml is still
-     running past the hour-long watch (the verify step's detail names the
-     run; nothing is published until it finishes), or it finished and a
-     check (usually releases/latest) has not caught up. Not a failure:
-     rerun its `resume`, `rt release verify <tag>`, until it is clean.
-   - `failed`: the last step names what failed and `resume` names the next
-     command. Rerunning `rt release app <name>` resumes, even after a run
-     killed mid-wait, since every step detects its own completion; a
-     newest tag whose publish has not verified is re-verified before
-     anything new starts.
-4. Then finish with steps 11 and 12.
+`Which gate does the diff imply?` reads preflight's gate row. The fast path is one served app:
+the diff since the last tag touches only served-app directories (`apps/board`, `apps/boxscore`,
+`apps/chat`, `apps/console`, `apps/gitq`), `RELEASE_NOTES.md` and `website/`. A deck change, a
+tool row, fast-browser, any rt file, or several served apps released together (when Matt wants
+that) take the full path.
 
-Use the full process below for a deck fix, for a main carrying anything
-outside the served-app path gate (`apps/deck/`, a tool row, fast-browser,
-or any rt file), and to release several served apps together in one pass
-when Matt wants that; the verb refuses anything outside its gate, naming
-why.
+Counters say what one count is. `Preflight runs = 3?` counts every preflight run in this release,
+the first one and the reruns after cuts included. Every `<origin>: gate rounds = 2?` counts the
+iterate answers received at that gate: it is yes once Matt has answered iterate twice.
 
-## Process
+### Find where this release stands
 
-1. **Verify state: run `rt release preflight`.** One read-only command
-   (from source: `bun run cli.ts release preflight`; `--json` for the
-   agent envelope) performs every mechanical check in steps 1-2c at once:
-   git/tag state (on `main`, tree clean, commits since the last tag), the
-   picker conformance gate, the settings schema lock against the last
-   tag, the candidate's own settings check against the real stores,
-   the standalone fast-browser row, tool-row drift against
-   upstreams, plugin catalog pin drift, Chrome extension currency, and
-   the gate (fast path vs full) the pending diff implies.
-   Exit 0 means every layer verified current. A stale row prints pinned
-   vs current; an unverifiable row (`!`) is not a pass — rerun or check
-   that layer by hand before proceeding. Abort on a stale `git state`
-   row (off main, dirty tree). A stale `schema lock` row names a key
-   whose schema changed in a breaking way since the last tag without a
-   `storeVersion` bump and a `migrateFrom` chain covering every version
-   since that tag (a removed key that no key was renamed from may instead
-   carry a one-line reason in
-   `packages/rt-client/src/settings/breaking-schema-changes.json`);
-   land the migration (`rt settings schema diff --draft` drafts it) or
-   revert the change on main before tagging. A stale `settings stores` row
-   is the candidate's own `rt settings check` failing against the real
-   stores: a value its migrations cannot carry, or an older store name
-   edited after its current one (`diverged`). Fix the schema or the
-   migration, never the store; a diverged name is resolved with Matt
-   (console's Needs fixing, or `rt settings migrate --prune --force <key>`
-   once he has chosen the value to keep). Every other stale row is
-   handled by the policy in step 2c: cut the layer's release, or the
-   user ratifies holding the pin and the release notes record it.
+Read three facts after the fetch, all against origin rather than the local checkout (which may
+lag origin/main), then take the first edge that matches:
 
-2. **Determine version bump.** From `git log --pretty=%s <last-tag>..HEAD`:
-   any `feat(` or a new module/file is a minor bump; only `fix(` / `chore(` /
-   `docs(` / `ci(` / `test(` is a patch bump; if ambiguous, ask.
+1. The newest tag on origin/main: `git describe --tags --abbrev=0 --match "v[0-9]*" origin/main`.
+2. The newest full-path notes commit after it: `git log <newest-tag>..origin/main --format='%H %s' --grep "chore(release): docs and notes for"`.
+   Read only the newest match (the first line): after a re-prepare there are two notes commits,
+   and the newest is the one in play. It names its `<tag>`; `git ls-remote --tags origin <tag>`
+   says whether that tag is on origin.
+3. Whether the newest tag's publish verified: `rt release verify <newest-tag> --json --no-wait`.
 
-2b. **Apps ship at HEAD.** Board, boxscore, chat, console, deck and gitq
-   are `source: "tree"` rows in `rt-tray/deps.lock` and are built from
-   the tagged commit by `release.yml`'s `build-apps` job
-   (`scripts/build-apps.ts`), so there is no pin to go stale and nothing to
-   bump for them; a change merged to main is in the next release by
-   construction. Their `package.json` versions are labels nothing reads,
-   except gitq's: its version is read only by its own npm publish
-   (`bun run release` from `apps/gitq`), a separate schedule that this
-   release process does not gate.
+- `notes commit on origin/main, a fix for this release merged after it, no tag`: fact 2 matched,
+  `ls-remote` printed nothing, and the earlier hold recorded "re-prepare on the new main" as its
+  resume point, in the turn's final message or in the answer to the gate that
+  recommended it, and that fix has merged. The evidence is that record, never a count of commits
+  after the notes. A merged fix can change pins, the tree state or the diff gate, so preflight
+  runs first and the release goes through Prepare again from there: its copy-aside keeps the
+  curated notes, and Matt re-approves the notes against the grown range.
+- `notes commit on origin/main, no fix recorded, no tag`: fact 2 matched, `ls-remote` printed
+  nothing, and no fix for this release merged after it. Unrelated commits after the notes commit do not count: Prove
+  and tag reuses a dispatch run whose `headSha` is that notes commit and tags the exercised sha
+  as before.
+- `tag pushed`: fact 2 matched and `ls-remote` printed its tag (that tag is the release in
+  flight); or the newest tag's verify is not `released`; or Matt or the brief says the last
+  release stopped before rt.cool or update-machine.
+- `nothing started`: neither. A fast-path notes commit (`chore(release): notes for <tag>`)
+  with no tag also lands here: `rt release app` resumes its own steps.
 
-2c. **The other vendored layers: plugins, standalone apps, tools, the
-   extension.** None of them build from this tree, so each keeps its own
-   pin; v2.10.1 shipped a marketplace catalog whose mattstack plugin pin was
-   263 commits stale because nothing checked the rest. Preflight reports all
-   of them; this step is what a stale row means and what to do about it:
+### Gate: cut or hold each stale row
 
-   - **Plugin catalog** (`catalog` rows): preflight re-resolves each
-     url-source pin's ref with `git ls-remote`, read-only. To land a
-     bump: `bash scripts/release/marketplace.sh --refresh` rewrites
-     `marketplace/marketplace.json` in place (`--refresh` ignores
-     `--dry-run`, so there is no read-only refresh; that is why
-     preflight does its own compare), then review the diff and land it
-     before the notes commit so the tag publishes current pins. The
-     in-tree `chat` plugin has no upstream and never drifts.
-   - **Standalone app rows** (`standalone` rows: fast-browser): compares
-     against `m4ttstack/fast-browser`'s main `package.json`, because that
-     repo publishes to npm and has no GitHub releases. A stale pin can be
-     held, but only as the user's recorded decision, noted in the release
-     notes.
-   - **Tool rows** (`tool` rows: bun, sparkle, age, zstd, git-lfs, gh,
-     glab, jq, node, sops, cloudflared, portless): hand-pinned; Renovate
-     does NOT watch deps.lock, so preflight's sweep is the only drift
-     signal. It derives each row's upstream from its `url` (GitHub
-     releases, the nodejs.org LTS index, the npm registry, the GitLab
-     releases API). A bump PR pending on main at release time rides or
-     holds by the user's call, never silently, and a sparkle bump never
-     rides another release's tag: it changes the updater itself and gets
-     its own tested release.
-   - **NOT vendored, never stale here**: herdr and claude install via
-     their own live installers (the `VENDOR_INSTALLERS` allowlist in
-     `lib/setup/tools-install.ts`: herdr.dev/install.sh,
-     claude.ai/install.sh), so they are current at install time by
-     construction and update through their own channels; mattstack.dev
-     reads releases/latest live and needs nothing per release.
-   - **Chrome extension** (`chrome extension` row): the published
-     extension is pinned by `runtime-lock.json` in m4ttstack/fast-browser
-     (extension id, version, and the fork release it was built from);
-     preflight compares that pin against the fork's newest
-     `fast-browser-v*` release. A newer fork release means a runtime-lock bump
-     (pin-runtime) and a Web Store submit, scripted in
-     m4ttstack/fast-browser: `npm run publish-extension <store-zip>`
-     (dry-run flag available) uploads and publishes via the items API
-     with keychain credentials, refusing any zip whose manifest version
-     differs from the runtime-lock pin. Store review delay is Google's,
-     so surface a needed submit at step 2 time, never at the tag.
-     Credentials are three keychain items minted once by
-     `npm run cws-mint-token` (GCP OAuth desktop client, Chrome Web
-     Store API enabled, publisher account on the consent app's test
-     users).
+Quote each stale row as preflight printed it (pinned vs current). Recommend per row kind:
 
-3. **Push main.** If `main` is ahead of `origin/main`, push it. This is an
-   outward action: unless the user pre-authorized the release, say what you are
-   about to push and wait for confirmation.
+- **Schema lock**: a key's schema changed in a breaking way since the last tag without a
+  `storeVersion` bump and a `migrateFrom` chain covering every version since that tag (a removed
+  key nothing was renamed from may instead carry a one-line reason in
+  `packages/rt-client/src/settings/breaking-schema-changes.json`). Cut only: land the migration
+  (`rt settings schema diff --draft` drafts it) or revert the change on main.
+- **Settings stores**: the candidate's own `rt settings check` fails against the real stores (a
+  value its migrations cannot carry, or an older store name edited after its current one,
+  `diverged`). Cut only: fix the schema or the migration, never the store. A diverged name needs
+  the value Matt chooses to keep, applied through the console's Needs fixing or
+  `rt settings migrate --prune --force <key>` once he has chosen.
+- **Plugin catalog**: preflight re-resolves each url-source pin with `git ls-remote`. The cut is
+  `bash scripts/release/marketplace.sh --refresh`, which rewrites `marketplace/marketplace.json`
+  in place and ignores `--dry-run`; review the diff and land it before the notes commit so the
+  tag publishes current pins. The in-tree `chat` plugin has no upstream and never drifts.
+- **Standalone fast-browser**: compared against `m4ttstack/fast-browser`'s main `package.json`
+  (it publishes to npm, not GitHub releases). Hold only as Matt's recorded decision.
+- **Tool rows** (bun, sparkle, age, zstd, git-lfs, gh, glab, jq, node, sops, cloudflared,
+  portless): hand-pinned in `rt-tray/deps.lock`, which Renovate does not watch, so preflight is
+  the only drift signal. A bump PR pending on main rides or holds by Matt's call, never silently.
+  A sparkle bump never rides another release: it changes the updater and gets its own tested
+  release.
+- **Chrome extension**: `runtime-lock.json` in m4ttstack/fast-browser pins the published
+  extension; a newer `fast-browser-v*` fork release means a runtime-lock bump and a Web Store
+  submit, `npm run publish-extension <store-zip>` in that repo (it refuses a zip whose manifest
+  version differs from the pin; its keychain credentials come from `npm run cws-mint-token`).
+  Store review is Google's delay, so surface the submit at this gate, never at the tag.
 
-4. **Update docs.** Run `bun scripts/update-docs.ts --no-agent`: it regenerates
-   the command reference, runs the drift/coverage check, and scaffolds
-   `RELEASE_NOTES.md` for `<last-tag>..HEAD`. It scaffolds UNCONDITIONALLY:
-   any curated notes already in the file are overwritten, so if curation
-   exists (a re-run mid-release, or notes written early), copy
-   `RELEASE_NOTES.md` aside first and restore after. Then, following
-   `skills/rt-docs/SKILL.md`, update whichever guides, getting-started pages, or
-   `_partials` the range's behavior changes require. Do the judgment yourself in
-   this session; do not shell out to a nested headless Claude.
+Never stale here: herdr and claude install through their own live installers
+(`VENDOR_INSTALLERS` in `lib/setup/tools-install.ts`), and mattstack.dev reads releases/latest
+live. The apps ship at HEAD: board, boxscore, chat, console, deck and gitq are
+`source: "tree"` rows built at the tagged commit by release.yml's `build-apps` job, so there is
+nothing to bump for them. gitq's npm publish (`bun run release` in `apps/gitq`) runs on its own
+schedule and this release does not gate it.
 
-5. **Write the release notes.** Refine `RELEASE_NOTES.md` into the body that will
-   be published verbatim: grouped by scope, a `### ` heading per section, one
-   bullet per change, a `**Full Changelog**` compare link from the previous tag
-   to the new tag at the bottom. Every line traces to a real commit in
-   `git log <last-tag>..HEAD`; never invent or embellish. Calibrate tone against
-   a prior release with `gh release view <last-tag>`.
+### Land the fix each cut row needs
 
-   When the `schema lock` row lists `storeVersion bumps for the release
-   notes`, add a "Settings store versions" section naming each key and its
-   new store name (`rt.roles@2`). Do not run `rt settings migrate
-   --write` on any machine before every app has moved to a build that
-   reads the new name: writing `key@N` is what starts divergence for
-   writers still on the old name.
+Land each cut on main through a PR (a catalog refresh, a migration or revert, a deps.lock bump)
+and wait for it to merge; the branch pushes with `git_push`. Every cut merges before the notes
+commit, since whatever lands after that commit misses the tag. Not every cut is a PR here: the
+Chrome extension cut lands in m4ttstack/fast-browser (the runtime-lock bump) plus a Web Store
+submit, and a layer's own release ships from its own repo.
 
-6. **Show the user and get approval.** Print the proposed tag, the full
-   `RELEASE_NOTES.md` body, and the docs diff (`git diff --staged --stat` for
-   `website/`). Get explicit approval before committing, tagging, or deploying.
-   Nothing below runs until this approval is given.
+The pull comes next: the notes are written on this checkout, so it must hold the merged main, or
+the notes commit sits on a stale main and its push is refused every time. Then preflight runs
+again through its counter.
 
-7. **Commit and push the notes, without tagging.** `RELEASE_NOTES.md` must be
-   committed at the commit the tag will point to, because CI reads it as the
-   release body. Every release-day PR this release depends on (deps.lock
-   pins, a catalog refresh, anything the notes describe) must be MERGED
-   before this commit: the notes commit is the tag target, and whatever
-   lands after it misses the tag. Scoped add only, never `git add -A`:
-   ```
-   git add website RELEASE_NOTES.md
-   git commit -m "chore(release): docs and notes for <tag>"
-   git push origin main
-   ```
-   Stop here. The tag comes after the rehearsal, so that the commit it will
-   point at is the one that was actually exercised.
+### Off-script gate: local main diverged after the cuts
 
-8. **Rehearse the pipeline.** Run `release.yml` via `workflow_dispatch` against
-   the commit you just pushed. It builds, notarizes, and clean-rooms exactly as
-   a tag does, but stamps `v0.0.0-ci<run>`, skips the release, validates the
-   marketplace catalog without pushing it, and uploads `out/` as an artifact.
-   Watch it green before continuing. This pipeline's defects have consistently
-   been invisible until the step before them started working, so a rehearsal is
-   the only thing that finds them cheaply... a tag that fails halfway has already
-   re-signed the app and cost the user their TCC grants.
+Quote `git_pull`'s refusal (local main has commits origin/main does not). Never reset, rebase or
+stash to get past it. Take: Matt synced main himself. Iterate: Matt fixed the cause, and the pull
+runs again.
 
-   check-bundle.sh (run automatically by this workflow) asserts
-   `Contents/Helpers/gate-fork.sh` exists and is executable, so a missing or
-   non-executable copy already fails the rehearsal loudly; no separate manual
-   check is needed here.
+### Record each held row for the notes
 
-   Then walk the rehearsal's own artifact through the local clean room. GitHub
-   runners cannot nest virtualization, so this leg runs only on this machine:
-   ```
-   gh run download <run-id> -n release-dry-run -D /tmp/release-dry-run
-   bash rt-tray/vm/run/walkthrough.sh --ver 26 \
-     --dmg /tmp/release-dry-run/mattstack-v0.0.0-ci<run>.dmg \
-     --scenario create --fresh-team-repo --no-graphics
-   ```
-   It needs the `mattstack-golden-26` image and takes about 25 minutes. The gate
-   is the report's `screens` and `assert` phases both `pass` — a `skip` is not
-   green. Tag only when the dispatch run and this walkthrough are both green.
+Keep a list: the row, pinned vs current, and Matt's words. `Write the release notes` turns each
+into a held-pins line.
 
-   Environment the walkthrough actually needs (the v2.9.0 run hit all
-   three): `MATTSTACK_VMTEST_PAT` set (`gh auth token` works for GitHub;
-   `--forge gitlab` needs a GitLab PAT, since the harness exports it as
-   `GITLAB_TOKEN`), and the real vmtest org is `matts-hasura-demo` — the
-   README's default `mattstack-vmtest` does not exist — so export
-   `MATTSTACK_VMTEST_ORG=matts-hasura-demo` and
-   `MATTSTACK_VMTEST_ORG_CONFIRM=matts-hasura-demo`. Also: the rehearsal's
-   dmg version stamp is `<latest-patch-bump>-ci<run>`, not `v0.0.0` — read
-   the artifact's actual filename rather than assuming.
+### Off-script gate: preflight git state
 
-   Before launching the walkthrough, run `tart list` and stop or delete
-   any running guests: macOS virtualization caps concurrent VMs at two,
-   so a leftover guest makes the new one fail boot as "ssh as tester
-   never came up". A closed job's pane may never have run its cleanup;
-   verify, don't assume.
+Quote the `git state` row (off main, or a dirty tree). Take: Matt rules
+the tree releasable as it is. Iterate: Matt fixed the cause, and preflight runs again. Never
+switch the branch, stash or clean the tree yourself.
 
-   **Path fast path:** when `git diff --name-only <last-tag>..HEAD` stays
-   inside the served-app directories, `RELEASE_NOTES.md` and `website/`,
-   skip the local walkthrough and tag on the rehearsal alone. `apps/deck/`,
-   every tool row, fast-browser and any rt file keep the full gate.
+### Off-script gate: preflight rows still not current
 
-   `rt release app` goes one step further: it tags with no rehearsal at
-   all, because its own gate admits nothing but the served-app path, notes
-   and `website/`, and its qualify step has already confirmed the newest
-   tag verified. Every other path-gate release still tags on the
-   rehearsal.
+Quote each row still `!` (unverifiable) or stale after three preflight runs; a `!` row is not a
+pass. Take: Matt accepts the rows as they stand, and they join the held rows for the notes.
+Iterate: Matt fixed the cause (network, a token, a landed fix), and preflight runs again.
 
-   When a walkthrough fails on `deck.managed`, read
-   `~/.mattstack/deck/logs/agent.log` from the guest-home tarball FIRST;
-   its shape names the failure: no entries at all is the silent no-spawn
-   window (launchd never ran the registered agent, often right after the
-   FDA relaunch); failed-bind holder lines are the port wedge; a fresh
-   "serving" line seconds before the step failed means adopt raced deck's
-   registry bootstrap. All three are rerun-first during a release, and the
-   evidence goes to the deck boot ticket, not into ad-hoc guest debugging.
+### Fast path: rt release app (fast-path.md)
 
-9. **Tag and push.** Tag the EXERCISED sha explicitly, never bare HEAD:
-   the shared checkout moves under a release (other sessions merge to
-   main mid-pipeline, twice on 2026-09-18 alone), and the tag must point
-   at the commit the rehearsal and walkthrough actually ran.
-   ```
-   git tag -a <tag> <exercised-sha> -m "<tag>"
-   git push origin <tag>
-   ```
-   Do NOT run `gh release create`. The tag push triggers `release.yml`, which
-   builds and notarizes the app, publishes the marketplace catalog, creates the
-   release from `RELEASE_NOTES.md`, attaches the artifacts, and installs from
-   the zip in a clean room.
+One served app's fix, released by one verb that qualifies origin/main, writes and commits the
+notes, tags the next patch without a rehearsal, and verifies the publish.
+Read `fast-path.md` now and follow its graph; its sections are there.
 
-10. **Verify the publish: run `rt release verify <tag>`.** One read-only
-   command (`--json` for the agent envelope) performs every check this step
-   used to run by hand: it finds the `release.yml` run for the tag and
-   watches it for up to about an hour (a real run, macOS build plus
-   notarize plus clean room, takes 25-50 minutes; `--no-wait` takes a single
-   snapshot instead and stays pending until you re-run), tolerating
-   transient API errors along the way (never a bare `gh run watch
-   --exit-status`, which exits nonzero on a false FAILED while the run is
-   still in_progress, seen live on v2.10.0). It also confirms the published
-   body equals the committed `RELEASE_NOTES.md`, confirms all four assets
-   (`mattstack-<ver>.dmg`, `mattstack-<ver>.zip`, `appcast.xml`,
-   `SHA256SUMS`) are attached, confirms the release is neither a draft nor a
-   prerelease, and confirms `https://api.github.com/repos/m4ttstack/rt/releases/latest`
-   resolves to the tag with the same four assets. Exit 0 means the release
-   is genuinely live; it prints "still propagating" rather than failing when
-   a row is only waiting on that endpoint's cache. It never runs a recovery
-   itself, only names one:
+### Prepare the release (prepare.md)
 
-   - **Failed run** (the known flake is asset-upload 500s on the large
-     files): `gh release delete <tag>` (the git tag survives) plus
-     `gh run rerun <run-id> --failed`.
-   - **Draft left behind** (the release action creates the release as a
-     DRAFT and flips it public last, so a run that dies mid-upload leaves a
-     draft that `gh release view` renders exactly like a published release
-     while the public API and the mattstack.dev download button keep
-     serving the previous tag): `gh release edit <tag> --draft=false`.
-     Completing a failed run's assets by hand does not publish the draft;
-     that flip is the missing step.
-   - **Missing assets**: the hand-completion recipe (zip re-derive, appcast
-     re-sign, draft flip) lives in `~/.claude/skills/mattstack-release/SKILL.md`.
+The full path up to the commit the tag will point at: the bump, the docs, the notes, Matt's
+approval, and the notes commit on origin/main.
+Read `prepare.md` now and follow its graph; its sections are there.
 
-   `releases/latest` caches and can lag up to ~20 minutes behind the flip;
-   re-run the verb rather than declaring the publish failed inside that
-   window. Anything else, report rather than papering over.
+### Prove and tag (prove-and-tag.md)
 
-11. **Deploy rt.cool.** Run `bash scripts/deploy-docs.sh` (builds the site, deploys
-   to Cloudflare Pages via wrangler). Needs wrangler auth (`wrangler login` or
-   `CLOUDFLARE_API_TOKEN`) and the Pages project pointed at rt.cool's DNS, both
-   one-time setup in the script header. If that setup is missing, tell the user
-   the steps and stop rather than failing partway.
+Rehearse release.yml on the notes commit, walk its artifact through the local clean room, and tag
+the commit those runs exercised.
+Read `prove-and-tag.md` now and follow its graph; its sections are there.
 
-12. **Update this machine: run `rt release update-machine`.** The
-   release is not done while the dev's own machine still runs the
-   previous one; v2.10.0 ended with a 2.7.0 prod app, a day-old dev
-   bundle, and served apps up to three days stale until the user asked.
-   One command runs every leg below in order, each behind its own
-   confirmation prompt: `--yes` skips every prompt, `--plan` prints the
-   resolved legs and exits without touching anything, `--verify-only`
-   runs just the last leg standalone (exit-coded, and refused together
-   with `--plan`), and on a non-interactive terminal without `--yes` it
-   refuses outright rather than guess at consent.
+### Publish and finish (publish-and-finish.md)
 
-   A leg that ends aborted or error halts every later state-changing
-   leg (the read-only verify sweep still runs and reports, and the
-   summary names the leg that halted the run); declining a leg's
-   confirmation prompt only skips that one leg and moves on. A sha256
-   mismatch on the prod dmg is exactly this kind of abort: it stops the
-   dev bundle, checkout-sync, daemon, and served-suite legs from running
-   unprompted even under `--yes`.
+Verify what release.yml published, deploy rt.cool, and bring this machine onto the release.
+Read `publish-and-finish.md` now and follow its graph; its sections are there.
 
-   - **Prod app**: resolves the released tag (default latest),
-     downloads the dmg, verifies it against SHA256SUMS, mounts it
-     (`hdiutil attach -plist`, never `-quiet`, which closes stdout
-     entirely and leaves nothing to parse), and replaces
-     `/Applications/mattstack.app`: moves the current app aside, ditto
-     the new one into place, and only removes the aside copy once that
-     succeeds (`ditto` onto an existing `.app` merges rather than
-     replacing, so a plain ditto-over leaves stale files and can break
-     the code-signature seal; a failed ditto restores the aside copy).
-     A sha256 mismatch aborts before mounting or replacing anything.
-     Never launches either copy: pre-2.8 updaters gate on
-     `~/.local/bin/rt` existing, and a launched prod app's daemon
-     seizes `rt.sock` from the dev daemon.
-   - **Dev bundle**: in a scratch tree at the released commit,
-     `scripts/fetch-deps.sh arm64`, then `bun install --frozen-lockfile`,
-     then `bun scripts/build-apps.ts --arch arm64`, then `rt-tray/build.sh
-     dev` (never rebuilds the blessed bundle in place), kills every
-     process matching the running dev app and waits for them to actually
-     exit, replaces `/Applications/mattstack-dev.app` the same move-aside
-     way as the prod app, opens it, and polls briefly for a fresh pid
-     (`open` hands off to LaunchServices and returns before the app is
-     actually up).
-   - **Shared checkout sync**: the shared `~/Documents/GitHub/mattstack`
-     checkout (or the older `~/Documents/GitHub/repo-tools` folder on a
-     machine that has not moved it) that served-suite registers apps from; this leg refuses
-     unless it is on `main`, then `git pull --ff-only` and `bun install
-     --frozen-lockfile`.
-   - **Daemon**: announces in #rt first (the dev daemon serves other
-     sessions) and refuses to restart at all if the announce failed,
-     then `rt daemon restart` and confirms `rt daemon status`'s
-     `data.identity.sourceRev` prefix-matches the released commit
-     (either can be the shorter abbreviation, so the match works in
-     both directions; a prod daemon's null sourceRev is reported as a
-     mismatch, never a silent pass).
-   - **Served suite**: re-registers board, console, chat, boxscore, and
-     deck with `deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`
-     (or the older `~/Documents/GitHub/repo-tools` folder on a machine that
-     has not moved it) when their registry `dev.workingDirectory` differs from that path,
-     then `deck restart --managed`, then polls each managed app's pid
-     for a bit (a `deck restart` is a kickstart, not a readiness
-     guarantee) via `launchctl print
-     gui/<uid>/com.mattstack.deck.<app>` and, if the pid didn't change,
-     its process start time from `ps` against the moment the restart
-     began; stragglers are restarted by name and re-verified the same
-     way. Rows deck lists as user-managed are the user's own; this leg
-     leaves them alone.
-   - **Verify**: prod Info.plist version equals the tag, dev app pid is
-     fresh, daemon's sourceRev prefix-matches the released commit,
-     `deck --version` matches `apps/deck/package.json` at the tag, and
-     every managed app's start time postdates the restart.
+## How every gate asks
 
-## Guardrails
+Attended, a gate is an AskUserQuestion form in the pane; inside a herd, `herd_ask`; inside a
+pipeline run, `gate_ask`. The first option is the recommendation, labels are 2 to 6 words, each
+description is one sentence, and the question quotes the refusal or failing output. Record the
+answer before acting on it.
 
-- Never run `gh release create` or `gh release edit --notes` yourself. CI owns the
-  release object. The curated notes reach it only by being committed as
-  `RELEASE_NOTES.md` before the tag.
-- No em dashes or en dashes in the notes; use commas, periods, or "...".
-- Never invent a change that isn't in `git log <last-tag>..HEAD`.
-- Never hand-write a command flag or arg table; those come only from
-  `bun run docs:gen` (via `scripts/update-docs.ts`).
-- Committing, tagging, and deploying happen only after the step 6 approval. The
-  step 3 push may run earlier, but only once the user has confirmed it (or
-  pre-authorized the release).
-- The old repo name `m4ttstack/rt` is never recreated after the rename: every
-  app installed before it fetches its Sparkle feed through GitHub's redirect
-  from the old name, and a new repo under that name would capture those
-  requests.
+A hold ends at `Held: release paused, resume point named`: name the resume point (the node to
+re-enter and what it needs) in the gate answer and the turn's final message, never in a #rt post.
+
+Take means Matt made the move (or ruled it made) and the graph continues past the failed step; the
+agent never makes an off-graph move itself. Iterate means Matt fixed the cause and the failed step
+runs again, counted by that gate's rounds counter. A gate waits for an answer: a
+`chat_post {room: "rt", body}` and a wait is not a gate, and Matt being away is when the gate
+matters most. A standing "get it out today" pre-authorizes the in-graph moves, never a gate's
+answer.
+
+## Rationalizations
+
+| Thought | Reality |
+| --- | --- |
+| "Main moved, so tag HEAD." | Tag the exercised sha: the commit the rehearsal and walkthrough ran. |
+| "A skip is close enough to green." | A skipped phase is not green. Read the failure; the counter and the gate take it from there. |
+| "`gh release view` shows it, so it is published." | A draft renders like a release. Run verify. |
+| "Rerun once more." | The counter decides. At the budget, open the gate. |
+| "`--yes` is required to run at all, and it is faster." | The no-TTY refusal is why the plan gate comes first. `--yes` runs only after Matt approves the plan. |
+| "I'll push main with git_push." | git_push refuses main and tags. The push box's Bash line is the move. |
+| "`rt_verb` runs `rt release verify`." | No `rt release` leaf is agent-safe. Every `rt release` command runs on Bash. |
+| "Rebasing a notes-only commit onto an unrelated merge is mechanical, not a new judgment call; 'get it out today, I trust you' covers it." | The notes commit is the tag target: a rebase changes what the tag covers and what the approved notes describe. Open the gate. |
+| "Matt is away, so I post the status in #rt and wait." | Status goes in the gate question. The only #rt post in a release is update-machine's own. |
+| "The checkout is on another branch, so I switch it." | Never switch it. Open the gate. |

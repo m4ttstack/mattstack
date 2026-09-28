@@ -16,11 +16,11 @@ const LAST = "v0.1.0";
 
 const FAKE_GH = `#!/bin/bash
 case "$*" in
-  "api repos/m4ttstack/rt/actions/workflows/release.yml/runs?event=push&branch=${LAST}&per_page=5")
-    printf '%s' '{"workflow_runs":[{"id":1,"html_url":"https://github.com/m4ttstack/rt/actions/runs/1"}]}' ;;
-  "run view 1 --repo m4ttstack/rt --json status,conclusion")
+  "api repos/m4ttstack/mattstack/actions/workflows/release.yml/runs?event=push&branch=${LAST}&per_page=5")
+    printf '%s' '{"workflow_runs":[{"id":1,"html_url":"https://github.com/m4ttstack/mattstack/actions/runs/1"}]}' ;;
+  "run view 1 --repo m4ttstack/mattstack --json status,conclusion")
     printf '%s' '{"status":"completed","conclusion":"success"}' ;;
-  "release view ${LAST} --repo m4ttstack/rt --json body,assets,isDraft,isPrerelease,publishedAt")
+  "release view ${LAST} --repo m4ttstack/mattstack --json body,assets,isDraft,isPrerelease,publishedAt")
     printf '%s' '{"body":"v0.1.0 notes\\n","assets":[{"name":"mattstack-0.1.0.dmg"},{"name":"mattstack-0.1.0.zip"},{"name":"appcast.xml"},{"name":"SHA256SUMS"}],"isDraft":false,"isPrerelease":false,"publishedAt":"2026-09-25T00:00:00Z"}' ;;
   *)
     echo "fake gh: unexpected call: $*" >&2; exit 1 ;;

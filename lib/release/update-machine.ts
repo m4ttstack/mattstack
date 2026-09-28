@@ -1,8 +1,8 @@
 /**
- * rt release update-machine... the rt:release skill's step 12 as one verb:
- * bring this developer's own machine (prod app, dev bundle, checkout sync,
- * daemon, and the served suite) up to a released tag, in that order, with a
- * verification sweep at the end.
+ * rt release update-machine... the rt:release skill's update-machine step as
+ * one verb: bring this developer's own machine (prod app, dev bundle,
+ * checkout sync, daemon, and the served suite) up to a released tag, in that
+ * order, with a verification sweep at the end.
  *
  * Every external effect goes through UpdateMachineSeams so this module stays
  * pure and testable; the real seams (network, exec, prompts, chat) live in
@@ -59,7 +59,7 @@ export interface UpdateMachineSeams {
   sleep(ms: number): Promise<void>;
 }
 
-export const RELEASE_REPO = "m4ttstack/rt";
+export const RELEASE_REPO = "m4ttstack/mattstack";
 export const CHAT_ROOM = "rt";
 const PROD_APP_PATH = "/Applications/mattstack.app";
 const DEV_APP_PATH = "/Applications/mattstack-dev.app";
