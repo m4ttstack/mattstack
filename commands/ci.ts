@@ -45,7 +45,7 @@ function positional(args: string[]): string | undefined {
   return args.find((a, i) => !a.startsWith("--") && !(i > 0 && args[i - 1]!.startsWith("--") && args[i - 1] !== "--json"));
 }
 
-/** json always goes to stdout regardless of exit code, so a --json caller can still parse a failure; plain text follows the exit code (0 to stdout, non-zero to stderr). Mirrors commands/mr.ts's fail() and commands/chat.ts's fail(). */
+/** json always goes to stdout regardless of exit code, so a --json caller can still parse a failure; plain text follows the exit code (0 to stdout, non-zero to stderr). Mirrors commands/chat.ts's fail(). */
 function emit(json: boolean, body: unknown, text: string, code = 0): never {
   if (json) process.stdout.write(`${JSON.stringify(body)}\n`);
   else if (code === 0) process.stdout.write(`${text}\n`);

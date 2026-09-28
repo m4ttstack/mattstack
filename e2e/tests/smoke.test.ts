@@ -28,7 +28,7 @@ describe("smoke", () => {
     const verbs = listedVerbs(result.stdout);
     const expectedCommands = [
       "git", "sync", "run", "glitter",
-      "port", "mr",
+      "port", "worktree",
       "cd", "nav", "settings", "hooks",
     ];
     for (const cmd of expectedCommands) {

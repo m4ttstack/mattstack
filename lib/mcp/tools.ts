@@ -665,7 +665,7 @@ export function mcpTools(): McpToolDef[] {
         required: ["repo"],
         additionalProperties: false,
       },
-      shellForms: ["rt mr map"],
+      shellForms: { none: "joins the daemon's open-MR cache to the local worktrees; no shell command is equivalent" },
       async handler(input) {
         const bad = checkRequired(input, [{ name: "repo", type: "string" }]);
         if (bad) return err(bad);
