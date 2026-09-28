@@ -38,8 +38,8 @@ shows, so the turn is one call and one message.
 
 | Column | Values |
 | --- | --- |
-| status | **NEEDS YOU** (an open gate), **CRASHED**, **STUCK** (parked at a dialog), *idle* (pane idle, no gate), running, spawning, done, *closed* (no report) |
-| spec, plan, exec, review | ✓ done, ▸ current, blank not yet, · not in this job's method |
+| status | **NEEDS YOU** (an open gate, herd or pipeline run), **CRASHED**, **STUCK** (parked at a dialog, or blocked at a prompt with no gate), *idle* (the worker's turn ended, no gate), running, spawning, done, *closed* (no report) |
+| spec, plan, exec, review | ✓ done, ▸ current, blank not yet, · not tracked for this job's method (trivial, direct-tdd and delegate jobs) |
 | tasks | `█` done and `░` left, from the ledger's `Task N: complete` lines against the plan's `Task N` headings; `·` bar with `n/?` when the plan total is unknown |
 | now | the gate's question for **NEEDS YOU**, else the ledger's latest line |
 
