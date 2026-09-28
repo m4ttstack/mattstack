@@ -491,11 +491,7 @@ function ReviewGateSheet({
                                   </span>
                                 )}
                               </span>
-                              {f.file && (
-                                <span className="tui-review-finding-anchor">
-                                  {f.file}
-                                </span>
-                              )}
+                              {f.file && <FindingAnchor file={f.file} />}
                               <span className="tui-review-finding-text">
                                 <Markdown unstyled linkTargetBlank>
                                   {f.body}
@@ -759,3 +755,17 @@ function ReviewGateSheet({
 }
 
 export { ReviewGateSheet };
+
+/** A finding's file:line with its folders set back, so the file name reads
+    first on a long path. */
+function FindingAnchor({ file }: { file: string }) {
+  const cut = file.lastIndexOf('/') + 1;
+  return (
+    <span className="tui-review-finding-anchor">
+      {cut > 0 && (
+        <span className="tui-review-finding-dir">{file.slice(0, cut)}</span>
+      )}
+      <span className="tui-review-finding-file">{file.slice(cut)}</span>
+    </span>
+  );
+}
