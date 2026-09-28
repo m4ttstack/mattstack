@@ -13,6 +13,7 @@ export type SyncDeps = {
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[] }>;
   configDir: string;
   cswapSessionsDir: string;
+  inTreeRoot: string | null;
 };
 
 export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string };
@@ -119,6 +120,10 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   const steps: SyncStep[] = [];
   const warnings: string[] = [];
   const sameCheckout = pack.dir === engine.dir;
+  // An engine inside the shared checkout is served from that checkout's
+  // current branch, which update-machine owns; git here would fight it.
+  const engineInTree =
+    deps.inTreeRoot !== null && engine.dir.startsWith(deps.inTreeRoot.endsWith("/") ? deps.inTreeRoot : deps.inTreeRoot + "/");
 
   let installedEngineBefore: string | null = null;
   let installedPackBefore: string | null = null;
@@ -166,10 +171,12 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       }
     }
 
-    const engineStatus = await deps.run("git", ["status", "--porcelain"], { cwd: engine.dir });
-    if (engineStatus.code !== 0) return failed(`git status failed in ${engine.dir}: ${engineStatus.stderr.trim()}`);
-    if (engineStatus.stdout.trim() !== "") {
-      return refused(`engine checkout dirty at ${engine.dir}: "${engineStatus.stdout.trim()}"; commit or stash and re-run`);
+    if (!engineInTree) {
+      const engineStatus = await deps.run("git", ["status", "--porcelain"], { cwd: engine.dir });
+      if (engineStatus.code !== 0) return failed(`git status failed in ${engine.dir}: ${engineStatus.stderr.trim()}`);
+      if (engineStatus.stdout.trim() !== "") {
+        return refused(`engine checkout dirty at ${engine.dir}: "${engineStatus.stdout.trim()}"; commit or stash and re-run`);
+      }
     }
     if (!sameCheckout) {
       const packStatus = await deps.run("git", ["status", "--porcelain"], { cwd: pack.dir });
@@ -179,11 +186,13 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       }
     }
 
-    const engineBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: engine.dir });
-    if (engineBranchRes.code !== 0) return failed(`git branch --show-current failed in ${engine.dir}: ${engineBranchRes.stderr.trim()}`);
-    const engineBranch = engineBranchRes.stdout.trim();
-    if (engineBranch !== "main") {
-      return refused(`engine checkout on branch "${engineBranch}"; check out main and re-run`);
+    if (!engineInTree) {
+      const engineBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: engine.dir });
+      if (engineBranchRes.code !== 0) return failed(`git branch --show-current failed in ${engine.dir}: ${engineBranchRes.stderr.trim()}`);
+      const engineBranch = engineBranchRes.stdout.trim();
+      if (engineBranch !== "main") {
+        return refused(`engine checkout on branch "${engineBranch}"; check out main and re-run`);
+      }
     }
     if (!sameCheckout) {
       const packBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: pack.dir });
@@ -206,6 +215,10 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   const pullEngine = sameCheckout
     ? skipped("engine and pack share a checkout; pulled once as pull-pack")
     : await tryStep(async () => {
+        if (engineInTree) {
+          engineSourceVersion = readManifestVersion(engine.dir);
+          return skipped(`engine is in-tree at ${engine.dir}; kept current by update-machine`);
+        }
         const res = await deps.run("git", ["pull", "--ff-only"], { cwd: engine.dir });
         if (res.code !== 0) return refused(`git pull --ff-only failed in ${engine.dir}: ${res.stderr.trim()}; resolve manually and re-run`);
         engineSourceVersion = readManifestVersion(engine.dir);
