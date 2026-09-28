@@ -1146,13 +1146,6 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
-  update: {
-    description: "Check for updates via mattstack.app",
-    module: "./commands/update.ts",
-    fn: "runUpdate",
-    args: [SETUP_JSON_ARG],
-  },
-
   version: {
     description: "Show the current version and which app (prod or dev) this rt belongs to",
     module: "./commands/version.ts",

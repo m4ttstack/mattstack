@@ -130,12 +130,6 @@ if (args[0] === "--version" || args[0] === "-V") {
     console.error("  Could not open System Settings — open it manually: System Settings → Privacy & Security → Full Disk Access");
     process.exit(1);
   }
-} else if (args[0] === "update") {
-  // Bypasses the first-run "not set up yet" hint below — asking the app to
-  // check for updates never depends on rt's own daemon.json existing.
-  const { runUpdate } = await import("./commands/update.ts");
-  await runUpdate(args.slice(1));
-  process.exit(0);
 } else {
   // ── First-run hint ────────────────────────────────────────────────────────
   // `rt setup` (not this hook) owns getting a machine set up — an auto-run

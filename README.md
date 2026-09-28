@@ -104,14 +104,9 @@ exposed as links in `~/.local/bin`.
 
 ### Upgrading
 
-```bash
-rt update
-```
-
 mattstack.app owns the whole upgrade lifecycle through Sparkle: signature
-verification, staged install, restart. `rt update` only asks the app to check.
-It never downloads or installs anything itself, and it points you at the latest
-release if the app is not running.
+verification, staged install, restart. Use **Check for Updates…** in the menu
+bar to check on demand.
 
 ## Quickstart
 
@@ -259,7 +254,6 @@ rt daemon log-level       # show or set the live log level
 rt verify                 # installation health, --ci and --json variants
 rt version                # version plus mode (dev or prod)
 rt --version              # just the version string
-rt update                 # ask mattstack.app to check for an update
 rt uninstall              # reverse setup: services, links, plugins
 ```
 
