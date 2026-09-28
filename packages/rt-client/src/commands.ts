@@ -648,6 +648,25 @@ export interface Commands {
           switchboardAdminToken?: string;
         };
   };
+  /**
+   * Socket-only, never in the daemon's REST routes: the Fast Browser
+   * launcher's per-fill read of one saved dev login. The daemon compares the
+   * page's frame origin and element kind before releasing anything, and only
+   * a released password fill counts against the attempt limit.
+   */
+  "logins:fill": {
+    payload: {
+      token?: string;
+      client?: string;
+      pid?: number;
+      name?: string;
+      frameOrigin?: string;
+      elementKind?: "password" | "text";
+    };
+    data:
+      | { origin: string; kind: "email" | "password"; value: string }
+      | { refused: "unknown" | "mismatch" | "limited"; until?: number };
+  };
   "events:emit": { payload: { topic: string; payload?: unknown }; data: { id: number } };
   "events:wait": { payload: { pattern: string; after?: number; waitMs?: number }; data: { events: EventsBusEvent[]; cursor: number } };
   "events:list": { payload: { pattern: string; after?: number; limit?: number }; data: { events: EventsBusEvent[]; cursor: number } };
@@ -1007,6 +1026,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:by-branch",
   "secrets:forge-token",
   "secrets:read",
+  "logins:fill",
   "events:emit",
   "events:wait",
   "events:list",
