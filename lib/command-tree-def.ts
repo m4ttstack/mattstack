@@ -675,7 +675,7 @@ function integrationNode(id: string, title: string): CommandNode {
 
 export const TREE: Record<string, CommandNode> = {
   git: {
-    description: "Git operations (status, diff, log, rebase, commit, stash, tags)",
+    description: "Everyday git shortcuts",
     subcommands: {
       rebase: {
         description: "Smart rebase onto origin/master with auto-resolve",
@@ -968,7 +968,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   sync: {
-    description: "Sync branches: rebase onto master + push (daily routine)",
+    description: "Quick rebase your branch and auto-resolve trivial conflicts",
     module: "./commands/sync.ts",
     fn: "syncCommand",
     context: "worktree",
@@ -992,7 +992,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   hooks: {
-    description: "Toggle git hooks on/off (husky)",
+    description: "Turn a repo's git hooks on or off",
     module: "./commands/hooks.ts",
     fn: "toggleHooks",
     omitBehavior: "picker",
@@ -1004,7 +1004,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   run: {
-    description: "Interactive script runner (repo → worktree → package → script)",
+    description: "Repo package runner",
     module: "./commands/run.ts",
     fn: "runCommand",
     omitBehavior: "picker",
@@ -1028,7 +1028,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   runner: {
-    description: "Board of long-running commands in a detached tmux session (add, tail, restart, stop, focus)",
+    description: "A tui for your long running commands",
     module: "./commands/runner.ts",
     fn: "runnerCommand",
     context: "worktree",
@@ -1041,7 +1041,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   glitter: {
-    description: "Mission control: repos, changes, diff, and commit in one board",
+    description: "git tui clone of Github Desktop",
     module: "./commands/glitter.ts",
     fn: "glitterCommand",
     requiresTTY: true,
@@ -1050,7 +1050,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   port: {
-    description: "Port scanner + killer (zero-config, daemon-powered)",
+    description: "See what's running on your ports and kill it",
     module: "./commands/port.ts",
     fn: "portScanner",
     omitBehavior: "list",
@@ -1061,7 +1061,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   sdm: {
-    description: "StrongDM connections: pick, connect, verify",
+    description: "Connect to databases through StrongDM",
     subcommands: {
       connect: {
         description: "Pick a connection and connect",
@@ -1139,7 +1139,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   cd: {
-    description: "Worktree/repo directory picker",
+    description: "Jump to a repo or worktree",
     module: "./commands/cd.ts",
     fn: "worktreePicker",
     // The picker renders an inline frame, not an alt-screen, so it owns the
@@ -1155,7 +1155,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   code: {
-    description: "Open a worktree in your preferred editor",
+    description: "Open a worktree in your editor",
     module: "./commands/code.ts",
     fn: "openInEditor",
     requiresTTY: true,
@@ -1165,7 +1165,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   nav: {
-    description: "Navigate filesystem; persistent picker, esc to quit",
+    description: "Browse folders and jump to one",
     module: "./commands/nav.ts",
     fn: "navigate",
     omitBehavior: "picker",
@@ -1179,7 +1179,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   worktree: {
-    description: "Worktree lifecycle (provision/dispose/list) + worktree-wide operations",
+    description: "Create, list and clean up worktrees",
     subcommands: {
       provision: {
         description: "Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created)",
@@ -2039,7 +2039,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   accounts: {
-    description: "Show integration credential health",
+    description: "Check that your connected accounts still work",
     module: "./commands/accounts.ts",
     omitBehavior: "list",
     args: [
@@ -2165,7 +2165,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   repos: {
-    description: "Register repos with rt (index + tracking)",
+    description: "Add repos for rt to track",
     subcommands: {
       register: {
         description: "Add repo paths to the rt index, optionally granting background tracking",
