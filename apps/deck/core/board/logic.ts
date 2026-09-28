@@ -365,8 +365,8 @@ export function deployPill(
 ): { label: string; tip: string } | null {
   if (cmd !== 'deploy' || !row.newCode || phase != null) return null;
   return {
-    label: 'New code · Redeploy',
-    tip: `Deployed at ${row.newCode.deployed}, checkout at ${row.newCode.head}`,
+    label: 'Redeploy',
+    tip: `New code since last deploy: ${row.newCode.deployed} to ${row.newCode.head}`,
   };
 }
 

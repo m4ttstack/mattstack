@@ -492,7 +492,7 @@ function CommandsCell({
             <Tooltip key={name} tip={pill.tip}>
               <Button
                 intent="warn"
-                variant="light"
+                variant="filled"
                 size="sm"
                 aria-label={`${name} ${row.name}`}
                 onClick={() => onRunCommand(row, name)}
