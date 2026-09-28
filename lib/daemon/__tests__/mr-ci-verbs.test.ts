@@ -83,3 +83,96 @@ describe("mr:pipeline-failed-jobs", () => {
     expect(r).toEqual({ ok: false, error: "repo-unknown" });
   });
 });
+
+describe("mr:by-target", () => {
+  const row = (iid: number, author: string, extra: Record<string, unknown> = {}) => ({
+    iid, title: `t${iid}`, state: "opened", draft: false, source_branch: `child-${iid}`, target_branch: "feat",
+    author: { username: author }, web_url: `https://gitlab.com/grp/proj/-/merge_requests/${iid}`, detailed_merge_status: "mergeable", ...extra,
+  });
+  const page = (rows: unknown[], nextPage = "") => new Response(JSON.stringify(rows), { status: 200, headers: { "x-next-page": nextPage } });
+
+  function restProvider(respond: (path: string) => Response | Promise<Response>) {
+    const paths: string[] = [];
+    const provider = { restRequest: async (_method: string, path: string) => { paths.push(path); return respond(path); } };
+    return { provider, paths };
+  }
+
+  test("an empty forge answer is an empty list", async () => {
+    const { provider, paths } = restProvider(() => page([]));
+    expect(await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" })).toEqual({ ok: true, data: { mrs: [] } });
+    expect(paths).toHaveLength(1);
+    expect(paths[0]).toStartWith("/projects/grp%2Fproj/merge_requests?");
+    const query = new URLSearchParams(paths[0]!.split("?")[1]);
+    expect(query.get("target_branch")).toBe("feat");
+    expect(query.get("state")).toBe("opened");
+    expect(query.has("author_username")).toBe(false);
+    expect(query.has("scope")).toBe(false);
+  });
+
+  test("returns every author's MR targeting the branch, summarized", async () => {
+    const { provider } = restProvider(() => page([row(7, "bob", { draft: true })]));
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect(r).toEqual({ ok: true, data: { mrs: [{
+      iid: 7, title: "t7", state: "opened", draft: true, sourceBranch: "child-7", targetBranch: "feat",
+      author: "bob", webUrl: "https://gitlab.com/grp/proj/-/merge_requests/7", detailedMergeStatus: "mergeable",
+    }] } });
+  });
+
+  test("follows x-next-page until the last page", async () => {
+    const { provider, paths } = restProvider((path) => {
+      const n = new URLSearchParams(path.split("?")[1]).get("page");
+      return n === "1" ? page([row(1, "a")], "2") : page([row(2, "b")]);
+    });
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect((r as any).data.mrs.map((m: any) => m.iid)).toEqual([1, 2]);
+    expect(paths).toHaveLength(2);
+  });
+
+  test("passes a state through and refuses an unknown one", async () => {
+    const { provider, paths } = restProvider(() => page([]));
+    const h = handlers(provider);
+    await h["mr:by-target"]!({ repoName: REPO, targetBranch: "feat", state: "all" });
+    expect(new URLSearchParams(paths[0]!.split("?")[1]).get("state")).toBe("all");
+    expect(await h["mr:by-target"]!({ repoName: REPO, targetBranch: "feat", state: "draft" })).toEqual({ ok: false, error: '"state" must be one of opened, merged, closed, all' });
+  });
+
+  test("a forge error is an error, never an empty list", async () => {
+    const { provider } = restProvider(() => new Response("boom", { status: 502, statusText: "Bad Gateway" }));
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect(r).toEqual({ ok: false, error: "GitLab returned 502 Bad Gateway: boom" });
+  });
+
+  test("a thrown request is an error", async () => {
+    const { provider } = restProvider(() => { throw new Error("ECONNRESET"); });
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect(r).toMatchObject({ ok: false });
+    expect(String((r as { ok: false; error: string }).error)).toContain("ECONNRESET");
+  });
+
+  test("a body that is not an array is an error", async () => {
+    const { provider } = restProvider(() => new Response(JSON.stringify({ message: "x" }), { status: 200 }));
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect(r).toEqual({ ok: false, error: "GitLab's merge request listing was not a JSON array" });
+  });
+
+  test("refuses to call a listing complete past the page cap", async () => {
+    const { provider, paths } = restProvider((path) => {
+      const n = Number(new URLSearchParams(path.split("?")[1]).get("page"));
+      return page([row(n, "a")], String(n + 1));
+    });
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect(r).toMatchObject({ ok: false });
+    expect(String((r as { ok: false; error: string }).error)).toContain("more than");
+    expect(paths.length).toBeGreaterThan(1);
+  });
+
+  test("validates targetBranch and the repo before any request", async () => {
+    const { provider, paths } = restProvider(() => page([]));
+    const h = handlers(provider);
+    for (const targetBranch of [undefined, "", "  ", 3]) {
+      expect(await h["mr:by-target"]!({ repoName: REPO, targetBranch })).toEqual({ ok: false, error: "missing repoName/targetBranch" });
+    }
+    expect(await h["mr:by-target"]!({ repoName: "proj", targetBranch: "feat" })).toEqual({ ok: false, error: "repo-unknown" });
+    expect(paths).toEqual([]);
+  });
+});
