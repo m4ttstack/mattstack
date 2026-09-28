@@ -208,6 +208,7 @@ describe('JSON editor', () => {
     await userEvent.click(
       await screen.findByRole('menuitem', { name: 'Edit as JSON' })
     );
+    expect(screen.queryByRole('radiogroup', { name: 'Edit mode' })).toBeNull();
     setText('["RT", "MAT"]');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
@@ -233,6 +234,9 @@ describe('JSON editor', () => {
       />
     );
     await userEvent.click(screen.getByRole('button', { name: /1 entry/ }));
+    expect(
+      screen.getByRole('radiogroup', { name: 'Edit mode' })
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual({
       'https://example.dev/a.git': 'a',

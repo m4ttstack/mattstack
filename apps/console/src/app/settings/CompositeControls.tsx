@@ -127,6 +127,15 @@ const LIVE_KINDS: ReadonlySet<RowKind> = new Set<RowKind>([
   'leaves',
 ]);
 
+/** A string list short enough to edit inline in the row, with no body. */
+function isInlineList(v: unknown): boolean {
+  const list = strings(v);
+  return (
+    list.length <= INLINE_MAX_ITEMS &&
+    list.every(x => x.length <= INLINE_MAX_CHARS)
+  );
+}
+
 function strings(v: unknown): string[] {
   return Array.isArray(v)
     ? v.filter((x): x is string => typeof x === 'string')
@@ -863,6 +872,13 @@ export function compositeParts(
   // seeded from that would discard the layer's real, unseen stored value on
   // save. The guard runs before asJson (the row menu's forced JSON entry)
   // and the ordinary json/objectList/objectMap bodies alike.
+  // A live editor with a body to switch back to: not an inline short list,
+  // and not a value that would land on a shape lock.
+  const liveForm =
+    LIVE_KINDS.has(edit) &&
+    !(edit === 'stringList' && isInlineList(value)) &&
+    def.effective.invalid === undefined &&
+    (value === undefined || matchesSchema(def, value));
   if ((asJson && EDITOR_KINDS.has(edit)) || edit === 'json') {
     if (def.effective.invalid !== undefined)
       return { control: invalidLock(), body: null };
@@ -875,7 +891,7 @@ export function compositeParts(
           form={form}
           startIn="json"
           onDone={onDoneJson}
-          onForm={LIVE_KINDS.has(edit) ? onDoneJson : undefined}
+          onForm={liveForm ? onDoneJson : undefined}
         />
       ) : null,
     };
@@ -912,10 +928,7 @@ export function compositeParts(
 
   if (kind === 'stringList') {
     const list = strings(value);
-    if (
-      list.length <= INLINE_MAX_ITEMS &&
-      list.every(x => x.length <= INLINE_MAX_CHARS)
-    )
+    if (isInlineList(value))
       return {
         control: <InlineTags def={def} row={row} list={list} />,
         body: null,
