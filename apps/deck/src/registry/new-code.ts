@@ -25,11 +25,17 @@ function warnOnce(key: string, message: string): void {
   console.warn(`[new-code] ${message}`);
 }
 
+// Bun.spawnSync throws ENOENT when its cwd is gone, so a disposed checkout
+// must come back as null here rather than escaping into boot or a poll.
 function checkout(dir: string): { root: string; head: string } | null {
-  const top = git(['rev-parse', '--show-toplevel'], dir);
-  const head = git(['rev-parse', 'HEAD'], dir);
-  if (top.code !== 0 || head.code !== 0) return null;
-  return { root: top.stdout.trim(), head: head.stdout.trim() };
+  try {
+    const res = git(['rev-parse', '--show-toplevel', 'HEAD'], dir);
+    const [root, head] = res.stdout.trim().split('\n');
+    if (res.code !== 0 || !root || !head) return null;
+    return { root, head };
+  } catch {
+    return null;
+  }
 }
 
 export function stampDeploy(
@@ -51,7 +57,13 @@ function touchesApp(
   co: { root: string; head: string },
   dir: string
 ): boolean {
-  const appDir = relative(co.root, realpathSync(dir)) || '.';
+  let appDir: string;
+  try {
+    appDir = relative(co.root, realpathSync(dir)) || '.';
+  } catch {
+    warnOnce(`path|${name}|${dir}`, `${name}: cannot resolve ${dir}`);
+    return false;
+  }
   const res = git(
     ['diff', '--quiet', sha, co.head, '--', appDir, 'packages', 'bun.lock'],
     co.root
@@ -71,7 +83,13 @@ export function newCodeFor(
   const dir = record.dev?.workingDirectory;
   if (!dir) return null;
   const co = checkout(dir);
-  if (!co) return null;
+  if (!co) {
+    warnOnce(
+      `head|${record.name}|${dir}`,
+      `${record.name}: ${dir} is not a git checkout`
+    );
+    return null;
+  }
   const sha = record.lastDeploy?.sha;
   if (!sha) {
     setLastDeploy(record.name, { sha: co.head, at: now().toISOString() });

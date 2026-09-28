@@ -86,15 +86,41 @@ test('a commit touching only other paths is not new code', () => {
 });
 
 test('an unknown stamp sha reports nothing and warns once', () => {
-  setup();
+  const { root } = setup();
   warn = spyOn(console, 'warn').mockImplementation(() => {});
   const rec = {
     ...getRecord('x')!,
     lastDeploy: { sha: 'f'.repeat(40), at: 'then' },
   };
   expect(newCodeFor(rec)).toBeNull();
+  commit(root, { 'apps/x/a.ts': '9' });
   expect(newCodeFor(rec)).toBeNull();
   expect(warn).toHaveBeenCalledTimes(1);
+});
+
+test('newCodeFor outside a git checkout warns once and reports nothing', () => {
+  setup();
+  warn = spyOn(console, 'warn').mockImplementation(() => {});
+  const rec = {
+    ...getRecord('x')!,
+    dev: { workingDirectory: mkdtempSync(join(tmpdir(), 'not-git-')) },
+  };
+  expect(newCodeFor(rec)).toBeNull();
+  expect(newCodeFor(rec)).toBeNull();
+  expect(warn).toHaveBeenCalledTimes(1);
+});
+
+test('a deleted working directory never throws', () => {
+  const { root, appDir, first } = setup();
+  warn = spyOn(console, 'warn').mockImplementation(() => {});
+  rmSync(root, { recursive: true, force: true });
+  const rec = getRecord('x')!;
+  expect(newCodeFor(rec)).toBeNull();
+  expect(() => stampDeploy('x', appDir)).not.toThrow();
+  expect(() =>
+    stampSelfOnBoot({ devMode: true, runMode: 'source', record: rec })
+  ).not.toThrow();
+  expect(getRecord('x')!.lastDeploy?.sha).toBe(first);
 });
 
 test('stampDeploy writes HEAD of the checkout', () => {
