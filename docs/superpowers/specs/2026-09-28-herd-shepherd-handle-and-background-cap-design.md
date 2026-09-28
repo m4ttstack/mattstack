@@ -43,7 +43,8 @@ The brief names the shepherd by display name and tells the worker to DM its id.
   `fillSpawnSlots(brief, { "shepherd handle": name, "shepherd id":
   herd.shepherdHandle })`, where `name` is
   `deps.identityNames([herd.shepherdHandle]).get(herd.shepherdHandle) ??
-  herd.shepherdHandle`, the same display-name resolution `herd:status` uses.
+  herd.shepherdHandle`, the same display-name resolution `herd:status` uses,
+  resolved before the prior pane closes and the job row goes to `spawning`.
   The stored `job.md` keeps both markers, so the next respawn refills from
   the then-current herd row.
 

@@ -1077,6 +1077,23 @@ describe("herd:spawn", () => {
     expect(hx.agentCalls[1].prompt).toContain("DM ann (id shepherd.k3f9) when done.");
   });
 
+  test("RT-356: the shepherd's name is resolved before the job row goes to spawning", async () => {
+    const statusAtLookup: Array<string | null> = [];
+    let herdId = "";
+    const hx: ReturnType<typeof harness> = harness({
+      identityNames: (ids: Iterable<string>) => {
+        if (herdId) statusAtLookup.push(hx.store.getJob(herdId, "job-a")?.status ?? null);
+        return new Map([...ids].map((id) => [id, id]));
+      },
+    });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    herdId = s.data.herd;
+    const res = await hx.h["herd:spawn"]({ herd: herdId, job: "job-a", brief: "# job\nDM <shepherd id>.", dir: "/t" });
+    if (!res.ok) throw new Error(res.error);
+    expect(statusAtLookup).toEqual([null]);
+  });
+
   test("RT-356: a brief with no slot is launched unchanged", async () => {
     const { h, agentCalls, herd } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "# job\nplain", dir: "/t" });
