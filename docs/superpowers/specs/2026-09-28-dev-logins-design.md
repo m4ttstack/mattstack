@@ -167,8 +167,12 @@ Changes shipped in one runtime release:
 - **Site lock, checked before any value moves.** The runtime first resolves
   the target to one element handle and reads that element's frame origin from
   the browser's own record of it (the CDP frame tree's `securityOrigin`),
-  never from page JavaScript and never from the frame URL alone: a sandboxed
-  frame reports its URL but has an opaque (`"null"`) origin. It refuses
+  never from page JavaScript and never from the frame URL alone. On current
+  Chrome a sandboxed out-of-process frame still reports a normal tuple
+  `securityOrigin` in the frame tree, so the runtime also reads the frame's
+  default execution context origin (`Runtime.executionContextCreated`,
+  `auxData.isDefault`, same frame id) and treats the frame as opaque unless
+  that origin is a tuple origin equal to the frame tree's. It refuses
   locally, without asking for a value, when:
   - the frame origin is opaque (`about:blank`, `srcdoc`, `data:`, sandboxed);
   - the call is `browser_type` with `slowly: true` (keystrokes go to whatever
