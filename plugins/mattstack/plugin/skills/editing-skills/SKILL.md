@@ -549,13 +549,17 @@ the attachment in and writes the result to a second dir the app ships:
 
 `rt skills expand --src <app>/skills-src --out <app>/skills --mattstack-dir <monorepo root>` <!-- mcp-lint: allow -->
 
+Run it on Bash: expand is not an `rt_verb` verb.
+
 The frontmatter is copied as written (name, `allowed-tools`,
-`disable-model-invocation`, metadata) with a `compiled:` stamp added; the
-body gets the compiler's seam markers; files beside the source vendor at
-the same path. `--check` fails on drift and is what CI runs. Nothing in the
-output dir is edited by hand: expand regenerates or removes every dir in
-it. No slots, no roster, no manifest: a skill with blanks to fill is a pack
-verb and goes through `compile` instead.
+`disable-model-invocation`, metadata), with a `compiled:` stamp added only
+when the skill includes something; the body gets the compiler's seam
+markers; files beside the source vendor at the same path. CI runs
+`--check --strict`, which fails on drift and on the mcp lint. Nothing in
+the output dir is edited by hand: expand regenerates or removes every dir
+it wrote, and stops on any dir it did not. No slots, no roster, no
+manifest: a skill with blanks to fill is a pack verb and goes through
+`compile` instead.
 
 The board's `apps/board/skills-src` is the first user;
 `bun run skills:expand:board` and `bun run skills:check:board` wrap the
