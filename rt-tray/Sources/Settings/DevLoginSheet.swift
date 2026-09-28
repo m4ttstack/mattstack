@@ -8,12 +8,20 @@ struct DevLoginSheet: View {
     let isSaved: (String) -> Bool
     let onSave: (String, String, String) async -> String?
     @State private var originText = ""
-    @State private var email = ""
+    @State private var email: String
     @State private var password = ""
     @State private var typedHost = ""
     @State private var error: String?
     @State private var saving = false
     @Environment(\.dismiss) private var dismiss
+
+    init(fixedOrigin: String?, email: String = "", isSaved: @escaping (String) -> Bool,
+         onSave: @escaping (String, String, String) async -> String?) {
+        self.fixedOrigin = fixedOrigin
+        self.isSaved = isSaved
+        self.onSave = onSave
+        _email = State(initialValue: email)
+    }
 
     private var validated: DevLoginOrigin.Result { DevLoginOrigin.validate(fixedOrigin ?? originText) }
 
@@ -37,7 +45,13 @@ struct DevLoginSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier(AXID.devLoginSheetInvalid)
                 } else if let origin = validOrigin?.origin {
-                    Text(origin).font(.title2.monospaced()).textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(origin).font(.title2.monospaced()).textSelection(.enabled)
+                        if isSaved(origin) {
+                            Text("Saving replaces the email and password saved for this site.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
             } else {
                 SetupField(label: "Site", note: originNote) {

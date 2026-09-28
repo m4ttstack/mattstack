@@ -214,7 +214,9 @@ final class SetupFlowUITests: XCTestCase {
             el("setup.team.continue").click(); waitFor("setup.checklist.screen")
             el("setup.checklist.continue").click(); waitFor("setup.done.screen", 60)
             app.typeKey(",", modifierFlags: .command)
-            waitFor("settings.tab.devLogins"); el("settings.tab.devLogins").click()
+            let tab = app.toolbars.buttons["Dev logins"]
+            XCTAssertTrue(tab.waitForExistence(timeout: 20), "missing the Dev logins tab")
+            tab.click()
             waitFor("settings.devLogins.empty"); shoot("devlogins-empty-\(scheme)")
 
             el("settings.devLogins.add").click(); waitFor("devLogin.sheet.origin")
@@ -229,6 +231,7 @@ final class SetupFlowUITests: XCTestCase {
             waitFor("settings.devLogins.row.https://login.example.com"); shoot("devlogins-list-\(scheme)")
             el("settings.devLogins.replace.https://login.example.com").click(); waitFor("devLogin.sheet.email")
             XCTAssertFalse(el("devLogin.sheet.confirmHost").exists, "replacing a saved site skips the typed host")
+            XCTAssertEqual(el("devLogin.sheet.email").value as? String, "dev@example.com", "Replace starts from the saved email")
             shoot("devlogins-sheet-replace-\(scheme)")
             el("devLogin.sheet.cancel").click()
             app.terminate()

@@ -9,7 +9,7 @@ struct DevLoginsPane: View {
     @State private var confirmDelete: String?
     @State private var actionError: String?
 
-    private struct SheetTarget: Identifiable { let origin: String?; var id: String { origin ?? "new" } }
+    private struct SheetTarget: Identifiable { let origin: String?; var email = ""; var id: String { origin ?? "new" } }
 
     init(env: SettingsEnvironment) { self.env = env; self.model = env.devLogins }
 
@@ -29,13 +29,13 @@ struct DevLoginsPane: View {
                             Text(row.origin).font(.body.monospaced())
                             HStack(spacing: 8) {
                                 Text(row.email)
-                                Text("••••••").accessibilityLabel("Password saved")
+                                Text("••••••").fontWeight(.black).tracking(1).accessibilityLabel("Password saved")
                             }
                             .font(.callout)
                             .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Replace…") { open(row.origin) }
+                        Button("Replace…") { open(row.origin, email: row.email) }
                             .accessibilityIdentifier(AXID.settingsDevLoginsReplace(row.origin))
                         Button("Delete…", role: .destructive) { actionError = nil; confirmDelete = row.origin }
                             .accessibilityIdentifier(AXID.settingsDevLoginsDelete(row.origin))
@@ -66,7 +66,7 @@ struct DevLoginsPane: View {
             open(origin)
         }
         .sheet(item: $sheetTarget) { target in
-            DevLoginSheet(fixedOrigin: target.origin, isSaved: { model.isSaved($0) }) { origin, email, password in
+            DevLoginSheet(fixedOrigin: target.origin, email: target.email, isSaved: { model.isSaved($0) }) { origin, email, password in
                 await model.save(origin: origin, email: email, password: password)
             }
         }
@@ -95,8 +95,8 @@ struct DevLoginsPane: View {
         .accessibilityIdentifier(AXID.settingsDevLoginsEmpty)
     }
 
-    private func open(_ origin: String?) {
+    private func open(_ origin: String?, email: String = "") {
         actionError = nil
-        sheetTarget = SheetTarget(origin: origin)
+        sheetTarget = SheetTarget(origin: origin, email: email)
     }
 }
