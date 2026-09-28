@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.27.8 + mattstack:model-tiering@0.27.8 + mattstack:execution-strategy@0.27.8 + mattstack:cswap-accounts@0.27.8"
+  compiled: "mattstack@0.28.2 + mattstack:model-tiering@0.28.2 + mattstack:execution-strategy@0.28.2 + mattstack:cswap-accounts@0.28.2"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.27.8 path=attachments/orchestration/shepherdr/SKILL.md lines=15-879 -->
+<!-- part: step source=mattstack:shepherdr version=0.28.2 path=attachments/orchestration/shepherdr/SKILL.md lines=15-881 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.27.8 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.28.2 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -143,7 +143,7 @@ this skill is the generic framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.27.8 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.28.2 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -255,7 +255,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.27.8 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.28.2 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -598,7 +598,9 @@ body verbatim from `parts/strategy/references/strategies.md` into
 `## Method`, and fills the template's literal `<angle-bracket>` slots from
 the `fill` entries; an unfilled marker in the output is a refusal listing
 the leftovers, so nothing is retyped from memory and no slot goes silently
-empty. The `out` path is the brief you hand to the spawn.
+empty. `<shepherd handle>` and `<shepherd id>` pass through unfilled, and
+`herd_spawn` fills them from the herd row; never pass a `fill` for them.
+The `out` path is the brief you hand to the spawn.
 
 **Domain hook -- the Method copy.** Unbound: the assembly as written. A
 bound domain part may supply the `## Method` block itself (its team's
@@ -1119,7 +1121,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.27.8 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.28.2 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

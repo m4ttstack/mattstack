@@ -81,6 +81,19 @@ function normalizeMarkerName(raw: string): string {
   return raw.replace(/\s+/g, " ").trim();
 }
 
+/** Slots herd:spawn fills from the herd row on every launch, so assembly
+    passes them through rather than refusing them as leftovers. */
+export const SPAWN_FILLED_SLOTS: readonly string[] = ["shepherd handle", "shepherd id"];
+
+const SPAWN_MARKER_RE = /<([^<>]+)>/g;
+
+export function fillSpawnSlots(brief: string, values: Record<string, string>): string {
+  return brief.replace(SPAWN_MARKER_RE, (whole, raw: string) => {
+    const name = normalizeMarkerName(raw);
+    return SPAWN_FILLED_SLOTS.includes(name) && values[name] !== undefined ? values[name]! : whole;
+  });
+}
+
 interface LineInfo {
   text: string;
   start: number;
@@ -208,7 +221,7 @@ function substituteMarkers(doc: string, fills: Record<string, string>): { text: 
         out += value;
       } else {
         out += m[0];
-        if (!seenLeftover.has(name)) {
+        if (!SPAWN_FILLED_SLOTS.includes(name) && !seenLeftover.has(name)) {
           seenLeftover.add(name);
           leftover.push(name);
         }
