@@ -227,6 +227,22 @@ describe("plugins", () => {
     expect(decide(pr(changed)).mode).toBe("skip");
     expect(pluginDirs(changed)).toEqual(["plugins/mattstack"]);
   });
+  test("a plugins-only diff that an rt test reads by repo path runs full", () => {
+    const reading = new Map(sources);
+    reading.set(
+      "lib/__tests__/plugin-parity.test.ts",
+      `const manifest = readFileSync(join(ROOT, "plugins/herdr-chat/plugin.json"), "utf8");`,
+    );
+    const decision = decide({ event: "pull_request", changed: ["plugins/herdr-chat/plugin.json"], sources: reading, preloadImports });
+    expect(decision.mode).toBe("full");
+    expect(decision.reason).toContain("lib/__tests__/plugin-parity.test.ts");
+  });
+  test("a plugin file matches by repo path only, never by a shared basename", () => {
+    const reading = new Map(sources);
+    reading.set("lib/__tests__/skill-shape.test.ts", `const skill = readFileSync(join(dir, "SKILL.md"), "utf8");`);
+    const changed = ["plugins/herdr-chat/skills/chat/SKILL.md"];
+    expect(decide({ event: "pull_request", changed, sources: reading, preloadImports }).mode).toBe("skip");
+  });
   test("a plugin change beside rt code is full and still names the plugin", () => {
     const changed = ["plugins/herdr-chat/src/lib.rs", "lib/foo.ts"];
     expect(decide(pr(changed)).mode).toBe("full");

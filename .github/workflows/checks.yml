@@ -215,7 +215,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             plugins/herdr-chat/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('plugins/herdr-chat/Cargo.lock') }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('plugins/herdr-chat/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: cargo-${{ runner.os }}-
       - name: Build and test herdr-chat
         working-directory: plugins/herdr-chat
         run: cargo build --release --locked && cargo test --locked
