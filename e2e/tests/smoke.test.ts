@@ -17,19 +17,34 @@ describe("smoke", () => {
     expect(result.stdout.trim()).toMatch(/^rt /);
   });
 
-  test("rt --help lists all top-level commands", async () => {
+  const listedVerbs = (stdout: string) =>
+    stdout.split("\n").map((line) => line.match(/^  ([a-z-]+)  /)?.[1]).filter(Boolean);
+
+  test("rt --help lists the verbs typed by hand and leaves program verbs out", async () => {
     const result = await rt(["--help"], { home });
     expect(result.exitCode).toBe(0);
 
     // Help is a first-class product on stdout (dispatch-level --help).
-    const output = result.stdout;
+    const verbs = listedVerbs(result.stdout);
     const expectedCommands = [
       "git", "sync", "run", "commit",
       "port", "update", "version",
-      "cd", "nav", "daemon", "settings", "hooks",
+      "cd", "nav", "settings", "hooks",
     ];
     for (const cmd of expectedCommands) {
-      expect(output).toContain(cmd);
+      expect(verbs).toContain(cmd);
+    }
+    for (const cmd of ["daemon", "state", "skills", "herd"]) {
+      expect(verbs).not.toContain(cmd);
+    }
+  });
+
+  test("rt --all --help lists program verbs too", async () => {
+    const result = await rt(["--all", "--help"], { home });
+    expect(result.exitCode).toBe(0);
+    const verbs = listedVerbs(result.stdout);
+    for (const cmd of ["git", "daemon", "state", "skills", "herd"]) {
+      expect(verbs).toContain(cmd);
     }
   });
 
