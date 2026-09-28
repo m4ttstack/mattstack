@@ -63,6 +63,26 @@ describe("rt skills expand", () => {
     expect(logs.join("\n")).toContain("+ a");
   });
 
+  test("a hand-written dir in --out fails the write and the dry run, naming it, and survives", async () => {
+    const mine = join(root, "out", "mine", "SKILL.md");
+    write(mine, "---\nname: app:mine\ndescription: m\n---\n\nHand-written.\n");
+    for (const extra of [[], ["--dry-run"]]) {
+      const r = await runExpectingCleanExit(() => skillsExpand([...base(), ...extra]));
+      expect(r.exitCode).toBe(1);
+      expect(r.errors.join("\n")).toContain(`${join(root, "out", "mine")} is not expand output`);
+    }
+    expect(readFileSync(mine, "utf8")).toContain("Hand-written.");
+    expect(existsSync(join(root, "out", "a"))).toBe(false);
+  });
+
+  test("--check names a vendored drift by path", async () => {
+    await skillsExpand(base());
+    write(join(root, "out", "a", "scripts", "old.sh"), "echo old\n");
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--check"]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors.join("\n")).toContain("a: vendored (scripts/old.sh)");
+  });
+
   test("a missing --src or --out is a usage error", async () => {
     const r = await runExpectingCleanExit(() => skillsExpand(["--src", join(root, "src")]));
     expect(r.exitCode).toBe(1);

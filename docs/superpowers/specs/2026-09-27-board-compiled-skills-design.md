@@ -75,16 +75,20 @@ rt skills expand --src <dir> --out <dir> [--mattstack-dir <root>] [--check] [--s
   `scripts/` and `${CLAUDE_SKILL_DIR}/scripts/...` in `allowed-tools` and
   prose keeps meaning what it means.
 - The output directory is owned by expand: a skill directory in `--out`
-  with no counterpart in `--src` is removed. Nothing hand-written lives in
-  `--out`.
+  with no counterpart in `--src` is removed, but only when its `SKILL.md`
+  body starts with expand's header. Any other directory in `--out` stops
+  the run, named, before anything is deleted or written, and `--check`
+  reports it as `foreign`.
 - Lint: a `${CLAUDE_SKILL_DIR}/...` path in the expanded body must resolve
   inside `--out`. A sibling (`../gate-cli-recipes`) passes; the old
   `../../../../plugins/...` fails with the path named. `--strict` runs the
   mcp lint `skills check --strict` runs, and a line the lint flags takes the
   existing `<!-- mcp-lint: allow -->` marker.
 - `--check` expands in memory and compares: `SKILL.md` through
-  `skillMdDriftCauses` (frontmatter, source, include, structure), vendored
-  files byte for byte, and the set of directories. It prints one line per
+  `skillMdDriftCauses` (frontmatter, source, include, structure) with the
+  seam versions and `compiled:` stamp masked as `skills check` masks them,
+  vendored files byte for byte (the cause names the first path that
+  differs), and the set of directories. It prints one line per
   drifted skill naming the cause and exits 1; clean is exit 0. `--json`
   prints the same as an envelope.
 
@@ -135,8 +139,8 @@ a test file inside `scripts/` would otherwise vendor into the bundle.
 Two root package scripts, so nobody types the flags:
 
 ```
-skills:expand:board   bun cli.ts skills expand --src apps/board/skills-src --out apps/board/skills --mattstack-dir .
-skills:check:board    the same with --check --strict
+skills:expand:board   bun cli.ts skills expand --src apps/board/skills-src --out apps/board/skills --mattstack-dir . --strict
+skills:check:board    the same with --check
 ```
 
 `skills:check:board` joins the root `check` task that `bun run check` runs
