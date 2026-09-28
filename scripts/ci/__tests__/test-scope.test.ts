@@ -12,6 +12,8 @@ import {
   isPluginTree,
   pluginDirs,
   ROOT,
+  RT_PLUGIN_TRIGGERS,
+  rtTriggeredPluginDirs,
   unitDirs,
   type ScopeInput,
 } from "../test-scope.ts";
@@ -268,5 +270,39 @@ describe("plugins", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("rt changes that affect a plugin", () => {
+  function withPlugin<T>(name: string | null, fn: (root: string) => T): T {
+    const root = mkdtempSync(join(tmpdir(), "test-scope-triggers-"));
+    try {
+      if (name) mkdirSync(join(root, "plugins", name), { recursive: true });
+      return fn(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+  test("every trigger names a plugins/<name> directory", () => {
+    for (const dir of Object.values(RT_PLUGIN_TRIGGERS)) expect(dir).toMatch(/^plugins\/[^/]+$/);
+  });
+  test.each([
+    "lib/mcp/tools.ts",
+    "commands/mcp.ts",
+    "lib/skills/compile.ts",
+    "commands/skills-sync.ts",
+    "commands/skills.ts",
+    "lib/command-tree-def.ts",
+    "cli.ts",
+  ])("%s runs plugin-mattstack when the plugin exists", (f) => {
+    withPlugin("mattstack", (root) => expect(rtTriggeredPluginDirs([f], root)).toEqual(["plugins/mattstack"]));
+  });
+  test("an unrelated rt change triggers no plugin", () => {
+    withPlugin("mattstack", (root) =>
+      expect(rtTriggeredPluginDirs(["lib/foo.ts", "commands/worktree.ts", "lib/mcpish.ts", "docs/cli.ts.md"], root)).toEqual([]),
+    );
+  });
+  test("a trigger for a plugin directory that does not exist is dropped", () => {
+    withPlugin(null, (root) => expect(rtTriggeredPluginDirs(["lib/mcp/tools.ts"], root)).toEqual([]));
   });
 });
