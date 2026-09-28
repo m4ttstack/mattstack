@@ -9,7 +9,7 @@ import { joinRoom, postMessage } from "../../state/chat-store.ts";
 import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
 import type { HerdRow } from "../herd-store.ts";
 import type { HerdJobRow } from "../herd-store.ts";
-import { createWatchdogActuators, createWatchdogSensors, readWatchdogConfig } from "../herd-watchdog-adapters.ts";
+import { createWatchdogActuators, createWatchdogSensors, hasBackgroundWork, readWatchdogConfig } from "../herd-watchdog-adapters.ts";
 import { HerdWatchdog, type WatchdogConfig } from "../herd-watchdog.ts";
 import { deleteRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
@@ -50,12 +50,25 @@ function gate(over: Partial<GateRow> = {}): GateRow {
 
 type Snap = Record<string, Array<{ pane_id: string; agent?: string; agent_status?: string }>>;
 
-function fx(over: { snapshots?: Snap; herds?: HerdRow[]; gates?: GateRow[]; answered?: GateRow[]; db?: ReturnType<typeof freshDb>; clock?: { now: number } } = {}) {
+function jobRow(over: Partial<HerdJobRow> = {}): HerdJobRow {
+  return {
+    herd: "demo-1", name: "job-a", worktree: "/w", branch: null, tree: null,
+    pane: "w1:p1", agentSession: "sess-a", agentId: null, handle: "job-a",
+    status: "done", disposable: false, lastGate: null, lastReport: 7,
+    createdAt: 0, updatedAt: 0, ...over,
+  };
+}
+
+function fx(over: { snapshots?: Snap; herds?: HerdRow[]; gates?: GateRow[]; answered?: GateRow[]; db?: ReturnType<typeof freshDb>; clock?: { now: number }; jobs?: HerdJobRow[]; screens?: Record<string, string> } = {}) {
   const snapshots: Snap = over.snapshots ?? {};
   const clock = over.clock ?? { now: NOW };
   const herdrCalls: Array<{ method: string; sock: string | undefined }> = [];
   const herdr = (async (method: string, _params: unknown, opts?: { sockPath?: string }) => {
     herdrCalls.push({ method, sock: opts?.sockPath });
+    if (method === "pane.read") {
+      const text = over.screens?.[(_params as { pane_id: string }).pane_id];
+      return text === undefined ? { ok: false, code: "pane_not_found", message: "no such pane" } : { ok: true, result: { read: { text } } };
+    }
     const panes = snapshots[opts?.sockPath ?? DEFAULT];
     if (!panes) return { ok: false, code: "unreachable", message: "no server" };
     return { ok: true, result: { snapshot: { panes } } };
@@ -66,7 +79,7 @@ function fx(over: { snapshots?: Snap; herds?: HerdRow[]; gates?: GateRow[]; answ
   const warns: Array<{ ctx: any; msg: string }> = [];
   const capture = { ...log, warn: (ctx: any, msg: string) => { warns.push({ ctx, msg }); } } as unknown as typeof log;
   const sensors = createWatchdogSensors({
-    herdStore: { list: (f) => (over.herds ?? [herd()]).filter((h) => !f?.status || h.status === f.status), jobs: () => [] },
+    herdStore: { list: (f) => (over.herds ?? [herd()]).filter((h) => !f?.status || h.status === f.status), jobs: () => over.jobs ?? [] },
     gatesStore: {
       list: (filter) => { listCalls.push(filter); return { gates: over.gates ?? [], cursor: 0 }; },
       unconsumedAnsweredPushes: (now) => { answeredCalls.push(now); return over.answered ?? []; },
@@ -595,5 +608,90 @@ describe("the board-37 specimen: a turn that ended before a daemon restart", () 
     await r.sweep();
     await r.sweep(16);
     expect(r.pokes).toEqual([]);
+  });
+});
+
+const RULE = "─".repeat(60);
+const COMPOSER = ["", RULE, "❯", RULE, "  O 5.5 [high] | claude | W:38% C:16%"];
+const SHELL_FOOTER = [...COMPOSER, "  ⏵⏵ auto mode on · 1 shell · ← for agents"].join("\n");
+const SHELL_MONITOR_FOOTER = [...COMPOSER, "  ⏵⏵ auto mode on · 1 shell, 1 monitor · ← for agents"].join("\n");
+const AGENTS_PANEL = [...COMPOSER, "  ⏵⏵ auto mode on · ← for agents", "", "  ⏺ main", "  ◯ general-purpose  Throwaway footer… 5s · ↓ 49.3k tokens"].join("\n");
+const PLAIN_FOOTER = [...COMPOSER, "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"].join("\n");
+const TRANSCRIPT_MENTION = ["⏺ Started 2 shells and 1 monitor for the CI wait.", ...COMPOSER, "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"].join("\n");
+
+describe("hasBackgroundWork", () => {
+  test("a shell or monitor count in the footer is background work", () => {
+    expect(hasBackgroundWork(SHELL_FOOTER)).toBe(true);
+    expect(hasBackgroundWork(SHELL_MONITOR_FOOTER)).toBe(true);
+  });
+  test("a live agents panel under main is background work", () => {
+    expect(hasBackgroundWork(AGENTS_PANEL)).toBe(true);
+  });
+  test("a plain footer is not", () => {
+    expect(hasBackgroundWork(PLAIN_FOOTER)).toBe(false);
+  });
+  test("counts above the composer's last rule are transcript text, not the footer", () => {
+    expect(hasBackgroundWork(TRANSCRIPT_MENTION)).toBe(false);
+  });
+  test("a screen with no rule at all is not", () => {
+    expect(hasBackgroundWork("1 shell")).toBe(false);
+  });
+});
+
+describe("watchdog sensors: background work", () => {
+  const snapshots: Snap = {
+    [DEFAULT]: [
+      { pane_id: "w1:p1", agent: "claude", agent_status: "idle" },
+      { pane_id: "w1:p2", agent: "claude", agent_status: "working" },
+      { pane_id: "w1:p3", agent: "claude", agent_status: "idle" },
+      { pane_id: "w1:p0", agent: "claude", agent_status: "idle" },
+    ],
+  };
+
+  test("an idle job pane whose footer shows a shell reads as background work", async () => {
+    const { sensors } = fx({ snapshots, jobs: [jobRow()], screens: { "w1:p1": SHELL_FOOTER } });
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toBe(true);
+  });
+
+  test("only idle job panes are read: working panes and the shepherd pane never are", async () => {
+    const { sensors, herdrCalls } = fx({
+      snapshots,
+      jobs: [jobRow({ name: "a", pane: "w1:p2" }), jobRow({ name: "b", pane: "w1:p3" })],
+      screens: { "w1:p0": SHELL_FOOTER, "w1:p2": SHELL_FOOTER, "w1:p3": PLAIN_FOOTER },
+    });
+    await sensors.refresh();
+    expect(herdrCalls.filter((c) => c.method === "pane.read")).toHaveLength(1);
+    expect(sensors.backgroundWork("w1:p0")).toBe(false);
+    expect(sensors.backgroundWork("w1:p2")).toBe(false);
+    expect(sensors.backgroundWork("w1:p3")).toBe(false);
+  });
+
+  test("a closed job's pane is not read", async () => {
+    const { sensors, herdrCalls } = fx({ snapshots, jobs: [jobRow({ status: "closed" })], screens: { "w1:p1": SHELL_FOOTER } });
+    await sensors.refresh();
+    expect(herdrCalls.filter((c) => c.method === "pane.read")).toHaveLength(0);
+    expect(sensors.backgroundWork("w1:p1")).toBe(false);
+  });
+
+  test("a failed read on one pane leaves it not busy and still reads the others", async () => {
+    const { sensors } = fx({
+      snapshots,
+      jobs: [jobRow({ name: "a", pane: "w1:p1" }), jobRow({ name: "b", pane: "w1:p3" })],
+      screens: { "w1:p3": SHELL_FOOTER },
+    });
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toBe(false);
+    expect(sensors.backgroundWork("w1:p3")).toBe(true);
+  });
+
+  test("the next refresh drops a pane whose background work finished", async () => {
+    const screens: Record<string, string> = { "w1:p1": SHELL_FOOTER };
+    const { sensors } = fx({ snapshots, jobs: [jobRow()], screens });
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toBe(true);
+    screens["w1:p1"] = PLAIN_FOOTER;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toBe(false);
   });
 });

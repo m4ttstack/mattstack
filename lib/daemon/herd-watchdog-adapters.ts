@@ -45,6 +45,24 @@ interface PaneReading { agent: string | null; status: string | null; socket: str
 
 const UNREAD_PEEK_LIMIT = 200;
 
+// Claude Code draws its status footer below the composer's bottom rule, so
+// only that region is read: a transcript line quoting "1 shell" never counts.
+// The agents panel exists only while a subagent is still running.
+const RULE_LINE = /^\s*─{10,}\s*$/;
+const FOOTER_TASK_COUNT = /\b[1-9]\d* (?:shells?|monitors?)\b/;
+const AGENTS_PANEL_MAIN = /^\s*⏺ main\s*$/;
+
+export function hasBackgroundWork(screen: string): boolean {
+  const lines = screen.split("\n");
+  let rule = -1;
+  for (let i = 0; i < lines.length; i++) if (RULE_LINE.test(lines[i]!)) rule = i;
+  if (rule < 0) return false;
+  const footer = lines.slice(rule + 1);
+  if (footer.some((line) => FOOTER_TASK_COUNT.test(line))) return true;
+  const main = footer.findIndex((line) => AGENTS_PANEL_MAIN.test(line));
+  return main >= 0 && footer.slice(main + 1).some((line) => line.trim().length > 0);
+}
+
 /** The statuses this mapper names. Anything else a live claude reports still
     maps, to idle: board-37 sat wedged for 31 minutes because "done" fell
     through to working, and a working pane is never poked. A status nobody
@@ -78,6 +96,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
   // pane works again: an age measured from the restart, never from boot-time
   // zero, so a worker idle across a restart still earns a verdict.
   const firstSeenIdle = new Map<string, number>();
+  let busy = new Set<string>();
 
   async function refresh(): Promise<void> {
     const active = deps.herdStore.list({ status: "active" });
@@ -100,6 +119,20 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
     }
     for (const status of unnamed) deps.log?.warn({ status }, "watchdog: unrecognized herdr agent status; treating the pane as idle");
     panes = next;
+    const nextBusy = new Set<string>();
+    for (const herd of active) {
+      for (const job of deps.herdStore.jobs(herd.id)) {
+        if (job.pane === null || job.status === "closed") continue;
+        const row = next.get(job.pane);
+        if (!row || readingState(row) !== "idle") continue;
+        const screen = await deps.herdr<{ read?: { text?: unknown } }>("pane.read", { pane_id: parsePaneRef(job.pane).paneId, source: "visible" }, { sockPath: row.socket });
+        // An ok reply's body is still herdr's to get wrong; anything but a
+        // text screen reads as not busy rather than throwing out of the sweep.
+        const text = screen.ok ? screen.result?.read?.text : undefined;
+        if (typeof text === "string" && hasBackgroundWork(text)) nextBusy.add(job.pane);
+      }
+    }
+    busy = nextBusy;
   }
 
   return {
@@ -110,6 +143,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
     jobs: (herd) => deps.herdStore.jobs(herd),
     paneState: (pane) => readingState(panes.get(pane)),
     idleSinceMs: (pane) => deps.lifecycle.lastStatusChangeMs(pane) ?? firstSeenIdle.get(pane) ?? null,
+    backgroundWork: (pane) => busy.has(pane),
     unreadDmMentionsFor(handle) {
       let count = 0;
       for (const { room, messages } of peekUnread({ handle, limit: UNREAD_PEEK_LIMIT }, deps.db)) {

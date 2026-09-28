@@ -19,6 +19,7 @@ function sensors(over: Partial<WatchdogSensors> = {}): WatchdogSensors {
     jobs: () => [],
     paneState: () => "idle",
     idleSinceMs: () => null,
+    backgroundWork: () => false,
     unreadDmMentionsFor: () => 0,
     openHumanGates: () => [],
     unconsumedAnswered: () => [],

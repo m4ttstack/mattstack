@@ -17,6 +17,10 @@ export interface WatchdogSensors {
   /** Epoch ms of the pane's last status change, or null when nothing has been
       recorded (daemon restart, pane never watched). Null is never a wedge. */
   idleSinceMs(pane: string): number | null;
+  /** True when the pane's last reading showed Claude Code holding a
+      background shell, monitor or subagent: a turn that ended to wait on
+      one is working, not wedged. Job panes only; never the shepherd's. */
+  backgroundWork(pane: string): boolean;
   /** DMs + mentions only (the wake-mode filter); room chatter never counts. */
   unreadDmMentionsFor(handle: string): number;
   openHumanGates(herdPrefix: string): { id: string; ageMs: number }[];
