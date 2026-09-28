@@ -141,8 +141,7 @@ executable choices, open a facility gate instead of emitting `error`. Stay at
   rather than trimming it.
 - **presentation "form":** follow `mattstack:gate-protocol`'s "Acting on
   the response" (form branch) and "CAS and the doorbell" sections
-  (shared rt checkout, machine-local by design: `cat
-  ~/Documents/GitHub/repo-tools/plugins/mattstack/attachments/gate-protocol/SKILL.md`)
+  (`plugins/mattstack/attachments/gate-protocol/SKILL.md` in the mattstack monorepo)
   for the mechanical rendering rule (this gate's one question, its
   label verbatim, the chosen option's value submitted verbatim, never
   an index or a paraphrase) and the conflict rule (a printed conflict
@@ -236,9 +235,8 @@ describes. When the daemon is down the hook allows the native form
   `<status-bin> gate answer <state> --answers <json> --by pane`.
   - **Strict membership, CAS loss, reading answers back.** Follow
     `mattstack:gate-protocol`'s "Answers are option values" and "CAS and
-    the doorbell" sections (shared rt checkout, machine-local by
-    design: `cat
-    ~/Documents/GitHub/repo-tools/plugins/mattstack/attachments/gate-protocol/SKILL.md`)
+    the doorbell" sections (`plugins/mattstack/attachments/gate-protocol/SKILL.md`
+    in the mattstack monorepo)
     for the shared mechanics, unchanged, and `board:gate-cli-recipes`'s
     "CAS loss and reading answers back" section (`cat
     ${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md`) for this CLI's own
