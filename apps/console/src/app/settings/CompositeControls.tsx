@@ -47,6 +47,7 @@ import { ExpandToggle } from './ExpandToggle';
 import { editorKind, formOf, type FormShape } from './formShape';
 import { JsonBlock } from './JsonBlock';
 import { ScopeBadge } from './ScopeBadge';
+import listClasses from './StringList.module.css';
 import { unitOf } from './units';
 import { useKeyExplain, useSettingsRepo } from './useConsoleSettings';
 import type { useRowSave } from './useRowSave';
@@ -123,33 +124,40 @@ function StringListBody({
   const list = strings(def.effective.value);
   const saving = row.status === 'saving';
   const [draft, setDraft] = useState('');
+  const resettable =
+    def.hasDefault &&
+    def.effective.scope !== 'default' &&
+    def.effective.scope === row.target.scope;
   return (
     <Body>
-      {list.map((item, i) => (
-        <FieldRow
-          key={`${i}:${item}`}
-          label={
-            <Text fz={12} ff="monospace">
-              {item}
-            </Text>
-          }
-        >
-          <UnstyledButton
-            aria-label={`remove ${item}`}
-            disabled={saving}
-            onClick={() => void row.save(list.filter(x => x !== item))}
-          >
-            <Icons.close size={14} />
-          </UnstyledButton>
-        </FieldRow>
-      ))}
-      <Box py={6}>
+      <div className={listClasses.cloud}>
+        {list.map((item, i) => (
+          <span key={`${i}:${item}`} className={listClasses.tag}>
+            {item}
+            <button
+              type="button"
+              className={listClasses.remove}
+              aria-label={`remove ${item}`}
+              disabled={saving}
+              onClick={() => void row.save(list.filter(x => x !== item))}
+            >
+              <Icons.close size={12} />
+            </button>
+          </span>
+        ))}
         <TextInput
           aria-label={`add to ${def.key}`}
           disabled={saving}
           size="xs"
-          maw={360}
-          ff="monospace"
+          w={160}
+          leftSection={<Icons.plus size={12} />}
+          styles={{
+            input: {
+              ...INPUT_TYPE.code.input,
+              height: TAG_HEIGHT,
+              minHeight: TAG_HEIGHT,
+            },
+          }}
           placeholder="add an item"
           value={draft}
           onTextChange={setDraft}
@@ -159,11 +167,22 @@ function StringListBody({
             if (next) void row.save(next).then(ok => ok && setDraft(''));
           }}
         />
-      </Box>
-      <Group py={6}>
+      </div>
+      <Group gap={4} pb={2}>
         <Button size="compact-xs" variant="subtle" onClick={onEditJson}>
           Edit as JSON
         </Button>
+        {resettable && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            disabled={saving}
+            onClick={() => void row.save(undefined)}
+          >
+            Reset to default
+          </Button>
+        )}
       </Group>
     </Body>
   );

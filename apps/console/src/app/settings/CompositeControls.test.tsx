@@ -378,6 +378,56 @@ describe('composite rows', () => {
     );
   });
 
+  it('a long string list set over its default offers Reset to default, which unsets it', async () => {
+    const s = store();
+    renderWithProviders(
+      <SettingRow
+        def={def('rt.repoRoots', {
+          hasDefault: true,
+          defaultValue: [],
+          effective: {
+            scope: 'machine',
+            file: '/m',
+            value: ['~/a', '~/b', '~/c', '~/d'],
+          },
+        })}
+        store={s}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Reset to default' })
+    );
+    await waitFor(() =>
+      expect(s.unset).toHaveBeenCalledWith('rt.repoRoots', 'machine')
+    );
+  });
+
+  it('a long string list still on its default offers no reset', async () => {
+    renderWithProviders(
+      <SettingRow
+        def={def('rt.repoRoots', {
+          hasDefault: true,
+          defaultValue: ['~/a', '~/b', '~/c', '~/d'],
+          effective: {
+            scope: 'default',
+            file: null,
+            value: ['~/a', '~/b', '~/c', '~/d'],
+          },
+        })}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    expect(
+      screen.queryByRole('button', { name: 'Reset to default' })
+    ).toBeNull();
+  });
+
   it('a string map edits a value in place', async () => {
     const s = store();
     renderWithProviders(
