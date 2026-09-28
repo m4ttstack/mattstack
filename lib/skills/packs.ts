@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "fs";
 import { homedir } from "os";
-import { basename, dirname, isAbsolute, join, resolve } from "path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
 import { stripJsonc } from "./sources.ts";
 
@@ -88,8 +88,11 @@ function pluginDirOf(marketDir: string, source: MarketplaceEntry["source"]): str
   if (typeof source === "string") return source === "" ? null : isAbsolute(source) ? source : resolve(marketDir, source);
   if (!source || typeof source !== "object") return null;
   if (source.source === "git-subdir") {
-    const root = fileUrlPath(source.url);
-    return root && typeof source.path === "string" && source.path !== "" ? resolve(root, source.path) : null;
+    const url = fileUrlPath(source.url);
+    if (!url || typeof source.path !== "string" || source.path === "") return null;
+    const root = resolve(url);
+    const dir = resolve(root, source.path);
+    return dir === root || dir.startsWith(root.endsWith(sep) ? root : root + sep) ? dir : null;
   }
   if (source.path) return isAbsolute(source.path) ? source.path : resolve(marketDir, source.path);
   return source.source === "url" ? fileUrlPath(source.url) : null;
