@@ -16,7 +16,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-545 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-558 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -141,11 +141,14 @@ What the graph cannot show:
   only a stale one) or another owner's lease is `another owner: stand
   down` at the `Lease check result (...)?` diamond: the board's lease is
   gone, and this pane never claims in its place. See "The CI lease".
-- **Refusal budgets.** Each `Fixed the <tool> call once already?` counter
-  counts for the whole run and does not reset on an off-script iterate: a
-  refusal after an iterate goes straight back to that tool's off-script
-  escalation, and its `Off-script rounds = 2 (...)?` counter bounds the
-  loop.
+- **Budgets.** Each `Fixed the <tool> call once already?` counter counts
+  for the whole run. A guard STOP's re-entry passes the same counter as a
+  tool error. None resets on an off-script iterate: a refusal after an
+  iterate goes straight back to that tool's off-script escalation, and
+  its `Off-script rounds = 2 (...)?` counter bounds the loop.
+  `Old-lease waits = 2 (doctor)?` counts the waits a resumed pane has
+  taken on its old lease: two at most, then it stands down naming the
+  holder.
 - **Exit messages.** `done` names what the run repaired (or "clean and green,
   nothing to repair"). `error` is specific and actionable (see "Escalation
   shapes and phrasing"); a stand-down's message is `another CI attendant
@@ -393,8 +396,18 @@ lease, and the owner is always this session. The first call is
   yours), and stay in the pane.
 
 A `lease_lost` watch result in own mode with no `holder` means no lease is
-held at all: claim again, twice at most. With a holder named, or in board
-mode, it is a stand-down.
+held at all: claim again, twice at most, and past that the lost-lease
+escalation asks the human. With a holder named, or in board mode, it is a
+stand-down.
+
+A resumed pane (launched with `--resumed-gate`) is the one exception to
+standing down on another owner's fresh `doctor` lease. `claude --resume`
+may start this pane under a new session id, so the lease its earlier self
+claimed reads as another session's, and `ci_lease_claim` refuses a fresh
+lease another session owns. So the resumed pane waits the old lease out
+and reads it again: a dead pane never heartbeats, so its lease goes stale
+and the claim succeeds, while a live attendant heartbeats, so a moved
+`heartbeatAt` is a stand-down. A fresh run never waits.
 
 | Thought | Reality |
 |---|---|

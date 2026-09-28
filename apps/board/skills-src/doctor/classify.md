@@ -94,7 +94,7 @@ digraph doctor_classify_and_retry {
     "mr_retry result?" -> "<status-bin> doctor-status <state> fixing <message naming the retried job and retry-flake>" [label="retried"];
     "mr_retry result?" -> "Fixed the mr_retry call once already?" [label="tool error"];
     "mr_retry result?" -> "STOP: retries go through mr_retry" [label="tempted to rerun the job with the GitLab CLI"];
-    "STOP: retries go through mr_retry" -> "mr_retry {mrUrl, jobId}";
+    "STOP: retries go through mr_retry" -> "Fixed the mr_retry call once already?";
     "Fixed the mr_retry call once already?" -> "Fix what the mr_retry error names" [label="no"];
     "Fixed the mr_retry call once already?" -> "doctor off-script escalation: mr_retry refused" [label="yes"];
     "Fix what the mr_retry error names" -> "Lease mode (before the retry)?";
