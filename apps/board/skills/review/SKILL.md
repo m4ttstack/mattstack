@@ -102,7 +102,7 @@ digraph review_flow {
     "Writing style loaded (review act)?" [shape=diamond];
     "Findings left to post (review)?" [shape=diamond];
     "Anchored to a diff line (this finding)?" [shape=diamond];
-    "mr_comment_inline {mrUrl, body, position}" [shape=plaintext];
+    "mr_comment_inline {mrUrl, body, path, line}" [shape=plaintext];
     "mr_comment_inline result?" [shape=diamond];
     "STOP: review comments post through the mr_* tools" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_comment_inline call once already?" [shape=diamond];
@@ -217,17 +217,17 @@ digraph review_flow {
     "Writing style loaded (review act)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: a resumed pane"];
     "Findings left to post (review)?" -> "Anchored to a diff line (this finding)?" [label="yes"];
     "Findings left to post (review)?" -> "Summary note carries findings?" [label="no"];
-    "Anchored to a diff line (this finding)?" -> "mr_comment_inline {mrUrl, body, position}" [label="yes"];
+    "Anchored to a diff line (this finding)?" -> "mr_comment_inline {mrUrl, body, path, line}" [label="yes"];
     "Anchored to a diff line (this finding)?" -> "Add the finding to the summary note" [label="no"];
     "Add the finding to the summary note" -> "Findings left to post (review)?";
-    "mr_comment_inline {mrUrl, body, position}" -> "mr_comment_inline result?";
+    "mr_comment_inline {mrUrl, body, path, line}" -> "mr_comment_inline result?";
     "mr_comment_inline result?" -> "Findings left to post (review)?" [label="posted"];
     "mr_comment_inline result?" -> "Fixed the mr_comment_inline call once already?" [label="tool error"];
     "mr_comment_inline result?" -> "STOP: review comments post through the mr_* tools" [label="tempted to post with the GitLab CLI or the API"];
-    "STOP: review comments post through the mr_* tools" -> "mr_comment_inline {mrUrl, body, position}";
+    "STOP: review comments post through the mr_* tools" -> "mr_comment_inline {mrUrl, body, path, line}";
     "Fixed the mr_comment_inline call once already?" -> "Fix what the mr_comment_inline error names" [label="no"];
     "Fixed the mr_comment_inline call once already?" -> "review off-script gate: mr_comment_inline refused" [label="yes"];
-    "Fix what the mr_comment_inline error names" -> "mr_comment_inline {mrUrl, body, position}";
+    "Fix what the mr_comment_inline error names" -> "mr_comment_inline {mrUrl, body, path, line}";
     "Summary note carries findings?" -> "mr_comment {mrUrl, body}" [label="yes"];
     "Summary note carries findings?" -> "Outcome is approve?" [label="no"];
     "mr_comment {mrUrl, body}" -> "mr_comment result?";
@@ -256,7 +256,7 @@ digraph review_flow {
     "Off-script outcome (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
     "Off-script outcome (mr_comment_inline)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
     "Off-script outcome (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
-    "Off-script rounds = 2 (mr_comment_inline)?" -> "mr_comment_inline {mrUrl, body, position}" [label="no: post again"];
+    "Off-script rounds = 2 (mr_comment_inline)?" -> "mr_comment_inline {mrUrl, body, path, line}" [label="no: post again"];
     "Off-script rounds = 2 (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
     "review off-script gate: mr_comment refused" -> "Off-script outcome (mr_comment)?";
@@ -320,10 +320,9 @@ What the graph cannot show:
   every finding in the report whose tier the `tiers` answer picked; on a
   clean review, none. An explicit empty array posts nothing from that
   question. A finding is anchored when it has both a `file` and a `line`:
-  `position` in the `mr_comment_inline` node stands for the top-level
-  arguments `path` (the finding's `file`) and `line`, always both, never
-  a `position` object; for a line the diff removed, add `oldPath` and
-  `oldLine` as well. The daemon re-fetches the diff refs itself, so no sha is
+  the `mr_comment_inline` node's `path` is the finding's `file` and its
+  `line` the finding's `line`, always both, never a `position` object;
+  for a line the diff removed, add `oldPath` and `oldLine` as well. The daemon re-fetches the diff refs itself, so no sha is
   needed. Every comment body is written in the loaded voice: the tier and
   title, what to change, and the anchor. The summary note posts once,
   after every anchored finding, and only when it carries findings.
@@ -614,7 +613,7 @@ The note posts once, with `mr_comment`, after the last anchored finding.
 MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
 with rt; `path` the finding's file as the diff names it; `line` a line
 the diff shows, always given with `path` (plus `oldPath` and `oldLine`
-for a line the diff removed); `body` the non-empty comment. A position GitLab rejects
+for a line the diff removed); `body` the non-empty comment. An anchor GitLab rejects
 with the anchor already matching the finding, or an error that names no
 input, has nothing to correct: post again unchanged, once, and the
 off-script gate follows. An error is never a reason to post with the
@@ -758,10 +757,10 @@ digraph review_gate_step {
 
 ### Ask review-post as a pane form
 
-Read `~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`
-(the stable source checkout, machine-local by design) with the Read tool,
-and follow its "Present the in-pane gate form", "Answers are option
-values" and "Doorbell" sections for the rendering and conflict mechanics:
+Follow `mattstack:gate-protocol`'s "Present the in-pane gate form",
+"Answers are option values" and "Doorbell" sections
+(an attachment of the mattstack plugin, read from this checkout: `cat ${CLAUDE_SKILL_DIR}/../../../../plugins/mattstack/attachments/gate-protocol/SKILL.md`)
+for the rendering and conflict mechanics:
 one form question per gate question in gate order, labels and values
 verbatim, chunked when the gate carries more questions than one form call
 fits, and one answer after the last chunk. Where it records the pane's
@@ -1097,8 +1096,10 @@ levels on the generic path) only when at least one level is present:
 ```
 
 `<levels present>` is a placeholder: substitute the actual tier objects,
-e.g. `[{"value":"critical","label":"critical (1)"},
-{"value":"nit","label":"nit (2)"}]`. Don't copy it verbatim. The finding
+e.g. on the generic path `[{"value":"Critical","label":"Critical (1)"},
+{"value":"Minor","label":"Minor (2)"}]`. Don't copy it verbatim. Each
+`value` is the tier exactly as the report spells it, so posting matches
+the `tiers` answer to the report's tiers verbatim. The finding
 titles ride this `tiers` question's own `context` (one line per finding,
 verbatim from the report file, never re-summarized).
 
