@@ -274,6 +274,18 @@ export async function listSecretNames(domain: string, seams: SecretsSeams): Prom
   return secrets === null ? [] : Object.keys(secrets);
 }
 
+export async function encryptAtLocation(
+  location: SecretsLocation,
+  stagingKey: string,
+  payload: Record<string, string>,
+  key: string,
+  value: string,
+  env: Record<string, string>,
+  execSeam: SecretsExecSeam,
+): Promise<void> {
+  await encryptVerifiedAtLocation(location, stagingKey, payload, (rt) => rt?.[key] === value, `round-trip "${key}"`, env, execSeam);
+}
+
 /**
  * Stage → encrypt-to-tmp → decrypt-readback → fsync+rename. The readback
  * decrypts the tmp output (before it ever replaces the target) and checks
@@ -296,12 +308,12 @@ export async function listSecretNames(domain: string, seams: SecretsSeams): Prom
  * guarantee than its neighbours would be indistinguishable from an accident.
  * Strengthen all of them together or none.
  */
-export async function encryptAtLocation(
+export async function encryptVerifiedAtLocation(
   location: SecretsLocation,
   stagingKey: string,
   payload: Record<string, string>,
-  key: string,
-  value: string,
+  verify: (roundTripped: Record<string, string> | undefined) => boolean,
+  expectation: string,
   env: Record<string, string>,
   execSeam: SecretsExecSeam,
 ): Promise<void> {
@@ -321,7 +333,7 @@ export async function encryptAtLocation(
     );
     if (result.code !== 0) {
       throw new Error(
-        `sops -e ${stagingKey}: encryption failed — ${result.stderr}\n` +
+        `sops -e ${stagingKey}: encryption failed: ${result.stderr}\n` +
           "no plaintext was left on disk (staging files are always cleaned up)",
       );
     }
@@ -344,9 +356,9 @@ export async function encryptAtLocation(
         roundTripped = undefined;
       }
     }
-    if (roundTripped?.[key] !== value) {
+    if (!verify(roundTripped)) {
       throw new Error(
-        `sops -e ${stagingKey}: post-encrypt read-back of ${outputTmpPath} does not round-trip "${key}" — ` +
+        `sops -e ${stagingKey}: post-encrypt read-back of ${outputTmpPath} does not ${expectation}; ` +
           `refusing to declare success (${location.filePath} was left untouched)`,
       );
     }
@@ -421,6 +433,19 @@ export async function writeSecret(domain: string, key: string, value: string, se
   validateKey(key);
   const location = personalLocation(domain);
   await writeAtLocation(location, domain, key, value, seams, domain);
+}
+
+export async function removeSecret(domain: string, key: string, seams: SecretsSeams): Promise<boolean> {
+  validateKey(key);
+  const location = personalLocation(domain);
+  if (!seams.execSeam.fileExists(location.filePath)) return false;
+  const env = await sopsAgeKeyEnv(seams.ageKeySeam);
+  const existing = freshMemoEntry(domain, location.filePath, seams) ?? (await sopsDecrypt(location.filePath, env, seams.execSeam));
+  if (!Object.hasOwn(existing, key)) return false;
+  domainMemo.delete(domain);
+  const { [key]: _removed, ...rest } = existing;
+  await encryptVerifiedAtLocation(location, domain, rest, (rt) => rt !== undefined && !Object.hasOwn(rt, key), `drop "${key}"`, env, seams.execSeam);
+  return true;
 }
 
 /**
