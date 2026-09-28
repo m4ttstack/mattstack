@@ -16,6 +16,8 @@ digraph respond_triage_and_gate_1 {
     "Trigger: a fresh generic run with the style loaded (from Launch and resume)" [shape=ellipse];
     "Trigger: a fresh run with a domain skill (from Launch and resume)" [shape=ellipse];
     "Trigger: revise brought a new round (from Implement the plan)" [shape=ellipse];
+    "Trigger: a resumed triage escalation (from Launch and resume)" [shape=ellipse];
+    "Which triage call refused (resumed)?" [shape=diamond];
     "Delegate adjudication to the domain skill" [shape=box];
     "Domain adjudication result?" [shape=diamond];
     "mr_view {mrUrl} (respond source branch)" [shape=plaintext];
@@ -57,6 +59,12 @@ digraph respond_triage_and_gate_1 {
     "Trigger: revise brought a new round (from Implement the plan)" -> "Write the verdict table and drafts to --report";
     "Trigger: a fresh run with a domain skill (from Launch and resume)" -> "Delegate adjudication to the domain skill";
     "Trigger: a fresh generic run with the style loaded (from Launch and resume)" -> "mr_view {mrUrl} (respond source branch)";
+    "Trigger: a resumed triage escalation (from Launch and resume)" -> "Which triage call refused (resumed)?";
+    "Which triage call refused (resumed)?" -> "Delegate adjudication to the domain skill" [label="a domain skill resolved on this resume: it adjudicates afresh"];
+    "Which triage call refused (resumed)?" -> "mr_view {mrUrl} (respond source branch)" [label="mr_view iterate at round 1"];
+    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="mr_view take (the branch from its note), or a hand back or round-2 iterate (no branch)"];
+    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="fetch mr_threads iterate at round 1"];
+    "Which triage call refused (resumed)?" -> "Adjudicate each unresolved thread" [label="fetch mr_threads take: the threads from its note"];
     "Delegate adjudication to the domain skill" -> "Domain adjudication result?";
     "Domain adjudication result?" -> "Unresolved human threads = 0?" [label="a verdict table handed back"];
     "Domain adjudication result?" -> "Triage error: continue at the error write" [label="failed"];
@@ -64,7 +72,7 @@ digraph respond_triage_and_gate_1 {
     "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="ok: keep sourceBranch"];
     "mr_view result (respond)?" -> "Fixed the mr_view call once already (respond)?" [label="tool error"];
     "mr_view result (respond)?" -> "STOP: MR reads go through mr_view (respond)" [label="tempted to read the MR with the GitLab CLI"];
-    "STOP: MR reads go through mr_view (respond)" -> "mr_view {mrUrl} (respond source branch)";
+    "STOP: MR reads go through mr_view (respond)" -> "Fixed the mr_view call once already (respond)?";
     "Fixed the mr_view call once already (respond)?" -> "Fix what the mr_view error names (respond)" [label="no"];
     "Fixed the mr_view call once already (respond)?" -> "respond off-script gate: mr_view refused" [label="yes"];
     "Fix what the mr_view error names (respond)" -> "mr_view {mrUrl} (respond source branch)";
@@ -72,7 +80,7 @@ digraph respond_triage_and_gate_1 {
     "mr_threads result (fetch)?" -> "Adjudicate each unresolved thread" [label="ok"];
     "mr_threads result (fetch)?" -> "Fixed the fetch mr_threads call once already?" [label="tool error"];
     "mr_threads result (fetch)?" -> "STOP: threads are read with mr_threads" [label="tempted to read them with the GitLab CLI"];
-    "STOP: threads are read with mr_threads" -> "mr_threads {mrUrl, refresh: true} (fetch)";
+    "STOP: threads are read with mr_threads" -> "Fixed the fetch mr_threads call once already?";
     "Fixed the fetch mr_threads call once already?" -> "Fix what the fetch mr_threads error names" [label="no"];
     "Fixed the fetch mr_threads call once already?" -> "respond off-script gate: mr_threads refused (fetch)" [label="yes"];
     "Fix what the fetch mr_threads error names" -> "mr_threads {mrUrl, refresh: true} (fetch)";
@@ -121,7 +129,7 @@ digraph respond_triage_and_gate_1 {
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
-Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Tell the domain skill these four things:
 
@@ -190,7 +198,8 @@ Honor the operator note (for example "push back on the naming comment",
 
 Before Gate 1 opens, `--report <path>` holds, as Markdown:
 
-- a `source-branch: <branch>` line (generic path, when `mr_view` gave it);
+- on the generic path, a `source-branch: <branch>` line when this run
+  knows the branch (see below);
 - the verdict table: one row per unresolved thread in verdict order, keyed
   by its thread id VERBATIM (the same `<threadId>` the gate's
   `reply:<threadId>`, `fix:<threadId>` and `skip:<threadId>` values carry),
@@ -203,7 +212,18 @@ produces the adjudication writes the file: on the domain path the domain
 skill wrote it, so confirm it holds the table and drafts keyed by thread
 id and write only what is missing. On a new round after `revise`, replace
 the table and drafts and drop any earlier `gate-1-context: dropped` line;
-the new Gate 1 records its own.
+the new Gate 1 records its own. On every new table, a fresh run's
+included, drop any earlier `gate-1-answer:` or `gate-2-answer:` line:
+they answer an earlier table's gates.
+
+On the generic path the `source-branch:` line always describes this
+run, since the file outlives it. This run knows the branch when its
+`mr_view` gave `sourceBranch`, an `mr_view` take named it, or a resumed
+`mr_threads` origin read it from the line the pre-step below wrote:
+write that branch, replacing any earlier line. Otherwise (a hand back,
+gate unavailable, a spent round budget, a resumed round-2 iterate)
+delete any earlier `source-branch:` line, so the push check finds no
+branch and holds every fixed thread.
 
 ### Build the Gate 1 questions
 
@@ -251,34 +271,50 @@ Take "Off-script step" with this question. Label: `mr_view refused twice
 on !<iid>: <second error>`. Context: both `mr_view` errors, quoted, and
 that the push check needs the MR's source branch.
 
-| Value                                                                                 | Label                | Description                                                          |
-| ------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------- |
-| `take: you tell me the MR's source branch (mr_view refused)`                          | Tell me the branch   | You name the MR's source branch and I use it for the push check.     |
-| `iterate: you fixed the cause, read the MR again (mr_view refused)`                   | Fixed it, read again | You fixed what refused the read and I read the MR again.             |
-| `hold: keep this pane open with nothing moved (mr_view refused)`                      | Hold this pane       | I stop before reading the threads and the pane stays open.           |
-| `hand back: carry on without the source branch, fixed replies held (mr_view refused)` | Carry on without it  | I carry on without the branch and hold any fixed thread at the push. |
+| Value                                                                                            | Label                | Description                                                          |
+| ------------------------------------------------------------------------------------------------ | -------------------- | -------------------------------------------------------------------- |
+| `take: you tell me the MR's source branch (mr_view refused, round <k>)`                          | Tell me the branch   | You name the MR's source branch and I use it for the push check.     |
+| `iterate: you fixed the cause, read the MR again (mr_view refused, round <k>)`                   | Fixed it, read again | You fixed what refused the read and I read the MR again.             |
+| `hold: keep this pane open with nothing moved (mr_view refused, round <k>)`                      | Hold this pane       | I stop before reading the threads and the pane stays open.           |
+| `hand back: carry on without the source branch, fixed replies held (mr_view refused, round <k>)` | Carry on without it  | I carry on without the branch and hold any fixed thread at the push. |
 
 A take keeps the branch the human names as the source branch. Iterate
 passes `Off-script rounds = 2 (mr_view, respond)?` before reading again.
 Hand back, gate unavailable and a spent round budget carry on to
-`mr_threads` with the source branch unknown: the report gets no
-`source-branch:` line, and the push check later holds every fixed thread
-rather than pushing it.
+`mr_threads` with the source branch unknown: any earlier
+`source-branch:` line is deleted from the report, and the push check
+later holds every fixed thread rather than pushing it.
 
 ### respond off-script gate: mr_threads refused (fetch)
 
 Take "Off-script step" with this question. Label: `mr_threads refused
 twice on !<iid>: <second error>`. Context: both `mr_threads` errors,
-quoted.
+quoted. Before the step, make the report's `source-branch:` line
+describe this run, as "Write the verdict table and drafts to --report"
+does: write `source-branch: <branch>` when this run's `mr_view` gave the
+branch or an `mr_view` take named it, replacing any earlier line, and
+otherwise delete any earlier line. A pane resumed on this gate has no
+other way to learn the branch.
 
-| Value                                                                                   | Label                | Description                                                                    |
-| --------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------ |
-| `take: you paste the unresolved threads with their discussion ids (mr_threads refused)` | Paste the threads    | You paste each unresolved thread with its discussion id and I adjudicate them. |
-| `iterate: you fixed the cause, read the threads again (mr_threads refused)`             | Fixed it, read again | You fixed what refused the read and I read the threads again.                  |
-| `hold: keep this pane open with nothing moved (mr_threads refused)`                     | Hold this pane       | I stop before adjudicating and the pane stays open.                            |
-| `hand back: write an error naming the refusal (mr_threads refused)`                     | Hand it back         | I write an error naming the refusal and you take over.                         |
+| Value                                                                                              | Label                | Description                                                                    |
+| -------------------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------ |
+| `take: you paste the unresolved threads with their discussion ids (mr_threads refused, round <k>)` | Paste the threads    | You paste each unresolved thread with its discussion id and I adjudicate them. |
+| `iterate: you fixed the cause, read the threads again (mr_threads refused, round <k>)`             | Fixed it, read again | You fixed what refused the read and I read the threads again.                  |
+| `hold: keep this pane open with nothing moved (mr_threads refused, round <k>)`                     | Hold this pane       | I stop before adjudicating and the pane stays open.                            |
+| `hand back: write an error naming the refusal (mr_threads refused, round <k>)`                     | Hand it back         | I write an error naming the refusal and you take over.                         |
 
 A take adjudicates the threads the human pasted, keyed by the discussion
 ids they give. Iterate passes `Off-script rounds = 2 (fetch mr_threads)?`
 before reading again. Hand back, gate unavailable and a spent round budget
 write `error` naming the refusal.
+
+A pane resumed on either triage gate enters at `Trigger: a resumed triage
+escalation (from Launch and resume)`, and `Which triage call refused
+(resumed)?` reads the value's origin: a take never repeats the call the
+human answered for (the branch or the threads come from its note), a
+round-1 iterate reads again, and at `mr_view` a hand back or round-2
+iterate carries on without the branch, as the live spent budget does.
+The source branch of a `mr_threads` origin comes from the report's
+`source-branch:` line.
+Every triage origin is on the generic path; when this resume resolves a
+domain skill after all, it adjudicates afresh.

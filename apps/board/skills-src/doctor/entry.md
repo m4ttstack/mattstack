@@ -34,6 +34,12 @@ digraph doctor_entry {
     "Fix what the ci_lease_read error names" [shape=box];
     "Fixed the ci_lease_claim call once already?" [shape=diamond];
     "Fix what the ci_lease_claim error names" [shape=box];
+    "Old-lease waits = 2 (doctor)?" [shape=diamond];
+    "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" [shape=plaintext];
+    "End the turn: waiting out the old lease" [shape=box];
+    "Trigger: the old lease's wait finished" [shape=ellipse];
+    "ci_lease_read {mrUrl} (after the old lease's TTL)" [shape=plaintext];
+    "Old lease after the wait (doctor)?" [shape=diamond];
     "STOP: while another attendant holds the lease, stand down; every commit, push and retry is theirs" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Which entry (doctor)?" [shape=diamond];
     "<status-bin> gate wait <state> (resumed escalation)" [shape=plaintext];
@@ -76,13 +82,26 @@ digraph doctor_entry {
     "Who holds the fresh lease (doctor)?" -> "Which entry (doctor)?" [label="the board's board:doctor owner: board mode"];
     "Who holds the fresh lease (doctor)?" -> "Which entry (doctor)?" [label="mine: true: own mode"];
     "Who holds the fresh lease (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}" [label="nobody, or only a stale lease"];
-    "Who holds the fresh lease (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="another owner: stand down, error naming the holder"];
+    "Who holds the fresh lease (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="another owner on a fresh run, or a non-doctor holder: stand down, error naming the holder"];
+    "Who holds the fresh lease (doctor)?" -> "Old-lease waits = 2 (doctor)?" [label="resumed, holder doctor, not the board's owner, not mine: maybe this pane's earlier claim"];
     "Who holds the fresh lease (doctor)?" -> "Fixed the ci_lease_read call once already?" [label="tool error"];
     "Who holds the fresh lease (doctor)?" -> "STOP: while another attendant holds the lease, stand down; every commit, push and retry is theirs" [label="tempted to claim over the holder or work anyway"];
     "STOP: while another attendant holds the lease, stand down; every commit, push and retry is theirs" -> "Entry ends the run: continue at the map's exit";
     "Fixed the ci_lease_read call once already?" -> "Fix what the ci_lease_read error names" [label="no"];
     "Fixed the ci_lease_read call once already?" -> "doctor off-script escalation: ci_lease_read refused" [label="yes"];
     "Fix what the ci_lease_read error names" -> "ci_lease_read {mrUrl}";
+    "Old-lease waits = 2 (doctor)?" -> "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" [label="no"];
+    "Old-lease waits = 2 (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="yes: stand down, error naming the holder"];
+    "One background Bash task: sleep until the old lease's heartbeatAt plus ttlSeconds" -> "End the turn: waiting out the old lease";
+    "End the turn: waiting out the old lease" -> "Trigger: the old lease's wait finished" [style=dashed];
+    "Trigger: the old lease's wait finished" -> "ci_lease_read {mrUrl} (after the old lease's TTL)";
+    "ci_lease_read {mrUrl} (after the old lease's TTL)" -> "Old lease after the wait (doctor)?";
+    "Old lease after the wait (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}" [label="null, or only stale"];
+    "Old lease after the wait (doctor)?" -> "Which entry (doctor)?" [label="the board's board:doctor owner: board mode"];
+    "Old lease after the wait (doctor)?" -> "Which entry (doctor)?" [label="mine: true: own mode"];
+    "Old lease after the wait (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="fresh with a newer heartbeatAt or another owner: stand down, error naming the holder"];
+    "Old lease after the wait (doctor)?" -> "Old-lease waits = 2 (doctor)?" [label="fresh with the same heartbeatAt"];
+    "Old lease after the wait (doctor)?" -> "Fixed the ci_lease_read call once already?" [label="tool error"];
     "ci_lease_claim {mrUrl, holder: doctor, branch?}" -> "ci_lease_claim result (doctor)?";
     "ci_lease_claim result (doctor)?" -> "Which entry (doctor)?" [label="claimed: true: own mode"];
     "ci_lease_claim result (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="claimed: false: stand down, error naming the holder"];
@@ -166,6 +185,25 @@ pane` writes `error` naming the situation the gate described; both
   is the watch budget (the count and sha come from the value), a value
   starting `take:` or `iterate:` is an off-script answer, and any other
   option value is a domain action.
+- **Resumed pane on its own old lease.** "Resumed" at
+  `Who holds the fresh lease (doctor)?` means this launch carried
+  `--resumed-gate`, the same flag `--resumed-gate given (doctor)?` and
+  `Which entry (doctor)?` read; it holds for the whole run. A resumed
+  pane may run under a new session id, so the lease its earlier self
+  claimed reads as another owner's: `holder` `doctor`, an owner that is
+  neither the board's `board:doctor:<mr>` nor `mine: true`. Keep that
+  first read's `owner` and `heartbeatAt`, since
+  `Old lease after the wait (doctor)?` compares against them; a re-read
+  after a fixed error replaces them. After the wait, the board's
+  `board:doctor:<mr>` owner is board mode, as at the first read. Any
+  other fresh lease whose `heartbeatAt` moved or whose `owner` changed is
+  a live attendant (a dead pane never heartbeats), so stand down naming
+  the holder. The same `heartbeatAt` still fresh means the clocks
+  disagree by a little: wait again. `Old-lease waits = 2 (doctor)?`
+  counts the waits already taken, so two waits is the most; then stand
+  down naming the holder. A fresh run never waits: any fresh lease that is
+  neither the board's nor `mine: true` is another attendant, and so is a
+  non-doctor holder (a watch-ci session) on a resumed run.
 
 ### Load the --skill domain skill by name (doctor)
 
@@ -198,6 +236,18 @@ https URL, `holder` exactly `doctor`, `branch` the MR's source branch, or
 omitted when the launch or the domain skill named none) and claim again,
 once. An error that names no input has nothing to correct:
 claim again unchanged, once, and the off-script escalation follows.
+
+### End the turn: waiting out the old lease
+
+The background task sleeps until the old lease goes stale: its seconds
+are `heartbeatAt/1000 + ttlSeconds - now + 5` (`heartbeatAt` is in
+milliseconds, `now` in epoch seconds), never less than 5. Run one task at
+a time; never start a second while one runs, and never sleep in the
+foreground. End the turn in one line naming the wait:
+`waiting out the old doctor lease on !<iid> (<n>s)`. The task's finish
+wakes the pane at `Trigger: the old lease's wait finished`. Nothing is
+claimed while waiting, so there is nothing to release if the pane ends
+here.
 
 ### doctor off-script escalation: ci_lease_read refused
 

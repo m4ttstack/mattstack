@@ -28,6 +28,9 @@ digraph doctor_watch {
     "doctor off-script escalation: re-claim refused after a lost lease" [shape=box];
     "Off-script outcome (re-claim after a lost lease)?" [shape=diamond];
     "Off-script rounds = 2 (re-claim after a lost lease)?" [shape=diamond];
+    "doctor off-script escalation: the lease keeps vanishing" [shape=box];
+    "Off-script outcome (lease keeps vanishing)?" [shape=diamond];
+    "Off-script rounds = 2 (lease keeps vanishing)?" [shape=diamond];
     "doctor off-script escalation: ci_watch refused" [shape=box];
     "Off-script outcome (ci_watch)?" [shape=diamond];
     "Off-script rounds = 2 (ci_watch)?" [shape=diamond];
@@ -46,14 +49,14 @@ digraph doctor_watch {
     "ci_watch state (doctor)?" -> "Re-claims after a lost lease = 2 (doctor)?" [label="lease_lost in own mode, no holder"];
     "ci_watch state (doctor)?" -> "Fixed the ci_watch call once already?" [label="tool error"];
     "ci_watch state (doctor)?" -> "STOP: CI watches go through ci_watch" [label="tempted to poll with the GitLab CLI or a script"];
-    "STOP: CI watches go through ci_watch" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>}";
+    "STOP: CI watches go through ci_watch" -> "Fixed the ci_watch call once already?";
     "Watch calls = 9 (doctor)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>}" [label="no: call again"];
     "Watch calls = 9 (doctor)?" -> "doctor escalation: budget extension (watch)" [label="yes"];
     "Fixed the ci_watch call once already?" -> "Fix what the ci_watch error names" [label="no"];
     "Fixed the ci_watch call once already?" -> "doctor off-script escalation: ci_watch refused" [label="yes"];
     "Fix what the ci_watch error names" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>}";
     "Re-claims after a lost lease = 2 (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [label="no: claim again"];
-    "Re-claims after a lost lease = 2 (doctor)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, the lease keeps vanishing"];
+    "Re-claims after a lost lease = 2 (doctor)?" -> "doctor off-script escalation: the lease keeps vanishing" [label="yes"];
     "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" -> "Re-claim result (after a lost lease)?";
     "Re-claim result (after a lost lease)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>}" [label="claimed: true"];
     "Re-claim result (after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="claimed: false: stand down"];
@@ -72,6 +75,15 @@ digraph doctor_watch {
     "Off-script outcome (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="degraded: error"];
     "Off-script rounds = 2 (re-claim after a lost lease)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [label="no: claim again"];
     "Off-script rounds = 2 (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
+    "doctor off-script escalation: the lease keeps vanishing" -> "Off-script outcome (lease keeps vanishing)?";
+    "Off-script outcome (lease keeps vanishing)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>}" [label="take: the human set the lease for this pane"];
+    "Off-script outcome (lease keeps vanishing)?" -> "Off-script rounds = 2 (lease keeps vanishing)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (lease keeps vanishing)?" -> "Watch ends the run: continue at the map's exit" [label="hold"];
+    "Off-script outcome (lease keeps vanishing)?" -> "Watch ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
+    "Off-script outcome (lease keeps vanishing)?" -> "Watch ends the run: continue at the map's exit" [label="gate gone"];
+    "Off-script outcome (lease keeps vanishing)?" -> "Watch ends the run: continue at the map's exit" [label="degraded: error"];
+    "Off-script rounds = 2 (lease keeps vanishing)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [label="no: claim again"];
+    "Off-script rounds = 2 (lease keeps vanishing)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, the lease keeps vanishing"];
     "doctor off-script escalation: ci_watch refused" -> "Off-script outcome (ci_watch)?";
     "Off-script outcome (ci_watch)?" -> "Watch verdict the human reported (doctor)?" [label="take: the human reads the pipeline"];
     "Off-script outcome (ci_watch)?" -> "Off-script rounds = 2 (ci_watch)?" [label="iterate: the cause is fixed"];
@@ -140,6 +152,27 @@ and the `ci_lease_claim` error, quoted.
 
 Iterate passes `Off-script rounds = 2 (re-claim after a lost lease)?`
 before claiming again.
+
+### doctor off-script escalation: the lease keeps vanishing
+
+Take the escalation step after the second re-claim still ends in
+`lease_lost` with no holder: something keeps dropping this pane's lease.
+Label: `the CI lease on !<iid> keeps vanishing while I watch <sha>`.
+Context: the last `lease_lost` watch result, quoted.
+
+| Value                                                                             | Label                  | Description                                                    |
+| --------------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------- |
+| `take: you set the CI lease for this pane, keep watching (lease keeps vanishing)` | Set the lease yourself | You give this pane the CI lease back and I keep watching.      |
+| `iterate: you fixed what drops the lease, claim it again (lease keeps vanishing)` | Fixed it, claim again  | You fixed what keeps dropping the lease and I claim it again.  |
+| `hold: keep this pane open with nothing moved (lease keeps vanishing)`            | Hold this pane         | I stop watching and the pane stays open.                       |
+| `leave it to me in the pane`                                                      | Leave it to me         | I write an error naming the vanishing lease and you take over. |
+
+Iterate passes `Off-script rounds = 2 (lease keeps vanishing)?` before
+claiming again. That counter counts within one pane's life: a resumed pane
+repairs again from the top, so it starts from zero.
+`Re-claims after a lost lease = 2 (doctor)?` does not reset on an
+iterate, so a lease lost again after the iterate comes straight back
+here.
 
 ### doctor off-script escalation: ci_watch refused
 

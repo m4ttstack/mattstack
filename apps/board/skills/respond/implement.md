@@ -14,6 +14,7 @@ digraph respond_implement_the_plan {
     rankdir=TB;
 
     "Trigger: a Gate 1 answer to act on (from Triage and Gate 1, or a joined respond-plan resume)" [shape=ellipse];
+    "Domain skill resolved (Gate 1 record)?" [shape=diamond];
     "Record the Gate 1 answer in --report" [shape=box];
     "Reply overrides among the Gate 1 answers?" [shape=diamond];
     "Draft each override and mark it gate-1: override" [shape=box];
@@ -38,7 +39,9 @@ digraph respond_implement_the_plan {
     "Implement error: continue at the error write" [shape=doublecircle];
     "A new round: continue at Triage and Gate 1" [shape=doublecircle];
 
-    "Trigger: a Gate 1 answer to act on (from Triage and Gate 1, or a joined respond-plan resume)" -> "Record the Gate 1 answer in --report";
+    "Trigger: a Gate 1 answer to act on (from Triage and Gate 1, or a joined respond-plan resume)" -> "Domain skill resolved (Gate 1 record)?";
+    "Domain skill resolved (Gate 1 record)?" -> "code-changes answer?" [label="yes: the domain skill records and drafts on {plan}"];
+    "Domain skill resolved (Gate 1 record)?" -> "Record the Gate 1 answer in --report" [label="no"];
     "Record the Gate 1 answer in --report" -> "Reply overrides among the Gate 1 answers?";
     "Reply overrides among the Gate 1 answers?" -> "Draft each override and mark it gate-1: override" [label="yes"];
     "Reply overrides among the Gate 1 answers?" -> "code-changes answer?" [label="no"];
@@ -84,30 +87,31 @@ row gains a `gate-1` field: `reply`, `fix` or `skip` (a reply override
 turns into `override` at the next box). A `reply:` answer's `text`, when
 present, replaces the draft in its row. Posting, a resume included, reads
 which threads are reply-only (`gate-1: reply`) from these rows, never from
-the recommendation.
-
-On the domain path the domain skill writes these fields when it is handed
-`{plan, by}`; here, read the answer only.
+the recommendation. On an escalation resume that continues here (the
+Posted already read before Implement), the answer is the report's
+`gate-1-answer:` line, never the escalation's own answer.
 
 ### Draft each override and mark it gate-1: override
 
 For each reply override ("Reply overrides"), draft its reply after Gate 1
 in the loaded voice, folding in its note when it has one, write that reply
-into its row, and set the row to `gate-1: override`. On the domain path
-the domain skill drafts and records overrides when handed `{plan, by}`.
-Gate 2 offers every override: the human has not yet seen its words.
+into its row, and set the row to `gate-1: override`. Gate 2 offers every
+override: the human has not yet seen its words.
 
 ### Hand {plan, by} to the domain skill
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
-Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Hand the domain skill `{plan: <answers>, by: <by>}`, the `--report` path
 and the current round. `by` is the wait's own decider field, so the
 domain skill's decision record names who decided instead of guessing. On
 a resume, tell it this is a resume (the resumed `gateId` and
-`answeredAt`), so its own Posted already rule runs.
+`answeredAt`), so its own Posted already rule runs. On an escalation
+resume, `{plan, by}` and `answeredAt` come from the `gate-1-answer:`
+line; the resumed `gateId` is the escalation's, not Gate 1's, so say
+that the Gate 1 answer was recorded rather than naming a gate.
 
 - **`approve`:** it implements the `fix:` threads one at a time, verified,
   updates `--report` with the finalized replies, and hands back the threads
@@ -155,7 +159,7 @@ Gate 2 opens, the report holds what will post, never the earlier draft.
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
-Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 `code-changes: revise`, under the budget. Nothing is implemented this
 round. Tell the domain skill the next round number (the current round
