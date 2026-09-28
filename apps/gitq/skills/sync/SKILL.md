@@ -451,8 +451,9 @@ continue refused on <branch>: <the gitq: line>".
 
 ### sync off-script gate: gitq sync refused
 
-Opens when `gitq sync` exits 1 for any reason but a parked lease: a hook, a
-missing branch, a leased slot. A hard failure prints a `gitq:` line on
+Opens when `gitq sync` exits 1 for any reason but a parked lease: a fetch
+failure, an unresolvable `origin/<trunk>`, a missing branch, or a leased or
+busy slot. A hard failure prints a `gitq:` line on
 stderr with nothing on stdout; a per-branch failure emits the normal JSON
 first, and the failing entry's `success: false` says what broke.
 

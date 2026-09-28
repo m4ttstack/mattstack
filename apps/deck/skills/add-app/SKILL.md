@@ -489,8 +489,8 @@ with no shell, so `--cmd` takes a plain argv only (`bun run start`). A start
 command with shell syntax (a pipe, `&&`, a redirect, quoting, `$VAR`, a
 leading `FOO=bar` assignment) does not survive that split. It goes through
 the manifest path instead, where deck runs a `commands.start` that needs a
-shell under `sh -c`: answer `Manifest or quick add (deck)?` with manifest
-for it.
+shell under `sh -c`: decide this before choosing quick add: anything
+shell-shaped needs the manifest path.
 
 ### deck off-script gate: deck add refused
 
@@ -630,7 +630,7 @@ an edge still not ready then goes to the bind-failure gate.
 ### deck off-script gate: domain bind failed
 
 Opens when `deck domain <domain>` errors, or the verifying `deck domain`
-shows the edge not ready, and whenever you are tempted to fix a missing
+still shows the edge not ready after three edge checks, and whenever you are tempted to fix a missing
 secret yourself. A bind that asks for one step first (the tunnel login)
 prints that command; a missing secret, a zone deck cannot find, and a
 connector still not ready after three edge checks land here too. A rebind that deck refuses
@@ -667,7 +667,8 @@ Opens once `deck status (teardown)` runs, before any row is touched, and
 again after each iterate round.
 
 Context, quoted and never trimmed: every row `deck status` shows except
-deck's own rows `deck` and `local` and every row whose third column is `rt`,
+deck's own rows `deck` and `local` and every row whose managed-by column
+(the fourth) is `rt`,
 the bound domain `deck domain` reports
 (or none), and what each removal does: `deck remove <name>` unregisters
 that row, and `deck domain unbind` tears down the public edge and takes
@@ -698,7 +699,7 @@ list; one the user adds anyway reaches this box.
   `deck uninstall` in their own terminal, which refuses while other records
   exist and so comes only after this teardown finishes. The agent never
   runs it.
-- A row whose third column in `deck status` is `rt`: a mattstack app deck
+- A row whose managed-by column (the fourth) in `deck status` is `rt`: a mattstack app deck
   manages for the mattstack install, not an app the user registered. Say
   that the row stays because the mattstack install owns it, and that a
   bundled app's row comes back on deck's next start anyway.
