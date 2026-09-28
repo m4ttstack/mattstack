@@ -1,13 +1,16 @@
 ---
 name: board:gate-cli-recipes
-description: "Board-CLI-specific gate mechanics shared by review/respond/doctor: the background gate-wait recipe, closed-or-missing-gate terminal handling, and the failing-wait-is-not-degradation rule. Not for direct invocation; a board gate wrapper includes this part the way mattstack:gate-protocol covers the daemon-generic mechanics."
+description: "Board-CLI-specific gate mechanics shared by review/respond/doctor: the background gate-wait recipe, closed-or-missing-gate terminal handling, and the failing-wait-is-not-degradation rule. Not for direct invocation; a board gate wrapper includes this part the way the gate protocol each wrapper includes covers the daemon-generic mechanics."
 disable-model-invocation: true
 ---
 
+<!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
+
+<!-- part: step source=gate-cli-recipes/SKILL.md path=gate-cli-recipes/SKILL.md lines=7-60 -->
 # Board gate CLI recipes
 
 The three parts of the status-bin wrapper's own gate mechanics that do not
-belong in `mattstack:gate-protocol` (that skill speaks in terms of the raw
+belong in the gate protocol each wrapper includes (that protocol speaks in terms of the raw
 `rt gate` CLI and MCP tool; these three wrap `<status-bin>`, this repo's
 own gate-open/wait/answer projection). Read from `board:review`,
 `board:respond`, and `board:doctor` instead of restating.
