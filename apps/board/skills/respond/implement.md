@@ -14,6 +14,7 @@ digraph respond_implement_the_plan {
     rankdir=TB;
 
     "Trigger: a Gate 1 answer to act on (from Triage and Gate 1, or a joined respond-plan resume)" [shape=ellipse];
+    "Domain skill resolved (Gate 1 record)?" [shape=diamond];
     "Record the Gate 1 answer in --report" [shape=box];
     "Reply overrides among the Gate 1 answers?" [shape=diamond];
     "Draft each override and mark it gate-1: override" [shape=box];
@@ -38,7 +39,9 @@ digraph respond_implement_the_plan {
     "Implement error: continue at the error write" [shape=doublecircle];
     "A new round: continue at Triage and Gate 1" [shape=doublecircle];
 
-    "Trigger: a Gate 1 answer to act on (from Triage and Gate 1, or a joined respond-plan resume)" -> "Record the Gate 1 answer in --report";
+    "Trigger: a Gate 1 answer to act on (from Triage and Gate 1, or a joined respond-plan resume)" -> "Domain skill resolved (Gate 1 record)?";
+    "Domain skill resolved (Gate 1 record)?" -> "code-changes answer?" [label="yes: the domain skill records and drafts on {plan}"];
+    "Domain skill resolved (Gate 1 record)?" -> "Record the Gate 1 answer in --report" [label="no"];
     "Record the Gate 1 answer in --report" -> "Reply overrides among the Gate 1 answers?";
     "Reply overrides among the Gate 1 answers?" -> "Draft each override and mark it gate-1: override" [label="yes"];
     "Reply overrides among the Gate 1 answers?" -> "code-changes answer?" [label="no"];
@@ -86,16 +89,12 @@ present, replaces the draft in its row. Posting, a resume included, reads
 which threads are reply-only (`gate-1: reply`) from these rows, never from
 the recommendation.
 
-On the domain path the domain skill writes these fields when it is handed
-`{plan, by}`; here, read the answer only.
-
 ### Draft each override and mark it gate-1: override
 
 For each reply override ("Reply overrides"), draft its reply after Gate 1
 in the loaded voice, folding in its note when it has one, write that reply
-into its row, and set the row to `gate-1: override`. On the domain path
-the domain skill drafts and records overrides when handed `{plan, by}`.
-Gate 2 offers every override: the human has not yet seen its words.
+into its row, and set the row to `gate-1: override`. Gate 2 offers every
+override: the human has not yet seen its words.
 
 ### Hand {plan, by} to the domain skill
 

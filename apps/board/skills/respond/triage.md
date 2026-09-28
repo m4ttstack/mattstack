@@ -64,7 +64,7 @@ digraph respond_triage_and_gate_1 {
     "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="ok: keep sourceBranch"];
     "mr_view result (respond)?" -> "Fixed the mr_view call once already (respond)?" [label="tool error"];
     "mr_view result (respond)?" -> "STOP: MR reads go through mr_view (respond)" [label="tempted to read the MR with the GitLab CLI"];
-    "STOP: MR reads go through mr_view (respond)" -> "mr_view {mrUrl} (respond source branch)";
+    "STOP: MR reads go through mr_view (respond)" -> "Fixed the mr_view call once already (respond)?";
     "Fixed the mr_view call once already (respond)?" -> "Fix what the mr_view error names (respond)" [label="no"];
     "Fixed the mr_view call once already (respond)?" -> "respond off-script gate: mr_view refused" [label="yes"];
     "Fix what the mr_view error names (respond)" -> "mr_view {mrUrl} (respond source branch)";
@@ -72,7 +72,7 @@ digraph respond_triage_and_gate_1 {
     "mr_threads result (fetch)?" -> "Adjudicate each unresolved thread" [label="ok"];
     "mr_threads result (fetch)?" -> "Fixed the fetch mr_threads call once already?" [label="tool error"];
     "mr_threads result (fetch)?" -> "STOP: threads are read with mr_threads" [label="tempted to read them with the GitLab CLI"];
-    "STOP: threads are read with mr_threads" -> "mr_threads {mrUrl, refresh: true} (fetch)";
+    "STOP: threads are read with mr_threads" -> "Fixed the fetch mr_threads call once already?";
     "Fixed the fetch mr_threads call once already?" -> "Fix what the fetch mr_threads error names" [label="no"];
     "Fixed the fetch mr_threads call once already?" -> "respond off-script gate: mr_threads refused (fetch)" [label="yes"];
     "Fix what the fetch mr_threads error names" -> "mr_threads {mrUrl, refresh: true} (fetch)";

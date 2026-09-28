@@ -105,7 +105,7 @@ digraph respond_gate_2_and_posting {
     "git_push result (respond)?" -> "Threads left to post (respond)?" [label="ok"];
     "git_push result (respond)?" -> "Fixed the git_push call once already (respond)?" [label="refused"];
     "git_push result (respond)?" -> "STOP: push only with git_push (respond)" [label="tempted to push from the shell or force past it"];
-    "STOP: push only with git_push (respond)" -> "git_push {tree: <root>}";
+    "STOP: push only with git_push (respond)" -> "Fixed the git_push call once already (respond)?";
     "Fixed the git_push call once already (respond)?" -> "Fix what the git_push error names (respond)" [label="no"];
     "Fixed the git_push call once already (respond)?" -> "respond off-script gate: git_push refused" [label="yes"];
     "Fix what the git_push error names (respond)" -> "git_push {tree: <root>}";
@@ -118,7 +118,7 @@ digraph respond_gate_2_and_posting {
     "mr_reply_thread result?" -> "Resolve this thread?" [label="posted"];
     "mr_reply_thread result?" -> "Fixed the mr_reply_thread call once already?" [label="tool error"];
     "mr_reply_thread result?" -> "STOP: replies post with mr_reply_thread" [label="tempted to post with the GitLab CLI or the API"];
-    "STOP: replies post with mr_reply_thread" -> "mr_reply_thread {mrUrl, discussionId, body}";
+    "STOP: replies post with mr_reply_thread" -> "Fixed the mr_reply_thread call once already?";
     "Fixed the mr_reply_thread call once already?" -> "Fix what the mr_reply_thread error names" [label="no"];
     "Fixed the mr_reply_thread call once already?" -> "respond off-script gate: mr_reply_thread refused" [label="yes"];
     "Fix what the mr_reply_thread error names" -> "mr_reply_thread {mrUrl, discussionId, body}";
@@ -128,7 +128,7 @@ digraph respond_gate_2_and_posting {
     "mr_resolve_thread result?" -> "Threads left to post (respond)?" [label="resolved"];
     "mr_resolve_thread result?" -> "Fixed the mr_resolve_thread call once already?" [label="tool error"];
     "mr_resolve_thread result?" -> "STOP: threads resolve with mr_resolve_thread" [label="tempted to resolve with the GitLab CLI or the API"];
-    "STOP: threads resolve with mr_resolve_thread" -> "mr_resolve_thread {mrUrl, discussionId}";
+    "STOP: threads resolve with mr_resolve_thread" -> "Fixed the mr_resolve_thread call once already?";
     "Fixed the mr_resolve_thread call once already?" -> "Fix what the mr_resolve_thread error names" [label="no"];
     "Fixed the mr_resolve_thread call once already?" -> "respond off-script gate: mr_resolve_thread refused" [label="yes"];
     "Fix what the mr_resolve_thread error names" -> "mr_resolve_thread {mrUrl, discussionId}";

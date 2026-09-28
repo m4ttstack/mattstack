@@ -18,7 +18,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-521 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-522 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -118,7 +118,8 @@ What the graph cannot show:
   `mr_reply_thread` and `mr_resolve_thread` take as `discussionId`.
 - **Budgets.** Each `Fixed the <tool> call once already?` counter counts
   for the whole run, per thread for `mr_reply_thread` and
-  `mr_resolve_thread`, and does not reset after an off-script iterate: a
+  `mr_resolve_thread`. A guard STOP's re-entry passes the same counter as
+  a refusal or tool error. None resets after an off-script iterate: a
   refusal after an iterate goes straight back to that origin's off-script
   gate, and its `Off-script rounds = 2 (...)?` counter (per thread for the
   two posting origins) bounds the loop. `Revise rounds = 3?` counts the
