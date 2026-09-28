@@ -335,7 +335,9 @@ body verbatim from `parts/strategy/references/strategies.md` into
 `## Method`, and fills the template's literal `<angle-bracket>` slots from
 the `fill` entries; an unfilled marker in the output is a refusal listing
 the leftovers, so nothing is retyped from memory and no slot goes silently
-empty. The `out` path is the brief you hand to the spawn.
+empty. `<shepherd handle>` and `<shepherd id>` pass through unfilled, and
+`herd_spawn` fills them from the herd row; never pass a `fill` for them.
+The `out` path is the brief you hand to the spawn.
 
 **Domain hook -- the Method copy.** Unbound: the assembly as written. A
 bound domain part may supply the `## Method` block itself (its team's
