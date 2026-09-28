@@ -38,6 +38,9 @@ public enum DevLoginOrigin {
         guard scheme == "https" || host == "localhost" || host == "127.0.0.1" else {
             return .invalid("http is allowed only for localhost and 127.0.0.1.")
         }
+        if let port = comps.port, !(1...65535).contains(port) {
+            return .invalid("The port must be between 1 and 65535.")
+        }
         let defaultPort = scheme == "https" ? 443 : 80
         let portPart = comps.port.map { $0 == defaultPort ? "" : ":\($0)" } ?? ""
         return .valid(origin: "\(scheme)://\(host)\(portPart)", host: host)

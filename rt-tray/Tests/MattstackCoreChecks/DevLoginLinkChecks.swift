@@ -37,6 +37,12 @@ let devLoginLinkChecks: [Check] = [
             if case .valid = DevLoginOrigin.validate(s) { c.fail("accepted \(s)") }
         }
     },
+    Check("dev login origin: a port outside 1 to 65535 is refused") { c in
+        for s in ["https://a.example:65536", "https://a.example:99999999999", "https://a.example:0"] {
+            if case .valid = DevLoginOrigin.validate(s) { c.fail("accepted \(s)") }
+        }
+        c.expectEqual(DevLoginOrigin.validate("https://a.example:8443"), .valid(origin: "https://a.example:8443", host: "a.example"))
+    },
     Check("dev login origin: an IPv6 host is refused") { c in
         for s in ["https://[::1]", "https://[::1]:8443", "http://[::1]:3000"] {
             if case .valid = DevLoginOrigin.validate(s) { c.fail("accepted \(s)") }
