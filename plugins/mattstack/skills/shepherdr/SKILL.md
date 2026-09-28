@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.28.2 + mattstack:model-tiering@0.28.2 + mattstack:execution-strategy@0.28.2 + mattstack:cswap-accounts@0.28.2"
+  compiled: "mattstack@0.28.3 + mattstack:model-tiering@0.28.3 + mattstack:execution-strategy@0.28.3 + mattstack:cswap-accounts@0.28.3"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.28.2 path=attachments/orchestration/shepherdr/SKILL.md lines=15-881 -->
+<!-- part: step source=mattstack:shepherdr version=0.28.3 path=attachments/orchestration/shepherdr/SKILL.md lines=15-881 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.28.2 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.28.3 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -143,7 +143,7 @@ this skill is the generic framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.28.2 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.28.3 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -255,7 +255,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.28.2 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.28.3 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -908,7 +908,7 @@ digraph shepherdr_lanes {
     "Trigger: a job's report, or a nag about a done job's open pane" [shape=ellipse];
     "rt_verb {args: [git, log], cwd: <worktree>}" [shape=plaintext];
     "cd <an active job's tree>" [shape=plaintext];
-    "git diff --stat" [shape=plaintext];
+    "git diff --stat --merge-base origin/<default branch>" [shape=plaintext];
     "More active job trees to diff?" [shape=diamond];
     "Drift outside the fence, or a file two jobs changed?" [shape=diamond];
     "Flag the drift or collision to the user" [shape=box];
@@ -954,8 +954,8 @@ digraph shepherdr_lanes {
 
     "Trigger: a job's report, or a nag about a done job's open pane" -> "rt_verb {args: [git, log], cwd: <worktree>}";
     "rt_verb {args: [git, log], cwd: <worktree>}" -> "cd <an active job's tree>";
-    "cd <an active job's tree>" -> "git diff --stat";
-    "git diff --stat" -> "More active job trees to diff?";
+    "cd <an active job's tree>" -> "git diff --stat --merge-base origin/<default branch>";
+    "git diff --stat --merge-base origin/<default branch>" -> "More active job trees to diff?";
     "More active job trees to diff?" -> "cd <an active job's tree>" [label="yes: the next one, the reporting job's first"];
     "More active job trees to diff?" -> "Drift outside the fence, or a file two jobs changed?" [label="no"];
     "Drift outside the fence, or a file two jobs changed?" -> "Flag the drift or collision to the user" [label="yes"];
@@ -1110,7 +1110,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 ## What the lanes graph cannot show
 
-- **The two objective checks.** The commits come from the graph's `rt_verb` git log call on the job's worktree. The changed files come from two separate Bash calls per active job: the `cd` alone, then the bare `git diff --stat`; never chain them. Compare each job's files against its write fence and across jobs.
+- **The two objective checks.** The commits come from the graph's `rt_verb` git log call on the job's worktree. The changed files come from two separate Bash calls per active job: the `cd` alone, then `git diff --stat --merge-base origin/<default branch>` (`main` unless the repo says otherwise), which counts the job's commits and its uncommitted edits since it branched; never chain them. Compare each job's files against its write fence and across jobs.
 - **Job state is the daemon's.** It marked the job `done` when the report was published; `herd_status` is the status table's source. Nothing to record by hand.
 - **A report is a claim, not a merge.** Answer "Merged on the repo?" from the repo itself (`gh pr view --json state,mergeCommit`, or the sha on `origin/main`), never from the report alone.
 - **The integration job.** Its brief merges or cherry-picks the job branches, runs full verification, and reports; it carries the repo's shipping conventions. Never merge, fix or push on the agents' behalf. The first is `integration-1`; a lane that joined the herd after it spawned gets the next number, and its brief covers only the lanes no integration job has merged.
@@ -1121,7 +1121,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.28.2 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.28.3 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait
