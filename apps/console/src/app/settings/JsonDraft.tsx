@@ -5,10 +5,11 @@ import { checkValue, type JsonSchema } from '@mattstack/settings-kit/shapes';
 const LINE_PX = 20;
 const PADDING_PX = 20;
 const MIN_HEIGHT_PX = 60;
-const MAX_HEIGHT_PX = 260;
+const MAX_HEIGHT_PX = 600;
 
 /** A short value gets a short well, not the same fixed box as a long one; a
-    long value still caps and scrolls rather than pushing the row open. */
+    long value still caps and scrolls rather than pushing the row open. This
+    is only the starting height: the editor's bottom edge drags. */
 function heightFor(text: string): string {
   const lines = text.split('\n').length;
   const px = Math.min(
@@ -39,6 +40,7 @@ export function JsonDraft({
       onChange={onText}
       language="json"
       height={heightFor(text)}
+      resizable
       jsonSchema={schema}
       jsonCheck={check}
     />

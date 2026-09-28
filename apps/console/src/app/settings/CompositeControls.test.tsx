@@ -378,6 +378,84 @@ describe('composite rows', () => {
     );
   });
 
+  function stubLayers(
+    rows: { scope: string; present: boolean; value?: unknown }[]
+  ) {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        def: {},
+        rows: rows.map(r => ({ file: null, ...r })),
+      }),
+    }));
+  }
+  const ROOTS = ['~/a', '~/b', '~/c', '~/d'];
+  const rootsDef = (scope: string) =>
+    def('rt.repoRoots', {
+      hasDefault: true,
+      defaultValue: [],
+      effective: { scope, file: '/m', value: ROOTS },
+    });
+
+  it('a long string list whose only authored layer is its own offers Reset to default, which unsets it', async () => {
+    stubLayers([
+      { scope: 'default', present: true, value: [] },
+      { scope: 'machine', present: true, value: ROOTS },
+    ]);
+    const s = store();
+    renderWithProviders(
+      <SettingRow def={rootsDef('machine')} store={s} subhead={null} query="" />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Reset to default' })
+    );
+    await waitFor(() =>
+      expect(s.unset).toHaveBeenCalledWith('rt.repoRoots', 'machine')
+    );
+  });
+
+  it('no reset when another authored layer sits under the row’s own, since clearing it would not land on the default', async () => {
+    stubLayers([
+      { scope: 'default', present: true, value: [] },
+      { scope: 'team', present: true, value: ['~/a'] },
+      { scope: 'machine', present: true, value: ROOTS },
+    ]);
+    renderWithProviders(
+      <SettingRow
+        def={rootsDef('machine')}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await screen.findByRole('button', { name: 'Edit as JSON' });
+    await new Promise(r => setTimeout(r, 50));
+    expect(
+      screen.queryByRole('button', { name: 'Reset to default' })
+    ).toBeNull();
+  });
+
+  it('a long string list still on its default offers no reset', async () => {
+    stubLayers([{ scope: 'default', present: true, value: ROOTS }]);
+    renderWithProviders(
+      <SettingRow
+        def={rootsDef('default')}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await screen.findByRole('button', { name: 'Edit as JSON' });
+    await new Promise(r => setTimeout(r, 50));
+    expect(
+      screen.queryByRole('button', { name: 'Reset to default' })
+    ).toBeNull();
+  });
+
   it('a string map edits a value in place', async () => {
     const s = store();
     renderWithProviders(
