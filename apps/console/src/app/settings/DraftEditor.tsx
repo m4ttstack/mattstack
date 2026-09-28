@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import {
-  Button,
-  Group,
-  SegmentedControl,
-  Stack,
-  Text,
-} from '@mattstack/app-kit/core';
+import { Button, Group, Stack, Text } from '@mattstack/app-kit/core';
 import { useSchemeColors } from '@mattstack/app-kit/hooks';
+import { modals } from '@mattstack/app-kit/modals';
 import type { SettingDefWire } from '@mattstack/settings-kit/react';
 import { checkValue, type SchemaIssue } from '@mattstack/settings-kit/shapes';
 
@@ -19,6 +14,7 @@ import {
 } from './issues';
 import { CardsFooter, ItemCards } from './ItemCards';
 import { JsonDraft } from './JsonDraft';
+import { ModeToggle } from './ModeToggle';
 import { NamedSections } from './NamedSections';
 
 type Entry = Record<string, unknown>;
@@ -59,6 +55,7 @@ export function DraftEditor({
   reveal = false,
   onSave,
   onCancel,
+  onForm,
 }: {
   def: SettingDefWire;
   form: FormShape | null;
@@ -76,6 +73,9 @@ export function DraftEditor({
   reveal?: boolean;
   onSave: (value: unknown) => Promise<boolean>;
   onCancel: () => void;
+  /** Leaves for a Form editor that lives outside this draft (a row with no
+      form shape of its own); an edited draft asks before it is dropped. */
+  onForm?: () => void;
 }) {
   const { text: colors } = useSchemeColors();
   const start = initial ?? emptyOf(def);
@@ -143,6 +143,17 @@ export function DraftEditor({
     setDraft(parsed.value);
     setMode('form');
   };
+  const leaveForForm = () => {
+    if (!onForm) return;
+    if (text === pretty(start)) return onForm();
+    modals.confirm({
+      title: 'Discard JSON changes?',
+      message: 'Switching to the form drops the edits in this draft.',
+      destructive: true,
+      labels: { confirm: 'Discard', cancel: 'Keep editing' },
+      onConfirm: onForm,
+    });
+  };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
     const target = e.target as HTMLElement;
@@ -179,7 +190,7 @@ export function DraftEditor({
         <Text fz={12} c={colors.muted}>
           {`Editing the ${targetLabel} layer`}
         </Text>
-        {(form || replaceWith) && (
+        {(form || onForm || replaceWith) && (
           <Group gap={8} wrap="nowrap">
             {form && mode === 'json' && !fits && (
               <Text fz={12} c={colors.muted}>
@@ -204,20 +215,19 @@ export function DraftEditor({
                 {replaceWith.label}
               </Button>
             )}
-            {form && (
-              <SegmentedControl
-                size="xs"
+            {form ? (
+              <ModeToggle
                 value={mode}
-                onChange={v => (v === 'json' ? toJson() : toForm())}
-                data={[
-                  {
-                    value: 'form',
-                    label: 'Form',
-                    disabled: mode === 'json' && !fits,
-                  },
-                  { value: 'json', label: 'JSON' },
-                ]}
+                onChange={m => (m === 'json' ? toJson() : toForm())}
+                formDisabled={mode === 'json' && !fits}
               />
+            ) : (
+              onForm && (
+                <ModeToggle
+                  value="json"
+                  onChange={m => m === 'form' && leaveForForm()}
+                />
+              )
             )}
           </Group>
         )}

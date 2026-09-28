@@ -218,7 +218,7 @@ describe('JSON editor', () => {
     );
   });
 
-  it("a string map's Edit as JSON button opens the JSON editor", async () => {
+  it("a string map's JSON toggle opens the JSON editor, and Form comes back", async () => {
     stubRows([]);
     renderWithProviders(
       <SettingRow
@@ -233,13 +233,46 @@ describe('JSON editor', () => {
       />
     );
     await userEvent.click(screen.getByRole('button', { name: /1 entry/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual({
       'https://example.dev/a.git': 'a',
     });
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Form' })).toBeChecked();
   });
 
-  it("a leaves field's Edit as JSON button opens the JSON editor", async () => {
+  it('leaving an edited JSON draft for the form asks first', async () => {
+    stubRows([]);
+    const s = store();
+    renderWithProviders(
+      <SettingRow
+        def={def(
+          'rt.repoIdentityOverrides',
+          { 'https://example.dev/a.git': 'a' },
+          { type: 'object' }
+        )}
+        store={s}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /1 entry/ }));
+    await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
+    setText('{"https://example.dev/b.git": "b"}');
+    await userEvent.click(screen.getByRole('radio', { name: 'Form' }));
+    expect(
+      await screen.findByText('Discard JSON changes?')
+    ).toBeInTheDocument();
+    expect(editor()).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'JSON' })).toBeNull()
+    );
+    expect(s.set).not.toHaveBeenCalled();
+  });
+
+  it("a leaves field's JSON toggle opens the JSON editor", async () => {
     const SNAPSHOT_DEFAULTS = {
       enabled: true,
       debounceSec: 20,
@@ -280,7 +313,7 @@ describe('JSON editor', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: /1 of 5 set/ }));
     expect(await screen.findByText('debounceSec')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Edit as JSON' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'JSON' }));
     expect(JSON.parse((editor() as HTMLTextAreaElement).value)).toEqual({
       enabled: false,
     });
