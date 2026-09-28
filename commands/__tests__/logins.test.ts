@@ -84,7 +84,9 @@ describe("rt logins", () => {
     const t = deps({ readStdin: async () => ({ email: "a@example.com", password: "x" }) });
     const failing: LoginsBackend = { ...t.d.backend(), read: async () => { throw new NoAgeKeyError(); } };
     await expect(loginsAdd(["https://login.example.com", "--json"], {}, { ...t.d, backend: () => failing })).rejects.toThrow("exit 2");
-    expect(JSON.parse(t.out.join("")).error.message).toContain("rt home init");
+    const message = JSON.parse(t.out.join("")).error.message;
+    expect(message).toContain("rt home init");
+    expect(message).not.toMatch(/[\u2013\u2014]/);
   });
 
   test("add in a terminal prompts for both the email and the password hidden", async () => {

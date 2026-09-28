@@ -86,8 +86,8 @@ export interface SecretsSeams {
  * `<mattstackHome>/user`) and the team store (`team-store.ts`'s
  * `teams/<slug>/mattstack/secrets/<domain>.json`, cwd the team clone root)
  * share the same encrypt/decrypt machinery below instead of two divergent
- * copies of it. `filenameOverride` is cwd-relative on purpose — see
- * `encryptAtLocation`'s doc for why it can't be `filePath` itself.
+ * copies of it. `filenameOverride` is cwd-relative on purpose; see
+ * `encryptVerifiedAtLocation`'s doc for why it can't be `filePath` itself.
  */
 export interface SecretsLocation {
   filePath: string;
@@ -98,7 +98,7 @@ export interface SecretsLocation {
 /** Thrown when the keychain provably holds no age key yet (readAgeKey's `{absent:true}`). */
 export class NoAgeKeyError extends Error {
   constructor() {
-    super("no age key in the keychain — run `rt home init` first");
+    super("no age key in the keychain; run `rt home init` first");
   }
 }
 
@@ -287,18 +287,18 @@ export async function encryptAtLocation(
 }
 
 /**
- * Stage → encrypt-to-tmp → decrypt-readback → fsync+rename. The readback
- * decrypts the tmp output (before it ever replaces the target) and checks
- * that `key` round-trips to `value` — catching a wrong-recipient encrypt
+ * Stage, encrypt to a tmp file, decrypt that tmp output, then fsync+rename it
+ * over the target only if the caller's `verify` accepts the decrypted
+ * read-back. Verifying before the rename catches a wrong-recipient encrypt
  * (a `.sops.yaml` shadowed from $HOME, a stale recipient after rotation)
- * that a plaintext/heuristic check on the ciphertext shape could never see.
- * Every path this touches outside the real target is removed in `finally`,
- * so a thrown error never needs to name a file for the user to clean up —
- * there isn't one, and the target is untouched on every failure.
+ * that a check on the ciphertext shape could never see. Every path this
+ * touches outside the real target is removed in `finally`, so a thrown error
+ * never names a file for the user to clean up, and the target is untouched
+ * on every failure.
  *
  * `location.filenameOverride` (not `location.filePath`) is what sops matches
- * against its `.sops.yaml` `path_regex`, cwd-relative — the real staged
- * input lives under `rt/tmp`, which would never match.
+ * against its `.sops.yaml` `path_regex`, cwd-relative: the real staged input
+ * lives under `rt/tmp`, which would never match.
  *
  * Atomic for readers, deliberately not crash-durable: no fsync of the temp
  * file or its directory, so power loss in the instant around the rename can
