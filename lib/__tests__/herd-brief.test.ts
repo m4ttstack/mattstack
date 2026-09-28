@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assembleBrief, stripAuthorNotes } from "../herd-brief.ts";
+import { assembleBrief, fillSpawnSlots, stripAuthorNotes } from "../herd-brief.ts";
 
 const HAPPY_TEMPLATE = [
   "# Job: <name>",
@@ -547,5 +547,37 @@ describe("stripAuthorNotes", () => {
       ok: false,
       error: "author note opened at method line 12 is inside the one opened at line 10; author notes do not nest",
     });
+  });
+});
+
+describe("spawn-filled slots (RT-356)", () => {
+  const TEMPLATE = "# JOB: <name>\n\n## Method\n<method>\n\n## Messages\nDM <shepherd handle> when stuck.\n";
+  const method = { kind: "file" as const, content: "do it" };
+
+  test("an unfilled <shepherd handle> is not a leftover and passes through verbatim", () => {
+    const r = assembleBrief({ template: TEMPLATE, job: "j", fills: {}, method });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.brief).toContain("DM <shepherd handle> when stuck.");
+  });
+
+  test("an explicit fill still wins, leaving spawn nothing to replace", () => {
+    const r = assembleBrief({ template: TEMPLATE, job: "j", fills: { "shepherd handle": "ann" }, method });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.brief).toContain("DM ann when stuck.");
+    expect(fillSpawnSlots(r.brief, { "shepherd handle": "tom" })).toBe(r.brief);
+  });
+
+  test("other unfilled markers are still refused", () => {
+    const r = assembleBrief({ template: TEMPLATE + "<paths>\n", job: "j", fills: {}, method });
+    expect(r).toMatchObject({ ok: false, leftover: ["paths"] });
+  });
+
+  test("fillSpawnSlots replaces every marker, including one wrapped across a line", () => {
+    expect(fillSpawnSlots("to <shepherd handle>, and\n<shepherd\nhandle> again", { "shepherd handle": "tom" })).toBe("to tom, and\ntom again");
+  });
+
+  test("fillSpawnSlots leaves comments, other markers and unknown slots alone", () => {
+    const text = "x <!-- mcp-lint: allow --> <id> <paths>";
+    expect(fillSpawnSlots(text, { "shepherd handle": "tom", paths: "p" })).toBe(text);
   });
 });
