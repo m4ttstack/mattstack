@@ -7,10 +7,11 @@ disable-model-invocation: true
 # Board gate CLI recipes
 
 The three parts of the status-bin wrapper's own gate mechanics that do not
-belong in the gate protocol each wrapper includes (that protocol speaks in terms of the raw
-`rt gate` CLI and MCP tool; these three wrap `<status-bin>`, this repo's
-own gate-open/wait/answer projection). Read from `board:review`,
-`board:respond`, and `board:doctor` instead of restating.
+belong in the gate protocol each wrapper includes (that protocol speaks in
+terms of the raw `rt gate` CLI and MCP tool; these three wrap
+`<status-bin>`, this repo's own gate-open/wait/answer projection). Read
+from `board:review`, `board:respond`, and `board:doctor` instead of
+restating.
 
 ## Wait recipe
 

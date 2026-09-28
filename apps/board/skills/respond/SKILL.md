@@ -18,7 +18,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-517 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-521 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -173,9 +173,9 @@ and sections are in `gate-step.md`; each gate box says when to read it.
 The gate step's pane forms follow the gate protocol included at the end of
 this skill: its "Present the in-pane gate form" step and its "Answers are
 option values" and "Doorbell" sections, for the rendering and conflict
-mechanics. Where it records the pane's
-answer with the `gate_answer` tool, a board gate records it with
-`<status-bin> gate answer <state> --answers <json> --by pane` instead.
+mechanics. Where it records the pane's answer with the `gate_answer` tool,
+a board gate records it with `<status-bin> gate answer <state> --answers
+<json> --by pane` instead.
 
 ## Off-script step
 
@@ -517,6 +517,10 @@ fixed, 1 reply held per gate"`.
 The daemon-generic gate mechanics every passage above refers to. The board's
 own projections (`<status-bin> gate ...`) sit in `board:gate-cli-recipes`;
 everything else is here.
+
+Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
+did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
+--by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
 
 <!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.27.2 path=attachments/gate-protocol/SKILL.md lines=7-444 -->
 # Gate protocol
