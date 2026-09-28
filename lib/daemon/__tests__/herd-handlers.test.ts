@@ -1055,6 +1055,29 @@ describe("herd:spawn", () => {
     return { ...hx, herd: s.data.herd, room: s.data.room };
   }
 
+  test("RT-356: the prompt names the herd's current shepherd, and job.md keeps the slot for the next launch", async () => {
+    let shepherdName = "tom";
+    const hx = harness({ identityNames: (ids: Iterable<string>) => new Map([...ids].map((id) => [id, shepherdName])) });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const first = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", brief: "# job\nDM <shepherd handle> when done.", dir: "/t" });
+    if (!first.ok) throw new Error(first.error);
+    expect(hx.agentCalls[0].prompt).toContain("DM tom when done.");
+    expect(hx.agentCalls[0].prompt).not.toContain("<shepherd handle>");
+    expect(readFileSync(join(hx.dir, "herds", s.data.herd, "job-a", "job.md"), "utf8")).toContain("<shepherd handle>");
+    shepherdName = "ann";
+    const again = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", dir: "/t" });
+    if (!again.ok) throw new Error(again.error);
+    expect(hx.agentCalls[1].prompt).toContain("DM ann when done.");
+  });
+
+  test("RT-356: a brief with no slot is launched unchanged", async () => {
+    const { h, agentCalls, herd } = await started();
+    const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "# job\nplain", dir: "/t" });
+    if (!res.ok) throw new Error(res.error);
+    expect(agentCalls[0].prompt).toBe("# job\nplain");
+  });
+
   test("provisions, starts the agent in the herd workspace with env and handle, signs the pane in, records the job", async () => {
     const { h, store, agentCalls, worktreeCalls, chatCalls, herd, room, dir } = await started();
     const res = await h["herd:spawn"]({ herd, job: "job-a", brief: "# job\ndo the thing", model: "opus", account: "2" });

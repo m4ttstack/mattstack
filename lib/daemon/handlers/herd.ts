@@ -11,6 +11,7 @@ import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages
 import type { CommandResult } from "./types.ts";
 import type { HerdStore, HerdJobRow } from "../herd-store.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
+import { fillSpawnSlots } from "../../herd-brief.ts";
 import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
 import type { GatesStore } from "../gates-store.ts";
 import type { RunningRunScan } from "../../runs/store.ts";
@@ -449,6 +450,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       // The prior pane is closed above, so the row must not go on naming it
       // while agent:start decides whether there is a new one.
       store.upsertJob({ herd: herdId, name, worktree, branch, tree, handle: workerId, status: "spawning", disposable, pane: null, agentSession: null, agentId: null });
+      const shepherdName = deps.identityNames([herd.shepherdHandle]).get(herd.shepherdHandle) ?? herd.shepherdHandle;
       const started = await deps.agent["agent:start"]({
         // Pinned, never inherited from the agent.provider default: a worker
         // depends on claude-only machinery (the reserved chat handle
@@ -456,7 +458,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         // so a global codex default would silently degrade every herd. codex
         // workers are a separate change.
         provider: "claude",
-        repo: herd.repo, cwd: worktree, prompt: brief, surface: "herdr",
+        repo: herd.repo, cwd: worktree, prompt: fillSpawnSlots(brief, { "shepherd handle": shepherdName }), surface: "herdr",
         ...(str(p?.model) && { model: p!.model }), ...(str(p?.effort) && { effort: p!.effort }), ...(str(p?.account) && { account: p!.account }),
         label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: workerId,
         subject: herdSubject(herdId, name),
