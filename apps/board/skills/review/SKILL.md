@@ -66,6 +66,8 @@ digraph review_flow {
     "<status-bin> gate wait <state> (resumed review gate)" [shape=plaintext];
     "Resumed wait result (review)?" [shape=diamond];
     "Resumed wait failures = 3 (review)?" [shape=diamond];
+    "Read <--report> and its json sibling (resumed review)" [shape=plaintext];
+    "Report fits the resumed answer (review)?" [shape=diamond];
 
     "Prior review at --report (re-review)?" [shape=diamond];
     "Read <--report> (prior review)" [shape=plaintext];
@@ -158,11 +160,14 @@ digraph review_flow {
     "Which entry (review)?" -> "Prior review at --report (re-review)?" [label="fresh review"];
 
     "<status-bin> gate wait <state> (resumed review gate)" -> "Resumed wait result (review)?";
-    "Resumed wait result (review)?" -> "Domain skill resolved (review act)?" [label="answered"];
+    "Resumed wait result (review)?" -> "Read <--report> and its json sibling (resumed review)" [label="answered"];
     "Resumed wait result (review)?" -> "Review gate gone: ended cleanly, no status write" [label="closed, not found, or no gate open"];
     "Resumed wait result (review)?" -> "Resumed wait failures = 3 (review)?" [label="any other failure"];
     "Resumed wait failures = 3 (review)?" -> "<status-bin> gate wait <state> (resumed review gate)" [label="no: wait again"];
     "Resumed wait failures = 3 (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes"];
+    "Read <--report> and its json sibling (resumed review)" -> "Report fits the resumed answer (review)?";
+    "Report fits the resumed answer (review)?" -> "Domain skill resolved (review act)?" [label="yes, or the answer is outcome alone"];
+    "Report fits the resumed answer (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no: missing or malformed for the answer's shape"];
 
     "Prior review at --report (re-review)?" -> "Read <--report> (prior review)" [label="yes, and --re-review given"];
     "Prior review at --report (re-review)?" -> "Domain skill resolved (review)?" [label="no, or not a re-review"];
@@ -292,7 +297,9 @@ What the graph cannot show:
   re-review, never rewrite the report, and never run `gate open`: the gate
   lives in the rt daemon's registry, and a fresh open mints a new `gateId`
   and orphans the answer recorded against the old one. Once the answer is
-  read, an off-script gate at a posting refusal opens normally. This
+  read, `Read <--report> and its json sibling (resumed review)` loads the
+  findings it picked before anything posts, and an off-script gate at a
+  posting refusal opens normally. This
   invocation supersedes any earlier gate contract remembered in the
   conversation.
 - **What a resumed pane carries.** From the resumed wait: `answers`, `by`
@@ -368,6 +375,31 @@ Never guess or substitute a binding: the script is the only enforcement
 point. The review continues on the generic path: every `Domain skill
 resolved (...)?` diamond answers no, so an unbound board still gets a
 review, never a silently mis-bound one.
+
+### Read <--report> and its json sibling (resumed review)
+
+A resumed pane has no findings of its own: the earlier pane wrote them.
+Read `--report` and its json sibling (the stem swap in "The json sibling"
+under "Building the review-post questions") with the Read tool before
+anything posts. The answer's keys say which file it needs:
+
+- `findings-N` plus `outcome`: the json sibling. Join each picked value to
+  the finding with that `id` for its `tier`, `title`, `file`, `line`,
+  `fix` and `kind`.
+- `tiers` plus `outcome`: `--report` itself, for the findings listed under
+  each picked tier.
+- `outcome` alone: neither. A clean review posts no findings.
+
+Missing or malformed means what it means for the tier fallback: no
+sibling `.json`, unparseable json, or a parsed report whose `findings` is
+missing, not an array, or holds entries that don't fit the schema. On a
+resume it is never a reason to fall back, because the gate is answered
+and its shape is fixed. A per-finding answer whose json sibling is missing
+or malformed, a picked value no finding's `id` matches, or a tier answer
+whose `--report` is missing or unreadable cannot be posted as answered:
+`Report fits the resumed answer (review)?` answers no, and the `error`
+names the file and which case it was. Never rebuild the findings by
+reviewing again, and never post a picked finding from memory.
 
 ### Delegate the review to the domain skill
 
@@ -1040,8 +1072,8 @@ substitute the report's real `id`/`tier`/`title`/`file`/`line`/`fix`/
 - **Clean review** (`findings` is present and a valid empty array): omit
   every `findings-N` question and open the gate with `outcome` alone, so a
   clean review is approvable in one click. Only the empty array means
-  clean: a report whose `findings` field is missing, not an array, or full
-  of entries that don't fit the schema is a malformed report, not a clean
+  clean: a report whose `findings` field is missing, not an array, or holds
+  entries that don't fit the schema is a malformed report, not a clean
   one. Treating it as clean would let an approve go out with the omitted
   findings unseen, so take the tier fallback for it. Never map a clean
   review to Approve on your own: a clean review just means Approve is the
