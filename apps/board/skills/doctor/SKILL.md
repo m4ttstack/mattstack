@@ -724,8 +724,8 @@ Hand the domain skill:
   a stand-down: stop and report it.
 - **The push.** Push only with `git_push {tree: <worktree root>,
   forceWithLease: true}`; a refused push is reported back with the local
-  commit sha, the branch, the worktree root and the refusal, never retried
-  around.
+  commit sha, the branch (the MR's source branch it pushed), the worktree
+  root and the refusal, never retried around.
 - **The status milestones** it crosses: `rebasing`, `fixing`, `watching`,
   written through `<status-bin> doctor-status <state> <status> [message]`.
   The terminal `done` or `error` is this wrapper's.
@@ -738,8 +738,7 @@ Hand the domain skill:
 What it hands back, read at `Domain skill result (doctor)?`: clean and
 green (done); an enumerable decision (the situation line and its options);
 its `git_push` refused (sha, branch, worktree root, reason); a
-non-enumerable failure
-(the specific, actionable message for `error`); or its lease lost to
+non-enumerable failure (the specific, actionable message for `error`); or its lease lost to
 another owner (the holder, for the stand-down).
 
 ### doctor escalation: the domain skill's decision
@@ -1037,7 +1036,10 @@ Take the escalation step with this question. Reached when the domain
 skill reports its `git_push` refused, or when this wrapper's own push is
 refused. Label: `push of <sha> to <branch> refused on !<iid>: <refusal>`.
 Context: the refusal, quoted, with the local commit sha, the branch and
-the worktree root.
+the worktree root. The branch comes from the domain skill's hand-back;
+when it names none, use the MR's source branch from `mr_view` if this run
+already read it, else leave the branch out of the label, context and
+values. Never invent a branch name.
 
 | Value | Label | Description |
 |---|---|---|
