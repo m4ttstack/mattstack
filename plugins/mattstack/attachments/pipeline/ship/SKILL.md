@@ -204,6 +204,8 @@ digraph ship {
     "ship off-script gate: mr_upload refused" [shape=box];
     "ship off-script answer (mr_upload)?" [shape=diamond];
     "Upload off-script rounds = 2 (ship)?" [shape=diamond];
+    "Timed-out upload retried once (ship)?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
     "Domain owns the title or description (ship)?" [shape=diamond];
     "Forge host (ship, read back the description)?" [shape=diamond];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
@@ -356,6 +358,10 @@ digraph ship {
     "Upload retried with a corrected path (ship)?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
     "Upload retried with a corrected path (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="yes"];
     "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result (ship)?";
+    "mr_upload result (ship)?" -> "Timed-out upload retried once (ship)?" [label="timed out"];
+    "Timed-out upload retried once (ship)?" -> "mr_upload {mrUrl, path: <the timed-out file>}" [label="no: retry once, a timed-out upload is safe to repeat"];
+    "Timed-out upload retried once (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="yes: timed out twice"];
+    "mr_upload {mrUrl, path: <the timed-out file>}" -> "mr_upload result (ship)?";
     "STOP: upload only with mr_upload (ship)" -> "ship off-script gate: mr_upload refused";
     "ship off-script gate: mr_upload refused" -> "ship off-script answer (mr_upload)?";
     "ship off-script answer (mr_upload)?" -> "Domain owns the title or description (ship)?" [label="take: link the refused files' local paths"];
@@ -498,7 +504,9 @@ off-script gate reopens with the comparison as its context.
 
 ### ship off-script gate: mr_upload refused
 
-The upload guard refused a file past its one fix. Scope
+The upload guard refused a file past its one fix; a second timeout on
+the same file reaches this gate too, and Iterate retries it once the
+human has checked the daemon. Scope
 `off-script:<stage>:<n>`, sharing `n` with the push's off-script gate,
 `context` quoting the refusal and the path; the `action`/`next` questions
 and selection are the push gate's. Take writes the description with the

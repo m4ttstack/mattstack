@@ -81,6 +81,8 @@ digraph ship {
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" [shape=box];
     "upload off-script answer?" [shape=diamond];
     "Upload off-script rounds = 2?" [shape=diamond];
+    "Timed-out upload retried once?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
     "Forge host (read back the description)?" [shape=diamond];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
     "gh pr view <mr> --json title,body" [shape=plaintext];
@@ -183,6 +185,10 @@ digraph ship {
     "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
     "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
     "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
+    "mr_upload result?" -> "Timed-out upload retried once?" [label="timed out"];
+    "Timed-out upload retried once?" -> "mr_upload {mrUrl, path: <the timed-out file>}" [label="no: retry once, a timed-out upload is safe to repeat"];
+    "Timed-out upload retried once?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes: timed out twice"];
+    "mr_upload {mrUrl, path: <the timed-out file>}" -> "mr_upload result?";
     "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)";
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" -> "upload off-script answer?";
     "upload off-script answer?" -> "Forge host (read back the description)?" [label="proceed + take: link the refused files' local paths"];
@@ -239,7 +245,9 @@ Unbound, there is no AFTER.
 
 ### Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)
 
-The upload guard refused a file past its one fix. Scope
+The upload guard refused a file past its one fix; a second timeout on
+the same file reaches this gate too, and Iterate retries it once the
+human has checked the daemon. Scope
 `off-script:ship:<n>`, sharing `n` with the push's off-script gate,
 `context` quoting the refusal and the path. Take writes the description
 with the refused files' local paths linked instead of uploads, while files

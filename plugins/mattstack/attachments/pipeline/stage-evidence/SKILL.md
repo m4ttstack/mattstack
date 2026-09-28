@@ -63,6 +63,8 @@ digraph evidence {
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" [shape=box];
     "upload off-script answer?" [shape=diamond];
     "Upload off-script rounds = 2?" [shape=diamond];
+    "Timed-out upload retried once?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" [shape=plaintext];
     "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [shape=plaintext];
@@ -132,6 +134,10 @@ digraph evidence {
     "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
     "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
     "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
+    "mr_upload result?" -> "Timed-out upload retried once?" [label="timed out"];
+    "Timed-out upload retried once?" -> "mr_upload {mrUrl, path: <the timed-out file>}" [label="no: retry once, a timed-out upload is safe to repeat"];
+    "Timed-out upload retried once?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes: timed out twice"];
+    "mr_upload {mrUrl, path: <the timed-out file>}" -> "mr_upload result?";
     "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)";
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" -> "upload off-script answer?";
     "upload off-script answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="proceed + take: link the refused files' local paths, ship attaches"];
@@ -175,7 +181,9 @@ same source. The counter is attempts within this pass through the stage.
 
 ### Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)
 
-The upload guard refused a file past its one fix. Scope
+The upload guard refused a file past its one fix; a second timeout on
+the same file reaches this gate too, and Iterate retries it once the
+human has checked the daemon. Scope
 `off-script:evidence:<n>`, sharing `n` with the stage's other off-script
 gate, `context` quoting the refusal and the path. Take links the refused
 files' local paths in the handed-back markdown, while files already
