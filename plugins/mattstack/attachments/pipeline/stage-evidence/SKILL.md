@@ -56,6 +56,13 @@ digraph evidence {
     "Gate evidence-attach (table below)" [shape=box];
     "attach answer?" [shape=diamond];
     "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
+    "mr_upload result?" [shape=diamond];
+    "Upload retried with a corrected path?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" [shape=plaintext];
+    "STOP: upload only with mr_upload; another route is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" [shape=box];
+    "upload off-script answer?" [shape=diamond];
+    "Upload off-script rounds = 2?" [shape=diamond];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" [shape=plaintext];
     "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [shape=plaintext];
@@ -116,7 +123,22 @@ digraph evidence {
     "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: evidence}";
     "run_field_set {key: hold, value: <their words, or held>, stage: evidence}" -> "Held: end the turn naming run and stage";
     "attach answer?" -> "Gate evidence-attach (table below)" [label="iterate: re-ask with their note"];
-    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_view {mrUrl, maxAgeMs: 5000}";
+    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
+    "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
+    "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
+    "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
+    "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)";
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" -> "upload off-script answer?";
+    "upload off-script answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="proceed + take: link the local paths, ship attaches"];
+    "upload off-script answer?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="proceed + hand back"];
+    "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
+    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing uploaded"];
+    "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
+    "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back, the refusal quoted"];
     "mr_view {mrUrl, maxAgeMs: 5000}" -> "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}";
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}";
     "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" -> "Evidence done: return to the orchestrator";
@@ -149,6 +171,16 @@ provides) and store it under `~/.mattstack/work/<work-id>/evidence/`.
 A capture that failed (a blank page, a missing record, a wrong route)
 gets one different attempt per round: another view, another record, the
 same source. The counter is attempts within this pass through the stage.
+
+### Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)
+
+The upload guard refused a file past its one fix. Scope
+`off-script:evidence:<n>`, sharing `n` with the stage's other off-script
+gate, `context` quoting the refusal and the path. Take links the local
+paths in the handed-back markdown so ship attaches them; Iterate means the
+human moved the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a
+file under an allowed root is only ever the human's move: the roots are
+the boundary on what leaves the machine.
 
 ## What the graph cannot show
 
