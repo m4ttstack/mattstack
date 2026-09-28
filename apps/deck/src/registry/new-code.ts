@@ -38,6 +38,14 @@ function checkout(dir: string): { root: string; head: string } | null {
   }
 }
 
+function writeStamp(name: string, sha: string, now: () => Date): void {
+  try {
+    setLastDeploy(name, { sha, at: now().toISOString() });
+  } catch (err) {
+    warnOnce(`write|${name}`, `${name}: cannot record deploy stamp: ${err}`);
+  }
+}
+
 export function stampDeploy(
   name: string,
   dir: string,
@@ -48,7 +56,7 @@ export function stampDeploy(
     warnOnce(`stamp|${name}|${dir}`, `${name}: ${dir} is not a git checkout`);
     return;
   }
-  setLastDeploy(name, { sha: co.head, at: now().toISOString() });
+  writeStamp(name, co.head, now);
 }
 
 function touchesApp(
@@ -64,12 +72,17 @@ function touchesApp(
     warnOnce(`path|${name}|${dir}`, `${name}: cannot resolve ${dir}`);
     return false;
   }
-  const res = git(
-    ['diff', '--quiet', sha, co.head, '--', appDir, 'packages', 'bun.lock'],
-    co.root
-  );
-  if (res.code === 1) return true;
-  if (res.code !== 0)
+  let code: number;
+  try {
+    code = git(
+      ['diff', '--quiet', sha, co.head, '--', appDir, 'packages', 'bun.lock'],
+      co.root
+    ).code;
+  } catch {
+    code = -1;
+  }
+  if (code === 1) return true;
+  if (code !== 0)
     warnOnce(`diff|${name}|${sha}`, `${name}: git diff from ${sha} failed`);
   return false;
 }
@@ -92,7 +105,7 @@ export function newCodeFor(
   }
   const sha = record.lastDeploy?.sha;
   if (!sha) {
-    setLastDeploy(record.name, { sha: co.head, at: now().toISOString() });
+    writeStamp(record.name, co.head, now);
     return null;
   }
   if (sha === co.head) return null;

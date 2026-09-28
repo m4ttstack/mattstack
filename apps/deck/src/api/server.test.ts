@@ -7,6 +7,7 @@ import {
   beforeEach,
   describe,
   expect,
+  spyOn,
   test,
 } from 'bun:test';
 
@@ -1689,6 +1690,31 @@ describe('deploy stamping', () => {
       (await devPost('/api/v1/apps/busyapp/commands/deploy', {})).status
     ).toBe(409);
     expect(getRecord('busyapp')!.lastDeploy?.sha).toBe(first);
+  });
+
+  test('a stamp that cannot be written still answers the started run', async () => {
+    const { putRecord } = await import('../registry/records.ts');
+    const { appDir } = deployableRepo('stampfail', 4924, 'true');
+    putRecord({
+      name: 'stampfail',
+      managedBy: 'rt',
+      port: 4924,
+      kind: 'service',
+      createdAt: 'x',
+      dev: { workingDirectory: appDir },
+    });
+    const tmp = `${process.env.LOCAL_REGISTRY_PATH}.tmp`;
+    mkdirSync(tmp);
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await devPost('/api/v1/apps/stampfail/commands/deploy', {});
+      expect(res.status).toBe(200);
+      expect((await res.json()).started).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
