@@ -260,7 +260,7 @@ jobs:
         working-directory: plugins/mattstack
         run: |
           set -e
-          for d in skills/*/ attachments/*/ attachments/*/*/; do
+          for d in skills/*/ plugin/skills/*/ attachments/*/ attachments/*/*/; do
             [ -f "${d}SKILL.md" ] || continue
             sh tests/certify.sh "$d"
           done
