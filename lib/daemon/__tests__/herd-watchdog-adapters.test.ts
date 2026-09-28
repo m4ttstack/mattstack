@@ -9,7 +9,7 @@ import { joinRoom, postMessage } from "../../state/chat-store.ts";
 import type { GateRow } from "../../../packages/rt-client/src/commands.ts";
 import type { HerdRow } from "../herd-store.ts";
 import type { HerdJobRow } from "../herd-store.ts";
-import { createWatchdogActuators, createWatchdogSensors, hasBackgroundWork, readWatchdogConfig } from "../herd-watchdog-adapters.ts";
+import { createWatchdogActuators, createWatchdogSensors, backgroundTask, readWatchdogConfig } from "../herd-watchdog-adapters.ts";
 import { HerdWatchdog, type WatchdogConfig } from "../herd-watchdog.ts";
 import { deleteRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
 import { workspaceScreen } from "./trust-workspace-fixtures.ts";
@@ -481,6 +481,7 @@ describe("readWatchdogConfig", () => {
       enabled: false, fastMins: 3, shepherdFastMins: 5, backstopMins: 15,
       retryMins: 1, notifyQuietMins: 1, nagMins: 45, notifyHuman: true,
       midRunTrustAccept: false, relocationAutoAccept: true,
+      backgroundCapMins: 60,
     });
   });
 
@@ -519,6 +520,7 @@ describe("the board-37 specimen: a turn that ended before a daemon restart", () 
     enabled: true, fastMins: 2, shepherdFastMins: 5, backstopMins: 15,
     retryMins: 5, notifyQuietMins: 30, nagMins: 30, notifyHuman: true,
     midRunTrustAccept: false, relocationAutoAccept: false,
+    backgroundCapMins: 60,
   };
 
   function job(over: Partial<HerdJobRow> = {}): HerdJobRow {
@@ -619,22 +621,30 @@ const AGENTS_PANEL = [...COMPOSER, "  ⏵⏵ auto mode on · ← for agents", ""
 const PLAIN_FOOTER = [...COMPOSER, "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"].join("\n");
 const TRANSCRIPT_MENTION = ["⏺ Started 2 shells and 1 monitor for the CI wait.", ...COMPOSER, "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"].join("\n");
 
-describe("hasBackgroundWork", () => {
+describe("backgroundTask", () => {
   test("a shell or monitor count in the footer is background work", () => {
-    expect(hasBackgroundWork(SHELL_FOOTER)).toBe(true);
-    expect(hasBackgroundWork(SHELL_MONITOR_FOOTER)).toBe(true);
+    expect(backgroundTask(SHELL_FOOTER)).toBe("1 shell");
+    expect(backgroundTask(SHELL_MONITOR_FOOTER)).toBe("1 shell, 1 monitor");
   });
   test("a live agents panel under main is background work", () => {
-    expect(hasBackgroundWork(AGENTS_PANEL)).toBe(true);
+    expect(backgroundTask(AGENTS_PANEL)).toBe("subagent general-purpose Throwaway footer…");
+  });
+  test("the subagent row's live timer is dropped, however many units it shows", () => {
+    for (const timer of ["1m 3s", "2h 4m", "1h 0m 12s"]) {
+      expect(backgroundTask(AGENTS_PANEL.replace("5s", timer))).toBe("subagent general-purpose Throwaway footer…");
+    }
+  });
+  test("a number that is part of the task's own description stays", () => {
+    expect(backgroundTask(AGENTS_PANEL.replace("Throwaway footer… 5s", "Implement Task 3  1m 3s"))).toBe("subagent general-purpose Implement Task 3");
   });
   test("a plain footer is not", () => {
-    expect(hasBackgroundWork(PLAIN_FOOTER)).toBe(false);
+    expect(backgroundTask(PLAIN_FOOTER)).toBeNull();
   });
   test("counts above the composer's last rule are transcript text, not the footer", () => {
-    expect(hasBackgroundWork(TRANSCRIPT_MENTION)).toBe(false);
+    expect(backgroundTask(TRANSCRIPT_MENTION)).toBeNull();
   });
   test("a screen with no rule at all is not", () => {
-    expect(hasBackgroundWork("1 shell")).toBe(false);
+    expect(backgroundTask("1 shell")).toBeNull();
   });
 
   describe("a captured screen of a working pane running one shell and one subagent", () => {
@@ -645,17 +655,17 @@ describe("hasBackgroundWork", () => {
     const withoutPanel = withoutCount.split("\n").filter((line) => !/^\s*(?:⏺ main|◯ )/.test(line)).join("\n");
 
     test("reads as background work as captured", () => {
-      expect(hasBackgroundWork(CAPTURED)).toBe(true);
+      expect(backgroundTask(CAPTURED)).toBe("1 shell");
     });
     test("still reads as background work with the shell count gone, on the agents panel alone", () => {
       expect(withoutCount).not.toBe(CAPTURED);
-      expect(hasBackgroundWork(withoutCount)).toBe(true);
+      expect(backgroundTask(withoutCount)).toBe("subagent general-purpose Implement Task 3: watchdog exemptions");
     });
     test("reads as none with the count and the agents panel both gone, the transcript's ⏺ line above the rules notwithstanding", () => {
       expect(withoutPanel).toContain("⏺ Capturing");
       expect(withoutPanel).not.toContain("⏺ main");
       expect(withoutPanel).not.toContain("◯ general-purpose");
-      expect(hasBackgroundWork(withoutPanel)).toBe(false);
+      expect(backgroundTask(withoutPanel)).toBeNull();
     });
   });
 });
@@ -673,7 +683,7 @@ describe("watchdog sensors: background work", () => {
   test("an idle job pane whose footer shows a shell reads as background work", async () => {
     const { sensors } = fx({ snapshots, jobs: [jobRow()], screens: { "w1:p1": SHELL_FOOTER } });
     await sensors.refresh();
-    expect(sensors.backgroundWork("w1:p1")).toBe(true);
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
   });
 
   test("only idle job panes are read: working panes and the shepherd pane never are", async () => {
@@ -684,27 +694,27 @@ describe("watchdog sensors: background work", () => {
     });
     await sensors.refresh();
     expect(herdrCalls.filter((c) => c.method === "pane.read")).toHaveLength(1);
-    expect(sensors.backgroundWork("w1:p0")).toBe(false);
-    expect(sensors.backgroundWork("w1:p2")).toBe(false);
-    expect(sensors.backgroundWork("w1:p3")).toBe(false);
+    expect(sensors.backgroundWork("w1:p0")).toBeNull();
+    expect(sensors.backgroundWork("w1:p2")).toBeNull();
+    expect(sensors.backgroundWork("w1:p3")).toBeNull();
   });
 
   test("a closed job's pane is not read", async () => {
     const { sensors, herdrCalls } = fx({ snapshots, jobs: [jobRow({ status: "closed" })], screens: { "w1:p1": SHELL_FOOTER } });
     await sensors.refresh();
     expect(herdrCalls.filter((c) => c.method === "pane.read")).toHaveLength(0);
-    expect(sensors.backgroundWork("w1:p1")).toBe(false);
+    expect(sensors.backgroundWork("w1:p1")).toBeNull();
   });
 
-  test("a failed read on one pane leaves it not busy and still reads the others", async () => {
+  test("a failed read on a pane never seen busy leaves it not busy and still reads the others", async () => {
     const { sensors } = fx({
       snapshots,
       jobs: [jobRow({ name: "a", pane: "w1:p1" }), jobRow({ name: "b", pane: "w1:p3" })],
       screens: { "w1:p3": SHELL_FOOTER },
     });
     await sensors.refresh();
-    expect(sensors.backgroundWork("w1:p1")).toBe(false);
-    expect(sensors.backgroundWork("w1:p3")).toBe(true);
+    expect(sensors.backgroundWork("w1:p1")).toBeNull();
+    expect(sensors.backgroundWork("w1:p3")).toEqual({ task: "1 shell", sinceMs: NOW });
   });
 
   test("a hidden herd's job pane is read by its bare id on the herd's own socket, and answers under its bg: ref", async () => {
@@ -717,17 +727,50 @@ describe("watchdog sensors: background work", () => {
     await sensors.refresh();
     const reads = herdrCalls.filter((c) => c.method === "pane.read");
     expect(reads).toEqual([{ method: "pane.read", params: { pane_id: "w1:p1", source: "visible" }, sock: BG }]);
-    expect(sensors.backgroundWork("bg:w1:p1")).toBe(true);
-    expect(sensors.backgroundWork("w1:p1")).toBe(false);
+    expect(sensors.backgroundWork("bg:w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
+    expect(sensors.backgroundWork("w1:p1")).toBeNull();
   });
 
   test("the next refresh drops a pane whose background work finished", async () => {
     const screens: Record<string, string> = { "w1:p1": SHELL_FOOTER };
     const { sensors } = fx({ snapshots, jobs: [jobRow()], screens });
     await sensors.refresh();
-    expect(sensors.backgroundWork("w1:p1")).toBe(true);
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
     screens["w1:p1"] = PLAIN_FOOTER;
     await sensors.refresh();
-    expect(sensors.backgroundWork("w1:p1")).toBe(false);
+    expect(sensors.backgroundWork("w1:p1")).toBeNull();
+  });
+
+  test("RT-359: the clock starts at the first busy sweep, holds while busy, and restarts after it clears", async () => {
+    const clock = { now: NOW };
+    const screens: Record<string, string> = { "w1:p1": SHELL_FOOTER };
+    const { sensors } = fx({ snapshots, jobs: [jobRow()], screens, clock });
+    await sensors.refresh();
+    clock.now = NOW + 5 * MIN;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
+    screens["w1:p1"] = PLAIN_FOOTER;
+    clock.now = NOW + 6 * MIN;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toBeNull();
+    screens["w1:p1"] = SHELL_MONITOR_FOOTER;
+    clock.now = NOW + 7 * MIN;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell, 1 monitor", sinceMs: NOW + 7 * MIN });
+  });
+
+  test("a failed read between two busy sweeps keeps the original stamp", async () => {
+    const clock = { now: NOW };
+    const screens: Record<string, string> = { "w1:p1": SHELL_FOOTER };
+    const { sensors } = fx({ snapshots, jobs: [jobRow()], screens, clock });
+    await sensors.refresh();
+    delete screens["w1:p1"];
+    clock.now = NOW + 5 * MIN;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
+    screens["w1:p1"] = SHELL_FOOTER;
+    clock.now = NOW + 10 * MIN;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
   });
 });

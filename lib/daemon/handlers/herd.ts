@@ -11,6 +11,7 @@ import { formatPaneRef, gatePresentation, parsePaneRef } from "../../../packages
 import type { CommandResult } from "./types.ts";
 import type { HerdStore, HerdJobRow } from "../herd-store.ts";
 import { writePromptFile } from "../../agent-argv/index.ts";
+import { fillSpawnSlots } from "../../herd-brief.ts";
 import { herdPrefix, herdSubject, isValidJobName, mintHerdId } from "../herd-store.ts";
 import type { GatesStore } from "../gates-store.ts";
 import type { RunningRunScan } from "../../runs/store.ts";
@@ -426,6 +427,9 @@ export function createHerdHandlers(deps: HerdDeps) {
         chmodSync(briefPath, 0o600);
       } else return { ok: false, error: `no brief: pass --brief <file> (none stored at ${briefPath})` };
 
+      const shepherdName = deps.identityNames([herd.shepherdHandle]).get(herd.shepherdHandle) ?? herd.shepherdHandle;
+      const prompt = fillSpawnSlots(brief, { "shepherd handle": shepherdName, "shepherd id": herd.shepherdHandle });
+
       const prior = store.getJob(herdId, name);
       // agent:start dedups on the tab label and would focus the dead tab
       // instead of launching; the old pane goes first.
@@ -456,7 +460,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         // so a global codex default would silently degrade every herd. codex
         // workers are a separate change.
         provider: "claude",
-        repo: herd.repo, cwd: worktree, prompt: brief, surface: "herdr",
+        repo: herd.repo, cwd: worktree, prompt, surface: "herdr",
         ...(str(p?.model) && { model: p!.model }), ...(str(p?.effort) && { effort: p!.effort }), ...(str(p?.account) && { account: p!.account }),
         label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: workerId,
         subject: herdSubject(herdId, name),
