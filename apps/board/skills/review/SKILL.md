@@ -455,8 +455,8 @@ What the graph cannot show:
   already posted. `mr_approve` runs only when the outcome is `approve`,
   after the findings; approval has no read, so a resumed pane approves
   again unless `--report` marks it approved by hand ("Escalation marks"),
-  and a refusal saying this account already approved counts as approved. Read
-  each answer's `value` (an answer may be a `{value, note}` object); a
+  and a refusal saying this account already approved counts as approved.
+  Read each answer's `value` (an answer may be a `{value, note}` object); a
   note is the human's steer on the wording of what posts. No finding
   posts twice: a resumed pane reads what is already up with `mr_threads
   {mrUrl, refresh: true} (review posted already)` before anything posts.
@@ -846,8 +846,8 @@ path, so it executes the posting:
 Pass each answer's notes along with it. On a resumed pane
 (`--resumed-gate` given), tell the domain skill the pass is a resume, so
 it runs its own Posted already read before anything posts and hands back
-what it found already up. On an escalation resume the answer comes from
-the report's `review-post-answer:` line, and hand it too every
+what it found already up. On a posting-origin escalation resume the
+answer comes from the report's `review-post-answer:` line, and hand it too every
 `review-escalation-mark:` line in `--report` plus the resumed answer's own
 take (at a posting origin or the Posted already read, which a
 domain-path resume has not recorded), so it skips what the human already
