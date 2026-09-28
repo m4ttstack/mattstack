@@ -79,7 +79,15 @@ export async function answerGate(
 
   let res: Awaited<ReturnType<AnswerGateIo['gateAnswer']>>;
   try {
-    res = await io.gateAnswer({ id: gateId, answers, by: 'board' });
+    // The board is a human surface: a herd-owned gate answered here is the
+    // human stepping in, which the daemon's owner guard only admits as an
+    // override (recorded on the answer row).
+    res = await io.gateAnswer({
+      id: gateId,
+      answers,
+      by: 'board',
+      override: true,
+    });
   } catch (err) {
     return {
       kind: 'unreachable',
