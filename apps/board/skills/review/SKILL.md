@@ -13,7 +13,7 @@ allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUD
 metadata:
   slots: "review"
   slot-review: "required mr-review@2 -- owns the domain review flow for one MR: resolving the MR/ticket, producing the draft review, writing the report, reporting the severity levels present, and executing the posting once handed the human's decision. Never presents posting gates or decides disposition."
-  compiled: "mattstack:gate-protocol@0.27.10"
+  compiled: "mattstack:gate-protocol@0.28.2"
 ---
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
@@ -1177,7 +1177,7 @@ Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
 did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 --by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
 
-<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.27.10 path=attachments/gate-protocol/SKILL.md lines=7-444 -->
+<!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.28.2 path=attachments/gate-protocol/SKILL.md lines=7-444 -->
 # Gate protocol
 
 One shared protocol for any gated pane or wrapper: publish first, then act
