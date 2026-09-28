@@ -14,7 +14,8 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   install`/`link`, popup panes, events, `plugin_action` keybindings): herdr's
   own docs at <https://github.com/herdrdev/herdr>. This plugin is a client of
   that contract, not a definition of it.
-- **The chat protocol and the `rt` CLI this plugin drives:** in `repo-tools`,
+- **The chat protocol and the `rt` CLI this plugin drives:** at the mattstack
+  repository root,
   `skills/rt-chat/SKILL.md` (the agent-facing rules),
   `docs/superpowers/specs/2026-08-28-rt-chat-delivery-v2-design.md` (the
   current socket-push delivery model; the 2026-08-2{3,4} wake/presence
@@ -62,7 +63,7 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   execs the freshly built binary.
 - Go back to the durable github install: `herdr plugin unlink m4ttstack.chat`
   first (a local link blocks it), then
-  `herdr plugin install m4ttstack/herdr-chat --yes` (`--yes` is required
+  `herdr plugin install m4ttstack/mattstack/plugins/herdr-chat --yes` (`--yes` is required
   non-interactively).
 
 ## Gotchas (each cost a debugging round)
