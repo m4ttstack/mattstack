@@ -97,6 +97,7 @@ digraph doctor_entry {
     "Trigger: the old lease's wait finished" -> "ci_lease_read {mrUrl} (after the old lease's TTL)";
     "ci_lease_read {mrUrl} (after the old lease's TTL)" -> "Old lease after the wait (doctor)?";
     "Old lease after the wait (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}" [label="null, or only stale"];
+    "Old lease after the wait (doctor)?" -> "Which entry (doctor)?" [label="the board's board:doctor owner: board mode"];
     "Old lease after the wait (doctor)?" -> "Which entry (doctor)?" [label="mine: true: own mode"];
     "Old lease after the wait (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="fresh with a newer heartbeatAt or another owner: stand down, error naming the holder"];
     "Old lease after the wait (doctor)?" -> "Old-lease waits = 2 (doctor)?" [label="fresh with the same heartbeatAt"];
@@ -186,16 +187,18 @@ pane` writes `error` naming the situation the gate described; both
   option value is a domain action.
 - **Resumed pane on its own old lease.** "Resumed" at
   `Who holds the fresh lease (doctor)?` means this launch carried
-  `--resumed-gate`, the launch flag `--resumed-gate given (doctor)?` and
-  `Which entry (doctor)?` also read, so it holds for the whole run. A
-  resumed pane may run under a new session id, so the lease its earlier
-  self claimed reads as another owner's: `holder` `doctor`, an owner that
-  is neither the board's `board:doctor:<mr>` nor `mine: true`. Keep that
+  `--resumed-gate`, the same flag `--resumed-gate given (doctor)?` and
+  `Which entry (doctor)?` read; it holds for the whole run. A resumed
+  pane may run under a new session id, so the lease its earlier self
+  claimed reads as another owner's: `holder` `doctor`, an owner that is
+  neither the board's `board:doctor:<mr>` nor `mine: true`. Keep that
   first read's `owner` and `heartbeatAt`, since
-  `Old lease after the wait (doctor)?` compares against them. After the
-  wait, a fresh lease whose `heartbeatAt` moved or whose `owner` changed
-  is a live attendant (a dead pane never heartbeats), so stand down
-  naming the holder. The same `heartbeatAt` still fresh means the clocks
+  `Old lease after the wait (doctor)?` compares against them; a re-read
+  after a fixed error replaces them. After the wait, the board's
+  `board:doctor:<mr>` owner is board mode, as at the first read. Any
+  other fresh lease whose `heartbeatAt` moved or whose `owner` changed is
+  a live attendant (a dead pane never heartbeats), so stand down naming
+  the holder. The same `heartbeatAt` still fresh means the clocks
   disagree by a little: wait again. `Old-lease waits = 2 (doctor)?`
   counts the waits already taken, so two waits is the most; then stand
   down naming the holder. A fresh run never waits: any fresh lease that is

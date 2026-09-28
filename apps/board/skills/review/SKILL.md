@@ -18,7 +18,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1499 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1500 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -211,7 +211,7 @@ digraph review_flow {
     "Report fits the resumed answer (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no: missing or malformed for the answer's shape"];
     "Route the resumed escalation by its origin (review)" -> "Resumed escalation origin (review)?";
     "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any origin: the refusals are the reason"];
-    "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="mr_view, not on a re-review: take, or iterate at round 1"];
+    "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="mr_view, not on a re-review: take with branches, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="a re-review origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Read <--report>, its verdict line and json sibling (resumed escalation)" [label="a posting origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
@@ -591,7 +591,7 @@ to the off-script gate.
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
-Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Tell the domain skill these things:
 
@@ -669,13 +669,14 @@ and the new commits since the last review against the prior review, read
 at `Read <--report> (prior review)` or, on a resumed pane, at `Read
 <--report> (prior review, resumed re-review)`. **Author acted:**
 re-review focused on that: for each prior comment, was it adequately
-addressed? Are the new changes sound? Note anything still open. **No action found** (no threads addressed, no
-relevant new changes since the last review): say so explicitly in the
-report's summary line, e.g. `"no author action found since last review"`,
-and fall back to a normal full review of the whole MR so the pass is still
-useful. **No thread history** (the re-review read's off-script take): a
-full review of the whole MR, its summary line saying the threads could
-not be read, e.g. `"threads unreadable; full review"`.
+addressed? Are the new changes sound? Note anything still open. **No
+action found** (no threads addressed, no relevant new changes since the
+last review): say so explicitly in the report's summary line, e.g.
+`"no author action found since last review"`, and fall back to a normal
+full review of the whole MR so the pass is still useful. **No thread
+history** (the re-review read's off-script take): a full review of the
+whole MR, its summary line saying the threads could not be read, e.g.
+`"threads unreadable; full review"`.
 
 ### Write the review report to --report
 
@@ -799,7 +800,7 @@ its `answeredAt`.
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
-Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Hand the domain skill the human's answer, the MR url and the `--report`
 path, so it executes the posting:

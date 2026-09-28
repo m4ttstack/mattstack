@@ -274,7 +274,7 @@ confirm them and write what is missing.
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
-Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Hand the domain skill `{post: <answers>, by: <by>}`, the `--report` path
 and the round, so it executes the posting, the reply-only threads
