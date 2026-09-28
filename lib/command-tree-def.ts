@@ -1128,13 +1128,6 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
-  version: {
-    description: "Show the current version and which app (prod or dev) this rt belongs to",
-    module: "./commands/version.ts",
-    fn: "runVersion",
-    args: [],
-  },
-
   verify: {
     description: "Verify an rt installation end-to-end (run after installing)",
     module: "./commands/verify.ts",

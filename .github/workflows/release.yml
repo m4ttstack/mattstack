@@ -284,7 +284,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' rt-tray/mattstack.app/Contents/Info.plist)"
-          RT_OUT="$(dist/rt --version)"
+          RT_OUT="$(dist/rt --version | sed -n 1p)"
           RT_TOKEN="${RT_OUT#rt }"; RT_TOKEN="${RT_TOKEN#v}"
           [ "$PLIST_VERSION" = "$VERSION" ] || { echo "::error::CFBundleShortVersionString '$PLIST_VERSION' != tag version '$VERSION'"; exit 1; }
           [ "$RT_TOKEN" = "$VERSION" ] || { echo "::error::rt --version '$RT_OUT' != tag version '$VERSION'"; exit 1; }

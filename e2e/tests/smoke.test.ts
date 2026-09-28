@@ -27,14 +27,14 @@ describe("smoke", () => {
     // Help is a first-class product on stdout (dispatch-level --help).
     const verbs = listedVerbs(result.stdout);
     const expectedCommands = [
-      "git", "sync", "run", "commit",
-      "port", "update", "version",
+      "git", "sync", "run", "glitter",
+      "port", "mr",
       "cd", "nav", "settings", "hooks",
     ];
     for (const cmd of expectedCommands) {
       expect(verbs).toContain(cmd);
     }
-    for (const cmd of ["daemon", "state", "skills", "herd"]) {
+    for (const cmd of ["daemon", "state", "skills", "herd", "uninstall"]) {
       expect(verbs).not.toContain(cmd);
     }
   });
