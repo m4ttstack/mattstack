@@ -72,6 +72,25 @@ describe('scripts/turbo.sh', () => {
     ).toBe(true);
   }, 30_000);
 
+  test('caches under the tree outside a git checkout', () => {
+    const noGit = { GIT_DIR: join(tmpdir(), 'no-such-git-dir') };
+    const dry = run(['typecheck', '--filter=@mattstack/tokens', '--dry=json'], {
+      env: noGit,
+    });
+    expect(dry.code, dry.err).toBe(0);
+    const { hash } = documents(dry.out)[0]!.tasks.find(
+      t => t.taskId === '@mattstack/tokens#typecheck'
+    )!;
+    const r = run(
+      ['typecheck', '--filter=@mattstack/tokens', '--output-logs=none'],
+      { env: { ...noGit, HOME: userInfo().homedir } }
+    );
+    expect(r.code, r.err).toBe(0);
+    expect(
+      existsSync(join(ROOT, '.turbo', 'cache', `${hash}-meta.json`))
+    ).toBe(true);
+  }, 30_000);
+
   test('check runs codegen gates, then package gates, then root gates and the tokens suite', () => {
     const r = run(['check', '--dry=json']);
     expect(r.code, r.err).toBe(0);
