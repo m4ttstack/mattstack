@@ -100,14 +100,6 @@ export interface CommandNode {
   hidden?: boolean;
 
   /**
-   * "program": run by the mattstack apps, skills or daemon rather than typed
-   * by hand. Left out of pickers, usage and --help unless rt.picker.show
-   * names it (or "*") or the command line starts with --all; always runnable
-   * by name.
-   */
-  audience?: "program";
-
-  /**
    * Dev-mode only: hidden from pickers/usage AND unrunnable unless dev mode is
    * active (~/.local/bin/rt wrapper present), so experimental commands can live
    * in the tree without shipping in the compiled binary's surface.
@@ -515,23 +507,20 @@ function renderHeader(breadcrumb: string[]): void {
   console.error(`  ${parts.join(` ${dim}›${reset} `)}\n`);
 }
 
-/** Verb paths ("pane", "worktree provision") from rt.picker.show/hide, plus --all. */
+/** Verb paths ("pane", "worktree provision") from rt.picker.hidden, plus --all. */
 export interface VerbFilter {
   all: boolean;
-  show: ReadonlySet<string>;
-  hide: ReadonlySet<string>;
+  hidden: ReadonlySet<string>;
 }
 
 /**
  * Visible in pickers/usage: never a hidden node or (outside dev mode) a
- * dev-only one; then --all shows the rest, hide beats show, and a program
- * verb needs show to name it or "*".
+ * dev-only one; then --all shows the rest, and rt.picker.hidden leaves out
+ * the paths it names.
  */
 export function isNodeVisible(node: CommandNode, isDev: boolean, path = "", filter?: VerbFilter): boolean {
   if (node.hidden || (node.devOnly && !isDev)) return false;
-  if (filter?.all) return true;
-  if (filter?.hide.has(path)) return false;
-  return node.audience !== "program" || !!filter?.show.has("*") || !!filter?.show.has(path);
+  return !!filter?.all || !filter?.hidden.has(path);
 }
 
 const ALL_FLAG = "--all";
@@ -540,12 +529,12 @@ let showAllVerbs = false;
 
 type SettingsResolver = typeof import("./settings/resolve.ts");
 
-function readVerbList({ getSetting }: SettingsResolver, key: string): string[] {
+function readHiddenVerbs({ getSetting }: SettingsResolver): string[] {
   try {
-    const value = getSetting<string[]>(key).value;
+    const value = getSetting<string[]>("rt.picker.hidden").value;
     return Array.isArray(value) ? value : [];
   } catch (err) {
-    console.error(`  ${dim}${key} could not be read, ignoring it: ${err instanceof Error ? err.message : String(err)}${reset}`);
+    console.error(`  ${dim}rt.picker.hidden could not be read, listing every verb: ${err instanceof Error ? err.message : String(err)}${reset}`);
     return [];
   }
 }
@@ -556,11 +545,7 @@ function readVerbList({ getSetting }: SettingsResolver, key: string): string[] {
  */
 async function verbFilter(): Promise<VerbFilter> {
   const resolver: SettingsResolver = await import("./settings/resolve.ts");
-  return {
-    all: showAllVerbs,
-    show: new Set(readVerbList(resolver, "rt.picker.show")),
-    hide: new Set(readVerbList(resolver, "rt.picker.hide")),
-  };
+  return { all: showAllVerbs, hidden: new Set(readHiddenVerbs(resolver)) };
 }
 
 async function visibleEntries(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<[string, CommandNode][]> {

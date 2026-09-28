@@ -73,8 +73,8 @@ describe("branch --help", () => {
   test("root --help lists top-level commands", async () => {
     await expect(dispatch(makeTree(), ["--help"])).rejects.toThrow("exit sentinel");
     expect(exitSpy.mock.calls.at(-1)?.[0]).toBe(0);
-    expect(stdout()).toContain("daemon");
-    expect(stdout()).toContain("Manage the daemon");
+    expect(stdout()).toContain("join");
+    expect(stdout()).toContain("Join a room");
   });
 
   test("hidden subcommands are excluded; devOnly follows dev-mode detection", async () => {
