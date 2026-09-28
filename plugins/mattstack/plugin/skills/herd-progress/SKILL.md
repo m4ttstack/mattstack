@@ -12,14 +12,14 @@ tasks from its own SDD ledger and plan. The shepherd prints what it returns.
 
 ## The reply
 
-1. Run it from this skill's base directory:
+1. Run it from this skill's base directory, naming your herd:
 
    ```bash
-   python3 <base dir>/scripts/herd_progress.py
+   python3 <base dir>/scripts/herd_progress.py --herd <herd id>
    ```
 
-   It picks `HERD_ID`, else the one active herd. With several active herds,
-   pass `--herd <id>` (the `herd_list` tool names them).
+   The command starts with `python3`, with no env prefix. When you do not
+   know the id, the `herd_list` tool names the active herds.
 
 2. Reply with its output verbatim: the header line, the overall bar, then
    the table. The table is the view; it carries no stage strip, extra
@@ -28,6 +28,7 @@ tasks from its own SDD ledger and plan. The shepherd prints what it returns.
 3. Under the table, one or two lines: each row whose status is
    **NEEDS YOU**, **CRASHED**, **STUCK** or *idle*, with the move you
    propose. When there is none, one line saying nothing needs the user.
+   *closed* and done rows are the record and get no line.
 
 That is the whole reply. The script already measured everything the table
 shows, so the turn is one call and one message.
@@ -46,5 +47,4 @@ ledger shows" when you quote one.
 
 ## When the script fails
 
-It exits non-zero and prints the reason. Quote the reason in one line. When
-it names no active herd, or several, rerun with `--herd <id>`.
+It exits non-zero and prints the reason. Quote the reason in one line.
