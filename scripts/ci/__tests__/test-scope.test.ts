@@ -308,6 +308,17 @@ describe("rt changes that affect a plugin", () => {
   test("a trigger for a plugin directory that does not exist is dropped", () => {
     withPlugin(null, (root) => expect(rtTriggeredPluginDirs(["lib/mcp/tools.ts"], root)).toEqual([]));
   });
+  test.each([".github/workflows/checks.yml", "scripts/ci/test-scope.ts"])("%s runs every plugin job", (f) => {
+    const root = mkdtempSync(join(tmpdir(), "test-scope-all-plugins-"));
+    try {
+      mkdirSync(join(root, "plugins", "mattstack"), { recursive: true });
+      mkdirSync(join(root, "plugins", "herdr-chat"), { recursive: true });
+      expect(prPluginDirs([f], root)).toEqual(["plugins/herdr-chat", "plugins/mattstack"]);
+      expect(prPluginDirs(["lib/foo.ts"], root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   test("a PR's plugin set lists a plugin touched directly and by an rt path once", () => {
     withPlugin("mattstack", (root) =>
       expect(prPluginDirs(["plugins/mattstack/README.md", "lib/mcp/tools.ts", "plugins/herdr-chat/x.ts"], root)).toEqual([
