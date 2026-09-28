@@ -1,6 +1,6 @@
 import type { BoardMRWithReview } from '../types.ts';
 import { ago, cleanTitle } from './format.ts';
-import { MrLinks } from './MrLinks.tsx';
+import { MrLinks, onGitHub } from './MrLinks.tsx';
 import { PersonLead } from './PersonLead.tsx';
 
 /** A review gate's identity card: the invader, the author and where the MR
@@ -14,7 +14,7 @@ export function MrCard({ mr }: { mr: BoardMRWithReview }) {
         name={mr.author.name || mr.author.username}
         trailing={<MrLinks mr={mr} />}
       >
-        opened <span className="tui-id-card-ref">!{mr.iid}</span> into{' '}
+        opened <MrRef mr={mr} /> into{' '}
         {mr.targetBranch}
       </PersonLead>
       <p className="tui-id-card-title">{cleanTitle(mr.title)}</p>
@@ -33,5 +33,22 @@ export function MrCard({ mr }: { mr: BoardMRWithReview }) {
         </p>
       )}
     </div>
+  );
+}
+
+function MrRef({ mr }: { mr: BoardMRWithReview }) {
+  const ref = `!${mr.iid}`;
+  if (!mr.webUrl) return <span className="tui-id-card-ref">{ref}</span>;
+  const forge = onGitHub(mr) ? 'GitHub' : 'GitLab';
+  return (
+    <a
+      className="tui-id-card-ref"
+      href={mr.webUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`open ${ref} in ${forge}`}
+    >
+      {ref}
+    </a>
   );
 }
