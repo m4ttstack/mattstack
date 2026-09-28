@@ -1,0 +1,182 @@
+#![allow(dead_code)]
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// Write `bytes` to `path` atomically: write a sibling temp file, then rename it
+/// over `path`. A same-directory rename is atomic, so a concurrent reader never
+/// sees a half-written file and a crash mid-write cannot truncate the existing
+/// one. The temp name carries the pid so two processes writing the same file do
+/// not collide on the scratch file.
+fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".tmp.{}", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, bytes)?;
+    fs::rename(&tmp, path)
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Broadcast {
+    pub at: i64,
+    pub message: String,
+    pub recipients: Vec<Recipient>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Recipient {
+    pub pane_id: String,
+    pub handle: Option<String>,
+    // Without `default` a history file written before names existed fails to
+    // parse, and `push_broadcast` would then replace it with an empty list.
+    #[serde(default)]
+    pub name: Option<String>,
+    pub delivered: String,
+}
+
+#[allow(dead_code)]
+pub fn state_dir() -> PathBuf {
+    PathBuf::from(std::env::var("HERDR_PLUGIN_STATE_DIR").unwrap_or_else(|_| ".".to_string()))
+}
+
+/// The launcher's origin-pane handoff: the pane action writes the focused
+/// pane's id here, and the launcher popup (a separate herdr-spawned process
+/// with no `HERDR_PANE_ID`) reads it back for the sign-in/out quick actions.
+/// `None` clears a stale stash so a pane-less launch cannot sign in whatever
+/// pane a previous launch targeted.
+pub fn stash_origin_pane(dir: &Path, pane: Option<&str>) -> std::io::Result<()> {
+    let path = dir.join("launcher-origin");
+    match pane {
+        Some(p) => atomic_write(&path, p.as_bytes()),
+        None => match fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        },
+    }
+}
+
+pub fn read_origin_pane(dir: &Path) -> Option<String> {
+    let s = fs::read_to_string(dir.join("launcher-origin")).ok()?;
+    let s = s.trim();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+pub fn push_broadcast(dir: &Path, b: &Broadcast) -> std::io::Result<()> {
+    let broadcasts_file = dir.join("broadcasts.json");
+    let mut broadcasts = if let Ok(content) = fs::read_to_string(&broadcasts_file) {
+        serde_json::from_str::<Vec<Broadcast>>(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    broadcasts.push(b.clone());
+    if broadcasts.len() > 50 {
+        broadcasts.remove(0);
+    }
+    let json = serde_json::to_string(&broadcasts)?;
+    atomic_write(&broadcasts_file, json.as_bytes())
+}
+
+pub fn recent_broadcasts(dir: &Path) -> Vec<Broadcast> {
+    let broadcasts_file = dir.join("broadcasts.json");
+    if let Ok(content) = fs::read_to_string(&broadcasts_file) {
+        if let Ok(mut broadcasts) = serde_json::from_str::<Vec<Broadcast>>(&content) {
+            broadcasts.reverse();
+            return broadcasts;
+        }
+    }
+    Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn atomic_write_replaces_and_leaves_no_temp() {
+        let d = tempfile::tempdir().unwrap();
+        let target = d.path().join("x.json");
+        atomic_write(&target, b"first").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "first");
+        // A second write replaces the file in place via temp + rename.
+        atomic_write(&target, b"second").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "second");
+        // The rename consumes the scratch file; none is left behind.
+        let temps: Vec<_> = fs::read_dir(d.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .collect();
+        assert!(temps.is_empty(), "temp file left behind: {temps:?}");
+    }
+
+    #[test]
+    fn origin_pane_roundtrips_and_clears() {
+        let d = tempfile::tempdir().unwrap();
+        stash_origin_pane(d.path(), Some("w1:p2")).unwrap();
+        assert_eq!(read_origin_pane(d.path()).as_deref(), Some("w1:p2"));
+        stash_origin_pane(d.path(), None).unwrap();
+        assert!(read_origin_pane(d.path()).is_none());
+        // Clearing an already-clear stash is a no-op, not an error.
+        stash_origin_pane(d.path(), None).unwrap();
+    }
+
+    #[test]
+    fn broadcasts_cap_at_fifty_newest_first() {
+        let d = tempfile::tempdir().unwrap();
+        for i in 0..60 {
+            push_broadcast(
+                d.path(),
+                &Broadcast {
+                    at: i,
+                    message: i.to_string(),
+                    recipients: vec![],
+                },
+            )
+            .unwrap();
+        }
+        let r = recent_broadcasts(d.path());
+        assert_eq!(r.len(), 50);
+        assert_eq!(r[0].message, "59");
+    }
+
+    #[test]
+    fn a_history_file_written_before_display_names_still_loads() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(
+            d.path().join("broadcasts.json"),
+            r#"[{"at":1,"message":"hi","recipients":[{"pane_id":"w1:p1","handle":"meg","delivered":"accepted"}]}]"#,
+        )
+        .unwrap();
+        let r = recent_broadcasts(d.path());
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].recipients[0].handle.as_deref(), Some("meg"));
+        assert_eq!(r[0].recipients[0].name, None);
+    }
+
+    #[test]
+    fn a_recipient_name_round_trips() {
+        let d = tempfile::tempdir().unwrap();
+        push_broadcast(
+            d.path(),
+            &Broadcast {
+                at: 1,
+                message: "hi".to_string(),
+                recipients: vec![Recipient {
+                    pane_id: "w1:p1".to_string(),
+                    handle: Some("remy.k3f9".to_string()),
+                    name: Some("remy".to_string()),
+                    delivered: "accepted".to_string(),
+                }],
+            },
+        )
+        .unwrap();
+        let r = recent_broadcasts(d.path());
+        assert_eq!(r[0].recipients[0].handle.as_deref(), Some("remy.k3f9"));
+        assert_eq!(r[0].recipients[0].name.as_deref(), Some("remy"));
+    }
+}

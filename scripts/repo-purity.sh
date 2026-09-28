@@ -71,6 +71,48 @@ if [ -n "$NAME_HITS" ]; then
   exit 1
 fi
 
+# Terms an imported plugin's own gate banned that the global list cannot
+# carry (some are legitimate vocabulary elsewhere in the tree). One
+# "<dir><TAB><pattern>" per line, scanned only under that directory's tracked
+# files and file names. A tab separates the two because a pattern may use "|"
+# alternation. PURITY_SCOPED_EXTRA appends lines in the same form.
+TAB=$(printf '\t')
+SCOPED="
+plugins/herdr-chat${TAB}
+"
+if [ -n "${PURITY_SCOPED_EXTRA:-}" ]; then
+  SCOPED="$SCOPED
+$PURITY_SCOPED_EXTRA"
+fi
+# The loop runs in a pipeline subshell, so its exit 1 only ends the loop;
+# the trailing || exit 1 carries it out to the script.
+printf '%s\n' "$SCOPED" | while IFS="$TAB" read -r SDIR SPAT; do
+  [ -n "$SDIR" ] && [ -n "$SPAT" ] || continue
+  # xargs folds every nonzero child status into 123, so the child maps grep's
+  # "no match" (1) to 0 and anything worse to 255, which xargs reports as 124.
+  # Operands that are not regular files (a dangling symlink, a gitlink
+  # directory, a tracked file deleted from the working tree) are dropped
+  # first so they never read as a grep error; a bad pattern still fails
+  # closed through the file-name grep below.
+  S_HITS=$(cd "$ROOT" && git ls-files -z -- "$SDIR" \
+    | xargs -0 sh -c 'for f; do shift; [ -f "$f" ] && set -- "$@" "$f"; done
+      [ $# -gt 0 ] || exit 0
+      grep -HIniE -e "$0" -- "$@"; [ $? -le 1 ] || exit 255' "$SPAT")
+  S_RC=$?
+  S_NAMES=$(cd "$ROOT" && git ls-files -- "$SDIR" | grep -iE -e "$SPAT")
+  N_RC=$?
+  if [ "$S_RC" -ne 0 ] || [ "$N_RC" -gt 1 ]; then
+    echo "FAIL repo-purity ($SDIR): grep error"
+    exit 1
+  fi
+  if [ -n "$S_HITS" ] || [ -n "$S_NAMES" ]; then
+    echo "FAIL repo-purity ($SDIR):"
+    [ -n "$S_HITS" ] && printf '%s\n' "$S_HITS"
+    [ -n "$S_NAMES" ] && printf '%s\n' "$S_NAMES"
+    exit 1
+  fi
+done || exit 1
+
 # Commit messages are not tracked files, so the tree grep never sees them; 41
 # leaked before the 2026-09-17 purge. Only commits a push would publish are
 # judged (PURITY_BASE..HEAD, default origin/main): a message already public

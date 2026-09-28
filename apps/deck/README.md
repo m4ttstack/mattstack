@@ -340,7 +340,7 @@ you run. The rest of the estate:
   and GitLab, one set of types.
 - [fast-browser](https://github.com/m4ttstack/fast-browser): drive the
   Chrome you already have from an agent.
-- [herdr-chat](https://github.com/m4ttstack/herdr-chat): rt chat, where the
+- [herdr-chat](../../plugins/herdr-chat): rt chat, where the
   agents live.
 - [skills](https://github.com/m4ttstack/skills): the mattstack skill
   collection for Claude Code.
