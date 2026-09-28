@@ -6,7 +6,7 @@
  * The base commit must be fetched first.
  */
 import { spawnSync } from "child_process";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join, resolve } from "path";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
@@ -28,10 +28,21 @@ export function checkVersionBump(input: BumpInput): BumpResult {
   return { ok: true, message: `${input.plugin} bumped ${input.baseVersion} -> ${input.headVersion}` };
 }
 
-function versionOf(text: string | null): string | null {
-  if (text === null) return null;
+function versionOf(text: string): string | null {
   const version = (JSON.parse(text) as { version?: unknown }).version;
   return typeof version === "string" ? version : null;
+}
+
+export function readHeadVersion(root: string, plugin: string): { version: string | null } | { error: string } {
+  const manifest = `${plugin}/.claude-plugin/plugin.json`;
+  const path = join(root, manifest);
+  if (!existsSync(path)) return { error: `${manifest} is missing` };
+  try {
+    return { version: versionOf(readFileSync(path, "utf8")) };
+  } catch (e) {
+    const reason = (e instanceof Error ? e.message : String(e)).split("\n")[0];
+    return { error: `${manifest} is not valid JSON: ${reason}` };
+  }
 }
 
 function git(args: string[]): { code: number; stdout: string; stderr: string } {
@@ -59,13 +70,19 @@ if (import.meta.main) {
   }
   const changed = diff.stdout.split("\n").filter((l) => l !== "");
   const manifest = `${plugin}/.claude-plugin/plugin.json`;
+  const head = readHeadVersion(ROOT, plugin);
+  if ("error" in head) {
+    console.error(head.error);
+    process.exit(1);
+  }
   const baseShow = git(["show", `${base}:${manifest}`]);
-  const result = checkVersionBump({
-    plugin,
-    changed,
-    baseVersion: versionOf(baseShow.code === 0 ? baseShow.stdout : null),
-    headVersion: versionOf(readFileSync(join(ROOT, manifest), "utf8")),
-  });
+  let baseVersion: string | null = null;
+  try {
+    if (baseShow.code === 0) baseVersion = versionOf(baseShow.stdout);
+  } catch {
+    baseVersion = null;
+  }
+  const result = checkVersionBump({ plugin, changed, baseVersion, headVersion: head.version });
   (result.ok ? console.log : console.error)(result.message);
   process.exit(result.ok ? 0 : 1);
 }

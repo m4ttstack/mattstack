@@ -236,17 +236,17 @@ jobs:
       RT_BATCH: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      # A PR checkout is the merge commit, so HEAD^1 is the base branch tip,
+      # the same base the scope job diffs against.
       - name: plugin.json version bumped
         if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          bun scripts/ci/plugin-version-bumped.ts --base "$BASE_SHA" --plugin plugins/mattstack
+        run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/mattstack
       - name: Install graphviz
         run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
       - name: Digraph checker cases
