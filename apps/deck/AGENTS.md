@@ -64,7 +64,8 @@ apps at boot, so launching the other app moves them over.
 Dev mode is only for mattstack's own apps. `managedBy` classifies every entry:
 `rt` (mattstack-owned), `deck` (deck itself), or `user` (someone's own local
 app, which they registered themselves and which is not bundled with
-mattstack). Only `rt` and `deck` entries carry `devLink`/`devDir`. A `user`
+mattstack). Only `rt` and `deck` entries carry `devLink`/`devDir`, and in dev
+mode a linked one also carries `newCode` for local callers. A `user`
 app has no dev node, no dev-link, and nothing to link TO, so its own stored
 command is the whole story and the absence of a dev-link issue on one is
 correct rather than a missing signal. Everything above about manifests and
@@ -158,7 +159,7 @@ tunnel.
   minifier churn in `board.js` is expected; commit source + regenerated bundle
   together.
 - `bun run test` (`bun test core src`) is the scoped suite. `bun run test:dom`
-  is separate and has 8 pre-existing failures on main (structural/text
+  is separate and has 11 pre-existing failures on main (structural/text
   assertions, unrelated to most changes... verify before/after, do not chase).
 
 ## Board surface: canvas ground, tables as card panels
