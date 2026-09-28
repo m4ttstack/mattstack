@@ -539,3 +539,28 @@ What `compile` and `check` read:
 | the pack's own fills                         | the pack checkout (`--pack-dir`)                                                                                                     |
 | everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
 | mattstack version in every seam marker       | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
+
+## When a hand-written skill needs shared plugin text
+
+A skill outside any pack (an app's launcher skills, say) that needs a
+mattstack attachment does not become a pack. Its source dir carries
+`{{include:<attachment>}}` alone on a line, and `rt skills expand` pastes
+the attachment in and writes the result to a second dir the app ships:
+
+`rt skills expand --src <app>/skills-src --out <app>/skills --mattstack-dir <monorepo root>` <!-- mcp-lint: allow -->
+
+Run it on Bash: expand is not an `rt_verb` verb.
+
+The frontmatter is copied as written (name, `allowed-tools`,
+`disable-model-invocation`, metadata), with a `compiled:` stamp added only
+when the skill includes something; the body gets the compiler's seam
+markers; files beside the source vendor at the same path. CI runs
+`--check --strict`, which fails on drift and on the mcp lint. Nothing in
+the output dir is edited by hand: expand regenerates or removes every dir
+it wrote, and stops on any dir it did not. No slots, no roster, no
+manifest: a skill with blanks to fill is a pack verb and goes through
+`compile` instead.
+
+The board's `apps/board/skills-src` is the first user;
+`bun run skills:expand:board` and `bun run skills:check:board` wrap the
+flags.

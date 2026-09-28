@@ -205,13 +205,27 @@ export function lintScriptText(text: string, file: string, rules: readonly LintR
   return hits;
 }
 
+/** The subst rule is dropped for scripts: capturing a command's output in a
+    variable is the normal shape, and the inner call is what names the right
+    tool. */
+function scriptRules(rules: readonly LintRule[]): LintRule[] {
+  return [...rules.filter((r) => r.id !== "subst"), ...SCRIPT_ONLY_RULES];
+}
+
+export function isScriptPath(path: string): boolean {
+  return SCRIPT_EXTS.some((e) => path.endsWith(e));
+}
+
 /** Advisory by contract: packs ship domain scripts on purpose, so these hits
-    never reach --strict, strictLint or the sync refusal. The subst rule is
-    dropped here: a script capturing a command's output in a variable is the
-    normal shape, and the inner call is what names the right tool. */
+    never reach --strict, strictLint or the sync refusal. */
 export function lintPackScripts(dir: string, rules: readonly LintRule[], deps: LintDeps = DISK): LintHit[] {
-  const all = [...rules.filter((r) => r.id !== "subst"), ...SCRIPT_ONLY_RULES];
+  const all = scriptRules(rules);
   return lintedSources(dir, deps, SCRIPT_EXTS).flatMap((s) => lintScriptText(s.text, s.path, all));
+}
+
+/** One script file under the same advisory contract as lintPackScripts. */
+export function lintScriptFile(text: string, file: string, rules: readonly LintRule[]): LintHit[] {
+  return lintScriptText(text, file, scriptRules(rules));
 }
 
 export function formatHit(h: LintHit): string {
