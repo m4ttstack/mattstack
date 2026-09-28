@@ -90,8 +90,9 @@ interface Phase { phase: string; status: string; reason: string; seconds: number
 
 function runDir(w: World): string {
   const runs = readdirSync(w.art);
-  if (runs.length !== 1) throw new Error(`expected one run dir, got ${runs.join(", ")}`);
-  return join(w.art, runs[0]);
+  const [run] = runs;
+  if (runs.length !== 1 || !run) throw new Error(`expected one run dir, got ${runs.join(", ")}`);
+  return join(w.art, run);
 }
 const ledger = (w: World): Phase[] =>
   readFileSync(join(runDir(w), "phases.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
