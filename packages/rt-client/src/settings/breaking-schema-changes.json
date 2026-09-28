@@ -1,1 +1,4 @@
-{}
+{
+  "rt.picker.show": "Replaced by rt.picker.hidden before any release shipped it.",
+  "rt.picker.hide": "Replaced by rt.picker.hidden before any release shipped it."
+}
