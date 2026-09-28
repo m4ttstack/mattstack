@@ -43,6 +43,21 @@ export function __resetCapturedFlavor(): void {
   captured = null;
 }
 
+/**
+ * `rt --version`'s output. The first line must stay exactly `rt <version>`:
+ * the release workflow and the setup checklist's rt row read only that line.
+ */
+export function versionBanner(
+  version: string,
+  flavor: Flavor,
+  built: Flavor,
+  where: { execPath: string; sourceDir: string },
+): string {
+  const app = flavor === "dev" ? "mattstack-dev.app" : "mattstack.app";
+  const path = flavor === "dev" && built === "dev" ? where.sourceDir : where.execPath;
+  return `rt ${version}\n${flavor}  ${app} · ${path}`;
+}
+
 export function otherFlavor(flavor: Flavor): Flavor {
   return flavor === "dev" ? "prod" : "dev";
 }

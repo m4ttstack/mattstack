@@ -3,7 +3,31 @@ import { spawnSync } from "child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { __resetCapturedFlavor, captureProcessFlavor, daemonLabelFor, deckLabelFor, otherFlavor, processFlavor } from "../flavor.ts";
+import { __resetCapturedFlavor, captureProcessFlavor, daemonLabelFor, deckLabelFor, otherFlavor, processFlavor, versionBanner } from "../flavor.ts";
+
+describe("versionBanner", () => {
+  const where = { execPath: "/Applications/mattstack.app/Contents/Helpers/rt", sourceDir: "/src/mattstack" };
+
+  test("the first line is exactly `rt <version>`: the release workflow compares it to the tag", () => {
+    expect(versionBanner("2.14.0", "prod", "prod", where).split("\n")[0]).toBe("rt 2.14.0");
+  });
+
+  test("a prod rt names mattstack.app and its binary", () => {
+    expect(versionBanner("2.14.0", "prod", "prod", where)).toBe(
+      "rt 2.14.0\nprod  mattstack.app · /Applications/mattstack.app/Contents/Helpers/rt",
+    );
+  });
+
+  test("a dev rt run from source names mattstack-dev.app and the checkout", () => {
+    expect(versionBanner("dev", "dev", "dev", where)).toBe("rt dev\ndev  mattstack-dev.app · /src/mattstack");
+  });
+
+  test("a compiled rt launched as dev names its binary, not a checkout", () => {
+    expect(versionBanner("2.14.0", "dev", "prod", where)).toBe(
+      "rt 2.14.0\ndev  mattstack-dev.app · /Applications/mattstack.app/Contents/Helpers/rt",
+    );
+  });
+});
 
 describe("processFlavor", () => {
   test("MATTSTACK_FLAVOR set by the launcher wins", () => {

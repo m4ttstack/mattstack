@@ -135,7 +135,7 @@ describe("the rt.picker.hidden default", () => {
   });
 
   test("hides the verbs only the apps, skills and daemon run", () => {
-    for (const name of ["state", "skills", "herd", "gate", "runs", "events", "reconciler", "release", "daemon", "pane"]) {
+    for (const name of ["state", "skills", "herd", "gate", "runs", "events", "reconciler", "release", "daemon", "pane", "uninstall"]) {
       expect(hidden, name).toContain(name);
     }
   });

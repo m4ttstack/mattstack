@@ -50,6 +50,12 @@ describe("rtHealthRows — tool.rt", () => {
     expect(r.required).toBe(true);
   });
 
+  test("rt --version's flavor line stays out of the detail", async () => {
+    const exec: ExecScript = (argv) => (argv[0] === "rt" ? ok("rt 1.2.3\nprod  mattstack.app · /x/rt\n") : ok());
+    const r = await pickRow(rtHealthRows(fakeProbes({ exec }), { ci: false }), "tool.rt");
+    expect(r.detail).toBe("rt 1.2.3");
+  });
+
   test("rt not on PATH (exit 127) -> missing, link-bundled action", async () => {
     const exec: ExecScript = (argv) => (argv[0] === "rt" ? missing("rt") : ok());
     const r = await pickRow(rtHealthRows(fakeProbes({ exec }), { ci: false }), "tool.rt");

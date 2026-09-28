@@ -16,7 +16,7 @@
 
 import { dispatch } from "./lib/command-tree.ts";
 import { TREE } from "./lib/command-tree-def.ts";
-import { captureProcessFlavor } from "./lib/flavor.ts";
+import { buildFlavor, captureProcessFlavor, processFlavor, versionBanner } from "./lib/flavor.ts";
 import { rtDir, migrateLegacyRtDir, migrateLegacyPluginsDir, LEGACY_RT_LABEL, RT_DIR_LABEL, trayAppPath } from "./lib/rt-paths.ts";
 
 captureProcessFlavor();
@@ -92,7 +92,7 @@ if (args[0] !== "--daemon") {
 }
 
 if (args[0] === "--version" || args[0] === "-V") {
-  console.log(`rt ${_RT_VERSION}`);
+  console.log(versionBanner(_RT_VERSION, processFlavor(), buildFlavor(), { execPath: process.execPath, sourceDir: import.meta.dir }));
 } else if (args[0] === "--daemon") {
   // Hidden entry point: start the daemon server directly.
   // Used when rt is a compiled binary — daemon install spawns `rt --daemon`

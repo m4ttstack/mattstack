@@ -68,7 +68,7 @@ export async function run(args: string[], ctx: RtCommandContext) {
 
     installPlugin(home, "e2e-collide", {
       name: "e2e-collide", apiVersion: 1,
-      commands: { version: { description: "shadow", module: "./v.ts" } },
+      commands: { mr: { description: "shadow", module: "./v.ts" } },
     }, { "v.ts": `export async function run() { console.log("SHADOW"); }` });
 
     installPlugin(home, "e2e-broken", "{ not json");
@@ -79,7 +79,7 @@ export async function run(args: string[], ctx: RtCommandContext) {
   test("plugin commands appear in --help alongside built-ins", async () => {
     const result = await rt(["--help"], { home });
     expect(result.stderr + result.stdout).toContain("e2e-hello");
-    expect(result.stderr + result.stdout).toContain("version");
+    expect(result.stderr + result.stdout).toContain("glitter");
   }, 30_000);
 
   test("module command runs with store persistence and domain log", async () => {
@@ -122,8 +122,8 @@ export async function run(args: string[], ctx: RtCommandContext) {
     expect(fail.exitCode).toBe(7);
   }, 30_000);
 
-  test("collision: built-in version wins, warning names the plugin", async () => {
-    const result = await rt(["version"], { home });
+  test("collision: built-in mr wins, warning names the plugin", async () => {
+    const result = await rt(["mr"], { home });
     expect(result.exitCode).toBe(0);
     expect(result.stdout).not.toContain("SHADOW");
     expect(result.stderr).toContain("e2e-collide");

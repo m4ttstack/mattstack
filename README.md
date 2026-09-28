@@ -251,8 +251,7 @@ rt daemon log-level       # show or set the live log level
 
 ```bash
 rt verify                 # installation health, --ci and --json variants
-rt version                # version plus mode (dev or prod)
-rt --version              # just the version string
+rt --version              # version, plus which app (dev or prod) this rt belongs to
 rt uninstall              # reverse setup: services, links, plugins
 ```
 

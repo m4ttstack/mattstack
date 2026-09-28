@@ -27,7 +27,7 @@ one installed and running.
 Each process knows its own flavor from whoever launched it:
 `MATTSTACK_FLAVOR=dev|prod` in each app's launchd plists, exported by the dev
 wrapper, and otherwise the build (a compiled rt is prod, a source run is dev).
-`rt version` names the app the CLI belongs to.
+`rt --version` names the app the CLI belongs to.
 
 The checkout the dev app runs is stored in `~/.mattstack/rt/state.db` (the
 `dev-mode` kv row, which the dev daemon launcher also reads):
