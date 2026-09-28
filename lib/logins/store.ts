@@ -44,14 +44,14 @@ function parse(key: string, raw: string): DevLogin {
   if (typeof o.origin !== "string" || typeof o.email !== "string" || typeof o.password !== "string") {
     throw new CorruptLoginError(`dev login "${key}" is missing a field; replace it with rt logins add`);
   }
-  let normalizedKey: string;
+  let normalized: { origin: string; key: string } | null;
   try {
-    normalizedKey = normalizeOrigin(o.origin).key;
+    normalized = normalizeOrigin(o.origin);
   } catch {
-    normalizedKey = "";
+    normalized = null;
   }
-  if (normalizedKey !== key) throw new CorruptLoginError(`dev login "${key}" is stored under the wrong site; replace it with rt logins add`);
-  return { origin: o.origin, email: o.email, password: o.password };
+  if (normalized?.key !== key) throw new CorruptLoginError(`dev login "${key}" is stored under the wrong site; replace it with rt logins add`);
+  return { origin: normalized.origin, email: o.email, password: o.password };
 }
 
 export async function getLogin(b: LoginsBackend, key: string): Promise<DevLogin | null> {

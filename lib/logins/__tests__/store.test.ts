@@ -97,6 +97,12 @@ describe("dev logins store", () => {
     });
   }
 
+  test("a stored origin written by hand comes back canonical", async () => {
+    const b = memoryBackend({ "login.example.com": JSON.stringify({ origin: "https://Login.example.com/", email: "dev@example.com", password: "pw" }) });
+    expect((await getLogin(b, "login.example.com"))?.origin).toBe("https://login.example.com");
+    expect((await listLogins(b)).map((l) => l.origin)).toEqual(["https://login.example.com"]);
+  });
+
   test("an unknown key is null", async () => {
     expect(await getLogin(memoryBackend(), "login.example.com")).toBeNull();
   });
