@@ -12,7 +12,8 @@ tasks from its own SDD ledger and plan. The shepherd prints what it returns.
 
 ## The reply
 
-1. Run it from this skill's base directory, naming your herd:
+1. Run the script by its absolute path under this skill's base directory,
+   naming your herd:
 
    ```bash
    python3 <base dir>/scripts/herd_progress.py --herd <herd id>
