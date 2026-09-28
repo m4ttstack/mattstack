@@ -32,17 +32,11 @@ rt --all
 rt --all --help
 ```
 
-Lists every verb, program verbs included, for this one run. Program verbs are the ones the mattstack apps, skills and daemon run for you (`rt state`, `rt skills`, `rt herd`, `rt gate` and similar). They're left out of the picker, the usage listing and `--help` by default, and they always run when named directly (`rt state backup`).
+Lists every verb for this one run, including the ones `rt.picker.hidden` leaves out.
 
-Two settings tune the listing for good. Each takes verb paths: `"pane"` for a top-level verb, `"worktree provision"` for a nested one.
+`rt.picker.hidden` is the list of verbs left out of the picker, the usage listing and `--help`. By default it holds the verbs the mattstack apps, skills and daemon run for you (`rt state`, `rt skills`, `rt herd`, `rt gate` and similar). Hidden verbs always run when named directly (`rt state backup`).
 
-- `rt.picker.show` lists the program verbs you name, or all of them with `"*"`.
-- `rt.picker.hide` leaves out any verb you name, plugin verbs included, and wins over `rt.picker.show`.
-
-```bash
-rt settings set rt.picker.show '["pane", "daemon"]' --scope user
-rt settings set rt.picker.hide '["hello-world"]' --scope user
-```
+To change what's hidden, edit the list: the console's settings page shows the current list, starting from the default. Entries are verb paths: `"pane"` for a top-level verb, `"worktree provision"` for a nested one. `[]` lists everything. `rt settings explain rt.picker.hidden` shows the current list from the terminal.
 
 ## `--grant-fda`
 
