@@ -143,6 +143,7 @@ digraph ship {
     "git status --porcelain; git log --oneline @{upstream}.. or -5" [shape=plaintext];
     "ship gate ship" [shape=box];
     "ship answer (ship)?" [shape=diamond];
+    "Ship gate rounds = 2 (ship)?" [shape=diamond];
     "dirty answer (ship)?" [shape=diamond];
     "Commit named files (ship)" [shape=box];
     "Stash them; nothing in this verb pops it" [shape=box];
@@ -226,6 +227,7 @@ digraph ship {
     "MR still a draft (ship)?" [shape=diamond];
     "ship gate mark-ready" [shape=box];
     "mark-ready answer (ship)?" [shape=diamond];
+    "Mark-ready rounds = 2 (ship)?" [shape=diamond];
     "Forge host (ship, mark-ready)?" [shape=diamond];
     "mr_ready {repoName: <root>, iid}" [shape=plaintext];
     "gh pr ready <number>" [shape=plaintext];
@@ -259,7 +261,9 @@ digraph ship {
     "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "ship gate ship";
     "ship gate ship" -> "ship answer (ship)?";
     "ship answer (ship)?" -> "dirty answer (ship)?" [label="proceed"];
-    "ship answer (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="iterate: redo with their note"];
+    "ship answer (ship)?" -> "Ship gate rounds = 2 (ship)?" [label="iterate: redo with their note"];
+    "Ship gate rounds = 2 (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
+    "Ship gate rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, their last note quoted"];
     "ship answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
     "ship answer (ship)?" -> "Rebase in progress (ship abort)?" [label="dirty = abort: nothing is pushed"];
     "Rebase in progress (ship abort)?" -> "git_rebase {tree: <root>, abort: true}" [label="yes"];
@@ -406,7 +410,9 @@ digraph ship {
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="keep it draft: done"];
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="go back (inherited run only)"];
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
-    "mark-ready answer (ship)?" -> "ship gate mark-ready" [label="iterate: a new gate with their note"];
+    "mark-ready answer (ship)?" -> "Mark-ready rounds = 2 (ship)?" [label="iterate: a new gate with their note"];
+    "Mark-ready rounds = 2 (ship)?" -> "ship gate mark-ready" [label="no: a new gate with their note"];
+    "Mark-ready rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: done, the MR stays a draft, their last note quoted"];
     "Forge host (ship, mark-ready)?" -> "mr_ready {repoName: <root>, iid}" [label="GitLab"];
     "Forge host (ship, mark-ready)?" -> "gh pr ready <number>" [label="GitHub"];
     "mr_ready {repoName: <root>, iid}" -> "Which exit is this (ship)?";
@@ -449,6 +455,11 @@ so, and Abort aborts that rebase first.
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Abort and Hold push nothing.
+`Ship gate rounds = 2 (ship)?` counts Iterate answers at this gate within
+this pass through the verb, this one included: the first Iterate redoes
+the steps before the gate with the note, and the second fails the verb
+with the note quoted instead of redoing them. A reopening after the fix
+or conflict rounds are spent is not an Iterate and does not count.
 
 ### Commit named files (ship)
 
@@ -575,6 +586,10 @@ the attachments are there (or are not).
 | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4; with exactly one candidate it labels **Go back to `<stage>`** in `next` instead | Go back answered and `run_snapshot` shows more than one earlier stage row |
 
 Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+`Mark-ready rounds = 2 (ship)?` counts Iterate answers at this gate within
+this pass, this one included: the first opens a new gate with the note,
+and the second ends the verb as done with the MR left a draft and the
+note quoted.
 
 ## What the graph cannot show
 
