@@ -7,17 +7,17 @@ reviewing MRs and PRs before they merge. Every skill installs under the
 `mattstack:` prefix and ships as a Claude Code plugin through the mattstack
 marketplace.
 
-mattstack is one piece of a small estate of tools. [rt](https://github.com/m4ttstack/rt)
+mattstack is one piece of a small estate of tools. [rt](https://github.com/m4ttstack/mattstack)
 is the developer CLI (daemon, tray app, plugin system) that some of these
-skills shell out to. [gitq](https://github.com/m4ttstack/rt/tree/main/apps/gitq) is a
-deterministic stacked-branch engine for git. [board](https://github.com/m4ttstack/rt/tree/main/apps/board)
-is a one-page view of a team's open GitLab MRs. [glance](https://github.com/m4ttstack/rt/tree/main/packages/glance)
+skills shell out to. [gitq](https://github.com/m4ttstack/mattstack/tree/main/apps/gitq) is a
+deterministic stacked-branch engine for git. [board](https://github.com/m4ttstack/mattstack/tree/main/apps/board)
+is a one-page view of a team's open GitLab MRs. [glance](https://github.com/m4ttstack/mattstack/tree/main/packages/glance)
 is one client for GitHub and GitLab behind a single set of types.
-[deck](https://github.com/m4ttstack/rt/tree/main/apps/deck) gives a local app a name, keeps it
+[deck](https://github.com/m4ttstack/mattstack/tree/main/apps/deck) gives a local app a name, keeps it
 running, and gives it a real address. [fast-browser](https://github.com/m4ttstack/fast-browser)
 drives the Chrome already open on the machine (see [Browser](#browser)
 below). Agent-to-agent coordination runs over [herdr](https://github.com/herdrdev/herdr)
-panes and [herdr-chat](https://github.com/m4ttstack/herdr-chat). Distribution
+panes and [herdr-chat](https://github.com/m4ttstack/mattstack/tree/main/plugins/herdr-chat). Distribution
 is the [mattstack marketplace](https://github.com/m4ttstack/mattstack-marketplace).
 Skills wired to one operator's own machine, domains, and data live separately
 under the `matt:` prefix; what's here is what someone else could actually
@@ -253,6 +253,8 @@ repo:
 
 ## Installation
 
+This plugin is part of the mattstack monorepo; install it from the `mattstack` marketplace (`rt plugins install` adds it) or serve `plugins/mattstack` from a directory marketplace for development.
+
 ### The mattstack plugin
 
 ```bash
@@ -385,8 +387,8 @@ rt skills check --pack <pack>
 Tests are plain scripts and `bun:test` files; there is no build step.
 
 ```bash
-git clone https://github.com/m4ttstack/skills mattstack-skills
-cd mattstack-skills
+git clone https://github.com/m4ttstack/mattstack.git
+cd mattstack/plugins/mattstack
 bun test                              # tests/desc-test.test.ts
 tests/certify.sh <skill-dir>          # certification gate for one skill
 tests/repo-purity.sh                  # whole-tree purity sweep, run bare

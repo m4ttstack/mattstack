@@ -342,7 +342,7 @@ you run. The rest of the estate:
   Chrome you already have from an agent.
 - [herdr-chat](../../plugins/herdr-chat): rt chat, where the
   agents live.
-- [skills](https://github.com/m4ttstack/skills): the mattstack skill
+- [skills](../../plugins/mattstack): the mattstack skill
   collection for Claude Code.
 - [mattstack-marketplace](https://github.com/m4ttstack/mattstack-marketplace):
   the plugin marketplace that ships them.

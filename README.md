@@ -16,7 +16,7 @@ branches, [board](apps/board) (in this same repo) for reviewing merge
 requests, [glance](packages/glance) (in this same repo) for one GitHub and
 GitLab client, [deck](apps/deck) (in this same repo) for local app hosting,
 [fast-browser](https://github.com/m4ttstack/fast-browser) for driving Chrome,
-[skills](https://github.com/m4ttstack/skills) and the
+[skills](plugins/mattstack) (in this same repo) and the
 [marketplace](https://github.com/m4ttstack/mattstack-marketplace) that installs
 them, and [herdr-chat](plugins/herdr-chat) for agents
 living on [herdr](https://github.com/herdrdev/herdr).
