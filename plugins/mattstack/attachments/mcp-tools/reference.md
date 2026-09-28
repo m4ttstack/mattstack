@@ -1693,6 +1693,30 @@ Close one job's pane. Only the herd's shepherd session may call it.
 }
 ```
 
+### herd_follow_up
+
+<!-- mcp-lint: allow -->
+Reopen a done job for a follow-up round in its same pane: it goes back to active, which stops the watchdog's done-not-closed nag until the job's next report. Only the herd's shepherd session may call it.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "herd": {
+      "type": "string",
+      "description": "Herd id; defaults to HERD_ID, else the sole active herd."
+    },
+    "job": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### herd_status
 
 <!-- mcp-lint: allow -->
