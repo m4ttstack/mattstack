@@ -1077,6 +1077,30 @@ describe("herd:spawn", () => {
     expect(hx.agentCalls[1].prompt).toContain("DM ann (id shepherd.k3f9) when done.");
   });
 
+  test("RT-356: a respawn after a resume under a new shepherd identity names the new id and its name", async () => {
+    const names = new Map([["shepherd-2", "kai"], ["shepherd", "ann"]]);
+    // A legacy id that now resolves to another identity is the resume path that
+    // signs the shepherd in under a new id.
+    const hx = harness({
+      presenceIdentityForSession: (s) => (s === "sess-shep" ? { handle: "shepherd-2", baseHandle: "shepherd", name: "kai" } : null),
+      identityNames: (ids: Iterable<string>) => new Map([...ids].map((id) => [id, names.get(id) ?? id])),
+      resolveHandle: (x: string) => (x === "shepherd-2" ? "shepherd.zz99" : x),
+    });
+    const s = await hx.h["herd:start"](START);
+    if (!s.ok) throw new Error(s.error);
+    const brief = "# job\nDM <shepherd handle> (id <shepherd id>) when done.";
+    const first = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", brief, dir: "/t" });
+    if (!first.ok) throw new Error(first.error);
+    expect(hx.agentCalls[0].prompt).toContain("DM kai (id shepherd-2) when done.");
+    const resumed = await hx.h["herd:resume"]({ herd: s.data.herd, session: "sess-shep-2" });
+    if (!resumed.ok) throw new Error(resumed.error);
+    expect(resumed.data.handle).toBe("shepherd");
+    const again = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", dir: "/t" });
+    if (!again.ok) throw new Error(again.error);
+    expect(hx.agentCalls[1].prompt).toContain("DM ann (id shepherd) when done.");
+    expect(hx.agentCalls[1].prompt).not.toContain("shepherd-2");
+  });
+
   test("RT-356: the shepherd's name is resolved before the job row goes to spawning", async () => {
     const statusAtLookup: Array<string | null> = [];
     let herdId = "";
