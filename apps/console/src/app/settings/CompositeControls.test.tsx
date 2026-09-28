@@ -431,7 +431,7 @@ describe('composite rows', () => {
       />
     );
     await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
-    await screen.findByRole('button', { name: 'Edit as JSON' });
+    await screen.findByRole('radio', { name: 'JSON' });
     await new Promise(r => setTimeout(r, 50));
     expect(
       screen.queryByRole('button', { name: 'Reset to default' })
@@ -449,7 +449,7 @@ describe('composite rows', () => {
       />
     );
     await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
-    await screen.findByRole('button', { name: 'Edit as JSON' });
+    await screen.findByRole('radio', { name: 'JSON' });
     await new Promise(r => setTimeout(r, 50));
     expect(
       screen.queryByRole('button', { name: 'Reset to default' })
