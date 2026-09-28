@@ -18,7 +18,7 @@ import time
 BAR_CELLS = 10
 NOW_MAX = 64
 LIVE = {"spawning", "active", "at-gate", "at-milestone", "stuck-at-modal"}
-PIPELINE_METHODS = {"superpowers": ("spec", "plan"), "resume": ("plan",)}
+PIPELINE_METHODS = {"superpowers": ("spec", "plan"), "from-spec": ("plan",)}
 
 
 def rt_json(args):

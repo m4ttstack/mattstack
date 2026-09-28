@@ -206,10 +206,17 @@ is never this case: it joins the herd.
 Strategy predicts the work shape, and the work shape predicts the tier, so
 they are one choice. Derive a per-job recommendation (strategy from the
 bound strategy table, model from the bound tier table), then ask one
-AskUserQuestion per job (single choice, batched up to 4 jobs per call): the
-recommendation first, marked "(Recommended)" with both halves in the label
-("superpowers, opus" / "direct-tdd, sonnet"), then 2-3 curated alternates
-spanning the tiers.
+AskUserQuestion per job (single choice, batched up to 4 jobs per call):
+the recommendation first, marked "(Recommended)", then 2-3 curated
+alternates spanning the tiers.
+
+A half is fixed when every option would carry the same value: the
+strategy is fixed when the job arrives with a completed plan
+(`from-plan`) or spec (`from-spec`), or a bound domain part pins it. The
+fixed half goes in the question text, once ("Runtime job (6-task plan in
+hand, so from-plan): which model?"), and each label carries only the open
+half ("opus" / "fable" / "sonnet"). With both halves open, each label
+carries both ("superpowers, opus" / "direct-tdd, sonnet").
 
 **Effort is a session default, not a question.** Per the bound tiering
 skill, use the model's default effort and deviate only when the user names
@@ -221,8 +228,8 @@ without a model launches on the default model and silently defeats tiering.
 open and the tier table's recommendation stands. A bound domain part may
 set a model floor for a class of work and pin the strategy half (its own
 method skill is the brief's Method); then the recommendation starts at
-that floor, the question carries only the half still open, and a spawn
-below the floor is wrong.
+that floor, the pinned strategy is a fixed half, and a spawn below the
+floor is wrong.
 
 ### Ask the account pool question
 
