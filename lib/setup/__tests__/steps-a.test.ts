@@ -952,6 +952,44 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(p.calls.exec).toEqual([]);
   });
 
+  test.each([
+    ["scp-style ssh", "git@gitlab.com:acme/acme-dev.git"],
+    ["ssh url", "ssh://git@gitlab.com/acme/acme-dev.git"],
+    ["https with a trailing slash", "https://gitlab.com/acme/acme-dev/"],
+  ])("repos.clone: an existing clone whose origin is the %s form of the identity is present, not a collision", async (_label, url) => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const dest = join(home, "code", "acme-dev");
+
+    const p = fakeProbes({
+      home,
+      dirs: { [dest]: [".git"] },
+      files: { [join(dest, ".git", "config")]: `[remote "origin"]\n\turl = ${url}\n` },
+      exec: async () => ok(),
+    });
+    const { ctx } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome).toEqual({ state: "done", detail: "cloned 0, present 1, failed 0" });
+    expect(p.calls.exec).toEqual([]);
+  });
+
+  test("repos.clone: an existing clone of a different repo that shares the basename is still a collision", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const dest = join(home, "code", "acme-dev");
+
+    const p = fakeProbes({
+      home,
+      dirs: { [dest]: [".git"] },
+      files: { [join(dest, ".git", "config")]: '[remote "origin"]\n\turl = git@github.com:someone-else/acme-dev.git\n' },
+      exec: async () => ok(),
+    });
+    const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome).toEqual({ state: "done", detail: "cloned 0, present 0, failed 1" });
+    expect(logs.some((l) => l.line.includes("isn't a clone of"))).toBe(true);
+  });
+
   test("repos.clone: a directory occupying the destination that isn't actually a clone of the identity is counted failed, not present", async () => {
     setSetting("rt.repoRoots", [join(home, "code")], "machine");
     const dest = join(home, "code", "acme-dev");
