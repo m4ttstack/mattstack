@@ -1,6 +1,5 @@
 import {
   CODE_CHANGES_QUESTION_ID,
-  domainForKind,
   RESPOND_PLAN_KIND,
 } from '@mattstack/gate-kit';
 
@@ -18,7 +17,7 @@ export function gateNotifyCopy(
   iid: number,
   questions: ReadonlyArray<{ id: string }>
 ): GateNotifyCopy {
-  if (domainForKind(kind) === 'review') {
+  if (kind === 'review-post') {
     return {
       headline: `Your review of !${iid} is ready`,
       summary: 'Pick what to post',

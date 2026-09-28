@@ -1893,7 +1893,7 @@ export const respondEscalation: GalleryGate = {
     gateId: 'gallery-respond-escalation',
     subject: mrSubject(713),
     kind: 'respond-escalation',
-    label: 'respond-escalation',
+    label: 'respond gate !713',
     status: 'open',
     openedAt: minutesAgo(19),
     domain: 'respond',
