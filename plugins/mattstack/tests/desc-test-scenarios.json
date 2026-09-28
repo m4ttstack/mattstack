@@ -1,0 +1,74 @@
+[
+  {
+    "task": "Split this refactor across four parallel agents in herdr panes",
+    "expect": "shepherdr"
+  },
+  {
+    "task": "Spread these three independent tasks across my accounts and watch all of them from one place",
+    "expect": "shepherdr"
+  },
+  {
+    "task": "I edited a SKILL.md in the mattstack plugin but the change is not showing up in my session",
+    "expect": "editing-skills"
+  },
+  {
+    "task": "Add a new skill to the team pack and get it installed on this machine",
+    "expect": "editing-skills"
+  },
+  {
+    "task": "rt skills check says my team pack's installed cache is lagging behind its source version",
+    "expect": "editing-skills"
+  },
+  {
+    "task": "No timestamp has been injected into this session; get me the current time and zone",
+    "expect": "getting-current-time"
+  },
+  {
+    "task": "The last injected time stamp is twenty minutes old; I need the exact current minute to measure how long that command took",
+    "expect": "getting-current-time"
+  },
+  {
+    "task": "Have a subagent adversarially review this plan doc and keep iterating until it signs off",
+    "expect": "subagent-review-loop"
+  },
+  {
+    "task": "Pressure-test this design spec with a reviewer before we write the implementation plan",
+    "expect": "subagent-review-loop"
+  },
+  {
+    "task": "Give me a wrap-up: what decisions are still open and what do you need from me",
+    "expect": "wrap-up"
+  },
+  {
+    "task": "Check in before you continue; what is left and what should I decide",
+    "expect": "wrap-up"
+  },
+  {
+    "task": "Draft my review comments for PR #212 in acme/storefront and post them.",
+    "expect": null
+  },
+  {
+    "task": "We want the mattstack work pipeline on our repo; nothing is set up yet for our team",
+    "expect": "creating-a-pack"
+  },
+  {
+    "task": "Onboard the billing team: get them a /billing:work verb",
+    "expect": "creating-a-pack"
+  },
+  {
+    "task": "I edited a fill in our team pack and the change is not showing up in my session",
+    "expect": "editing-skills"
+  },
+  {
+    "task": "Our pipeline opened an MR without running lint; make ship run lint first on this repo",
+    "expect": "extending-a-pack"
+  },
+  {
+    "task": "Add a /acme:review verb to our pack",
+    "expect": "extending-a-pack"
+  },
+  {
+    "task": "Reword what our work verb says it is for",
+    "expect": "extending-a-pack"
+  }
+]

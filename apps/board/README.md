@@ -297,7 +297,7 @@ this board reads its MR data from,
 [deck](../deck) (in this same repo) serves it locally at
 `board.mattstack`, [gitq](../gitq) (in this same repo) manages stacked
 branches, [glance](../../packages/glance) (in this same repo) models the forge data,
-and [skills](https://github.com/m4ttstack/skills) plus the
+and [skills](../../plugins/mattstack) (in this same repo) plus the
 [marketplace](https://github.com/m4ttstack/mattstack-marketplace) carry the
 agent skills the row actions invoke.
 

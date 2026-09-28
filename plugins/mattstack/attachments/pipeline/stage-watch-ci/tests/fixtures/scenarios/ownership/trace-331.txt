@@ -1,0 +1,1 @@
+self scenario failure trace, nothing special

@@ -102,6 +102,17 @@ The viewer lives at `apps/chat` (`apps/chat/ARCHITECTURE.md`).
 prints; that route shape is a contract with the viewer's route table.
 The herdr plugin lives at `plugins/herdr-chat` (`plugins/herdr-chat/AGENTS.md`).
 
+## plugins/mattstack
+
+The mattstack skills plugin lives at `plugins/mattstack` and keeps its own
+Markdown and shell style, never rt's formatter. Its checks run in the
+`plugin-mattstack` job (certify, `rt skills check --strict`, the mcp-tools
+reference diff), which also fails a PR that changes the plugin without
+bumping `.claude-plugin/plugin.json`'s version. After any MCP tool change,
+regenerate the reference: `bun cli.ts mcp tools --json | bun
+plugins/mattstack/scripts/gen-mcp-tools.ts >
+plugins/mattstack/attachments/mcp-tools/reference.md`.
+
 ## rt-ui
 
 rt's prompts and step spinners render through a bundled Go helper
@@ -313,7 +324,7 @@ also uses (`WRITING_STYLE_SOURCE_LABEL`), so never restate it elsewhere.
 `use` refuses a skill id that is not installed and `new` copies a preset into
 the user's own skill, normalising CRLF and renaming the frontmatter so the
 copy is a skill of its own. The presets themselves ship in the mattstack
-plugin (`mattstack-skills`), not here; a preset id must exist there before
+plugin under `plugins/mattstack`; a preset id must exist there before
 `use` will accept it, and the `skills.writing-style` setup row is
 finish-gated and not waivable, so a machine with no resolvable style cannot
 Finish.

@@ -106,8 +106,24 @@ mkdir -p "$STAGE/.claude-plugin"
 cp "$CATALOG" "$STAGE/.claude-plugin/marketplace.json"
 if [ -f "$SRC/README.md" ]; then cp "$SRC/README.md" "$STAGE/README.md"; fi
 if [ -f "$SRC/LICENSE" ]; then cp "$SRC/LICENSE" "$STAGE/LICENSE"; fi
-# Plugins with no repo of their own ship inline; everything else is a pinned URL.
+# Plugins with no repo of their own ship inline, from marketplace/ or from this
+# repo's tree; everything else is a pinned URL.
 if [ -d "$SRC/plugins" ]; then cp -R "$SRC/plugins" "$STAGE/plugins"; fi
+
+# Plugins that live in this repo's tree rather than under marketplace/: a
+# relative catalog source with no directory in $SRC/plugins is copied from
+# the tree's HEAD commit, so a local run on a dirty checkout cannot publish
+# untracked, ignored or uncommitted files (tracked links still reach the
+# guard below, which refuses them).
+TREE_ROOT="${RT_TREE_ROOT:-$ROOT}"
+TREE_NAMES="$(python3 -c 'import json,sys; [print(p["source"][len("./plugins/"):]) for p in json.load(open(sys.argv[1]))["plugins"] if isinstance(p.get("source"), str) and p["source"].startswith("./plugins/")]' "$CATALOG")" \
+    || { echo "✗ cannot read plugin sources from $CATALOG" >&2; exit 1; }
+for name in $TREE_NAMES; do
+    if [ ! -d "$STAGE/plugins/$name" ] && [ -n "$(git -C "$TREE_ROOT" ls-tree -d HEAD -- "plugins/$name")" ]; then
+        git -C "$TREE_ROOT" archive --format=tar HEAD -- "plugins/$name" | tar -xf - -C "$STAGE" \
+            || { echo "✗ cannot copy plugins/$name from $TREE_ROOT" >&2; exit 1; }
+    fi
+done
 
 # Before the catalog checks, so a symlinked plugin is named as one: git stores
 # a symlink as a link, so a clone of the published repo would get a dangling

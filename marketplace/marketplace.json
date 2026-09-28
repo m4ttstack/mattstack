@@ -21,12 +21,7 @@
     },
     {
       "name": "mattstack",
-      "source": {
-        "source": "url",
-        "url": "https://github.com/m4ttstack/skills.git",
-        "ref": "main",
-        "sha": "7f334139d77d40bb4ad674234264debbd4ffec50"
-      },
+      "source": "./plugins/mattstack",
       "description": "The mattstack skills pack: the work orchestrator and pipeline stages, orchestration skills, the review cluster, the GitLab CI forge adapter, and the parameterized-skill primitive with its authoring skill."
     }
   ]

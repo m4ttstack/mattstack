@@ -1,0 +1,5 @@
+// build consumes "branch" before grab produces it; send is satisfied afterward
+{
+  "version": 1,
+  "pipelines": { "feature": ["fake:stage-build", "fake:stage-grab", "fake:stage-send"] }
+}

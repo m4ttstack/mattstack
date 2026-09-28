@@ -1,0 +1,4 @@
+A review verb is about to open a review-post gate for !87 and wants the structured context this protocol defines, not prose. Its report json says: readiness with-fixes; reasoning "the live path still re-enqueues permanent failures."; two findings.
+- f1, tier Critical, title "permanent failures re-enqueue forever", file queue/worker.ts (no line), fix "drop non-retryable jobs in the catch block", full text "a job marked retryable: false goes back on the queue after every failure, so it never leaves."
+- f2, tier Minor, title "test over-specifies the ordering", file queue/enqueue.test.ts line 132, fix "assert set membership", full text "asserts exact call order where the contract only promises the set."
+Both findings ride one multi-select question, id findings-1, whose option values are f1 and f2. Reply with exactly two JSON objects and nothing else: first the gate --context object, then the findings-1 question's context object.
