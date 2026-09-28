@@ -79,3 +79,16 @@ public enum DevLoginConfirm {
         return out
     }
 }
+
+public enum DevLoginSheetCopy {
+    public static let replaceCaption = "Saving replaces the email and password saved for this site."
+
+    /// A typed Add of a saved site replaces it too, so this keys on the
+    /// validated origin alone, never on how the sheet was opened.
+    public static func replacing(fixedOrigin: String?, typedOrigin: String, isSaved: (String) -> Bool) -> Bool {
+        guard case .valid(let origin, _) = DevLoginOrigin.validate(fixedOrigin ?? typedOrigin) else { return false }
+        return isSaved(origin)
+    }
+
+    public static func title(replacing: Bool) -> String { replacing ? "Replace dev login" : "Save a dev login" }
+}

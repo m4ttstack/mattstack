@@ -234,6 +234,11 @@ final class SetupFlowUITests: XCTestCase {
             XCTAssertEqual(el("devLogin.sheet.email").value as? String, "dev@example.com", "Replace starts from the saved email")
             shoot("devlogins-sheet-replace-\(scheme)")
             el("devLogin.sheet.cancel").click()
+
+            el("settings.devLogins.add").click(); waitFor("devLogin.sheet.origin")
+            el("devLogin.sheet.origin").click(); el("devLogin.sheet.origin").typeText("https://login.example.com")
+            waitFor("devLogin.sheet.replaceCaption")
+            el("devLogin.sheet.cancel").click()
             app.terminate()
         }
     }

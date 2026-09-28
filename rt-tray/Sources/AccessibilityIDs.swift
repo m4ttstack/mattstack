@@ -121,6 +121,7 @@ enum AXID {
     static let devLoginSheetCancel = "devLogin.sheet.cancel"
     static let devLoginSheetWarning = "devLogin.sheet.warning"
     static let devLoginSheetInvalid = "devLogin.sheet.invalid"
+    static let devLoginSheetReplaceCaption = "devLogin.sheet.replaceCaption"
     static func settingsAppToggle(_ name: String) -> String { "settings.apps.toggle.\(name)" }
     static let settingsWritingStyleRow = "settings.writingStyle.row"
     static let settingsWritingStyleRowAction = "settings.writingStyle.row.action"

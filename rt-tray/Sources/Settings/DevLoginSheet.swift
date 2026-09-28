@@ -30,14 +30,13 @@ struct DevLoginSheet: View {
         return (origin, host)
     }
 
-    private var title: String {
-        guard let origin = validOrigin?.origin, fixedOrigin != nil, isSaved(origin) else { return "Save a dev login" }
-        return "Replace dev login"
+    private var replacing: Bool {
+        DevLoginSheetCopy.replacing(fixedOrigin: fixedOrigin, typedOrigin: originText, isSaved: isSaved)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.headline)
+            Text(DevLoginSheetCopy.title(replacing: replacing)).font(.headline)
             if let fixedOrigin {
                 if case .invalid(let why) = validated {
                     Text("mattstack can't save a login for \(fixedOrigin). \(why)")
@@ -47,10 +46,7 @@ struct DevLoginSheet: View {
                 } else if let origin = validOrigin?.origin {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(origin).font(.title2.monospaced()).textSelection(.enabled)
-                        if isSaved(origin) {
-                            Text("Saving replaces the email and password saved for this site.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                        if replacing { replaceCaption }
                     }
                 }
             } else {
@@ -61,6 +57,7 @@ struct DevLoginSheet: View {
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier(AXID.devLoginSheetOrigin)
                 }
+                if replacing { replaceCaption }
             }
             if case .valid(let origin, let host) = validated {
                 ForEach(DevLoginConfirm.warnings(origin: origin), id: \.self) { w in
@@ -99,7 +96,7 @@ struct DevLoginSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).accessibilityIdentifier(AXID.devLoginSheetCancel)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving).accessibilityIdentifier(AXID.devLoginSheetCancel)
                 Button(saving ? "Saving…" : "Save") { save() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave || saving)
@@ -108,6 +105,13 @@ struct DevLoginSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+        .interactiveDismissDisabled(saving)
+    }
+
+    private var replaceCaption: some View {
+        Text(DevLoginSheetCopy.replaceCaption)
+            .font(.caption).foregroundStyle(.secondary)
+            .accessibilityIdentifier(AXID.devLoginSheetReplaceCaption)
     }
 
     private var originNote: String {

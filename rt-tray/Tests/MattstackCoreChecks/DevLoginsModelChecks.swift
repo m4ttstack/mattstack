@@ -70,4 +70,21 @@ let devLoginsModelChecks: [Check] = [
         c.expectEqual(DevLoginConfirm.warnings(origin: "https://xn--bcher-kva.example").count, 1)
         c.expectEqual(DevLoginConfirm.warnings(origin: "http://localhost:3000").count, 1)
     },
+    Check("dev login sheet: a saved site reads as Replace whether it was typed, linked or picked") { c in
+        let saved: (String) -> Bool = { $0 == "https://login.example.com" }
+        c.expect(DevLoginSheetCopy.replacing(fixedOrigin: nil, typedOrigin: "https://Login.example.com/", isSaved: saved), "typed Add of a saved site")
+        c.expect(DevLoginSheetCopy.replacing(fixedOrigin: "https://login.example.com", typedOrigin: "", isSaved: saved), "link or Replace of a saved site")
+        c.expect(!DevLoginSheetCopy.replacing(fixedOrigin: nil, typedOrigin: "https://other.example.com", isSaved: saved), "typed Add of a new site")
+        c.expect(!DevLoginSheetCopy.replacing(fixedOrigin: nil, typedOrigin: "login.example.com", isSaved: saved), "an invalid typed origin")
+        c.expectEqual(DevLoginSheetCopy.title(replacing: true), "Replace dev login")
+        c.expectEqual(DevLoginSheetCopy.title(replacing: false), "Save a dev login")
+    },
+    Check("dev login sheet: nothing dismisses it while a save is in flight") { c in
+        let sheet = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources/Settings/DevLoginSheet.swift").standardized
+        let text = try String(contentsOf: sheet, encoding: .utf8)
+        let cancel = text.split(separator: "\n").first { $0.contains("Button(\"Cancel\")") }.map(String.init) ?? ""
+        c.expect(cancel.contains(".disabled(saving)"), "Cancel stays enabled during a save")
+        c.expect(text.contains(".interactiveDismissDisabled(saving)"), "the sheet can be dismissed during a save")
+    },
 ]
