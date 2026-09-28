@@ -69,11 +69,6 @@ export async function serve(): Promise<void> {
     },
     log: console.log,
   });
-  stampSelfOnBoot({
-    devMode: isDevMode(),
-    runMode: runModeFromEnv(process.env).runMode,
-    record: listRecords().find(r => isPlatformManagedBy(r.managedBy)),
-  });
 
   // ---- canary / auto-heal state, lifted verbatim from core/server.ts ----
   let proxyFreshness: Freshness = 'unknown';
@@ -169,6 +164,16 @@ export async function serve(): Promise<void> {
     }
   } catch (err) {
     console.error('registry dev-shape migration failed:', err);
+  }
+
+  try {
+    stampSelfOnBoot({
+      devMode: isDevMode(),
+      runMode: runModeFromEnv(process.env).runMode,
+      record: listRecords().find(r => isPlatformManagedBy(r.managedBy)),
+    });
+  } catch (err) {
+    console.error('self deploy stamp failed:', err);
   }
 
   if (bundleRoot) {
