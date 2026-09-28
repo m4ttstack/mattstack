@@ -1,0 +1,10 @@
+// Fixture: required slot bound, optional slot left unbound.
+// Also exercises full-line JSONC comment stripping.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fake:tiering-good"
+    }
+  }
+}

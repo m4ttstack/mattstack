@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "pipelines": { "feature": ["fake:stage-needy"] },
+  "bindings": { "fake:stage-needy": { "domain": "fake:tiering-good" } }
+}

@@ -1,0 +1,9 @@
+// Fixture: bound to a skill one category level below an enabled plugin's skills/.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fakepack:nested-tiering"
+    }
+  }
+}

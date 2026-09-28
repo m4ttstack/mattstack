@@ -1,0 +1,4 @@
+[
+  {"id": 201, "status": "success", "web_url": "https://gitlab.example.com/group/proj/-/pipelines/201", "source": "schedule"},
+  {"id": 200, "status": "success", "web_url": "https://gitlab.example.com/group/proj/-/pipelines/200", "source": "external"}
+]

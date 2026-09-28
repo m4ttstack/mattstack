@@ -1,0 +1,3 @@
+[
+  {"id": 902, "name": "trigger:downstream2", "downstream_pipeline": {"id": 3}}
+]

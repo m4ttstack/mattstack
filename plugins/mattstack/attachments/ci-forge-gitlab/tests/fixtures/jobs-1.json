@@ -1,0 +1,5 @@
+[
+  {"id": 11, "name": "build", "status": "success", "allow_failure": false},
+  {"id": 12, "name": "test:unit", "status": "failed", "allow_failure": false},
+  {"id": 13, "name": "test:lint", "status": "failed", "allow_failure": true}
+]

@@ -1,0 +1,4 @@
+[
+  {"id": 21, "name": "deploy:staging", "status": "success", "allow_failure": false},
+  {"id": 22, "name": "test:integration", "status": "failed", "allow_failure": false}
+]
