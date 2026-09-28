@@ -30,7 +30,7 @@ Working on the skills themselves, link them to your checkout instead:
 bun run scripts/install-skills.ts
 ```
 
-This symlinks every `skills/<dir>` whose `SKILL.md` has a `name:` frontmatter field into `~/.claude/skills/<name>`. It is checkout-only, and it is idempotent: re-running it after a `git pull` that changed the skills just re-links. It replaces any existing symlink at the destination, the app's links included, so after running it the app's next setup reports those names as a conflict until you remove the checkout links. It refuses (with a message, not a crash) if something other than a symlink already occupies the destination path. Pass a different destination directory as the first argument if you don't want `~/.claude/skills`.
+This symlinks every `skills/<dir>` whose `SKILL.md` has a `name:` frontmatter field into `~/.claude/skills/<name>`. It is checkout-only, and it is idempotent: re-running it after a `git pull` that changed the skills just re-links. It replaces any existing symlink at the destination, the app's links included, and the app's setup leaves a link it did not make alone, so the checkout links stay until you remove them. It refuses (with a message, not a crash) if something other than a symlink already occupies the destination path. Pass a different destination directory as the first argument if you don't want `~/.claude/skills`.
 
 ## The flag contract
 

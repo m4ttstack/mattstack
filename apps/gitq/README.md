@@ -302,7 +302,7 @@ Developing the skills in a checkout, link them to the checkout instead:
 bun run scripts/install-skills.ts
 ```
 
-`install-skills.ts` is checkout-only. It replaces any existing symlink at `~/.claude/skills/<name>`, so it relinks over the app's links, and the app's next setup reports those names as a conflict until you remove the checkout links.
+`install-skills.ts` is checkout-only. It replaces any existing symlink at `~/.claude/skills/<name>`, so it relinks over the app's links, and the app's setup leaves a link it did not make alone: the checkout links stay until you remove them.
 
 Four are one per board action:
 
