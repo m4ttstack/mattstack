@@ -66,20 +66,33 @@ function packFromDir(name: string, dir: string, marketplace: string | null = nul
 
 type MarketplaceEntry = { name?: string; source?: string | { source?: string; path?: string; url?: string } };
 
-/**
- * A url source with a file:// url is the local dev marketplace's shape: Claude
- * Code refuses symlinked plugin paths, so a checkout is served as a clone of
- * itself, and the checkout (not the cache clone) is the pack to read.
- */
-function pluginDirOf(marketDir: string, source: MarketplaceEntry["source"]): string | null {
-  const path = typeof source === "string" ? source : source?.path;
-  if (path) return isAbsolute(path) ? path : resolve(marketDir, path);
-  if (typeof source !== "object" || source?.source !== "url" || typeof source.url !== "string" || !source.url.startsWith("file://")) return null;
+function fileUrlPath(url: string | undefined): string | null {
+  if (typeof url !== "string" || !url.startsWith("file://")) return null;
   try {
-    return fileURLToPath(source.url);
+    return fileURLToPath(url);
   } catch {
     return null;
   }
+}
+
+/**
+ * Where a catalog entry's pack lives on this machine. A relative or absolute
+ * `source` is a directory next to the marketplace. A url source with a
+ * file:// url is the dev marketplace's shape: Claude Code refuses symlinked
+ * plugin paths, so a checkout is served as a clone of itself, and the
+ * checkout (not the cache clone) is the pack to read. A git-subdir source
+ * with a file:// url is the same idea one level down: the checkout plus the
+ * subdirectory. Any other git-subdir is a remote clone rt cannot read.
+ */
+function pluginDirOf(marketDir: string, source: MarketplaceEntry["source"]): string | null {
+  if (typeof source === "string") return source === "" ? null : isAbsolute(source) ? source : resolve(marketDir, source);
+  if (!source || typeof source !== "object") return null;
+  if (source.source === "git-subdir") {
+    const root = fileUrlPath(source.url);
+    return root && typeof source.path === "string" && source.path !== "" ? resolve(root, source.path) : null;
+  }
+  if (source.path) return isAbsolute(source.path) ? source.path : resolve(marketDir, source.path);
+  return source.source === "url" ? fileUrlPath(source.url) : null;
 }
 
 /**

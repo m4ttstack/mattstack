@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import type { PackInfo } from "../packs.ts";
 import { bumpPatchVersion, type RunResult, type SyncDeps, syncPack } from "../sync.ts";
 
@@ -149,6 +149,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
     compilePack: async () => ({ ok: world.compileOk ?? true, errors: world.compileErrors ?? [] }),
     configDir: world.configDir ?? tmp("rt-sync-config-"),
     cswapSessionsDir: world.cswapSessionsDir ?? join(tmpdir(), "rt-sync-no-such-cswap-dir"),
+    inTreeRoot: null,
   };
 }
 
@@ -691,5 +692,29 @@ describe("syncPack", () => {
     const checkStep = report.steps.find((s) => s.name === "check")!;
     expect(checkStep.status).toBe("ran");
     expect(checkStep.detail).not.toContain("mcp lint");
+  });
+});
+
+describe("in-tree engine", () => {
+  test("skips every git step for an engine inside inTreeRoot and still refreshes the plugin", async () => {
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("acme", "mattstack", "0.1.0");
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.2", "acme@mattstack": "0.1.0" }, drift: [false] };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: dirname(engine.dir) };
+    const report = await syncPack(pack, engine, deps);
+    const gitInEngine = world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir);
+    expect(gitInEngine).toEqual([]);
+    expect(report.steps.find((s) => s.name === "pull-engine")).toMatchObject({ status: "skipped" });
+    expect(report.steps.find((s) => s.name === "update-engine")).toMatchObject({ status: "ran" });
+  });
+
+  test("an engine outside inTreeRoot still runs its git steps", async () => {
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("acme", "mattstack", "0.1.0");
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" }, drift: [false] };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: engine.dir.slice(0, -1) };
+    await syncPack(pack, engine, deps);
+    const gitInEngine = world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir).map((c) => c.args[0]);
+    expect(gitInEngine).toEqual(["status", "branch", "pull"]);
   });
 });

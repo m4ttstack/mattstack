@@ -173,3 +173,31 @@ describe("detectLayout", () => {
     expect(packs[0]!.marketplace).toBeNull();
   });
 });
+
+describe("pluginDirOf through discoverPacks", () => {
+  test("a git-subdir file source resolves to the checkout subdirectory", () => {
+    const checkout = tmp("rt-packs-checkout-");
+    const pack = join(checkout, "plugins", "mattstack");
+    writeFile(join(pack, "surface.jsonc"), `{ "public": [] }\n`);
+    writeFile(join(pack, ".claude-plugin", "plugin.json"), `{ "name": "mattstack", "version": "1.0.0" }\n`);
+    const market = tmp("rt-packs-market2-");
+    writeFile(join(market, ".claude-plugin", "marketplace.json"), JSON.stringify({
+      plugins: [{ name: "mattstack", source: { source: "git-subdir", url: pathToFileURL(checkout).href, path: "plugins/mattstack", ref: "main" } }],
+    }));
+    const settingsPath = join(tmp("rt-packs-settings2-"), "settings.json");
+    writeFile(settingsPath, JSON.stringify({ extraKnownMarketplaces: { local: { source: { source: "directory", path: market } } } }));
+    const found = discoverPacks({ settingsPath });
+    expect(found.map((p) => [p.name, p.dir])).toEqual([["mattstack", realpathSync(pack)]]);
+  });
+
+  test("a git-subdir with a remote url is not a readable pack", () => {
+    const market = tmp("rt-packs-market3-");
+    writeFile(join(market, "plugins", "mattstack", "surface.jsonc"), `{ "public": [] }\n`);
+    writeFile(join(market, ".claude-plugin", "marketplace.json"), JSON.stringify({
+      plugins: [{ name: "mattstack", source: { source: "git-subdir", url: "https://github.com/x/y.git", path: "plugins/mattstack" } }],
+    }));
+    const settingsPath = join(tmp("rt-packs-settings3-"), "settings.json");
+    writeFile(settingsPath, JSON.stringify({ extraKnownMarketplaces: { local: { source: { source: "directory", path: market } } } }));
+    expect(discoverPacks({ settingsPath })).toEqual([]);
+  });
+});
