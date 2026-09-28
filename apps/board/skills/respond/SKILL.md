@@ -297,8 +297,8 @@ conversation.
      other way to know those cards never showed their drafts (step 5).
    - **presentation "form":** follow `mattstack:gate-protocol`'s "Acting
      on the response" (form branch) and "CAS and the doorbell" sections
-     (stable source checkout, machine-local by design: `cat
-     ~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`)
+     (shared rt checkout, machine-local by design: `cat
+     ~/Documents/GitHub/repo-tools/plugins/mattstack/attachments/gate-protocol/SKILL.md`)
      for the mechanical rendering rule and the conflict rule (a printed
      conflict answer, or a doorbell message while a form still sits
      open, means another surface won: proceed on the winning answer,
@@ -462,8 +462,8 @@ conversation.
      the total would exceed it, never trimmed mid-text.
    - **presentation "form":** follow `mattstack:gate-protocol`'s "Acting
      on the response" (form branch) and "CAS and the doorbell" sections
-     (stable source checkout, machine-local by design: `cat
-     ~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`)
+     (shared rt checkout, machine-local by design: `cat
+     ~/Documents/GitHub/repo-tools/plugins/mattstack/attachments/gate-protocol/SKILL.md`)
      for the mechanical rendering rule and the conflict rule (a printed
      conflict answer, or a doorbell message while a form still sits
      open, means another surface won: proceed on the winning answer,
@@ -604,9 +604,9 @@ describes. When the daemon is down the hook allows the native form
   `<status-bin> gate answer <state> --answers <json> --by pane`.
   - **Strict membership, CAS loss, reading answers back.** Follow
     `mattstack:gate-protocol`'s "Answers are option values" and "CAS and
-    the doorbell" sections (stable source checkout, machine-local by
+    the doorbell" sections (shared rt checkout, machine-local by
     design: `cat
-    ~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`)
+    ~/Documents/GitHub/repo-tools/plugins/mattstack/attachments/gate-protocol/SKILL.md`)
     for the shared mechanics, unchanged, and `board:gate-cli-recipes`'s
     "CAS loss and reading answers back" section (`cat
     ${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md`) for this CLI's own

@@ -1,11 +1,5 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'bun:test';
@@ -84,37 +78,23 @@ const resolve = (dir: string, manifest: string) => {
 };
 
 describe('wrapper skill slot resolution', () => {
-  const canonicalRepo = [
-    process.env.MATTSTACK_SKILLS_REPO,
-    join(homedir(), 'Documents/GitHub/mattstack-skills'),
-  ]
-    .filter((p): p is string => !!p)
-    .find(p =>
-      existsSync(
-        join(p, 'plugin/skills/parameterized-skills/scripts/resolve-args.sh')
-      )
-    );
-
   test('vendored resolve-args.sh is byte-identical across the three wrappers', () => {
     const copies = wrappers.map(w => readFileSync(resolverPath(w.dir)));
     expect(copies[1]!.equals(copies[0]!)).toBe(true);
     expect(copies[2]!.equals(copies[0]!)).toBe(true);
   });
 
-  test.skipIf(!canonicalRepo)(
-    'vendored resolve-args.sh is byte-identical to the canonical resolver',
-    () => {
-      const canonical = readFileSync(
-        join(
-          canonicalRepo!,
-          'plugin/skills/parameterized-skills/scripts/resolve-args.sh'
-        )
-      );
-      for (const w of wrappers) {
-        expect(readFileSync(resolverPath(w.dir)).equals(canonical)).toBe(true);
-      }
+  test('vendored resolve-args.sh is byte-identical to the canonical resolver', () => {
+    const canonical = readFileSync(
+      join(
+        repoRoot,
+        '../../plugins/mattstack/attachments/parameterized-skills/scripts/resolve-args.sh'
+      )
+    );
+    for (const w of wrappers) {
+      expect(readFileSync(resolverPath(w.dir)).equals(canonical)).toBe(true);
     }
-  );
+  });
 
   for (const w of wrappers) {
     describe(w.name, () => {
