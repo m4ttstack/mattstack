@@ -294,11 +294,15 @@ Repo data is cached in memory for 60 seconds with stale-while-revalidate. Job st
 
 ## Agent skills
 
-`skills/` holds five [Claude](https://claude.com/claude-code) skills that drive this CLI from an agent pane. Install them as symlinks into `~/.claude/skills`:
+`skills/` holds five [Claude](https://claude.com/claude-code) skills that drive this CLI from an agent pane. They ship inside mattstack.app, next to the bundled `gitq` CLI, and its setup links them into `~/.claude/skills` (the "Link bundled skills" step). With the app installed there is nothing to run.
+
+Developing the skills in a checkout, link them to the checkout instead:
 
 ```bash
 bun run scripts/install-skills.ts
 ```
+
+`install-skills.ts` is checkout-only. It replaces any existing symlink at `~/.claude/skills/<name>`, so it relinks over the app's links, and the app's next setup reports those names as a conflict until you remove the checkout links.
 
 Four are one per board action:
 
