@@ -24,6 +24,8 @@ function deckListTable(rtApps: string[]): string {
 interface Options {
   branch?: string;
   announceOk?: boolean;
+  /** The announce fails this many times before it succeeds (the daemon still coming back from the dev app's relaunch). */
+  announceFailures?: number;
   cloneExit?: number;
   checkoutExit?: number;
   fetchDepsExit?: number;
@@ -122,6 +124,7 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
   const pids = new Map(managed.map((m, i) => [m.name, 1000 + i]));
   let devPids = opts.devPidsBefore ?? [111];
   const devPidsAfter = opts.devPidsAfter ?? [222];
+  let announceFailuresLeft = opts.announceFailures ?? 0;
   const deckBin = (opts.devPidsBefore ?? [111]).length > 0 ? DEV_DECK : PROD_DECK;
   let failExactSeen = 0;
   const psChecks = new Map<string, number>();
@@ -248,6 +251,10 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
     confirm: async () => true,
     announce: async (message) => {
       calls.push(`announce ${message}`);
+      if (announceFailuresLeft > 0) {
+        announceFailuresLeft--;
+        return false;
+      }
       return opts.announceOk ?? true;
     },
     clock: () => START,
@@ -628,6 +635,27 @@ describe("rt release update-machine", () => {
       const leg = report.legs.find((l) => l.id === "served-suite")!;
       expect(leg.status).toBe("error");
       expect(leg.detail).toContain("deck restart chat failed");
+    });
+  });
+
+  describe("daemon announce", () => {
+    test("an announce that fails while the relaunched daemon is still down is retried until it lands", async () => {
+      const { seams, calls } = fakeSeams({ announceFailures: 3 });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const leg = report.legs.find((l) => l.id === "daemon")!;
+      expect(leg.status).toBe("ok");
+      expect(calls.filter((c) => c.startsWith("announce ")).length).toBe(4);
+      expect(calls).toContain("rt daemon restart");
+    });
+
+    test("an announce that never lands refuses the restart after the retry window, naming it", async () => {
+      const { seams, calls } = fakeSeams({ announceOk: false });
+      const report = await runUpdateMachine(seams, { yes: true });
+      const leg = report.legs.find((l) => l.id === "daemon")!;
+      expect(leg.status).toBe("aborted");
+      expect(leg.detail).toContain("30 attempts");
+      expect(calls.filter((c) => c.startsWith("announce ")).length).toBe(30);
+      expect(calls).not.toContain("rt daemon restart");
     });
   });
 
