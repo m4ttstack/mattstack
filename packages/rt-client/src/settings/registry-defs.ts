@@ -305,6 +305,22 @@ export const REGISTRY: readonly SettingDef[] = [
     merge: "replace",
     description: "Absolute directories the mr_upload MCP tool may read files from, beside its built-in roots (the target repo's worktrees and this user's Claude Code temp root). Machine-only: path literals never travel. A non-absolute entry is ignored with a warning. A fresh key, not an ownership-latch port, so a default is fine here.",
   },
+  {
+    key: "rt.picker.show",
+    type: "array",
+    scopes: ["user", "machine"],
+    default: [],
+    merge: "replace",
+    description: "Program verbs to list in rt's pickers, usage and --help anyway, by path (\"pane\", \"daemon\"), or \"*\" for all of them. Program verbs are the ones the mattstack apps, skills and daemon run (rt state, rt skills, rt herd); they are left out by default, still run by name, and `rt --all` lists everything once. rt.picker.hide beats this. A fresh key, not an ownership-latch port, so a default is fine here.",
+  },
+  {
+    key: "rt.picker.hide",
+    type: "array",
+    scopes: ["user", "machine"],
+    default: [],
+    merge: "replace",
+    description: "Verbs to leave out of rt's pickers, usage and --help, by path (\"nav\", \"worktree provision\"), any verb including plugin verbs. They still run by name, and `rt --all` lists everything once. Beats rt.picker.show. A fresh key, not an ownership-latch port, so a default is fine here.",
+  },
 
   // --- mattstack (installer-lane) -----------------------------------------
   {

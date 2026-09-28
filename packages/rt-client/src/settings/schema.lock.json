@@ -1164,6 +1164,26 @@
       }
     }
   },
+  "rt.picker.hide": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "rt.picker.show": {
+    "storeVersion": 1,
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
   "rt.presets": {
     "storeVersion": 1,
     "schema": {
