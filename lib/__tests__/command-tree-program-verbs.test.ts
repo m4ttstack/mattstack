@@ -129,13 +129,13 @@ describe("the rt.picker.hidden default", () => {
   });
 
   test("keeps the verbs typed by hand visible", () => {
-    for (const name of ["git", "sync", "run", "runner", "glitter", "cd", "nav", "code", "worktree", "mr", "chat", "settings", "cswap"]) {
+    for (const name of ["git", "sync", "run", "runner", "glitter", "cd", "nav", "code", "worktree", "settings", "cswap"]) {
       expect(hidden, name).not.toContain(name);
     }
   });
 
   test("hides the verbs only the apps, skills and daemon run", () => {
-    for (const name of ["state", "skills", "herd", "gate", "runs", "events", "reconciler", "release", "daemon", "pane", "uninstall"]) {
+    for (const name of ["state", "skills", "herd", "gate", "runs", "events", "reconciler", "release", "daemon", "pane", "uninstall", "chat"]) {
       expect(hidden, name).toContain(name);
     }
   });
