@@ -253,7 +253,7 @@ repo:
 
 ## Installation
 
-This plugin is part of the mattstack monorepo; install it from the `mattstack` marketplace (`rt plugins install` adds it) or serve `plugins/mattstack` from a directory marketplace for development.
+This plugin is part of the mattstack monorepo; install it from the `mattstack` marketplace (`rt setup` adds it in its plugins.install step) or serve `plugins/mattstack` from a directory marketplace for development.
 
 ### The mattstack plugin
 
@@ -391,7 +391,7 @@ git clone https://github.com/m4ttstack/mattstack.git
 cd mattstack/plugins/mattstack
 bun test                              # tests/desc-test.test.ts
 tests/certify.sh <skill-dir>          # certification gate for one skill
-tests/repo-purity.sh                  # whole-tree purity sweep, run bare
+../../scripts/repo-purity.sh          # whole-tree purity sweep at the repo root
 plugin/tests/test-resolve-args.sh     # model-free matrix for the primitive's resolver
 plugin/tests/test-merge-manifests.sh  # manifest-merge matrix
 hooks/tests/test-herdr-doorbell.sh    # offline, stubs herdr on PATH
@@ -421,7 +421,7 @@ touched and the repo-wide purity sweep:
 
 ```bash
 tests/certify.sh <skill-dir>
-tests/repo-purity.sh
+../../scripts/repo-purity.sh
 ```
 
 `tests/certify.sh <skill-dir> --domain` is the domain-pack variant (skips
