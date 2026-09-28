@@ -38,26 +38,75 @@ while [ $# -gt 0 ]; do case "$1" in
 
 GOLDEN="${GOLDEN_OVERRIDE:-$(vm_golden_name "$VER")}"
 vm_run_init "walk-$VER-$SCENARIO"
+RUN_STARTED=$(date +%s)
 vm_log "golden: $GOLDEN"
 RUN_VM="mattstack-run-$VER-$(date +%H%M%S)"
 GUEST_RUN="/Volumes/My Shared Files/run"
 GUEST_BIN="/Users/$VM_TESTER_USER/vmrun"
 TART_PID=""; SHOT_PID=""
 APP_VERSION=""
+FRESH_SLUG=""
+# The longest passing screens phase on record ran 3353s, 23 minutes of it a
+# CLT install, so screens gets the most room. Teardown's limit only bounds the
+# guest log collection; the guest and repo are removed after it regardless.
+: "${VM_PHASE_LIMIT_SCREENS:=5400}"
+: "${VM_PHASE_LIMIT_TEAM_UPGRADE:=3600}"
+: "${VM_PHASE_LIMIT_UPDATE:=1800}"
+: "${VM_PHASE_LIMIT_TEARDOWN:=600}"
 
 cleanup() {
+  trap 'vm_warn "teardown in progress; signal ignored"' INT TERM HUP
   [ -n "$SHOT_PID" ] && kill "$SHOT_PID" 2>/dev/null
-  if [ "$DRY" = 0 ]; then
-    collect_logs || true
-    if [ "$KEEP" = 1 ]; then vm_warn "keeping $RUN_VM running (--keep); stop with: tart stop $RUN_VM && tart delete $RUN_VM"
-    else tart stop "$RUN_VM" 2>/dev/null || true; [ -n "$TART_PID" ] && wait "$TART_PID" 2>/dev/null; tart delete "$RUN_VM" 2>/dev/null || true; fi
-  fi
+  vm_phase_abandon "walkthrough exited mid-phase"
+  if [ "$DRY" = 0 ]; then teardown; fi
   vm_render_report
   local f; f=$(vm_phases_failed)
   vm_log "done: $(grep -c '"status":"pass"' "$VM_RUN_DIR/phases.jsonl" || true) passed, $f failed, $(grep -c '"status":"skip"' "$VM_RUN_DIR/phases.jsonl" || true) skipped → $VM_RUN_DIR/report.md"
   exit "$([ "$f" -eq 0 ] && echo 0 || echo 1)"
 }
 trap cleanup EXIT
+vm_trap_signals
+
+# Ledgered as its own phase so the report says what, if anything, was left behind.
+teardown() {
+  vm_phase_begin teardown
+  collect_logs || true
+  local status=pass notes="" repo
+  if [ "$KEEP" = 1 ]; then
+    vm_warn "keeping $RUN_VM running (--keep); stop with: tart stop $RUN_VM && tart delete $RUN_VM"
+    notes="kept $RUN_VM${FRESH_SLUG:+ and $FRESH_SLUG} (--keep)"
+  else
+    tart stop "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 || true
+    [ -n "$TART_PID" ] && vm_reap "$TART_PID" 60
+    tart delete "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 || true
+    if tart list 2>/dev/null | awk '{print $2}' | grep -cx "$RUN_VM" >/dev/null; then
+      status=fail; notes="$RUN_VM is still listed by tart after delete"
+    fi
+    if [ -n "$FRESH_SLUG" ]; then
+      repo=$(retire_fresh_repo) || status=fail
+      notes="${notes:+$notes; }$repo"
+    fi
+  fi
+  vm_phase_end teardown "$status" "$notes"
+}
+
+# Deleting needs a token with delete rights, which the vmtest PAT may lack;
+# archiving needs only the repo scope, so a run never leaves a live repo.
+retire_fresh_repo() {
+  local log="$VM_RUN_DIR/logs/teardown.log" token="${!PAT_ENV:-}"
+  case "$FRESH_SLUG" in */mattstack-vmtest-team-*) ;; *) printf 'refused to delete %s: not a repo this run minted' "$FRESH_SLUG"; return 1 ;; esac
+  if [ "$FORGE" = gitlab ]; then
+    GITLAB_TOKEN="$token" glab repo delete "$FRESH_SLUG" --yes >>"$log" 2>&1 && { printf 'deleted %s' "$FRESH_SLUG"; return 0; }
+    GITLAB_TOKEN="$token" glab api -X POST "projects/$(printf '%s' "$FRESH_SLUG" | sed 's|/|%2F|g')/archive" >>"$log" 2>&1 \
+      && { printf '%s archived, not deleted (logs/teardown.log)' "$FRESH_SLUG"; return 0; }
+  else
+    GH_TOKEN="$token" gh repo delete "$FRESH_SLUG" --yes >>"$log" 2>&1 && { printf 'deleted %s' "$FRESH_SLUG"; return 0; }
+    GH_TOKEN="$token" gh repo archive "$FRESH_SLUG" --yes >>"$log" 2>&1 \
+      && { printf '%s archived, not deleted (logs/teardown.log)' "$FRESH_SLUG"; return 0; }
+  fi
+  printf 'could not delete or archive %s (logs/teardown.log)' "$FRESH_SLUG"
+  return 1
+}
 
 collect_logs() {
   # Live-state snapshots first: an intermittent wedge (a held port, a zombie
@@ -68,6 +117,9 @@ collect_logs() {
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" 'tar -C "$HOME" -czf - .mattstack/rt/logs .mattstack/deck/logs Library/Logs/mattstack 2>/dev/null' > "$VM_RUN_DIR/logs/guest-home-logs.tgz" 2>/dev/null || true
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" 'log show --last 45m --predicate '"'"'process == "mattstack" OR process == "rt" OR subsystem CONTAINS "com.mattstack" OR process == "smd" OR process == "backgroundtaskmanagementd"'"'"' --style compact 2>/dev/null | tail -5000' > "$VM_RUN_DIR/logs/guest-unified.log" 2>/dev/null || true
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" 'launchctl print gui/$(id -u) 2>/dev/null | grep -iE "mattstack|com\.rt\." ' > "$VM_RUN_DIR/logs/guest-launchctl-grep.txt" 2>/dev/null || true
+  # A dropped session shows the host nothing but silence; sshd's side of it is
+  # only in the guest's log, and it may predate the last 45 minutes.
+  vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "log show --last $(( ($(date +%s) - RUN_STARTED) / 60 + 5 ))m --predicate 'process BEGINSWITH \"sshd\"' --style compact 2>/dev/null | tail -5000" > "$VM_RUN_DIR/logs/guest-sshd.log" 2>/dev/null || true
 }
 
 shot_watcher() {  # host loop: in/shot-<name>.req → screenshots/<name>.png
@@ -119,7 +171,8 @@ if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
       [ -n "$FRESH_GROUP" ] || { vm_phase_end preflight fail "--fresh-team-repo with --forge gitlab needs MATTSTACK_VMTEST_GITLAB_GROUP"; exit 1; }
       GITLAB_TOKEN="${!PAT_ENV}" glab repo create "$FRESH_NAME" --group "$FRESH_GROUP" --private >/dev/null 2>&1 \
         || { vm_phase_end preflight fail "glab repo create $FRESH_GROUP/$FRESH_NAME failed"; exit 1; }
-      TEAM_REMOTE="https://gitlab.com/$FRESH_GROUP/$FRESH_NAME.git";;
+      FRESH_SLUG="$FRESH_GROUP/$FRESH_NAME"
+      TEAM_REMOTE="https://gitlab.com/$FRESH_SLUG.git";;
     ""|github)
       vm_require_cmd gh "brew install gh"
       FRESH_ORG="${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}"
@@ -131,12 +184,11 @@ if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
       esac
       GH_TOKEN="${!PAT_ENV}" gh repo create "$FRESH_ORG/$FRESH_NAME" --private >/dev/null 2>&1 \
         || { vm_phase_end preflight fail "gh repo create $FRESH_ORG/$FRESH_NAME failed"; exit 1; }
-      TEAM_REMOTE="https://github.com/$FRESH_ORG/$FRESH_NAME.git";;
+      FRESH_SLUG="$FRESH_ORG/$FRESH_NAME"
+      TEAM_REMOTE="https://github.com/$FRESH_SLUG.git";;
     *)
       vm_phase_end preflight fail "--fresh-team-repo: unknown --forge '$FORGE' (github|gitlab)"; exit 1;;
   esac
-  # Recorded for later archival sweeps; team-setup.sh reset retires by rename,
-  # never deletes, and the same convention applies to these.
   echo "$TEAM_REMOTE" > "$VM_RUN_DIR/in/team-repo.txt"
   vm_log "fresh team repo: $TEAM_REMOTE"
 fi
@@ -164,7 +216,8 @@ tart clone "$GOLDEN" "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 && vm_phase_en
 
 vm_phase_begin boot
 RUN_ARGS=(--no-audio "--dir=run:$VM_RUN_DIR"); [ "$GRAPHICS" = 0 ] && RUN_ARGS+=(--no-graphics)
-tart run "$RUN_VM" "${RUN_ARGS[@]}" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 &
+# Under --keep this outlives the script, so it drops vm_trap_signals' saved fds.
+tart run "$RUN_VM" "${RUN_ARGS[@]}" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 7>&- 8>&- &
 TART_PID=$!
 TRUSTED=1; vm_trust_key "$RUN_VM" || TRUSTED=0
 if vm_wait_ssh "$VM_TESTER_USER" "$RUN_VM" 420; then
@@ -177,14 +230,18 @@ else vm_phase_end boot fail "ssh as tester never came up$([ "$TRUSTED" = 0 ] && 
 
 # ── stage ────────────────────────────────────────────────────────────────────
 vm_phase_begin stage
-vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "mkdir -p $GUEST_BIN && cp -R '$GUEST_RUN/in/guest/.' $GUEST_BIN/ && chmod +x $GUEST_BIN/*.sh && if [ -f $GUEST_BIN/bun ]; then mkdir -p \$HOME/.bun/bin && mv $GUEST_BIN/bun \$HOME/.bun/bin/bun && chmod +x \$HOME/.bun/bin/bun; fi && test -f '$GUEST_RUN/in/mattstack.dmg' && touch '$GUEST_RUN/logs/.write-probe' && rm -f '$GUEST_RUN/logs/.write-probe'" \
-  && vm_phase_end stage pass || { vm_phase_end stage fail "virtiofs share not readable/writable by tester in guest"; exit 1; }
+vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "mkdir -p $GUEST_BIN && cp -R '$GUEST_RUN/in/guest/.' $GUEST_BIN/ && chmod +x $GUEST_BIN/*.sh && if [ -f $GUEST_BIN/bun ]; then mkdir -p \$HOME/.bun/bin && mv $GUEST_BIN/bun \$HOME/.bun/bin/bun && chmod +x \$HOME/.bun/bin/bun; fi && test -f '$GUEST_RUN/in/mattstack.dmg' && touch '$GUEST_RUN/logs/.write-probe' && rm -f '$GUEST_RUN/logs/.write-probe'"
+rc=$?
+if [ "$rc" -eq 0 ]; then vm_phase_end stage pass
+else vm_phase_end stage fail "$(vm_fail_reason "$rc" "" "virtiofs share not readable/writable by tester in guest")"; exit 1; fi
 
 # ── install (admin copies) + launch (tester) ─────────────────────────────────
 vm_phase_begin install
 QFLAG=--quarantine; [ "$QUAR" = 0 ] && QFLAG=--no-quarantine
-vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash '$GUEST_RUN/in/guest/install-app.sh' copy '$GUEST_RUN/in/mattstack.dmg' $QFLAG" >>"$VM_RUN_DIR/logs/install.log" 2>&1 \
-  && vm_phase_end install pass || { vm_phase_end install fail "copy failed (logs/install.log)"; exit 1; }
+vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' bash '$GUEST_RUN/in/guest/install-app.sh' copy '$GUEST_RUN/in/mattstack.dmg' $QFLAG" >>"$VM_RUN_DIR/logs/install.log" 2>&1
+rc=$?
+if [ "$rc" -eq 0 ]; then vm_phase_end install pass
+else vm_phase_end install fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/install.log" "copy failed (logs/install.log)")"; exit 1; fi
 
 vm_phase_begin launch
 # Prod builds honour MATTSTACK_APPCAST_URL only with --allow-appcast-override; the same env/arg is
@@ -201,7 +258,7 @@ fi
 case $rc in
   0) vm_phase_end launch pass "" ${SHOT00:+"$SHOT00"} ;;
   2) vm_phase_end launch fail "Gatekeeper blocked the app (unnotarised build? rerun with --no-quarantine)" ${SHOT00:+"$SHOT00"}; exit 1 ;;
-  *) vm_phase_end launch fail "app did not start (logs/install.log)" ${SHOT00:+"$SHOT00"}; exit 1 ;;
+  *) vm_phase_end launch fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/install.log" "app did not start (logs/install.log)")" ${SHOT00:+"$SHOT00"}; exit 1 ;;
 esac
 
 # ── screens / headless ───────────────────────────────────────────────────────
@@ -210,8 +267,9 @@ if [ "$SCENARIO" = headless ]; then
   # The golden is gitless by design, so post-install blocks on tool.clt.
   # Drive the headless CLT install first, as admin — softwareupdate needs
   # an admin user; ~2 min, idempotent when CLT is already present.
-  vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "/Applications/mattstack.app/Contents/MacOS/rt tools install apple-clt" >>"$VM_RUN_DIR/logs/clt.log" 2>&1 \
-    || { vm_phase_end screens fail "headless CLT install failed (logs/clt.log)"; exit 1; }
+  vm_ssh_try "$VM_ADMIN_USER" "$RUN_VM" "/Applications/mattstack.app/Contents/MacOS/rt tools install apple-clt" >>"$VM_RUN_DIR/logs/clt.log" 2>&1
+  rc=$?
+  [ "$rc" -eq 0 ] || { vm_phase_end screens fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/clt.log" "headless CLT install failed (logs/clt.log)")"; exit 1; }
   # Quit the app for the recipe: app-needs ride the app's own stdout pipe
   # when the app drives setup, so a standalone rt with the app RUNNING waits
   # on services.register until it times out — with the app absent the step
@@ -220,17 +278,22 @@ if [ "$SCENARIO" = headless ]; then
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "osascript -e 'tell application \"mattstack\" to quit' 2>/dev/null; sleep 2; pkill -x mattstack 2>/dev/null; true" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
   # An ssh session's login keychain is locked, unlike the GUI session a real
   # install runs in — home.init's age-key store needs it open.
-  if vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/e2e-cleanroom.sh --app /Applications/mattstack.app --allow-existing-install --artifacts-dir '$GUEST_RUN/logs/cleanroom'" >>"$VM_RUN_DIR/logs/screens.log" 2>&1; then
-    vm_phase_end screens pass "headless: scripts/e2e-cleanroom.sh in guest"
-  else vm_phase_end screens fail "headless recipe failed (logs/screens.log)"; fi
+  vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' bash $GUEST_BIN/e2e-cleanroom.sh --app /Applications/mattstack.app --allow-existing-install --artifacts-dir '$GUEST_RUN/logs/cleanroom'" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then vm_phase_end screens pass "headless: scripts/e2e-cleanroom.sh in guest"
+  else vm_phase_end screens fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/screens.log" "headless recipe failed (logs/screens.log)")"; fi
   # The assert phase expects the tray up; relaunch what the recipe quit.
   vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "open -a /Applications/mattstack.app; sleep 8" >>"$VM_RUN_DIR/logs/screens.log" 2>&1 || true
 else
   CODE_ARG=""; [ -n "$CODE_FILE" ] && { cp "$CODE_FILE" "$VM_RUN_DIR/in/invite-code.txt"; CODE_ARG="--invite-code-file '$GUEST_RUN/in/invite-code.txt'"; }
-  if vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1; then
+  vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/drive-setup.sh $SCENARIO --team-slug $SLUG --pat-env $PAT_ENV $CODE_ARG" >>"$VM_RUN_DIR/logs/screens.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
     vm_phase_end screens pass "" $(cd "$VM_RUN_DIR" && ls screenshots/0[1-5]-*.png 2>/dev/null)
   else
-    vm_phase_end screens fail "$(tail -1 "$VM_RUN_DIR/logs/drive.log" 2>/dev/null || echo 'see logs/screens.log')" $(cd "$VM_RUN_DIR" && ls screenshots/*.png 2>/dev/null)
+    # drive.log is written through the share, so it stays current after the
+    # ssh channel that carries screens.log has gone quiet.
+    vm_phase_end screens fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/drive.log" "$(tail -1 "$VM_RUN_DIR/logs/drive.log" 2>/dev/null || echo 'see logs/screens.log')")" $(cd "$VM_RUN_DIR" && ls screenshots/*.png 2>/dev/null)
   fi
 fi
 
@@ -248,8 +311,9 @@ if [ "$rc" -eq 0 ]; then
   vm_phase_end assert pass
 else
   n=$(grep -c 'ASSERT FAIL' "$VM_RUN_DIR/logs/assert.log")
-  if [ "$n" -gt 0 ]; then vm_phase_end assert fail "$n assertion(s) failed (logs/assert.log)"
-  else vm_phase_end assert fail "script exited $rc (logs/assert.log)"; fi
+  if [ "$n" -gt 0 ]; then reason="$n assertion(s) failed (logs/assert.log)"
+  else reason="script exited $rc (logs/assert.log)"; fi
+  vm_phase_end assert fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/assert.log" "$reason")"
 fi
 
 # ── team-upgrade ─────────────────────────────────────────────────────────────
@@ -259,10 +323,12 @@ if [ "$SCENARIO" != solo ]; then
 elif [ -z "$TEAM_REMOTE" ]; then
   vm_phase_end team-upgrade skip "no --team-remote given"
 else
-  if vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1; then
+  vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' AX_TRUST_DECLINE='$DECLINE_TRUST' DRIVER_LAUNCH_ARGS='$LAUNCH_ARGS' $PAT_ENV='${!PAT_ENV:-}' TEAM_REMOTE='$TEAM_REMOTE' FORGE='$FORGE' bash $GUEST_BIN/upgrade-to-team.sh --team-slug $SLUG --pat-env $PAT_ENV --team-remote '$TEAM_REMOTE' --forge '$FORGE'" >>"$VM_RUN_DIR/logs/upgrade.log" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
     vm_phase_end team-upgrade pass
   else
-    vm_phase_end team-upgrade fail "upgrade-to-team.sh failed (logs/upgrade.log)"
+    vm_phase_end team-upgrade fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/drive.log" "upgrade-to-team.sh failed (logs/upgrade.log)")"
   fi
 fi
 
@@ -280,9 +346,6 @@ else
     n=$(grep -c 'ASSERT FAIL' "$VM_RUN_DIR/logs/update.log")
     if [ "$n" -gt 0 ]; then reason="$n assertion(s) failed (logs/update.log)"
     else reason="script exited $rc (logs/update.log)"; fi
-    vm_phase_end update fail "$reason" $(cd "$VM_RUN_DIR" && ls screenshots/06-*.png 2>/dev/null)
+    vm_phase_end update fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/update.log" "$reason")" $(cd "$VM_RUN_DIR" && ls screenshots/06-*.png 2>/dev/null)
   fi
 fi
-
-vm_phase_begin teardown
-vm_phase_end teardown pass

@@ -7,6 +7,8 @@ VER=""; DMG=""; KEEP=0
 while [ $# -gt 0 ]; do case "$1" in --ver) VER="$2"; shift 2;; --dmg) DMG="$2"; shift 2;; --keep) KEEP=1; shift;; *) vm_die "unknown arg $1";; esac; done
 [ -n "$VER" ] && [ -f "${DMG:-}" ] || vm_die "usage: xcuitest.sh --ver <v> --dmg <path> [--keep]"
 vm_run_init "xcuitest-$VER"
+# A cold xcodebuild plus the UI suite can outrun the default phase limit.
+: "${VM_PHASE_LIMIT_XCUITEST:=5400}"
 GOLDEN="$(vm_golden_name "$VER" xcuitest)"; RUN_VM="mattstack-xcui-$VER-$(date +%H%M%S)"
 GUEST_RUN="/Volumes/My Shared Files/run"
 

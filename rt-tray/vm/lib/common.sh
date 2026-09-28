@@ -179,10 +179,14 @@ vm_tree_pids() {
 }
 
 _vm_bounded_pid=""
+_vm_bounded_dog=""
 # vm_bounded <seconds> <cmd...>: the command's status, or 124 once the limit
 # passes (its whole process tree gets TERM, then KILL 5s on). The command runs
 # in the background and is reaped with the wait builtin, because bash defers a
 # trapped signal until a foreground child exits, which a hung ssh never does.
+# The watchdog subshell holds bash's saved copies of the caller's stdout and
+# stderr, so it must never outlive the call: a reader of that pipe would wait
+# for its full sleep.
 vm_bounded() {
   local limit="$1"; shift
   [ "$limit" -gt 0 ] 2>/dev/null || return 124
@@ -193,11 +197,13 @@ vm_bounded() {
   _vm_bounded_pid=$pid
   ( sleep "$limit"; pids=$(vm_tree_pids "$pid"); kill -TERM $pids || true; sleep 5; kill -KILL $pids || true ) </dev/null >/dev/null 2>&1 &
   dog=$!
+  _vm_bounded_dog=$dog
   wait "$pid" 2>/dev/null || rc=$?
   while kill -0 "$pid" 2>/dev/null; do rc=0; wait "$pid" 2>/dev/null || rc=$?; done
   _vm_bounded_pid=""
   kill -TERM $(vm_tree_pids "$dog") 2>/dev/null || true
   wait "$dog" 2>/dev/null || true
+  _vm_bounded_dog=""
   if [ "$rc" -ne 0 ] && [ $(( $(date +%s) - start )) -ge "$limit" ]; then return 124; fi
   return "$rc"
 }
@@ -210,16 +216,24 @@ vm_guest_cmd() {
 }
 
 # INT/TERM/HUP handler: stops the guest command in flight, ledgers the open
-# phase, and exits so the caller's EXIT trap tears down.
+# phase, and exits so the caller's EXIT trap tears down. The trap fires inside
+# whatever call was running, usually one redirected into a phase log, so the
+# script's own stdout/stderr come back from fds 7 and 8 first.
 vm_on_signal() {
-  local sig="$1"
+  local sig="$1" p
+  exec 1>&7 2>&8
   vm_warn "caught SIG$sig; tearing down"
-  if [ -n "$_vm_bounded_pid" ]; then kill -TERM $(vm_tree_pids "$_vm_bounded_pid") 2>/dev/null || true; fi
+  for p in "$_vm_bounded_pid" "$_vm_bounded_dog"; do
+    if [ -n "$p" ]; then kill -TERM $(vm_tree_pids "$p") 2>/dev/null || true; fi
+  done
   vm_phase_abandon "interrupted by SIG$sig"
   case "$sig" in INT) exit 130 ;; HUP) exit 129 ;; *) exit 143 ;; esac
 }
 
+# Call at top level. A background child that outlives the script must close
+# fds 7 and 8 (7>&- 8>&-), or it holds the caller's output pipe open.
 vm_trap_signals() {
+  exec 7>&1 8>&2
   trap 'vm_on_signal INT' INT
   trap 'vm_on_signal TERM' TERM
   trap 'vm_on_signal HUP' HUP
