@@ -28,7 +28,7 @@ function deps(over: Partial<LoginsDeps> = {}) {
     readStdin: async () => null,
     promptSecret: async () => { throw new Error("no prompt expected"); },
     promptText: async () => { throw new Error("no prompt expected"); },
-    openUrl: (u) => { opened.push(u); },
+    openUrl: (u) => { opened.push(u); return true; },
     print: (s) => { out.push(s); },
     isTTY: false,
     ...over,
@@ -110,6 +110,15 @@ describe("rt logins", () => {
     expect(t.opened).toEqual([url]);
     expect(JSON.parse(t.out.pop()!)).toEqual({ ok: true, url });
     expect(devLoginAddUrl("https://login.example.com")).toBe("mattstack://dev-logins/add?origin=https%3A%2F%2Flogin.example.com");
+  });
+
+  test("open-add that could not open the app exits 2 with the envelope, never ok", async () => {
+    trapExit();
+    const t = deps({ openUrl: () => false });
+    await expect(loginsOpenAdd(["https://login.example.com", "--json"], {}, t.d)).rejects.toThrow("exit 2");
+    const printed = t.out.join("\n");
+    expect(JSON.parse(printed).error.code).toBe("open-failed");
+    expect(printed).not.toContain('"ok":true');
   });
 
   test("remove reports whether a login existed", async () => {

@@ -21,7 +21,7 @@ export interface LoginsDeps {
   readStdin: () => Promise<unknown>;
   promptSecret: (message: string) => Promise<string>;
   promptText: (message: string) => Promise<string>;
-  openUrl: (url: string) => void;
+  openUrl: (url: string) => boolean;
   print: (s: string) => void;
   isTTY: boolean;
 }
@@ -35,7 +35,7 @@ function realDeps(): LoginsDeps {
       const { textInput } = await import("../lib/rt-render.ts");
       return (await textInput({ message: m, stderr: true })).trim();
     },
-    openUrl: (u) => { spawnSync("open", [u]); },
+    openUrl: (u) => spawnSync("open", [u]).status === 0,
     print: (s) => console.log(s),
     isTTY: Boolean(process.stdin.isTTY) && !process.env.RT_BATCH,
   };
@@ -119,7 +119,7 @@ export async function loginsOpenAdd(args: string[], _ctx: CommandContext = {}, o
   try {
     const origin = await originArg("open-add", args, json, d);
     const url = devLoginAddUrl(origin);
-    d.openUrl(url);
+    if (!d.openUrl(url)) throw new UserActionableError("open-failed", "couldn't open mattstack; is the app installed?");
     d.print(json ? JSON.stringify({ ok: true, url }) : `Opened mattstack to save a dev login for ${origin}`);
   } catch (err) {
     fail("open-add", json, d, err);
