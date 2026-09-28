@@ -12,7 +12,7 @@ run the update, and run `/reload-plugins` in the session. Same-commit
 version bumps are the convention (see any pack bump in git history). What the update puts in the
 cache differs by estate: a team pack's update copies the pack's whole
 working tree, untracked files and `.worktrees/` included; the mattstack
-plugin's update clones the monorepo checkout's committed `main` and installs
+plugin's update clones the shared monorepo checkout's committed `main` and installs
 its `plugins/mattstack` subdirectory, so an uncommitted edit or an untracked
 file never reaches the cache.
 
@@ -21,17 +21,17 @@ reported base dir often points at the SOURCE path, not the cache copy. Don't
 read that as "it loads from source": the versioned cache is still what a
 session loads, and the bump/update/reload rule above still applies.
 The source path in the base dir is a convenience, not the live surface. The
-mattstack plugin is a _git-subdir_ entry (a `file://` URL to the monorepo
-checkout, path `plugins/mattstack`, ref `main`), so its base dir is the
-cache copy itself.
+mattstack plugin is a _git-subdir_ entry (a `file://` URL to the shared
+monorepo checkout, path `plugins/mattstack`, ref `main`), so its base dir is
+the cache copy itself.
 
 ## The two estates
 
 |             | Team pack (acme)                                                                                                                            | mattstack plugin                                                                                                                                                                                                                                                                                                                 |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source      | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills)                   | `plugins/mattstack/plugin/skills/<name>/` in the mattstack monorepo (invocable), `attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `pack/stubs.jsonc` + `pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
+| Source      | `~/.mattstack/teams/acme/mattstack/packs/acme/skills/<name>/` (hand-authored) or `packs/acme/attachments/<fill>/` (fills)                   | `plugins/mattstack/plugin/skills/<name>/` in the mattstack monorepo (invocable), `plugins/mattstack/attachments/<category>/<name>/` (engines, includes, mattstack fills -- reached only through a pack's compile), or `plugins/mattstack/pack/stubs.jsonc` + `plugins/mattstack/pack/skills.jsonc` (the pack's OWN one-verb roster and bindings: `shepherdr`, compiled to `skills/shepherdr/`) |
 | Manifest    | `packs/acme/.claude-plugin/plugin.json`                                                                                                     | `plugins/mattstack/.claude-plugin/plugin.json`                                                                                                                                                                                                                                                                                    |
-| Marketplace | `name` in the teams-clone `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the teams clone itself) | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a git-subdir source: a `file://` URL to the monorepo checkout, path `plugins/mattstack`, ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257) |
+| Marketplace | `name` in the teams-clone `.claude-plugin/marketplace.json`, which need not match the pack name (directory source = the teams clone itself) | `mattstack` (the local dev marketplace `~/Documents/GitHub/mattstack-marketplace`, whose `mattstack` entry is a git-subdir source: a `file://` URL to the shared monorepo checkout, path `plugins/mattstack`, ref `main`; Claude Code refuses symlinked plugin paths since 2.1.257) |
 | Update      | `claude plugin update <plugin>@<marketplace>` (derive both, see below)                                                                      | `claude plugin update mattstack@mattstack`                                                                                                                                                                                                                                                                                       |
 
 **Deriving `<plugin>@<marketplace>` for the update.** The two names are
@@ -151,8 +151,8 @@ digraph publish_skill {
     "Gate: certify rounds spent" -> "Handed to the human" [label="human takes over"];
     "Bump version in the manifest" -> "git add <files>; git commit";
     "git add <files>; git commit" -> "On the default branch?";
-    "On the default branch?" -> "Push the default branch from the checkout" [label="yes"];
-    "On the default branch?" -> "git_push {tree: <checkout>, setUpstream: true}" [label="no: a feature branch"];
+    "On the default branch?" -> "Push the default branch from the checkout" [label="yes: a team pack"];
+    "On the default branch?" -> "git_push {tree: <checkout>, setUpstream: true}" [label="no: a feature branch, and every mattstack change"];
     "Push the default branch from the checkout" -> "Push landed?";
     "Push landed?" -> "List the packs to bring current" [label="yes"];
     "Push landed?" -> "Gate: default-branch push rejected" [label="no: quote the rejection"];
@@ -244,18 +244,21 @@ worktree's sources is the bare Bash command, run before GREEN. A team pack
 compile reads mattstack engines, includes and fills from the INSTALLED
 mattstack cache (table below), so compile the pack that reads your edit.
 A mattstack engine, include or fill compiles as mattstack against
-`plugins/mattstack` in the monorepo checkout; other packs see it only after
-the mattstack cache updates:
+`plugins/mattstack` in your own monorepo worktree, never the shared monorepo
+checkout (compile writes into the tree it reads); other packs see it only
+after the mattstack cache updates:
 
-`rt skills compile --pack mattstack --pack-dir <monorepo checkout>/plugins/mattstack` <!-- mcp-lint: allow -->
+`rt skills compile --pack mattstack --pack-dir <your monorepo worktree>/plugins/mattstack` <!-- mcp-lint: allow -->
 
 A team pack's own fill compiles as that pack against its checkout:
 
 `rt skills compile --pack <pack> --pack-dir <pack checkout>` <!-- mcp-lint: allow -->
 
-For the pack's canonical checkout,
+For a team pack's canonical checkout,
 `rt_verb {args: ["skills", "compile", "--pack", "<pack>"]}` is enough; the
-bare `--pack-dir` form is for a worktree or another checkout.
+bare `--pack-dir` form is for a worktree or another checkout. Never use the
+`--pack` form alone for mattstack: it resolves mattstack to the shared
+monorepo checkout.
 
 ### Verify with a fresh agent (GREEN)
 
@@ -308,9 +311,15 @@ branch):
 `git push` <!-- mcp-lint: allow -->
 
 For the team pack, push IS the team publish: teammates' installs read the
-same repo. For mattstack, the update clones the shared monorepo checkout's
-`main`, so the change lands through a pull request to the monorepo and is
-live once that checkout pulls the merge. Never force.
+same repo. Never force.
+
+A mattstack change never takes this box: it is made on a branch in a
+monorepo worktree, pushed with `git_push`, and lands through a pull request
+(`Pushed: sync waits until the branch lands on main`). After the merge it
+goes live only once the shared monorepo checkout's `main` is current (the
+shared checkout sync leg of `rt release update-machine`, or a fast-forward
+pull there once `git branch --show-current` prints `main`), followed by
+`claude plugin update mattstack@mattstack` or a sync.
 
 ### List the packs to bring current
 
@@ -468,8 +477,8 @@ starting again at zero. Takes over: the human chases the cache.
 
 ## What sync does
 
-Sync runs the whole deterministic tail as code: a fast-forward pull in both
-checkouts, engine cache update, check, patch-bump, compile, recheck, a
+Sync runs the whole deterministic tail as code: a fast-forward pull in each
+checkout that is not in-tree, engine cache update, check, patch-bump, compile, recheck, a
 commit + push scoped to the pack, pack cache update, verify. It reports
 `restartNeeded`. The pull is the step hand-runs forget: a checkout parked on
 a merged branch compiles stale engines and nothing says so. The middle of
@@ -483,7 +492,9 @@ that yet. When content drift survives that recompile, sync refuses with
 in the pack working tree for you to carry forward. An in-tree plugin is
 never pulled, bumped, compiled or committed in the shared checkout: its
 version is read from `main`, and drift in it refuses so the fix lands as a
-monorepo pull request. What sync never does is
+monorepo pull request. A merged mattstack change reaches sync only once the
+shared monorepo checkout's `main` is current (see Push the default branch
+from the checkout). What sync never does is
 author or bump the ENGINE, so everything up to the push stays yours in
 every case.
 

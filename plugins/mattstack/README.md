@@ -125,7 +125,7 @@ prose.
 - **parameterized-skills** -- authoring guide for the primitive: slot and
   provides declarations, the bindings manifest, and wiring the resolver into
   a wrapper. Convention:
-  `plugin/skills/parameterized-skills/references/convention.md`. Manifest
+  `attachments/parameterized-skills/references/convention.md`. Manifest
   schema: `plugin/schemas/`. Model-free test matrix:
   `plugin/tests/test-resolve-args.sh`.
 
@@ -253,7 +253,11 @@ repo:
 
 ## Installation
 
-This plugin is part of the mattstack monorepo; install it from the `mattstack` marketplace (`rt setup` adds it in its plugins.install step) or serve `plugins/mattstack` from a directory marketplace for development.
+This plugin is part of the mattstack monorepo; install it from the
+`mattstack` marketplace (`rt setup` adds it in its plugins.install step) or,
+for development, point a local marketplace's `mattstack` entry at the
+monorepo as a git-subdir source (`file://` URL, path `plugins/mattstack`, ref
+`main`), or run one session with `claude --plugin-dir plugins/mattstack`.
 
 ### The mattstack plugin
 
