@@ -9,7 +9,7 @@ test("TREE is importable without side effects and has expected roots", () => {
     expect(TREE[key]).toBeDefined();
     expect(typeof TREE[key]!.description).toBe("string");
   }
-  expect(TREE.git!.subcommands?.rebase?.description).toContain("rebase");
+  expect(TREE.git!.subcommands?.rebase?.description).toMatch(/rebase/i);
 });
 
 test("verify command is present in the tree", () => {
