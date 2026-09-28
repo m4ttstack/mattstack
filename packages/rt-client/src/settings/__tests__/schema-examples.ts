@@ -172,6 +172,8 @@ export const EXAMPLES: Record<string, Example> = {
   },
   "rt.trustedBrowserOrigins": { good: [[], ["http://localhost:5173"]], bad: [{ value: [5173], path: [0] }] },
   "rt.mcp.uploadRoots": { good: [[], ["/Users/me/Screenshots"]], bad: [{ value: ["/a", 7], path: [1] }] },
+  "rt.picker.show": { good: [[], ["pane", "daemon"], ["*"]], bad: [{ value: ["pane", 7], path: [1] }] },
+  "rt.picker.hide": { good: [[], ["nav", "worktree provision"]], bad: [{ value: [true], path: [0] }] },
   "rt.integrations": {
     good: [{}, { forgeHost: "gitlab.example.com", switchboardUrl: "https://switchboard.example.com" }],
     bad: [{ value: { forgeHost: 443 }, path: ["forgeHost"] }],
