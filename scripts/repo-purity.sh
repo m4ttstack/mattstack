@@ -17,8 +17,7 @@ set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$HERE/.." && pwd)
 
-# Assembled from fragments so this file greps clean for its own banned words
-# (the same technique the skills repo's copy uses).
+# Assembled from fragments so this file greps clean for its own banned words.
 A1=$(printf '%s%s' 'ass' 'ured')
 A2=$(printf '%s%s' 'claim' 'view')
 A3=$(printf '%s%s' 'cv-' '[0-9]')

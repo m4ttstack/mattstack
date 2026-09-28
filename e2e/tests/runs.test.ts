@@ -35,8 +35,8 @@ function freePort(): number {
 
 // Same seed SQL as lib/runs/__tests__/store.test.ts's seedRun — written
 // directly with bun:sqlite here (the daemon is the only reader; the test
-// process is allowed to write because it's standing in for
-// mattstack-skills' pipeline-state.sh, not rt itself).
+// process is allowed to write because it's standing in for a pipeline's
+// run writer, not rt itself).
 function seedRun(runsRoot: string, repo: string, id: string, startedAt: number): void {
   const runDir = join(runsRoot, repo, id);
   mkdirSync(runDir, { recursive: true });
