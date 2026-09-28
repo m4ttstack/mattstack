@@ -1,7 +1,7 @@
 import Foundation
 import MattstackCore
 
-private let rtRepo = "remote:github.com%2Fm4ttstack%2Frt"
+private let rtRepo = "remote:github.com%2Fm4ttstack%2Fmattstack"
 
 private func tree(_ name: String, kind: String, active: String?, repo: String = rtRepo) -> [String: Any] {
     var t: [String: Any] = ["name": name, "path": "/trees/\(name)", "kind": kind, "branch": "b-\(name)", "repoName": repo]

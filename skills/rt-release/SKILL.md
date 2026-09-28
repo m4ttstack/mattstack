@@ -311,7 +311,7 @@ why.
    body equals the committed `RELEASE_NOTES.md`, confirms all four assets
    (`mattstack-<ver>.dmg`, `mattstack-<ver>.zip`, `appcast.xml`,
    `SHA256SUMS`) are attached, confirms the release is neither a draft nor a
-   prerelease, and confirms `https://api.github.com/repos/m4ttstack/rt/releases/latest`
+   prerelease, and confirms `https://api.github.com/repos/m4ttstack/mattstack/releases/latest`
    resolves to the tag with the same four assets. Exit 0 means the release
    is genuinely live; it prints "still propagating" rather than failing when
    a row is only waiting on that endpoint's cache. It never runs a recovery
@@ -422,7 +422,7 @@ why.
 - Committing, tagging, and deploying happen only after the step 6 approval. The
   step 3 push may run earlier, but only once the user has confirmed it (or
   pre-authorized the release).
-- The old repo name `m4ttstack/rt` is never recreated after the rename: every
+- The GitHub repo is `m4ttstack/mattstack`. The old repo name `m4ttstack/rt` is never recreated after the rename: every
   app installed before it fetches its Sparkle feed through GitHub's redirect
   from the old name, and a new repo under that name would capture those
   requests.

@@ -1,6 +1,6 @@
 # mattstack-console
 
-_Part of the [mattstack](https://github.com/m4ttstack) estate, alongside [`rt`](https://github.com/m4ttstack/rt),
+_Part of the [mattstack](https://github.com/m4ttstack) estate, alongside [`rt`](https://github.com/m4ttstack/mattstack),
 [`deck`](../deck) (in this same repo), and [herdr](https://github.com/herdrdev/herdr)._
 
 Console is the management console for mattstack: a local web app that shows what's running, what
@@ -32,7 +32,7 @@ most useful once `rt` itself is set up locally; without that, the board and sett
 start out empty.
 
 ```bash
-git clone https://github.com/m4ttstack/rt.git
+git clone https://github.com/m4ttstack/mattstack.git
 cd rt                         # the workspace root, not this app's own dir
 bun install                   # workspace install: packages/*, apps/*
 cd apps/console

@@ -9,7 +9,7 @@ subscriptions, so a dashboard can update the moment a pipeline finishes
 instead of polling for it.
 
 Part of [mattstack](https://m4tthew.dev/mattstack). Siblings in the estate
-include [rt](https://github.com/m4ttstack/rt) (a developer CLI),
+include [rt](https://github.com/m4ttstack/mattstack) (a developer CLI),
 [gitq](../../apps/gitq) (in this same repo, a stacked-branch engine),
 [board](../../apps/board) (in this same repo, a team MR dashboard),
 [deck](../../apps/deck) (in this same repo), [fast-browser](https://github.com/m4ttstack/fast-browser),
@@ -19,7 +19,7 @@ built alongside [herdr](https://github.com/herdrdev/herdr) itself.
 
 ## Who uses it
 
-[rt](https://github.com/m4ttstack/rt), [gitq](../../apps/gitq) (in this same repo),
+[rt](https://github.com/m4ttstack/mattstack), [gitq](../../apps/gitq) (in this same repo),
 and [board](../../apps/board) (in this same repo) all read and write merge
 requests through this layer, which is why the same review state shows up in a
 CLI, a board, and an editor extension without three integrations drifting

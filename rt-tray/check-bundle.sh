@@ -549,7 +549,7 @@ check_sparkle() { # app
     if [ "$(plist "$info" MSDevBuild)" = "true" ]; then
         assert_eq "$exe SUEnableAutomaticChecks (dev)" "false" "$(plist "$info" SUEnableAutomaticChecks)"
     else
-        assert_eq "$exe SUFeedURL" "https://github.com/m4ttstack/rt/releases/latest/download/appcast.xml" "$(plist "$info" SUFeedURL)"
+        assert_eq "$exe SUFeedURL" "https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml" "$(plist "$info" SUFeedURL)"
         assert_eq "$exe SUEnableAutomaticChecks" "true" "$(plist "$info" SUEnableAutomaticChecks)"
         assert_eq "$exe SUScheduledCheckInterval" "21600" "$(plist "$info" SUScheduledCheckInterval)"
         assert_eq "$exe SUAutomaticallyUpdate" "true" "$(plist "$info" SUAutomaticallyUpdate)"

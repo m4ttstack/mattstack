@@ -25,7 +25,7 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/m4ttstack/rt/tree/main/website/",
+          editUrl: "https://github.com/m4ttstack/mattstack/tree/main/website/",
         },
         blog: false,
         theme: { customCss: "./src/css/custom.css" },
@@ -37,12 +37,12 @@ const config: Config = {
       title: "rt",
       items: [
         {
-          href: "https://github.com/m4ttstack/rt/releases/latest",
+          href: "https://github.com/m4ttstack/mattstack/releases/latest",
           label: "Download",
           position: "right",
         },
         {
-          href: "https://github.com/m4ttstack/rt",
+          href: "https://github.com/m4ttstack/mattstack",
           label: "GitHub",
           position: "right",
         },

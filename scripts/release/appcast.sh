@@ -25,7 +25,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 GEN="$ROOT/rt-tray/deps/tools/sparkle/bin/generate_appcast"
 [ -x "$GEN" ] || { echo "✗ $GEN missing — run scripts/fetch-deps.sh" >&2; exit 1; }
 
-REPO="${GITHUB_REPOSITORY:-m4ttstack/rt}"
+REPO="${GITHUB_REPOSITORY:-m4ttstack/mattstack}"
 PREFIX="https://github.com/$REPO/releases/download/$TAG/"
 
 MATCH_COUNT="$(ls "$ARCHIVES"/mattstack-*.zip 2>/dev/null | wc -l | tr -d ' ')" || true

@@ -28,7 +28,7 @@ right alongside the humans.
 ## How it fits together
 
 `chat` is one app in the mattstack estate. It renders what
-[`rt`](https://github.com/m4ttstack/rt) (the CLI and background daemon)
+[`rt`](https://github.com/m4ttstack/mattstack) (the CLI and background daemon)
 knows about the chat protocol through its `@mattstack/rt-client` client
 library; it doesn't own the protocol itself. Agents running inside terminal
 panes join the same rooms through
@@ -50,7 +50,7 @@ the pieces above wire together.
 Requires [Bun](https://bun.sh).
 
 ```bash
-git clone https://github.com/m4ttstack/rt.git
+git clone https://github.com/m4ttstack/mattstack.git
 cd rt                         # the workspace root, not this app's own dir
 bun install                   # workspace install: packages/*, apps/*
 cd apps/chat
@@ -145,7 +145,7 @@ the shared UI kit, and the deploy loop.
 ## Contributing
 
 This repository isn't accepting outside contributions yet. Bug reports and
-suggestions are welcome via [issues](https://github.com/m4ttstack/rt/issues).
+suggestions are welcome via [issues](https://github.com/m4ttstack/mattstack/issues).
 Anyone opening a PR should read `AGENTS.md` and `ARCHITECTURE.md` first;
 they carry the conventions this codebase expects (import walls, the
 design-conformance contract, how server routes compose).
