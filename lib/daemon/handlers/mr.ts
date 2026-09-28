@@ -11,6 +11,7 @@
  *   mr:fetch-job-trace   — raw job trace text
  *   mr:commit-parents        - a commit's parent shas (GitLab providers only)
  *   mr:pipeline-failed-jobs  - a pipeline's failed jobs (GitLab providers only)
+ *   mr:by-target             - every MR targeting a branch, live and unscoped (GitLab providers only)
  *
  * Every handler routes by `{ repoName, iid }`. If no provider can be built
  * for the repo (missing token, unparseable remote), the handler returns
@@ -33,6 +34,7 @@ import { applyMRWriteback, getCurrentUserId, getRepoContext } from "../freshness
 import type { PullRequest, UpdatePullRequestInput } from "@mattstack/glance";
 import { ReadBackFailedError } from "@mattstack/glance";
 import type { HandlerContext, HandlerMap, CommandResult } from "./types.ts";
+import type { MrListState, MrTargetSummary } from "../../../packages/rt-client/src/commands.ts";
 import { decodeRepo } from "../identity-decoder.ts";
 
 type ActionName =
@@ -75,6 +77,63 @@ async function putMergeRequest(
   }
 }
 
+const MR_LIST_STATES: readonly MrListState[] = ["opened", "merged", "closed", "all"];
+const BY_TARGET_PER_PAGE = 100;
+const BY_TARGET_MAX_PAGES = 20;
+
+interface RestMrRow {
+  iid: number;
+  title: string;
+  state: string;
+  draft?: boolean;
+  source_branch: string;
+  target_branch: string;
+  author?: { username?: string } | null;
+  web_url?: string | null;
+  detailed_merge_status?: string | null;
+}
+
+function targetSummary(row: RestMrRow): MrTargetSummary {
+  return {
+    iid: row.iid,
+    title: row.title,
+    state: row.state,
+    draft: row.draft === true,
+    sourceBranch: row.source_branch,
+    targetBranch: row.target_branch,
+    author: row.author?.username ?? null,
+    webUrl: row.web_url ?? null,
+    detailedMergeStatus: row.detailed_merge_status ?? null,
+  };
+}
+
+/** A partial walk must never pass for the whole answer, so every failure, and running past the page cap, is an error. */
+async function listMrsByTarget(
+  provider: { restRequest: (method: string, path: string, body?: unknown, op?: string) => Promise<Response> },
+  projectPath: string,
+  targetBranch: string,
+  state: MrListState,
+): Promise<{ ok: true; mrs: MrTargetSummary[] } | { ok: false; error: string }> {
+  const mrs: MrTargetSummary[] = [];
+  try {
+    for (let page = 1; page <= BY_TARGET_MAX_PAGES; page++) {
+      const query = new URLSearchParams({ target_branch: targetBranch, state, per_page: String(BY_TARGET_PER_PAGE), page: String(page) });
+      const res = await provider.restRequest("GET", `/projects/${encodeURIComponent(projectPath)}/merge_requests?${query}`, undefined, "mr:by-target");
+      if (!res.ok) {
+        const detail = (await res.text().catch(() => "")).slice(0, 200);
+        return { ok: false, error: `GitLab returned ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}` };
+      }
+      const rows = (await res.json()) as unknown;
+      if (!Array.isArray(rows)) return { ok: false, error: "GitLab's merge request listing was not a JSON array" };
+      mrs.push(...(rows as RestMrRow[]).map(targetSummary));
+      if (!res.headers.get("x-next-page")) return { ok: true, mrs };
+    }
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+  return { ok: false, error: `more than ${BY_TARGET_MAX_PAGES * BY_TARGET_PER_PAGE} MRs target ${targetBranch}; the listing stopped before the end` };
+}
+
 export interface MRHandlerOverrides {
   getContext?:  (repoName: string) => Promise<{ provider: any; projectPath: string }>;
   writeback?:   (repoName: string, projectPath: string, pr: PullRequest) => void;
@@ -97,6 +156,7 @@ export function createMRHandlers(
   & { "mr:fetch-job-trace": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:fetch-job-trace">> }
   & { "mr:commit-parents": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:commit-parents">> }
   & { "mr:pipeline-failed-jobs": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:pipeline-failed-jobs">> }
+  & { "mr:by-target": (payload: unknown, signal?: AbortSignal) => Promise<CommandResult<"mr:by-target">> }
   & HandlerMap {
   const getContext = overrides.getContext
     ?? ((repoName: string) => getRepoContext(repoName, ctx.repoIndex()[repoName]));
@@ -400,6 +460,23 @@ export function createMRHandlers(
         const { provider, projectPath } = await contextFor(decoded.repo);
         if (typeof provider.fetchPipelineFailedJobs !== "function") return { ok: false, error: "unsupported: mr:pipeline-failed-jobs needs a GitLab repo" };
         return { ok: true, data: await provider.fetchPipelineFailedJobs(projectPath, p.pipelineId) };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    },
+
+    "mr:by-target": async (payload) => {
+      const p = payload as { targetBranch?: unknown; state?: unknown } | undefined;
+      if (typeof p?.targetBranch !== "string" || !p.targetBranch.trim()) return { ok: false, error: "missing repoName/targetBranch" };
+      const state = p.state ?? "opened";
+      if (!MR_LIST_STATES.includes(state as MrListState)) return { ok: false, error: `"state" must be one of ${MR_LIST_STATES.join(", ")}` };
+      const decoded = decodeIndexedRepo(payload);
+      if (!decoded.ok) return { ok: false, error: decoded.error };
+      try {
+        const { provider, projectPath } = await contextFor(decoded.repo);
+        if (typeof provider.restRequest !== "function") return { ok: false, error: "unsupported: mr:by-target needs a GitLab repo" };
+        const listed = await listMrsByTarget(provider, projectPath, p.targetBranch.trim(), state as MrListState);
+        return listed.ok ? { ok: true, data: { mrs: listed.mrs } } : { ok: false, error: listed.error };
       } catch (err) {
         return { ok: false, error: String(err) };
       }
