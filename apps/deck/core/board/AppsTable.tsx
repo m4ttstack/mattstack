@@ -494,7 +494,7 @@ function CommandsCell({
                 intent="warn"
                 variant="filled"
                 size="sm"
-                aria-label={`${name} ${row.name}`}
+                aria-label={`${pill.label} ${row.name}`}
                 onClick={() => onRunCommand(row, name)}
               >
                 {pill.label}
