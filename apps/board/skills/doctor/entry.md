@@ -28,7 +28,7 @@ digraph doctor_entry {
     "Branch-writing class under --tier api?" [shape=diamond];
     "ci_lease_read {mrUrl}" [shape=plaintext];
     "Who holds the fresh lease (doctor)?" [shape=diamond];
-    "ci_lease_claim {mrUrl, holder: doctor, branch}" [shape=plaintext];
+    "ci_lease_claim {mrUrl, holder: doctor, branch?}" [shape=plaintext];
     "ci_lease_claim result (doctor)?" [shape=diamond];
     "Fixed the ci_lease_read call once already?" [shape=diamond];
     "Fix what the ci_lease_read error names" [shape=box];
@@ -75,7 +75,7 @@ digraph doctor_entry {
     "ci_lease_read {mrUrl}" -> "Who holds the fresh lease (doctor)?";
     "Who holds the fresh lease (doctor)?" -> "Which entry (doctor)?" [label="the board's board:doctor owner: board mode"];
     "Who holds the fresh lease (doctor)?" -> "Which entry (doctor)?" [label="mine: true: own mode"];
-    "Who holds the fresh lease (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch}" [label="nobody, or only a stale lease"];
+    "Who holds the fresh lease (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}" [label="nobody, or only a stale lease"];
     "Who holds the fresh lease (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="another owner: stand down, error naming the holder"];
     "Who holds the fresh lease (doctor)?" -> "Fixed the ci_lease_read call once already?" [label="tool error"];
     "Who holds the fresh lease (doctor)?" -> "STOP: while another attendant holds the lease, stand down; every commit, push and retry is theirs" [label="tempted to claim over the holder or work anyway"];
@@ -83,13 +83,13 @@ digraph doctor_entry {
     "Fixed the ci_lease_read call once already?" -> "Fix what the ci_lease_read error names" [label="no"];
     "Fixed the ci_lease_read call once already?" -> "doctor off-script escalation: ci_lease_read refused" [label="yes"];
     "Fix what the ci_lease_read error names" -> "ci_lease_read {mrUrl}";
-    "ci_lease_claim {mrUrl, holder: doctor, branch}" -> "ci_lease_claim result (doctor)?";
+    "ci_lease_claim {mrUrl, holder: doctor, branch?}" -> "ci_lease_claim result (doctor)?";
     "ci_lease_claim result (doctor)?" -> "Which entry (doctor)?" [label="claimed: true: own mode"];
     "ci_lease_claim result (doctor)?" -> "Entry ends the run: continue at the map's exit" [label="claimed: false: stand down, error naming the holder"];
     "ci_lease_claim result (doctor)?" -> "Fixed the ci_lease_claim call once already?" [label="tool error"];
     "Fixed the ci_lease_claim call once already?" -> "Fix what the ci_lease_claim error names" [label="no"];
     "Fixed the ci_lease_claim call once already?" -> "doctor off-script escalation: ci_lease_claim refused" [label="yes"];
-    "Fix what the ci_lease_claim error names" -> "ci_lease_claim {mrUrl, holder: doctor, branch}";
+    "Fix what the ci_lease_claim error names" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}";
     "Which entry (doctor)?" -> "What does the resumed answer name (doctor)?" [label="resumed gate"];
     "Which entry (doctor)?" -> "Repair from the top: continue at Domain repair" [label="fresh run"];
     "<status-bin> gate wait <state> (resumed escalation)" -> "Resumed wait result (doctor)?";
@@ -121,7 +121,7 @@ digraph doctor_entry {
     "Off-script outcome (ci_lease_claim)?" -> "Entry ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Off-script outcome (ci_lease_claim)?" -> "Entry ends the run: continue at the map's exit" [label="gate gone"];
     "Off-script outcome (ci_lease_claim)?" -> "Entry ends the run: continue at the map's exit" [label="degraded: error"];
-    "Off-script rounds = 2 (ci_lease_claim)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch}" [label="no: claim again"];
+    "Off-script rounds = 2 (ci_lease_claim)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?}" [label="no: claim again"];
     "Off-script rounds = 2 (ci_lease_claim)?" -> "Entry ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
 }
 ```

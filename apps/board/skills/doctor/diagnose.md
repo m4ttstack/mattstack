@@ -21,7 +21,7 @@ digraph doctor_diagnose_and_rebase {
     "Server-side rebase licensed?" [shape=diamond];
     "Lease mode (before the rebase)?" [shape=diamond];
     "ci_lease_read {mrUrl} (before the rebase)" [shape=plaintext];
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (before the rebase)" [shape=plaintext];
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" [shape=plaintext];
     "Lease check result (before the rebase)?" [shape=diamond];
     "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [shape=plaintext];
     "mr_rebase {mrUrl}" [shape=plaintext];
@@ -32,6 +32,8 @@ digraph doctor_diagnose_and_rebase {
     "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)" [shape=plaintext];
     "Rebase state (doctor)?" [shape=diamond];
     "Rebase polls = 5?" [shape=diamond];
+    "One background Bash task: sleep 20 (rebase poll)" [shape=plaintext];
+    "Trigger: the rebase poll's sleep finished" [shape=ellipse];
     "doctor off-script escalation: lease check refused before the rebase" [shape=box];
     "Off-script outcome (lease check before the rebase)?" [shape=diamond];
     "Off-script rounds = 2 (lease check before the rebase)?" [shape=diamond];
@@ -57,12 +59,13 @@ digraph doctor_diagnose_and_rebase {
     "What is broken (doctor)?" -> "Server-side rebase licensed?" [label="merge conflicts, with or without red CI"];
     "What is broken (doctor)?" -> "Red CI: continue at Classify and retry" [label="red CI, no conflicts"];
     "What is broken (doctor)?" -> "Rebased or running: continue at Watch the pipeline" [label="pipeline running or pending, no conflicts: watch its head sha"];
+    "What is broken (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="pipeline canceled, skipped or manual, or no pipeline, no conflicts: error naming the state"];
     "Server-side rebase licensed?" -> "Lease mode (before the rebase)?" [label="yes"];
     "Server-side rebase licensed?" -> "Diagnosis ends the run: continue at the map's exit" [label="no: error, the conflicts need a checkout"];
     "Lease mode (before the rebase)?" -> "ci_lease_read {mrUrl} (before the rebase)" [label="board mode"];
-    "Lease mode (before the rebase)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch} (before the rebase)" [label="own mode"];
+    "Lease mode (before the rebase)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" [label="own mode"];
     "ci_lease_read {mrUrl} (before the rebase)" -> "Lease check result (before the rebase)?";
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (before the rebase)" -> "Lease check result (before the rebase)?";
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the rebase)" -> "Lease check result (before the rebase)?";
     "Lease check result (before the rebase)?" -> "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [label="still the board's, or claimed: true"];
     "Lease check result (before the rebase)?" -> "Diagnosis ends the run: continue at the map's exit" [label="another owner: stand down"];
     "Lease check result (before the rebase)?" -> "doctor off-script escalation: lease check refused before the rebase" [label="tool error"];
@@ -79,7 +82,9 @@ digraph doctor_diagnose_and_rebase {
     "Rebase state (doctor)?" -> "Rebased or running: continue at Watch the pipeline" [label="rebased cleanly: a new sha"];
     "Rebase state (doctor)?" -> "Rebase polls = 5?" [label="still rebasing, or the poll errored"];
     "Rebase state (doctor)?" -> "Diagnosis ends the run: continue at the map's exit" [label="conflicts GitLab cannot rebase: error, needs a checkout"];
-    "Rebase polls = 5?" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)" [label="no: poll again"];
+    "Rebase polls = 5?" -> "One background Bash task: sleep 20 (rebase poll)" [label="no: poll again"];
+    "One background Bash task: sleep 20 (rebase poll)" -> "Trigger: the rebase poll's sleep finished" [style=dashed];
+    "Trigger: the rebase poll's sleep finished" -> "mr_view {mrUrl, maxAgeMs: 5000} (rebase poll)";
     "Rebase polls = 5?" -> "Diagnosis ends the run: continue at the map's exit" [label="yes: error with the rebase state"];
     "doctor off-script escalation: lease check refused before the rebase" -> "Off-script outcome (lease check before the rebase)?";
     "Off-script outcome (lease check before the rebase)?" -> "<status-bin> doctor-status <state> rebasing <message naming the rebase and its fix class>" [label="take: the human confirms the lease"];
@@ -121,6 +126,21 @@ What this graph cannot show:
   take or iterate that retried, rebased or pushed, and after someone else
   retried before this launch. Never call a running or pending pipeline
   clean and green.
+- **A pipeline with no verdict.** A head pipeline that is canceled,
+  skipped or manual, or no head pipeline at all, with no conflicts, has
+  nothing to classify and nothing to watch, and no fix class starts one:
+  `error` naming the state (`head pipeline for <sha> is canceled`, or `no
+  pipeline for <sha>`), so a human reruns or starts it.
+- **The rebase poll.** `Rebase state (doctor)?` reads the poll's `mr`
+  fields: `rebaseInProgress` true is still rebasing; `rebaseInProgress`
+  false with a `sha` other than the one the diagnosis read is rebased
+  cleanly; `rebaseInProgress` false with `conflicts` true or a
+  `mergeError` set, and the `sha` unchanged, is conflicts GitLab cannot
+  rebase (the error quotes `mergeError`). GitLab rebases asynchronously
+  and `mr_view` takes no wait, so each re-read waits on one background
+  Bash task (`sleep 20`) and the turn ends there; the task's finish wakes
+  the pane for the next read. A foreground sleep is refused. Five reads
+  span about 80 seconds.
 
 ### Fix what the mr_view error names
 

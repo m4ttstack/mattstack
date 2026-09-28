@@ -104,6 +104,7 @@ digraph doctor_flow {
     "Diagnosis outcome (doctor)?" -> "Own lease held (doctor exit)?" [label="diagnosis ends the run"];
     "Classify and retry (classify.md)" -> "Classify and retry outcome (doctor)?";
     "Classify and retry outcome (doctor)?" -> "Watch the pipeline (watch.md)" [label="retried"];
+    "Classify and retry outcome (doctor)?" -> "Watch the pipeline (watch.md)" [label="no job list: watch the head sha"];
     "Classify and retry outcome (doctor)?" -> "Own lease held (doctor exit)?" [label="classification ends the run"];
     "Watch the pipeline (watch.md)" -> "Watch outcome (doctor)?";
     "Watch outcome (doctor)?" -> "Classify and retry (classify.md)" [label="red again"];
@@ -289,10 +290,10 @@ opens a new gate; an answered gate is never re-opened.
 
 ### Ask the doctor-escalation question as a pane form
 
-Read `~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`
-(the stable source checkout, machine-local by design) with the Read tool,
-and follow its "Present the in-pane gate form", "Answers are option
-values" and "Doorbell" sections for the mechanics. Its `rt gate answer
+Follow `mattstack:gate-protocol`'s "Present the in-pane gate form",
+"Answers are option values" and "Doorbell" sections
+(an attachment of the mattstack plugin, read from this checkout: `cat ${CLAUDE_SKILL_DIR}/../../../../plugins/mattstack/attachments/gate-protocol/SKILL.md`)
+for the mechanics. Its `rt gate answer
 <id> --answers ... --by pane` is this CLI's `<status-bin> gate answer
 <state> --answers <json> --by pane`, unchanged.
 
@@ -376,10 +377,10 @@ lease, and the owner is always this session. The first call is
   true` and only reads it. Before each rebase, retry and push, read it
   again; a lease that is not the board's is a stand-down.
 - **Own mode:** no fresh lease (null, or only a stale one), or `mine:
-  true`. Claim with `ci_lease_claim {mrUrl, holder: doctor, branch}`
-  (`branch` the MR's source branch when the launch or the domain skill
-  names it; omit `branch` otherwise, since the tool takes a claim without
-  it) before any repair, re-claim before
+  true`. Claim with `ci_lease_claim {mrUrl, holder: doctor, branch?}`
+  (`branch` the MR's source branch when the launch, an `mr_view` read or
+  the domain skill names it; omit `branch` otherwise, since the tool takes
+  a claim without it) before any repair, re-claim before
   each rebase, retry and push, heartbeat during a long domain fix, and
   release with `ci_lease_release {mrUrl}` at every exit except a
   stand-down.

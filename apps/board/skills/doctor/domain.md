@@ -25,7 +25,7 @@ digraph doctor_domain_repair {
     "Hand the answered action to the domain skill" [shape=box];
     "Lease mode (before git_push)?" [shape=diamond];
     "ci_lease_read {mrUrl} (before git_push)" [shape=plaintext];
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (before git_push)" [shape=plaintext];
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (before git_push)" [shape=plaintext];
     "Lease check result (before git_push)?" [shape=diamond];
     "git_push {tree: <the domain skill's worktree root>, forceWithLease: true}" [shape=plaintext];
     "git_push result (doctor)?" [shape=diamond];
@@ -54,7 +54,7 @@ digraph doctor_domain_repair {
     "Domain skill result (doctor)?" -> "Domain repair ends the run: continue at the map's exit" [label="its lease was lost to another owner: stand down"];
     "Domain skill result (doctor)?" -> "STOP: push only with git_push (doctor)" [label="tempted to push from the shell"];
     "Domain skill result (doctor)?" -> "STOP: ask only through a doctor-escalation gate" [label="tempted to ask in the pane"];
-    "STOP: push only with git_push (doctor)" -> "doctor off-script escalation: git_push refused";
+    "STOP: push only with git_push (doctor)" -> "Lease mode (before git_push)?";
     "STOP: ask only through a doctor-escalation gate" -> "doctor escalation: the domain skill's decision";
     "doctor escalation: the domain skill's decision" -> "Escalation outcome (domain decision)?";
     "Escalation outcome (domain decision)?" -> "Hand the answered action to the domain skill" [label="an executable option"];
@@ -62,9 +62,9 @@ digraph doctor_domain_repair {
     "Escalation outcome (domain decision)?" -> "Domain repair ends the run: continue at the map's exit" [label="gate gone"];
     "Escalation outcome (domain decision)?" -> "Domain repair ends the run: continue at the map's exit" [label="degraded: error"];
     "Lease mode (before git_push)?" -> "ci_lease_read {mrUrl} (before git_push)" [label="board mode"];
-    "Lease mode (before git_push)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch} (before git_push)" [label="own mode"];
+    "Lease mode (before git_push)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (before git_push)" [label="own mode"];
     "ci_lease_read {mrUrl} (before git_push)" -> "Lease check result (before git_push)?";
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (before git_push)" -> "Lease check result (before git_push)?";
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (before git_push)" -> "Lease check result (before git_push)?";
     "Lease check result (before git_push)?" -> "git_push {tree: <the domain skill's worktree root>, forceWithLease: true}" [label="still the board's, or claimed: true"];
     "Lease check result (before git_push)?" -> "Domain repair ends the run: continue at the map's exit" [label="another owner: stand down"];
     "Lease check result (before git_push)?" -> "doctor off-script escalation: lease check refused before git_push" [label="tool error"];
@@ -107,7 +107,7 @@ Hand the domain skill:
 - **The lease mode and its rules.** Board mode: pass `underBoardLease:
   true` to `ci_watch`, never claim, heartbeat or release, and check
   `ci_lease_read {mrUrl}` before each push or retry. Own mode: re-claim
-  with `ci_lease_claim {mrUrl, holder: doctor, branch}` before each push
+  with `ci_lease_claim {mrUrl, holder: doctor, branch?}` before each push
   or retry, and during a long fix call `ci_lease_heartbeat {mrUrl}` every
   five minutes, twelve at most; past twelve (an hour), report an
   enumerable budget decision back instead of fixing on. A lease that
@@ -132,6 +132,12 @@ green (done); an enumerable decision (the situation line and its options);
 its `git_push` refused (sha, branch, worktree root, reason); a
 non-enumerable failure (the specific, actionable message for `error`); or its lease lost to
 another owner (the holder, for the stand-down).
+
+A local commit you are tempted to push from the shell goes out through
+this wrapper instead: `STOP: push only with git_push (doctor)` takes the
+lease check before `git_push {tree: <the domain skill's worktree root>,
+forceWithLease: true}`, and only a refusal of that push reaches
+`doctor off-script escalation: git_push refused`.
 
 ### doctor escalation: the domain skill's decision
 

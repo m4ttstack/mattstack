@@ -20,7 +20,7 @@ digraph doctor_watch {
     "Fixed the ci_watch call once already?" [shape=diamond];
     "Fix what the ci_watch error names" [shape=box];
     "Re-claims after a lost lease = 2 (doctor)?" [shape=diamond];
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (after a lost lease)" [shape=plaintext];
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [shape=plaintext];
     "Re-claim result (after a lost lease)?" [shape=diamond];
     "Watch verdict the human reported (doctor)?" [shape=diamond];
     "doctor escalation: budget extension (watch)" [shape=box];
@@ -52,9 +52,9 @@ digraph doctor_watch {
     "Fixed the ci_watch call once already?" -> "Fix what the ci_watch error names" [label="no"];
     "Fixed the ci_watch call once already?" -> "doctor off-script escalation: ci_watch refused" [label="yes"];
     "Fix what the ci_watch error names" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>}";
-    "Re-claims after a lost lease = 2 (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch} (after a lost lease)" [label="no: claim again"];
+    "Re-claims after a lost lease = 2 (doctor)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [label="no: claim again"];
     "Re-claims after a lost lease = 2 (doctor)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, the lease keeps vanishing"];
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (after a lost lease)" -> "Re-claim result (after a lost lease)?";
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" -> "Re-claim result (after a lost lease)?";
     "Re-claim result (after a lost lease)?" -> "ci_watch {mrUrl, sha, underBoardLease: <true in board mode>}" [label="claimed: true"];
     "Re-claim result (after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="claimed: false: stand down"];
     "Re-claim result (after a lost lease)?" -> "doctor off-script escalation: re-claim refused after a lost lease" [label="tool error"];
@@ -70,7 +70,7 @@ digraph doctor_watch {
     "Off-script outcome (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="leave it to me in the pane: error"];
     "Off-script outcome (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="gate gone"];
     "Off-script outcome (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="degraded: error"];
-    "Off-script rounds = 2 (re-claim after a lost lease)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch} (after a lost lease)" [label="no: claim again"];
+    "Off-script rounds = 2 (re-claim after a lost lease)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (after a lost lease)" [label="no: claim again"];
     "Off-script rounds = 2 (re-claim after a lost lease)?" -> "Watch ends the run: continue at the map's exit" [label="yes: error, the refusals are the reason"];
     "doctor off-script escalation: ci_watch refused" -> "Off-script outcome (ci_watch)?";
     "Off-script outcome (ci_watch)?" -> "Watch verdict the human reported (doctor)?" [label="take: the human reads the pipeline"];
@@ -92,8 +92,9 @@ What this graph cannot show:
   the new head the rebase poll read; after a retry, the sha of the
   pipeline `mr_pipeline` or `ci_watch` returned for that job; after a
   resumed retry budget or watch budget, the sha in the answered value; on
-  a running or pending pipeline, the head sha `mr_view` read; after a
-  push, `git rev-parse HEAD` in the domain skill's worktree root. `Watch calls = 9`
+  a running or pending pipeline, or a red one whose `pipeline.jobs` came
+  back empty, the head sha `mr_view` read; after a push, `git rev-parse
+  HEAD` in the domain skill's worktree root. `Watch calls = 9 (doctor)?`
   is 45 minutes of 300 second calls; it resets when the watched sha
   changes and after a job retry, and a granted watch extension raises its
   ceiling by the granted count.

@@ -19,6 +19,7 @@ digraph doctor_classify_and_retry {
     "mr_pipeline result (doctor)?" [shape=diamond];
     "Fixed the mr_pipeline call once already?" [shape=diamond];
     "Fix what the mr_pipeline error names" [shape=box];
+    "Failed jobs listed in pipeline.jobs (doctor)?" [shape=diamond];
     "Trace tails enough to classify (doctor)?" [shape=diamond];
     "mr_job_trace {mrUrl, jobId} per failed job" [shape=plaintext];
     "mr_job_trace result (doctor)?" [shape=diamond];
@@ -30,7 +31,7 @@ digraph doctor_classify_and_retry {
     "<status-bin> doctor-status <state> fixing <message naming the draft and inherited-note-draft>" [shape=plaintext];
     "Lease mode (before the retry)?" [shape=diamond];
     "ci_lease_read {mrUrl} (before the retry)" [shape=plaintext];
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (before the retry)" [shape=plaintext];
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the retry)" [shape=plaintext];
     "Lease check result (before the retry)?" [shape=diamond];
     "mr_retry {mrUrl, jobId}" [shape=plaintext];
     "mr_retry result?" [shape=diamond];
@@ -53,17 +54,20 @@ digraph doctor_classify_and_retry {
     "Off-script outcome (mr_retry)?" [shape=diamond];
     "Off-script rounds = 2 (mr_retry)?" [shape=diamond];
     "Retried: continue at Watch the pipeline" [shape=doublecircle style=filled fillcolor=lightgreen];
+    "No job list: continue at Watch the pipeline on the head sha" [shape=doublecircle];
     "Classification ends the run: continue at the map's exit" [shape=doublecircle];
 
     "Trigger: the map enters Classify and retry with red CI" -> "mr_pipeline {mrUrl}";
-    "Trigger: the map enters Classify and retry with failed jobs from a watch" -> "Classify each failed job (doctor)";
+    "Trigger: the map enters Classify and retry with failed jobs from a watch" -> "Trace tails enough to classify (doctor)?";
     "Trigger: the map enters Classify and retry with a retry budget answer" -> "Lease mode (before the retry)?";
     "mr_pipeline {mrUrl}" -> "mr_pipeline result (doctor)?";
-    "mr_pipeline result (doctor)?" -> "Trace tails enough to classify (doctor)?" [label="ok"];
+    "mr_pipeline result (doctor)?" -> "Failed jobs listed in pipeline.jobs (doctor)?" [label="ok"];
     "mr_pipeline result (doctor)?" -> "Fixed the mr_pipeline call once already?" [label="tool error"];
     "Fixed the mr_pipeline call once already?" -> "Fix what the mr_pipeline error names" [label="no"];
     "Fixed the mr_pipeline call once already?" -> "doctor off-script escalation: mr_pipeline refused" [label="yes"];
     "Fix what the mr_pipeline error names" -> "mr_pipeline {mrUrl}";
+    "Failed jobs listed in pipeline.jobs (doctor)?" -> "mr_job_trace {mrUrl, jobId} per failed job" [label="yes: read each one's trace"];
+    "Failed jobs listed in pipeline.jobs (doctor)?" -> "No job list: continue at Watch the pipeline on the head sha" [label="no: pipeline.jobs empty or no failed job in it"];
     "Trace tails enough to classify (doctor)?" -> "Classify each failed job (doctor)" [label="yes"];
     "Trace tails enough to classify (doctor)?" -> "mr_job_trace {mrUrl, jobId} per failed job" [label="no"];
     "mr_job_trace {mrUrl, jobId} per failed job" -> "mr_job_trace result (doctor)?";
@@ -80,9 +84,9 @@ digraph doctor_classify_and_retry {
     "<draft-bin> doctor-draft <mrUrl> <iid> <kind> <body...> --state <state>" -> "<status-bin> doctor-status <state> fixing <message naming the draft and inherited-note-draft>";
     "<status-bin> doctor-status <state> fixing <message naming the draft and inherited-note-draft>" -> "Classification ends the run: continue at the map's exit";
     "Lease mode (before the retry)?" -> "ci_lease_read {mrUrl} (before the retry)" [label="board mode"];
-    "Lease mode (before the retry)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch} (before the retry)" [label="own mode"];
+    "Lease mode (before the retry)?" -> "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the retry)" [label="own mode"];
     "ci_lease_read {mrUrl} (before the retry)" -> "Lease check result (before the retry)?";
-    "ci_lease_claim {mrUrl, holder: doctor, branch} (before the retry)" -> "Lease check result (before the retry)?";
+    "ci_lease_claim {mrUrl, holder: doctor, branch?} (before the retry)" -> "Lease check result (before the retry)?";
     "Lease check result (before the retry)?" -> "mr_retry {mrUrl, jobId}" [label="still the board's, or claimed: true"];
     "Lease check result (before the retry)?" -> "Classification ends the run: continue at the map's exit" [label="another owner: stand down"];
     "Lease check result (before the retry)?" -> "doctor off-script escalation: lease check refused before the retry" [label="tool error"];
@@ -167,9 +171,16 @@ GitLab CLI.
 
 ### Classify each failed job (doctor)
 
-Read each failed job from `mr_pipeline` with its trace tail, from
-`ci_watch`'s `failedJobs`, or from what the human reported; a tail too
-short to classify is what `mr_job_trace` is for.
+Classify from trace text. Only `ci_watch`'s `failedJobs` carry a trace
+tail; `mr_pipeline` lists `pipeline.jobs` (id, name, stage, status) with
+no trace, so each failed job it lists is read with `mr_job_trace`. A
+`ci_watch` tail too short to classify, or failed jobs the human reported
+without their traces, also go through `mr_job_trace`.
+`pipeline.jobs` can be empty (a cache entry written at list weight), and
+then there is no job id to trace: `Failed jobs listed in pipeline.jobs
+(doctor)?` answers no, and the map watches the head sha `mr_view` read.
+`ci_watch` on a settled red pipeline returns `failed` with its
+`failedJobs` at once, and they come back here with their tails.
 
 When the failed jobs fall in different classes, the first match in this
 order decides the run: any real or unlicensed job (`real, or no licensed
