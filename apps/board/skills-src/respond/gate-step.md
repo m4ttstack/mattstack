@@ -1,11 +1,13 @@
 # board:respond: Gate step
 
 This is the shared gate step of the board:respond skill: the Gate 1 box in
-`triage.md` and the Gate 2 box in `post.md` send you here. Its SKILL.md holds
-"Gate 1 and Gate 2 shapes" and "Reading answers".
+`triage.md`, the Gate 2 box in `post.md` and the off-script step in SKILL.md
+send you here. Its SKILL.md holds "Gate 1 and Gate 2 shapes", "Reading
+answers" and "Off-script step".
 
-Gate 1 (`respond-plan`) and Gate 2 (`respond-post`) each take this step
-after their open. Either open, `gate open` or `open-gate.sh`, prints one
+Gate 1 (`respond-plan`), Gate 2 (`respond-post`) and every off-script gate
+(`respond-escalation`) take this step after their open. Any open, `gate
+open` or `open-gate.sh`, prints one
 JSON line, `{"gateId": "...", "presentation": "form"}` or `"wait"`, with
 `"contextOmitted": true` added when the daemon dropped the question
 contexts. Keep both: `Presentation (respond gate)?` reads `presentation`,
@@ -16,13 +18,14 @@ step writes no status. The gate box that entered reads the outcome:
 - **Gone** (closed, not found, or `no gate open`): end cleanly, say so in
   the pane, write neither `done` nor `error`: whatever superseded the gate
   already owns this MR's board state.
-- **Wait keeps failing:** the box presents its degraded native forms.
+- **Wait keeps failing:** Gate 1's and Gate 2's boxes present their
+  degraded native forms; an escalation's box takes `gate unavailable`.
 
 ```dot
 digraph respond_gate_step {
     rankdir=TB;
 
-    "Trigger: a respond gate opened (Gate 1 or Gate 2)" [shape=ellipse];
+    "Trigger: a respond gate opened (Gate 1, Gate 2 or an escalation)" [shape=ellipse];
     "Presentation (respond gate)?" [shape=diamond];
     "STOP: fixes land and replies post only on a gate answer" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Ask the respond gate as pane forms, four questions per call" [shape=box];
@@ -42,7 +45,7 @@ digraph respond_gate_step {
     "Respond wait keeps failing: back to its gate box" [shape=doublecircle];
     "Respond gate answered: back to its gate box" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: a respond gate opened (Gate 1 or Gate 2)" -> "Presentation (respond gate)?";
+    "Trigger: a respond gate opened (Gate 1, Gate 2 or an escalation)" -> "Presentation (respond gate)?";
     "Presentation (respond gate)?" -> "Ask the respond gate as pane forms, four questions per call" [label="form"];
     "Presentation (respond gate)?" -> "One background Bash task looping <status-bin> gate wait <state> --max-ms 90000 (respond)" [label="wait"];
     "Presentation (respond gate)?" -> "STOP: fixes land and replies post only on a gate answer" [label="tempted to act before the human answers"];
@@ -86,6 +89,10 @@ skip?`; options with the gate's labels and descriptions. The form tool
   thread's answer is a `fix:` value, ask `code-changes` in one more call;
   otherwise fill `code-changes: "skip"` without asking (the same hide rule
   the board and console cards apply).
+- **Escalation.** A `respond-escalation` gate carries its one `action`
+  question: render its label and the four options verbatim, in one call,
+  and submit the chosen value verbatim, nuance in the `{value, note}`
+  form.
 - **Gate 2.** Each thread's form question: header `Thread <n>`; question
   text its label, a newline, its prose context, then `Post, resolve, both,
 or neither?`; a multi-select with the gate's labels and descriptions,
@@ -123,8 +130,15 @@ Read `${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md` with the Read
 tool and follow its "Wait recipe": one background shell task loops
 `<status-bin> gate wait <state> --max-ms 90000` while it prints
 `{"status":"pending"}`; never launch a second while one runs. End the turn
-in one line, `holding at gate <gateId>`, naming this gate (Gate 1's or
-Gate 2's). The loop's completion re-invokes the pane with the answer.
+in one line, `holding at gate <gateId>`, naming this gate (Gate 1's,
+Gate 2's or an escalation's). The loop's completion re-invokes the pane
+with the answer.
+
+If the human ends the pane, or the board parks it, before the gate is
+answered, nothing more moves and no terminal status is written. The board
+parks a pane that holds past its grace window, and a later answer to the
+same gate resumes it in a fresh invocation with `--resumed-gate`
+("Resumed entry" in `launch.md`), for all three kinds.
 
 A human who interrupts the wait and answers in the pane is the escape
 hatch: record it with `<status-bin> gate answer <state> --answers <json>
@@ -137,5 +151,6 @@ answer won.
 Per "Closed or missing gate" and "A failing wait is not degradation": a
 `gate <id> closed (<reason>)`, not-found or `no gate open for <url>`
 result is terminal, so end cleanly without re-running it; any other
-failing wait re-runs, and only the third failure falls through to the
-degraded native forms, saying why.
+failing wait re-runs, and only the third failure falls through, saying
+why: to the degraded native forms for Gate 1 and Gate 2, to `gate
+unavailable` for an escalation.

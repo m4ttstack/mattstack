@@ -18,7 +18,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-522 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-515 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
@@ -35,7 +35,7 @@ board injects it:
 | `--skill <name>` | the domain skill that owns the actual work (optional) |
 | `--skill-path <path>` | absolute path to that skill's SKILL.md, when the board already resolved it (optional; see "Resolving the domain skill") |
 | `--resumed-gate <gateId>` | this invocation is a parked-gate resume, not a fresh run (optional; see "Resumed entry" in `launch.md`) |
-| `--resumed-gate-kind <kind>` | the `kind` of the gate `--resumed-gate` names (e.g. `respond-post`). Present exactly when `--resumed-gate` is, and the only way to learn it: `--state` is an opaque handle and `gate wait` returns only the answer. |
+| `--resumed-gate-kind <kind>` | the `kind` of the gate `--resumed-gate` names (`respond-plan`, `respond-post` or `respond-escalation`). Present exactly when `--resumed-gate` is, and the only way to learn it: `--state` is an opaque handle and `gate wait` returns only the answer. |
 | `--round <n>` | the round to delegate at, carried over from an earlier pane on this MR (recorded by the `--round` flag on `<status-bin> respond-status <state> drafting --round <n>`; see "Recover the round from --round (absent: 1)" in `launch.md`). Present on a parked-gate resume when a prior pane got as far as recording one, or on a fresh run when the board found a prior recorded round for this MR (a new run responding to a further round of review); absent means round 1, either because this is the MR's first round or because no earlier pane recorded a round. |
 
 Write status **only** by running the injected `--status-bin`:
@@ -87,6 +87,7 @@ digraph respond_map {
     "Launch and resume exit?" -> "Triage and Gate 1 (triage.md)" [label="fresh generic run, style loaded"];
     "Launch and resume exit?" -> "Implement the plan (implement.md)" [label="respond-plan resume joined"];
     "Launch and resume exit?" -> "Gate 2 and posting (post.md)" [label="respond-post resume"];
+    "Launch and resume exit?" -> "Triage and Gate 1 (triage.md)" [label="resumed triage escalation"];
     "Launch and resume exit?" -> "Respond gate gone: ended cleanly, no status write" [label="gate gone"];
     "Launch and resume exit?" -> "<status-bin> respond-status <state> error <what went wrong>" [label="error"];
     "Launch and resume exit?" -> "Held at a respond off-script gate: the pane stays" [label="hold"];
@@ -122,7 +123,14 @@ What the graph cannot show:
   a refusal or tool error. None resets after an off-script iterate: a
   refusal after an iterate goes straight back to that origin's off-script
   gate, and its `Off-script rounds = 2 (...)?` counter (per thread for the
-  two posting origins) bounds the loop. `Revise rounds = 3?` counts the
+  two posting origins) bounds the loop. The round rides in the gate's
+  option values, so the budget holds across a park. A resumed pane counts
+  every counter from zero, except that a resumed escalation seeds its
+  origin's rounds counter at the value's round, and a resumed iterate
+  seeds its origin's fix-once counter as spent (the named thread's, for
+  the two posting origins), as a live iterate leaves it: a refusal after
+  the retry goes straight back to the off-script gate. An iterate at round
+  2 is spent. `Revise rounds = 3?` counts the
   `revise` answers this pane acted on; a resumed pane counts from zero.
   `Fix attempts = 3 (this thread)?` counts attempts per fix thread.
   `Resumed wait failures = 3 (respond)?` counts failing resumed waits;
@@ -130,17 +138,19 @@ What the graph cannot show:
 - **Exit messages.** `done` carries a short summary and the counts ("Counts
   and the badge"). `error` names what went wrong specifically: the bad MR,
   the refused tool with its error, the failed domain skill,
-  `revise budget spent after 3 rounds; drafts kept in --report`, or the
-  resumed wait's third failure. Gate gone writes no status: say so in the
-  pane and stop, since whatever superseded the gate already owns this MR's
-  board state.
+  `revise budget spent after 3 rounds; drafts kept in --report`, the
+  resumed wait's third failure, or a resumed escalation whose `--report`
+  lacks the answer it needs (naming the file). Gate gone writes no
+  status: say so in the pane and stop, since whatever superseded the gate
+  already owns this MR's board state.
 
 ### Launch and resume (launch.md)
 
 The first acts of every launch: the status the entry implies, the domain
 skill resolution, the writing style on the generic path, and on a parked-gate
 resume the recorded answer read with `gate wait` before anything else, the
-Posted already read and the join to `--report`.
+Posted already read, the join to `--report`, and for a `respond-escalation`
+the route back to the stage its origin names.
 Read `launch.md` now and follow its graph; its sections are there.
 
 ### Triage and Gate 1 (triage.md)
@@ -168,8 +178,9 @@ Read `post.md` now and follow its graph; its sections are there.
 
 ## Gate step (gate-step.md)
 
-Gate 1 and Gate 2 each take the shared gate step after their open. Its graph
-and sections are in `gate-step.md`; each gate box says when to read it.
+Gate 1, Gate 2 and every off-script gate take the shared gate step after
+their open. Its graph and sections are in `gate-step.md`; each gate box says
+when to read it.
 
 The gate step's pane forms follow the gate protocol included at the end of
 this skill: its "Present the in-pane gate form" step and its "Answers are
@@ -180,107 +191,89 @@ a board gate records it with `<status-bin> gate answer <state> --answers
 
 ## Off-script step
 
-Every `respond off-script gate: ...` box takes this step. It is a daemon
-gate opened with `gate_ask` on the MR's subject, not a board gate: no
-`<status-bin> gate` verb touches it, and no parked resume exists for it.
-The step writes no status. The box that entered reads the outcome:
+Every `respond off-script gate: ...` box takes this step. It is a board
+gate of kind `respond-escalation`, opened through the status-bin on this
+MR's respond state, and it runs through "Gate step" (`gate-step.md`) like
+Gate 1 and Gate 2. The step writes no status: the current one stands while
+it waits. Opening it moves the state's gate id to the escalation, and
+`gate wait` can then no longer return an earlier gate's answer: that is
+why Gate 1's answer sits in the report rows (and in a `gate-1-answer:`
+line on a resume) and Gate 2's picks are recorded before anything posts.
+The box that entered reads the outcome:
 
 - **Answered:** its outcome diamond reads `answers.action`'s value, which
-  starts with `take:`, `iterate:`, `hold:` or `hand back:`. Hold ends the
-  turn with the pane open and no terminal status.
-- **Gone** (closed or not found): end cleanly, say so in the pane, and
-  write no status.
-- **Unavailable** (`gate_ask` errors, or the wait fails three times): the
-  box's `gate unavailable` edge, which does what hand back does.
+  starts with `take:`, `iterate:`, `hold:` or `hand back:`. A hold answer
+  ends the turn with the pane open and no terminal status.
+- **Unanswered:** the turn ends at `End the turn: holding at gate
+  <gateId> (respond)` with no terminal status. The board parks the pane
+  after its grace window and resumes it on the answer, and `Route the
+  resumed escalation by its origin (respond)` (in `launch.md`) picks up
+  where this pane stopped.
+- **Gone** (closed, not found, or `no gate open`): end cleanly, say so in
+  the pane, and write no status.
+- **Unavailable** (the open exits nonzero, or the wait fails three times):
+  the box's `gate unavailable` edge, which does what hand back does.
 
 ```dot
 digraph respond_off_script_step {
     rankdir=TB;
 
     "Trigger: a respond off-script gate box is entered" [shape=ellipse];
-    "Build the off-script questions (respond)" [shape=box];
-    "gate_ask {subject: mr:<mrUrl>, kind: off-script, questions, context} (respond)" [shape=plaintext];
-    "gate_ask result (respond off-script)?" [shape=diamond];
-    "STOP: ask only through gate_ask (respond)" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "AskUserQuestion with the off-script questions verbatim (respond)" [shape=plaintext];
-    "gate_answer {id, answers} (respond off-script)" [shape=plaintext];
-    "gate_answer result (respond off-script)?" [shape=diamond];
-    "rt gate wait <id> as a background Bash task (respond off-script)" [shape=plaintext];
-    "End the turn: holding at off-script gate <id> (respond)" [shape=box];
-    "Trigger: the respond off-script wait finished" [shape=ellipse];
-    "Off-script wait result (respond)?" [shape=diamond];
-    "Off-script wait failures = 3 (respond)?" [shape=diamond];
+    "Build the respond-escalation question" [shape=box];
+    "<status-bin> gate open <state> --kind respond-escalation --questions <json> --context <text>" [shape=plaintext];
+    "respond-escalation open exit?" [shape=diamond];
+    "respond-escalation: take the respond gate step" [shape=box];
+    "respond-escalation step outcome?" [shape=diamond];
     "Off-script gate gone (respond)" [shape=doublecircle];
     "Off-script gate unavailable (respond)" [shape=doublecircle];
     "Off-script answered: back to its box (respond)" [shape=doublecircle style=filled fillcolor=lightgreen];
 
-    "Trigger: a respond off-script gate box is entered" -> "Build the off-script questions (respond)";
-    "Build the off-script questions (respond)" -> "gate_ask {subject: mr:<mrUrl>, kind: off-script, questions, context} (respond)";
-    "gate_ask {subject: mr:<mrUrl>, kind: off-script, questions, context} (respond)" -> "gate_ask result (respond off-script)?";
-    "gate_ask result (respond off-script)?" -> "AskUserQuestion with the off-script questions verbatim (respond)" [label="presentation form"];
-    "gate_ask result (respond off-script)?" -> "rt gate wait <id> as a background Bash task (respond off-script)" [label="presentation wait"];
-    "gate_ask result (respond off-script)?" -> "Off-script gate unavailable (respond)" [label="tool error"];
-    "gate_ask result (respond off-script)?" -> "STOP: ask only through gate_ask (respond)" [label="tempted to ask in pane prose or decide yourself"];
-    "STOP: ask only through gate_ask (respond)" -> "gate_ask {subject: mr:<mrUrl>, kind: off-script, questions, context} (respond)";
-    "AskUserQuestion with the off-script questions verbatim (respond)" -> "gate_answer {id, answers} (respond off-script)";
-    "gate_answer {id, answers} (respond off-script)" -> "gate_answer result (respond off-script)?";
-    "gate_answer result (respond off-script)?" -> "Off-script answered: back to its box (respond)" [label="recorded"];
-    "gate_answer result (respond off-script)?" -> "Off-script answered: back to its box (respond)" [label="another surface answered first: proceed on the recorded answer"];
-    "rt gate wait <id> as a background Bash task (respond off-script)" -> "End the turn: holding at off-script gate <id> (respond)";
-    "End the turn: holding at off-script gate <id> (respond)" -> "Trigger: the respond off-script wait finished" [style=dashed];
-    "Trigger: the respond off-script wait finished" -> "Off-script wait result (respond)?";
-    "Off-script wait result (respond)?" -> "Off-script answered: back to its box (respond)" [label="answered"];
-    "Off-script wait result (respond)?" -> "Off-script gate gone (respond)" [label="closed or not found"];
-    "Off-script wait result (respond)?" -> "Off-script wait failures = 3 (respond)?" [label="any other failure"];
-    "Off-script wait failures = 3 (respond)?" -> "rt gate wait <id> as a background Bash task (respond off-script)" [label="no: wait again"];
-    "Off-script wait failures = 3 (respond)?" -> "Off-script gate unavailable (respond)" [label="yes"];
+    "Trigger: a respond off-script gate box is entered" -> "Build the respond-escalation question";
+    "Build the respond-escalation question" -> "<status-bin> gate open <state> --kind respond-escalation --questions <json> --context <text>";
+    "<status-bin> gate open <state> --kind respond-escalation --questions <json> --context <text>" -> "respond-escalation open exit?";
+    "respond-escalation open exit?" -> "respond-escalation: take the respond gate step" [label="0"];
+    "respond-escalation open exit?" -> "Off-script gate unavailable (respond)" [label="nonzero: the daemon is down"];
+    "respond-escalation: take the respond gate step" -> "respond-escalation step outcome?";
+    "respond-escalation step outcome?" -> "Off-script answered: back to its box (respond)" [label="answered"];
+    "respond-escalation step outcome?" -> "Off-script gate gone (respond)" [label="gate gone"];
+    "respond-escalation step outcome?" -> "Off-script gate unavailable (respond)" [label="the wait keeps failing"];
 }
 ```
 
-### Build the off-script questions (respond)
+### Build the respond-escalation question
 
 Exactly one question: id `action`, `multi: false`, its `label` the box's
 situation line, and the four options the box's table gives, in order take,
 iterate, hold, hand back. Each option is an object:
 
 ```json
-{"value": "iterate: you fixed the cause, read the threads again (mr_threads refused)", "label": "Fixed it, read again", "description": "You fixed what refused the read and I read the threads again."}
+{"value": "iterate: you fixed the cause, read the threads again (mr_threads refused, round 1)", "label": "Fixed it, read again", "description": "You fixed what refused the read and I read the threads again."}
 ```
 
-`value` is spelled in full, starts with its verb, and names the proposed
-move and the refused tool; `label` is 2 to 6 words; `description` is one
-sentence saying what happens on that answer. Four options stay inside the
-native form's per-question cap.
+`value` is spelled in full, starts with its verb, names the proposed move,
+and ends `(<refused tool or origin>, round <k>)`, where `k` is this
+origin's current off-script round: 1 at its first gate, 2 at the gate
+after one iterate. A resumed pane reads the origin and the round back
+from the value, so both are spelled exactly as the box's table gives
+them. `label` is 2 to 6 words; `description` is one sentence saying what
+happens on that answer. Four options stay inside the native form's
+per-question cap.
 
-Call `gate_ask` with `subject: mr:<mrUrl>`, `kind: off-script`, that
-question, and `context` quoting both errors verbatim (the first refusal
-and the one after the fix) with the call that was refused. Never send an
-empty context: a human-owned gate refuses it. Keep the result's `id` and
-`presentation`. A `gate_ask` error is not itself an off-script origin: it
-is `Off-script gate unavailable (respond)`.
+`--context` quotes both errors verbatim (the first refusal and the one
+after the fix) with the call that was refused. Never send an empty
+context. It shares the gate's 8192 UTF-8 byte budget like Gate 1's and
+Gate 2's; an oversized one is dropped loudly by the daemon, so never
+pre-trim it yourself. A nonzero open exit is not itself an off-script
+origin: it is `Off-script gate unavailable (respond)`.
 
-On `form`, ask the question with AskUserQuestion verbatim (label, option
-labels and descriptions), then record the pick with `gate_answer {id,
-answers: {"action": "<the chosen value verbatim>"}}`, nuance in the
-`{value, note}` form. A `conflict: true` result means another surface
-answered first: proceed on its recorded answer and say in the pane which
-answer won.
+### respond-escalation: take the respond gate step
 
-### End the turn: holding at off-script gate <id> (respond)
-
-Launch one `rt gate wait <id>` as a background Bash task (the shell tool's
-run-in-background mode; the wait is never a tool call), never a second
-while one runs, and end the turn in one line: `holding at off-script gate
-<id>`. The wait's completion re-invokes the pane; its last stdout is
-`{"ok":true,"status":"answered","row":{...}}`, so read the answer at
-`row.answer.answers.action` (a bare value or a `{value, note}` object) and
-the decider at `row.answer.by`. Closed or not found is gone. Any other
-failure re-runs the wait; the third failure is unavailable.
-
-No parked resume exists for this kind: the board never replays an
-off-script answer into a fresh pane, so this pane must stay to act on it.
-A hold answer keeps the pane open with nothing moved and no terminal
-status.
+Read `gate-step.md` and take "Gate step" with the open's `gateId` and
+`presentation`. Its outcome comes back here: answered (`answers.action`
+and `by`, from the pane form's `gate answer`, its CAS-loss line, or the
+wait), gate gone (end cleanly with no status write), or the wait keeps
+failing (`gate unavailable`, never a native form). Nothing moves before
+the answer.
 
 ## Operator note
 
