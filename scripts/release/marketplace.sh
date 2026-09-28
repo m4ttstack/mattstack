@@ -106,8 +106,23 @@ mkdir -p "$STAGE/.claude-plugin"
 cp "$CATALOG" "$STAGE/.claude-plugin/marketplace.json"
 if [ -f "$SRC/README.md" ]; then cp "$SRC/README.md" "$STAGE/README.md"; fi
 if [ -f "$SRC/LICENSE" ]; then cp "$SRC/LICENSE" "$STAGE/LICENSE"; fi
-# Plugins with no repo of their own ship inline; everything else is a pinned URL.
+# Plugins with no repo of their own ship inline, from marketplace/ or from this
+# repo's tree; everything else is a pinned URL.
 if [ -d "$SRC/plugins" ]; then cp -R "$SRC/plugins" "$STAGE/plugins"; fi
+
+# Plugins that live in this repo's tree rather than under marketplace/: a
+# relative catalog source with no directory in $SRC/plugins is copied from
+# the tree (never symlinked; the guard below refuses links).
+TREE_PLUGINS="${RT_TREE_PLUGINS:-$ROOT/plugins}"
+TREE_NAMES="$(python3 -c 'import json,sys; [print(p["source"][len("./plugins/"):]) for p in json.load(open(sys.argv[1]))["plugins"] if isinstance(p.get("source"), str) and p["source"].startswith("./plugins/")]' "$CATALOG")" \
+    || { echo "✗ cannot read plugin sources from $CATALOG" >&2; exit 1; }
+for name in $TREE_NAMES; do
+    if [ ! -d "$STAGE/plugins/$name" ] && [ -d "$TREE_PLUGINS/$name" ]; then
+        mkdir -p "$STAGE/plugins"
+        cp -R "$TREE_PLUGINS/$name" "$STAGE/plugins/$name"
+        rm -rf "$STAGE/plugins/$name/.git" "$STAGE/plugins/$name/.worktrees"
+    fi
+done
 
 # Before the catalog checks, so a symlinked plugin is named as one: git stores
 # a symlink as a link, so a clone of the published repo would get a dangling

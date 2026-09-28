@@ -38,7 +38,9 @@ made here are overwritten by the next release; change the catalog in `rt`.
 
 ## Plugin sources
 
-Each plugin lives in its own repo and is **pinned to a commit**, so a given
+The `mattstack` and `chat` plugins publish from this repository's tree
+(`plugins/mattstack`, `marketplace/plugins/chat`); `fast-browser` is a pinned
+URL source. A plugin in its own repo is **pinned to a commit**, so a given
 catalog commit always installs the same plugin code:
 
 ```json

@@ -161,6 +161,27 @@ describe("marketplace.sh validation", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("listed twice");
   });
+
+  test("an in-tree plugin outside the source dir is copied from RT_TREE_PLUGINS", () => {
+    const tree = scratch("tree");
+    mkdirSync(join(tree, "mattstack", ".claude-plugin"), { recursive: true });
+    writeFileSync(join(tree, "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "0.0.1" }));
+    writeFileSync(join(tree, "mattstack", "README.md"), "# pack\n");
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const bare = bareRepo();
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_PLUGINS: tree });
+    expect(r.code).toBe(0);
+    expect(publishedFiles(bare)).toEqual(
+      expect.arrayContaining(["plugins/mattstack/.claude-plugin/plugin.json", "plugins/mattstack/README.md"]),
+    );
+  });
+
+  test("a relative source missing from both places is still refused", () => {
+    const src = sourceDir([{ name: "ghost", source: "./plugins/ghost", description: "x" }]);
+    const r = run(["--dry-run", src], { RT_TREE_PLUGINS: scratch("empty") });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("is not in the published tree");
+  });
 });
 
 describe("marketplace.sh publish", () => {
@@ -324,6 +345,11 @@ describe("the catalog this repo actually publishes", () => {
     expect(base.length).toBeGreaterThan(0);
     const listed = doc.plugins.map((p: { name: string }) => p.name);
     for (const name of base) expect(listed).toContain(name);
+  });
+
+  test("publishes the mattstack plugin from this repo's tree", () => {
+    const entry = doc.plugins.find((p: { name: string }) => p.name === "mattstack");
+    expect(entry.source).toBe("./plugins/mattstack");
   });
 
   test("is published to the source plugins.install hardcodes", () => {
