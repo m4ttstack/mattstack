@@ -645,7 +645,7 @@ digraph shepherdr_lanes {
     "Trigger: a job's report, or a nag about a done job's open pane" [shape=ellipse];
     "rt_verb {args: [git, log], cwd: <worktree>}" [shape=plaintext];
     "cd <an active job's tree>" [shape=plaintext];
-    "git diff --stat" [shape=plaintext];
+    "git diff --stat --merge-base origin/<default branch>" [shape=plaintext];
     "More active job trees to diff?" [shape=diamond];
     "Drift outside the fence, or a file two jobs changed?" [shape=diamond];
     "Flag the drift or collision to the user" [shape=box];
@@ -691,8 +691,8 @@ digraph shepherdr_lanes {
 
     "Trigger: a job's report, or a nag about a done job's open pane" -> "rt_verb {args: [git, log], cwd: <worktree>}";
     "rt_verb {args: [git, log], cwd: <worktree>}" -> "cd <an active job's tree>";
-    "cd <an active job's tree>" -> "git diff --stat";
-    "git diff --stat" -> "More active job trees to diff?";
+    "cd <an active job's tree>" -> "git diff --stat --merge-base origin/<default branch>";
+    "git diff --stat --merge-base origin/<default branch>" -> "More active job trees to diff?";
     "More active job trees to diff?" -> "cd <an active job's tree>" [label="yes: the next one, the reporting job's first"];
     "More active job trees to diff?" -> "Drift outside the fence, or a file two jobs changed?" [label="no"];
     "Drift outside the fence, or a file two jobs changed?" -> "Flag the drift or collision to the user" [label="yes"];
@@ -847,7 +847,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 ## What the lanes graph cannot show
 
-- **The two objective checks.** The commits come from the graph's `rt_verb` git log call on the job's worktree. The changed files come from two separate Bash calls per active job: the `cd` alone, then the bare `git diff --stat`; never chain them. Compare each job's files against its write fence and across jobs.
+- **The two objective checks.** The commits come from the graph's `rt_verb` git log call on the job's worktree. The changed files come from two separate Bash calls per active job: the `cd` alone, then `git diff --stat --merge-base origin/<default branch>` (`main` unless the repo says otherwise), which counts the job's commits and its uncommitted edits since it branched; never chain them. Compare each job's files against its write fence and across jobs.
 - **Job state is the daemon's.** It marked the job `done` when the report was published; `herd_status` is the status table's source. Nothing to record by hand.
 - **A report is a claim, not a merge.** Answer "Merged on the repo?" from the repo itself (`gh pr view --json state,mergeCommit`, or the sha on `origin/main`), never from the report alone.
 - **The integration job.** Its brief merges or cherry-picks the job branches, runs full verification, and reports; it carries the repo's shipping conventions. Never merge, fix or push on the agents' behalf. The first is `integration-1`; a lane that joined the herd after it spawned gets the next number, and its brief covers only the lanes no integration job has merged.
