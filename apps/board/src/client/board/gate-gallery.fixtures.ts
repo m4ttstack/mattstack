@@ -1896,8 +1896,14 @@ export const respondEscalation: GalleryGate = {
     label: 'respond gate !713',
     status: 'open',
     openedAt: minutesAgo(19),
+    meta: { label: 'respond gate !713' },
     domain: 'respond',
-    origin: { presentation: 'form', paneId: 'w10:p1' },
+    origin: {
+      presentation: 'form',
+      surface: 'board',
+      tabId: 'w10:t1',
+      paneId: 'w10:p1',
+    },
     context: `mr_reply_thread attempt 1 on thread 5c1e9a07d2b4: "502 Bad Gateway: the forge did not answer in time"
 mr_reply_thread attempt 2 on thread 5c1e9a07d2b4: "403 Forbidden: this discussion is locked and accepts no new notes"
 

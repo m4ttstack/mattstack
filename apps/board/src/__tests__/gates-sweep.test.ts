@@ -458,6 +458,60 @@ describe('planSweep', () => {
     expect(unknown).toEqual([]);
   });
 
+  test('an aged open respond-escalation row matching the recorded gateId parks against the respond tab', () => {
+    const rows = [
+      baseRow({
+        id: 'gate-esc',
+        kind: 'respond-escalation',
+        openedAt: NOW - GRACE_MS - 1,
+      }),
+    ];
+    const s = states({
+      reviews: new Map([
+        [MR_URL, baseReview({ status: 'reviewing', tabId: 'review-tab' })],
+      ]),
+      responds: new Map([
+        [
+          MR_URL,
+          baseRespond({
+            status: 'triaging',
+            tabId: 'respond-tab',
+            gateId: 'gate-esc',
+          }),
+        ],
+      ]),
+    });
+    const actions = planSweep(rows, s, NOW, GRACE_MS);
+    expect(actions).toEqual([
+      {
+        kind: 'park',
+        domain: 'respond',
+        mrUrl: MR_URL,
+        tabId: 'respond-tab',
+        gateId: 'gate-esc',
+      },
+    ]);
+  });
+
+  test('an aged open escalation row whose domain state records no gateId is left untouched and not reported unknown', () => {
+    const rows = [
+      baseRow({
+        id: 'gate-esc',
+        kind: 'review-escalation',
+        openedAt: NOW - GRACE_MS - 1,
+      }),
+    ];
+    const s = states({
+      reviews: new Map([
+        [MR_URL, baseReview({ status: 'reviewing', tabId: 'review-tab' })],
+      ]),
+    });
+    const unknown: GateRow[] = [];
+    const actions = planSweep(rows, s, NOW, GRACE_MS, row => unknown.push(row));
+    expect(actions).toEqual([]);
+    expect(unknown).toEqual([]);
+  });
+
   test('sweep parks an aged doctor row and closes the doctor tab, while a live review gate on the same MR survives', () => {
     const rows = [
       baseRow({

@@ -24,11 +24,9 @@ export interface ResumableState {
 
 /** Everything one resumable gate kind needs to rebuild its wrapper's
     re-entry prompt and persist a resumed pane's ids back onto its own state
-    file. One record per kind (`review-post`, `respond-plan`, `respond-post`,
-    `doctor-escalation`) -- server.ts wires review's record to today's
-    plumbing unchanged and gives respond/doctor their own state fns and
-    workspace. A kind with no record here has no board resume wiring at all
-    (see `ResumeParkedGateIo.resumers`). */
+    file. One record per domain, shared by every kind `domainForKind` maps
+    to it (see `buildResumers`). A kind with no record here has no board
+    resume wiring at all (see `ResumeParkedGateIo.resumers`). */
 export interface KindResumeIo {
   readState(mrUrl: string): ResumableState | undefined;
   writeState(

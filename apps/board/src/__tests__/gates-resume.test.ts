@@ -568,6 +568,31 @@ describe('handleAnsweredEvent', () => {
     expect(review.get(MR_URL)?.resumedGateId).toBe(GATE_ID);
   });
 
+  test('a respond-escalation answered+parked gate resumes through the event path against respond state, carrying its kind into the prompt', async () => {
+    const row = facilityRow({ kind: 'respond-escalation' });
+    const { io, calls, review, respond } = fakeEventIo({
+      rows: [row],
+      review: {},
+      respond: {
+        [MR_URL]: baseReview({ status: 'implementing', gateId: row.id }),
+      },
+    });
+    const frame: GateEventFrame = {
+      topic: `gate/answered/${GATE_ID}`,
+      payload: { id: GATE_ID, subject: SUBJECT },
+    };
+
+    await handleAnsweredEvent(frame, io, noSkillLookup);
+
+    expect(calls.resumeAgentPane.length).toBe(1);
+    expect(calls.resumeAgentPane[0]!.prompt).toContain('/board:respond');
+    expect(calls.resumeAgentPane[0]!.prompt).toContain(
+      '--resumed-gate-kind respond-escalation'
+    );
+    expect(respond.get(MR_URL)?.resumedGateId).toBe(GATE_ID);
+    expect(review.get(MR_URL)).toBeUndefined();
+  });
+
   test('a never-parked answered review-escalation gate does not resume', async () => {
     const row = facilityRow({ kind: 'review-escalation', parkedAt: null });
     const { io, calls } = fakeEventIo({ rows: [row] });

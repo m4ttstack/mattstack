@@ -33,9 +33,9 @@ export interface GateState {
 /** The gate fields a board row carries -- a subset of `GateState`, leaving
     out the launch-plumbing fields (`agentId`, `sessionId`, `paneId`,
     `tabId`) that only the wrapper/verbs side needs. `kind` and `label` let
-    the client tell multiple co-live gates on one MR apart (review-post,
-    respond-plan, respond-post, doctor-escalation); `label` is the facility
-    row's `meta.label` when set, else `kind` itself. */
+    the client tell multiple co-live gates on one MR apart (any mix of
+    review, respond and doctor kinds); `label` is the facility row's
+    `meta.label` when set, else `kind` itself. */
 export interface GateRow {
   gateId: string;
   /** The facility row's own subject (`mr:<url>`): what the answered-gate

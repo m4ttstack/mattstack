@@ -3540,8 +3540,8 @@ function doctorResumeIo(): KindResumeIo {
 }
 
 function gateResumeIo(): GateResumeEventIo {
-  // respond-plan and respond-post share one wrapper (board:respond) and one
-  // state file -- the same KindResumeIo record answers for both kinds.
+  // Every respond-domain kind shares one wrapper (board:respond) and one
+  // state file, so one KindResumeIo record answers for all of them.
   const respond = respondResumeIo();
   return {
     resumers: buildResumers({
