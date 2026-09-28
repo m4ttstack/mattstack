@@ -92,16 +92,9 @@ export interface CodeMirrorRef {
   view: EditorView | null;
 }
 
-/**
- * Scheme-aware editor chrome. Colors reference the kit's CSS vars, so the
- * palette flips with the color scheme on its own; the `dark` flag flips
- * CodeMirror's OWN defaults (caret, selection, active line) that don't go
- * through our vars -- overridden below instead, since `@codemirror/view`'s
- * own dark active-line color is a fixed, too-heavy teal wash. The frame
- * polish (padding, theme radius) rides along.
- */
 const MIN_RESIZABLE_HEIGHT_PX = 60;
 const KEY_STEP_PX = 20;
+const MAX_RESIZABLE_HEIGHT_PX = 2000;
 const GRIP_STYLE = {
   flex: 'none',
   height: 12,
@@ -112,6 +105,7 @@ const GRIP_STYLE = {
   background: 'var(--ui-bg-4)',
   borderTop: '1px solid var(--mantine-color-default-border)',
   touchAction: 'none',
+  outlineOffset: -2,
 } as const;
 const GRIP_BAR_STYLE = {
   width: 28,
@@ -121,6 +115,14 @@ const GRIP_BAR_STYLE = {
   opacity: 0.6,
 } as const;
 
+/**
+ * Scheme-aware editor chrome. Colors reference the kit's CSS vars, so the
+ * palette flips with the color scheme on its own; the `dark` flag flips
+ * CodeMirror's OWN defaults (caret, selection, active line) that don't go
+ * through our vars -- overridden below instead, since `@codemirror/view`'s
+ * own dark active-line color is a fixed, too-heavy teal wash. The frame
+ * polish (padding, theme radius) rides along.
+ */
 const editorTheme = (height: string, dark: boolean): Extension =>
   EditorView.theme(
     {
@@ -309,8 +311,11 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
   const frameRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   // React only writes a style value that changed, so a constant start height
-  // never overwrites the height a drag set on the frame.
+  // never overwrites the height a drag set on the frame; until a drag, the
+  // effect below keeps the frame following `height`.
   const [startHeight] = useState(height);
+  const dragged = useRef(false);
+  const [ariaHeight, setAriaHeight] = useState(() => parseFloat(height) || 0);
   const editorHeight = resizable ? '100%' : height;
   const languageCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
@@ -459,6 +464,13 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
     });
   }, [language, hasJsonSchema, hasJsonCheck, schemaCompartment]);
 
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame || dragged.current) return;
+    frame.style.height = height;
+    setAriaHeight(parseFloat(height) || 0);
+  }, [height]);
+
   const editor = (
     <div
       ref={parentRef}
@@ -470,8 +482,11 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
 
   const resizeTo = (px: number) => {
     const frame = frameRef.current;
-    if (frame)
-      frame.style.height = `${Math.max(MIN_RESIZABLE_HEIGHT_PX, px)}px`;
+    if (!frame) return;
+    const next = Math.max(MIN_RESIZABLE_HEIGHT_PX, px);
+    dragged.current = true;
+    frame.style.height = `${next}px`;
+    setAriaHeight(next);
   };
   // jsdom lays nothing out, so the inline height is read before the measured one.
   const currentHeight = () => {
@@ -500,9 +515,13 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
         role="separator"
         aria-orientation="horizontal"
         aria-label="Resize editor"
+        aria-valuenow={ariaHeight}
+        aria-valuemin={MIN_RESIZABLE_HEIGHT_PX}
+        aria-valuemax={MAX_RESIZABLE_HEIGHT_PX}
         tabIndex={0}
         style={GRIP_STYLE}
         onPointerDown={e => {
+          if (e.button !== 0) return;
           const startY = e.clientY;
           const startH = currentHeight();
           const move = (ev: PointerEvent) =>
@@ -510,9 +529,11 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
           const up = () => {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
           };
           window.addEventListener('pointermove', move);
           window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
           e.preventDefault();
         }}
         onKeyDown={e => {
