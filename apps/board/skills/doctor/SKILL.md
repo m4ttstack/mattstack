@@ -47,7 +47,7 @@ The board owns `queued`. You emit the rest as you cross each milestone:
 |--------|--------------|
 | `diagnosing` | Immediately, before you know if it's conflicts, CI, or both. |
 | `rebasing` | While a rebase/conflict resolution is running. |
-| `fixing` | While implementing fixes for CI failures (or resolving conflicts), including while an escalation gate is open and being waited on; see "Escalation step" below. |
+| `fixing` | While implementing fixes for CI failures (or resolving conflicts), including while an escalation gate opened during a fix is being waited on; see "Escalation step" below. |
 | `watching` | Post-push, while polling CI for green. |
 | `done` | Terminal: clean + green, or fixes pushed and green. |
 | `error` | Terminal: a non-enumerable failure needs a human to look directly, or an escalation answer is "leave it to me in the pane". |
@@ -224,7 +224,7 @@ digraph doctor_flow {
     "Trigger: the board launched /board:doctor" -> "--resumed-gate given (doctor)?";
     "--resumed-gate given (doctor)?" -> "<status-bin> doctor-status <state> fixing (resumed gate)" [label="yes"];
     "--resumed-gate given (doctor)?" -> "<status-bin> doctor-status <state> diagnosing" [label="no: a fresh run"];
-    "<status-bin> doctor-status <state> fixing (resumed gate)" -> "--skill given (doctor)?";
+    "<status-bin> doctor-status <state> fixing (resumed gate)" -> "<status-bin> gate wait <state> (resumed escalation)";
     "<status-bin> doctor-status <state> diagnosing" -> "--skill given (doctor)?";
     "--skill given (doctor)?" -> "--skill-path given (doctor)?" [label="yes"];
     "--skill given (doctor)?" -> "${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh (doctor)" [label="no"];
@@ -259,10 +259,10 @@ digraph doctor_flow {
     "Fixed the ci_lease_claim call once already?" -> "doctor off-script escalation: ci_lease_claim refused" [label="yes"];
     "Fix what the ci_lease_claim error names" -> "ci_lease_claim {mrUrl, holder: doctor, branch}";
 
-    "Which entry (doctor)?" -> "<status-bin> gate wait <state> (resumed escalation)" [label="resumed gate"];
+    "Which entry (doctor)?" -> "What does the resumed answer name (doctor)?" [label="resumed gate"];
     "Which entry (doctor)?" -> "Domain skill resolved (doctor)?" [label="fresh run"];
     "<status-bin> gate wait <state> (resumed escalation)" -> "Resumed wait result (doctor)?";
-    "Resumed wait result (doctor)?" -> "What does the resumed answer name (doctor)?" [label="answered"];
+    "Resumed wait result (doctor)?" -> "--skill given (doctor)?" [label="answered"];
     "Resumed wait result (doctor)?" -> "Own lease held (doctor exit)?" [label="closed, not found, or no gate open: gate gone"];
     "Resumed wait result (doctor)?" -> "Resumed wait failures = 3 (doctor)?" [label="any other failure"];
     "Resumed wait failures = 3 (doctor)?" -> "<status-bin> gate wait <state> (resumed escalation)" [label="no: wait again"];
@@ -562,32 +562,54 @@ What the graph cannot show:
 - **Resumed entry.** `--resumed-gate <gateId>` means a human already
   answered a parked `doctor-escalation` gate and the board replayed that
   answer into this pane (`--resumed-gate-kind` is `doctor-escalation`).
-  Never re-diagnose and never run `gate open`: the gate lives in the rt
-  daemon's registry, and a fresh open mints a new `gateId`, supersedes the
-  parked one and orphans the answer already recorded against it. Write
-  `fixing` first even though the board's resume plumbing lands the state
-  there, so no stale write lingers and the status is this pane's own.
-  `gate wait` is registry-status-first: on an answered gate it returns the
-  recorded answer at once instead of blocking.
+  Write `fixing` first even though the board's resume plumbing lands the
+  state there, so no stale write lingers and the status is this pane's
+  own. Then read the parked answer with `gate wait` before anything else:
+  it is registry-status-first, so on an answered gate it returns the
+  recorded answer at once instead of blocking. Never run `gate open`
+  before the parked answer is read: the gate lives in the rt daemon's
+  registry, and a fresh open mints a new `gateId`, supersedes the parked
+  one and orphans the answer recorded against it. After the answer is
+  read, the run resolves the domain skill and the lease as a fresh run
+  does, and any later escalation (an off-script refusal, a new dead end)
+  opens a new `doctor-escalation` gate normally. A wait that fails or
+  finds the gate gone leaves before any lease node, so nothing is held to
+  release.
+- **Never re-diagnose before acting on the answer.** A retry, watch or
+  domain answer acts from the value alone. An off-script take or iterate
+  is the exception: it repairs again from the top with the answer's note,
+  since this pane has no record of the refused step, and on the generic
+  path that re-reads the MR state.
 - **Reading an answer.** `gate wait`'s answered form is `{"answers": {...},
   "by": "...", "answeredAt": ...}`, keyed by the question id `action`. Read
   `answers.action`: a bare option string, or a `{value, note}` object whose
-  `value` you read. Every escalation box below spells its option values in
-  full, so `What does the resumed answer name (doctor)?` routes a resumed
-  answer from its value alone: a value starting `take:`, `iterate:` or
-  `hold:` is an off-script answer, `retry the job once more` is the retry
-  budget, `extend by <n> more watch calls` is the watch budget, and any
-  other option value is a domain action.
+  `value` you read. `What does the resumed answer name (doctor)?` routes on
+  the value's prefix and reads its data from the value itself:
+  `retry job <id> once more` is the retry budget (the job id comes from
+  the value), `extend by <n> more watch calls on <sha>` is the watch budget
+  (the count and sha come from the value), a value starting `take:`,
+  `iterate:` or `hold:` is an off-script answer, and any other option value
+  is a domain action.
 - **Lease mode.** `Who holds the fresh lease (doctor)?` fixes the mode for
   the run: board mode (the board's `board:doctor:` owner holds it) or own
   mode (this session holds it). Every `Lease mode (...)?` diamond reads
-  that mode. See "The CI lease".
+  that mode. In board mode, a check that finds no fresh lease (null, or
+  only a stale one) or another owner's lease is `another owner: stand
+  down` at the `Lease check result (...)?` diamond: the board's lease is
+  gone, and this pane never claims in its place. See "The CI lease".
+- **Refusal budgets.** Each `Fixed the <tool> call once already?` counter
+  counts for the whole run and does not reset on an off-script iterate: a
+  refusal after an iterate goes straight back to that tool's off-script
+  escalation, and its `Off-script rounds = 2 (...)?` counter bounds the
+  loop.
 - **The watched sha.** `ci_watch` takes the sha to watch: after a rebase,
-  the new head the rebase poll read; after a retry or a resumed watch
-  budget, the head pipeline's sha from `mr_pipeline` or `mr_view`; after a
-  push, `git rev-parse HEAD`. `Watch calls = 9` is 45 minutes of 300 second
-  calls; it resets when the watched sha changes and after a job retry, and
-  a granted watch extension raises its ceiling by the granted count.
+  the new head the rebase poll read; after a retry, the sha of the
+  pipeline `mr_pipeline` or `ci_watch` returned for that job; after a
+  resumed watch budget, the sha in the answered value; after a push, `git
+  rev-parse HEAD` in the domain skill's worktree root. `Watch calls = 9`
+  is 45 minutes of 300 second calls; it resets when the watched sha
+  changes and after a job retry, and a granted watch extension raises its
+  ceiling by the granted count.
 - **Exit messages.** `done` names what the run repaired (or "clean and green,
   nothing to repair"). `error` is specific and actionable (see "Escalation
   shapes and phrasing"); a stand-down's message is `another CI attendant
@@ -621,8 +643,9 @@ escalation follows. An error is never a reason to skip the lease.
 
 `ci_lease_claim` refused its input (a tool error, never `claimed: false`,
 which is a stand-down). Correct what the error names (`mrUrl` the MR's
-https URL, `holder` exactly `doctor`, `branch` the MR's source branch) and
-claim again, once. An error that names no input has nothing to correct:
+https URL, `holder` exactly `doctor`, `branch` the MR's source branch, or
+omitted when the launch or the domain skill named none) and claim again,
+once. An error that names no input has nothing to correct:
 claim again unchanged, once, and the off-script escalation follows.
 
 ### Fix what the mr_view error names
@@ -701,7 +724,8 @@ Hand the domain skill:
   a stand-down: stop and report it.
 - **The push.** Push only with `git_push {tree: <worktree root>,
   forceWithLease: true}`; a refused push is reported back with the local
-  commit sha, the branch and the refusal, never retried around.
+  commit sha, the branch, the worktree root and the refusal, never retried
+  around.
 - **The status milestones** it crosses: `rebasing`, `fixing`, `watching`,
   written through `<status-bin> doctor-status <state> <status> [message]`.
   The terminal `done` or `error` is this wrapper's.
@@ -713,7 +737,8 @@ Hand the domain skill:
 
 What it hands back, read at `Domain skill result (doctor)?`: clean and
 green (done); an enumerable decision (the situation line and its options);
-its `git_push` refused (sha, branch, reason); a non-enumerable failure
+its `git_push` refused (sha, branch, worktree root, reason); a
+non-enumerable failure
 (the specific, actionable message for `error`); or its lease lost to
 another owner (the holder, for the stand-down).
 
@@ -723,7 +748,9 @@ Take the escalation step ("Escalation step" below) with the decision the
 domain skill reported: a conflict strategy, an author-gate override or a
 budget extension ("Escalation shapes and phrasing"). The question's label
 is the domain skill's situation line; its options are the domain skill's
-concrete choices, then `leave it to me in the pane`. An executable answer
+concrete choices, each with a full value, a 2 to 6 word label and a
+one-sentence description ("Build the doctor-escalation question"), then
+`leave it to me in the pane`. An executable answer
 goes to `Hand the answered action to the domain skill`. `leave it to me in
 the pane` stops all mechanized action: say so in the pane, then `error`
 naming the situation the gate described. Never re-open an answered gate:
@@ -747,6 +774,11 @@ failure: `error` with the concrete mismatch.
 Read each failed job from `mr_pipeline` with its trace tail, from
 `ci_watch`'s `failedJobs`, or from what the human reported; a tail too
 short to classify is what `mr_job_trace` is for.
+
+When the failed jobs fall in different classes, the first match in this
+order decides the run: any real or unlicensed job (`real, or no licensed
+fix`), then any inherited job, then flaky. Retrying a flaky job beside a
+real failure only spends a watch before the same error.
 
 - **Flaky:** unrelated to the change (a runner, network or dependency
   outage, a known flake). One retry per flaky job: a job retried once
@@ -775,29 +807,45 @@ name the count.
 
 Take the escalation step with a flaky job that failed again after its one
 retry. Label: `job <id> (<name>) failed again after one retry
-(retry-flake)`. Options: `{"value": "retry the job once more", "label":
-"retry job <id> once more"}`, then `leave it to me in the pane`. A granted
-retry that fails again is a fresh escalation, never another silent retry.
+(retry-flake)`.
+
+| Value | Label | Description |
+|---|---|---|
+| `retry job <id> once more` | Retry it once more | I retry job <id> one more time and watch the pipeline again. |
+| `leave it to me in the pane` | Leave it to me | I stop here and write an error naming the failing job. |
+
+The value carries the job id, so a resumed pane retries that job without
+another read. A granted retry that fails again is a fresh escalation,
+never another silent retry.
 
 ### doctor escalation: budget extension (watch)
 
 Take the escalation step after nine `ci_watch` calls (45 minutes) on one
 sha without the pipeline settling. Label: `pipeline for <sha> still
-running after 45 minutes of watching`. Options: `{"value": "extend by 3
-more watch calls", "label": "watch 15 more minutes"}` (the count is yours
-to pick, spelled in the value), then `leave it to me in the pane`. The
-extension raises `Watch calls = 9 (doctor)?`'s ceiling by that count;
-reaching the new ceiling is a fresh escalation.
+running after 45 minutes of watching`.
+
+| Value | Label | Description |
+|---|---|---|
+| `extend by <n> more watch calls on <sha>` | Keep watching longer | I watch the pipeline for <sha> for <n> more five-minute calls. |
+| `leave it to me in the pane` | Leave it to me | I stop watching and write an error naming the pipeline still running. |
+
+Pick the count and spell it in the value (`extend by 3 more watch calls on
+<sha>`); the value carries the sha, so a resumed pane watches it without
+another read. The extension raises `Watch calls = 9 (doctor)?`'s ceiling
+by that count; reaching the new ceiling is a fresh escalation.
 
 ### doctor off-script escalation: ci_lease_read refused
 
 Take the escalation step with this question. Label: `ci_lease_read refused
-twice on !<iid>: <second error>`.
+twice on !<iid>: <second error>`. Context: both `ci_lease_read` errors,
+quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you read the CI lease and tell me who holds it (ci_lease_read refused)` / `iterate: you fixed the cause, read the lease again (ci_lease_read refused)` / `hold: keep this pane open with nothing moved (ci_lease_read refused)` / `leave it to me in the pane` |
-| `context` | both `ci_lease_read` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you read the CI lease and tell me who holds it (ci_lease_read refused)` | Tell me the holder | You check who holds the CI lease and I route on your answer. |
+| `iterate: you fixed the cause, read the lease again (ci_lease_read refused)` | Fixed it, read again | You fixed what refused the read and I read the lease again. |
+| `hold: keep this pane open with nothing moved (ci_lease_read refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (ci_lease_read)?` before reading
 again. A take routes on the holder the human names, as a read would.
@@ -805,12 +853,15 @@ again. A take routes on the holder the human names, as a read would.
 ### doctor off-script escalation: ci_lease_claim refused
 
 Take the escalation step with this question. Label: `ci_lease_claim
-refused twice on !<iid>: <second error>`.
+refused twice on !<iid>: <second error>`. Context: both `ci_lease_claim`
+errors, quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you set the CI lease for this pane (ci_lease_claim refused)` / `iterate: you fixed the cause, claim the lease again (ci_lease_claim refused)` / `hold: keep this pane open with nothing moved (ci_lease_claim refused)` / `leave it to me in the pane` |
-| `context` | both `ci_lease_claim` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you set the CI lease for this pane (ci_lease_claim refused)` | Set the lease yourself | You give this pane the CI lease and I start the repair. |
+| `iterate: you fixed the cause, claim the lease again (ci_lease_claim refused)` | Fixed it, claim again | You fixed what refused the claim and I claim the lease again. |
+| `hold: keep this pane open with nothing moved (ci_lease_claim refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (ci_lease_claim)?` before claiming
 again.
@@ -820,12 +871,15 @@ again.
 Take the escalation step with this question. Only one of `ci_lease_read`
 (board mode) or `ci_lease_claim` (own mode) runs at this site in a run, so
 the site is one origin. Label: `lease check before the rebase refused on
-!<iid>: <error>`.
+!<iid>: <error>`. Context: the lease tool's error, quoted, and the first
+error when the call ran twice.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you confirm this pane holds the lease, then rebase (lease check refused before the rebase)` / `iterate: you fixed the cause, check the lease again (lease check refused before the rebase)` / `hold: keep this pane open with nothing moved (lease check refused before the rebase)` / `leave it to me in the pane` |
-| `context` | the lease tool's error, quoted, and the first error when the call ran twice |
+| Value | Label | Description |
+|---|---|---|
+| `take: you confirm this pane holds the lease, then rebase (lease check refused before the rebase)` | Lease is fine, rebase | You confirm this pane holds the lease and I run the rebase. |
+| `iterate: you fixed the cause, check the lease again (lease check refused before the rebase)` | Fixed it, check again | You fixed what refused the check and I check the lease again. |
+| `hold: keep this pane open with nothing moved (lease check refused before the rebase)` | Hold this pane | I stop before the rebase and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (lease check before the rebase)?`
 before checking again.
@@ -835,11 +889,15 @@ before checking again.
 Take the escalation step with this question. Only one of `ci_lease_read`
 or `ci_lease_claim` runs at this site in a run, so the site is one origin.
 Label: `lease check before retrying job <id> refused on !<iid>: <error>`.
+Context: the lease tool's error, quoted, and the first error when the
+call ran twice.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you confirm this pane holds the lease, then retry job <id> (lease check refused before the retry)` / `iterate: you fixed the cause, check the lease again (lease check refused before the retry)` / `hold: keep this pane open with nothing moved (lease check refused before the retry)` / `leave it to me in the pane` |
-| `context` | the lease tool's error, quoted, and the first error when the call ran twice |
+| Value | Label | Description |
+|---|---|---|
+| `take: you confirm this pane holds the lease, then retry job <id> (lease check refused before the retry)` | Lease is fine, retry | You confirm this pane holds the lease and I retry job <id>. |
+| `iterate: you fixed the cause, check the lease again (lease check refused before the retry)` | Fixed it, check again | You fixed what refused the check and I check the lease again. |
+| `hold: keep this pane open with nothing moved (lease check refused before the retry)` | Hold this pane | I stop before the retry and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (lease check before the retry)?`
 before checking again.
@@ -849,11 +907,15 @@ before checking again.
 Take the escalation step with this question. Only one of `ci_lease_read`
 or `ci_lease_claim` runs at this site in a run, so the site is one origin.
 Label: `lease check before pushing <branch> refused on !<iid>: <error>`.
+Context: the lease tool's error, quoted, and the first error when the
+call ran twice.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you confirm this pane holds the lease, then push with git_push (lease check refused before git_push)` / `iterate: you fixed the cause, check the lease again (lease check refused before git_push)` / `hold: keep this pane open with nothing moved (lease check refused before git_push)` / `leave it to me in the pane` |
-| `context` | the lease tool's error, quoted, and the first error when the call ran twice |
+| Value | Label | Description |
+|---|---|---|
+| `take: you confirm this pane holds the lease, then push with git_push (lease check refused before git_push)` | Lease is fine, push | You confirm this pane holds the lease and I push with git_push. |
+| `iterate: you fixed the cause, check the lease again (lease check refused before git_push)` | Fixed it, check again | You fixed what refused the check and I check the lease again. |
+| `hold: keep this pane open with nothing moved (lease check refused before git_push)` | Hold this pane | I stop before the push and the local commit stays unpushed. |
+| `leave it to me in the pane` | Leave it to me | I write an error with the sha, branch and refusal, and you take over. |
 
 Iterate passes `Off-script rounds = 2 (lease check before git_push)?`
 before checking again.
@@ -861,12 +923,15 @@ before checking again.
 ### doctor off-script escalation: re-claim refused after a lost lease
 
 Take the escalation step with this question. Label: `re-claiming the lost
-lease refused on !<iid>: <error>`.
+lease refused on !<iid>: <error>`. Context: the `lease_lost` watch result
+and the `ci_lease_claim` error, quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you set the CI lease for this pane, keep watching (re-claim refused after a lost lease)` / `iterate: you fixed the cause, claim the lease again (re-claim refused after a lost lease)` / `hold: keep this pane open with nothing moved (re-claim refused after a lost lease)` / `leave it to me in the pane` |
-| `context` | the `lease_lost` watch result and the `ci_lease_claim` error, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you set the CI lease for this pane, keep watching (re-claim refused after a lost lease)` | Set the lease yourself | You give this pane the CI lease back and I keep watching. |
+| `iterate: you fixed the cause, claim the lease again (re-claim refused after a lost lease)` | Fixed it, claim again | You fixed what refused the claim and I claim the lease again. |
+| `hold: keep this pane open with nothing moved (re-claim refused after a lost lease)` | Hold this pane | I stop watching and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (re-claim after a lost lease)?`
 before claiming again.
@@ -874,24 +939,29 @@ before claiming again.
 ### doctor off-script escalation: mr_view refused
 
 Take the escalation step with this question. Label: `mr_view refused twice
-on !<iid>: <second error>`.
+on !<iid>: <second error>`. Context: both `mr_view` errors, quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` / `iterate: you fixed the cause, read the MR again (mr_view refused)` / `hold: keep this pane open with nothing moved (mr_view refused)` / `leave it to me in the pane` |
-| `context` | both `mr_view` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` | Tell me the MR state | You report conflicts and pipeline status and I diagnose from that. |
+| `iterate: you fixed the cause, read the MR again (mr_view refused)` | Fixed it, read again | You fixed what refused the read and I read the MR again. |
+| `hold: keep this pane open with nothing moved (mr_view refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (mr_view)?` before reading again.
 
 ### doctor off-script escalation: mr_rebase refused
 
 Take the escalation step with this question. Label: `mr_rebase refused
-twice on !<iid>: <second error>`.
+twice on !<iid>: <second error>`. Context: both `mr_rebase` errors,
+quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you rebase the MR yourself, I watch for the result (mr_rebase refused)` / `iterate: you fixed the cause, check the lease and rebase again (mr_rebase refused)` / `hold: keep this pane open with nothing moved (mr_rebase refused)` / `leave it to me in the pane` |
-| `context` | both `mr_rebase` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you rebase the MR yourself, I watch for the result (mr_rebase refused)` | Rebase it yourself | You rebase the MR and I poll it for the result. |
+| `iterate: you fixed the cause, check the lease and rebase again (mr_rebase refused)` | Fixed it, rebase again | You fixed what refused the rebase and I check the lease and rebase again. |
+| `hold: keep this pane open with nothing moved (mr_rebase refused)` | Hold this pane | I stop before rebasing and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (mr_rebase)?` before the lease check
 and the rebase.
@@ -899,12 +969,15 @@ and the rebase.
 ### doctor off-script escalation: mr_pipeline refused
 
 Take the escalation step with this question. Label: `mr_pipeline refused
-twice on !<iid>: <second error>`.
+twice on !<iid>: <second error>`. Context: both `mr_pipeline` errors,
+quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you tell me which jobs failed and why (mr_pipeline refused)` / `iterate: you fixed the cause, read the pipeline again (mr_pipeline refused)` / `hold: keep this pane open with nothing moved (mr_pipeline refused)` / `leave it to me in the pane` |
-| `context` | both `mr_pipeline` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you tell me which jobs failed and why (mr_pipeline refused)` | Tell me failed jobs | You name the failed jobs and their causes and I classify them. |
+| `iterate: you fixed the cause, read the pipeline again (mr_pipeline refused)` | Fixed it, read again | You fixed what refused the read and I read the pipeline again. |
+| `hold: keep this pane open with nothing moved (mr_pipeline refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (mr_pipeline)?` before reading
 again.
@@ -912,12 +985,15 @@ again.
 ### doctor off-script escalation: mr_job_trace refused
 
 Take the escalation step with this question. Label: `mr_job_trace refused
-twice for job <id> on !<iid>: <second error>`.
+twice for job <id> on !<iid>: <second error>`. Context: both
+`mr_job_trace` errors, quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you paste the failed job traces (mr_job_trace refused)` / `iterate: you fixed the cause, read the traces again (mr_job_trace refused)` / `hold: keep this pane open with nothing moved (mr_job_trace refused)` / `leave it to me in the pane` |
-| `context` | both `mr_job_trace` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you paste the failed job traces (mr_job_trace refused)` | Paste the traces | You paste the failed job traces and I classify from them. |
+| `iterate: you fixed the cause, read the traces again (mr_job_trace refused)` | Fixed it, read again | You fixed what refused the read and I read the traces again. |
+| `hold: keep this pane open with nothing moved (mr_job_trace refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (mr_job_trace)?` before reading
 again.
@@ -925,12 +1001,15 @@ again.
 ### doctor off-script escalation: mr_retry refused
 
 Take the escalation step with this question. Label: `mr_retry refused
-twice for job <id> on !<iid>: <second error>`.
+twice for job <id> on !<iid>: <second error>`. Context: both `mr_retry`
+errors, quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you retry job <id> yourself, I watch for the result (mr_retry refused)` / `iterate: you fixed the cause, check the lease and retry again (mr_retry refused)` / `hold: keep this pane open with nothing moved (mr_retry refused)` / `leave it to me in the pane` |
-| `context` | both `mr_retry` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you retry job <id> yourself, I watch for the result (mr_retry refused)` | Retry it yourself | You retry job <id> and I watch the pipeline for the result. |
+| `iterate: you fixed the cause, check the lease and retry again (mr_retry refused)` | Fixed it, retry again | You fixed what refused the retry and I check the lease and retry again. |
+| `hold: keep this pane open with nothing moved (mr_retry refused)` | Hold this pane | I stop before retrying and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (mr_retry)?` before the lease check
 and the retry.
@@ -938,12 +1017,15 @@ and the retry.
 ### doctor off-script escalation: ci_watch refused
 
 Take the escalation step with this question. Label: `ci_watch refused
-twice for <sha> on !<iid>: <second error>`.
+twice for <sha> on !<iid>: <second error>`. Context: both `ci_watch`
+errors, quoted.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you read the pipeline for <sha> and tell me green or red (ci_watch refused)` / `iterate: you fixed the cause, watch again (ci_watch refused)` / `hold: keep this pane open with nothing moved (ci_watch refused)` / `leave it to me in the pane` |
-| `context` | both `ci_watch` errors, quoted |
+| Value | Label | Description |
+|---|---|---|
+| `take: you read the pipeline for <sha> and tell me green or red (ci_watch refused)` | Tell me green or red | You read the pipeline for <sha> and I act on your verdict. |
+| `iterate: you fixed the cause, watch again (ci_watch refused)` | Fixed it, watch again | You fixed what refused the watch and I watch the pipeline again. |
+| `hold: keep this pane open with nothing moved (ci_watch refused)` | Hold this pane | I stop watching and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
 
 Iterate passes `Off-script rounds = 2 (ci_watch)?` before watching again.
 A take reads the human's verdict at `Watch verdict the human reported
@@ -954,23 +1036,30 @@ A take reads the human's verdict at `Watch verdict the human reported
 Take the escalation step with this question. Reached when the domain
 skill reports its `git_push` refused, or when this wrapper's own push is
 refused. Label: `push of <sha> to <branch> refused on !<iid>: <refusal>`.
+Context: the refusal, quoted, with the local commit sha, the branch and
+the worktree root.
 
-| Field | Value |
-|---|---|
-| `action` | `take: you push <sha> to <branch> yourself (git_push refused)` / `iterate: you fixed push access, check the lease and push again with git_push (git_push refused)` / `hold: keep this pane open with the local commit unpushed (git_push refused)` / `leave it to me in the pane` |
-| `context` | the refusal, quoted, with the local commit sha and the branch |
+| Value | Label | Description |
+|---|---|---|
+| `take: you push <sha> to <branch> yourself (git_push refused)` | Push it yourself | You push the local commit and I watch the pipeline for it. |
+| `iterate: you fixed push access, check the lease and push again with git_push (git_push refused)` | Fixed access, push again | You fixed push access and I check the lease and push again. |
+| `hold: keep this pane open with the local commit unpushed (git_push refused)` | Hold this pane | I stop with the commit unpushed and the pane stays open. |
+| `leave it to me in the pane` | Leave it to me | I write an error with the sha, branch and refusal, and you take over. |
 
 Iterate passes `Off-script rounds = 2 (git_push)?` before the lease check
 and the push, which runs `git_push {tree: <the domain skill's worktree
-root>, forceWithLease: true}` from this wrapper. Every error this box
-writes carries the sha, the branch and the refusal, so the human can push
-it or grant access.
+root>, forceWithLease: true}` from this wrapper; a take runs `git
+rev-parse HEAD` in that same root. Every error this box writes carries
+the sha, the branch and the refusal, so the human can push it or grant
+access.
 
 ## Escalation step
 
 Every `doctor escalation: ...` and `doctor off-script escalation: ...` box
-takes this step. Stay at `fixing` for the whole exchange, including while
-waiting. The box that entered reads the outcome:
+takes this step. The step writes no status: keep the status the
+escalating node left (`fixing` during a fix, `diagnosing` or `watching`
+when a lease, read or watch refusal escalates), including while waiting.
+The box that entered reads the outcome:
 
 - **Answered:** its outcome diamond reads `answers.action`.
 - **Gone** (closed, not found, or no gate open): end cleanly, say so in the
@@ -1047,11 +1136,23 @@ digraph doctor_escalation_step {
 ### Build the doctor-escalation question
 
 Exactly one question, id `action`. Its `label` states the situation in one
-line, in the voice of "Escalation shapes and phrasing". Options are
-`{"value": ..., "label": ...}` objects in the box's own wording, followed
-always by the literal string `"leave it to me in the pane"` as the last
-option. Values are spelled in full, never a bare index or a one-word verb
-the resumed entry could not route.
+line, in the voice of "Escalation shapes and phrasing". Each option is an
+object in the box's own wording:
+
+```json
+{"value": "retry job 812 once more", "label": "Retry it once more", "description": "I retry job 812 one more time and watch the pipeline again."}
+```
+
+`value` is spelled in full, human-readable, never a bare index or a
+one-word verb the resumed entry could not route; `label` is 2 to 6 words;
+`description` is one sentence saying what happens on that answer. The
+last option is always `leave it to me in the pane`, with the value exactly
+that literal string.
+
+The open prints one JSON line, `{"gateId": "...", "presentation":
+"form"}` or `"wait"`. Keep both: `Presentation (doctor-escalation)?` reads
+`presentation`, and `End the turn: holding at gate <gateId> (doctor)`
+names `gateId`.
 
 `--context` carries the situation line the escalation composes, with any
 quoted errors. When it would exceed 8192 UTF-8 bytes, omit `--context`
@@ -1151,7 +1252,9 @@ lease, and the owner is always this session. The first call is
   again; a lease that is not the board's is a stand-down.
 - **Own mode:** no fresh lease (null, or only a stale one), or `mine:
   true`. Claim with `ci_lease_claim {mrUrl, holder: doctor, branch}`
-  (`branch` the MR's source branch) before any repair, re-claim before
+  (`branch` the MR's source branch when the launch or the domain skill
+  names it; omit `branch` otherwise, since the tool takes a claim without
+  it) before any repair, re-claim before
   each rebase, retry and push, heartbeat during a long domain fix, and
   release with `ci_lease_release {mrUrl}` at every exit except a
   stand-down.
@@ -1198,7 +1301,8 @@ The enumerable cases come in three shapes:
   exactly the ambiguity the safeguard exists to catch, so no pane answer
   resolves it.
 - **Budget extension:** the fix or watch loop hit its budget without
-  converging. Options are e.g. `"extend budget by <n> more cycles"`. A
+  converging. Options are e.g. `"extend the fix budget by <n> more
+  cycles"`. A
   granted extension that still does not converge is a fresh escalation,
   or `error` when nothing enumerable is left to offer.
 
@@ -1217,12 +1321,21 @@ A short list of concrete, executable choices exists: open the gate with
 that list as `options`, e.g.:
 
 - `"rebase conflict in app/routes/foo.ts: both sides modified handleSubmit"`
-  with options `[{"value": "keep-mr", "label": "keep the MR branch's
-  handleSubmit"}, {"value": "keep-main", "label": "keep main's handleSubmit"},
-  "leave it to me in the pane"]`
+  with options:
+
+  | Value | Label | Description |
+  |---|---|---|
+  | `keep the MR branch's handleSubmit` | Keep the MR's version | I resolve the conflict with the MR branch's handleSubmit and push. |
+  | `keep main's handleSubmit` | Keep main's version | I resolve the conflict with main's handleSubmit and push. |
+  | `leave it to me in the pane` | Leave it to me | I stop and write an error naming the conflict. |
+
 - `"CI red after 3 cycles: 2 tests still failing (snapshot + business logic
-  in Bar)"` with options `[{"value": "extend-budget", "label": "extend budget
-  by 3 more cycles"}, "leave it to me in the pane"]`
+  in Bar)"` with options:
+
+  | Value | Label | Description |
+  |---|---|---|
+  | `extend the fix budget by 3 more cycles` | Try three more cycles | I keep fixing for up to three more fix and watch cycles. |
+  | `leave it to me in the pane` | Leave it to me | I stop and write an error naming the failing tests. |
 
 ## API tier
 
