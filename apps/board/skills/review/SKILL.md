@@ -18,7 +18,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1172 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1176 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -1172,6 +1172,10 @@ is the same: a re-review is still a review.
 The daemon-generic gate mechanics every passage above refers to. The board's
 own projections (`<status-bin> gate ...`) sit in `board:gate-cli-recipes`;
 everything else is here.
+
+Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
+did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
+--by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
 
 <!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.27.2 path=attachments/gate-protocol/SKILL.md lines=7-444 -->
 # Gate protocol

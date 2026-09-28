@@ -1169,4 +1169,8 @@ The daemon-generic gate mechanics every passage above refers to. The board's
 own projections (`<status-bin> gate ...`) sit in `board:gate-cli-recipes`;
 everything else is here.
 
+Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
+did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
+--by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
+
 {{include:gate-protocol}}
