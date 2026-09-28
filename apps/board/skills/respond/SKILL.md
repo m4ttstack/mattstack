@@ -31,7 +31,7 @@ board injects it:
 | `--skill-path <path>` | absolute path to that skill's SKILL.md, when the board already resolved it (optional; see "Resolving the domain skill") |
 | `--resumed-gate <gateId>` | this invocation is a parked-gate resume, not a fresh run (optional; see "Resumed entry" in `launch.md`) |
 | `--resumed-gate-kind <kind>` | the `kind` of the gate `--resumed-gate` names (e.g. `respond-post`). Present exactly when `--resumed-gate` is, and the only way to learn it: `--state` is an opaque handle and `gate wait` returns only the answer. |
-| `--round <n>` | the round to delegate at, carried over from an earlier pane on this MR (recorded by the `--round` flag on `<status-bin> respond-status <state> drafting --round <n>`, see "Write the verdict table and drafts to --report" in `triage.md`). Present on a parked-gate resume when a prior pane got as far as recording one, or on a fresh run when the board found a prior recorded round for this MR (a new run responding to a further round of review); absent means round 1, either because this is the MR's first round or because no earlier pane recorded a round. |
+| `--round <n>` | the round to delegate at, carried over from an earlier pane on this MR (recorded by the `--round` flag on `<status-bin> respond-status <state> drafting --round <n>`; see "Recover the round from --round (absent: 1)" in `launch.md`). Present on a parked-gate resume when a prior pane got as far as recording one, or on a fresh run when the board found a prior recorded round for this MR (a new run responding to a further round of review); absent means round 1, either because this is the MR's first round or because no earlier pane recorded a round. |
 
 Write status **only** by running the injected `--status-bin`:
 
@@ -164,6 +164,13 @@ Read `post.md` now and follow its graph; its sections are there.
 
 Gate 1 and Gate 2 each take the shared gate step after their open. Its graph
 and sections are in `gate-step.md`; each gate box says when to read it.
+
+The gate step's pane forms follow `mattstack:gate-protocol`'s "Present the
+in-pane gate form", "Answers are option values" and "Doorbell" sections
+(an attachment of the mattstack plugin, read from this checkout: `cat ${CLAUDE_SKILL_DIR}/../../../../plugins/mattstack/attachments/gate-protocol/SKILL.md`)
+for the rendering and conflict mechanics. Where it records the pane's
+answer with the `gate_answer` tool, a board gate records it with
+`<status-bin> gate answer <state> --answers <json> --by pane` instead.
 
 ## Off-script step
 
@@ -385,9 +392,10 @@ a value string.
 so every surface shows the quote and draft WITH the question it belongs
 to. `--context` carries only what is shared across threads (the MR and
 round, one or two lines). `--context` plus every question `context` share
-one 8192 UTF-8 byte budget; when the total would exceed it, drop question
-`context` fields first, then `--context`, never trimming any of them
-mid-text.
+one 8192 UTF-8 byte budget. Send them whole: an oversized context is
+dropped loudly by the daemon, not by you, and the open's output then
+carries `"contextOmitted": true`. Never pre-trim or drop a context
+yourself.
 
 **Legacy Gate 2 shape.** A Gate 2 opened before this shape (a `replies`
 multi, or its `replies-1`, `replies-2`, ... chunks, of bare thread ids plus
@@ -432,9 +440,9 @@ A card did not show its reply when:
 
 - the verdict table recommended `fix` or `skip` (the card showed a fix
   direction or nothing);
-- its question context never reached the gate: you dropped it for the byte
-  budget, or the open was a `fits: false` file or its output flagged
-  `contextOmitted` (then count every question's context as dropped);
+- its question context never reached the gate: the open was a `fits:
+  false` file or its output flagged `contextOmitted` (then count every
+  question's context as dropped);
 - on a resume, `--report` carries the line `gate-1-context: dropped`
   (count every question's context as dropped).
 

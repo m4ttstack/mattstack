@@ -101,6 +101,8 @@ Gate 2 offers every override: the human has not yet seen its words.
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
+Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+
 Hand the domain skill `{plan: <answers>, by: <by>}`, the `--report` path
 and the current round. `by` is the wait's own decider field, so the
 domain skill's decision record names who decided instead of guessing. On
@@ -152,6 +154,8 @@ Gate 2 opens, the report holds what will post, never the earlier draft.
 ### Ask the domain skill to revise at round n+1
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
+
+Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 `code-changes: revise`, under the budget. Nothing is implemented this
 round. Tell the domain skill the next round number (the current round

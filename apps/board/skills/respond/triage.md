@@ -88,7 +88,7 @@ digraph respond_triage_and_gate_1 {
     "<status-bin> gate open <state> --kind respond-plan --questions <json> [--context <text>]" -> "respond-plan open exit?";
     "respond-plan open exit?" -> "Gate 1 context dropped?" [label="0"];
     "respond-plan open exit?" -> "Ask Gate 1 as native forms (degraded)" [label="nonzero: the daemon is down"];
-    "Gate 1 context dropped?" -> "Write gate-1-context: dropped into --report" [label="yes: fits false, contextOmitted, or dropped for the budget"];
+    "Gate 1 context dropped?" -> "Write gate-1-context: dropped into --report" [label="yes: fits false, or contextOmitted"];
     "Gate 1 context dropped?" -> "Gate 1: take the respond gate step" [label="no"];
     "Write gate-1-context: dropped into --report" -> "Gate 1: take the respond gate step";
     "Gate 1: take the respond gate step" -> "Gate 1 step outcome?";
@@ -120,6 +120,8 @@ digraph respond_triage_and_gate_1 {
 ### Delegate adjudication to the domain skill
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
+
+Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Tell the domain skill these four things:
 
@@ -210,15 +212,16 @@ question per unresolved thread, in verdict-table order, plus one
 `code-changes` question, exactly as "Gate 1 and Gate 2 shapes" draws them.
 Each thread's reviewer quote and draft ride its own question's `context`;
 `--context` carries only the shared frame (the MR and the round, one or
-two lines). Apply the byte budget there before opening, dropping whole
-question contexts first and noting each one you drop: any drop is
-`Gate 1 context dropped?` answering yes. The open prints one JSON line
+two lines). Send every context whole under the byte budget ("Byte
+budget" in SKILL.md): the daemon drops an oversized one, not you, and the
+open's `"contextOmitted": true` is `Gate 1 context dropped?` answering
+yes. The open prints one JSON line
 (see "Gate step" in `gate-step.md`); keep `gateId` and `presentation`.
 
 ### Write gate-1-context: dropped into --report
 
-The open came from a `fits: false` file, its output carried `"contextOmitted":
-true`, or you dropped a question context for the byte budget. Write one
+The open came from a `fits: false` file, or its output carried
+`"contextOmitted": true`. Write one
 line, `gate-1-context: dropped`, into `--report` right after the open and
 before waiting on any answer. A resumed pane has no other way to know
 those cards never showed their drafts, and the line turns every `reply:`

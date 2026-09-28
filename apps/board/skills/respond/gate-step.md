@@ -70,13 +70,9 @@ digraph respond_gate_step {
 
 ### Ask the respond gate as pane forms, four questions per call
 
-Read `~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`
-(the stable source checkout, machine-local by design) with the Read tool,
-and follow its "Present the in-pane gate form", "Answers are option
-values" and "Doorbell" sections for the rendering and conflict mechanics.
-Where it records the pane's answer with the `gate_answer` tool, a board
-gate records it with `<status-bin> gate answer <state> --answers <json>
---by pane` instead.
+For the rendering and conflict mechanics, see the gate protocol in
+SKILL.md ("Gate step (gate-step.md)"), which also names the `<status-bin>
+gate answer` call that records the pane's answer.
 Three things stay local: your framing and reasoning go in the pane prose
 or option descriptions, never into rewritten question or option text; no
 option ever folds another question's answer in; and each gate's own

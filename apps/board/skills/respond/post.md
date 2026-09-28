@@ -52,6 +52,7 @@ digraph respond_gate_2_and_posting {
     "mr_resolve_thread result?" [shape=diamond];
     "Fixed the mr_resolve_thread call once already?" [shape=diamond];
     "Fix what the mr_resolve_thread error names" [shape=box];
+    "STOP: threads resolve with mr_resolve_thread" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Held threads from a respond-post-held line posted this pass?" [shape=diamond];
     "Delete the respond-post-held line from --report" [shape=box];
     "respond off-script gate: git_push refused" [shape=box];
@@ -126,6 +127,8 @@ digraph respond_gate_2_and_posting {
     "mr_resolve_thread {mrUrl, discussionId}" -> "mr_resolve_thread result?";
     "mr_resolve_thread result?" -> "Threads left to post (respond)?" [label="resolved"];
     "mr_resolve_thread result?" -> "Fixed the mr_resolve_thread call once already?" [label="tool error"];
+    "mr_resolve_thread result?" -> "STOP: threads resolve with mr_resolve_thread" [label="tempted to resolve with the GitLab CLI or the API"];
+    "STOP: threads resolve with mr_resolve_thread" -> "mr_resolve_thread {mrUrl, discussionId}";
     "Fixed the mr_resolve_thread call once already?" -> "Fix what the mr_resolve_thread error names" [label="no"];
     "Fixed the mr_resolve_thread call once already?" -> "respond off-script gate: mr_resolve_thread refused" [label="yes"];
     "Fix what the mr_resolve_thread error names" -> "mr_resolve_thread {mrUrl, discussionId}";
@@ -224,6 +227,8 @@ post and resolve. Proceed on the combined answers with `by: pane`.
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
+Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+
 Hand the domain skill `{post: <answers>, by: <by>}`, the `--report` path
 and the round, so it executes the posting, the reply-only threads
 included (unresolved). On a resume, tell it this is a resume, so its own
@@ -255,8 +260,9 @@ threads Gate 2 picked, report the mismatch or the refusal verbatim in the
 pane, and never force, rebase, merge or switch branches past it. Write one
 line, `respond-post-held: <threadId>[, <threadId>...]`, into `--report`,
 replacing any earlier one. Every other reply still posts as decided. The
-run still marks `done`, counting each held thread as neither posted nor
-held: that partial badge is what leaves the run open, since the board then
+run still marks `done`, counting each push-held thread in neither
+`--posted` nor `--held` (see "Counts and the badge" in SKILL.md): that
+partial badge is what leaves the run open, since the board then
 offers a resume, and the resume acts only on the listed threads.
 
 ### Fix what the mr_reply_thread error names
