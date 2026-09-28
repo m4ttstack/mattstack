@@ -29,6 +29,29 @@ describe("AttemptLimiter", () => {
     expect(l.take("a", "f").ok).toBe(true);
   });
 
+  test("when both limits apply, until is when the later one lifts", () => {
+    const c = clock();
+    const l = new AttemptLimiter(c.now);
+    const first = c.t;
+    for (let i = 0; i < 5; i++) {
+      if (i > 0) c.t += ATTEMPT_WINDOW_MS;
+      expect(l.take("a", "f").ok).toBe(true);
+    }
+    c.t += 60_000;
+    expect(l.take("a", "f")).toEqual({ ok: false, until: first + ATTEMPT_DAY_MS });
+  });
+
+  test("a refused take does not move until", () => {
+    const c = clock();
+    const l = new AttemptLimiter(c.now);
+    expect(l.take("a", "f").ok).toBe(true);
+    c.t += 1_000;
+    const refused = l.take("a", "f");
+    c.t += 1_000;
+    expect(l.take("a", "f")).toEqual(refused);
+    expect(refused).toEqual({ ok: false, until: c.t - 2_000 + ATTEMPT_WINDOW_MS });
+  });
+
   test("a replaced login (new fingerprint) starts fresh", () => {
     const l = new AttemptLimiter(clock().now);
     l.take("a", "old");

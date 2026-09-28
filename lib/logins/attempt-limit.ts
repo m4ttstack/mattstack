@@ -23,8 +23,10 @@ export class AttemptLimiter {
     }
     entry.times = entry.times.filter((x) => t - x < ATTEMPT_DAY_MS);
     const last = entry.times.at(-1);
-    if (last !== undefined && t - last < ATTEMPT_WINDOW_MS) return { ok: false, until: last + ATTEMPT_WINDOW_MS };
-    if (entry.times.length >= ATTEMPTS_PER_DAY) return { ok: false, until: entry.times[0]! + ATTEMPT_DAY_MS };
+    let until = 0;
+    if (last !== undefined && t - last < ATTEMPT_WINDOW_MS) until = last + ATTEMPT_WINDOW_MS;
+    if (entry.times.length >= ATTEMPTS_PER_DAY) until = Math.max(until, entry.times[0]! + ATTEMPT_DAY_MS);
+    if (until > 0) return { ok: false, until };
     entry.times.push(t);
     return { ok: true };
   }
