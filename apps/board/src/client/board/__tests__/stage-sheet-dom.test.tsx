@@ -612,6 +612,15 @@ test('with an MR the rail opens on the MR card', async () => {
   expect(first.textContent).toContain('add a temperature factor');
 });
 
+test("the MR card's !iid links to the MR's forge page", async () => {
+  await render(ship(), MR);
+  const ref = $('.tui-mr-card .tui-id-card-ref') as HTMLAnchorElement;
+  expect(ref.tagName).toBe('A');
+  expect(ref.getAttribute('href')).toBe(MR.webUrl);
+  expect(ref.target).toBe('_blank');
+  expect(ref.textContent).toBe('!1235');
+});
+
 test('parked and escalated chips ride the head', async () => {
   await render(ship({ status: 'parked', escalatedAt: 5 }), MR);
   expect($('.tui-gate-sheet-actions [data-gate="parked"]')).not.toBeNull();
