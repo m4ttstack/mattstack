@@ -74,6 +74,7 @@ digraph review_flow {
     "Resumed escalation origin (review)?" [shape=diamond];
     "Read <--report>, its verdict line and json sibling (resumed escalation)" [shape=plaintext];
     "Verdict line present (review)?" [shape=diamond];
+    "Read <--report> (prior review, resumed re-review)" [shape=plaintext];
 
     "Prior review at --report (re-review)?" [shape=diamond];
     "Read <--report> (prior review)" [shape=plaintext];
@@ -206,10 +207,12 @@ digraph review_flow {
     "Report fits the resumed answer (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no: missing or malformed for the answer's shape"];
     "Route the resumed escalation by its origin (review)" -> "Resumed escalation origin (review)?";
     "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any origin: the refusals are the reason"];
-    "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="mr_view or re-review mr_threads: take or iterate"];
-    "Resumed escalation origin (review)?" -> "Read <--report>, its verdict line and json sibling (resumed escalation)" [label="a posting origin: take or iterate"];
+    "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="mr_view, not on a re-review: take, or iterate at round 1"];
+    "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="a re-review origin: take, or iterate at round 1"];
+    "Resumed escalation origin (review)?" -> "Read <--report>, its verdict line and json sibling (resumed escalation)" [label="a posting origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
+    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back, or a take at mr_view with no branches"];
+    "Read <--report> (prior review, resumed re-review)" -> "rt_verb {args: [skills, writing-style, show]} (review)";
     "Read <--report>, its verdict line and json sibling (resumed escalation)" -> "Verdict line present (review)?";
     "Verdict line present (review)?" -> "Domain skill resolved (review act)?" [label="yes, and the report fits its answer"];
     "Verdict line present (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no, or the report does not fit its answer"];
@@ -248,7 +251,7 @@ digraph review_flow {
     "Off-script outcome (mr_view, review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
     "Off-script rounds = 2 (mr_view, review)?" -> "mr_view {mrUrl} (review)" [label="no: read again"];
     "Off-script rounds = 2 (mr_view, review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
-    "--re-review given (thread read)?" -> "mr_threads {mrUrl, refresh: true} (re-review)" [label="yes, or a resumed re-review mr_threads iterate"];
+    "--re-review given (thread read)?" -> "mr_threads {mrUrl, refresh: true} (re-review)" [label="yes, or a resumed re-review origin other than a re-review mr_threads take"];
     "--re-review given (thread read)?" -> "Review the MR yourself" [label="no, or a resumed re-review mr_threads take"];
     "mr_threads {mrUrl, refresh: true} (re-review)" -> "mr_threads result (re-review)?";
     "mr_threads result (re-review)?" -> "Review the MR yourself" [label="ok"];
@@ -452,8 +455,10 @@ What the graph cannot show:
 - **Budgets.** `Fixed the mr_comment_inline call once already?` counts per
   finding; the `mr_comment` and `mr_approve` counters, and the three read
   counters (`mr_view`, the re-review `mr_threads` and the posted-already
-  `mr_threads`), count for the whole run, and a resumed pane counts them
-  from zero. A guard STOP's re-entry passes the same counter as a tool
+  `mr_threads`), count for the whole run. A resumed pane counts them from
+  zero, except that a resumed iterate seeds its origin's counter as spent
+  (the named finding's, for `mr_comment_inline`), as a live iterate
+  leaves it. A guard STOP's re-entry passes the same counter as a tool
   error. None resets after an off-script iterate: a refusal after an
   iterate goes straight back to that origin's off-script gate, and its
   `Off-script rounds = 2 (...)?` counter (per finding for
@@ -468,10 +473,9 @@ What the graph cannot show:
   went wrong specifically: the bad MR link, the mismatched MR and ticket,
   the fetch failure, the failed domain skill, the refused read or post
   tool with its error and what already posted, or the resumed wait's
-  third failure. Gate
-  gone writes no status: say so in the pane and stop, since whatever
-  superseded the gate (a re-review relaunch, a fresh pane) already owns
-  this MR's board state.
+  third failure. Gate gone writes no status: say so in the pane and stop,
+  since whatever superseded the gate (a re-review relaunch, a fresh pane)
+  already owns this MR's board state.
 
 ### Print the RE-REVIEW banner as the first output
 
@@ -536,19 +540,26 @@ an iterate at round 2 is that origin's second iterate, which the live
 pane's `Off-script rounds = 2 (...)?` answers yes to, so it writes
 `error` naming the refusals and never retries. Otherwise round `k` seeds
 that origin's `Off-script rounds = 2 (...)?` counter, and a later iterate
-at the same origin counts on from it.
+at the same origin counts on from it. An iterate also seeds that origin's
+fix-once counter as spent (the named finding's, for `mr_comment_inline`),
+as a live iterate leaves it: a refusal after the retry goes straight back
+to the off-script gate.
 
-- **Pre-verdict origins** (`mr_view refused`, `mr_threads refused on the
-  re-review read`): no verdict exists yet, so the review runs from the
-  refused read on, exactly as the fresh take and iterate edges do. The
-  writing style loads first. A take at `mr_view` continues with the
-  branches its note gives and skips the read; a note with no branches
-  takes the `hand back` edge. An iterate at `mr_view` reads the MR again.
-  Either answer at the re-review `mr_threads` read makes this pass a
-  re-review: it reads the MR again, then an iterate reads the threads
-  again and a take reviews the whole MR without them. `--report` still
-  holds the prior review, since this pass has not written one, and
-  `Review the MR yourself` reads it there.
+- **Pre-verdict origins** (`mr_view refused`, `mr_view refused on a
+  re-review`, `mr_threads refused on the re-review read`): no verdict
+  exists yet, so the review runs from the refused read on, exactly as the
+  fresh take and iterate edges do. The writing style loads first. A take
+  at `mr_view` continues with the branches its note gives and skips the
+  read; a note with no branches takes the `hand back` edge. An iterate at
+  `mr_view` reads the MR again.
+- **Re-review origins** (`mr_view refused on a re-review`, `mr_threads
+  refused on the re-review read`) make this pass a re-review, though the
+  launch carries no `--re-review`. `--report` still holds the prior
+  review, since this pass has not written one: `Read <--report> (prior
+  review, resumed re-review)` loads it before the writing style, and a
+  missing file means no prior review, as "Re-review mode" says. The
+  threads are then read again, except after a take at the re-review
+  `mr_threads` read, which reviews the whole MR without them.
 - **Posting origins** (`mr_comment_inline refused`, `mr_comment refused`,
   `mr_approve refused`, `mr_threads refused on the Posted already read`):
   the verdict was answered and recorded before the escalation opened.
@@ -648,11 +659,13 @@ Read the diff critically and produce findings. Each finding has:
 Honor the operator note (for example "focus on the migration files", "skip
 the vendored code").
 
-Under `--re-review`, frame the review as "Re-review mode" says: check the
-threads already read and the new commits since the last review against
-the prior review. **Author acted:** re-review focused on that: for each
-prior comment, was it adequately addressed? Are the new changes sound?
-Note anything still open. **No action found** (no threads addressed, no
+On a re-review (`--re-review` given, or a resumed re-review origin),
+frame the review as "Re-review mode" says: check the threads already read
+and the new commits since the last review against the prior review, read
+at `Read <--report> (prior review)` or, on a resumed pane, at `Read
+<--report> (prior review, resumed re-review)`. **Author acted:**
+re-review focused on that: for each prior comment, was it adequately
+addressed? Are the new changes sound? Note anything still open. **No action found** (no threads addressed, no
 relevant new changes since the last review): say so explicitly in the
 report's summary line, e.g. `"no author action found since last review"`,
 and fall back to a normal full review of the whole MR so the pass is still
@@ -906,6 +919,10 @@ its note takes the `hand back` edge. Iterate passes `Off-script rounds =
 2 (mr_view, review)?` before reading again. Hand back, gate unavailable
 and a spent round budget write `error` naming the refusal.
 
+When this pass is a re-review (`--re-review` was given, or the pane
+resumed on a re-review origin), every value's origin reads `mr_view
+refused on a re-review` in place of `mr_view refused`.
+
 ### review off-script gate: mr_threads refused (re-review)
 
 Take "Off-script step" with this question. Label: `mr_threads refused
@@ -1137,7 +1154,9 @@ done`. The report is written and readable from the badge, with no `done`
 and no outcome. An unanswered verdict is not an approve. The board parks a
 pane that holds past its grace window, and a later answer to the same
 gate resumes it in a fresh invocation with `--resumed-gate` (Resumed
-entry under Flow), for `review-post` and `review-escalation` alike.
+entry under Flow), for `review-post` and `review-escalation` alike. A
+pre-verdict escalation (`mr_view`, the re-review `mr_threads`) holds
+before the report is written, so the badge has nothing to open yet.
 
 A human who interrupts the wait and answers in the pane is the escape
 hatch: record it with `<status-bin> gate answer <state> --answers <json>
