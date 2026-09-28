@@ -46,5 +46,5 @@ ledger shows" when you quote one.
 
 ## When the script fails
 
-It exits non-zero with `rt herd ... failed: <reason>`. Quote the reason in
-one line. `no active herd` or several herds: rerun with `--herd <id>`.
+It exits non-zero and prints the reason. Quote the reason in one line. When
+it names no active herd, or several, rerun with `--herd <id>`.
