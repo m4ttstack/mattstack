@@ -422,7 +422,7 @@ why.
 - Committing, tagging, and deploying happen only after the step 6 approval. The
   step 3 push may run earlier, but only once the user has confirmed it (or
   pre-authorized the release).
-- The GitHub repo is `m4ttstack/mattstack`. The old repo name `m4ttstack/rt` is never recreated after the rename: every
-  app installed before it fetches its Sparkle feed through GitHub's redirect
-  from the old name, and a new repo under that name would capture those
-  requests.
+- The GitHub repo is `m4ttstack/mattstack`. The old repo name `m4ttstack/rt`
+  is never recreated after the rename: every app installed before it fetches
+  its Sparkle feed through GitHub's redirect from the old name, and a new
+  repo under that name would capture those requests.

@@ -33,7 +33,7 @@ start out empty.
 
 ```bash
 git clone https://github.com/m4ttstack/mattstack.git
-cd rt                         # the workspace root, not this app's own dir
+cd mattstack                  # the workspace root, not this app's own dir
 bun install                   # workspace install: packages/*, apps/*
 cd apps/console
 ```

@@ -406,7 +406,7 @@ straight from source, with no compile step:
 
 ```bash
 git clone https://github.com/m4ttstack/mattstack.git
-cd rt
+cd mattstack
 bun install
 bun run cli.ts            # run the CLI from source
 bun run cli.ts verify     # any subcommand works the same way
