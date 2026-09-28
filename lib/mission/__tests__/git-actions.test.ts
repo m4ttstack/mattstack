@@ -133,6 +133,66 @@ describe("runAction: publish-branch, push, pull round-trip", () => {
   });
 });
 
+describe("runAction: pull on a diverged branch (GHD's divergent-branch default)", () => {
+  async function diverged(): Promise<{ a: Sandbox; b: Sandbox }> {
+    const a = await makeSandbox();
+    await a.write("a.txt", "one\n");
+    await a.commitAll("init");
+    const remoteDir = await a.addBareRemote();
+    await runAction(a.dir, "publish-branch", { remote: "origin", branch: "main" });
+    const b = await cloneSandbox(remoteDir);
+    await b.git(["branch", "--set-upstream-to=origin/main", "main"]);
+    await b.git(["config", "user.email", "test@example.com"]);
+    await b.git(["config", "user.name", "Test"]);
+    await b.git(["config", "commit.gpgsign", "false"]);
+    await a.write("a.txt", "remote\n");
+    await a.commitAll("remote side");
+    await runAction(a.dir, "push", { remote: "origin", branch: "main" });
+    await b.write("b.txt", "local\n");
+    await b.commitAll("local side");
+    await b.git(["fetch", "origin"]);
+    return { a, b };
+  }
+
+  test("with no pull.ff or pull.rebase config, pull merges instead of refusing", async () => {
+    const { a, b } = await diverged();
+    try {
+      const pulled = await runAction(b.dir, "pull", { remote: "origin", branch: "main" });
+      expect(pulled).toEqual({ ok: true, detail: "" });
+      const parents = (await b.git(["rev-list", "--parents", "-n", "1", "HEAD"])).trim().split(" ");
+      expect(parents.length).toBe(3);
+    } finally {
+      await a.cleanup();
+      await b.cleanup();
+    }
+  });
+
+  test("a user-set pull.ff wins over the default", async () => {
+    const { a, b } = await diverged();
+    try {
+      await b.git(["config", "pull.ff", "only"]);
+      const pulled = await runAction(b.dir, "pull", { remote: "origin", branch: "main" });
+      expect(pulled.ok).toBe(false);
+    } finally {
+      await a.cleanup();
+      await b.cleanup();
+    }
+  });
+
+  test("pull.rebase=true rebases the local commit onto the remote", async () => {
+    const { a, b } = await diverged();
+    try {
+      await b.git(["config", "pull.rebase", "true"]);
+      const pulled = await runAction(b.dir, "pull-rebase", { remote: "origin", branch: "main" });
+      expect(pulled.ok).toBe(true);
+      expect((await b.git(["rev-parse", "HEAD~1"])).trim()).toBe((await b.git(["rev-parse", "origin/main"])).trim());
+    } finally {
+      await a.cleanup();
+      await b.cleanup();
+    }
+  });
+});
+
 describe("runAction: force-push after an amend", () => {
   test("a normal push would be rejected; force-push overwrites the remote with the amended commit", async () => {
     const a = await makeSandbox();
