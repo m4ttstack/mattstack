@@ -554,5 +554,7 @@ everything else is here.
 Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
 did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 --by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
+This wrapper's own "Escalation step" replaces the protocol's "Off-script
+gate" section.
 
 {{include:gate-protocol}}

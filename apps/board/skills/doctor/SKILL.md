@@ -16,7 +16,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-558 -->
+<!-- part: step source=doctor/SKILL.md path=doctor/SKILL.md lines=16-560 -->
 # mr-board doctor runner
 
 The board launched this pane because an MR has mechanical breakage (CI red
@@ -558,6 +558,8 @@ everything else is here.
 Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
 did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 --by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
+This wrapper's own "Escalation step" replaces the protocol's "Off-script
+gate" section.
 
 <!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.28.0 path=attachments/gate-protocol/SKILL.md lines=7-444 -->
 # Gate protocol
