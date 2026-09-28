@@ -17,10 +17,11 @@ export interface WatchdogSensors {
   /** Epoch ms of the pane's last status change, or null when nothing has been
       recorded (daemon restart, pane never watched). Null is never a wedge. */
   idleSinceMs(pane: string): number | null;
-  /** True when the pane's last reading showed Claude Code holding a
-      background shell, monitor or subagent: a turn that ended to wait on
-      one is working, not wedged. Job panes only; never the shepherd's. */
-  backgroundWork(pane: string): boolean;
+  /** The background shell, monitor or subagent the pane's idle readings have
+      shown without a break, and when that run began; null when none. A turn
+      that ended to wait on one is working, not wedged, until
+      backgroundCapMins. Job panes only; never the shepherd's. */
+  backgroundWork(pane: string): { task: string; sinceMs: number } | null;
   /** DMs + mentions only (the wake-mode filter); room chatter never counts. */
   unreadDmMentionsFor(handle: string): number;
   openHumanGates(herdPrefix: string): { id: string; ageMs: number }[];
@@ -41,6 +42,9 @@ export interface WatchdogConfig {
   retryMins: number;
   notifyQuietMins: number;
   nagMins: number;
+  /** How long background work alone keeps a pane off the nag and the
+      backstop (RT-359). Fixed in the defaults; not a settings key. */
+  backgroundCapMins: number;
   notifyHuman: boolean;
   /** RT-196: the mid-run driver reuses the spawn path's screen-scraping
       accept, but a working session can show a genuine, unrelated
@@ -65,6 +69,15 @@ const ms = (mins: number) => mins * 60_000;
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 const oldest = (gates: { id: string; ageMs: number }[]) => gates.reduce<{ id: string; ageMs: number } | null>((a, g) => (a && a.ageMs >= g.ageMs ? a : g), null);
 
+type Background = { exempt: true } | { exempt: false; note: string };
+
+function background(pane: string, s: WatchdogSensors, cfg: WatchdogConfig, now: number): Background {
+  const bg = s.backgroundWork(pane);
+  if (bg === null) return { exempt: false, note: "" };
+  const age = now - bg.sinceMs;
+  return age < ms(cfg.backgroundCapMins) ? { exempt: true } : { exempt: false, note: `; background ${bg.task} for ${minutes(age)}m` };
+}
+
 /** The clocks for the nag and the shepherd backstop, and only while the
     pane is still open: a done job whose pane is gone has been closed (or
     its close was missed), and nobody can act on it. lastReport is the
@@ -76,14 +89,17 @@ const oldest = (gates: { id: string; ageMs: number }[]) => gates.reduce<{ id: st
     last observed transition when that is newer than the report -- the nag
     paces off silence since the LAST activity, never off a report a live
     round has already superseded. A pane waiting on a background shell,
-    monitor or subagent counts as working too (RT-355). */
-function openReportAges(job: HerdJobRow, s: WatchdogSensors, now: number): { reportMs: number; quietMs: number } | null {
+    monitor or subagent counts as working too (RT-355), until that work
+    outlives backgroundCapMins (RT-359). */
+function openReportAges(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogConfig, now: number): { reportMs: number; quietMs: number; background: string } | null {
   if (job.status !== "done" || job.lastReport === null || job.pane === null) return null;
   const state = s.paneState(job.pane);
-  if (state === "gone" || state === "working" || s.backgroundWork(job.pane)) return null;
+  if (state === "gone" || state === "working") return null;
+  const bg = background(job.pane, s, cfg, now);
+  if (bg.exempt) return null;
   const idleSince = s.idleSinceMs(job.pane);
   const lastActivity = idleSince !== null && idleSince > job.updatedAt ? idleSince : job.updatedAt;
-  return { reportMs: now - job.updatedAt, quietMs: now - lastActivity };
+  return { reportMs: now - job.updatedAt, quietMs: now - lastActivity, background: bg.note };
 }
 
 type Lingering = Extract<WedgeVerdict, { kind: "finished-lingering" }>;
@@ -95,9 +111,9 @@ const closeRemedy = (job: HerdJobRow) =>
   `if a follow-up round is in flight run rt herd follow-up ${job.name} --herd ${job.herd}, else rt herd close ${job.name} --herd ${job.herd}`;
 
 function finishedLingering(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogConfig, now: number): Lingering | null {
-  const ages = openReportAges(job, s, now);
+  const ages = openReportAges(job, s, cfg, now);
   if (ages === null || ages.quietMs < ms(cfg.nagMins)) return null;
-  return { kind: "finished-lingering", evidence: `${job.name} done with report ${minutes(ages.reportMs)}m ago, quiet ${minutes(ages.quietMs)}m; ${closeRemedy(job)}` };
+  return { kind: "finished-lingering", evidence: `${job.name} done with report ${minutes(ages.reportMs)}m ago, quiet ${minutes(ages.quietMs)}m${ages.background}; ${closeRemedy(job)}` };
 }
 
 export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogConfig): WedgeVerdict {
@@ -137,8 +153,10 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
   const answered = job.agentSession === null ? null : oldest(s.unconsumedAnswered(job.agentSession));
   if (answered) return { kind: "wedged", path: "fast", evidence: `gate ${answered.id} answered ${minutes(answered.ageMs)}m ago and unconsumed` };
 
-  if (AWAITING_ANSWER.has(job.status) || idleMs < ms(cfg.backstopMins) || s.backgroundWork(job.pane)) return HEALTHY;
-  return { kind: "wedged", path: "backstop", evidence: `idle ${minutes(idleMs)}m with no open gate` };
+  if (AWAITING_ANSWER.has(job.status) || idleMs < ms(cfg.backstopMins)) return HEALTHY;
+  const bg = background(job.pane, s, cfg, now);
+  if (bg.exempt) return HEALTHY;
+  return { kind: "wedged", path: "backstop", evidence: `idle ${minutes(idleMs)}m with no open gate${bg.note}` };
 }
 
 /** The shepherd pane is never in the lifecycle's status map, so its idle
@@ -161,9 +179,9 @@ export function evaluateShepherd(herd: HerdRow, s: WatchdogSensors, cfg: Watchdo
     if (lingering) return { kind: "wedged", path: "fast", evidence: lingering.evidence };
   }
   for (const job of jobs) {
-    const ages = openReportAges(job, s, now);
+    const ages = openReportAges(job, s, cfg, now);
     if (ages !== null && ages.quietMs >= ms(cfg.backstopMins)) {
-      return { kind: "wedged", path: "backstop", evidence: `${job.name} done with report ${minutes(ages.reportMs)}m ago, quiet ${minutes(ages.quietMs)}m, not yet closed; ${closeRemedy(job)}` };
+      return { kind: "wedged", path: "backstop", evidence: `${job.name} done with report ${minutes(ages.reportMs)}m ago, quiet ${minutes(ages.quietMs)}m, not yet closed${ages.background}; ${closeRemedy(job)}` };
     }
   }
   return HEALTHY;

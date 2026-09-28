@@ -52,15 +52,21 @@ const RULE_LINE = /^\s*─{10,}\s*$/;
 const FOOTER_TASK_COUNT = /\b[1-9]\d* (?:shells?|monitors?)\b/;
 const AGENTS_PANEL_MAIN = /^\s*⏺ main\s*$/;
 
-export function hasBackgroundWork(screen: string): boolean {
+export function backgroundTask(screen: string): string | null {
   const lines = screen.split("\n");
   let rule = -1;
   for (let i = 0; i < lines.length; i++) if (RULE_LINE.test(lines[i]!)) rule = i;
-  if (rule < 0) return false;
+  if (rule < 0) return null;
   const footer = lines.slice(rule + 1);
-  if (footer.some((line) => FOOTER_TASK_COUNT.test(line))) return true;
+  for (const line of footer) {
+    const segment = line.split(" · ").find((part) => FOOTER_TASK_COUNT.test(part));
+    if (segment !== undefined) return segment.trim();
+  }
   const main = footer.findIndex((line) => AGENTS_PANEL_MAIN.test(line));
-  return main >= 0 && footer.slice(main + 1).some((line) => line.trim().length > 0);
+  if (main < 0) return null;
+  const row = footer.slice(main + 1).find((line) => line.trim().length > 0);
+  if (row === undefined) return null;
+  return `subagent ${row.split(" · ")[0]!.replace(/^\s*◯\s*/, "").replace(/\s+/g, " ").trim()}`;
 }
 
 /** The statuses this mapper names. Anything else a live claude reports still
@@ -96,7 +102,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
   // pane works again: an age measured from the restart, never from boot-time
   // zero, so a worker idle across a restart still earns a verdict.
   const firstSeenIdle = new Map<string, number>();
-  let busy = new Set<string>();
+  let busy = new Map<string, { task: string; sinceMs: number }>();
 
   async function refresh(): Promise<void> {
     const active = deps.herdStore.list({ status: "active" });
@@ -119,7 +125,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
     }
     for (const status of unnamed) deps.log?.warn({ status }, "watchdog: unrecognized herdr agent status; treating the pane as idle");
     panes = next;
-    const nextBusy = new Set<string>();
+    const nextBusy = new Map<string, { task: string; sinceMs: number }>();
     for (const herd of active) {
       for (const job of deps.herdStore.jobs(herd.id)) {
         if (job.pane === null || job.status === "closed") continue;
@@ -129,7 +135,8 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
         // An ok reply's body is still herdr's to get wrong; anything but a
         // text screen reads as not busy rather than throwing out of the sweep.
         const text = screen.ok ? screen.result?.read?.text : undefined;
-        if (typeof text === "string" && hasBackgroundWork(text)) nextBusy.add(job.pane);
+        const task = typeof text === "string" ? backgroundTask(text) : null;
+        if (task !== null) nextBusy.set(job.pane, { task, sinceMs: busy.get(job.pane)?.sinceMs ?? t });
       }
     }
     busy = nextBusy;
@@ -143,7 +150,7 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
     jobs: (herd) => deps.herdStore.jobs(herd),
     paneState: (pane) => readingState(panes.get(pane)),
     idleSinceMs: (pane) => deps.lifecycle.lastStatusChangeMs(pane) ?? firstSeenIdle.get(pane) ?? null,
-    backgroundWork: (pane) => busy.has(pane),
+    backgroundWork: (pane) => busy.get(pane) ?? null,
     unreadDmMentionsFor(handle) {
       let count = 0;
       for (const { room, messages } of peekUnread({ handle, limit: UNREAD_PEEK_LIMIT }, deps.db)) {
@@ -285,6 +292,7 @@ const CONFIG_DEFAULTS: WatchdogConfig = {
   enabled: true, fastMins: 2, shepherdFastMins: 5, backstopMins: 15,
   retryMins: 5, notifyQuietMins: 30, nagMins: 30, notifyHuman: true,
   midRunTrustAccept: false, relocationAutoAccept: true,
+  backgroundCapMins: 60,
 };
 
 /** Resolves the nine `herd.watchdog.*` keys through `read` (the settings
@@ -334,5 +342,6 @@ export function readWatchdogConfig(read: <T>(key: string) => { value: T }): Watc
     notifyHuman: bool("notifyHuman"),
     midRunTrustAccept: bool("midRunTrustAccept"),
     relocationAutoAccept,
+    backgroundCapMins: CONFIG_DEFAULTS.backgroundCapMins,
   };
 }

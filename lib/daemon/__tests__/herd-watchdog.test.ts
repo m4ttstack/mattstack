@@ -10,6 +10,7 @@ const cfg: WatchdogConfig = {
   enabled: true, fastMins: 2, shepherdFastMins: 5, backstopMins: 15,
   retryMins: 5, notifyQuietMins: 30, nagMins: 30, notifyHuman: true,
   midRunTrustAccept: false, relocationAutoAccept: true,
+  backgroundCapMins: 60,
 };
 
 function sensors(over: Partial<WatchdogSensors> = {}): WatchdogSensors {
@@ -19,7 +20,7 @@ function sensors(over: Partial<WatchdogSensors> = {}): WatchdogSensors {
     jobs: () => [],
     paneState: () => "idle",
     idleSinceMs: () => null,
-    backgroundWork: () => false,
+    backgroundWork: () => null,
     unreadDmMentionsFor: () => 0,
     openHumanGates: () => [],
     unconsumedAnswered: () => [],
@@ -47,6 +48,7 @@ function herd(over: Partial<HerdRow> = {}): HerdRow {
 }
 
 const idleFor = (mins: number) => ({ paneState: () => "idle" as const, idleSinceMs: () => NOW - mins * MIN });
+const bgFor = (mins: number) => () => ({ task: "1 shell", sinceMs: NOW - mins * MIN });
 
 describe("evaluateJob", () => {
   test("(a) idle 3m with 1 unread DM is wedged on the fast path", () => {
@@ -213,19 +215,19 @@ describe("evaluateJob", () => {
   });
 
   test("RT-355: a done job waiting on background work is healthy however quiet", () => {
-    const s = sensors({ ...idleFor(40), backgroundWork: () => true });
+    const s = sensors({ ...idleFor(40), backgroundWork: bgFor(5) });
     expect(evaluateJob(job({ status: "done", lastReport: 2758, updatedAt: NOW - 60 * MIN }), s, cfg)).toEqual({ kind: "healthy" });
   });
 
   test("RT-355: a live job idle past the backstop on background work is healthy", () => {
-    const s = sensors({ ...idleFor(20), backgroundWork: () => true });
+    const s = sensors({ ...idleFor(20), backgroundWork: bgFor(5) });
     expect(evaluateJob(job(), s, cfg)).toEqual({ kind: "healthy" });
   });
 
   test("RT-355: background work never hides the fast path", () => {
-    const dm = sensors({ ...idleFor(3), backgroundWork: () => true, unreadDmMentionsFor: () => 1 });
+    const dm = sensors({ ...idleFor(3), backgroundWork: bgFor(5), unreadDmMentionsFor: () => 1 });
     expect(evaluateJob(job(), dm, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "idle 3m with 1 unread DM/mention" });
-    const answered = sensors({ ...idleFor(3), backgroundWork: () => true, unconsumedAnswered: () => [{ id: "g-1", ageMs: 4 * MIN }] });
+    const answered = sensors({ ...idleFor(3), backgroundWork: bgFor(5), unconsumedAnswered: () => [{ id: "g-1", ageMs: 4 * MIN }] });
     expect(evaluateJob(job(), answered, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "gate g-1 answered 4m ago and unconsumed" });
   });
 
@@ -237,6 +239,30 @@ describe("evaluateJob", () => {
   test("RT-355: a follow-up round still trips the backstop once backstopMins pass since the follow-up", () => {
     const s = sensors(idleFor(40));
     expect(evaluateJob(job({ status: "active", lastReport: 2758, updatedAt: NOW - 16 * MIN }), s, cfg)).toEqual({ kind: "wedged", path: "backstop", evidence: "idle 16m with no open gate" });
+  });
+
+  test("RT-359: background work younger than the cap still exempts; at the cap it does not", () => {
+    const young = sensors({ ...idleFor(80), backgroundWork: bgFor(59) });
+    expect(evaluateJob(job({ updatedAt: NOW - 90 * MIN }), young, cfg)).toEqual({ kind: "healthy" });
+    const capped = sensors({ ...idleFor(80), backgroundWork: bgFor(60) });
+    expect(evaluateJob(job({ updatedAt: NOW - 90 * MIN }), capped, cfg)).toEqual({ kind: "wedged", path: "backstop", evidence: "idle 80m with no open gate; background 1 shell for 60m" });
+  });
+
+  test("RT-359: a done job on background work past the cap draws the nag, naming the task", () => {
+    const s = sensors({ ...idleFor(40), backgroundWork: bgFor(61) });
+    const j = job({ status: "done", lastReport: 2758, updatedAt: NOW - 60 * MIN });
+    expect(evaluateJob(j, s, cfg)).toEqual({
+      kind: "finished-lingering",
+      evidence: "job-a done with report 60m ago, quiet 40m; background 1 shell for 61m; if a follow-up round is in flight run rt herd follow-up job-a --herd demo-1, else rt herd close job-a --herd demo-1",
+    });
+  });
+
+  test("RT-359: the shepherd backstop fires on a done job whose background work outlived the cap", () => {
+    const s = sensors({ paneState: () => "idle", backgroundWork: bgFor(61), jobs: () => [job({ status: "done", lastReport: 2758, updatedAt: NOW - 90 * MIN })] });
+    expect(evaluateShepherd(herd(), s, { ...cfg, nagMins: 120 })).toEqual({
+      kind: "wedged", path: "backstop",
+      evidence: "job-a done with report 90m ago, quiet 90m, not yet closed; background 1 shell for 61m; if a follow-up round is in flight run rt herd follow-up job-a --herd demo-1, else rt herd close job-a --herd demo-1",
+    });
   });
 });
 
@@ -341,14 +367,14 @@ describe("evaluateShepherd", () => {
   test("RT-355: a done job on background work trips neither the nag nor the shepherd backstop", () => {
     const s = sensors({
       paneState: () => "idle",
-      backgroundWork: (p) => p === "w1:p1",
+      backgroundWork: (p) => (p === "w1:p1" ? { task: "1 shell", sinceMs: NOW - 5 * MIN } : null),
       jobs: () => [job({ status: "done", lastReport: 2758, updatedAt: NOW - 90 * MIN })],
     });
     expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "healthy" });
   });
 
   test("RT-355: a shepherd's own background work never hides a human gate it left open", () => {
-    const s = sensors({ paneState: () => "idle", backgroundWork: () => true, openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] });
+    const s = sensors({ paneState: () => "idle", backgroundWork: bgFor(5), openHumanGates: () => [{ id: "g-9", ageMs: 6 * MIN }] });
     expect(evaluateShepherd(herd(), s, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "human gate g-9 open 6m unanswered" });
   });
 });
