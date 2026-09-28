@@ -1709,7 +1709,7 @@ describe('deploy stamping', () => {
     try {
       const res = await devPost('/api/v1/apps/stampfail/commands/deploy', {});
       expect(res.status).toBe(200);
-      expect((await res.json()).started).toBe(true);
+      expect(await res.json()).toMatchObject({ started: true });
       expect(warn).toHaveBeenCalledTimes(1);
     } finally {
       warn.mockRestore();
