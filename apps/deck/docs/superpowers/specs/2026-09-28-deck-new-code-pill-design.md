@@ -1,7 +1,7 @@
 # Deck "new code" redeploy pill
 
 Date: 2026-09-28
-Status: approved design, spec under review
+Status: approved
 
 ## Problem
 
@@ -64,9 +64,11 @@ A new module, `src/registry/new-code.ts`:
 - Caches the answer per (app, lastDeploy.sha, HEAD), so the board's 5s poll
   only runs `git diff` when HEAD or the stamp actually moves. Reading HEAD
   itself is one cheap `git rev-parse` per eligible row per poll.
-- On any git failure (sha no longer present, not a repo), reports no new code
-  and logs one `warn` per (app, sha) through deck's logger. It never throws
-  into `buildStatus`.
+- On any git failure (sha no longer present, not a repo, a checkout removed
+  mid-check) or a baseline that cannot be written, reports no new code and
+  logs one `warn` per app and failure through deck's logger. It never throws
+  into `buildStatus`. A deploy stamp that cannot be written warns the same way
+  and never fails the run it belongs to.
 
 Returns `{ deployed: string; head: string } | null` (short shas).
 
@@ -79,13 +81,17 @@ same way `devLink` is.
 ### Board: the pill
 
 In `CommandsCell` (`core/board/AppsTable.tsx`), when `row.newCode` is set, the
-`deploy` button renders as a yellow pill reading "New code · Redeploy", with
-the tooltip "Deployed at `<deployed>`, checkout at `<head>`". Pressing it runs
-the same `onRunCommand(name, 'deploy')` as today. Colours come from existing
-tui-kit warning tokens per `docs/apps/ui-authoring.md`, never a raw hex. The
-drawer's `SourceScreen` has no command buttons (it lists command names as a
-fact), so the pill lives in the table only. `newCode` is emitted only to
-local callers (`opts.local`), like `devDir`.
+`deploy` button renders as a solid amber pill (tui-kit `Button` with
+`intent="warn" variant="filled"`) labelled "Redeploy", with the tooltip "New
+code since last deploy: `<deployed>` to `<head>`". Its accessible name is
+"Redeploy `<app>`", so it contains the visible label. Pressing it runs the
+same `onRunCommand(name, 'deploy')` as the plain button. Colours come from the
+kit's warn intent per `docs/apps/ui-authoring.md`, never a raw hex. The
+kit's `filled|warn` cell is recorded contrast debt (white on orange, 3.3:1 in
+light, 3.0:1 in dark), which Matt accepted for this pill. The drawer's
+`SourceScreen` has no command buttons (it lists command names as a fact), so
+the pill lives in the table only. `newCode` is emitted only to local callers
+(`opts.local`), like `devDir`.
 
 The pill clears on the first poll after the deploy starts, because the stamp
 moved to HEAD. `core/generated/board.{js,css}` is regenerated in the same
