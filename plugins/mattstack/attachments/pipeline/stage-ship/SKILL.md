@@ -36,8 +36,8 @@ digraph ship {
     "ship answer?" [shape=diamond];
     "Ship gate rounds = 2?" [shape=diamond];
     "Ship gate reopenings = 2?" [shape=diamond];
-    "Rebase in progress (ship gate rounds spent)?" [shape=diamond];
-    "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" [shape=plaintext];
+    "Rebase in progress (ship gate budget spent)?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [shape=plaintext];
     "Forge clarify answer?" [shape=diamond];
     "Forge clarify rounds = 2?" [shape=diamond];
     "dirty answer?" [shape=diamond];
@@ -111,7 +111,7 @@ digraph ship {
     "ship answer?" -> "dirty answer?" [label="proceed"];
     "ship answer?" -> "Ship gate rounds = 2?" [label="iterate: redo with their note"];
     "Ship gate rounds = 2?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
-    "Ship gate rounds = 2?" -> "Rebase in progress (ship gate rounds spent)?" [label="yes: a failure, their last note quoted"];
+    "Ship gate rounds = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
     "ship answer?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
     "ship answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
     "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: ship}";
@@ -137,10 +137,10 @@ digraph ship {
     "Conflict rounds = 3?" -> "Resolve the files, then git rebase --continue on Bash" [label="no"];
     "Conflict rounds = 3?" -> "Ship gate reopenings = 2?" [label="yes: reopen, conflicted files quoted"];
     "Ship gate reopenings = 2?" -> "Gate ship (table below)" [label="no: reopen with what was quoted"];
-    "Ship gate reopenings = 2?" -> "Rebase in progress (ship gate rounds spent)?" [label="yes: a failure, the failing output or conflicted files quoted"];
-    "Rebase in progress (ship gate rounds spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" [label="yes"];
-    "Rebase in progress (ship gate rounds spent)?" -> "run_stage {action: fail, stage: ship, reason}" [label="no: a failure, what was quoted is the reason"];
-    "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" -> "run_stage {action: fail, stage: ship, reason}" [label="a failure, what was quoted is the reason"];
+    "Ship gate reopenings = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, the failing output or conflicted files quoted"];
+    "Rebase in progress (ship gate budget spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [label="yes"];
+    "Rebase in progress (ship gate budget spent)?" -> "run_stage {action: fail, stage: ship, reason}" [label="no: a failure, what was quoted is the reason"];
+    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" -> "run_stage {action: fail, stage: ship, reason}" [label="a failure, what was quoted is the reason"];
     "Resolve the files, then git rebase --continue on Bash" -> "Continue result?";
     "Continue result?" -> "Conflict rounds = 3?" [label="another commit conflicted"];
     "Continue result?" -> "Run the domain's fast checks (none when unbound)" [label="rebase finished"];
@@ -167,7 +167,7 @@ digraph ship {
     "Forge clarify rounds = 2?" -> "Gate clarify: which forge?" [label="no: ask which forge"];
     "Forge clarify rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: a failure, the origin URL and their answer quoted"];
     "Gate clarify: which forge?" -> "Forge clarify answer?";
-    "Forge clarify answer?" -> "Forge host?" [label="answered: the named forge"];
+    "Forge clarify answer?" -> "Forge host?" [label="answered: GitLab or GitHub, the host from here on"];
     "Forge clarify answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
     "Forge clarify answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="hand back: a failure, no forge this stage knows"];
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Open MR on the branch?";
@@ -289,8 +289,12 @@ The origin host is neither GitLab nor GitHub. Ask which forge it is,
 quoting the `git remote get-url origin` line as the context. Options:
 **GitLab** / **GitHub** / **Hand back**, and `next`: **Proceed** /
 **Hold**. `Forge clarify rounds = 2?` counts the times the host reads as
-neither within this stage attempt, this one included: the first asks,
-and the second fails the stage with the origin URL and the answer quoted.
+neither within this pass through the stage, this one included: the first
+asks, and the second fails the stage with the origin URL and the answer
+quoted. The named forge stands for the host from here on: this diamond
+and every later forge diamond read the answer, never the origin URL
+again, so the counter trips only when the answer names no forge this
+stage knows.
 
 ## What the graph cannot show
 
@@ -320,12 +324,15 @@ whether the tree is dirty.
 
 Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
 `Ship gate rounds = 2?` counts Iterate answers at this gate within this
-stage attempt, this one included: the first redoes the steps before the
-gate with the note, and the second fails the stage with the note quoted.
-`Ship gate reopenings = 2?` counts the times the fix or conflict rounds
-run out and reopen this gate within this stage attempt, this one
-included: the first reopens it with the failing output or conflicted
-files quoted, and the second fails the stage with them quoted. Either
+pass through the stage, this one included: the first redoes the steps
+before the gate with the note, and the second fails the stage with the
+note quoted. `Ship gate reopenings = 2?` counts the times the fix or
+conflict rounds run out and reopen this gate within this pass through
+the stage, this one included: the first reopens it with the failing
+output or conflicted files quoted, and the second fails the stage with
+them quoted. The fix and conflict rounds carry over a reopen: the
+reopened gate is the human's turn to fix it, so a Proceed whose checks
+still fail reaches this counter again without new fix rounds. Either
 failure aborts a rebase in progress first.
 
 ## Domain rules
