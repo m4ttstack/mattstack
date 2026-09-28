@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { assembleBrief, fillSpawnSlots, stripAuthorNotes } from "../herd-brief.ts";
 
 const HAPPY_TEMPLATE = [
@@ -579,5 +581,21 @@ describe("spawn-filled slots (RT-356)", () => {
   test("fillSpawnSlots leaves comments, other markers and unknown slots alone", () => {
     const text = "x <!-- mcp-lint: allow --> <id> <paths>";
     expect(fillSpawnSlots(text, { "shepherd handle": "tom", paths: "p" })).toBe(text);
+  });
+
+  test("the real job template names the shepherd by the spawn-filled handle, never a bare shepherd", () => {
+    const template = readFileSync(join(import.meta.dir, "../../plugins/mattstack/attachments/orchestration/shepherdr/references/job-template.md"), "utf8");
+    const probe = assembleBrief({ template, job: "j", fills: {}, method });
+    const leftover = probe.ok ? [] : (probe.leftover ?? []);
+    const r = assembleBrief({ template, job: "j", fills: Object.fromEntries(leftover.map((n) => [n, "x"])), method });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.brief).toContain("<shepherd handle>");
+    const brief = fillSpawnSlots(r.brief, { "shepherd handle": "tom" });
+    const messages = brief.slice(brief.indexOf("## Messages"), brief.indexOf("## Git"));
+    expect(messages).toContain("Your shepherd is tom in chat");
+    expect(messages).toMatch(/`chat_dm` to\s+tom\b/);
+    expect(brief).not.toContain("<shepherd handle>");
+    expect(brief).not.toMatch(/(?:chat_dm|chat dm)\s+`?shepherd\b/);
+    expect(brief).not.toMatch(/\bto:?\s+`?shepherd`?[\s.,]/);
   });
 });

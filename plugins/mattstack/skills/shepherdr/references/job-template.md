@@ -208,6 +208,9 @@ takes the report text, not a path):
 then STOP.
 
 ## Messages
+Your shepherd is <shepherd handle> in chat. Anything you send the shepherd
+outside a gate, a milestone or a report goes by `chat_dm` to
+<shepherd handle>, never to a handle guessed from the role.
 Chat arrives as `[#<room>] <name> #<n>: ...` or `[dm] <name> #<n>: ...`,
 with a reply hint that names the sender's identity id
 (`rt chat dm <id> "..."`). Reply with the `chat_dm` tool, `to` = that id. <!-- mcp-lint: allow -->
