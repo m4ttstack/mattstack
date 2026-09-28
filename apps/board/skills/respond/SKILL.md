@@ -31,7 +31,7 @@ board injects it:
 | `--skill-path <path>` | absolute path to that skill's SKILL.md, when the board already resolved it (optional; see "Resolving the domain skill") |
 | `--resumed-gate <gateId>` | this invocation is a parked-gate resume, not a fresh run (optional; see "Resumed entry" under Flow) |
 | `--resumed-gate-kind <kind>` | the `kind` of the gate `--resumed-gate` names (e.g. `respond-post`). Present exactly when `--resumed-gate` is, and the only way to learn it: `--state` is an opaque handle and `gate wait` returns only the answer. |
-| `--round <n>` | the round to delegate at, carried over from an earlier pane on this MR (step 3's `--round` flag on `respond-status`). Present on a parked-gate resume when a prior pane got as far as recording one, or on a fresh run when the board found a prior recorded round for this MR (a new run responding to a further round of review); absent means round 1, either because this is the MR's first round or because the prior pane predates this flag. |
+| `--round <n>` | the round to delegate at, carried over from an earlier pane on this MR (recorded by the `--round` flag on `<status-bin> respond-status <state> drafting --round <n>`, see "Write the verdict table and drafts to --report"). Present on a parked-gate resume when a prior pane got as far as recording one, or on a fresh run when the board found a prior recorded round for this MR (a new run responding to a further round of review); absent means round 1, either because this is the MR's first round or because no earlier pane recorded a round. |
 
 Write status **only** by running the injected `--status-bin`:
 
@@ -101,6 +101,11 @@ digraph respond_flow {
     "Domain skill resolved (respond)?" [shape=diamond];
     "Delegate adjudication to the domain skill" [shape=box];
     "Domain adjudication result?" [shape=diamond];
+    "mr_view {mrUrl} (respond source branch)" [shape=plaintext];
+    "mr_view result (respond)?" [shape=diamond];
+    "STOP: MR reads go through mr_view (respond)" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Fixed the mr_view call once already (respond)?" [shape=diamond];
+    "Fix what the mr_view error names (respond)" [shape=box];
     "mr_threads {mrUrl, refresh: true} (fetch)" [shape=plaintext];
     "mr_threads result (fetch)?" [shape=diamond];
     "STOP: threads are read with mr_threads" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -130,6 +135,7 @@ digraph respond_flow {
     "Domain skill resolved (approve)?" [shape=diamond];
     "Domain skill resolved (skip)?" [shape=diamond];
     "Hand {plan, by} to the domain skill" [shape=box];
+    "Domain plan result (respond)?" [shape=diamond];
     "Fix threads left to implement?" [shape=diamond];
     "Implement and verify the next fix thread" [shape=box];
     "Fix verified (this thread)?" [shape=diamond];
@@ -181,9 +187,12 @@ digraph respond_flow {
     "mr_resolve_thread result?" [shape=diamond];
     "Fixed the mr_resolve_thread call once already?" [shape=diamond];
     "Fix what the mr_resolve_thread error names" [shape=box];
-    "Acted on a respond-post-held line?" [shape=diamond];
+    "Held threads from a respond-post-held line posted this pass?" [shape=diamond];
     "Delete the respond-post-held line from --report" [shape=box];
 
+    "respond off-script gate: mr_view refused" [shape=box];
+    "Off-script outcome (mr_view, respond)?" [shape=diamond];
+    "Off-script rounds = 2 (mr_view, respond)?" [shape=diamond];
     "respond off-script gate: mr_threads refused (fetch)" [shape=box];
     "Off-script outcome (fetch mr_threads)?" [shape=diamond];
     "Off-script rounds = 2 (fetch mr_threads)?" [shape=diamond];
@@ -245,7 +254,7 @@ digraph respond_flow {
     "rt_verb named a style skill (respond)?" -> "Load the preferences.md style, else conversational (respond)" [label="no: refused, failed or unavailable"];
     "Load the named writing-style skill (respond)" -> "Which entry (respond writing style)?";
     "Load the preferences.md style, else conversational (respond)" -> "Which entry (respond writing style)?";
-    "Which entry (respond writing style)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="fresh run"];
+    "Which entry (respond writing style)?" -> "mr_view {mrUrl} (respond source branch)" [label="fresh run"];
     "Which entry (respond writing style)?" -> "mr_threads {mrUrl, refresh: true} (posted already)" [label="resumed gate"];
 
     "mr_threads {mrUrl, refresh: true} (posted already)" -> "mr_threads result (posted already)?";
@@ -267,6 +276,14 @@ digraph respond_flow {
     "Delegate adjudication to the domain skill" -> "Domain adjudication result?";
     "Domain adjudication result?" -> "Unresolved human threads = 0?" [label="a verdict table handed back"];
     "Domain adjudication result?" -> "<status-bin> respond-status <state> error <what went wrong>" [label="failed"];
+    "mr_view {mrUrl} (respond source branch)" -> "mr_view result (respond)?";
+    "mr_view result (respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="ok: keep sourceBranch"];
+    "mr_view result (respond)?" -> "Fixed the mr_view call once already (respond)?" [label="tool error"];
+    "mr_view result (respond)?" -> "STOP: MR reads go through mr_view (respond)" [label="tempted to read the MR with the GitLab CLI"];
+    "STOP: MR reads go through mr_view (respond)" -> "mr_view {mrUrl} (respond source branch)";
+    "Fixed the mr_view call once already (respond)?" -> "Fix what the mr_view error names (respond)" [label="no"];
+    "Fixed the mr_view call once already (respond)?" -> "respond off-script gate: mr_view refused" [label="yes"];
+    "Fix what the mr_view error names (respond)" -> "mr_view {mrUrl} (respond source branch)";
     "mr_threads {mrUrl, refresh: true} (fetch)" -> "mr_threads result (fetch)?";
     "mr_threads result (fetch)?" -> "Adjudicate each unresolved thread" [label="ok"];
     "mr_threads result (fetch)?" -> "Fixed the fetch mr_threads call once already?" [label="tool error"];
@@ -309,7 +326,9 @@ digraph respond_flow {
     "Domain skill resolved (approve)?" -> "Fix threads left to implement?" [label="no"];
     "Domain skill resolved (skip)?" -> "Hand {plan, by} to the domain skill" [label="yes"];
     "Domain skill resolved (skip)?" -> "Threads to offer at Gate 2?" [label="no"];
-    "Hand {plan, by} to the domain skill" -> "Threads to offer at Gate 2?";
+    "Hand {plan, by} to the domain skill" -> "Domain plan result (respond)?";
+    "Domain plan result (respond)?" -> "Threads to offer at Gate 2?" [label="handed back"];
+    "Domain plan result (respond)?" -> "<status-bin> respond-status <state> error <what went wrong>" [label="failed"];
     "Fix threads left to implement?" -> "Implement and verify the next fix thread" [label="yes"];
     "Fix threads left to implement?" -> "Update --report with the finalized replies" [label="no"];
     "Implement and verify the next fix thread" -> "Fix verified (this thread)?";
@@ -325,7 +344,7 @@ digraph respond_flow {
     "Domain skill resolved (revise)?" -> "Revise the proposal yourself at round n+1" [label="no"];
     "Ask the domain skill to revise at round n+1" -> "Fresh adjudication table handed back?";
     "Fresh adjudication table handed back?" -> "Write the verdict table and drafts to --report" [label="yes: a new round"];
-    "Fresh adjudication table handed back?" -> "Threads to offer at Gate 2?" [label="no: nothing implemented this round"];
+    "Fresh adjudication table handed back?" -> "Domain skill resolved (skip)?" [label="no: nothing implemented this round, the skip hand-off"];
     "Revise the proposal yourself at round n+1" -> "Write the verdict table and drafts to --report";
 
     "Threads to offer at Gate 2?" -> "Domain skill resolved (reply-only)?" [label="none: no fixed thread, no override"];
@@ -370,7 +389,7 @@ digraph respond_flow {
     "Hold the fixed threads: write respond-post-held into --report" -> "Threads left to post (respond)?";
 
     "Threads left to post (respond)?" -> "Post this thread's reply?" [label="yes"];
-    "Threads left to post (respond)?" -> "Acted on a respond-post-held line?" [label="no"];
+    "Threads left to post (respond)?" -> "Held threads from a respond-post-held line posted this pass?" [label="no"];
     "Post this thread's reply?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="yes: picked post, or reply-only; not held, not posted already"];
     "Post this thread's reply?" -> "Resolve this thread?" [label="no"];
     "mr_reply_thread {mrUrl, discussionId, body}" -> "mr_reply_thread result?";
@@ -389,9 +408,19 @@ digraph respond_flow {
     "Fixed the mr_resolve_thread call once already?" -> "Fix what the mr_resolve_thread error names" [label="no"];
     "Fixed the mr_resolve_thread call once already?" -> "respond off-script gate: mr_resolve_thread refused" [label="yes"];
     "Fix what the mr_resolve_thread error names" -> "mr_resolve_thread {mrUrl, discussionId}";
-    "Acted on a respond-post-held line?" -> "Delete the respond-post-held line from --report" [label="yes: its threads posted"];
-    "Acted on a respond-post-held line?" -> "<status-bin> respond-status <state> done <summary> --posted <n> --threads <n> [--held <n>]" [label="no"];
+    "Held threads from a respond-post-held line posted this pass?" -> "Delete the respond-post-held line from --report" [label="yes: its threads posted"];
+    "Held threads from a respond-post-held line posted this pass?" -> "<status-bin> respond-status <state> done <summary> --posted <n> --threads <n> [--held <n>]" [label="no"];
     "Delete the respond-post-held line from --report" -> "<status-bin> respond-status <state> done <summary> --posted <n> --threads <n> [--held <n>]";
+
+    "respond off-script gate: mr_view refused" -> "Off-script outcome (mr_view, respond)?";
+    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="take: the human names the source branch"];
+    "Off-script outcome (mr_view, respond)?" -> "Off-script rounds = 2 (mr_view, respond)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (mr_view, respond)?" -> "Held at a respond off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="hand back: source branch unknown, fixed threads held"];
+    "Off-script outcome (mr_view, respond)?" -> "Respond gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="gate unavailable: source branch unknown, fixed threads held"];
+    "Off-script rounds = 2 (mr_view, respond)?" -> "mr_view {mrUrl} (respond source branch)" [label="no: read again"];
+    "Off-script rounds = 2 (mr_view, respond)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="yes: source branch unknown, fixed threads held"];
 
     "respond off-script gate: mr_threads refused (fetch)" -> "Off-script outcome (fetch mr_threads)?";
     "Off-script outcome (fetch mr_threads)?" -> "Adjudicate each unresolved thread" [label="take: the human supplies the threads"];
@@ -486,10 +515,12 @@ What the graph cannot show:
 - **The push.** Only when Gate 2's picks post or resolve at least one
   fixed thread (a `gate-1: fix` row) does anything push; otherwise push
   nothing. Gate 2's answer is the authorization: ask nothing more. The
-  MR's source branch is `mr_view`'s `sourceBranch`, read in "Adjudicate
-  each unresolved thread" and kept in the report as `source-branch:
-  <branch>`, where a resumed pane reads it; with no known source branch,
-  `On the MR's source branch?` answers `no, or an error`. `<root>` is the
+  MR's source branch is the `sourceBranch` that `mr_view {mrUrl} (respond
+  source branch)` returns on a fresh generic run, kept in the report as
+  `source-branch: <branch>`, where a resumed pane reads it; with no known
+  source branch (the read refused past its off-script gate, or a report
+  without the line), `On the MR's source branch?` answers `no, or an
+  error` and the fixed threads are held. `<root>` is the
   absolute top level of the checkout this pane runs in (the board's
   configured respond checkout), where the generic path commits its fixes
   and where both git checks read; a resumed pane launches in the same
@@ -660,6 +691,16 @@ one. It never presents a gate or decides what gets implemented or posted.
 A verdict table with no rows is zero unresolved threads. A failure it
 reports is `error` with its message.
 
+### Fix what the mr_view error names (respond)
+
+`mr_view` refused its input. Correct what the error names (`mrUrl` the
+MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
+with rt; `maxAgeMs` a number when you pass it) and read again, once. An
+error that names no input (the MR is not in the daemon's cache, the repo
+is not registered with rt) has nothing to correct: read again unchanged,
+once, and the off-script gate follows. An error is never a reason to read
+the MR with the GitLab CLI.
+
 ### Fix what the fetch mr_threads error names
 
 `mr_threads` refused its input on the fetch. Correct what the error names
@@ -672,12 +713,10 @@ CLI or the API.
 
 ### Adjudicate each unresolved thread
 
-The generic path, in the loaded voice. Read the MR record with `mr_view
-{mrUrl}` for its title, description and `sourceBranch` (the push check
-reads the branch; an `mr_view` failure leaves the branch unknown, and any
-fixed thread is then held at the push check rather than pushed). From the
-`mr_threads` result keep the unresolved threads a human opened: no
-resolved threads, no system notes, no bot threads.
+The generic path, in the loaded voice. The MR record `mr_view` returned
+gives the title and description for context. From the `mr_threads`
+result keep the unresolved threads a human opened: no resolved threads,
+no system notes, no bot threads.
 
 Judge each thread on its merits and pick one verdict:
 
@@ -795,6 +834,9 @@ a resume, tell it this is a resume (the resumed `gateId` and
   file; post nothing yourself.
 
 It records the Gate 1 answer and drafts overrides in `--report` itself.
+`Domain plan result (respond)?` reads what comes back: anything above is
+`handed back`; a failure it reports (it could not work the plan at all) is
+`failed`, which writes `error` with its message.
 
 ### Implement and verify the next fix thread
 
@@ -833,7 +875,11 @@ A fresh adjudication table it hands back is a new round: the report is
 rewritten for it, `drafting --round <n+1>` records it through the drafting
 node on the loop, and a new `respond-plan` Gate 1 opens, from its fresh
 open file when it hands one back. No fresh table means nothing changed
-this round: continue toward Gate 2 as `skip` does.
+this round: the edge goes to `Domain skill resolved (skip)?` and takes the
+skip branch's hand-off, so `Hand {plan, by} to the domain skill` hands it
+the Gate 1 answers with nothing to implement, and it records them, drafts
+any overrides and, when Gate 2 has nothing to offer, posts the reply-only
+threads.
 
 ### Revise the proposal yourself at round n+1
 
@@ -931,6 +977,26 @@ This pass posted the threads a `respond-post-held:` line listed: the push
 went up and their replies posted. Delete the line from `--report`, so a
 later resume never acts on those threads again.
 
+### respond off-script gate: mr_view refused
+
+Take "Off-script step" with this question. Label: `mr_view refused twice
+on !<iid>: <second error>`. Context: both `mr_view` errors, quoted, and
+that the push check needs the MR's source branch.
+
+| Value | Label | Description |
+|---|---|---|
+| `take: you tell me the MR's source branch (mr_view refused)` | Tell me the branch | You name the MR's source branch and I use it for the push check. |
+| `iterate: you fixed the cause, read the MR again (mr_view refused)` | Fixed it, read again | You fixed what refused the read and I read the MR again. |
+| `hold: keep this pane open with nothing moved (mr_view refused)` | Hold this pane | I stop before reading the threads and the pane stays open. |
+| `hand back: carry on without the source branch, fixed replies held (mr_view refused)` | Carry on without it | I carry on without the branch and hold any fixed thread at the push. |
+
+A take keeps the branch the human names as the source branch. Iterate
+passes `Off-script rounds = 2 (mr_view, respond)?` before reading again.
+Hand back, gate unavailable and a spent round budget carry on to
+`mr_threads` with the source branch unknown: the report gets no
+`source-branch:` line, and the push check later holds every fixed thread
+rather than pushing it.
+
 ### respond off-script gate: mr_threads refused (fetch)
 
 Take "Off-script step" with this question. Label: `mr_threads refused
@@ -1020,8 +1086,10 @@ Take "Off-script step" with this question. Label: `resolving thread
 
 Iterate passes `Off-script rounds = 2 (mr_resolve_thread)?` for this
 thread before resolving again. Hand back, gate unavailable and a spent
-round budget leave the thread open and move to the next one; its reply,
-when posted, still counts as posted.
+round budget leave the thread open and move to the next one. A resolve
+refusal changes no count: a thread whose reply posted still counts as
+posted, since `--posted` counts replies. Name the unresolved thread in the
+`done` message.
 
 
 ## Gate step
@@ -1466,8 +1534,11 @@ path). Gate 2 offers it.
   without a reply going up; a thread the run simply never got to is neither
   posted nor held.
 - A thread held by a failed push (`respond-post-held:`), a fix thread
-  recorded unfixed, and a thread handed back at a reply or resolve refusal
-  are neither posted nor held.
+  recorded unfixed, and a thread handed back at a reply refusal are
+  neither posted nor held.
+- A resolve refusal changes no count: a thread whose reply posted still
+  counts as posted, since `--posted` counts replies. Name the unresolved
+  thread in the `done` message.
 
 The board derives the badge from these counts, so a wrong count is a wrong
 badge:
