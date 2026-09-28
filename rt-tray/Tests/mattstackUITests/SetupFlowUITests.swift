@@ -238,6 +238,7 @@ final class SetupFlowUITests: XCTestCase {
             el("settings.devLogins.add").click(); waitFor("devLogin.sheet.origin")
             el("devLogin.sheet.origin").click(); el("devLogin.sheet.origin").typeText("https://login.example.com")
             waitFor("devLogin.sheet.replaceCaption")
+            shoot("devlogins-sheet-typed-replace-\(scheme)")
             el("devLogin.sheet.cancel").click()
             app.terminate()
         }
