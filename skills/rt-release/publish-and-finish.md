@@ -8,7 +8,10 @@ Verify what release.yml published, deploy rt.cool, and bring this machine onto t
 
 Verify reports rows, not a status; `Verify status?` reads them. Every row ok reads as `released`;
 only pending rows (the rest ok) read as `pending`; any stale row reads as `failed run`,
-`draft left behind` or `missing assets` by its detail. An `error` row (verify could not check,
+`draft left behind` or `missing assets` by its detail, and a stale row none of those name (a
+release marked prerelease, a release body that does not match the committed notes, or
+releases/latest resolving another tag past the propagation window) reads as `release state
+wrong`. An `error` row (verify could not check,
 for example "could not reach gh") takes the `pending, or an error row` edge: verify reruns
 through `Verify reruns = 4?`.
 
@@ -47,6 +50,8 @@ digraph publish_and_finish {
     "rt release update-machine --yes, rerun after the fix" [shape=plaintext];
     "Off-script gate: assets missing" [shape=box];
     "Assets missing: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: release state wrong after publish" [shape=box];
+    "Release state wrong after publish: gate rounds = 2?" [shape=diamond];
     "Off-script gate: publish still pending" [shape=box];
     "Publish still pending: gate rounds = 2?" [shape=diamond];
     "Off-script gate: publish run failed another way" [shape=box];
@@ -78,6 +83,13 @@ digraph publish_and_finish {
     "Assets missing: gate rounds = 2?" -> "rt release verify <tag> --json, rerun after the wait" [label="no: retry"];
     "Assets missing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Verify status?" -> "Off-script gate: assets missing" [label="missing assets"];
+    "Off-script gate: release state wrong after publish" -> "bash scripts/deploy-docs.sh" [label="take: Matt rules the release right as it stands"];
+    "Off-script gate: release state wrong after publish" -> "Release state wrong after publish: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: release state wrong after publish" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: release state wrong after publish" -> "Handed back to Matt" [label="hand back"];
+    "Release state wrong after publish: gate rounds = 2?" -> "rt release verify <tag> --json, rerun after the wait" [label="no: retry"];
+    "Release state wrong after publish: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Verify status?" -> "Off-script gate: release state wrong after publish" [label="release state wrong"];
     "Verify status?" -> "STOP: CI owns the release object; rerun verify instead" [label="tempted to create the release or edit its notes by hand"];
     "STOP: CI owns the release object; rerun verify instead" -> "rt release verify <tag> --json, rerun after the wait";
     "Verify reruns = 4?" -> "rt release verify <tag> --json, rerun after the wait" [label="no"];
@@ -227,6 +239,15 @@ have their own edges.
 
 Quote verify's asset rows. Take: Matt hand-completed them with `rt:mattstack-release` (zip
 re-derive, appcast re-sign, draft flip). Iterate: Matt fixed the cause, and verify runs again.
+
+### Off-script gate: release state wrong after publish
+
+Quote verify's stale rows and their details: `release state` marked prerelease, `release notes`
+not matching the committed `RELEASE_NOTES.md`, or `releases/latest` still resolving another tag
+after the propagation window. CI owns the release object, so never flip the prerelease flag or
+edit the notes yourself; a wrong notes body is fixed only by a new tag. Take: Matt rules the
+release right as it stands, and rt.cool deploys. Iterate: Matt fixed the cause, and verify runs
+again, counted by `Release state wrong after publish: gate rounds = 2?`.
 
 ### Off-script gate: publish still pending
 

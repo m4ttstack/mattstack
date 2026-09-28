@@ -66,7 +66,9 @@ digraph mattstack_release {
     "Pipeline attempts = 3?" [shape=diamond];
     "Diagnose the failing pipeline step" [shape=box];
     "Gate: publish the by-hand release" [shape=box];
-    "gh release create <tag> out/... --notes-file RELEASE_NOTES.md" [shape=plaintext];
+    "gh release create <tag> out/... --notes-file RELEASE_NOTES.md --verify-tag" [shape=plaintext];
+    "git ls-remote origin refs/tags/<tag>^{}" [shape=plaintext];
+    "Remote tag points at the commit out/ was built from?" [shape=diamond];
     "rt release verify <tag> --json, after the hand publish" [shape=plaintext];
     "Hand publish verified?" [shape=diamond];
     "Published by hand" [shape=doublecircle style=filled fillcolor=lightgreen];
@@ -87,10 +89,14 @@ digraph mattstack_release {
     "Asset rerun failed another way: gate rounds = 2?" [shape=diamond];
     "Off-script gate: uploads keep failing" [shape=box];
     "Uploads keep failing: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: upload failed another way" [shape=box];
+    "Upload failed another way: gate rounds = 2?" [shape=diamond];
     "Propagation reruns = 4?" [shape=diamond];
     "rt release verify <tag> --json, rerun after the wait" [shape=plaintext];
     "Off-script gate: hand completion does not verify" [shape=box];
     "Hand completion does not verify: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: remote tag does not match the build" [shape=box];
+    "Remote tag does not match the build: gate rounds = 2?" [shape=diamond];
     "Off-script gate: by-hand pipeline keeps failing" [shape=box];
     "By-hand pipeline keeps failing: gate rounds = 2?" [shape=diamond];
     "Publish propagation reruns = 4?" [shape=diamond];
@@ -179,6 +185,13 @@ digraph mattstack_release {
     "Off-script gate: uploads keep failing" -> "Handed back to Matt" [label="hand back"];
     "Uploads keep failing: gate rounds = 2?" -> "gh release upload <tag> <files> --clobber" [label="no: retry"];
     "Uploads keep failing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Off-script gate: upload failed another way" -> "Draft published?" [label="take: Matt uploaded them himself"];
+    "Off-script gate: upload failed another way" -> "Upload failed another way: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: upload failed another way" -> "Held: the turn ends naming the gate" [label="hold"];
+    "Off-script gate: upload failed another way" -> "Handed back to Matt" [label="hand back"];
+    "Upload failed another way: gate rounds = 2?" -> "gh release upload <tag> <files> --clobber" [label="no: retry"];
+    "Upload failed another way: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Upload result?" -> "Off-script gate: upload failed another way" [label="failed another way"];
     "Upload attempts = 5?" -> "Off-script gate: uploads keep failing" [label="yes: budget spent"];
     "Draft published?" -> "rt release verify <tag> --json, after the hand completion" [label="yes"];
     "Draft published?" -> "gh release edit <tag> --draft=false" [label="no"];
@@ -197,21 +210,30 @@ digraph mattstack_release {
     "Hand completion does not verify: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Hand completion verified?" -> "Off-script gate: hand completion does not verify" [label="no"];
     "Run every pipeline step with the workflow's env" -> "Pipeline run result?";
-    "Pipeline run result?" -> "Gate: publish the by-hand release" [label="ok"];
+    "Pipeline run result?" -> "git ls-remote origin refs/tags/<tag>^{}" [label="ok"];
     "Pipeline run result?" -> "Pipeline attempts = 3?" [label="failed"];
+    "git ls-remote origin refs/tags/<tag>^{}" -> "Remote tag points at the commit out/ was built from?";
+    "Remote tag points at the commit out/ was built from?" -> "Gate: publish the by-hand release" [label="yes"];
+    "Off-script gate: remote tag does not match the build" -> "Gate: publish the by-hand release" [label="take: Matt pushed the tag at the build commit"];
+    "Off-script gate: remote tag does not match the build" -> "Remote tag does not match the build: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: remote tag does not match the build" -> "Held: the turn ends naming the gate" [label="hold"];
+    "Off-script gate: remote tag does not match the build" -> "Handed back to Matt" [label="hand back"];
+    "Remote tag does not match the build: gate rounds = 2?" -> "git ls-remote origin refs/tags/<tag>^{}" [label="no: retry"];
+    "Remote tag does not match the build: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Remote tag points at the commit out/ was built from?" -> "Off-script gate: remote tag does not match the build" [label="no: missing, or at another commit"];
     "Pipeline attempts = 3?" -> "Diagnose the failing pipeline step" [label="no"];
     "Diagnose the failing pipeline step" -> "Run every pipeline step with the workflow's env";
-    "Off-script gate: by-hand pipeline keeps failing" -> "Gate: publish the by-hand release" [label="take: Matt finished the pipeline himself"];
+    "Off-script gate: by-hand pipeline keeps failing" -> "git ls-remote origin refs/tags/<tag>^{}" [label="take: Matt finished the pipeline himself"];
     "Off-script gate: by-hand pipeline keeps failing" -> "By-hand pipeline keeps failing: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: by-hand pipeline keeps failing" -> "Held: the turn ends naming the gate" [label="hold"];
     "Off-script gate: by-hand pipeline keeps failing" -> "Handed back to Matt" [label="hand back"];
     "By-hand pipeline keeps failing: gate rounds = 2?" -> "Run every pipeline step with the workflow's env" [label="no: retry"];
     "By-hand pipeline keeps failing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Pipeline attempts = 3?" -> "Off-script gate: by-hand pipeline keeps failing" [label="yes: budget spent"];
-    "Gate: publish the by-hand release" -> "gh release create <tag> out/... --notes-file RELEASE_NOTES.md" [label="approve"];
+    "Gate: publish the by-hand release" -> "gh release create <tag> out/... --notes-file RELEASE_NOTES.md --verify-tag" [label="approve"];
     "Gate: publish the by-hand release" -> "Held: the turn ends naming the gate" [label="hold"];
     "Gate: publish the by-hand release" -> "Handed back to Matt" [label="hand back"];
-    "gh release create <tag> out/... --notes-file RELEASE_NOTES.md" -> "rt release verify <tag> --json, after the hand publish";
+    "gh release create <tag> out/... --notes-file RELEASE_NOTES.md --verify-tag" -> "rt release verify <tag> --json, after the hand publish";
     "rt release verify <tag> --json, after the hand publish" -> "Hand publish verified?";
     "Hand publish verified?" -> "Published by hand" [label="yes"];
     "Hand publish verified?" -> "Publish propagation reruns = 4?" [label="pending: releases/latest still propagating"];
@@ -343,18 +365,25 @@ between attempts.
 
 Run release.yml's steps in its order, each
 as in `Run the step with the workflow's env`, up to but not including the publish, leaving the
-assets in `out/`.
+assets in `out/`. Record `git rev-parse HEAD` in that tree before the first step: it is the commit
+`out/` is built from, and the remote tag must point at it before anything publishes.
 
 ### Diagnose the failing pipeline step
 
 As in `Diagnose the failing hand step`, for the first step that failed. Rerun from that step
 onward when nothing upstream changed; after an upstream change, run from the change.
 
+`Remote tag points at the commit out/ was built from?` reads the `^{}` line `git ls-remote`
+prints: the commit an annotated tag peels to. No output means the tag is not on origin (or is
+lightweight); either way, or a commit other than the recorded build commit, takes the `no` edge.
+
 ### Gate: publish the by-hand release
 
-Quote the tag, the assets in `out/`, SHA256SUMS, and confirm no release.yml run exists for this tag.
-Approve runs the create with `--notes-file RELEASE_NOTES.md`. Hold resumes at this gate with `out/`
-intact. Hand back reports the built assets, unpublished.
+Quote the tag, the commit it points at, the assets in `out/`, SHA256SUMS, and confirm no
+release.yml run exists for this tag. Approve runs the create with `--notes-file RELEASE_NOTES.md`
+and `--verify-tag`, which aborts when the tag is not on origin instead of creating one at the
+default branch's head. Hold resumes at this gate with `out/` intact. Hand back reports the built
+assets, unpublished.
 
 ### Off-script gate: dispatch run wedged
 
@@ -389,6 +418,21 @@ cause, and the delete and rerun run again.
 Quote the fifth upload's error and the asset it died on. Take: Matt uploaded them himself.
 Iterate: Matt fixed the cause (or waited out the endpoint), and the upload runs again.
 
+### Off-script gate: upload failed another way
+
+Quote the upload's error when it is not a 500 (an auth or scope refusal, a file path that does not
+exist, a tag with no release). Take: Matt uploaded them himself, and the graph continues at
+`Draft published?`. Iterate: Matt fixed the cause, and the upload runs again, counted by `Upload
+failed another way: gate rounds = 2?`; `Upload attempts = 5?` counts it too.
+
+### Off-script gate: remote tag does not match the build
+
+Quote the `git ls-remote` output (or that it printed nothing), the recorded build commit, and the
+tag. Never create, move or push the tag yourself, and never publish a build its tag does not name.
+Take: Matt pushed the tag at the build commit, and the publish gate follows. Iterate: Matt fixed
+the cause (pushed the tag, or rebuilt `out/` at the tag's commit), and `git ls-remote` runs again,
+counted by `Remote tag does not match the build: gate rounds = 2?`.
+
 ### Off-script gate: hand completion does not verify
 
 Quote verify's rows (draft state, the asset hashes, what `releases/latest` resolves). Take: Matt
@@ -397,7 +441,7 @@ confirms the release is live. Iterate: Matt fixed the cause, and verify runs aga
 ### Off-script gate: by-hand pipeline keeps failing
 
 Quote the step that failed the third run and its output. Take: Matt finished the pipeline himself,
-and the publish gate follows. Iterate: Matt fixed the cause, and the pipeline runs again.
+and the remote tag check follows. Iterate: Matt fixed the cause, and the pipeline runs again.
 
 ### Off-script gate: hand publish does not verify
 

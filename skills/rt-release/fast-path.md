@@ -33,6 +33,8 @@ digraph fast_path_release_app {
     "Fast-path publish still pending: gate rounds = 2?" [shape=diamond];
     "Off-script gate: fast-path step still failing" [shape=box];
     "Fast-path step still failing: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: fast path declined" [shape=box];
+    "Fast path declined: gate rounds = 2?" [shape=diamond];
 
     "Trigger: preflight says fast path for one app" -> "rt release app <name> --dry-run";
     "rt release app <name> --dry-run" -> "Dry run qualifies?";
@@ -71,6 +73,13 @@ digraph fast_path_release_app {
     "Fast-path step still failing: gate rounds = 2?" -> "rt release app <name> --json, resuming the failed step" [label="no: retry"];
     "Fast-path step still failing: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Fast-path resumes = 2?" -> "Off-script gate: fast-path step still failing" [label="yes: budget spent"];
+    "Off-script gate: fast path declined" -> "Take the full path instead" [label="take: Matt rules the full path"];
+    "Off-script gate: fast path declined" -> "Fast path declined: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: fast path declined" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: fast path declined" -> "Handed back to Matt" [label="hand back"];
+    "Fast path declined: gate rounds = 2?" -> "rt release app <name> --dry-run" [label="no: retry"];
+    "Fast path declined: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Release app status?" -> "Off-script gate: fast path declined" [label="declined: no longer qualifies"];
 }
 ```
 
@@ -113,3 +122,11 @@ Iterate: Matt fixed the cause, and verify runs again.
 
 Quote the failed step's detail and the `resume` the envelope names. Take: Matt finished the step
 himself. Iterate: Matt fixed the cause, and the verb resumes again.
+
+### Off-script gate: fast path declined
+
+`declined` from a `--json` run means the qualify step refused with no resume: the app no longer
+qualifies (main moved outside the served-app path, the app has not moved since the last tag, or
+it no longer keeps the fast path) although the dry run passed. Quote the qualify step's detail.
+Take: Matt rules the full path, and the release continues there. Iterate: Matt fixed the cause,
+and the dry run runs again, counted by `Fast path declined: gate rounds = 2?`.

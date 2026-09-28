@@ -7,7 +7,8 @@ description: Use when a repo-tools change under rt-tray/ (the tray app, a helper
 
 One script builds the dev app two ways: `--local` builds a working tree
 (uncommitted changes included) and stages it for Matt's one-click restart;
-`--ref` rebuilds a pushed ref and swaps it in now. When Matt asks to try
+`--ref` rebuilds a pushed ref and swaps it in now, relaunching the app only
+when it was running. When Matt asks to try
 something in the dev app, that request is the go-ahead: run the script
 yourself rather than handing him a bundle to swap in.
 
@@ -149,7 +150,7 @@ digraph build_dev_app {
     "Ref pushed to GitHub?" -> "bun scripts/build-dev-app.ts --ref <ref> --yes" [label="yes"];
     "Ref pushed to GitHub?" -> "bun scripts/build-dev-app.ts --local --yes" [label="no: build the tree with --local"];
     "bun scripts/build-dev-app.ts --ref <ref> --yes" -> "Ref build verdict?";
-    "Ref build verdict?" -> "Daemon shim changed in the ref build?" [label="relaunched"];
+    "Ref build verdict?" -> "Daemon shim changed in the ref build?" [label="rebuilt: relaunched only if it was running"];
     "Ref build verdict?" -> "Ref build attempts = 2?" [label="failed"];
     "Ref build attempts = 2?" -> "Fix what the failed ref step names" [label="no"];
     "Fix what the failed ref step names" -> "bun scripts/build-dev-app.ts --ref <ref> --yes";
@@ -190,7 +191,11 @@ minutes each: `bun scripts/build-dev-app.ts --local --yes >
 it from your own repo-tools worktree, else from the shared checkout. Read the
 log once when the run exits; its last line is the verdict. `--ref` clones
 that ref from the rt repo on GitHub (m4ttstack/mattstack) into a scratch
-copy.
+copy. A `--ref` run's `✓` line ends `and relaunched (pid ...)` when the dev
+app was running, or `not relaunched, it was not running` when it was not;
+both are the `rebuilt` verdict, and the new bundle runs from the app's next
+launch. Either way the ref build goes on to `Daemon shim changed in the ref
+build?`.
 
 `Local build attempts = 2?` and `Ref build attempts = 2?` each count every
 build of that kind run in this session, the first attempt included. Every
@@ -351,7 +356,8 @@ Scratch copy (or clone); for `--local`, after `fetch-deps.sh` it also runs
 `bun install` and `scripts/build-apps.ts` in the scratch copy to build the
 tree rows (board, boxscore, chat, console, gitq), since fetch-deps does not
 cover them; then `rt-tray/build.sh dev`, then a swap with rollback that
-reopens the app and restarts deck and its managed apps. Doing any of this by
+reopens the app (a `--ref` build only when it was running) and restarts deck
+and its managed apps. Doing any of this by
 hand is how the app ends up built in a shared checkout, opened from a
 worktree path (a new identity for Login Items and TCC), or with managed apps
 failing with EPERM on the deleted old bundle.

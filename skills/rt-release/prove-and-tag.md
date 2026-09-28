@@ -33,6 +33,8 @@ digraph prove_and_tag {
     "Read the walkthrough failure" [shape=box];
     "Walkthrough runs = 2?" [shape=diamond];
     "STOP: a skipped phase is not green" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "git fetch origin, before the tag" [shape=plaintext];
+    "git log --oneline <exercised-sha>..origin/main" [shape=plaintext];
     "Does origin/main still equal the exercised sha?" [shape=diamond];
     "STOP: tag the exercised sha, never HEAD" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git tag -a <tag> <exercised-sha> -m <tag>" [shape=plaintext];
@@ -46,6 +48,8 @@ digraph prove_and_tag {
     "Rehearsal still red: gate rounds = 2?" [shape=diamond];
     "Off-script gate: walkthrough still red" [shape=box];
     "Walkthrough still red: gate rounds = 2?" [shape=diamond];
+    "Off-script gate: a fix landed after the exercised sha" [shape=box];
+    "A fix landed after the exercised sha: gate rounds = 2?" [shape=diamond];
     "Off-script gate: tag push refused" [shape=box];
     "Tag push refused: gate rounds = 2?" [shape=diamond];
 
@@ -82,7 +86,7 @@ digraph prove_and_tag {
     "Rehearsal still red: gate rounds = 2?" -> "gh run rerun <run-id> --failed" [label="no: retry"];
     "Rehearsal still red: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Rehearsal reruns = 2?" -> "Off-script gate: rehearsal still red" [label="yes: budget spent"];
-    "Diff stays inside the served-app path?" -> "Does origin/main still equal the exercised sha?" [label="yes: skip the walkthrough"];
+    "Diff stays inside the served-app path?" -> "git fetch origin, before the tag" [label="yes: skip the walkthrough"];
     "Diff stays inside the served-app path?" -> "tart list" [label="no"];
     "tart list" -> "Leftover guests running?";
     "Leftover guests running?" -> "Stop or delete the leftover tart guests" [label="yes"];
@@ -90,21 +94,30 @@ digraph prove_and_tag {
     "Stop or delete the leftover tart guests" -> "gh run download <run-id> -n release-dry-run -D <scratch>/release-dry-run";
     "gh run download <run-id> -n release-dry-run -D <scratch>/release-dry-run" -> "bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario create --fresh-team-repo --no-graphics";
     "bash rt-tray/vm/run/walkthrough.sh --ver 26 --dmg <the artifact's dmg> --scenario create --fresh-team-repo --no-graphics" -> "Walkthrough result?";
-    "Walkthrough result?" -> "Does origin/main still equal the exercised sha?" [label="screens and assert both pass"];
+    "Walkthrough result?" -> "git fetch origin, before the tag" [label="screens and assert both pass"];
     "Walkthrough result?" -> "Read the walkthrough failure" [label="a fail or a skip"];
     "Walkthrough result?" -> "STOP: a skipped phase is not green" [label="tempted to count a skip as green"];
     "STOP: a skipped phase is not green" -> "Read the walkthrough failure";
     "Read the walkthrough failure" -> "Walkthrough runs = 2?";
     "Walkthrough runs = 2?" -> "tart list" [label="no: run it again"];
-    "Off-script gate: walkthrough still red" -> "Does origin/main still equal the exercised sha?" [label="take: Matt waives the walkthrough on the record"];
+    "Off-script gate: walkthrough still red" -> "git fetch origin, before the tag" [label="take: Matt waives the walkthrough on the record"];
     "Off-script gate: walkthrough still red" -> "Walkthrough still red: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
     "Off-script gate: walkthrough still red" -> "Held: release paused, resume point named" [label="hold"];
     "Off-script gate: walkthrough still red" -> "Handed back to Matt" [label="hand back"];
     "Walkthrough still red: gate rounds = 2?" -> "tart list" [label="no: retry"];
     "Walkthrough still red: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Walkthrough runs = 2?" -> "Off-script gate: walkthrough still red" [label="yes: budget spent"];
+    "git fetch origin, before the tag" -> "git log --oneline <exercised-sha>..origin/main";
+    "git log --oneline <exercised-sha>..origin/main" -> "Does origin/main still equal the exercised sha?";
     "Does origin/main still equal the exercised sha?" -> "git tag -a <tag> <exercised-sha> -m <tag>" [label="yes"];
     "Does origin/main still equal the exercised sha?" -> "git tag -a <tag> <exercised-sha> -m <tag>" [label="no: tag the exercised sha anyway"];
+    "Off-script gate: a fix landed after the exercised sha" -> "git tag -a <tag> <exercised-sha> -m <tag>" [label="take: Matt rules the exercised sha still the release"];
+    "Off-script gate: a fix landed after the exercised sha" -> "A fix landed after the exercised sha: gate rounds = 2?" [label="iterate: Matt fixed the cause"];
+    "Off-script gate: a fix landed after the exercised sha" -> "Held: release paused, resume point named" [label="hold"];
+    "Off-script gate: a fix landed after the exercised sha" -> "Handed back to Matt" [label="hand back"];
+    "A fix landed after the exercised sha: gate rounds = 2?" -> "git fetch origin, before the tag" [label="no: retry"];
+    "A fix landed after the exercised sha: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
+    "Does origin/main still equal the exercised sha?" -> "Off-script gate: a fix landed after the exercised sha" [label="no: a fix for this release landed after it"];
     "Does origin/main still equal the exercised sha?" -> "STOP: tag the exercised sha, never HEAD" [label="tempted to tag HEAD"];
     "STOP: tag the exercised sha, never HEAD" -> "git tag -a <tag> <exercised-sha> -m <tag>";
     "git tag -a <tag> <exercised-sha> -m <tag>" -> "Push the tag";
@@ -212,6 +225,20 @@ then Prepare.
 Quote the report's phase results and what `Read the walkthrough failure` found. Take: Matt waives
 the walkthrough; record his words with the answer. Iterate: Matt fixed the cause (an image grant,
 the environment), and the walkthrough runs again.
+
+### Off-script gate: a fix landed after the exercised sha
+
+The stage fetches origin again before the tag because the rehearsal and walkthrough take long
+enough for main to move. Read `git log --oneline <exercised-sha>..origin/main` against this
+release's red rehearsal, its walkthrough failure, or a gate still open: unrelated commits take `no:
+tag the exercised sha anyway`, and a commit that fixes one of those takes this gate. Quote the
+commits and what each fixes. Recommend hold, naming "re-prepare on the new main" as its resume
+point: re-entering the release routes through
+`notes commit on origin/main, a fix for this release merged after it, no tag` to preflight and
+then Prepare, so the notes and the tag cover the fix. Take: Matt rules the exercised sha is still
+the release, and the tag goes on it without the fix; say so in the option. Iterate: Matt fixed the
+cause, and the fetch and log run again, counted by `A fix landed after the exercised sha: gate
+rounds = 2?`.
 
 ### Off-script gate: tag push refused
 

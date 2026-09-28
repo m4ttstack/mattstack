@@ -134,7 +134,7 @@ lag origin/main), then take the first edge that matches:
 
 - `notes commit on origin/main, a fix for this release merged after it, no tag`: fact 2 matched,
   `ls-remote` printed nothing, and the earlier hold recorded "re-prepare on the new main" as its
-  resume point, in the turn's final message or in the answer to the rehearsal gate that
+  resume point, in the turn's final message or in the answer to the gate that
   recommended it, and that fix has merged. The evidence is that record, never a count of commits
   after the notes. A merged fix can change pins, the tree state or the diff gate, so preflight
   runs first and the release goes through Prepare again from there: its copy-aside keeps the

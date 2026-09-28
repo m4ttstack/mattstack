@@ -203,9 +203,12 @@ new name: writing `key@N` starts divergence for writers still on the old name.
 
 ### Gate: approve the tag, notes and docs diff
 
-Print the proposed tag, the full `RELEASE_NOTES.md` body, and `git diff --staged --stat` for
-`website/`. A pre-authorized release covers the early main push only; these notes still need
-Matt's explicit approval. Revise applies his changes and asks again.
+Print the proposed tag, the full `RELEASE_NOTES.md` body, and
+`git diff HEAD --stat -- website RELEASE_NOTES.md`: against HEAD it shows the guides rt:docs
+already staged and the generated reference and notes it did not, where `--staged` alone hides the
+unstaged ones and a plain `git diff` hides the staged ones. A pre-authorized release covers the
+early main push only; these notes still need Matt's explicit approval. Revise applies his changes
+and asks again.
 
 ### Push main: the notes commit
 
