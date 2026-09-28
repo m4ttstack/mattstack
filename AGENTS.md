@@ -111,7 +111,10 @@ reference diff), which also fails a PR that changes the plugin without
 bumping `.claude-plugin/plugin.json`'s version. After any MCP tool change,
 regenerate the reference: `bun cli.ts mcp tools --json | bun
 plugins/mattstack/scripts/gen-mcp-tools.ts >
-plugins/mattstack/attachments/mcp-tools/reference.md`.
+plugins/mattstack/attachments/mcp-tools/reference.md`. An edit under
+`plugins/mattstack/attachments/gate-protocol` needs `bun run
+skills:expand:board` and a committed `apps/board/skills` in the same PR, or
+the always-run board skills guard fails.
 
 ## rt-ui
 

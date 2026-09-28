@@ -20,6 +20,7 @@ rt skills
 | Command | Description |
 | --- | --- |
 | [`link`](link) | Symlink a skills/*/SKILL.md tree into ~/.claude/skills by frontmatter name (create, repoint, prune; conflicts reported, never touched) |
+| [`expand`](expand) | Paste mattstack attachments into hand-written skills: each &#123;&#123;include:&lt;name&gt;&#125;&#125; line in &lt;src&gt;/&lt;skill&gt;/SKILL.md is replaced and the result written to &lt;out&gt;/&lt;skill&gt;/ |
 | [`materialize`](materialize) | Run merge-manifests.sh to materialize skill bindings for registered repos |
 | [`compile`](compile) | Compile pack verbs from step sources + manifest bindings into committed SKILL.md files |
 | [`check`](check) | Report compiled skills that no longer match their sources |

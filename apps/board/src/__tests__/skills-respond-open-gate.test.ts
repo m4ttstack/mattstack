@@ -1,10 +1,17 @@
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'bun:test';
 
-const script = fileURLToPath(new URL('./open-gate.sh', import.meta.url));
+const script = join(
+  import.meta.dir,
+  '..',
+  '..',
+  'skills-src',
+  'respond',
+  'scripts',
+  'open-gate.sh'
+);
 const BUDGET = 8192;
 
 type Question = {
