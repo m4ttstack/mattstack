@@ -70,6 +70,26 @@ export interface MrByBranchData {
   syncedAt: number;
 }
 
+export type MrListState = "opened" | "merged" | "closed" | "all";
+
+/** One MR as GitLab's REST listing returns it, with no pipeline: that listing carries none. */
+export interface MrTargetSummary {
+  iid: number;
+  title: string;
+  state: string;
+  draft: boolean;
+  sourceBranch: string;
+  targetBranch: string;
+  author: string | null;
+  webUrl: string | null;
+  detailedMergeStatus: string | null;
+}
+
+/** Read live from GitLab across every author, never from the open-MR cache. */
+export interface MrByTargetData {
+  mrs: MrTargetSummary[];
+}
+
 /**
  * Trimmed, structural view of the daemon's `CacheEntry` (lib/state/branch-cache.ts) --
  * rt-client cannot import daemon/lib internals, so this names only the fields
@@ -831,6 +851,8 @@ export interface Commands {
   "mr:commit-parents": { payload: { repoName: string; iid: number; sha: string }; data: string[] };
   /** GitLab providers only; the daemon refuses any other provider with `unsupported: mr:pipeline-failed-jobs needs a GitLab repo`. */
   "mr:pipeline-failed-jobs": { payload: { repoName: string; iid: number; pipelineId: number }; data: PipelineJob[] };
+  /** GitLab providers only. Every MR whose target branch is targetBranch, fetched live and unscoped; state defaults to opened. */
+  "mr:by-target": { payload: { repoName: string; targetBranch: string; state?: MrListState }; data: MrByTargetData };
 
   "endpoint:claim": { payload: { repo: string; worktree: string; role: string; pid?: number }; data: EndpointClaimData };
   "endpoint:lookup": { payload: { repo: string; worktree: string; role: string }; data: EndpointLookupData };
@@ -1073,6 +1095,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "mr:fetch-job-trace",
   "mr:commit-parents",
   "mr:pipeline-failed-jobs",
+  "mr:by-target",
   "endpoint:claim",
   "endpoint:lookup",
   "endpoint:release",

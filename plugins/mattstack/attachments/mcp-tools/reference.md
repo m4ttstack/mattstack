@@ -1214,7 +1214,7 @@ GitLab only. One MR by iid from the daemon's open-MR cache; pass a small maxAgeM
 ### mr_list
 
 <!-- mcp-lint: allow -->
-GitLab only. A summary of each MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, pipelineStatus, detailedMergeStatus), filtered exactly on GitLab's state (default opened, which includes draft MRs; draft: true marks them). Use mr_view for one MR in full. The body carries syncedAt (0 when the cache has never synced for this repo; retry with a small maxAgeMs) and, when the daemon reports them, scope and syncError. merged and closed results cover only recently closed MRs still held in the daemon's open-MR cache, not a project's full history. That cache may be limited to certain authors and a recent time window, so an MR outside it reads as not found. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. A summary of each MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, pipelineStatus, detailedMergeStatus), filtered exactly on GitLab's state (default opened, which includes draft MRs; draft: true marks them). Use mr_view for one MR in full. The body carries syncedAt (0 when the cache has never synced for this repo; retry with a small maxAgeMs) and, when the daemon reports them, scope and syncError. merged and closed results cover only recently closed MRs still held in the daemon's open-MR cache, not a project's full history. That cache may be limited to certain authors and a recent time window, so an MR outside it reads as not found. With targetBranch the read skips the cache: it asks GitLab live for every author's MRs targeting that branch, answers {mrs, targetBranch, full: true} with no scope, syncedAt or pipelineStatus, and a forge failure is an error, never an empty list; use it to prove a branch has no stacked children. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -1239,6 +1239,10 @@ GitLab only. A summary of each MR of the target project (iid, title, state, draf
     },
     "maxAgeMs": {
       "type": "number"
+    },
+    "targetBranch": {
+      "type": "string",
+      "description": "Only MRs whose target branch is this, read live from GitLab across every author."
     }
   },
   "additionalProperties": false

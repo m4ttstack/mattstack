@@ -131,6 +131,52 @@ describe("mr read tools", () => {
     const res = await tool(deps, "mr_list").handler({ repoName: ID }, {} as NodeJS.ProcessEnv);
     expect((res.body as any).mrs[0].pipelineStatus).toBeNull();
   });
+  test("mr_list targetBranch reads the forge live, not the cache, and an empty answer is a full-view empty list", async () => {
+    const payloads: unknown[] = [];
+    const { deps, calls } = fake(
+      { command: (async (name: string, payload: unknown) => { calls.push(`cmd:${name}`); payloads.push(payload); return { ok: true, data: { mrs: [] } }; }) as any },
+      { scope: { authors: ["alice"], windowDays: 30, uncovered: [] } },
+    );
+    const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv);
+    expect(res).toEqual({ ok: true, body: { mrs: [], targetBranch: "feat", full: true } });
+    expect(calls).toEqual(["cmd:mr:by-target"]);
+    expect(payloads).toEqual([{ repoName: ID, targetBranch: "feat", state: "opened" }]);
+  });
+  test("mr_list targetBranch finds a child MR by an author outside the cache's scope", async () => {
+    const child = { iid: 12, title: "child", state: "opened", draft: false, sourceBranch: "child", targetBranch: "feat", author: "bob", webUrl: "https://gitlab.com/acme/acme-dev/-/merge_requests/12", detailedMergeStatus: "mergeable" };
+    const { deps } = fake(
+      { command: (async () => ({ ok: true, data: { mrs: [child] } })) as any },
+      { scope: { authors: ["alice"], windowDays: 30, uncovered: [] } },
+    );
+    const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv);
+    expect(res.ok).toBe(true);
+    expect((res.body as any).mrs).toEqual([child]);
+    expect((res.body as any).full).toBe(true);
+    expect("scope" in (res.body as object)).toBe(false);
+  });
+  test("mr_list targetBranch surfaces a forge error as an error, never an empty list", async () => {
+    const { deps } = fake({ command: (async () => ({ ok: false, error: "GitLab returned 502 Bad Gateway: boom" })) as any });
+    const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat" }, {} as NodeJS.ProcessEnv);
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("GitLab returned 502 Bad Gateway: boom");
+    expect(res.body).toBeUndefined();
+  });
+  test("mr_list targetBranch passes state through", async () => {
+    const payloads: unknown[] = [];
+    const { deps } = fake({ command: (async (_name: string, payload: unknown) => { payloads.push(payload); return { ok: true, data: { mrs: [] } }; }) as any });
+    await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat", state: "all" }, {} as NodeJS.ProcessEnv);
+    expect(payloads).toEqual([{ repoName: ID, targetBranch: "feat", state: "all" }]);
+  });
+  test("mr_list refuses a blank targetBranch, or one with maxAgeMs, before any daemon call", async () => {
+    const { deps, calls } = fake();
+    for (const targetBranch of ["", "  ", 3]) {
+      const res = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch }, {} as NodeJS.ProcessEnv);
+      expect(res.ok).toBe(false);
+    }
+    const both = await tool(deps, "mr_list").handler({ repoName: ID, targetBranch: "feat", maxAgeMs: 5000 }, {} as NodeJS.ProcessEnv);
+    expect(both.error).toBe('"maxAgeMs" reads the cache; a targetBranch read is always live, so pass one or the other');
+    expect(calls).toEqual([]);
+  });
   test("mr_for_branch passes the branches through", async () => {
     const { deps, calls } = fake();
     await tool(deps, "mr_for_branch").handler({ repoName: ID, branches: ["x", "y"] }, {} as NodeJS.ProcessEnv);

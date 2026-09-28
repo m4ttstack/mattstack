@@ -73,13 +73,13 @@ Pipeline runs record their stages, fields and decisions through these tools. `ru
 | Tool | What it does |
 | --- | --- |
 | `mr_view` | One MR by iid, from the daemon's open-MR cache; pass a small `maxAgeMs` for a live read (GitLab only). |
-| `mr_list` | A summary of each MR of a project, filtered on state (default `opened`) (GitLab only). |
+| `mr_list` | A summary of each MR of a project, filtered on state (default `opened`), or live by `targetBranch` (GitLab only). |
 | `mr_for_branch` | The MR, or null, for each named source branch (GitLab only). |
 | `mr_threads` | The MR's discussion threads; `refresh: true` fetches from GitLab first (GitLab only). |
 | `mr_pipeline` | The MR's head pipeline, and with `jobId` that job's detail (GitLab only). |
 | `mr_job_trace` | The tail of one CI job's trace, ANSI escapes stripped, capped at 64 KiB (GitLab only). |
 
-`mr_view`, `mr_list` and `mr_pipeline` read the daemon's open-MR cache, so a merged or closed MR shows up only while that cache still holds it.
+`mr_view`, `mr_list` and `mr_pipeline` read the daemon's open-MR cache, so a merged or closed MR shows up only while that cache still holds it. `mr_list` with `targetBranch` is the exception: it asks GitLab live for every author's MRs targeting that branch and marks the answer `full: true`, so an empty list proves the branch has no stacked children.
 
 Every `mr_*` tool names its target with `repoName` (the repo's serialized identity such as `remote:gitlab.com%2Fexample%2Fapp`, an absolute path to a checkout or worktree, or a repo label that matches exactly one registered repo); the tools that act on one MR also take `mrUrl` (the MR's URL; its project must be registered with rt, and the URL supplies the iid). A URL is matched to a registered repo by identity first, then by the registered checkouts' origin remotes, so a repo pinned to another identity through `rt.repoIdentityOverrides` still resolves; a URL matching two checkouts is refused as ambiguous. Given both, they must agree. `mr_map` takes `repo` (identity or label).
 

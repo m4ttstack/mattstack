@@ -4,7 +4,7 @@
  * only between its transition and the store dropping it.
  */
 import { readDiscussions, readMrsByBranch, readProjectMRs, rtCommand } from "../../packages/rt-client/src/index.ts";
-import type { Commands, ProjectMRsData } from "../../packages/rt-client/src/index.ts";
+import type { Commands, MrListState, ProjectMRsData } from "../../packages/rt-client/src/index.ts";
 import { explainError } from "../explain-error.ts";
 import { resolveMrTarget, resolveRepoTarget } from "./mr-target.ts";
 import { checkOptional, checkPositiveInts, checkStringArray, err, fromResponse, MR_TARGET_PROPS, ok, REPO_NAME_RULE, REPO_TARGET_PROPS, type McpToolDef } from "./shared.ts";
@@ -115,16 +115,25 @@ export function mrReadToolDefs(deps: MrReadDeps = realMrReadDeps): McpToolDef[] 
     },
     {
       name: "mr_list",
-      description: `GitLab only. A summary of each MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, pipelineStatus, detailedMergeStatus), filtered exactly on GitLab's state (default opened, which includes draft MRs; draft: true marks them). Use mr_view for one MR in full. The body carries syncedAt (0 when the cache has never synced for this repo; retry with a small maxAgeMs) and, when the daemon reports them, scope and syncError. ${CACHE_NOTE}. ${REPO_NAME_RULE}`,
-      inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, state: { type: "string", enum: [...STATES] }, maxAgeMs: { type: "number" } }, additionalProperties: false },
+      description: `GitLab only. A summary of each MR of the target project (iid, title, state, draft, sourceBranch, targetBranch, author username, webUrl, pipelineStatus, detailedMergeStatus), filtered exactly on GitLab's state (default opened, which includes draft MRs; draft: true marks them). Use mr_view for one MR in full. The body carries syncedAt (0 when the cache has never synced for this repo; retry with a small maxAgeMs) and, when the daemon reports them, scope and syncError. ${CACHE_NOTE}. With targetBranch the read skips the cache: it asks GitLab live for every author's MRs targeting that branch, answers {mrs, targetBranch, full: true} with no scope, syncedAt or pipelineStatus, and a forge failure is an error, never an empty list; use it to prove a branch has no stacked children. ${REPO_NAME_RULE}`,
+      inputSchema: { type: "object", properties: { ...REPO_TARGET_PROPS, state: { type: "string", enum: [...STATES] }, maxAgeMs: { type: "number" }, targetBranch: { type: "string", description: "Only MRs whose target branch is this, read live from GitLab across every author." } }, additionalProperties: false },
       shellForms: ["glab mr list"],
       async handler(input) {
-        const bad = checkOptional(input, [{ name: "state", type: "string" }]) ?? checkMaxAge(input);
+        const bad = checkOptional(input, [{ name: "state", type: "string" }, { name: "targetBranch", type: "string" }]) ?? checkMaxAge(input);
         if (bad) return err(bad);
         const state = (input.state as string | undefined) ?? "opened";
         if (!STATES.includes(state as typeof STATES[number])) return err(`"state" must be one of ${STATES.join(", ")}`);
+        const targetBranch = input.targetBranch as string | undefined;
+        if (targetBranch !== undefined && !targetBranch.trim()) return err('"targetBranch" must name a branch');
+        if (targetBranch !== undefined && input.maxAgeMs !== undefined) return err('"maxAgeMs" reads the cache; a targetBranch read is always live, so pass one or the other');
         const target = await resolveRepoTarget(input);
         if (!target.ok) return err(target.error);
+        if (targetBranch !== undefined) {
+          const branch = targetBranch.trim();
+          const live = await deps.command<Commands["mr:by-target"]["data"]>("mr:by-target", { repoName: target.identity, targetBranch: branch, state: state as MrListState }, { timeoutMs: 30_000 });
+          if (!live.ok || !live.data) return err(explainError(live.error ?? "live target-branch listing failed"));
+          return ok({ mrs: live.data.mrs, targetBranch: branch, full: true });
+        }
         const read = await mrs(target.identity, input.maxAgeMs as number | undefined);
         if (!read.ok) return err(read.error);
         const all = Object.values(read.data.mrs).map((e) => e.pr);
