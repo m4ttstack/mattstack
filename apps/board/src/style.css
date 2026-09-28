@@ -3968,10 +3968,19 @@ a.tui-id-card-ref:focus-visible {
   min-width: 0;
 }
 .tui-review-finding-anchor {
+  display: flex;
+  flex-direction: column;
   font-family: var(--font-mono);
   font-size: var(--gate-font-meta);
-  color: var(--text-accent-small);
   overflow-wrap: anywhere;
+}
+.tui-review-finding-dir {
+  font-size: var(--gate-font-small);
+  color: var(--text-4);
+}
+.tui-review-finding-file {
+  font-weight: 500;
+  color: var(--text-accent-small);
 }
 /* The finding's full text is the decision material itself, so it reads in
    ink; only the fix line below it stays on the muted token. Both hold a
@@ -3993,8 +4002,17 @@ a.tui-id-card-ref:focus-visible {
   margin-top: 6px;
 }
 .tui-review-finding-fix {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 6px;
+  margin-top: 4px;
   color: var(--text-3);
   font-size: var(--gate-font-meta);
+}
+.tui-review-finding-fix::before {
+  content: '→' / '';
+  font-weight: 600;
+  color: var(--text-accent);
 }
 
 /* Hairline above the record cluster, spanning the left column. */

@@ -668,6 +668,12 @@ test('a row reads title, accent file:line, the full body, and the fix line, in t
   expect(row.querySelector('.tui-review-finding-anchor')!.textContent).toBe(
     'lib/db/query.ts:42'
   );
+  expect(row.querySelector('.tui-review-finding-dir')!.textContent).toBe(
+    'lib/db/'
+  );
+  expect(row.querySelector('.tui-review-finding-file')!.textContent).toBe(
+    'query.ts:42'
+  );
   expect(row.querySelector('.tui-review-finding-text')!.textContent).toContain(
     'SQL built from unsanitized input: the full finding text, never truncated.'
   );
