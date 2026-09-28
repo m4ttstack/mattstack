@@ -449,6 +449,17 @@ describe('W4 rendering', () => {
     expect(body.querySelector('code')).toHaveTextContent('a.ts:14');
   });
 
+  it('shows a context image as its alt text and never loads it', async () => {
+    const user = userEvent.setup();
+    renderCard(
+      gateRow({ context: 'see ![the chart](https://example.test/x.png)' })
+    );
+    await user.click(screen.getByTestId('gate-context-toggle'));
+    const body = screen.getByTestId('gate-context-body');
+    expect(body.querySelector('img')).toBeNull();
+    expect(body).toHaveTextContent('see the chart');
+  });
+
   it('keeps single newlines of plain prose context as line breaks', async () => {
     const user = userEvent.setup();
     renderCard(

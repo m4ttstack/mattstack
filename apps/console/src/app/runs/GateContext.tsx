@@ -14,6 +14,9 @@ const COMPONENTS: Components = {
       {children}
     </a>
   ),
+  // Context can quote untrusted text (an MR under review); an image would
+  // make the console fetch any URL it names.
+  img: ({ alt }) => <span>{alt}</span>,
 };
 
 export function GateContext({ text }: { text: string }) {
