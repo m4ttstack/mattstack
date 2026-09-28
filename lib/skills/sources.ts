@@ -1,5 +1,5 @@
 import { execFileSync } from "child_process";
-import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { join, relative } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
@@ -95,6 +95,46 @@ export function resolvePluginRoots(): PluginRoots {
   return buildPluginRoots(listInstalledPlugins());
 }
 
+/**
+ * The real plugin cache holds symlinks to working trees, and a Dirent for one
+ * is not a directory -- stat, so a linked plugin dir is a root here too.
+ */
+function listPluginDirs(pluginsDir: string): string[] {
+  if (!existsSync(pluginsDir)) return [];
+  return readdirSync(pluginsDir)
+    .filter((name) => {
+      try {
+        return statSync(join(pluginsDir, name)).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .sort();
+}
+
+/**
+ * Resolves plugins from `<dir>/plugins/<name>` instead of `claude plugin list`.
+ * CI passes the checkout root here so an in-tree plugin is read at the
+ * commit under test, and board's expand passes it so the pasted gate rules
+ * are the tree's, never the installing machine's.
+ */
+export function resolvePluginRootsFromDir(dir: string): PluginRoots {
+  const pluginsDir = join(dir, "plugins");
+  const byName: PluginRoots["byName"] = {};
+  for (const name of listPluginDirs(pluginsDir)) {
+    const pluginDir = join(pluginsDir, name);
+    let version = "unknown";
+    try {
+      const parsed = JSON.parse(readFileSync(join(pluginDir, ".claude-plugin", "plugin.json"), "utf8"));
+      if (typeof parsed.version === "string") version = parsed.version;
+    } catch {
+      // a plugin without a readable manifest still resolves a root
+    }
+    byName[name] = { dir: pluginDir, version };
+  }
+  return { byName, list: [] };
+}
+
 function parseSlots(raw: unknown): Record<string, SlotSpec> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, SlotSpec> = {};
@@ -135,7 +175,7 @@ function isVendorExcluded(name: string, isDir: boolean): boolean {
   return name.endsWith(".pyc") || name.endsWith(".test.sh") || name === "README.md";
 }
 
-function listFilesUnder(dir: string, exclude: Set<string>): string[] {
+export function listFilesUnder(dir: string, exclude: Set<string>): string[] {
   const out: string[] = [];
   const walk = (sub: string) => {
     const abs = sub ? join(dir, sub) : dir;

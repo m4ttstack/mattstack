@@ -58,6 +58,7 @@ import {
   readSurface,
   readVerbRoster,
   resolvePluginRoots,
+  resolvePluginRootsFromDir,
   stageRoster,
   stripFrontmatter,
   type PluginRoots,
@@ -414,43 +415,6 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
   }
 
   return newest.path;
-}
-
-/**
- * The real plugin cache holds symlinks to working trees, and a Dirent for one
- * is not a directory -- stat, so a linked plugin dir is a root here too.
- */
-function listPluginDirs(pluginsDir: string): string[] {
-  if (!existsSync(pluginsDir)) return [];
-  return readdirSync(pluginsDir)
-    .filter((name) => {
-      try {
-        return statSync(join(pluginsDir, name)).isDirectory();
-      } catch {
-        return false;
-      }
-    })
-    .sort();
-}
-
-/** Test-mode-only: scans <dir>/plugins/<name>/.claude-plugin/plugin.json, bypassing the real `claude plugin list --json`. */
-function resolvePluginRootsFromDir(dir: string): PluginRoots {
-  const pluginsDir = join(dir, "plugins");
-  const byName: PluginRoots["byName"] = {};
-
-  for (const name of listPluginDirs(pluginsDir)) {
-    const pluginDir = join(pluginsDir, name);
-    let version = "unknown";
-    try {
-      const parsed = JSON.parse(readFileSync(join(pluginDir, ".claude-plugin", "plugin.json"), "utf8"));
-      if (typeof parsed.version === "string") version = parsed.version;
-    } catch {
-      // best-effort: a fixture plugin without a readable manifest still resolves a root
-    }
-    byName[name] = { dir: pluginDir, version };
-  }
-
-  return { byName, list: [] };
 }
 
 type Resolved = {

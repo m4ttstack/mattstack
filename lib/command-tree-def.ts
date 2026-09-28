@@ -2350,6 +2350,20 @@ export const TREE: Record<string, CommandNode> = {
           SETUP_JSON_ARG,
         ],
       },
+      expand: {
+        description: "Paste mattstack attachments into hand-written skills: each {{include:<name>}} line in <src>/<skill>/SKILL.md is replaced and the result written to <out>/<skill>/",
+        module: "./commands/skills-expand.ts",
+        fn: "skillsExpand",
+        args: [
+          { name: "Source", flag: "--src", type: "text", placeholder: "apps/board/skills-src", hint: "Directory holding one skill dir per skill" },
+          { name: "Output", flag: "--out", type: "text", placeholder: "apps/board/skills", hint: "Directory expand owns: every skill dir in it is regenerated or removed" },
+          { name: "Mattstack dir", flag: "--mattstack-dir", type: "text", placeholder: ".", hint: "Resolve plugins from <dir>/plugins/<name> instead of the installed set" },
+          { name: "Check", flag: "--check", type: "boolean", default: false, hint: "Compare the output to a fresh expansion and exit 1 on drift; write nothing" },
+          { name: "Strict", flag: "--strict", type: "boolean", default: false, hint: "Fail on mcp-lint hits in the output (shell forms a mattstack tool covers)" },
+          { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would be written without touching disk" },
+          SETUP_JSON_ARG,
+        ],
+      },
       materialize: {
         description: "Run merge-manifests.sh to materialize skill bindings for registered repos",
         module: "./commands/skills.ts",

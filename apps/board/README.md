@@ -113,7 +113,8 @@ time to rotate a token or change your default view. It prompts for:
 - **A peer-board invite** (optional). See [peer boards](#peer-boards).
 
 Setup also symlinks the wrapper skills in `skills/` into `~/.claude/skills/`,
-so the panes the board launches can invoke them.
+so the panes the board launches can invoke them. `skills/` is generated from
+`skills-src/` by `bun run skills:expand:board` at the repo root.
 
 To configure by hand instead, put `GITLAB_TOKEN=...` and optionally
 `SLACK_TOKEN=...` in `.env`.

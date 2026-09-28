@@ -4,9 +4,6 @@ description: "Board-CLI-specific gate mechanics shared by review/respond/doctor:
 disable-model-invocation: true
 ---
 
-<!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
-
-<!-- part: step source=gate-cli-recipes/SKILL.md path=gate-cli-recipes/SKILL.md lines=7-61 -->
 # Board gate CLI recipes
 
 The three parts of the status-bin wrapper's own gate mechanics that do not
