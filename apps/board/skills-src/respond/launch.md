@@ -37,6 +37,7 @@ digraph respond_launch_and_resume {
     "<status-bin> respond-status <state> triaging (resumed escalation)" [shape=plaintext];
     "<status-bin> respond-status <state> drafting (resumed escalation)" [shape=plaintext];
     "Read <--report> (resumed respond)" [shape=plaintext];
+    "Recorded line the resumed escalation needs (respond)?" [shape=diamond];
     "Domain skill resolved (respond resume)?" [shape=diamond];
     "rt_verb {args: [skills, writing-style, show]} (respond)" [shape=plaintext];
     "rt_verb named a style skill (respond)?" [shape=diamond];
@@ -105,7 +106,10 @@ digraph respond_launch_and_resume {
     "Resumed wait result (respond)?" -> "Resumed wait failures = 3 (respond)?" [label="any other failure"];
     "Resumed wait failures = 3 (respond)?" -> "<status-bin> gate wait <state> (resumed respond gate)" [label="no: wait again"];
     "Resumed wait failures = 3 (respond)?" -> "Launch error: continue at the error write" [label="yes"];
-    "Read <--report> (resumed respond)" -> "Domain skill resolved (respond resume)?";
+    "Read <--report> (resumed respond)" -> "Recorded line the resumed escalation needs (respond)?";
+    "Recorded line the resumed escalation needs (respond)?" -> "--report carries gate-2 picks (resume)?" [label="gate-2 picks: a posting origin other than a hold, or the Posted already read before posting on a take or round-1 iterate"];
+    "Recorded line the resumed escalation needs (respond)?" -> "--report carries a gate-1 answer (resume)?" [label="gate-1 answer: the Posted already read before Implement on a take or round-1 iterate"];
+    "Recorded line the resumed escalation needs (respond)?" -> "Domain skill resolved (respond resume)?" [label="none: a respond-plan or respond-post resume, a triage origin, a hold, or a hand back or round-2 iterate at the Posted already read"];
     "Domain skill resolved (respond resume)?" -> "Resumed kind (act)?" [label="yes: it runs its own Posted already read"];
     "Domain skill resolved (respond resume)?" -> "rt_verb {args: [skills, writing-style, show]} (respond)" [label="no"];
     "rt_verb {args: [skills, writing-style, show]} (respond)" -> "rt_verb named a style skill (respond)?";
@@ -137,13 +141,13 @@ digraph respond_launch_and_resume {
     "Route the resumed escalation by its origin (respond)" -> "Resumed escalation origin (respond)?";
     "Resumed escalation origin (respond)?" -> "Launch error: continue at the error write" [label="a hand back or round-2 iterate at fetch mr_threads or the Posted already read: the refusals are the reason"];
     "Resumed escalation origin (respond)?" -> "Resumed triage escalation: continue at Triage and Gate 1" [label="a triage origin: take or round-1 iterate; at mr_view, also a hand back or round-2 iterate"];
-    "Resumed escalation origin (respond)?" -> "--report carries gate-2 picks (resume)?" [label="a posting origin: take, hand back, or iterate at either round"];
-    "Resumed escalation origin (respond)?" -> "--report carries gate-2 picks (resume)?" [label="the Posted already read before posting: take, or iterate at round 1"];
-    "Resumed escalation origin (respond)?" -> "--report carries a gate-1 answer (resume)?" [label="the Posted already read before Implement: take, or iterate at round 1"];
+    "Resumed escalation origin (respond)?" -> "respond-post resume: continue at Gate 2 and posting" [label="a posting origin: take, hand back, or iterate at either round; its picks checked at launch"];
+    "Resumed escalation origin (respond)?" -> "respond-post resume: continue at Gate 2 and posting" [label="the Posted already read before posting: take, or iterate at round 1; its picks checked at launch"];
+    "Resumed escalation origin (respond)?" -> "respond-plan resume joined: continue at Implement the plan" [label="the Posted already read before Implement: take, or iterate at round 1; its answer checked at launch"];
     "Resumed escalation origin (respond)?" -> "Held at a launch escalation: continue at Held" [label="hold"];
-    "--report carries gate-2 picks (resume)?" -> "respond-post resume: continue at Gate 2 and posting" [label="yes"];
+    "--report carries gate-2 picks (resume)?" -> "Domain skill resolved (respond resume)?" [label="yes"];
     "--report carries gate-2 picks (resume)?" -> "Launch error: continue at the error write" [label="no: never post from memory"];
-    "--report carries a gate-1 answer (resume)?" -> "respond-plan resume joined: continue at Implement the plan" [label="yes"];
+    "--report carries a gate-1 answer (resume)?" -> "Domain skill resolved (respond resume)?" [label="yes"];
     "--report carries a gate-1 answer (resume)?" -> "Launch error: continue at the error write" [label="no: never act from memory"];
     "Domain skill resolved (respond)?" -> "Fresh run with a domain skill: continue at Triage and Gate 1" [label="yes"];
     "Domain skill resolved (respond)?" -> "rt_verb {args: [skills, writing-style, show]} (respond)" [label="no: generic path"];
@@ -304,9 +308,13 @@ other answer records its marks, then reads.
   `--report carries gate-2 picks (resume)?` answers yes when the
   `gate-2-answer:` line is present and parses and every thread it picks
   has a report row; no is `error` naming the file and which case it was.
-  Never rebuild the picks from memory or from the conversation. The
-  recorded picks then stand in for the resumed wait's answer at Gate 2
-  and posting, and the walk honours every `escalation:` mark in the rows
+  `Recorded line the resumed escalation needs (respond)?` sends it there
+  right after `Read <--report> (resumed respond)`, before the marks write
+  and the Posted already read, so a missing line errors before anything
+  is written or read. Never rebuild the picks from memory
+  or from the conversation. The recorded picks then stand in for the
+  resumed wait's answer at Gate 2 and posting, and the walk honours every
+  `escalation:` mark in the rows
   (`Record the resumed escalation's marks in --report`), so the taken
   call never runs again and a handed-back one stays down.
 - **A round-1 iterate at a posting origin** walks the posting again from
@@ -320,18 +328,20 @@ other answer records its marks, then reads.
   Either way the pass continues at the stage the value names: `posting`
   checks the recorded picks as a posting origin does; `Implement` needs
   the `gate-1-answer:` line, which
-  `--report carries a gate-1 answer (resume)?` checks the same way (no
-  is `error` naming the file), and whose answer then stands in for the
-  joined Gate 1 answer. A hand back or round-2 iterate writes `error`
-  naming the refusal.
+  `--report carries a gate-1 answer (resume)?` checks the same way and at
+  the same point, before the Posted already read (no is `error` naming
+  the file), and whose answer then stands in for the joined Gate 1
+  answer. A hand back or round-2 iterate writes `error` naming the
+  refusal.
 - **Hold** keeps the pane open with nothing more moved and no terminal
   status.
 
 ### Record the resumed escalation's marks in --report
 
-The generic path, before the Posted already read. A refusal at that read
-opens a second escalation, which moves the state's gate id, and a pane
-resumed on it could then no longer learn this answer. So a take, a hand
+The generic path, after the recorded-line check and before the Posted
+already read. A refusal at that read opens a second escalation, which
+moves the state's gate id, and a pane resumed on it could then no longer
+learn this answer. So a take, a hand
 back or a round-2 iterate at a posting origin writes its mark into the
 row now, as "Escalation marks" in `post.md` spells them: the same mark
 the live pane writes when it acts on that answer. A round-1 iterate, and

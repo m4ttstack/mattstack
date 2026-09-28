@@ -260,6 +260,20 @@ them. `label` is 2 to 6 words; `description` is one sentence saying what
 happens on that answer. Four options stay inside the native form's
 per-question cap.
 
+At round 2 the iterate cannot retry: `Off-script rounds = 2 (...)?`
+answers yes, and in every respond table that exit does what the hand back
+row does (the held path at `git_push`, the thread left down at
+`mr_reply_thread` and `mr_resolve_thread`, no source branch at `mr_view`,
+`error` at the `mr_threads` reads). Keep the iterate's `value` exactly as the table spells it, so a
+resumed pane still routes it as an iterate at round 2, and give it the
+label `No retry: ` plus the hand back row's label (its first letter
+lowercased) and the description `Retries are spent, so ` plus the hand
+back row's description:
+
+```json
+{"value": "iterate: you fixed the cause, check the target and push again with git_push (git_push refused, round 2)", "label": "No retry: hold the fixed replies", "description": "Retries are spent, so I hold the fixed threads unposted and post every other reply."}
+```
+
 `--context` quotes both errors verbatim (the first refusal and the one
 after the fix) with the call that was refused. Never send an empty
 context. It shares the gate's 8192 UTF-8 byte budget like Gate 1's and
@@ -516,5 +530,7 @@ everything else is here.
 Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
 did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 --by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
+This wrapper's own "Off-script step" replaces the protocol's "Off-script
+gate" section.
 
 {{include:gate-protocol}}

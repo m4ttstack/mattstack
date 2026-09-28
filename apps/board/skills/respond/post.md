@@ -254,12 +254,13 @@ one final line to `--report`:
 
 `gate-2-answer: <{answers, by, answeredAt} as one-line JSON>`
 
-replacing an existing one; never write a second. When the answer came
-with no `answeredAt` (this pane's own `gate answer` stood, or the degraded
-form), write the current UTC time in ISO 8601, and `by` is `pane`. With
+replacing an existing one; never write a second. `answeredAt` is always
+epoch milliseconds, as the wait returns it. When the answer came with no
+`answeredAt` (this pane's own `gate answer` stood, or the degraded form),
+write the current time in epoch milliseconds, and `by` is `pane`. With
 nothing offered (the reply-only path), write the line with empty
-`answers`, `by` `pane` and the current time: it still records that
-posting began.
+`answers`, `by` `pane` and the current time in epoch milliseconds: it
+still records that posting began.
 
 An off-script gate at the push or a post moves the state's gate id, and
 `gate wait` can then no longer return this answer. A pane resumed on that
