@@ -17,6 +17,10 @@ export interface WatchdogSensors {
   /** Epoch ms of the pane's last status change, or null when nothing has been
       recorded (daemon restart, pane never watched). Null is never a wedge. */
   idleSinceMs(pane: string): number | null;
+  /** True when the pane's last reading showed Claude Code holding a
+      background shell, monitor or subagent: a turn that ended to wait on
+      one is working, not wedged. Job panes only; never the shepherd's. */
+  backgroundWork(pane: string): boolean;
   /** DMs + mentions only (the wake-mode filter); room chatter never counts. */
   unreadDmMentionsFor(handle: string): number;
   openHumanGates(herdPrefix: string): { id: string; ageMs: number }[];
@@ -71,11 +75,12 @@ const oldest = (gates: { id: string; ageMs: number }[]) => gates.reduce<{ id: st
     suppresses both clocks entirely, and `quietMs` restarts from the pane's
     last observed transition when that is newer than the report -- the nag
     paces off silence since the LAST activity, never off a report a live
-    round has already superseded. */
+    round has already superseded. A pane waiting on a background shell,
+    monitor or subagent counts as working too (RT-355). */
 function openReportAges(job: HerdJobRow, s: WatchdogSensors, now: number): { reportMs: number; quietMs: number } | null {
   if (job.status !== "done" || job.lastReport === null || job.pane === null) return null;
   const state = s.paneState(job.pane);
-  if (state === "gone" || state === "working") return null;
+  if (state === "gone" || state === "working" || s.backgroundWork(job.pane)) return null;
   const idleSince = s.idleSinceMs(job.pane);
   const lastActivity = idleSince !== null && idleSince > job.updatedAt ? idleSince : job.updatedAt;
   return { reportMs: now - job.updatedAt, quietMs: now - lastActivity };
@@ -83,10 +88,11 @@ function openReportAges(job: HerdJobRow, s: WatchdogSensors, now: number): { rep
 
 type Lingering = Extract<WedgeVerdict, { kind: "finished-lingering" }>;
 
-// The remedy asks for a check first: the watchdog cannot see a consumed
-// report's follow-up round, and prescribing a bare close killed live jobs
-// twice before the wording changed (RT-205).
-const closeRemedy = (job: HerdJobRow) => `confirm no follow-up round is in flight, then run rt herd close ${job.name} --herd ${job.herd}`;
+// The remedy offers both answers: the watchdog cannot see a follow-up round
+// the shepherd dispatched, a bare close killed live jobs twice (RT-205), and
+// follow-up is what silences the nag for a round in flight (RT-355).
+const closeRemedy = (job: HerdJobRow) =>
+  `if a follow-up round is in flight run rt herd follow-up ${job.name} --herd ${job.herd}, else rt herd close ${job.name} --herd ${job.herd}`;
 
 function finishedLingering(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogConfig, now: number): Lingering | null {
   const ages = openReportAges(job, s, now);
@@ -120,7 +126,10 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
   if (state !== "idle") return HEALTHY;
 
   if (since === null) return HEALTHY;
-  const idleMs = now - since;
+  // A follow-up round flips done back to active on a pane that has sat idle
+  // since the report, so the clock restarts at the last status write, the
+  // same clamp openReportAges uses. Only transitions write updatedAt.
+  const idleMs = now - Math.max(since, job.updatedAt);
   if (idleMs < ms(cfg.fastMins)) return HEALTHY;
 
   const unread = s.unreadDmMentionsFor(job.handle);
@@ -128,7 +137,7 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
   const answered = job.agentSession === null ? null : oldest(s.unconsumedAnswered(job.agentSession));
   if (answered) return { kind: "wedged", path: "fast", evidence: `gate ${answered.id} answered ${minutes(answered.ageMs)}m ago and unconsumed` };
 
-  if (AWAITING_ANSWER.has(job.status) || idleMs < ms(cfg.backstopMins)) return HEALTHY;
+  if (AWAITING_ANSWER.has(job.status) || idleMs < ms(cfg.backstopMins) || s.backgroundWork(job.pane)) return HEALTHY;
   return { kind: "wedged", path: "backstop", evidence: `idle ${minutes(idleMs)}m with no open gate` };
 }
 

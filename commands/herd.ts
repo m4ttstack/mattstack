@@ -13,6 +13,7 @@
  *   rt herd list [--all]
  *   rt herd resume [<id>]
  *   rt herd close <job> --herd <id>
+ *   rt herd follow-up <job> --herd <id>
  *   rt herd attend <job> --herd <id>
  *   rt herd wrap-up <id> [--close-panes] [--dispose <job>...] [--delete-job-dirs] [--archive-room]
  *   rt herd stop --hidden
@@ -22,7 +23,7 @@ import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import {
   herdStart, herdSpawn, herdAsk, herdMilestone, herdAnswer, herdReport, herdGates,
-  herdStatus, herdList, herdResume, herdClose, herdAttend, herdWrapUp, herdStopHidden,
+  herdStatus, herdList, herdResume, herdClose, herdFollowUp, herdAttend, herdWrapUp, herdStopHidden,
 } from "../packages/rt-client/src/index.ts";
 import type { Commands, HerdListRow, HerdStatusData, RtResponse } from "../packages/rt-client/src/index.ts";
 import { resolveRepoArg, currentRepoIdentity } from "../lib/repo-arg.ts";
@@ -373,6 +374,15 @@ export async function close(args: string[]): Promise<void> {
   const data = unwrap(await herdClose({ herd, job }), "close");
   emit(json, data, `${data.job} closed`);
   if (!json && data.warning) console.log(`  ${data.warning}`);
+}
+
+export async function followUp(args: string[]): Promise<void> {
+  const json = has(args, "--json");
+  const job = positional(args);
+  const herd = flagValue(args, "--herd") ?? process.env.HERD_ID;
+  if (!job || !herd) fail("usage: rt herd follow-up <job> --herd <id>");
+  const data = unwrap(await herdFollowUp({ herd, job }), "follow-up");
+  emit(json, data, `${data.job} is in a follow-up round; it reads as active until its next report`);
 }
 
 export async function attend(args: string[]): Promise<void> {

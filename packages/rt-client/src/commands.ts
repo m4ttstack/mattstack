@@ -946,6 +946,8 @@ export interface Commands {
   /** Active herds only unless `all`, so a shepherd's "which herd am I on" question has one answer. */
   "herd:list":   { payload: { all?: boolean }; data: { herds: HerdListRow[] } };
   "herd:close":  { payload: { herd: string; job: string }; data: { job: string; status: "closed"; /** Advisory: a resumable run can still write into this job's worktree after close, so this warns rather than blocking. */ warning?: string } };
+  /** Reopens a done job for a follow-up round in its same pane: it goes back to active until its next report. */
+  "herd:follow-up": { payload: { herd: string; job: string }; data: { job: string; status: "active" } };
   /** `brief` is the brief TEXT, not a path: the CLI reads the file. It is stored at `<jobsRoot>/<herd>/<job>/job.md`, so a respawn with `dir` and no `brief` reads it back. */
   "herd:spawn":  { payload: { herd: string; job: string; brief?: string; dir?: string; model?: string; effort?: string; account?: string; disposable?: boolean }; data: { herd: string; job: string; pane: string; worktree: string; branch: string | null; tree: string | null; /** null = no provisioning ran (--dir); false = cold create, worth announcing. */ wasOnDeck: boolean | null; agentId: string; sessionId: string; handle: string; /** What the folder-trust check established: no modal was up, one was accepted and verified gone, one is still up (the job reads `stuck-at-modal`), or herdr could not be read. */ trust: "none" | "accepted" | "stuck" | "unchecked" } };
   "herd:gates":  { payload: { herd: string }; data: { gates: GateRow[] } };
@@ -1096,6 +1098,7 @@ export const COMMAND_NAMES: readonly CommandName[] = [
   "herd:status",
   "herd:list",
   "herd:close",
+  "herd:follow-up",
   "herd:spawn",
   "herd:gates",
   "herd:ask",

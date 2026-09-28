@@ -1,0 +1,14 @@
+⏺ Capturing own pane footer to a fixture file
+  ⎿  $ W=/Users/matt/.mattstack/rt/worktrees/gh-m4ttstack-mattstack/eomer/.superpowers/sdd/2026-09-27-herd-watchdog-followup-and-gate-escape; rt pane peek wQH:p3 --lines 14
+     > $W/captured-footer-1-shell.txt 2>&1; cat -v $W/captured-footer-1-shell.txt | cut -c1-160
+
+✻ Transfiguring… (34s · ↓ 2.6k tokens)
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  O 5.5 [high] | claude | herd-watchdog-followup-and-gate-escape ███░░░░░░░ 2/6 | W:40% C:15%
+  ⏵⏵ auto mode on · 1 shell · /tasks to see subagents · ← for agents
+
+  ⏺ main
+  ◯ general-purpose  Implement Task 3: watchdog exemptions                                                                                             16s · ↓ 78.4k tokens

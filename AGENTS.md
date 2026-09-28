@@ -267,8 +267,8 @@ one explicit refspec to the branch's same-named upstream, forces only with
 master and the remote's default branch (and a remote whose default cannot be
 read); `git_pull` is `--ff-only`; `branch_sync` runs `rt sync` only after a
 preflight that refuses to reset over unpushed commits or force-push over
-commits only origin has. `herd_spawn`, `herd_close`, `herd_attend` and
-`herd_wrap_up` run only from the session the daemon records as the herd's
+commits only origin has. `herd_spawn`, `herd_close`, `herd_follow_up`,
+`herd_attend` and `herd_wrap_up` run only from the session the daemon records as the herd's
 shepherd, never from a worker pane, and every caller-named path a herd tool
 or `rt_verb` takes (a brief, a template, an out file) is confined by
 `temp-root-guard.ts` to the Claude Code temp root or an installed plugin or

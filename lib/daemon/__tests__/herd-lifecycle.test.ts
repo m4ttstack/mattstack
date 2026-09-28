@@ -124,16 +124,35 @@ describe("herd-lifecycle", () => {
     store.upsertJob({ herd: herd.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active", pane: "w1:p1" });
     store.upsertJob({ herd: herd.id, name: "job-b", worktree: "/w2", handle: "job-b", status: "done", pane: "w1:p2" });
     lc.start();
-    expect(paneSubs().map((s) => s.subscriptions)).toEqual([[{ type: "pane.agent_status_changed", pane_id: "w1:p1" }]]);
+    expect(paneSubs().map((s) => s.subscriptions[0]!.pane_id).sort()).toEqual(["w1:p1", "w1:p2"]);
     store.upsertJob({ herd: herd.id, name: "job-c", worktree: "/w3", handle: "job-c", status: "spawning", pane: "w1:p3" });
     await lc.handleEvent(null, { type: "pane.agent_detected", pane_id: "w1:p3" });
-    expect(paneSubs().map((s) => s.subscriptions[0]!.pane_id).sort()).toEqual(["w1:p1", "w1:p3"]);
+    expect(paneSubs().map((s) => s.subscriptions[0]!.pane_id).sort()).toEqual(["w1:p1", "w1:p2", "w1:p3"]);
     await lc.handleEvent(null, { type: "pane.exited", pane_id: "w1:p3" });
-    expect(paneSubs().map((s) => s.subscriptions[0]!.pane_id)).toEqual(["w1:p1"]);
+    expect(paneSubs().map((s) => s.subscriptions[0]!.pane_id).sort()).toEqual(["w1:p1", "w1:p2"]);
     store.setJobStatus(herd.id, "job-a", "closed");
+    store.setJobStatus(herd.id, "job-b", "closed");
     const reconcileTimer = timers.find((t) => t.ms === 30_000 && !t.cleared)!;
     reconcileTimer.fn();
     expect(paneSubs()).toEqual([]);
+  });
+
+  test("a done job's pane stays subscribed and its post-report activity moves the clock, with no room notice (RT-355)", async () => {
+    let clock = 1_000;
+    const { store, lc, herd, paneSubs, timers, posts } = fx({ now: () => clock });
+    store.upsertJob({ herd: herd.id, name: "job-a", worktree: "/w", handle: "job-a", status: "active", pane: "w1:p1" });
+    lc.start();
+    store.setJobStatus(herd.id, "job-a", "done", { lastReport: 7 });
+    timers.find((t) => t.ms === 30_000 && !t.cleared)!.fn();
+    expect(paneSubs().map((s) => s.subscriptions[0]!.pane_id)).toEqual(["w1:p1"]);
+    clock = 5_000;
+    await lc.handleEvent(null, { type: "pane.agent_status_changed", pane_id: "w1:p1", agent_status: "working" });
+    clock = 9_000;
+    await lc.handleEvent(null, { type: "pane.agent_status_changed", pane_id: "w1:p1", agent_status: "idle" });
+    expect(lc.lastStatusChangeMs("w1:p1")).toBe(9_000);
+    expect(store.getJob(herd.id, "job-a")!.status).toBe("done");
+    expect(timers.filter((t) => t.ms !== 30_000 && !t.cleared)).toEqual([]);
+    expect(posts).toEqual([]);
   });
 
   test("agent_detected flips spawning to active", async () => {

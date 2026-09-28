@@ -70,6 +70,7 @@ export {
   herdList,
   herdResume,
   herdClose,
+  herdFollowUp,
   herdAttend,
   herdWrapUp,
   herdStopHidden,

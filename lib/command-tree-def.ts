@@ -368,6 +368,17 @@ const herdSubcommands: Record<string, CommandNode> = {
       { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the close record as JSON" },
     ],
   },
+  "follow-up": {
+    description: "Reopen a done job for a follow-up round: active again until its next report",
+    module: "./commands/herd.ts",
+    fn: "followUp",
+    omitBehavior: { exempt: "agent-facing; the shepherd names the job" },
+    args: [
+      { name: "Job", type: "text", placeholder: "acme-1483-facts", hint: "Job name" },
+      { name: "Herd", flag: "--herd", type: "text", placeholder: "hd-1a2b3c4d", hint: "Herd id (default: HERD_ID)" },
+      { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the follow-up record as JSON" },
+    ],
+  },
   attend: {
     description: "Attach a worker's pane in a tab of your own workspace",
     module: "./commands/herd.ts",

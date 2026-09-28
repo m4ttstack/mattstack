@@ -139,13 +139,14 @@ Shepherd side:
 | `herd_brief` | Assemble a job brief from a template plus a strategy body or method file. |
 | `herd_spawn` | Spawn a worker pane for a job: provision its worktree and launch Claude with the brief. Takes minutes. |
 | `herd_close` | Close one job's pane. |
+| `herd_follow_up` | Reopen a done job for a follow-up round. |
 | `herd_attend` | Open a job's pane in a tab of this shepherd's workspace. |
 | `herd_wrap_up` | Close panes, dispose worktrees, delete job dirs and archive the room in one pass. |
 | `herd_resume` | Re-attach this session to a herd, taking it over as shepherd. |
 | `herd_status` | One herd: jobs, panes, gates, subscription, unread. |
 | `herd_list` | Active herds, or every herd with `all: true`. |
 
-`herd_start` refuses in a worker pane. `herd_spawn`, `herd_close`, `herd_attend` and `herd_wrap_up` run only from the session the daemon records as the herd's shepherd (the one that ran `herd_start`, or took the herd over with `herd_resume`), and never from a worker pane. The files these tools read or write are confined: `herd_brief`'s `out` must sit in your Claude Code temp root, and a brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
+`herd_start` refuses in a worker pane. `herd_spawn`, `herd_close`, `herd_follow_up`, `herd_attend` and `herd_wrap_up` run only from the session the daemon records as the herd's shepherd (the one that ran `herd_start`, or took the herd over with `herd_resume`), and never from a worker pane. The files these tools read or write are confined: `herd_brief`'s `out` must sit in your Claude Code temp root, and a brief, template, strategies file or method file must be an existing `.md` file in the temp root or an installed plugin or pack root.
 
 ### Chat
 

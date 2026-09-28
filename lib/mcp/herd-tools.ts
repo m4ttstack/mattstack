@@ -5,7 +5,7 @@
  * clear of).
  */
 import {
-  herdAttend, herdClose, herdList, herdMilestone, herdResume, herdSpawn, herdStart, herdStatus, herdWrapUp,
+  herdAttend, herdClose, herdFollowUp, herdList, herdMilestone, herdResume, herdSpawn, herdStart, herdStatus, herdWrapUp,
 } from "../../packages/rt-client/src/index.ts";
 import type { Commands } from "../../packages/rt-client/src/index.ts";
 import { readFileSync } from "fs";
@@ -15,7 +15,7 @@ import { checkOptional, checkRequired, checkStringArray, err, fromResponse, ok, 
 import { checkReadRootPath, checkTempRootPath, readRootsForThisProcess, tempRootsForThisProcess, type ReadRoots } from "./temp-root-guard.ts";
 
 export interface HerdToolDeps {
-  start: typeof herdStart; spawn: typeof herdSpawn; close: typeof herdClose; status: typeof herdStatus; list: typeof herdList;
+  start: typeof herdStart; spawn: typeof herdSpawn; close: typeof herdClose; followUp: typeof herdFollowUp; status: typeof herdStatus; list: typeof herdList;
   attend: typeof herdAttend; wrapUp: typeof herdWrapUp; resume: typeof herdResume; milestone: typeof herdMilestone;
   verb: typeof runRtVerb;
   tempRoots: () => string[];
@@ -23,7 +23,7 @@ export interface HerdToolDeps {
 }
 
 export const realHerdToolDeps: HerdToolDeps = {
-  start: herdStart, spawn: herdSpawn, close: herdClose, status: herdStatus, list: herdList,
+  start: herdStart, spawn: herdSpawn, close: herdClose, followUp: herdFollowUp, status: herdStatus, list: herdList,
   attend: herdAttend, wrapUp: herdWrapUp, resume: herdResume, milestone: herdMilestone, verb: runRtVerb,
   tempRoots: tempRootsForThisProcess, readRoots: readRootsForThisProcess,
 };
@@ -82,7 +82,7 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
       name: "herd_spawn",
       description: "Spawn a worker pane for a job (provisions its worktree, launches claude with the brief). brief is an absolute path to a .md brief file (herd_brief's out) inside the Claude Code temp root or an installed plugin or pack root; its contents become the worker's prompt and must not start with \"-\"; omitted, the job's stored brief is reused. account, model and effort are plain tokens. Only the herd's shepherd session may call it. Takes minutes.",
       inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" }, brief: { type: "string", description: "Absolute path to the brief file; its contents are sent, not the path." }, model: { type: "string" }, effort: { type: "string" }, account: { type: "string" }, disposable: { type: "boolean" } }, required: ["job"], additionalProperties: false },
-      shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone" }],
+      shellForms: ["rt herd spawn", { id: "rt-herd", pattern: /(?<![\w-])rt\s+herd\b/, example: "rt herd stop", note: "herd_start, herd_spawn, herd_brief, herd_close, herd_follow_up, herd_status, herd_list, herd_attend, herd_wrap_up, herd_resume, herd_ask, herd_answer, herd_report, herd_milestone" }],
       async handler(input, env) {
         if (env.HERD_JOB) return err(IN_WORKER);
         // The server does not enforce additionalProperties, and a caller-chosen dir would land the worker in a folder whose
@@ -162,6 +162,22 @@ export function herdToolDefs(deps: HerdToolDeps = realHerdToolDeps): McpToolDef[
         const owner = await requireShepherd(h.herd, env, deps.status);
         if (owner) return err(owner);
         return fromResponse(await deps.close({ herd: h.herd, job: input.job as string }));
+      },
+    },
+    {
+      name: "herd_follow_up",
+      description: "Reopen a done job for a follow-up round in its same pane: it goes back to active, which stops the watchdog's done-not-closed nag until the job's next report. Only the herd's shepherd session may call it.",
+      inputSchema: { type: "object", properties: { ...HERD_PROP, job: { type: "string" } }, required: ["job"], additionalProperties: false },
+      shellForms: ["rt herd follow-up"],
+      async handler(input, env) {
+        if (env.HERD_JOB) return err(IN_WORKER);
+        const bad = checkRequired(input, [{ name: "job", type: "string" }]);
+        if (bad) return err(bad);
+        const h = await herdFor(input, env);
+        if ("error" in h) return err(h.error);
+        const owner = await requireShepherd(h.herd, env, deps.status);
+        if (owner) return err(owner);
+        return fromResponse(await deps.followUp({ herd: h.herd, job: input.job as string }));
       },
     },
     {
