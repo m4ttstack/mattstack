@@ -22,10 +22,17 @@ PIPELINE_METHODS = {"superpowers": ("spec", "plan"), "resume": ("plan",)}
 
 
 def rt_json(args):
-    out = subprocess.run(["rt", *args, "--json"], capture_output=True, text=True)  # mcp-lint: allow
+    what = f"rt {' '.join(args)}"
+    try:
+        out = subprocess.run(["rt", *args, "--json"], capture_output=True, text=True)  # mcp-lint: allow
+    except FileNotFoundError:
+        sys.exit(f"{what} failed: rt is not on PATH")
     if out.returncode != 0:
-        sys.exit(f"rt {' '.join(args)} failed: {(out.stderr or out.stdout).strip()}")
-    return json.loads(out.stdout)
+        sys.exit(f"{what} failed: {(out.stderr or out.stdout).strip()}")
+    try:
+        return json.loads(out.stdout)
+    except json.JSONDecodeError:
+        sys.exit(f"{what} failed: output was not JSON")
 
 
 def mtime(path):
@@ -92,7 +99,7 @@ def plan_file(root, ledger):
 def ledger_progress(root, ledger):
     text = read(ledger)
     total = len(set(re.findall(r"(?m)^#+\s*Task\s+(\d+)\b", read(plan_file(root, ledger)))))
-    done = len(set(re.findall(r"(?m)^Task\s+(\d+):\s*complete", text)))
+    done = len(set(re.findall(r"\bTask\s+(\d+):\s*complete\b", text)))
     lines = [l.strip() for l in text.splitlines()[1:] if l.strip() and not re.match(r"(#|\||Ruling|Spec:)", l.strip())]
     now = re.sub(r"^Task\s+(\d+):\s*", r"T\1 ", lines[-1]) if lines else ""
     return done, total, now
@@ -111,10 +118,22 @@ def bar(done, total):
     return "`" + "█" * filled + "░" * (BAR_CELLS - filled) + f"` {done}/{total}"
 
 
+def bare_pane(ref):
+    return (ref or "").split(":", 1)[-1] if (ref or "").startswith("bg:") else (ref or "")
+
+
 def gate_for(job, gates, herd_id):
+    """Herd gates key on the job's subject; run gates opened inside the job's
+    tree carry no job name, only the worker's session or pane."""
     subject = f"herd:{herd_id}/{job['name']}"
     for g in gates:
-        if g.get("subject") == subject or (g.get("worktree") and g.get("worktree") == job["worktree"]):
+        session = (g.get("nudge") or {}).get("session")
+        if (
+            g.get("id") == job.get("openGate")
+            or g.get("subject") == subject
+            or (session and session == job.get("agentSession"))
+            or (g.get("pane") and job.get("pane") and bare_pane(g["pane"]) == bare_pane(job["pane"]))
+        ):
             return g
     return None
 
@@ -144,7 +163,8 @@ def row(job, herd_id, gates, now_s):
         if p not in phases:
             cols[p] = "·"
         else:
-            cols[p] = "✓" if reported or re.search(rf"(?m)^\s*-?\s*{p}:", draft) else ""
+            written = re.search(rf"(?m)^\s*-?\s*{p}:", draft) or (p == "plan" and found)
+            cols[p] = "✓" if reported or written else ""
     cols["exec"] = "✓" if reported or (total and done >= total) else ("" if not found else "▸")
     cols["review"] = "✓" if reported else ("▸" if live and cols["exec"] == "✓" else "")
     if live and "▸" not in cols.values():
@@ -153,7 +173,7 @@ def row(job, herd_id, gates, now_s):
                 cols[p] = "▸"
                 break
 
-    idle = live and job.get("paneStatus") == "idle" and not gate
+    idle = live and job.get("paneStatus") in {"idle", "done"} and not gate
     if gate or job["status"] in {"at-gate", "at-milestone"}:
         rank, status = 0, "**NEEDS YOU**"
         now = gate_text(gate) if gate else f"{job['status']}, gate not listed"
@@ -161,6 +181,8 @@ def row(job, herd_id, gates, now_s):
         rank, status, now = 1, "**CRASHED**", "pane has no claude session"
     elif job["status"] == "stuck-at-modal":
         rank, status, now = 1, "**STUCK**", "parked at a dialog"
+    elif live and job.get("paneStatus") == "blocked":
+        rank, status, now = 1, "**STUCK**", "blocked at a prompt with no gate"
     elif idle:
         rank, status = 2, "*idle*"
         if cols["review"] == "▸":

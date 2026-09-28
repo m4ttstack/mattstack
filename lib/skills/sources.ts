@@ -1,6 +1,6 @@
 import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
-import { join, relative } from "path";
+import { join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
@@ -552,7 +552,11 @@ function manifestSkillRoots(pluginDir: string): string[] {
   if (!existsSync(manifestPath)) return [];
   try {
     const skills = (JSON.parse(readFileSync(manifestPath, "utf8")) as { skills?: unknown }).skills;
-    return Array.isArray(skills) ? skills.filter((s): s is string => typeof s === "string").map((s) => join(pluginDir, s)) : [];
+    if (!Array.isArray(skills)) return [];
+    return skills
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => join(pluginDir, s))
+      .filter((dir) => dir.startsWith(join(pluginDir, sep)));
   } catch {
     return [];
   }
