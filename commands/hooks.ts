@@ -409,10 +409,11 @@ export async function toggleHooks(args: string[], ctx: CommandContext): Promise<
 
   const { multiselect } = await import("../lib/rt-render.ts");
 
+  const running = runningHooks(config, discoveredHooks);
   const selected = await multiselect({
     message: `Hooks that run in ${repoName}`,
-    options: discoveredHooks.map((hook) => ({ value: hook, label: hook })),
-    initialValues: runningHooks(config, discoveredHooks),
+    options: discoveredHooks.map((hook) => (running.includes(hook) ? { value: hook, label: hook } : { value: hook, label: hook, hint: "[disabled]" })),
+    initialValues: running,
   });
 
   const next = applyHookSelection(config, discoveredHooks, selected);
