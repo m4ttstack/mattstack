@@ -5,6 +5,7 @@
 import type { BoardMR } from '../../data.ts';
 import type { MrAction } from '../../mr-action.ts';
 import type { ActionResult } from '../api.ts';
+import { mrRef } from './MrLinks.tsx';
 import type {
   ActionRequest,
   Lane,
@@ -71,7 +72,7 @@ const NAMED = 4;
 function iids(mrs: readonly BoardMR[]): string {
   const named = mrs
     .slice(0, NAMED)
-    .map(m => `!${m.iid}`)
+    .map(m => mrRef(m))
     .join(', ');
   return mrs.length > NAMED ? `${named} +${mrs.length - NAMED} more` : named;
 }
@@ -147,12 +148,12 @@ function postSpec(req: PostRequest): PostSpec {
       return {
         path: '/mr/action',
         payload: (mr, url) => ({ mrUrl: url, iid: mr.iid, action: req.action }),
-        pending: mr => `${w.pending} !${mr.iid}…`,
-        done: mr => `${w.done} !${mr.iid}`,
+        pending: mr => `${w.pending} ${mrRef(mr)}…`,
+        done: mr => `${w.done} ${mrRef(mr)}`,
         fail: (mr, r) =>
           r.body?.reason
-            ? `couldn't ${req.action} !${mr.iid}: ${r.body.reason}`
-            : `couldn't ${req.action} !${mr.iid} (${r.status})`,
+            ? `couldn't ${req.action} ${mrRef(mr)}: ${r.body.reason}`
+            : `couldn't ${req.action} ${mrRef(mr)} (${r.status})`,
         fresh: true,
         manyDone: done => `${w.manyDone} ${on(done)}`,
         manyFail: list => `couldn't ${w.manyVerb} ${list}`,
@@ -163,12 +164,12 @@ function postSpec(req: PostRequest): PostSpec {
       return {
         path: '/draft',
         payload: (mr, url) => ({ mrUrl: url, iid: mr.iid, draft: req.draft }),
-        pending: mr => `marking !${mr.iid} ${verb}…`,
+        pending: mr => `marking ${mrRef(mr)} ${verb}…`,
         done: mr =>
           req.draft
-            ? `!${mr.iid} is back to draft`
-            : `!${mr.iid} is ready for review`,
-        fail: (mr, r) => `couldn't mark !${mr.iid} ${verb} (${r.status})`,
+            ? `${mrRef(mr)} is back to draft`
+            : `${mrRef(mr)} is ready for review`,
+        fail: (mr, r) => `couldn't mark ${mrRef(mr)} ${verb} (${r.status})`,
         fresh: true,
         manyDone: done => `marked ${verb} on ${on(done)}`,
         manyFail: list => `couldn't mark ${list} ${verb}`,
@@ -184,9 +185,9 @@ function postSpec(req: PostRequest): PostSpec {
           emoji: req.emoji,
           remove: req.remove,
         }),
-        done: mr => `${done} ${req.glyph} on !${mr.iid}`,
+        done: mr => `${done} ${req.glyph} on ${mrRef(mr)}`,
         fail: (mr, r) =>
-          `couldn't ${verb} ${req.glyph} for !${mr.iid} (${r.status})`,
+          `couldn't ${verb} ${req.glyph} for ${mrRef(mr)} (${r.status})`,
         fresh: false,
         manyDone: ok => `${done} ${req.glyph} on ${on(ok)}`,
         manyFail: list => `couldn't ${verb} ${req.glyph} for ${list}`,
@@ -196,12 +197,12 @@ function postSpec(req: PostRequest): PostSpec {
       return {
         path: '/slack/resolve',
         payload: (mr, url) => ({ mrUrl: url, iid: mr.iid }),
-        pending: mr => `finding slack thread for !${mr.iid}…`,
+        pending: mr => `finding slack thread for ${mrRef(mr)}…`,
         done: (mr, r) =>
           r.body?.status === 'found'
-            ? `found slack thread for !${mr.iid}`
-            : `no slack thread found for !${mr.iid}`,
-        fail: (mr, r) => `slack lookup failed for !${mr.iid} (${r.status})`,
+            ? `found slack thread for ${mrRef(mr)}`
+            : `no slack thread found for ${mrRef(mr)}`,
+        fail: (mr, r) => `slack lookup failed for ${mrRef(mr)} (${r.status})`,
         fresh: false,
         manyDone: done => {
           const found = done.filter(d => d.result.body?.status === 'found');
@@ -225,7 +226,8 @@ function postSpec(req: PostRequest): PostSpec {
           reviewer,
           kind: req.ask,
         }),
-        pending: mr => `requesting ${req.ask} of !${mr.iid} from ${reviewer}…`,
+        pending: mr =>
+          `requesting ${req.ask} of ${mrRef(mr)} from ${reviewer}…`,
         done: (_mr, r) =>
           r.body?.queued
             ? `switchboard unreachable... queued the ask to ${reviewer}`
@@ -234,7 +236,7 @@ function postSpec(req: PostRequest): PostSpec {
         // whole point of the failure, so it wins over the status.
         fail: (mr, r) =>
           r.text.trim() ||
-          `couldn't request ${req.ask} for !${mr.iid} (${r.status})`,
+          `couldn't request ${req.ask} for ${mrRef(mr)} (${r.status})`,
         fresh: false,
         manyDone: done => `asked ${reviewer} on ${on(done)}`,
         manyFail: list => `couldn't ask ${reviewer} on ${list}`,

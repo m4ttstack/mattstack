@@ -25,6 +25,7 @@ import {
   SearchCheckIcon,
 } from './icons.tsx';
 import { MrCard } from './MrCard.tsx';
+import { mrRef } from './MrLinks.tsx';
 import {
   readinessProse,
   readReviewGate,
@@ -395,7 +396,7 @@ function ReviewGateSheet({
         </Button>
       }
       queue={queue}
-      tag={`review gate${mr ? ` !${mr.iid}` : ''}`}
+      tag={`review gate${mr ? ` ${mrRef(mr)}` : ''}`}
       onClose={onClose}
     >
       <div className="tui-sheet-body">
@@ -645,7 +646,7 @@ function ReviewGateSheet({
                 <div className="tui-sheet-dock" ref={reserveDock}>
                   <div className="tui-sheet-dock-head">
                     <h3 className="tui-sheet-dock-heading">
-                      Verdict on !{mr?.iid ?? ''}
+                      Verdict on {mr ? mrRef(mr) : '!'}
                     </h3>
                     <button
                       type="button"

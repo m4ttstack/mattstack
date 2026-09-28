@@ -15,6 +15,7 @@ import { ago } from './format.ts';
 import { parseGateCtx, type GateCtx } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
+import { mrRef } from './MrLinks.tsx';
 import { ReplyChoiceBody, SeverityPill, ThreadCard } from './RespondCards.tsx';
 import { subjectRef } from './RespondGateHeader.tsx';
 import { sheetAnswers } from './sheet-payload.ts';
@@ -61,7 +62,7 @@ function pickChip(q: GateItemDisplay, v: Selection): RowChip {
 }
 
 function dockRef(gate: GateRow, mr?: BoardMRWithReview): string {
-  return mr ? `!${mr.iid}` : subjectRef(gate.subject);
+  return mr ? mrRef(mr) : subjectRef(gate.subject);
 }
 
 /** When and where the gate opened: the rail's meta line, which also keeps a

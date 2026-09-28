@@ -1,5 +1,6 @@
 import type { BoardMR } from '../../data.ts';
 import type { ActionResult } from '../api.ts';
+import { mrRef } from './MrLinks.tsx';
 
 /** Deps a launch flow needs from its caller: how to POST, how to reflect the
     optimistic queued/rollback state (no-ops for non-optimistic actions like
@@ -43,7 +44,7 @@ export async function runLaunchFlow(
   // a refusal, never a fresh launch, and the reload shows the row's real state.
   if (intent === 'launch') {
     deps.setQueued();
-    deps.addToast(`${deps.verbing} for !${mr.iid}…`);
+    deps.addToast(`${deps.verbing} for ${mrRef(mr)}…`);
   }
   const result = await deps.post({
     mrUrl: mr.webUrl,
@@ -54,7 +55,7 @@ export async function runLaunchFlow(
   if (!result.ok) {
     if (intent === 'focus') {
       deps.addToast(
-        `couldn't focus ${deps.noun} pane for !${mr.iid}${result.text ? `: ${result.text}` : ` (${result.status})`}`
+        `couldn't focus ${deps.noun} pane for ${mrRef(mr)}${result.text ? `: ${result.text}` : ` (${result.status})`}`
       );
       deps.reload();
       return result;
@@ -63,7 +64,7 @@ export async function runLaunchFlow(
     deps.addToast(
       deps.failureMessage
         ? deps.failureMessage(result, mr)
-        : `couldn't launch ${deps.noun} for !${mr.iid} (${result.status})`
+        : `couldn't launch ${deps.noun} for ${mrRef(mr)} (${result.status})`
     );
     return result;
   }
@@ -74,8 +75,8 @@ export async function runLaunchFlow(
   if (result.body?.focused)
     deps.addToast(
       intent === 'focus'
-        ? `focused ${deps.noun} tab for !${mr.iid}`
-        : `${deps.noun} already running for !${mr.iid} — focused its tab`
+        ? `focused ${deps.noun} tab for ${mrRef(mr)}`
+        : `${deps.noun} already running for ${mrRef(mr)} — focused its tab`
     );
   deps.reload();
   return result;
