@@ -436,6 +436,41 @@ describe('W4 rendering', () => {
     );
   });
 
+  it('renders Markdown context as lists and code spans', async () => {
+    const user = userEvent.setup();
+    renderCard(
+      gateRow({
+        context: 'Minor:\n\n- Stale JSDoc in `a.ts:14`\n- Rename `b` to `c`',
+      })
+    );
+    await user.click(screen.getByTestId('gate-context-toggle'));
+    const body = screen.getByTestId('gate-context-body');
+    expect(body.querySelectorAll('li')).toHaveLength(2);
+    expect(body.querySelector('code')).toHaveTextContent('a.ts:14');
+  });
+
+  it('shows a context image as its alt text and never loads it', async () => {
+    const user = userEvent.setup();
+    renderCard(
+      gateRow({ context: 'see ![the chart](https://example.test/x.png)' })
+    );
+    await user.click(screen.getByTestId('gate-context-toggle'));
+    const body = screen.getByTestId('gate-context-body');
+    expect(body.querySelector('img')).toBeNull();
+    expect(body).toHaveTextContent('see the chart');
+  });
+
+  it('keeps single newlines of plain prose context as line breaks', async () => {
+    const user = userEvent.setup();
+    renderCard(
+      gateRow({ context: 'Critical: none.\nImportant 1: x\nMinor 1: y' })
+    );
+    await user.click(screen.getByTestId('gate-context-toggle'));
+    expect(
+      screen.getByTestId('gate-context-body').querySelectorAll('br')
+    ).toHaveLength(2);
+  });
+
   it('hides code-changes until a fix is picked and submits the sentinel while hidden', async () => {
     const user = userEvent.setup();
     // A prior test's answerPost.mockResolvedValue (409 conflict) otherwise

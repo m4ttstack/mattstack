@@ -22,6 +22,7 @@ import type { GateRow } from '@mattstack/rt-client';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { client } from '../api';
+import { GateContext } from './GateContext';
 import { GateQuestionnaire } from './GateQuestionnaire';
 
 function GateSummaryDetail({ detail }: { detail: GateSummaryDetailRow[] }) {
@@ -304,15 +305,7 @@ export function GateCard({ gate }: { gate: GateRow }) {
             >
               {contextOpen ? 'hide context' : 'show context'}
             </Button>
-            {contextOpen && (
-              <Text
-                fz={12}
-                style={{ whiteSpace: 'pre-wrap' }}
-                data-testid="gate-context-body"
-              >
-                {gate.context}
-              </Text>
-            )}
+            {contextOpen && <GateContext text={gate.context} />}
           </Stack>
         )}
         {answered ? (
