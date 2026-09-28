@@ -228,6 +228,16 @@ describe("evaluateJob", () => {
     const answered = sensors({ ...idleFor(3), backgroundWork: () => true, unconsumedAnswered: () => [{ id: "g-1", ageMs: 4 * MIN }] });
     expect(evaluateJob(job(), answered, cfg)).toEqual({ kind: "wedged", path: "fast", evidence: "gate g-1 answered 4m ago and unconsumed" });
   });
+
+  test("RT-355: a follow-up on a pane idle past the backstop reads healthy on the next sweep", () => {
+    const s = sensors(idleFor(40));
+    expect(evaluateJob(job({ status: "active", lastReport: 2758, updatedAt: NOW }), s, cfg)).toEqual({ kind: "healthy" });
+  });
+
+  test("RT-355: a follow-up round still trips the backstop once backstopMins pass since the follow-up", () => {
+    const s = sensors(idleFor(40));
+    expect(evaluateJob(job({ status: "active", lastReport: 2758, updatedAt: NOW - 16 * MIN }), s, cfg)).toEqual({ kind: "wedged", path: "backstop", evidence: "idle 16m with no open gate" });
+  });
 });
 
 describe("evaluateShepherd", () => {

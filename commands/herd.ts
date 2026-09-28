@@ -13,6 +13,7 @@
  *   rt herd list [--all]
  *   rt herd resume [<id>]
  *   rt herd close <job> --herd <id>
+ *   rt herd follow-up <job> --herd <id>
  *   rt herd attend <job> --herd <id>
  *   rt herd wrap-up <id> [--close-panes] [--dispose <job>...] [--delete-job-dirs] [--archive-room]
  *   rt herd stop --hidden

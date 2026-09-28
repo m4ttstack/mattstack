@@ -126,7 +126,10 @@ export function evaluateJob(job: HerdJobRow, s: WatchdogSensors, cfg: WatchdogCo
   if (state !== "idle") return HEALTHY;
 
   if (since === null) return HEALTHY;
-  const idleMs = now - since;
+  // A follow-up round flips done back to active on a pane that has sat idle
+  // since the report, so the clock restarts at the last status write, the
+  // same clamp openReportAges uses. Only transitions write updatedAt.
+  const idleMs = now - Math.max(since, job.updatedAt);
   if (idleMs < ms(cfg.fastMins)) return HEALTHY;
 
   const unread = s.unreadDmMentionsFor(job.handle);
