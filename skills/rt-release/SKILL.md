@@ -167,9 +167,9 @@ Quote each stale row as preflight printed it (pinned vs current). Recommend per 
 - **Plugin catalog**: preflight re-resolves each url-source pin with `git ls-remote`. The cut is
   `bash scripts/release/marketplace.sh --refresh`, which rewrites `marketplace/marketplace.json`
   in place and ignores `--dry-run`; review the diff and land it before the notes commit so the
-  tag publishes current pins. The in-tree plugins, `chat` and `mattstack` (`plugins/mattstack`),
-  have no upstream and never drift; each bumps its own `.claude-plugin/plugin.json` version
-  when it changes.
+  tag publishes current pins. The in-tree plugins, `chat` (`marketplace/plugins/chat`) and
+  `mattstack` (`plugins/mattstack`), have no upstream and never drift; each bumps its own
+  `.claude-plugin/plugin.json` version when it changes.
 - **Standalone fast-browser**: compared against `m4ttstack/fast-browser`'s main `package.json`
   (it publishes to npm, not GitHub releases). Hold only as Matt's recorded decision.
 - **Tool rows** (bun, sparkle, age, zstd, git-lfs, gh, glab, jq, node, sops, cloudflared,
