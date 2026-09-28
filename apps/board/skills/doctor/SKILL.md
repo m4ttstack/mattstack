@@ -89,6 +89,7 @@ digraph doctor_flow {
     "<status-bin> gate wait <state> (resumed escalation)" [shape=plaintext];
     "Resumed wait result (doctor)?" [shape=diamond];
     "Resumed wait failures = 3 (doctor)?" [shape=diamond];
+    "Does the resumed answer end the run (doctor)?" [shape=diamond];
     "What does the resumed answer name (doctor)?" [shape=diamond];
 
     "Domain skill resolved (doctor)?" [shape=diamond];
@@ -262,17 +263,18 @@ digraph doctor_flow {
     "Which entry (doctor)?" -> "What does the resumed answer name (doctor)?" [label="resumed gate"];
     "Which entry (doctor)?" -> "Domain skill resolved (doctor)?" [label="fresh run"];
     "<status-bin> gate wait <state> (resumed escalation)" -> "Resumed wait result (doctor)?";
-    "Resumed wait result (doctor)?" -> "--skill given (doctor)?" [label="answered"];
+    "Resumed wait result (doctor)?" -> "Does the resumed answer end the run (doctor)?" [label="answered"];
     "Resumed wait result (doctor)?" -> "Own lease held (doctor exit)?" [label="closed, not found, or no gate open: gate gone"];
     "Resumed wait result (doctor)?" -> "Resumed wait failures = 3 (doctor)?" [label="any other failure"];
     "Resumed wait failures = 3 (doctor)?" -> "<status-bin> gate wait <state> (resumed escalation)" [label="no: wait again"];
     "Resumed wait failures = 3 (doctor)?" -> "Own lease held (doctor exit)?" [label="yes: degraded, error"];
-    "What does the resumed answer name (doctor)?" -> "Lease mode (before the retry)?" [label="a job retry (retry budget extension)"];
+    "Does the resumed answer end the run (doctor)?" -> "Which exit (doctor)?" [label="an off-script hold: nothing claimed"];
+    "Does the resumed answer end the run (doctor)?" -> "Which exit (doctor)?" [label="leave it to me in the pane: error, nothing claimed"];
+    "Does the resumed answer end the run (doctor)?" -> "--skill given (doctor)?" [label="no: take, iterate, retry, watch or a domain action"];
+    "What does the resumed answer name (doctor)?" -> "Lease mode (before the retry)?" [label="a job retry on a sha (retry budget extension)"];
     "What does the resumed answer name (doctor)?" -> "<status-bin> doctor-status <state> watching" [label="more watch calls (watch budget extension)"];
     "What does the resumed answer name (doctor)?" -> "Hand the answered action to the domain skill" [label="a domain action: conflict strategy, override, budget extension"];
     "What does the resumed answer name (doctor)?" -> "Domain skill resolved (doctor)?" [label="an off-script take or iterate: repair again with its note"];
-    "What does the resumed answer name (doctor)?" -> "Own lease held (doctor exit)?" [label="an off-script hold"];
-    "What does the resumed answer name (doctor)?" -> "Own lease held (doctor exit)?" [label="leave it to me in the pane: error"];
 
     "Domain skill resolved (doctor)?" -> "Delegate the repair to the domain skill" [label="yes"];
     "Domain skill resolved (doctor)?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="no: generic path"];
@@ -302,6 +304,7 @@ digraph doctor_flow {
     "What is broken (doctor)?" -> "Own lease held (doctor exit)?" [label="nothing: clean and green, done"];
     "What is broken (doctor)?" -> "Server-side rebase licensed?" [label="merge conflicts, with or without red CI"];
     "What is broken (doctor)?" -> "mr_pipeline {mrUrl}" [label="red CI, no conflicts"];
+    "What is broken (doctor)?" -> "<status-bin> doctor-status <state> watching" [label="pipeline running or pending, no conflicts: watch its head sha"];
 
     "Server-side rebase licensed?" -> "Lease mode (before the rebase)?" [label="yes"];
     "Server-side rebase licensed?" -> "Own lease held (doctor exit)?" [label="no: error, the conflicts need a checkout"];
@@ -403,7 +406,7 @@ digraph doctor_flow {
     "git rev-parse HEAD (the pushed sha, doctor)" -> "<status-bin> doctor-status <state> watching";
 
     "doctor escalation: budget extension (retry)" -> "Escalation outcome (retry budget)?";
-    "Escalation outcome (retry budget)?" -> "Lease mode (before the retry)?" [label="retry the job once more"];
+    "Escalation outcome (retry budget)?" -> "Lease mode (before the retry)?" [label="retry the job once more on its sha"];
     "Escalation outcome (retry budget)?" -> "Own lease held (doctor exit)?" [label="leave it to me in the pane: error"];
     "Escalation outcome (retry budget)?" -> "Own lease held (doctor exit)?" [label="gate gone"];
     "Escalation outcome (retry budget)?" -> "Own lease held (doctor exit)?" [label="degraded: error"];
@@ -569,12 +572,17 @@ What the graph cannot show:
   recorded answer at once instead of blocking. Never run `gate open`
   before the parked answer is read: the gate lives in the rt daemon's
   registry, and a fresh open mints a new `gateId`, supersedes the parked
-  one and orphans the answer recorded against it. After the answer is
-  read, the run resolves the domain skill and the lease as a fresh run
-  does, and any later escalation (an off-script refusal, a new dead end)
-  opens a new `doctor-escalation` gate normally. A wait that fails or
-  finds the gate gone leaves before any lease node, so nothing is held to
-  release.
+  one and orphans the answer recorded against it. `Does the resumed
+  answer end the run (doctor)?` reads the answer next: an off-script hold
+  ends the turn holding, with no status write, and `leave it to me in the
+  pane` writes `error` naming the situation the gate described; both
+  leave before the domain skill and every lease node, so nothing is
+  claimed or released. Any other answer (a take, an iterate, a retry, a
+  watch or a domain action) resolves the domain skill and the lease as a
+  fresh run does, and any later escalation (an off-script refusal, a new
+  dead end) opens a new `doctor-escalation` gate normally. A wait that
+  fails or finds the gate gone also leaves before any lease node, so
+  nothing is held to release.
 - **Never re-diagnose before acting on the answer.** A retry, watch or
   domain answer acts from the value alone. An off-script take or iterate
   is the exception: it repairs again from the top with the answer's note,
@@ -583,13 +591,15 @@ What the graph cannot show:
 - **Reading an answer.** `gate wait`'s answered form is `{"answers": {...},
   "by": "...", "answeredAt": ...}`, keyed by the question id `action`. Read
   `answers.action`: a bare option string, or a `{value, note}` object whose
-  `value` you read. `What does the resumed answer name (doctor)?` routes on
-  the value's prefix and reads its data from the value itself:
-  `retry job <id> once more` is the retry budget (the job id comes from
-  the value), `extend by <n> more watch calls on <sha>` is the watch budget
-  (the count and sha come from the value), a value starting `take:`,
-  `iterate:` or `hold:` is an off-script answer, and any other option value
-  is a domain action.
+  `value` you read. `Does the resumed answer end the run (doctor)?` takes
+  a value starting `hold:` or the literal `leave it to me in the pane` to
+  its exit. `What does the resumed answer name (doctor)?` routes every
+  other value on its prefix and reads its data from the value itself:
+  `retry job <id> once more on <sha>` is the retry budget (the job id and
+  the sha come from the value), `extend by <n> more watch calls on <sha>`
+  is the watch budget (the count and sha come from the value), a value
+  starting `take:` or `iterate:` is an off-script answer, and any other
+  option value is a domain action.
 - **Lease mode.** `Who holds the fresh lease (doctor)?` fixes the mode for
   the run: board mode (the board's `board:doctor:` owner holds it) or own
   mode (this session holds it). Every `Lease mode (...)?` diamond reads
@@ -602,11 +612,20 @@ What the graph cannot show:
   refusal after an iterate goes straight back to that tool's off-script
   escalation, and its `Off-script rounds = 2 (...)?` counter bounds the
   loop.
+- **What is broken.** `What is broken (doctor)?` reads the `mr_view`
+  result: conflicts first, then the head pipeline's status. A pipeline
+  that is running or pending with no conflicts is not a repair yet: watch
+  its head sha, and `ci_watch` returns the verdict (green is done, red
+  goes to classification). This is the usual state after an off-script
+  take or iterate that retried, rebased or pushed, and after someone else
+  retried before this launch. Never call a running or pending pipeline
+  clean and green.
 - **The watched sha.** `ci_watch` takes the sha to watch: after a rebase,
   the new head the rebase poll read; after a retry, the sha of the
   pipeline `mr_pipeline` or `ci_watch` returned for that job; after a
-  resumed watch budget, the sha in the answered value; after a push, `git
-  rev-parse HEAD` in the domain skill's worktree root. `Watch calls = 9`
+  resumed retry budget or watch budget, the sha in the answered value; on
+  a running or pending pipeline, the head sha `mr_view` read; after a
+  push, `git rev-parse HEAD` in the domain skill's worktree root. `Watch calls = 9`
   is 45 minutes of 300 second calls; it resets when the watched sha
   changes and after a job retry, and a granted watch extension raises its
   ceiling by the granted count.
@@ -810,11 +829,12 @@ retry. Label: `job <id> (<name>) failed again after one retry
 
 | Value | Label | Description |
 |---|---|---|
-| `retry job <id> once more` | Retry it once more | I retry job <id> one more time and watch the pipeline again. |
+| `retry job <id> once more on <sha>` | Retry it once more | I retry job <id> one more time and watch the pipeline for <sha> again. |
 | `leave it to me in the pane` | Leave it to me | I stop here and write an error naming the failing job. |
 
-The value carries the job id, so a resumed pane retries that job without
-another read. A granted retry that fails again is a fresh escalation,
+Spell the job id and the sha of its pipeline in the value (`retry job 812
+once more on <sha>`); the value carries both, so a resumed pane retries
+that job and watches that sha without another read. A granted retry that fails again is a fresh escalation,
 never another silent retry.
 
 ### doctor escalation: budget extension (watch)
@@ -870,8 +890,7 @@ again.
 Take the escalation step with this question. Only one of `ci_lease_read`
 (board mode) or `ci_lease_claim` (own mode) runs at this site in a run, so
 the site is one origin. Label: `lease check before the rebase refused on
-!<iid>: <error>`. Context: the lease tool's error, quoted, and the first
-error when the call ran twice.
+!<iid>: <error>`. Context: the lease tool's error, quoted.
 
 | Value | Label | Description |
 |---|---|---|
@@ -888,8 +907,7 @@ before checking again.
 Take the escalation step with this question. Only one of `ci_lease_read`
 or `ci_lease_claim` runs at this site in a run, so the site is one origin.
 Label: `lease check before retrying job <id> refused on !<iid>: <error>`.
-Context: the lease tool's error, quoted, and the first error when the
-call ran twice.
+Context: the lease tool's error, quoted.
 
 | Value | Label | Description |
 |---|---|---|
@@ -906,8 +924,7 @@ before checking again.
 Take the escalation step with this question. Only one of `ci_lease_read`
 or `ci_lease_claim` runs at this site in a run, so the site is one origin.
 Label: `lease check before pushing <branch> refused on !<iid>: <error>`.
-Context: the lease tool's error, quoted, and the first error when the
-call ran twice.
+Context: the lease tool's error, quoted.
 
 | Value | Label | Description |
 |---|---|---|
@@ -1142,7 +1159,7 @@ line, in the voice of "Escalation shapes and phrasing". Each option is an
 object in the box's own wording:
 
 ```json
-{"value": "retry job 812 once more", "label": "Retry it once more", "description": "I retry job 812 one more time and watch the pipeline again."}
+{"value": "retry job 812 once more on 4f2a9c1", "label": "Retry it once more", "description": "I retry job 812 one more time and watch the pipeline for 4f2a9c1 again."}
 ```
 
 `value` is spelled in full, human-readable, never a bare index or a
