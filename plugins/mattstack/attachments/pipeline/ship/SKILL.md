@@ -144,6 +144,7 @@ digraph ship {
     "ship gate ship" [shape=box];
     "ship answer (ship)?" [shape=diamond];
     "Ship gate rounds = 2 (ship)?" [shape=diamond];
+    "Ship gate reopenings = 2 (ship)?" [shape=diamond];
     "Rebase in progress (ship gate rounds spent)?" [shape=diamond];
     "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" [shape=plaintext];
     "dirty answer (ship)?" [shape=diamond];
@@ -166,6 +167,8 @@ digraph ship {
     "git remote get-url origin (ship)" [shape=plaintext];
     "Forge host (ship, before git_push)?" [shape=diamond];
     "ship gate clarify: which forge?" [shape=box];
+    "Forge clarify answer (ship)?" [shape=diamond];
+    "Forge clarify rounds = 2 (ship)?" [shape=diamond];
     "mr_for_branch {repoName: <root>, branches: [<branch>]} (before git_push)" [shape=plaintext];
     "Open MR on the branch (before git_push)?" [shape=diamond];
     "Push moves the MR's head (ship)?" [shape=diamond];
@@ -267,8 +270,8 @@ digraph ship {
     "Ship gate rounds = 2 (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
     "Ship gate rounds = 2 (ship)?" -> "Rebase in progress (ship gate rounds spent)?" [label="yes: a failure, their last note quoted"];
     "Rebase in progress (ship gate rounds spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" [label="yes"];
-    "Rebase in progress (ship gate rounds spent)?" -> "Which exit is this (ship)?" [label="no: a failure, their last note quoted"];
-    "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" -> "Which exit is this (ship)?" [label="a failure, their last note quoted"];
+    "Rebase in progress (ship gate rounds spent)?" -> "Which exit is this (ship)?" [label="no: a failure, what was quoted is the reason"];
+    "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" -> "Which exit is this (ship)?" [label="a failure, what was quoted is the reason"];
     "ship answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
     "ship answer (ship)?" -> "Rebase in progress (ship abort)?" [label="dirty = abort: nothing is pushed"];
     "Rebase in progress (ship abort)?" -> "git_rebase {tree: <root>, abort: true}" [label="yes"];
@@ -283,7 +286,7 @@ digraph ship {
     "Checks pass (ship)?" -> "Domain rebases, and no rebase finished this pass (ship)?" [label="yes"];
     "Checks pass (ship)?" -> "Fix rounds = 3 (ship)?" [label="no"];
     "Fix rounds = 3 (ship)?" -> "Fix test-first, commit, rerun (ship)" [label="no"];
-    "Fix rounds = 3 (ship)?" -> "ship gate ship" [label="yes: reopen, failing output quoted"];
+    "Fix rounds = 3 (ship)?" -> "Ship gate reopenings = 2 (ship)?" [label="yes: reopen, failing output quoted"];
     "Fix test-first, commit, rerun (ship)" -> "Run the domain's fast checks (none when unbound)";
     "Domain rebases, and no rebase finished this pass (ship)?" -> "git_rebase {tree: <root>, onto: origin/<default>}" [label="yes"];
     "Domain rebases, and no rebase finished this pass (ship)?" -> "git remote get-url origin (ship)" [label="no"];
@@ -292,7 +295,9 @@ digraph ship {
     "Rebase status (ship)?" -> "Conflict rounds = 3 (ship)?" [label="conflict"];
     "Rebase status (ship)?" -> "Which exit is this (ship)?" [label="any other error: a failure, quoted as the reason"];
     "Conflict rounds = 3 (ship)?" -> "Resolve the files, then git rebase --continue on Bash (ship)" [label="no"];
-    "Conflict rounds = 3 (ship)?" -> "ship gate ship" [label="yes: reopen, conflicted files quoted"];
+    "Conflict rounds = 3 (ship)?" -> "Ship gate reopenings = 2 (ship)?" [label="yes: reopen, conflicted files quoted"];
+    "Ship gate reopenings = 2 (ship)?" -> "ship gate ship" [label="no: reopen with what was quoted"];
+    "Ship gate reopenings = 2 (ship)?" -> "Rebase in progress (ship gate rounds spent)?" [label="yes: a failure, the failing output or conflicted files quoted"];
     "Resolve the files, then git rebase --continue on Bash (ship)" -> "Continue result (ship)?";
     "Continue result (ship)?" -> "Conflict rounds = 3 (ship)?" [label="another commit conflicted"];
     "Continue result (ship)?" -> "Run the domain's fast checks (none when unbound)" [label="rebase finished"];
@@ -302,8 +307,13 @@ digraph ship {
     "git remote get-url origin (ship)" -> "Forge host (ship, before git_push)?";
     "Forge host (ship, before git_push)?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]} (before git_push)" [label="GitLab"];
     "Forge host (ship, before git_push)?" -> "Push needs force-with-lease (ship)?" [label="GitHub"];
-    "Forge host (ship, before git_push)?" -> "ship gate clarify: which forge?" [label="anything else"];
-    "ship gate clarify: which forge?" -> "Forge host (ship, before git_push)?" [label="answered: the named forge"];
+    "Forge host (ship, before git_push)?" -> "Forge clarify rounds = 2 (ship)?" [label="anything else"];
+    "Forge clarify rounds = 2 (ship)?" -> "ship gate clarify: which forge?" [label="no: ask which forge"];
+    "Forge clarify rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the origin URL and their answer quoted"];
+    "ship gate clarify: which forge?" -> "Forge clarify answer (ship)?";
+    "Forge clarify answer (ship)?" -> "Forge host (ship, before git_push)?" [label="answered: the named forge"];
+    "Forge clarify answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
+    "Forge clarify answer (ship)?" -> "Which exit is this (ship)?" [label="hand back: a failure, no forge this verb knows"];
     "mr_for_branch {repoName: <root>, branches: [<branch>]} (before git_push)" -> "Open MR on the branch (before git_push)?";
     "Open MR on the branch (before git_push)?" -> "Push moves the MR's head (ship)?" [label="yes"];
     "Push moves the MR's head (ship)?" -> "mr_pipeline {repoName, iid} (the prior pipeline id, ship)" [label="yes: HEAD differs"];
@@ -467,6 +477,12 @@ with the note quoted instead of redoing them. When a rebase is in
 progress, the failure aborts it first. A reopening after the fix or
 conflict rounds are spent is not an Iterate and does not count.
 
+`Ship gate reopenings = 2 (ship)?` counts the times the fix or conflict
+rounds run out and reopen this gate within this pass through the verb,
+this one included: the first reopens the gate with the failing output or
+conflicted files quoted, and the second fails the verb with them quoted,
+aborting a rebase in progress first.
+
 ### Commit named files (ship)
 
 Stage the files by name, never everything; the subject follows the
@@ -503,7 +519,12 @@ like a clean one.
 ### ship gate clarify: which forge?
 
 The origin host is neither GitLab nor GitHub. Ask which forge it is, quoting
-the `git remote get-url origin` line as the context.
+the `git remote get-url origin` line as the context. Options: **GitLab** /
+**GitHub** / **Hand back**, and `next`: **Proceed** / **Hold**.
+`Forge clarify rounds = 2 (ship)?` counts the times the host reads as
+neither within this pass through the verb, this one included: the first
+asks, and the second fails the verb with the origin URL and the answer
+quoted.
 
 ### ship off-script gate: git_push refused
 
