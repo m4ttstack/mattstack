@@ -124,11 +124,13 @@ vm_log_tail() {
 }
 
 # vm_fail_reason <rc> <log> <reason>: the reason to ledger for a failed guest
-# command. 124 (the phase ran out of time) and 255 (ssh itself failed, which
-# includes a keepalive giving up) name the phase, the elapsed time and the
-# log's last lines; any other status keeps the caller's own reason.
+# command. 124 once the phase's limit has passed and 255 (ssh itself failed,
+# which includes a keepalive giving up) name the phase, the elapsed time and
+# the log's last lines; any other status, including a 124 the command chose
+# itself, keeps the caller's own reason.
 vm_fail_reason() {
   local rc="$1" log="$2" secs=$(( $(date +%s) - _vm_phase_started ))
+  [ "$rc" = 124 ] && [ "$secs" -lt "$_vm_phase_limit" ] && rc=1
   case "$rc" in
     124) printf '%s timed out after %ss (limit %ss)' "$_vm_phase_name" "$secs" "$_vm_phase_limit" ;;
     255) printf 'ssh to the guest failed or dropped after %ss in %s (exit 255)' "$secs" "$_vm_phase_name" ;;
@@ -186,16 +188,28 @@ _vm_bounded_dog=""
 # trapped signal until a foreground child exits, which a hung ssh never does.
 # The watchdog subshell holds bash's saved copies of the caller's stdout and
 # stderr, so it must never outlive the call: a reader of that pipe would wait
-# for its full sleep.
+# for its full sleep. It also stands down once its caller is gone: a caller
+# killed outright leaves the command to launchd, and by the deadline its pid
+# may belong to something else. The caller is found with a child's $PPID
+# because $$ names the top-level script even inside $(...).
 vm_bounded() {
   local limit="$1"; shift
   [ "$limit" -gt 0 ] 2>/dev/null || return 124
-  local start pid dog rc=0
+  local start pid dog me rc=0
   start=$(date +%s)
+  me=$(exec sh -c 'echo $PPID')
   "$@" <&0 &
   pid=$!
   _vm_bounded_pid=$pid
-  ( sleep "$limit"; pids=$(vm_tree_pids "$pid"); kill -TERM $pids || true; sleep 5; kill -KILL $pids || true ) </dev/null >/dev/null 2>&1 &
+  (
+    end=$(( start + limit ))
+    while [ "$(date +%s)" -lt "$end" ]; do sleep 1; kill -0 "$me" 2>/dev/null || exit 0; done
+    [ "$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$me" ] || exit 0
+    pids=$(vm_tree_pids "$pid"); kill -TERM $pids || true
+    sleep 5
+    kill -0 "$me" 2>/dev/null || exit 0
+    kill -KILL $pids || true
+  ) </dev/null >/dev/null 2>&1 7>&- 8>&- &
   dog=$!
   _vm_bounded_dog=$dog
   wait "$pid" 2>/dev/null || rc=$?
@@ -215,14 +229,25 @@ vm_guest_cmd() {
   vm_bounded "$(( _vm_phase_deadline - $(date +%s) ))" "$@"
 }
 
+# One line to stderr through an external echo; when that fails because the
+# reader is gone (a `| tee` hit by the same Ctrl-C), the script's output moves
+# to logs/teardown.log. A write from bash itself would die of SIGPIPE, and
+# ignoring SIGPIPE hangs bash 3.2.
+vm_say_or_log() {
+  /bin/echo "$1" >&2 2>/dev/null && return 0
+  if [ -d "${VM_RUN_DIR:-}/logs" ]; then exec >>"$VM_RUN_DIR/logs/teardown.log" 2>&1; else exec >/dev/null 2>&1; fi
+  printf '%s\n' "$1" >&2
+}
+
 # INT/TERM/HUP handler: stops the guest command in flight, ledgers the open
 # phase, and exits so the caller's EXIT trap tears down. The trap fires inside
 # whatever call was running, usually one redirected into a phase log, so the
 # script's own stdout/stderr come back from fds 7 and 8 first.
 vm_on_signal() {
+  trap '' INT TERM HUP
   local sig="$1" p
   exec 1>&7 2>&8
-  vm_warn "caught SIG$sig; tearing down"
+  vm_say_or_log "  ! caught SIG$sig; tearing down"
   for p in "$_vm_bounded_pid" "$_vm_bounded_dog"; do
     if [ -n "$p" ]; then kill -TERM $(vm_tree_pids "$p") 2>/dev/null || true; fi
   done

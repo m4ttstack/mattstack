@@ -114,8 +114,19 @@ check "vm_bounded returns the command's status"   'rc=0; vm_bounded 5 sh -c "exi
 check "vm_bounded keeps stdin"                    '[ "$(printf hi | vm_bounded 5 cat)" = hi ]'
 check "vm_bounded ends an overrun with 124"       's=$(date +%s); rc=0; vm_bounded 1 sleep 30 || rc=$?; [ "$rc" -eq 124 ] && [ $(( $(date +%s) - s )) -le 4 ]'
 check "vm_bounded kills the overrun's children"   '{ vm_bounded 1 sh -c "sleep 2718 & wait" || true; } && gone "sleep 2718"'
-check "vm_bounded leaves no watchdog behind"      'vm_bounded 4242 true && gone "sleep 4242"'
+check "vm_bounded leaves no watchdog behind"      '
+  bash -c "source \"$HERE/../common.sh\"; vm_bounded 4242 true; sleep 2 # wd-probe" & c=$!
+  sleep 1; n=$(pgrep -f "wd-probe" | wc -l | tr -d " "); wait "$c"; [ "$n" -eq 1 ]'
 check "vm_bounded on a spent budget runs nothing" 'rc=0; vm_bounded 0 touch "$VM_RUN_DIR/ran" || rc=$?; [ "$rc" -eq 124 ] && [ ! -e "$VM_RUN_DIR/ran" ]'
+check "vm_bounded times out inside \$(...)"      '[ "$(rc=0; vm_bounded 1 sleep 30 || rc=$?; echo "$rc")" = 124 ]'
+# A caller killed outright (SIGKILL, or a script with no signal traps) leaves
+# its command to launchd; the watchdog must not kill a pid that may since have
+# been recycled.
+check "a dead caller's watchdog leaves the orphan alone" '
+  bash -c "source \"$HERE/../common.sh\"; vm_bounded 2 sleep 3333" & c=$!
+  sleep 0.5; kill -KILL "$c"; wait "$c" 2>/dev/null; sleep 3.5
+  alive=0; pgrep -fx "sleep 3333" >/dev/null && alive=1
+  pkill -fx "sleep 3333"; [ "$alive" = 1 ] && gone "vm_bounded 2 sleep 3333"'
 
 VM_PHASE_LIMIT_BUDGETED=1
 vm_phase_begin budgeted
@@ -128,6 +139,10 @@ check "dropped-session reason names ssh + phase"  'vm_fail_reason 255 /nonexiste
 check "other failures keep the caller's reason"   '[ "$(vm_fail_reason 1 "$VM_RUN_DIR/logs/drive.log" "copy failed")" = "copy failed" ]'
 vm_phase_end budgeted fail "$reason"
 check "a cut phase's ledger line is valid JSON"   'tail -1 "$VM_RUN_DIR/phases.jsonl" | jq -e ".phase == \"budgeted\"" >/dev/null'
+VM_PHASE_LIMIT_ROOMY=100
+vm_phase_begin roomy
+check "a 124 well inside the limit is not a timeout" '[ "$(vm_fail_reason 124 "$VM_RUN_DIR/logs/drive.log" "script exited 124")" = "script exited 124" ]'
+vm_phase_end roomy fail "script exited 124"
 check "a closed phase leaves guest commands unbounded" 'rc=0; vm_guest_cmd sleep 2 || rc=$?; [ "$rc" -eq 0 ]'
 
 vm_phase_begin orphaned

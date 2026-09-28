@@ -40,10 +40,10 @@ GOLDEN="${GOLDEN_OVERRIDE:-$(vm_golden_name "$VER")}"
 vm_run_init "walk-$VER-$SCENARIO"
 RUN_STARTED=$(date +%s)
 vm_log "golden: $GOLDEN"
-RUN_VM="mattstack-run-$VER-$(date +%H%M%S)"
+RUN_VM="mattstack-run-$VER-$(date +%H%M%S)-$$"
 GUEST_RUN="/Volumes/My Shared Files/run"
 GUEST_BIN="/Users/$VM_TESTER_USER/vmrun"
-TART_PID=""; SHOT_PID=""
+TART_PID=""; SHOT_PID=""; CLONED=0
 APP_VERSION=""
 FRESH_SLUG=""
 # The longest passing screens phase on record ran 3353s, 23 minutes of it a
@@ -56,6 +56,7 @@ FRESH_SLUG=""
 
 cleanup() {
   trap 'vm_warn "teardown in progress; signal ignored"' INT TERM HUP
+  vm_say_or_log "  ── cleanup"
   [ -n "$SHOT_PID" ] && kill "$SHOT_PID" 2>/dev/null
   vm_phase_abandon "walkthrough exited mid-phase"
   if [ "$DRY" = 0 ]; then teardown; fi
@@ -70,17 +71,19 @@ vm_trap_signals
 # Ledgered as its own phase so the report says what, if anything, was left behind.
 teardown() {
   vm_phase_begin teardown
-  collect_logs || true
   local status=pass notes="" repo
+  if [ "$CLONED" = 1 ]; then collect_logs || true; fi
   if [ "$KEEP" = 1 ]; then
-    vm_warn "keeping $RUN_VM running (--keep); stop with: tart stop $RUN_VM && tart delete $RUN_VM"
+    [ "$CLONED" = 1 ] && vm_warn "keeping $RUN_VM running (--keep); stop with: tart stop $RUN_VM && tart delete $RUN_VM"
     notes="kept $RUN_VM${FRESH_SLUG:+ and $FRESH_SLUG} (--keep)"
   else
-    tart stop "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 || true
-    [ -n "$TART_PID" ] && vm_reap "$TART_PID" 60
-    tart delete "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 || true
-    if tart list 2>/dev/null | awk '{print $2}' | grep -cx "$RUN_VM" >/dev/null; then
-      status=fail; notes="$RUN_VM is still listed by tart after delete"
+    if [ "$CLONED" = 1 ]; then
+      tart stop "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 || true
+      [ -n "$TART_PID" ] && vm_reap "$TART_PID" 60
+      tart delete "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 || true
+      if tart list 2>/dev/null | awk '{print $2}' | grep -cx "$RUN_VM" >/dev/null; then
+        status=fail; notes="$RUN_VM is still listed by tart after delete"
+      fi
     fi
     if [ -n "$FRESH_SLUG" ]; then
       repo=$(retire_fresh_repo) || status=fail
@@ -169,9 +172,10 @@ if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
       vm_require_cmd glab "brew install glab"
       FRESH_GROUP="${MATTSTACK_VMTEST_GITLAB_GROUP:-}"
       [ -n "$FRESH_GROUP" ] || { vm_phase_end preflight fail "--fresh-team-repo with --forge gitlab needs MATTSTACK_VMTEST_GITLAB_GROUP"; exit 1; }
-      GITLAB_TOKEN="${!PAT_ENV}" glab repo create "$FRESH_NAME" --group "$FRESH_GROUP" --private >/dev/null 2>&1 \
-        || { vm_phase_end preflight fail "glab repo create $FRESH_GROUP/$FRESH_NAME failed"; exit 1; }
+      # Set before the create: a signal that lands during it must still delete the repo.
       FRESH_SLUG="$FRESH_GROUP/$FRESH_NAME"
+      GITLAB_TOKEN="${!PAT_ENV}" glab repo create "$FRESH_NAME" --group "$FRESH_GROUP" --private >/dev/null 2>&1 \
+        || { FRESH_SLUG=""; vm_phase_end preflight fail "glab repo create $FRESH_GROUP/$FRESH_NAME failed"; exit 1; }
       TEAM_REMOTE="https://gitlab.com/$FRESH_SLUG.git";;
     ""|github)
       vm_require_cmd gh "brew install gh"
@@ -182,9 +186,9 @@ if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
         *vmtest*) ;;
         *) [ "${MATTSTACK_VMTEST_ORG_CONFIRM:-}" = "$FRESH_ORG" ] || { vm_phase_end preflight fail "org $FRESH_ORG lacks 'vmtest'; set MATTSTACK_VMTEST_ORG_CONFIRM=$FRESH_ORG to confirm"; exit 1; };;
       esac
-      GH_TOKEN="${!PAT_ENV}" gh repo create "$FRESH_ORG/$FRESH_NAME" --private >/dev/null 2>&1 \
-        || { vm_phase_end preflight fail "gh repo create $FRESH_ORG/$FRESH_NAME failed"; exit 1; }
       FRESH_SLUG="$FRESH_ORG/$FRESH_NAME"
+      GH_TOKEN="${!PAT_ENV}" gh repo create "$FRESH_SLUG" --private >/dev/null 2>&1 \
+        || { FRESH_SLUG=""; vm_phase_end preflight fail "gh repo create $FRESH_ORG/$FRESH_NAME failed"; exit 1; }
       TEAM_REMOTE="https://github.com/$FRESH_SLUG.git";;
     *)
       vm_phase_end preflight fail "--fresh-team-repo: unknown --forge '$FORGE' (github|gitlab)"; exit 1;;
@@ -212,13 +216,19 @@ fi
 
 # ── clone + boot ─────────────────────────────────────────────────────────────
 vm_phase_begin clone
-tart clone "$GOLDEN" "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 && vm_phase_end clone pass || { vm_phase_end clone fail "tart clone failed (see logs/tart.log)"; exit 1; }
+if tart clone "$GOLDEN" "$RUN_VM" >>"$VM_RUN_DIR/logs/tart.log" 2>&1; then CLONED=1; vm_phase_end clone pass
+else vm_phase_end clone fail "tart clone failed (see logs/tart.log)"; exit 1; fi
 
 vm_phase_begin boot
 RUN_ARGS=(--no-audio "--dir=run:$VM_RUN_DIR"); [ "$GRAPHICS" = 0 ] && RUN_ARGS+=(--no-graphics)
-# Under --keep this outlives the script, so it drops vm_trap_signals' saved fds.
-tart run "$RUN_VM" "${RUN_ARGS[@]}" >>"$VM_RUN_DIR/logs/tart.log" 2>&1 7>&- 8>&- &
+# Its own process group: a terminal's Ctrl-C reaches the whole foreground
+# group, and tart stops the guest on SIGINT, cutting teardown's log collection
+# short and defeating --keep. Under --keep it also outlives the script, so it
+# drops vm_trap_signals' saved fds.
+set -m
+tart run "$RUN_VM" "${RUN_ARGS[@]}" </dev/null >>"$VM_RUN_DIR/logs/tart.log" 2>&1 7>&- 8>&- &
 TART_PID=$!
+set +m
 TRUSTED=1; vm_trust_key "$RUN_VM" || TRUSTED=0
 if vm_wait_ssh "$VM_TESTER_USER" "$RUN_VM" 420; then
   [ "$GRAPHICS" = 1 ] && { shot_watcher & SHOT_PID=$!; }

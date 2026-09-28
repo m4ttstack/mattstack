@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -20,8 +20,16 @@ interface World {
 // A host with no VM: tart, ssh, sshpass, gh and glab are stubs that answer
 // from files under root and append every call to root/calls. The guest driver
 // either hangs (a child sleeping on a marker duration, so a leak is findable)
-// or exits 255 the way ssh does when its keepalives give up.
-function world(opts: { screens: Screens; ghDelete?: "ok" | "refuse"; forge?: "github" | "gitlab"; env?: Record<string, string> }): World {
+// or exits 255 the way ssh does when its keepalives give up. `tart run` notes
+// any signal it receives: under a real terminal that stops the guest.
+function world(opts: {
+  screens: Screens;
+  ghDelete?: "ok" | "refuse";
+  forge?: "github" | "gitlab";
+  cloneFails?: boolean;
+  slowCreate?: boolean;
+  env?: Record<string, string>;
+}): World {
   const root = mkdtempSync(join(tmpdir(), "walkthrough-"));
   const bin = join(root, "bin");
   const art = join(root, "art");
@@ -33,6 +41,8 @@ function world(opts: { screens: Screens; ghDelete?: "ok" | "refuse"; forge?: "gi
   writeFileSync(join(root, "x.dmg"), "");
   writeFileSync(join(root, "screens"), opts.screens);
   writeFileSync(join(root, "gh-delete"), opts.ghDelete ?? "ok");
+  if (opts.cloneFails) writeFileSync(join(root, "clone-fails"), "");
+  if (opts.slowCreate) writeFileSync(join(root, "slow-create"), "");
   const stub = (name: string, body: string) => {
     writeFileSync(join(bin, name), `#!/bin/bash\nROOT="${root}"\n${body}`);
     chmodSync(join(bin, name), 0o755);
@@ -42,8 +52,9 @@ S="$ROOT/tart"
 case "$1" in
   list) echo "Source Name Disk Size State"; echo "local mattstack-golden-26 50 20 stopped"
         for f in "$S"/vm-*; do [ -e "$f" ] && echo "local \${f##*/vm-} 50 20 running"; done; true;;
-  clone) : > "$S/vm-$3";;
-  run) while [ -e "$S/vm-$2" ] && [ ! -e "$S/stopped-$2" ]; do sleep 0.2; done;;
+  clone) [ -e "$ROOT/clone-fails" ] && exit 1; : > "$S/vm-$3";;
+  run) trap 'echo "tart run signalled" >> "$ROOT/calls"; exit 1' INT TERM HUP
+       while [ -e "$S/vm-$2" ] && [ ! -e "$S/stopped-$2" ]; do sleep 0.2; done;;
   ip) echo 127.0.0.1;;
   stop) : > "$S/stopped-$2";;
   delete) rm -f "$S/vm-$2";;
@@ -65,6 +76,7 @@ exit 0
   stub("hdiutil", "exit 1\n");
   stub("gh", `echo "gh $*" >> "$ROOT/calls"
 case "$1 $2" in
+  "repo create") : > "$ROOT/creating"; [ -e "$ROOT/slow-create" ] && sleep 1.5;;
   "repo delete") [ "$(cat "$ROOT/gh-delete")" = ok ] || { echo "HTTP 403: Must have admin rights to Repository." >&2; exit 1; };;
 esac
 exit 0
@@ -101,24 +113,55 @@ const calls = (w: World) => (existsSync(w.calls) ? readFileSync(w.calls, "utf8")
 const leftoverGuests = (w: World) => readdirSync(join(w.root, "tart")).filter((f) => f.startsWith("vm-mattstack-run-"));
 const driverAlive = (w: World) => Bun.spawnSync(["pgrep", "-f", `sleep ${w.marker}`]).exitCode === 0;
 
-async function walk(w: World, signal?: "SIGTERM" | "SIGINT"): Promise<{ code: number; out: string; ms: number }> {
+interface WalkOpts {
+  signal?: "SIGTERM" | "SIGINT";
+  // driver: once the screens driver hangs; creating: once the repo create starts.
+  when?: "driver" | "creating";
+  // The whole process group, as a terminal's Ctrl-C does, or only bash's pid.
+  group?: boolean;
+  // The output reader dies first, as `| tee` does under the same Ctrl-C.
+  deadReader?: boolean;
+}
+
+async function walk(w: World, o: WalkOpts = {}): Promise<{ code: number; out: string; ms: number }> {
   const started = Date.now();
-  const p = Bun.spawn(["/bin/bash", WALK, ...w.args], { env: w.env, stdout: "pipe", stderr: "pipe" });
-  if (signal) {
-    const pid = join(w.root, "driver.pid");
-    while (!existsSync(pid) && Date.now() - started < 30_000) await Bun.sleep(100);
-    p.kill(signal);
+  const pidFile = join(w.root, "walk.pid");
+  // A job-control wrapper makes walkthrough.sh lead its own process group, as
+  // a terminal would, so a signal can reach the group without reaching bun.
+  // The wrapper's own job notices go nowhere: the dead-reader case must see
+  // walkthrough.sh's exit, not the wrapper's SIGPIPE.
+  const argv = ["/bin/bash", "-c", 'set -m; /bin/bash "$@" & echo $! > "$0"; exec 2>/dev/null; wait $!', pidFile, WALK, ...w.args];
+  let reader: ReturnType<typeof Bun.spawn> | undefined;
+  let fd: number | undefined;
+  if (o.deadReader) {
+    const fifo = join(w.root, "out.fifo");
+    Bun.spawnSync(["mkfifo", fifo]);
+    reader = Bun.spawn(["cat", fifo], { stdout: "ignore" });
+    fd = openSync(fifo, "w");
+  }
+  const p = Bun.spawn(argv, { env: w.env, stdout: fd ?? "pipe", stderr: fd ?? "pipe" });
+  if (fd !== undefined) closeSync(fd);
+  if (o.signal) {
+    const mark = join(w.root, o.when === "creating" ? "creating" : "driver.pid");
+    while (!(existsSync(mark) && existsSync(pidFile)) && Date.now() - started < 30_000) await Bun.sleep(50);
+    if (reader) {
+      reader.kill("SIGKILL");
+      await reader.exited;
+    }
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    process.kill(o.group ? -pid : pid, o.signal);
   }
   const code = await p.exited;
-  const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
+  const out = fd === undefined ? (await new Response(p.stdout as ReadableStream).text()) + (await new Response(p.stderr as ReadableStream).text()) : "";
   return { code, out, ms: Date.now() - started };
 }
 
 function expectTornDown(w: World) {
   const teardown = phase(w, "teardown");
   expect(teardown?.status).toBe("pass");
-  expect(calls(w)).toMatch(/tart stop mattstack-run-26-\d+/);
-  expect(calls(w)).toMatch(/tart delete mattstack-run-26-\d+/);
+  expect(calls(w)).toMatch(/tart stop mattstack-run-26-\d{6}-\d+/);
+  expect(calls(w)).toMatch(/tart delete mattstack-run-26-\d{6}-\d+/);
+  expect(calls(w)).not.toContain("tart run signalled");
   expect(leftoverGuests(w)).toEqual([]);
   expect(driverAlive(w)).toBe(false);
 }
@@ -161,9 +204,9 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
   }, RUN_MS);
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
-    test(`${signal} mid-screens ledgers the phase and runs teardown`, async () => {
+    test(`${signal} to the process group mid-screens ledgers the phase and runs teardown`, async () => {
       const w = world({ screens: "hang" });
-      const { code, out, ms } = await walk(w, signal);
+      const { code, out, ms } = await walk(w, { signal, group: true });
       expect(code).toBe(1);
       expect(ms).toBeLessThan(60_000);
       // The trap fires inside a call redirected to screens.log; the operator
@@ -176,6 +219,36 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
       expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
     }, RUN_MS);
   }
+
+  test("a signal after the output reader died still tears down, logging to teardown.log", async () => {
+    const w = world({ screens: "hang" });
+    const { code, ms } = await walk(w, { signal: "SIGTERM", group: true, deadReader: true });
+    expect(code).toBe(1);
+    expect(ms).toBeLessThan(60_000);
+    expect(phase(w, "screens")?.reason).toMatch(/^interrupted by SIGTERM after \d+s$/);
+    expectTornDown(w);
+    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
+    expect(readFileSync(join(runDir(w), "logs", "teardown.log"), "utf8")).toContain("caught SIGTERM; tearing down");
+  }, RUN_MS);
+
+  test("a signal while the fresh repo is being created still deletes it", async () => {
+    const w = world({ screens: "drop", slowCreate: true });
+    const { code } = await walk(w, { signal: "SIGTERM", when: "creating" });
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.reason).toMatch(/^interrupted by SIGTERM after \d+s$/);
+    expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-vmtest-team-\S+ --yes/);
+    expect(phase(w, "teardown")?.status).toBe("pass");
+  }, RUN_MS);
+
+  test("a failed clone tears down no guest but still deletes the repo", async () => {
+    const w = world({ screens: "drop", cloneFails: true });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "clone")?.status).toBe("fail");
+    expect(calls(w)).not.toMatch(/tart (ip|stop|delete) /);
+    expect(calls(w)).toContain("gh repo delete mattstack-vmtest/mattstack-vmtest-team-");
+    expect(phase(w, "teardown")?.status).toBe("pass");
+  }, RUN_MS);
 
   test("a token that cannot delete the fresh repo archives it and says so", async () => {
     const w = world({ screens: "drop", ghDelete: "refuse" });
