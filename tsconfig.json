@@ -26,8 +26,9 @@
     "noPropertyAccessFromIndexSignature": false
   },
   // The apps and their platform packages type-check under turbo with their
-  // own tsconfigs; the root project checks the rt CLI, daemon and rt's own
-  // three packages (rt-client, settings-kit, git-core) only.
+  // own tsconfigs, and plugins/ keep their own toolchain; the root project
+  // checks the rt CLI, daemon and rt's own three packages (rt-client,
+  // settings-kit, git-core) only.
   "exclude": [
     "apps",
     "extensions",
@@ -48,6 +49,7 @@
     "storybook-static",
     "rt-tray/deps",
     "rt-tray/*.app",
-    "eslint.config.mjs"
+    "eslint.config.mjs",
+    "plugins"
   ]
 }
