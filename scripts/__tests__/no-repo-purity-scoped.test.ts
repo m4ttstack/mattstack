@@ -56,4 +56,32 @@ describe("scoped purity terms", () => {
     expect(r.code).toBe(1);
     expect(r.out).toContain("BETA_TERM");
   });
+
+  test("the built-in herdr-chat entry with an empty pattern is skipped", () => {
+    const dir = repoWith({ "plugins/herdr-chat/x.md": "ordinary plugin notes\n" });
+    const r = run(dir);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("ok   repo-purity");
+  });
+
+  test("a hit in a single file names that file", () => {
+    const dir = repoWith({ "plugins/probe/README.md": "uses PROBE_SCOPED_TERM here\n" });
+    const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\tPROBE_SCOPED_TERM" });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("plugins/probe/README.md:");
+  });
+
+  test("a pattern starting with a dash is a pattern, not an option", () => {
+    const dir = repoWith({ "plugins/probe/notes.md": "has -dashterm inside\n" });
+    const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\t-dashterm" });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("FAIL repo-purity (plugins/probe)");
+  });
+
+  test("a malformed pattern fails closed", () => {
+    const dir = repoWith({ "plugins/probe/notes.md": "clean\n" });
+    const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\t(unclosed" });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("FAIL repo-purity (plugins/probe): grep error");
+  });
 });
