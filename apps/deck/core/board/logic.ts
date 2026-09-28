@@ -63,6 +63,8 @@ interface StatusRow {
   devLink?: 'unlinked' | 'linked' | 'broken';
   /** The linked source checkout (local hosts only), managed rows only. */
   devDir?: string | null;
+  /** Dev mode only: the checkout has commits touching this app since its last deploy. */
+  newCode?: { deployed: string; head: string };
   /** Which origin serves this row's public traffic -- the cloudflared tunnel
       (default) or, once pushed live, Railway directly. */
   publicOrigin: 'tunnel' | 'railway';
@@ -354,6 +356,18 @@ export function commandButtonLabel(
 ): string {
   if (phase === 'restarting') return 'restarting…';
   return phase === 'running' ? `${cmd}…` : cmd;
+}
+
+export function deployPill(
+  row: Row,
+  cmd: string,
+  phase: CommandPhase | undefined
+): { label: string; tip: string } | null {
+  if (cmd !== 'deploy' || !row.newCode || phase != null) return null;
+  return {
+    label: 'New code · Redeploy',
+    tip: `Deployed at ${row.newCode.deployed}, checkout at ${row.newCode.head}`,
+  };
 }
 
 export function commandToast(
