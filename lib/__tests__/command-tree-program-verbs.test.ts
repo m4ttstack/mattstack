@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { dispatch, isNodeVisible, showPicker, type CommandNode, type VerbFilter } from "../command-tree.ts";
 import { TREE } from "../command-tree-def.ts";
+import { getDef } from "../settings/registry.ts";
 import { setSetting } from "../settings/write.ts";
 import { installFakePick } from "../ui/pick-fake.ts";
 
@@ -11,8 +12,7 @@ const noop = async () => {};
 
 const tree: Record<string, CommandNode> = {
   cd: { description: "Pick a directory", handler: noop },
-  herd: { description: "Run a herd", audience: "program", handler: noop },
-  pane: { description: "Panes", audience: "program", handler: noop },
+  herd: { description: "Run a herd", handler: noop },
   worktree: {
     description: "Worktrees",
     subcommands: {
@@ -22,36 +22,25 @@ const tree: Record<string, CommandNode> = {
   },
 };
 
-const filter = (f: Partial<VerbFilter> = {}): VerbFilter => ({ all: false, show: new Set(), hide: new Set(), ...f });
+const filter = (f: Partial<VerbFilter> = {}): VerbFilter => ({ all: false, hidden: new Set(), ...f });
 
-describe("isNodeVisible (audience and verb filter)", () => {
-  const program: CommandNode = { description: "x", audience: "program" };
-  const human: CommandNode = { description: "x" };
+describe("isNodeVisible (rt.picker.hidden)", () => {
+  const node: CommandNode = { description: "x" };
 
-  test("a program verb is hidden by default", () => {
-    expect(isNodeVisible(program, false)).toBe(false);
-    expect(isNodeVisible(program, false, "pane", filter())).toBe(false);
-  });
-
-  test("show names a program verb back in, and * shows them all", () => {
-    expect(isNodeVisible(program, false, "pane", filter({ show: new Set(["pane"]) }))).toBe(true);
-    expect(isNodeVisible(program, false, "pane", filter({ show: new Set(["*"]) }))).toBe(true);
-  });
-
-  test("hide takes any verb out, and beats show", () => {
-    expect(isNodeVisible(human, false, "nav", filter({ hide: new Set(["nav"]) }))).toBe(false);
-    expect(isNodeVisible(program, false, "pane", filter({ show: new Set(["*"]), hide: new Set(["pane"]) }))).toBe(false);
+  test("a verb named in the hidden list is left out", () => {
+    expect(isNodeVisible(node, false, "herd", filter({ hidden: new Set(["herd"]) }))).toBe(false);
+    expect(isNodeVisible(node, false, "cd", filter({ hidden: new Set(["herd"]) }))).toBe(true);
   });
 
   test("--all shows every verb but never a hidden or dev-only node", () => {
-    const all = filter({ all: true, hide: new Set(["pane"]) });
-    expect(isNodeVisible(program, false, "pane", all)).toBe(true);
+    const all = filter({ all: true, hidden: new Set(["herd"]) });
+    expect(isNodeVisible(node, false, "herd", all)).toBe(true);
     expect(isNodeVisible({ description: "x", hidden: true }, false, "x", all)).toBe(false);
     expect(isNodeVisible({ description: "x", devOnly: true }, false, "x", all)).toBe(false);
   });
 });
 
-describe("program verbs in listings", () => {
+describe("rt.picker.hidden in listings", () => {
   const origHome = process.env.HOME;
   let home: string;
   let logSpy: ReturnType<typeof spyOn>;
@@ -77,18 +66,13 @@ describe("program verbs in listings", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("--help leaves program verbs out by default", async () => {
+  test("--help leaves the default hidden verbs out", async () => {
     await expect(dispatch(tree, ["--help"])).rejects.toThrow("exit sentinel");
     expect(stdout()).toContain("cd");
     expect(stdout()).not.toContain("herd");
   });
 
-  test("--help --all lists program verbs too", async () => {
-    await expect(dispatch(tree, ["--help", "--all"])).rejects.toThrow("exit sentinel");
-    expect(stdout()).toContain("herd");
-  });
-
-  test("--all --help lists program verbs, and the next listing hides them again", async () => {
+  test("--all --help lists hidden verbs, and the next listing hides them again", async () => {
     await expect(dispatch(tree, ["--all", "--help"])).rejects.toThrow("exit sentinel");
     expect(stdout()).toContain("herd");
     logSpy.mockClear();
@@ -96,21 +80,26 @@ describe("program verbs in listings", () => {
     expect(stdout()).not.toContain("herd");
   });
 
-  test("rt.picker.show lists the named program verb only", async () => {
-    setSetting("rt.picker.show", ["pane"], "user");
-    await expect(dispatch(tree, ["--help"])).rejects.toThrow("exit sentinel");
-    expect(stdout()).toContain("pane");
-    expect(stdout()).not.toContain("herd");
+  test("--help --all lists hidden verbs too", async () => {
+    await expect(dispatch(tree, ["--help", "--all"])).rejects.toThrow("exit sentinel");
+    expect(stdout()).toContain("herd");
   });
 
-  test("rt.picker.hide matches a nested verb by its path", async () => {
-    setSetting("rt.picker.hide", ["worktree provision"], "user");
+  test("an edited list replaces the default", async () => {
+    setSetting("rt.picker.hidden", ["cd"], "user");
+    await expect(dispatch(tree, ["--help"])).rejects.toThrow("exit sentinel");
+    expect(stdout()).toContain("herd");
+    expect(stdout()).not.toContain("Pick a directory");
+  });
+
+  test("an entry matches a nested verb by its path", async () => {
+    setSetting("rt.picker.hidden", ["worktree provision"], "user");
     await expect(dispatch(tree, ["worktree", "--help"])).rejects.toThrow("exit sentinel");
     expect(stdout()).toContain("list");
     expect(stdout()).not.toContain("provision");
   });
 
-  test("the picker leaves program verbs out by default", async () => {
+  test("the picker leaves the default hidden verbs out", async () => {
     const fake = installFakePick([{ kind: "result", result: { action: "cancel", value: null, query: "" } }]);
     try {
       await showPicker(tree, ["rt"]);
@@ -121,30 +110,33 @@ describe("program verbs in listings", () => {
   });
 
   test("a hidden verb still runs by name", async () => {
-    setSetting("rt.picker.hide", ["herd"], "user");
     let ran = false;
     const t: Record<string, CommandNode> = {
-      herd: { description: "Run a herd", audience: "program", handler: async () => { ran = true; } },
+      herd: { description: "Run a herd", handler: async () => { ran = true; } },
     };
     await dispatch(t, ["herd"]);
     expect(ran).toBe(true);
   });
 });
 
-describe("the real tree's split", () => {
-  const programVerbs = Object.entries(TREE)
-    .filter(([, n]) => n.audience === "program")
-    .map(([name]) => name);
+describe("the rt.picker.hidden default", () => {
+  const hidden = getDef("rt.picker.hidden")!.default as string[];
 
-  test("verbs typed by hand stay visible", () => {
-    for (const name of ["git", "sync", "run", "runner", "glitter", "cd", "nav", "code", "worktree", "mr", "chat", "settings", "cswap"]) {
-      expect(programVerbs, name).not.toContain(name);
+  test("names only real top-level verbs", () => {
+    for (const name of hidden) {
+      expect(Object.keys(TREE), name).toContain(name);
     }
   });
 
-  test("verbs only the apps, skills and daemon run are program verbs", () => {
+  test("keeps the verbs typed by hand visible", () => {
+    for (const name of ["git", "sync", "run", "runner", "glitter", "cd", "nav", "code", "worktree", "mr", "chat", "settings", "cswap"]) {
+      expect(hidden, name).not.toContain(name);
+    }
+  });
+
+  test("hides the verbs only the apps, skills and daemon run", () => {
     for (const name of ["state", "skills", "herd", "gate", "runs", "events", "reconciler", "release", "daemon", "pane"]) {
-      expect(programVerbs, name).toContain(name);
+      expect(hidden, name).toContain(name);
     }
   });
 });
