@@ -76,7 +76,7 @@ function answer(id: string, body: unknown) {
   return gates.fetch(
     new Request(`http://localhost/api/gates/${id}/answer`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', host: 'localhost' },
       body: JSON.stringify(body),
     })
   );
@@ -194,6 +194,7 @@ describe('POST /api/gates/:id/answer', () => {
         id: 'g1',
         answers: { q1: 'yes' },
         by: 'console',
+        override: true,
       },
       expect.anything()
     );
@@ -283,6 +284,23 @@ describe('POST /api/gates/:id/answer', () => {
     const res = await answer('g1', {});
 
     expect(res.status).toBe(400);
+    expect(rt.gateAnswer).not.toHaveBeenCalled();
+  });
+
+  it('403s a public-edge request, without calling gateAnswer', async () => {
+    const res = await gates.fetch(
+      new Request('http://localhost/api/gates/g1/answer', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          host: 'localhost',
+          'x-mattstack-edge': 'public',
+        },
+        body: JSON.stringify({ answers: { q1: 'yes' } }),
+      })
+    );
+
+    expect(res.status).toBe(403);
     expect(rt.gateAnswer).not.toHaveBeenCalled();
   });
 });
