@@ -74,6 +74,15 @@ digraph ship {
     "AFTER attempts = 3?" [shape=diamond];
     "Files to attach?" [shape=diamond];
     "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
+    "mr_upload result?" [shape=diamond];
+    "Upload retried with a corrected path?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" [shape=plaintext];
+    "STOP: upload only with mr_upload; another route is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" [shape=box];
+    "upload off-script answer?" [shape=diamond];
+    "Upload off-script rounds = 2?" [shape=diamond];
+    "Timed-out upload retried once?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
     "Forge host (read back the description)?" [shape=diamond];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
     "gh pr view <mr> --json title,body" [shape=plaintext];
@@ -167,7 +176,27 @@ digraph ship {
     "AFTER attempts = 3?" -> "Files to attach?" [label="yes: go on without it; the description names the gap"];
     "Files to attach?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="yes, GitLab"];
     "Files to attach?" -> "Forge host (read back the description)?" [label="no, or GitHub: link the paths"];
-    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_view {mrUrl, maxAgeMs: 5000}";
+    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
+    "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
+    "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
+    "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
+    "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
+    "mr_upload result?" -> "Timed-out upload retried once?" [label="timed out"];
+    "Timed-out upload retried once?" -> "mr_upload {mrUrl, path: <the timed-out file>}" [label="no: retry once, a timed-out upload is safe to repeat"];
+    "Timed-out upload retried once?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes: timed out twice"];
+    "mr_upload {mrUrl, path: <the timed-out file>}" -> "mr_upload result?";
+    "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)";
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" -> "upload off-script answer?";
+    "upload off-script answer?" -> "Forge host (read back the description)?" [label="proceed + take: link the refused files' local paths"];
+    "upload off-script answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="proceed + hand back"];
+    "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
+    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
+    "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
+    "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: hand back, the refusal quoted"];
     "Forge host (read back the description)?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="GitLab"];
     "Forge host (read back the description)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
     "mr_view {mrUrl, maxAgeMs: 5000}" -> "Write the title and description";
@@ -214,6 +243,19 @@ counter is attempts within this pass through the stage; after the third
 failure, ship without it and say in the description what was tried.
 Unbound, there is no AFTER.
 
+### Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)
+
+The upload guard refused a file past its one fix; a second timeout on
+the same file reaches this gate too, and Iterate retries it once the
+human has checked the daemon. Scope
+`off-script:ship:<n>`, sharing `n` with the push's off-script gate,
+`context` quoting the refusal and the path. Take writes the description
+with the refused files' local paths linked instead of uploads, while files
+already uploaded keep their upload markdown; Iterate means the human moved
+the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under
+an allowed root is only ever the human's move: the roots are the boundary
+on what leaves the machine.
+
 ### Write the title and description
 
 Title from the ticket or the first commit subject; the body links the
@@ -227,8 +269,8 @@ domain's title, template and voice rules win over this paragraph.
 
 - **Off-script answers.** Read `next` first: Hold ends the turn with no
   move made; Iterate means the human fixed the cause and ignores
-  `action`; only Proceed applies `action`. Retrying `git_push` is
-  Iterate, never Take; rounds count per stage attempt.
+  `action`; only Proceed applies `action`. Retrying `git_push` or
+  `mr_upload` is Iterate, never Take; rounds count per stage attempt.
 - After a rebase that rewrote already-pushed commits, push with
   `git_push {tree: <root>, forceWithLease: true}` instead. Never force
   otherwise, and never push a branch whose tests you have not seen pass in

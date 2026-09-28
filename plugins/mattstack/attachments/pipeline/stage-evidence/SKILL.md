@@ -56,6 +56,15 @@ digraph evidence {
     "Gate evidence-attach (table below)" [shape=box];
     "attach answer?" [shape=diamond];
     "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
+    "mr_upload result?" [shape=diamond];
+    "Upload retried with a corrected path?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" [shape=plaintext];
+    "STOP: upload only with mr_upload; another route is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" [shape=box];
+    "upload off-script answer?" [shape=diamond];
+    "Upload off-script rounds = 2?" [shape=diamond];
+    "Timed-out upload retried once?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the timed-out file>}" [shape=plaintext];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" [shape=plaintext];
     "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [shape=plaintext];
@@ -116,7 +125,27 @@ digraph evidence {
     "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: evidence}";
     "run_field_set {key: hold, value: <their words, or held>, stage: evidence}" -> "Held: end the turn naming run and stage";
     "attach answer?" -> "Gate evidence-attach (table below)" [label="iterate: re-ask with their note"];
-    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_view {mrUrl, maxAgeMs: 5000}";
+    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
+    "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
+    "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
+    "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
+    "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
+    "mr_upload result?" -> "Timed-out upload retried once?" [label="timed out"];
+    "Timed-out upload retried once?" -> "mr_upload {mrUrl, path: <the timed-out file>}" [label="no: retry once, a timed-out upload is safe to repeat"];
+    "Timed-out upload retried once?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes: timed out twice"];
+    "mr_upload {mrUrl, path: <the timed-out file>}" -> "mr_upload result?";
+    "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)";
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" -> "upload off-script answer?";
+    "upload off-script answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="proceed + take: link the refused files' local paths, ship attaches"];
+    "upload off-script answer?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="proceed + hand back"];
+    "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
+    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
+    "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
+    "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back, the refusal quoted"];
     "mr_view {mrUrl, maxAgeMs: 5000}" -> "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}";
     "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}";
     "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" -> "Evidence done: return to the orchestrator";
@@ -150,13 +179,31 @@ A capture that failed (a blank page, a missing record, a wrong route)
 gets one different attempt per round: another view, another record, the
 same source. The counter is attempts within this pass through the stage.
 
+### Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)
+
+The upload guard refused a file past its one fix; a second timeout on
+the same file reaches this gate too, and Iterate retries it once the
+human has checked the daemon. Scope
+`off-script:evidence:<n>`, sharing `n` with the stage's other off-script
+gate, `context` quoting the refusal and the path. Take links the refused
+files' local paths in the handed-back markdown, while files already
+uploaded keep their upload markdown, and ship calls `mr_upload` on the
+refused files, where its own upload gate asks again if the guard still
+refuses (the human can widen the roots in between); Iterate means the
+human moved the file, widened `rt.mcp.uploadRoots` or recaptured. Copying
+a file under an allowed root is only ever the human's move: the roots are
+the boundary on what leaves the machine.
+
 ## What the graph cannot show
 
-- **Off-script answers.** Read `next` first: Hold ends the turn with no
-  capture made; Iterate means the human fixed the evidence gate's source
-  and ignores `action`; only Proceed applies `action`. Retrying the
+- **Off-script answers.** Read `next` first: at the data-source gate, Hold
+  ends the turn with no capture made and Iterate means the human fixed the
+  evidence gate's source; at the upload gate, Hold ends the turn with
+  nothing linked and Iterate retries the upload after the human's fix.
+  Iterate ignores `action`; only Proceed applies `action`. Retrying the
   evidence gate's source is Iterate; the proposed new source is only Take;
-  rounds count per stage attempt.
+  retrying `mr_upload` is Iterate, never Take; rounds count per stage
+  attempt.
 
 ## Gate `evidence` (before any capture)
 
