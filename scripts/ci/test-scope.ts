@@ -1,7 +1,7 @@
 /**
  * Decides what the unit shards run for one CI event and prints the answer
  * for checks.yml. Usage:
- *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always= to $GITHUB_OUTPUT
+ *   bun scripts/ci/test-scope.ts             writes mode=, dirs=, always=, plugins= to $GITHUB_OUTPUT
  *   bun scripts/ci/test-scope.ts --explain   prints the decision and its reason only
  */
 import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from "fs";
@@ -99,6 +99,30 @@ function isAppsTree(f: string): boolean {
   );
 }
 
+// Imported plugins build and test in their own checks.yml jobs, keyed on
+// the plugins= output; the unit shards never read them.
+export function isPluginTree(f: string): boolean {
+  return /^plugins\/[^/]+\//.test(f);
+}
+
+export function pluginDirs(changed: string[]): string[] {
+  const out = new Set<string>();
+  for (const f of changed) {
+    const m = /^(plugins\/[^/]+)\//.exec(f);
+    if (m) out.add(m[1]!);
+  }
+  return [...out].sort();
+}
+
+export function existingPluginDirs(root: string = ROOT): string[] {
+  const dir = join(root, "plugins");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((name) => statSync(join(dir, name)).isDirectory())
+    .map((name) => `plugins/${name}`)
+    .sort();
+}
+
 function readBy(sources: Map<string, string>, f: string): string | undefined {
   const name = basename(f);
   for (const [source, text] of sources) {
@@ -121,14 +145,16 @@ export function decide(input: ScopeInput): Decision {
   if (input.event !== "pull_request") return { mode: "full", reason: `${input.event} is not a pull request` };
   if (input.changed.length === 0) return { mode: "skip", reason: "no changed files" };
 
-  const skippable = input.changed.every((f) => isAppsTree(f) || ((isDocs(f) || isSwift(f)) && !isFixture(f)));
+  const skippable = input.changed.every(
+    (f) => isAppsTree(f) || isPluginTree(f) || ((isDocs(f) || isSwift(f)) && !isFixture(f)),
+  );
   if (skippable) {
     // Only the finite named apps root files are ever read by hardcoded path;
     // an ordinary apps source file's basename (index.ts, README.md) is common
     // enough to false-positive against unrelated rt tests.
-    const checkable = input.changed.filter((f) => !isAppsTree(f) || APPS_ROOT_FILES.has(f));
+    const checkable = input.changed.filter((f) => (!isAppsTree(f) && !isPluginTree(f)) || APPS_ROOT_FILES.has(f));
     const read = checkable.map((f) => [f, readBy(input.sources, f)] as const).find(([, by]) => by);
-    if (!read) return { mode: "skip", reason: "only docs, swift or apps trees, none of it read by a unit test" };
+    if (!read) return { mode: "skip", reason: "only docs, swift, apps or plugin trees, none of it read by a unit test" };
     return { mode: "full", reason: `${read[0]} is read by ${read[1]}` };
   }
 
@@ -214,8 +240,13 @@ if (import.meta.main) {
   const always = alwaysRunPaths().join(" ");
   console.log(`mode=${decision.mode} (${decision.reason})`);
   console.log(`dirs=${dirs}`);
+  const plugins = (event === "pull_request" ? pluginDirs(changed) : existingPluginDirs()).join(",");
   console.log(`always=${always}`);
+  console.log(`plugins=${plugins}`);
   if (!process.argv.includes("--explain") && process.env.GITHUB_OUTPUT) {
-    appendFileSync(process.env.GITHUB_OUTPUT, `mode=${decision.mode}\ndirs=${dirs}\nalways=${always}\n`);
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `mode=${decision.mode}\ndirs=${dirs}\nalways=${always}\nplugins=${plugins}\n`,
+    );
   }
 }
