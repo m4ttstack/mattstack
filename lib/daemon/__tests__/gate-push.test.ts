@@ -351,9 +351,14 @@ describe("gate-push escape injection (W4)", () => {
   });
 
   test("a self-answered or wait gate is never probed", async () => {
+    // onAnswered skips a self-answered pane before it reaches the probe, so the
+    // guard is driven through onClosed on an answered-then-closed row.
     const self = w4Harness();
-    await self.push.onAnswered(answeredFormGate(self.store, "pane"));
+    const answered = answeredFormGate(self.store, "pane");
+    expect(self.store.closeAnswered(answered.id, "abandoned")).toEqual({ ok: true });
+    await self.push.onClosed(self.store.get(answered.id)!);
     expect(self.probes).toEqual([]);
+    expect(self.events).toEqual(["deliver"]);
     const wait = w4Harness();
     await wait.push.onAnswered(answeredFormGate(wait.store, "console", { presentation: "wait", paneId: "pane-7" }));
     expect(wait.probes).toEqual([]);
