@@ -3974,12 +3974,17 @@ a.tui-id-card-ref:focus-visible {
   overflow-wrap: anywhere;
 }
 /* The finding's full text is the decision material itself, so it reads in
-   ink; only the fix line below it stays on the muted token. */
+   ink; only the fix line below it stays on the muted token. Both hold a
+   reading measure so a wide screen doesn't stretch them into one long line. */
 .tui-review-finding-text {
   color: var(--text-1);
   font-size: var(--gate-font-meta);
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+.tui-review-finding-text,
+.tui-review-finding-fix {
+  max-width: 100ch;
 }
 .tui-review-finding-text [data-part='markdown'] > * {
   margin: 0;
