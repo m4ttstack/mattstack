@@ -561,8 +561,8 @@ const baseRow = makeRow();
 test('deployPill: offers the pill on deploy when newCode is set', () => {
   const row = { ...baseRow, newCode: { deployed: 'abc1234', head: 'def5678' } };
   expect(deployPill(row, 'deploy', undefined)).toEqual({
-    label: 'New code · Redeploy',
-    tip: 'Deployed at abc1234, checkout at def5678',
+    label: 'Redeploy',
+    tip: 'New code since last deploy: abc1234 to def5678',
   });
 });
 
