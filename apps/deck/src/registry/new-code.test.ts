@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
@@ -8,6 +8,7 @@ import { commit, gitRepo } from '../../test/git-fixture.ts';
 const dir = mkdtempSync(join(tmpdir(), 'local-new-code-'));
 process.env.LOCAL_REGISTRY_PATH = join(dir, 'registry.json');
 
+const source = await import('../edge/source.ts');
 const { getRecord, putRecord, reloadRegistry } = await import('./records.ts');
 const { newCodeFor, resetNewCodeCache, stampDeploy, stampSelfOnBoot } =
   await import('./new-code.ts');
@@ -43,7 +44,19 @@ beforeEach(() => {
 });
 
 let warn: ReturnType<typeof spyOn> | undefined;
-afterEach(() => warn?.mockRestore());
+let spawn: ReturnType<typeof spyOn> | undefined;
+afterEach(() => {
+  warn?.mockRestore();
+  spawn?.mockRestore();
+  rmSync(`${process.env.LOCAL_REGISTRY_PATH}.tmp`, {
+    recursive: true,
+    force: true,
+  });
+});
+
+function breakRegistryWrites(): void {
+  mkdirSync(`${process.env.LOCAL_REGISTRY_PATH}.tmp`);
+}
 
 test('no stamp baselines at HEAD and reports no new code', () => {
   const { first } = setup();
@@ -158,4 +171,40 @@ test('stampSelfOnBoot stamps only a dev deck running source', () => {
   }
   stampSelfOnBoot({ devMode: true, runMode: 'source', record: getRecord('x') });
   expect(getRecord('x')!.lastDeploy?.sha).toBe(head);
+});
+
+test('a registry write failure while baselining warns once and reports nothing', () => {
+  setup();
+  const { lastDeploy: _, ...rest } = getRecord('x')!;
+  putRecord(rest);
+  breakRegistryWrites();
+  warn = spyOn(console, 'warn').mockImplementation(() => {});
+  expect(newCodeFor(getRecord('x')!)).toBeNull();
+  expect(newCodeFor(getRecord('x')!)).toBeNull();
+  expect(warn).toHaveBeenCalledTimes(1);
+});
+
+test('stampDeploy survives a registry write failure', () => {
+  const { root, appDir, first } = setup();
+  commit(root, { 'apps/x/a.ts': '6' });
+  breakRegistryWrites();
+  warn = spyOn(console, 'warn').mockImplementation(() => {});
+  expect(() => stampDeploy('x', appDir)).not.toThrow();
+  expect(warn).toHaveBeenCalledTimes(1);
+  reloadRegistry();
+  expect(getRecord('x')!.lastDeploy?.sha).toBe(first);
+});
+
+test('a checkout that vanishes before the diff never throws', () => {
+  const { root } = setup();
+  commit(root, { 'apps/x/a.ts': '7' });
+  const real = source.git;
+  spawn = spyOn(source, 'git').mockImplementation((args, cwd) => {
+    if (args[0] === 'diff') throw new Error(`ENOENT: ${cwd}`);
+    return real(args, cwd);
+  });
+  warn = spyOn(console, 'warn').mockImplementation(() => {});
+  expect(newCodeFor(getRecord('x')!)).toBeNull();
+  expect(newCodeFor(getRecord('x')!)).toBeNull();
+  expect(warn).toHaveBeenCalledTimes(1);
 });
