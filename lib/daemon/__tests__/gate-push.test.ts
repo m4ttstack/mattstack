@@ -221,8 +221,10 @@ function w4Harness(opts: {
     events.push("deliver");
     return opts.deliverOk === false ? { ok: false as const, error: "boom" } : { ok: true as const };
   };
-  const injectEscape = async (hints: PaneHints) => {
+  const injectOpts: Array<{ paneRef?: string } | undefined> = [];
+  const injectEscape = async (hints: PaneHints, injectOpt?: { paneRef?: string }) => {
     events.push(`inject:${hints.paneId ?? "none"}`);
+    injectOpts.push(injectOpt);
     return opts.injectOk === false
       ? { ok: false as const, error: "pane_not_found: gone" }
       : { ok: true as const, paneRef: hints.paneId ?? "resolved-via-session" };
@@ -232,7 +234,8 @@ function w4Harness(opts: {
     probes.push(hints);
     if (opts.traceProbe) events.push("probe");
     if (opts.paneStatus === "throw") throw new Error("herdr exploded");
-    return opts.paneStatus === undefined ? ("blocked" as const) : opts.paneStatus;
+    const status = opts.paneStatus === undefined ? ("blocked" as const) : opts.paneStatus;
+    return status === null ? null : { paneRef: `probed:${hints.paneId ?? "session"}`, status };
   };
   const push = createGatePush({
     store,
@@ -242,7 +245,7 @@ function w4Harness(opts: {
     ...(opts.withInjector === false ? {} : { injectEscape }),
     ...(opts.withProbe === false ? {} : { paneStatus }),
   });
-  return { push, store, events, probes };
+  return { push, store, events, probes, injectOpts };
 }
 
 function answeredFormGate(store: GatesStore, by: string, origin?: Record<string, unknown>, pane: string | null = "pane-7") {
@@ -338,6 +341,13 @@ describe("gate-push escape injection (W4)", () => {
     const { push, store, events } = w4Harness({ traceProbe: true });
     await push.onAnswered(answeredFormGate(store, "console"));
     expect(events).toEqual(["probe", "deliver", "inject:pane-7"]);
+  });
+
+  test("Escape is aimed at the paneRef the probe read blocked", async () => {
+    const { push, store, events, injectOpts } = w4Harness();
+    await push.onAnswered(answeredFormGate(store, "console"));
+    expect(events).toEqual(["deliver", "inject:pane-7"]);
+    expect(injectOpts).toEqual([{ paneRef: "probed:pane-7" }]);
   });
 
   test("an unreadable pane, a probe that throws, or no probe wired gets the doorbell only", async () => {

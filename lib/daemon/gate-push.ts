@@ -210,33 +210,35 @@ export function createGatePush(opts: {
       instead of drawing one, and an Escape sent to an idle prompt interrupts
       the turn the doorbell just started (RT-357), so it needs the pane to
       read blocked. The reading is taken before the doorbell: afterwards an
-      idle pane is mid-flip to working and the reading races. */
-  async function formOnScreen(row: GateRow): Promise<boolean> {
-    if (!opts.injectEscape || !opts.paneStatus || !row.nudge?.session) return false;
-    if (row.origin?.presentation !== "form") return false;
+      idle pane is mid-flip to working and the reading races. Returns the
+      paneRef that read blocked, or null for doorbell-only. */
+  async function formOnScreen(row: GateRow): Promise<string | null> {
+    if (!opts.injectEscape || !opts.paneStatus || !row.nudge?.session) return null;
+    if (row.origin?.presentation !== "form") return null;
     // Same self-answer test as the doorbell: a form the nudged pane answered
     // itself has already dismissed. A foreign surface's `by: "pane"` must not
     // gate this off -- session wins.
-    if (answeredByNudgedPane(row)) return false;
+    if (answeredByNudgedPane(row)) return null;
     try {
-      const status = await opts.paneStatus(gateHints(row));
-      if (status !== "blocked") log.debug({ gateId: row.id, status }, "gate-push: no form on screen; doorbell-only");
-      return status === "blocked";
+      const reading = await opts.paneStatus(gateHints(row));
+      if (reading?.status === "blocked") return reading.paneRef;
+      log.debug({ gateId: row.id, status: reading?.status ?? null }, "gate-push: no form on screen; doorbell-only");
+      return null;
     } catch (err) {
       log.warn({ err, gateId: row.id }, "gate-push: pane status probe threw; doorbell-only");
-      return false;
+      return null;
     }
   }
 
   async function pushToPane(row: GateRow, phrase: string): Promise<void> {
-    const escape = await formOnScreen(row);
+    const paneRef = await formOnScreen(row);
     const { ok } = await pushDoorbell(row, phrase);
     // Escape only ever follows an ACCEPTED doorbell: the dismissed form's
     // next input must be the queued frame, and a dead pane has nothing
     // queued to find.
-    if (!ok || !escape || !opts.injectEscape) return;
+    if (!ok || paneRef === null || !opts.injectEscape) return;
     const hints = gateHints(row);
-    const injected = await opts.injectEscape(hints);
+    const injected = await opts.injectEscape(hints, { paneRef });
     if (injected.ok) {
       log.debug({ gateId: row.id, paneRef: injected.paneRef }, "gate-push: escape injected");
     } else {

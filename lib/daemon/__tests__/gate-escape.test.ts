@@ -51,6 +51,38 @@ describe("createEscapeInjector", () => {
     expect(res).toEqual({ ok: false, error: "pane_not_found: no such pane" });
   });
 
+  test("with a probed paneRef, a fresh snapshot resolving to a different pane sends nothing", async () => {
+    const injector = createEscapeInjector({
+      herdr: (async () => { throw new Error("must not send"); }) as never,
+      snapshot: async () => [pane({ paneRef: "wE2:p9", sessionId: "s-1", agentStatus: "idle" })],
+    });
+    const res = await injector({ paneId: "wE2:p8", sessionId: "s-1" }, { paneRef: "wE2:p8" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("wE2:p9");
+  });
+
+  test("with a probed paneRef, a fresh snapshot resolving to that same pane sends Escape", async () => {
+    const sent: unknown[] = [];
+    const injector = createEscapeInjector({
+      herdr: (async (_verb: string, payload: unknown) => { sent.push(payload); return { ok: true, data: {} }; }) as never,
+      snapshot: async () => [pane({ paneRef: "wE2:p8", sessionId: "s-1" })],
+    });
+    const res = await injector({ paneId: "wE2:p6", sessionId: "s-1" }, { paneRef: "wE2:p8" });
+    expect(res).toEqual({ ok: true, paneRef: "wE2:p8" });
+    expect(sent).toEqual([{ pane_id: "wE2:p8", keys: ["escape"] }]);
+  });
+
+  test("without a probed paneRef, whichever pane the hints resolve to gets Escape", async () => {
+    const sent: unknown[] = [];
+    const injector = createEscapeInjector({
+      herdr: (async (_verb: string, payload: unknown) => { sent.push(payload); return { ok: true, data: {} }; }) as never,
+      snapshot: async () => [pane({ paneRef: "wE2:p9", sessionId: "s-1", agentStatus: "idle" })],
+    });
+    const res = await injector({ paneId: "wE2:p8", sessionId: "s-1" });
+    expect(res).toEqual({ ok: true, paneRef: "wE2:p9" });
+    expect(sent).toEqual([{ pane_id: "wE2:p9", keys: ["escape"] }]);
+  });
+
   test("no herdr server reachable returns ok:false without sending", async () => {
     const injector = createEscapeInjector({
       herdr: (async () => { throw new Error("must not send"); }) as never,
@@ -62,9 +94,9 @@ describe("createEscapeInjector", () => {
 });
 
 describe("createPaneStatusProbe", () => {
-  test("reads the agent status of the pane the hints resolve to", async () => {
+  test("reads the paneRef and agent status of the pane the hints resolve to", async () => {
     const probe = createPaneStatusProbe({ snapshot: async () => [pane({ paneRef: "wE2:p8", sessionId: "s-1", agentStatus: "idle" })] });
-    expect(await probe({ paneId: "wE2:p6", sessionId: "s-1" })).toBe("idle");
+    expect(await probe({ paneId: "wE2:p6", sessionId: "s-1" })).toEqual({ paneRef: "wE2:p8", status: "idle" });
   });
   test("null when no herdr server answers or nothing resolves", async () => {
     expect(await createPaneStatusProbe({ snapshot: async () => null })({ paneId: "wE2:p8" })).toBeNull();
