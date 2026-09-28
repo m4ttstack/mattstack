@@ -1,0 +1,16 @@
+[
+  {
+    "id": "fakepack@testmarket",
+    "version": "0.1.0",
+    "scope": "user",
+    "enabled": true,
+    "installPath": "@FIXTURES@/plugins/fakepack"
+  },
+  {
+    "id": "disabledpack@testmarket",
+    "version": "0.1.0",
+    "scope": "user",
+    "enabled": false,
+    "installPath": "@FIXTURES@/plugins/disabledpack"
+  }
+]

@@ -1,0 +1,10 @@
+// Fixture: both slots bound.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fake:tiering-good",
+      "evidence": "fake:evidence"
+    }
+  }
+}

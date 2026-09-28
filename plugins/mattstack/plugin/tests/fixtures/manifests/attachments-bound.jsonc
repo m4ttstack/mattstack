@@ -1,0 +1,11 @@
+// Fixture: bound to a skill under an enabled plugin's attachments/ root
+// (not skills/), the fallback search root that stubs.jsonc engines resolve
+// their attached content through.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fakepack:tiering-attach"
+    }
+  }
+}

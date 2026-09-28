@@ -1,0 +1,7 @@
+{
+  "description": "Example domain config (test fixture). Values are one real team's, shown as a worked example of what belongs in domain config rather than engine defaults. This file is the only place such values may live.",
+  "noisy-jobs": ["snyk-security-scan", "gemnasium-dependency_scanning", "gemnasium-python-dependency_scanning", "semgrep-sast", "secret_detection", "check:loss-domain-schema:domain-drift", "test:backend:integration:quarantined"],
+  "real-patterns": ["new error found", "new errors found", "PrismaClientValidationError", "Unknown argument", "Mr\\. MR found problems"],
+  "infra-patterns": ["unix-dgram"],
+  "timeout": 2700
+}

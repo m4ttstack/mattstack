@@ -1,0 +1,9 @@
+// Fixture: bound skill declares tiering@0, slot needs tiering@1.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fake:tiering-old"
+    }
+  }
+}
