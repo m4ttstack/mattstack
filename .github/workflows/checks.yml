@@ -268,6 +268,10 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/mattstack"
           bun cli.ts skills check --pack-dir "$GITHUB_WORKSPACE/plugins/mattstack" --mattstack-dir "$RUNNER_TEMP/mattstack" --strict
+      - name: skills compile dry run (every registered skill named in surface.jsonc)
+        run: |
+          mkdir -p "$RUNNER_TEMP/mattstack"
+          bun cli.ts skills compile --dry-run --pack-dir "$GITHUB_WORKSPACE/plugins/mattstack" --mattstack-dir "$RUNNER_TEMP/mattstack"
       - name: mcp-tools reference is current
         run: |
           set -o pipefail
