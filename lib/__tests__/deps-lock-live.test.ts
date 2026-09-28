@@ -12,7 +12,7 @@ describe("live deps.lock buildable set", () => {
     const wantTree: Record<string, { skills?: boolean }> = {
       deck: { skills: true },
       board: { skills: true },
-      gitq: {},
+      gitq: { skills: true },
       console: {},
       chat: {},
       boxscore: {},
