@@ -373,3 +373,17 @@ test("every other scenario ignores RT_STUB_REAL_WRITING_STYLE (only the writing-
   const res = await run("join-happy", ["setup", "plan", "--json"], "", undefined, extraEnv);
   expect(writingStyleRow(res.lines[0])).toBeUndefined();
 });
+
+test("logins: add, list and remove keep state and list prints a bare array without passwords", async () => {
+  const state = mkdtempSync(join(tmpdir(), "stub-"));
+  const empty = await run("solo", ["logins", "list", "--json"], "", state);
+  expect(JSON.parse(empty.out)).toEqual([]);
+  const add = await run("solo", ["logins", "add", "https://login.example.com", "--json"], JSON.stringify({ email: "dev@example.com", password: "pw" }), state);
+  expect(add.code).toBe(0);
+  const listed = await run("solo", ["logins", "list", "--json"], "", state);
+  expect(JSON.parse(listed.out)).toEqual([{ origin: "https://login.example.com", email: "dev@example.com",
+    fields: { email: "devlogin:login.example.com:email", password: "devlogin:login.example.com:password" } }]);
+  expect(listed.out).not.toContain("pw\"");
+  await run("solo", ["logins", "remove", "https://login.example.com", "--json"], "", state);
+  expect(JSON.parse((await run("solo", ["logins", "list", "--json"], "", state)).out)).toEqual([]);
+});
