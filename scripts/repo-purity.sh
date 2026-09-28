@@ -88,8 +88,17 @@ fi
 # the trailing || exit 1 carries it out to the script.
 printf '%s\n' "$SCOPED" | while IFS="$TAB" read -r SDIR SPAT; do
   [ -n "$SDIR" ] && [ -n "$SPAT" ] || continue
-  S_HITS=$(cd "$ROOT" && git ls-files -z -- "$SDIR" | xargs -0 grep -IniE "$SPAT" 2>/dev/null || true)
-  S_NAMES=$(cd "$ROOT" && git ls-files -- "$SDIR" | grep -iE "$SPAT" || true)
+  # xargs folds every nonzero child status into 123, so the child maps grep's
+  # "no match" (1) to 0 and anything worse to 255, which xargs reports as 124.
+  S_HITS=$(cd "$ROOT" && git ls-files -z -- "$SDIR" \
+    | xargs -0 sh -c 'grep -HIniE -e "$0" -- "$@"; [ $? -le 1 ] || exit 255' "$SPAT")
+  S_RC=$?
+  S_NAMES=$(cd "$ROOT" && git ls-files -- "$SDIR" | grep -iE -e "$SPAT")
+  N_RC=$?
+  if [ "$S_RC" -ne 0 ] || [ "$N_RC" -gt 1 ]; then
+    echo "FAIL repo-purity ($SDIR): grep error"
+    exit 1
+  fi
   if [ -n "$S_HITS" ] || [ -n "$S_NAMES" ]; then
     echo "FAIL repo-purity ($SDIR):"
     [ -n "$S_HITS" ] && printf '%s\n' "$S_HITS"
