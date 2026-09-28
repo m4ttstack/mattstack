@@ -1,6 +1,6 @@
 import { execFileSync } from "child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "fs";
-import { join, relative } from "path";
+import { join, relative, sep } from "path";
 import { parse as parseYaml } from "yaml";
 import { resolveClaudeBin } from "../claude-bin.ts";
 import { stripJsonc } from "../jsonc.ts";
@@ -535,7 +535,29 @@ export function invocableRoster(roots: PluginRoots): Set<string> {
         }
       }
     }
+
+    for (const manifestRoot of manifestSkillRoots(root.dir)) {
+      for (const name of listDirs(manifestRoot)) {
+        if (existsSync(join(manifestRoot, name, "SKILL.md"))) roster.add(`${pluginName}:${name}`);
+      }
+    }
   }
 
   return roster;
+}
+
+/** Claude Code scans each root in plugin.json's `skills` array one level deep. */
+function manifestSkillRoots(pluginDir: string): string[] {
+  const manifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
+  if (!existsSync(manifestPath)) return [];
+  try {
+    const skills = (JSON.parse(readFileSync(manifestPath, "utf8")) as { skills?: unknown }).skills;
+    if (!Array.isArray(skills)) return [];
+    return skills
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => join(pluginDir, s))
+      .filter((dir) => dir.startsWith(join(pluginDir, sep)));
+  } catch {
+    return [];
+  }
 }

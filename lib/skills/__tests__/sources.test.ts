@@ -411,6 +411,27 @@ describe("invocableRoster", () => {
     expect(roster.has("acme:watch-ci-domain")).toBe(false);
     expect(roster.has("mattstack:ship")).toBe(false);
   });
+
+  test("adds the skills under every root the plugin manifest's skills array lists", () => {
+    const { roots } = makeFixtureRoots();
+    const dir = roots.byName.mattstack!.dir;
+    writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0", skills: ["./skills", "./plugin/skills"] }));
+    writeFile(join(dir, "plugin", "skills", "herd-progress", "SKILL.md"), "---\nname: herd-progress\n---\n");
+
+    const roster = invocableRoster(roots);
+
+    expect(roster.has("mattstack:herd-progress")).toBe(true);
+    expect(roster.has("mattstack:watch-ci")).toBe(true);
+  });
+
+  test("ignores a manifest skills root that resolves outside the plugin", () => {
+    const { rootDir, roots } = makeFixtureRoots();
+    const dir = roots.byName.mattstack!.dir;
+    writeFile(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ version: "1.2.0", skills: ["../outside"] }));
+    writeFile(join(rootDir, "outside", "escaped", "SKILL.md"), "---\nname: escaped\n---\n");
+
+    expect(invocableRoster(roots).has("mattstack:escaped")).toBe(false);
+  });
 });
 
 describe("buildPluginRoots", () => {

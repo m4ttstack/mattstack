@@ -70,5 +70,13 @@
   {
     "task": "Reword what our work verb says it is for",
     "expect": "extending-a-pack"
+  },
+  {
+    "task": "/progress: where is the herd at? show me each job's tasks as progress bars",
+    "expect": "herd-progress"
+  },
+  {
+    "task": "I'm shepherding a herd of agents; give me a status view of every job and how far through its plan it is",
+    "expect": "herd-progress"
   }
 ]
