@@ -43,6 +43,17 @@ let devLoginLinkChecks: [Check] = [
         }
         c.expectEqual(DevLoginOrigin.validate("https://a.example:8443"), .valid(origin: "https://a.example:8443", host: "a.example"))
     },
+    Check("dev login origin: a host ending in a number must be a canonical dotted quad") { c in
+        for s in ["https://010.0.0.1", "https://1.2.3", "https://2130706433", "https://0x7f.0.0.1",
+                  "https://127.0.0.0x1", "https://256.0.0.1", "https://1.2.3.4.5", "https://login.example.1"] {
+            if case .valid = DevLoginOrigin.validate(s) { c.fail("accepted \(s)") }
+        }
+        c.expectEqual(DevLoginOrigin.validate("http://127.0.0.1:8080"), .valid(origin: "http://127.0.0.1:8080", host: "127.0.0.1"))
+        c.expectEqual(DevLoginOrigin.validate("https://10.0.0.1"), .valid(origin: "https://10.0.0.1", host: "10.0.0.1"))
+        c.expectEqual(DevLoginOrigin.validate("https://0.0.0.0"), .valid(origin: "https://0.0.0.0", host: "0.0.0.0"))
+        c.expectEqual(DevLoginOrigin.validate("https://1.login.example"), .valid(origin: "https://1.login.example", host: "1.login.example"))
+        c.expectEqual(DevLoginOrigin.validate("https://a.0xg"), .valid(origin: "https://a.0xg", host: "a.0xg"))
+    },
     Check("dev login origin: an IPv6 host is refused") { c in
         for s in ["https://[::1]", "https://[::1]:8443", "http://[::1]:3000"] {
             if case .valid = DevLoginOrigin.validate(s) { c.fail("accepted \(s)") }

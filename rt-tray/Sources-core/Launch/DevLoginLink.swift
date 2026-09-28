@@ -32,8 +32,14 @@ public enum DevLoginOrigin {
         }
         // Foundation may report an IPv6 host with or without its brackets.
         guard !host.contains("_"), !host.hasPrefix("["), !host.contains(":") else { return .invalid("That host is not supported.") }
-        guard host.split(separator: ".", omittingEmptySubsequences: false).allSatisfy(isHostLabel) else {
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.allSatisfy(isHostLabel) else {
             return .invalid("Each part of the host must be letters, digits or inner hyphens.")
+        }
+        // WHATWG rewrites a host that ends in a number into a canonical IPv4
+        // address, so any other spelling would confirm a host rt never stores.
+        if let last = labels.last, endsInNumber(last), !isCanonicalIPv4(labels) {
+            return .invalid("Write an IP address as four plain numbers, like 127.0.0.1.")
         }
         guard scheme == "https" || host == "localhost" || host == "127.0.0.1" else {
             return .invalid("http is allowed only for localhost and 127.0.0.1.")
@@ -44,6 +50,19 @@ public enum DevLoginOrigin {
         let defaultPort = scheme == "https" ? 443 : 80
         let portPart = comps.port.map { $0 == defaultPort ? "" : ":\($0)" } ?? ""
         return .valid(origin: "\(scheme)://\(host)\(portPart)", host: host)
+    }
+
+    /// WHATWG's "ends in a number" test on the last label.
+    private static func endsInNumber(_ label: Substring) -> Bool {
+        if label.hasPrefix("0x") { return label.dropFirst(2).allSatisfy(\.isHexDigit) }
+        return label.allSatisfy { ("0"..."9").contains($0) }
+    }
+
+    private static func isCanonicalIPv4(_ labels: [Substring]) -> Bool {
+        labels.count == 4 && labels.allSatisfy { part in
+            guard part.allSatisfy({ ("0"..."9").contains($0) }), part.count <= 3, let n = Int(part), n <= 255 else { return false }
+            return part == "0" || !part.hasPrefix("0")
+        }
     }
 
     /// Mirrors rt's HOST_LABEL, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, on an already lowercased label.
