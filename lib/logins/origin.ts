@@ -4,6 +4,9 @@ export class InvalidOriginError extends Error {}
 
 const LOCAL_HTTP_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
+// Every accepted host must round-trip through parsePlaceholder's key pattern.
+const HOST_LABEL = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
 // The WHATWG URL parser lowercases the host, IDN-encodes it to punycode and
 // drops a default port, so equal sites produce equal keys.
 export function normalizeOrigin(input: string): { origin: string; key: string } {
@@ -19,6 +22,9 @@ export function normalizeOrigin(input: string): { origin: string; key: string } 
   const host = url.hostname;
   if (!host || host.startsWith("[")) throw new InvalidOriginError("the host must be a name or an IPv4 address");
   if (host.includes("_")) throw new InvalidOriginError("hosts containing _ are not supported");
+  if (!host.split(".").every((label) => HOST_LABEL.test(label))) {
+    throw new InvalidOriginError("each part of the host must be letters, digits or inner hyphens");
+  }
   if (url.protocol === "http:" && !LOCAL_HTTP_HOSTS.has(host)) {
     throw new InvalidOriginError("http is allowed only for localhost and 127.0.0.1; use https");
   }

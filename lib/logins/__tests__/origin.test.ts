@@ -31,8 +31,31 @@ describe("normalizeOrigin", () => {
     ["another scheme", "ftp://login.example.com"],
     ["no scheme", "login.example.com"],
     ["an empty string", ""],
+    ["a special character in a label", "https://a!b.example"],
+    ["a label with a leading hyphen", "https://-a.example"],
+    ["a leading dot", "https://.a.example"],
+    ["a trailing dot", "https://login.example.com."],
   ])("refuses %s", (_label, input) => {
     expect(() => normalizeOrigin(input)).toThrow(InvalidOriginError);
+  });
+
+  test("shorthand IPv4 and an explicit http default port normalize", () => {
+    expect(normalizeOrigin("http://127.1").key).toBe("127.0.0.1_http");
+    expect(normalizeOrigin("http://localhost:80").key).toBe("localhost_http");
+  });
+
+  test.each([
+    "https://login.example.com",
+    "https://Login.Example.com:443/",
+    "http://localhost:3000",
+    "https://localhost:3000",
+    "http://127.0.0.1:8080",
+    "https://bücher.example",
+    "http://127.1",
+    "http://localhost:80",
+  ])("every accepted origin's key resolves as a placeholder: %s", (origin) => {
+    const { key } = normalizeOrigin(origin);
+    expect(parsePlaceholder(placeholderName(key, "password"))).toEqual({ key, kind: "password" });
   });
 
   test("a refusal never echoes user info from the input", () => {
