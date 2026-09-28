@@ -13,9 +13,10 @@ catalog (`scripts/release/marketplace.sh` pushes `marketplace/` to
 `m4ttstack/mattstack-marketplace`) and needs `MARKETPLACE_TOKEN` only when the catalog changed.
 rt ships only inside mattstack.app (`Contents/MacOS/rt`, updated through Sparkle); there are
 no tarballs. The build, signing, notarization, clean-room and appcast half, and hand completion
-of a broken publish, is `rt:mattstack-release`. The old repo name `m4ttstack/rt` is never
-recreated after the rename: every app installed before it fetches its Sparkle feed through
-GitHub's redirect from the old name, and a new repo under that name would capture those requests.
+of a broken publish, is `rt:mattstack-release`. The GitHub repo is `m4ttstack/mattstack`.
+The old repo name `m4ttstack/rt` is never recreated after the rename: every app installed
+before it fetches its Sparkle feed through GitHub's redirect from the old name, and a new repo
+under that name would capture those requests.
 
 ## The map
 

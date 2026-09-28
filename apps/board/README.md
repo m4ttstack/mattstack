@@ -73,7 +73,7 @@ see the layout yourself without wiring up a real GitLab project, copy
 - An **rt daemon** with the board's projects registered and the `project-mrs`
   grant. This is where MR data comes from: the board reads one socket call per
   project, and makes no forge traffic of its own. See
-  [rt](https://github.com/m4ttstack/rt).
+  [rt](https://github.com/m4ttstack/mattstack).
 - Optionally a GitLab personal access token (`read_api`) for member display
   names and MR notes, a Slack user token for the Slack actions, and
   [herdr](https://herdr.dev) for the agent actions.
@@ -81,8 +81,8 @@ see the layout yourself without wiring up a real GitLab project, copy
 ## Installation
 
 ```sh
-git clone https://github.com/m4ttstack/rt.git
-cd rt                         # the workspace root, not this app's own dir
+git clone https://github.com/m4ttstack/mattstack.git
+cd mattstack                  # the workspace root, not this app's own dir
 bun install                   # workspace install: packages/*, apps/*
 cd apps/board
 ```
@@ -292,7 +292,7 @@ bun run build      # standalone binary at dist/board
 ## Part of mattstack
 
 board is one app in [mattstack](https://github.com/m4ttstack), a personal
-developer estate: [rt](https://github.com/m4ttstack/rt) is the CLI and daemon
+developer estate: [rt](https://github.com/m4ttstack/mattstack) is the CLI and daemon
 this board reads its MR data from,
 [deck](../deck) (in this same repo) serves it locally at
 `board.mattstack`, [gitq](../gitq) (in this same repo) manages stacked

@@ -330,7 +330,7 @@ If you have: `rt install <app>` registers that app with Deck the same way
 so mattstack's own tools end up on your board alongside everything else
 you run. The rest of the estate:
 
-- [rt](https://github.com/m4ttstack/rt): the CLI and daemon Deck's own
+- [rt](https://github.com/m4ttstack/mattstack): the CLI and daemon Deck's own
   settings and secrets run through.
 - [gitq](../gitq) (in this same repo): a deterministic stacked-branch
   engine for git.

@@ -30,7 +30,7 @@ const config: Config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://github.com/m4ttstack/rt/tree/main/apps/gitq/website/",
+          editUrl: "https://github.com/m4ttstack/mattstack/tree/main/apps/gitq/website/",
         },
         blog: false,
         theme: { customCss: "./src/css/custom.css" },
@@ -42,7 +42,7 @@ const config: Config = {
       title: "gitq",
       items: [
         {
-          href: "https://github.com/m4ttstack/rt/tree/main/apps/gitq",
+          href: "https://github.com/m4ttstack/mattstack/tree/main/apps/gitq",
           label: "GitHub",
           position: "right",
         },

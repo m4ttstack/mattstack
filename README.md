@@ -68,7 +68,7 @@ living on [herdr](https://github.com/herdrdev/herdr).
 
 rt is distributed inside **mattstack.app**, a macOS menu bar app. Download
 `mattstack-<version>.dmg` from
-[GitHub Releases](https://github.com/m4ttstack/rt/releases), drag
+[GitHub Releases](https://github.com/m4ttstack/mattstack/releases), drag
 **mattstack.app** to `/Applications`, and open it. The app walks you through
 setup and installs `rt`, the daemon, the editor extension, and shell
 integration.
@@ -405,8 +405,8 @@ rt is built with [Bun](https://bun.sh). Day-to-day development runs the CLI
 straight from source, with no compile step:
 
 ```bash
-git clone https://github.com/m4ttstack/rt.git
-cd rt
+git clone https://github.com/m4ttstack/mattstack.git
+cd mattstack
 bun install
 bun run cli.ts            # run the CLI from source
 bun run cli.ts verify     # any subcommand works the same way
@@ -454,7 +454,7 @@ menu bar app, and the release pipeline, see
 ## Contributing
 
 Issues and pull requests are welcome at
-[github.com/m4ttstack/rt](https://github.com/m4ttstack/rt).
+[github.com/m4ttstack/mattstack](https://github.com/m4ttstack/mattstack).
 
 Before opening one:
 

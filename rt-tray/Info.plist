@@ -54,7 +54,7 @@
         </dict>
     </array>
     <key>SUFeedURL</key>
-    <string>https://github.com/m4ttstack/rt/releases/latest/download/appcast.xml</string>
+    <string>https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>REPLACE_WITH_RELEASE_PUBLIC_ED_KEY</string>
     <key>SUEnableAutomaticChecks</key>

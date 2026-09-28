@@ -129,7 +129,7 @@ snippets, including the vite and eslint presets.
 ## Development
 
 ```bash
-$ git clone https://github.com/m4ttstack/rt.git repo-tools
+$ git clone https://github.com/m4ttstack/mattstack.git repo-tools
 $ cd repo-tools
 $ bun install                 # workspace install: packages/*, apps/*
 $ bun run check               # every gate CI runs, cached and parallel

@@ -118,8 +118,8 @@ matters: [docs/consuming.md](docs/consuming.md).
 From a clean checkout:
 
 ```console
-$ git clone https://github.com/m4ttstack/rt.git
-$ cd rt
+$ git clone https://github.com/m4ttstack/mattstack.git
+$ cd mattstack
 $ bun install                 # workspace install, from the repo root
 $ cd packages/tui-kit
 $ bun run dev:workshop

@@ -26,7 +26,7 @@ final class DevBuildWatcher {
     /// repo-tools trees the daemon knows, for the Rebuild from… submenu.
     private(set) var sources: [RebuildSource] = []
     private(set) var sourcesState: SourcesState = .loading
-    private static let rtRepoName = "remote:github.com%2Fm4ttstack%2Frt"
+    private static let rtRepoName = "remote:github.com%2Fm4ttstack%2Fmattstack"
 
     /// Called with the new list, so an open Rebuild from… submenu can refill
     /// in place instead of waiting for the menu to be reopened.

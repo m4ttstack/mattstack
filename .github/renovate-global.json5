@@ -12,7 +12,7 @@
   gitAuthor: "m4ttheweric <49927862+m4ttheweric@users.noreply.github.com>",
   autodiscover: false,
   repositories: [
-    "m4ttstack/rt",
+    "m4ttstack/mattstack",
     "m4ttstack/fast-browser",
   ],
   onboarding: false,
@@ -35,7 +35,7 @@
       // registry pull, so a version-bump PR against rt-client's peer range
       // is stale the moment it opens and reopens on every glance publish.
       matchPackageNames: ["@mattstack/glance"],
-      matchRepositories: ["m4ttstack/rt"],
+      matchRepositories: ["m4ttstack/mattstack"],
       enabled: false,
     },
   ],

@@ -29,7 +29,7 @@ gitq turns a chain of dependent git branches into something you can operate on a
 - **Worktree-native.** Cascades run in a leased work worktree with a detached HEAD and move branch refs with compare-and-swap at the end, so your checkout is never switched out from under you.
 - **A board and agent skills.** A local web UI shows every tracked stack's branch statuses, MR and pipeline state, and live progress while an agent works a stack from one of the five bundled Claude skills.
 
-gitq is part of the [mattstack](https://github.com/m4ttstack) estate: it talks to GitLab and GitHub through [glance](../../packages/glance) (in this same repo), can read its settings and grant-gated forge tokens from [rt](https://github.com/m4ttstack/rt), ships as a CLI inside the mattstack.app bundle (not registered with or served by [deck](../deck)), and launches board actions as agent panes through [herdr](https://github.com/herdrdev/herdr). Only glance ships as a dependency; the CLI works with none of the others installed.
+gitq is part of the [mattstack](https://github.com/m4ttstack) estate: it talks to GitLab and GitHub through [glance](../../packages/glance) (in this same repo), can read its settings and grant-gated forge tokens from [rt](https://github.com/m4ttstack/mattstack), ships as a CLI inside the mattstack.app bundle (not registered with or served by [deck](../deck)), and launches board actions as agent panes through [herdr](https://github.com/herdrdev/herdr). Only glance ships as a dependency; the CLI works with none of the others installed.
 
 ## Installation
 
@@ -254,7 +254,7 @@ An entry may also carry `baseUrl` (defaults to `https://<host>`, and is required
 
 ### Settings
 
-gitq reads three settings from the [rt](https://github.com/m4ttstack/rt) settings store when it is available, each falling back to a local file when the store does not own the key yet.
+gitq reads three settings from the [rt](https://github.com/m4ttstack/mattstack) settings store when it is available, each falling back to a local file when the store does not own the key yet.
 
 | Key | Scope | Shape | File fallback |
 | --- | --- | --- | --- |
@@ -314,7 +314,7 @@ The four board skills take `<repoPath> <stackName>` positionals plus optional `-
 ## Development
 
 ```bash
-git clone https://github.com/m4ttstack/rt.git repo-tools
+git clone https://github.com/m4ttstack/mattstack.git repo-tools
 cd repo-tools
 bun install
 cd apps/gitq
@@ -337,7 +337,7 @@ The full documentation site (getting started, concepts, guides, and a reference 
 
 ## Contributing
 
-Issues and pull requests are welcome at [github.com/m4ttstack/rt](https://github.com/m4ttstack/rt); gitq lives under `apps/gitq`.
+Issues and pull requests are welcome at [github.com/m4ttstack/mattstack](https://github.com/m4ttstack/mattstack); gitq lives under `apps/gitq`.
 
 Before opening a PR, run `bun run check-types` and `bun run test`. A new CLI command also needs a reference page under `website/docs/reference/<category>/<command>.mdx`; `tests/docs-coverage.test.ts` fails the suite when a command has no page, or when a page has no command.
 
