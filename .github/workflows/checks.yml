@@ -258,7 +258,12 @@ jobs:
       - name: mcp-tools reference is current
         run: |
           set -o pipefail
-          bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts | cmp - plugins/mattstack/attachments/mcp-tools/reference.md || {
+          generated="$RUNNER_TEMP/mcp-tools-reference.md"
+          bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts > "$generated" || {
+            echo "The reference generator failed (bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts); see the error above."
+            exit 1
+          }
+          cmp "$generated" plugins/mattstack/attachments/mcp-tools/reference.md || {
             echo "reference.md is stale. Regenerate: bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts > plugins/mattstack/attachments/mcp-tools/reference.md"
             exit 1
           }

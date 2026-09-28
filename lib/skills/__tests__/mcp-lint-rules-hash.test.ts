@@ -4,8 +4,9 @@ import { listAgentSafe } from "../../command-tree-resolve.ts";
 import { mcpTools } from "../../mcp/tools.ts";
 import { deriveRules, KEPT_ON_BASH } from "../mcp-lint.ts";
 
-// mattstack-skills packs with "strictLint": true are checked against this
-// rule set, so a change here can newly fail their strict lint.
+// The in-tree plugins/mattstack pack and any other pack with
+// "strictLint": true are checked against this rule set, so a change here
+// can newly fail their strict lint.
 const RULES_SHA256 = "e42a7a30052e88bcab65c572fa6314f8a4c3f4a579de0a3d70a3c937495293ea";
 
 function rulesHash(): string {
