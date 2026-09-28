@@ -1358,8 +1358,8 @@ Expected: Task 1's baseline count plus every test this plan added, all green.
 
 Run: `git diff main --name-only | xargs grep -nP "[\x{2013}\x{2014}]" ; echo "dashes exit: $?"`
 Expected: no matches (`dashes exit: 1`).
-Run: `git diff main | grep -iE "^\+.*(assured|claimview)" ; echo "names exit: $?"`
-Expected: no matches (`names exit: 1`).
+Run: the employer-name scan on `git diff main` (ask the shepherd for the term list; it is kept out of this public repo).
+Expected: no matches.
 
 - [ ] **Step 3: Values stay out of the launcher's own logs**
 
