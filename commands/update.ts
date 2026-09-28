@@ -15,7 +15,7 @@ import { trayRequest } from "../lib/daemon-client.ts";
 import { processFlavor, type Flavor } from "../lib/flavor.ts";
 import { envelope } from "../lib/setup/contract.ts";
 
-export const RELEASES_URL = "https://github.com/m4ttstack/rt/releases/latest";
+export const RELEASES_URL = "https://github.com/m4ttstack/mattstack/releases/latest";
 
 export interface UpdateDeps {
   /** POSTs `/update/check` over tray.sock; `null` means the app isn't running (never throws). */

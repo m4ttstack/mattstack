@@ -19,7 +19,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/m4ttstack/rt.git",
+    "url": "git+https://github.com/m4ttstack/mattstack.git",
     "directory": "packages/tokyo"
   },
   "scripts": {

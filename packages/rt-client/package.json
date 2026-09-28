@@ -41,12 +41,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/m4ttstack/rt.git",
+    "url": "git+https://github.com/m4ttstack/mattstack.git",
     "directory": "packages/rt-client"
   },
   "homepage": "https://rt.cool",
   "bugs": {
-    "url": "https://github.com/m4ttstack/rt/issues"
+    "url": "https://github.com/m4ttstack/mattstack/issues"
   },
   "files": [
     "dist",

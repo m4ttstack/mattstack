@@ -66,7 +66,7 @@ export function joinLink(base: string, code: string): string {
 }
 
 export function pasteBlock(code: string, opts: { link: string; teamName: string; downloadUrl?: string }): string {
-  const downloadUrl = opts.downloadUrl ?? "https://github.com/m4ttstack/rt/releases/latest";
+  const downloadUrl = opts.downloadUrl ?? "https://github.com/m4ttstack/mattstack/releases/latest";
   return [
     `You have been invited to the ${opts.teamName} mattstack team.`,
     "",

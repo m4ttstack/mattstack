@@ -125,7 +125,7 @@ function writeCurl404Shim(binDir: string): void {
 
 function runAppcastSh(archivesDir: string, tag: string, sparkleEdKey: string, fakeBin: string) {
   return spawnSync("bash", [APPCAST_SH, archivesDir, tag], {
-    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, SPARKLE_ED_KEY: sparkleEdKey, GITHUB_REPOSITORY: "m4ttstack/rt" },
+    env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, SPARKLE_ED_KEY: sparkleEdKey, GITHUB_REPOSITORY: "m4ttstack/mattstack" },
     encoding: "utf8",
   });
 }

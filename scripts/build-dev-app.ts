@@ -9,7 +9,7 @@
  *
  *   bun scripts/build-dev-app.ts [--ref <branch|tag|sha>] [--yes]
  *     Rebuild /Applications/mattstack-dev.app from a pushed ref of
- *     m4ttstack/rt (default main) and relaunch it now: the dev-bundle leg of
+ *     m4ttstack/mattstack (default main) and relaunch it now: the dev-bundle leg of
  *     `rt release update-machine`, alone.
  *
  * Without --yes either form prints what it would do and exits. Builds run in
@@ -148,7 +148,7 @@ try {
 
 if (!parsed.yes) {
   console.log(
-    `would rebuild /Applications/mattstack-dev.app from m4ttstack/rt ${ref} in a scratch clone, kill and replace the running dev app, relaunch it, and restart the deck helper; pass --yes to do it`,
+    `would rebuild /Applications/mattstack-dev.app from m4ttstack/mattstack ${ref} in a scratch clone, kill and replace the running dev app, relaunch it, and restart the deck helper; pass --yes to do it`,
   );
   process.exit(0);
 }

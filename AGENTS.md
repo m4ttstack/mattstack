@@ -183,10 +183,10 @@ marketplace, or the VM clean room, read `docs/release-and-distribution.md`.
 It carries the release flow, the bundle/signing rules, and the traps only
 real runs surfaced (translocation, VM Gatekeeper policy, headless CLT).
 
-The old repo name `m4ttstack/rt` is never recreated after the rename: every
-app installed before it fetches its Sparkle feed through GitHub's redirect
-from the old name, and a new repo under that name would capture those
-requests.
+The GitHub repo is `m4ttstack/mattstack`. The old repo name `m4ttstack/rt`
+is never recreated after the rename: every app installed before it fetches
+its Sparkle feed through GitHub's redirect from the old name, and a new repo
+under that name would capture those requests.
 
 ## Logging architecture
 

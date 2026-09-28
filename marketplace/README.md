@@ -32,7 +32,7 @@ arrives with the plugin... there is nothing separate to install and no
 ## This repo is generated
 
 Its whole tree is published from `marketplace/` in
-[`m4ttstack/rt`](https://github.com/m4ttstack/rt) by
+[`m4ttstack/mattstack`](https://github.com/m4ttstack/mattstack) by
 `scripts/release/marketplace.sh`, one commit per release that changes it. Edits
 made here are overwritten by the next release; change the catalog in `rt`.
 

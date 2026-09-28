@@ -44,7 +44,7 @@ fi
 APP_BUNDLE="$SCRIPT_DIR/$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 DEPS_DIR="$SCRIPT_DIR/deps/arm64"
-SU_FEED_URL="https://github.com/m4ttstack/rt/releases/latest/download/appcast.xml"
+SU_FEED_URL="https://github.com/m4ttstack/mattstack/releases/latest/download/appcast.xml"
 ENTITLEMENTS_JIT="$REPO_DIR/scripts/entitlements.plist"
 
 # Anchored at both ends: "2.8.0-rc1" must not silently pass as "2.8.0" and
