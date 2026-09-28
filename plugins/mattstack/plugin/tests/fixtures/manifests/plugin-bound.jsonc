@@ -1,0 +1,9 @@
+// Fixture: bound to a skill inside an enabled plugin.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fakepack:tiering"
+    }
+  }
+}

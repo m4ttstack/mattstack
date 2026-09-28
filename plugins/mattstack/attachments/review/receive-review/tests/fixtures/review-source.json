@@ -1,0 +1,46 @@
+{"context": {"gate-ctx": "review@1", "reviewer": "renee", "readiness": "with-fixes",
+             "summary": "the retry guard holds on the parity path only; the live path still re-enqueues.",
+             "findings": {"critical": 1, "important": 1, "minor": 3},
+             "round": 2, "re_review": true, "prior": {"addressed": 3, "still_open": 1}},
+ "questions": [
+  {"id": "findings-1", "label": "Post which findings to !87?", "multi": true,
+   "context": {"gate-ctx": "findings@1", "findings": [
+     {"id": "f4", "severity": "critical", "title": "permanent failures re-enqueue forever",
+      "file": "queue/worker.ts",
+      "body": "a job marked retryable: false goes back on the queue after every failure, so it never leaves.",
+      "fix": "drop non-retryable jobs in the worker's catch block",
+      "evidence": "worker.log: job 41 attempt 57 (retryable: false)"},
+     {"id": "f2", "severity": "important", "title": "retry fix is parity wiring, not a live fix",
+      "file": "queue/enqueue.ts:81",
+      "body": "the guard only runs on the parity path; the live path still re-enqueues a permanently failed job.",
+      "fix": "move the retryable check ahead of the parity branch",
+      "evidence": "FAIL queue/enqueue.test.ts > live path drops permanent failures\n  expected enqueue calls: 0\n  received enqueue calls: 1",
+      "disposition": "still-open"},
+     {"id": "f1", "severity": "minor", "title": "test over-specifies the ordering",
+      "file": "queue/enqueue.test.ts:132",
+      "body": "asserts exact call order where the contract only promises the set.",
+      "fix": "assert set membership",
+      "disposition": "new"},
+     {"id": "f3", "severity": "minor", "title": "README still says delay",
+      "body": "the README describes a fixed delay; the queue now backs off exponentially.",
+      "fix": "say backoff in the README and name the base interval and the cap it grows to",
+      "disposition": "addressed-check"}]},
+   "options": [
+     {"value": "f4", "label": "[Critical] permanent failures re-enqueue forever", "description": "queue/worker.ts · drop non-retryable jobs in the worker's catch block"},
+     {"value": "f2", "label": "[Important] retry fix is parity wiring, not a live fix", "description": "queue/enqueue.ts:81 · move the retryable check ahead of the parity branch · kind:suggestion"},
+     {"value": "f1", "label": "[Minor] test over-specifies the ordering", "description": "queue/enqueue.test.ts:132 · assert set membership · kind:nitpick"},
+     {"value": "f3", "label": "[Minor] README still says delay", "description": "not inline-anchorable · say backoff in the README and name the base interval and the cap it grows to · kind:follow-up"}]},
+  {"id": "findings-2", "label": "Post which findings to !87?", "multi": true,
+   "context": {"gate-ctx": "findings@1", "findings": [
+     {"id": "f5", "severity": "minor", "title": "backoff cap is a magic number",
+      "file": "queue/retry.ts:14",
+      "body": "the 300000 ms cap appears inline with no name.",
+      "fix": "name the constant",
+      "evidence": "queue/retry.ts:14  const next = Math.min(base * 2 ** n, 300000)"}]},
+   "options": [
+     {"value": "f5", "label": "[Minor] backoff cap is a magic number", "description": "queue/retry.ts:14 · name the constant · kind:thought"}]},
+  {"id": "outcome", "label": "Verdict on !87: ready once the live-path guard lands", "multi": false,
+   "options": [
+     {"value": "comment", "label": "comment (recommended)", "description": "post the picked findings, no merge decision yet"},
+     {"value": "approve", "label": "approve", "description": "post the picked findings and approve the MR"}]}
+ ]}

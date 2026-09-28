@@ -18,6 +18,7 @@ import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { syncPack, type SyncDeps, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
+import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 
 /**
  * The mattstack pack is the only valid sync engine: falling back to the pack
@@ -111,6 +112,7 @@ export async function skillsSync(args: string[]): Promise<void> {
     compilePack: (name) => compilePackAll({ pack: name, ...(manifest ? { manifest } : {}) }),
     configDir,
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
+    inTreeRoot: resolveSharedCheckout(homedir()),
   };
 
   let report: SyncReport;

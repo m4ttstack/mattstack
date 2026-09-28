@@ -1,0 +1,9 @@
+// Fixture: bound to a skill inside a DISABLED plugin.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "disabledpack:tiering"
+    }
+  }
+}

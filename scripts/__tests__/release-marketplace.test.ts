@@ -161,6 +161,55 @@ describe("marketplace.sh validation", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("listed twice");
   });
+
+  /** A git checkout carrying plugins/mattstack as committed files. */
+  function treeRepo(): string {
+    const tree = scratch("tree");
+    git(tree, "init", "-q", "-b", "main");
+    const pack = join(tree, "plugins", "mattstack");
+    mkdirSync(join(pack, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(pack, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "0.0.1" }));
+    writeFileSync(join(pack, "README.md"), "# pack\n");
+    writeFileSync(join(tree, ".gitignore"), "*.local\n");
+    git(tree, "add", "-A");
+    git(tree, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "pack");
+    return tree;
+  }
+
+  test("an in-tree plugin outside the source dir is copied from RT_TREE_ROOT", () => {
+    const tree = treeRepo();
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const bare = bareRepo();
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree });
+    expect(r.code).toBe(0);
+    expect(publishedFiles(bare)).toEqual(
+      expect.arrayContaining(["plugins/mattstack/.claude-plugin/plugin.json", "plugins/mattstack/README.md"]),
+    );
+  });
+
+  test("an in-tree plugin publishes tracked files only, never untracked, ignored, .git or .worktrees", () => {
+    const tree = treeRepo();
+    const pack = join(tree, "plugins", "mattstack");
+    writeFileSync(join(pack, "scratch.md"), "untracked\n");
+    writeFileSync(join(pack, "secret.local"), "ignored\n");
+    mkdirSync(join(pack, ".worktrees", "x"), { recursive: true });
+    writeFileSync(join(pack, ".worktrees", "x", "file"), "tree\n");
+    mkdirSync(join(pack, ".git"), { recursive: true });
+    writeFileSync(join(pack, ".git", "HEAD"), "ref: refs/heads/main\n");
+    const src = sourceDir([{ name: "mattstack", source: "./plugins/mattstack", description: "pack" }]);
+    const bare = bareRepo();
+    const r = run([src], { RT_MARKETPLACE_REPO: bare, RT_TREE_ROOT: tree });
+    expect(r.code).toBe(0);
+    const plugin = publishedFiles(bare).filter((f) => f.startsWith("plugins/mattstack/"));
+    expect(plugin).toEqual(["plugins/mattstack/.claude-plugin/plugin.json", "plugins/mattstack/README.md"]);
+  });
+
+  test("a relative source missing from both places is still refused", () => {
+    const src = sourceDir([{ name: "ghost", source: "./plugins/ghost", description: "x" }]);
+    const r = run(["--dry-run", src], { RT_TREE_ROOT: treeRepo() });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("is not in the published tree");
+  });
 });
 
 describe("marketplace.sh publish", () => {
@@ -324,6 +373,11 @@ describe("the catalog this repo actually publishes", () => {
     expect(base.length).toBeGreaterThan(0);
     const listed = doc.plugins.map((p: { name: string }) => p.name);
     for (const name of base) expect(listed).toContain(name);
+  });
+
+  test("publishes the mattstack plugin from this repo's tree", () => {
+    const entry = doc.plugins.find((p: { name: string }) => p.name === "mattstack");
+    expect(entry.source).toBe("./plugins/mattstack");
   });
 
   test("is published to the source plugins.install hardcodes", () => {

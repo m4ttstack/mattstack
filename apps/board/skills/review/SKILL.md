@@ -320,8 +320,7 @@ remembered in the conversation.
      pre-trim it yourself.
    - **presentation "form":** follow `mattstack:gate-protocol`'s "Acting
      on the response" (form branch) and "CAS and the doorbell" sections
-     (stable source checkout, machine-local by design: `cat
-     ~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`)
+     (an attachment of the mattstack plugin, read from this checkout: `cat ${CLAUDE_SKILL_DIR}/../../../../plugins/mattstack/attachments/gate-protocol/SKILL.md`)
      for the mechanical rendering rule (one form question per gate
      question in gate order, labels and values verbatim) and the
      conflict rule (a printed conflict answer, or a doorbell message
@@ -364,9 +363,7 @@ remembered in the conversation.
      `<status-bin> gate answer <state> --answers <json> --by pane`.
      - **Strict membership, CAS loss, reading answers back.** Follow
        `mattstack:gate-protocol`'s "Answers are option values" and "CAS and
-       the doorbell" sections (stable source checkout, machine-local by
-       design: `cat
-       ~/Documents/GitHub/mattstack-skills/attachments/gate-protocol/SKILL.md`)
+       the doorbell" sections (an attachment of the mattstack plugin, read from this checkout: `cat ${CLAUDE_SKILL_DIR}/../../../../plugins/mattstack/attachments/gate-protocol/SKILL.md`)
        for the shared mechanics, unchanged, and `board:gate-cli-recipes`'s
        "CAS loss and reading answers back" section (`cat
        ${CLAUDE_SKILL_DIR}/../gate-cli-recipes/SKILL.md`) for this CLI's own

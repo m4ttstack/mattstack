@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, relative, sep } from "path";
 import { CLAUDE_BIN_FALLBACKS } from "../claude-bin.ts";
 import type { PackInfo } from "./packs.ts";
 import { installedVersionFor, type PluginListEntry } from "./sources.ts";
@@ -13,6 +13,7 @@ export type SyncDeps = {
   compilePack: (packName: string) => Promise<{ ok: boolean; errors: string[] }>;
   configDir: string;
   cswapSessionsDir: string;
+  inTreeRoot: string | null;
 };
 
 export type SyncStep = { name: string; status: "ran" | "skipped" | "refused" | "failed"; detail: string };
@@ -109,6 +110,50 @@ function pathExists(path: string): boolean {
   }
 }
 
+function realRoot(root: string | null): string | null {
+  if (root === null) return null;
+  try {
+    return realpathSync(root);
+  } catch {
+    return null;
+  }
+}
+
+/** Pack dirs arrive realpath'd, so the root is compared in the same form. */
+function isInside(dir: string, root: string | null): boolean {
+  if (root === null) return false;
+  return dir === root || dir.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+/** Claude Code installs an in-tree plugin from its git-subdir source's ref, never the checkout's working tree. */
+const IN_TREE_REF = "main";
+
+async function readInTreeVersion(deps: SyncDeps, root: string, dir: string): Promise<string> {
+  const rel = relative(root, dir).split(sep).join("/");
+  const spec = `${IN_TREE_REF}:${rel === "" ? "" : rel + "/"}.claude-plugin/plugin.json`;
+  const res = await deps.run("git", ["show", spec], { cwd: root });
+  if (res.code !== 0) throw new Error(`git show ${spec} failed in ${root}: ${res.stderr.trim()}`);
+  const manifest = JSON.parse(res.stdout) as { version?: string };
+  if (typeof manifest.version !== "string") throw new Error(`no "version" string in ${spec}`);
+  return manifest.version;
+}
+
+async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
+  const res = await deps.run("git", ["branch", "--show-current"], { cwd: root });
+  if (res.code !== 0) return `; could not read the shared checkout's branch (${res.stderr.trim()}); the in-tree plugin installs from ${IN_TREE_REF}`;
+  const branch = res.stdout.trim();
+  if (branch === IN_TREE_REF) return "";
+  const where = branch === "" ? "is detached" : `is on "${branch}"`;
+  return `; shared checkout ${root} ${where}, not ${IN_TREE_REF}; the in-tree plugin installs from ${IN_TREE_REF}`;
+}
+
+function guardSummary(engineInTree: boolean, packInTree: boolean): string {
+  if (engineInTree && packInTree) return "engine and pack are in-tree; git checks skipped";
+  if (engineInTree) return "pack checkout clean on main; engine is in-tree, its git checks skipped";
+  if (packInTree) return "engine checkout clean on main; pack is in-tree, its git checks skipped";
+  return "engine and pack checkouts clean on main";
+}
+
 async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
   const res = await deps.run(deps.claudeBin!, ["plugin", "list", "--json"]);
   if (res.code !== 0) throw new Error(`claude plugin list --json failed: ${res.stderr.trim()}`);
@@ -119,6 +164,13 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   const steps: SyncStep[] = [];
   const warnings: string[] = [];
   const sameCheckout = pack.dir === engine.dir;
+  // A plugin inside the shared checkout installs from the git-subdir
+  // source's ref (main), and update-machine owns that checkout, so only
+  // read-only git runs there.
+  const inTreeRoot = realRoot(deps.inTreeRoot);
+  const engineInTree = isInside(engine.dir, inTreeRoot);
+  const packInTree = isInside(pack.dir, inTreeRoot);
+  const packGit = !sameCheckout && !packInTree;
 
   let installedEngineBefore: string | null = null;
   let installedPackBefore: string | null = null;
@@ -129,6 +181,7 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   let bumpBefore: string | null = null;
   let bumpAfter: string | null = null;
   let drift = false;
+  let branchNote = "";
 
   const finish = (): SyncReport => ({
     ok: !steps.some(stops),
@@ -166,12 +219,14 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       }
     }
 
-    const engineStatus = await deps.run("git", ["status", "--porcelain"], { cwd: engine.dir });
-    if (engineStatus.code !== 0) return failed(`git status failed in ${engine.dir}: ${engineStatus.stderr.trim()}`);
-    if (engineStatus.stdout.trim() !== "") {
-      return refused(`engine checkout dirty at ${engine.dir}: "${engineStatus.stdout.trim()}"; commit or stash and re-run`);
+    if (!engineInTree) {
+      const engineStatus = await deps.run("git", ["status", "--porcelain"], { cwd: engine.dir });
+      if (engineStatus.code !== 0) return failed(`git status failed in ${engine.dir}: ${engineStatus.stderr.trim()}`);
+      if (engineStatus.stdout.trim() !== "") {
+        return refused(`engine checkout dirty at ${engine.dir}: "${engineStatus.stdout.trim()}"; commit or stash and re-run`);
+      }
     }
-    if (!sameCheckout) {
+    if (packGit) {
       const packStatus = await deps.run("git", ["status", "--porcelain"], { cwd: pack.dir });
       if (packStatus.code !== 0) return failed(`git status failed in ${pack.dir}: ${packStatus.stderr.trim()}`);
       if (packStatus.stdout.trim() !== "") {
@@ -179,13 +234,15 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       }
     }
 
-    const engineBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: engine.dir });
-    if (engineBranchRes.code !== 0) return failed(`git branch --show-current failed in ${engine.dir}: ${engineBranchRes.stderr.trim()}`);
-    const engineBranch = engineBranchRes.stdout.trim();
-    if (engineBranch !== "main") {
-      return refused(`engine checkout on branch "${engineBranch}"; check out main and re-run`);
+    if (!engineInTree) {
+      const engineBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: engine.dir });
+      if (engineBranchRes.code !== 0) return failed(`git branch --show-current failed in ${engine.dir}: ${engineBranchRes.stderr.trim()}`);
+      const engineBranch = engineBranchRes.stdout.trim();
+      if (engineBranch !== "main") {
+        return refused(`engine checkout on branch "${engineBranch}"; check out main and re-run`);
+      }
     }
-    if (!sameCheckout) {
+    if (packGit) {
       const packBranchRes = await deps.run("git", ["branch", "--show-current"], { cwd: pack.dir });
       if (packBranchRes.code !== 0) return failed(`git branch --show-current failed in ${pack.dir}: ${packBranchRes.stderr.trim()}`);
       const packBranch = packBranchRes.stdout.trim();
@@ -194,11 +251,16 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
       }
     }
 
+    if (inTreeRoot !== null && (engineInTree || packInTree)) {
+      branchNote = await inTreeBranchNote(deps, inTreeRoot);
+      if (branchNote !== "") warnings.push(branchNote.slice(2));
+    }
+
     const list = await listInstalled(deps);
     installedEngineBefore = installedVersionFor(list, pluginId(engine));
     installedPackBefore = installedVersionFor(list, pluginId(pack));
 
-    return ran("engine and pack checkouts clean on main");
+    return ran(guardSummary(engineInTree, packInTree));
   });
   steps.push({ name: "guards", ...guards });
   if (stops(guards)) return finish();
@@ -206,6 +268,10 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   const pullEngine = sameCheckout
     ? skipped("engine and pack share a checkout; pulled once as pull-pack")
     : await tryStep(async () => {
+        if (engineInTree) {
+          engineSourceVersion = await readInTreeVersion(deps, inTreeRoot!, engine.dir);
+          return skipped(`engine is in-tree at ${engine.dir}; kept current by update-machine${branchNote}`);
+        }
         const res = await deps.run("git", ["pull", "--ff-only"], { cwd: engine.dir });
         if (res.code !== 0) return refused(`git pull --ff-only failed in ${engine.dir}: ${res.stderr.trim()}; resolve manually and re-run`);
         engineSourceVersion = readManifestVersion(engine.dir);
@@ -215,6 +281,11 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
   if (stops(pullEngine)) return finish();
 
   const pullPack = await tryStep(async () => {
+    if (packInTree) {
+      packSourceVersion = await readInTreeVersion(deps, inTreeRoot!, pack.dir);
+      if (sameCheckout) engineSourceVersion = packSourceVersion;
+      return skipped(`pack is in-tree at ${pack.dir}; kept current by update-machine${branchNote}`);
+    }
     const res = await deps.run("git", ["pull", "--ff-only"], { cwd: pack.dir });
     if (res.code !== 0) return refused(`git pull --ff-only failed in ${pack.dir}: ${res.stderr.trim()}; resolve manually and re-run`);
     packSourceVersion = readManifestVersion(pack.dir);
@@ -255,6 +326,11 @@ export async function syncPack(pack: PackInfo, engine: PackInfo, deps: SyncDeps)
 
   const bump = await tryStep(async () => {
     if (!drift) return skipped("no drift; skipping version bump");
+    if (packInTree) {
+      return refused(
+        `pack is in-tree at ${pack.dir} and its compiled output drifted; sync never bumps, compiles or commits inside the shared checkout, so recompile it and bump its plugin.json version in a pull request to the monorepo`,
+      );
+    }
     const { before, after } = bumpPatchVersion(pack.dir);
     bumpBefore = before;
     bumpAfter = after;

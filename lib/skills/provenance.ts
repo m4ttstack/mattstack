@@ -33,7 +33,7 @@ export type GitFacts = { sha: string; dirty: 0 | 1 };
 export function gitFacts(dir: string): GitFacts {
   try {
     const sha = execFileSync("git", ["-C", dir, "rev-parse", "--short", "HEAD"], { stdio: "pipe" }).toString().trim();
-    const status = execFileSync("git", ["-C", dir, "status", "--porcelain"], { stdio: "pipe" }).toString();
+    const status = execFileSync("git", ["-C", dir, "status", "--porcelain", "--", "."], { stdio: "pipe" }).toString();
     return { sha, dirty: status.trim() ? 1 : 0 };
   } catch {
     return { sha: "", dirty: 0 };

@@ -1,0 +1,1 @@
+error contacting registry: FAKE_REGISTRY_DOWN

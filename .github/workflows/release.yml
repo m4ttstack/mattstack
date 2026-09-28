@@ -91,10 +91,11 @@ jobs:
 
       # `plugins.install` adds this marketplace on every machine rt sets up, so
       # it has to be live before the release shipping that installer is. It
-      # references plugin repos rather than anything this run builds, so it goes
-      # out first: a broken catalog then costs seconds instead of the twenty
-      # minutes it takes to reach notarization. A run that changes nothing
-      # needs no token — the script pushes only a real diff.
+      # pins plugin repos and ships the in-tree plugins from this commit, never
+      # anything this run builds, so it goes out first: a broken catalog then
+      # costs seconds instead of the twenty minutes it takes to reach
+      # notarization. A run that changes nothing needs no token; the script
+      # pushes only a real diff.
       - name: Publish the marketplace catalog
         shell: bash
         env:

@@ -1,0 +1,7 @@
+// happy path: three installed stages, chain closes over the default seed
+{
+  "version": 1,
+  "pipelines": {
+    "feature": ["fake:stage-grab", "fake:stage-build", "fake:stage-send"]
+  }
+}
