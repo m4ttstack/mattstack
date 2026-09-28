@@ -80,7 +80,7 @@ chunking below.
 
 - **Gate 1.** Each thread's form question: header `Thread <n>`; question
   text its label, a newline, its prose context, then `Reply, fix, or
-  skip?`; options with the gate's labels and descriptions. The form tool
+skip?`; options with the gate's labels and descriptions. The form tool
   takes at most four questions per call, so ask the thread questions in
   order, up to four per call, until every thread is asked. Then, if any
   thread's answer is a `fix:` value, ask `code-changes` in one more call;
@@ -88,11 +88,11 @@ chunking below.
   the board and console cards apply).
 - **Gate 2.** Each thread's form question: header `Thread <n>`; question
   text its label, a newline, its prose context, then `Post, resolve, both,
-  or neither?`; a multi-select with the gate's labels and descriptions,
+or neither?`; a multi-select with the gate's labels and descriptions,
   four questions per call. A thread with neither picked is its question
   answered as an explicit empty array, which the daemon records.
 - **One answer.** Submit exactly one `<status-bin> gate answer <state>
-  --answers <json> --by pane` after the LAST call, carrying every thread
+--answers <json> --by pane` after the LAST call, carrying every thread
   question's answer (plus `code-changes` for Gate 1); never one per chunk.
   Each value is the chosen option's value verbatim.
 - **Never `text`.** Whatever the human types in the form's free-text
@@ -111,7 +111,7 @@ chunking below.
   doorbell while a form still sits open, means another surface answered
   first: proceed on the winning answer, never the one you meant to submit.
   The doorbell is verify-only: read the recorded answer with `<status-bin>
-  gate wait <state> --max-ms 1000`.
+gate wait <state> --max-ms 1000`.
 - **The hook.** A PreToolUse hook may deny native AskUserQuestion when no
   gate is open; that denial is the gate protocol speaking: the gate opens
   first, through its gate node. When the daemon is down the hook allows the

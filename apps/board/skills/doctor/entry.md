@@ -139,9 +139,9 @@ What this graph cannot show:
   before the parked answer is read: the gate lives in the rt daemon's
   registry, and a fresh open mints a new `gateId`, supersedes the parked
   one and orphans the answer recorded against it. `Does the resumed
-  answer end the run (doctor)?` reads the answer next: an off-script hold
+answer end the run (doctor)?` reads the answer next: an off-script hold
   ends the turn holding, with no status write, and `leave it to me in the
-  pane` writes `error` naming the situation the gate described; both
+pane` writes `error` naming the situation the gate described; both
   leave before the domain skill and every lease node, so nothing is
   claimed or released. Any other answer (a take, an iterate, a retry, a
   watch or a domain action) resolves the domain skill and the lease as a
@@ -155,7 +155,7 @@ What this graph cannot show:
   since this pane has no record of the refused step, and on the generic
   path that re-reads the MR state.
 - **Reading an answer.** `gate wait`'s answered form is `{"answers": {...},
-  "by": "...", "answeredAt": ...}`, keyed by the question id `action`. Read
+"by": "...", "answeredAt": ...}`, keyed by the question id `action`. Read
   `answers.action`: a bare option string, or a `{value, note}` object whose
   `value` you read. `Does the resumed answer end the run (doctor)?` takes
   a value starting `hold:` or the literal `leave it to me in the pane` to
@@ -205,12 +205,12 @@ Take the escalation step with this question. Label: `ci_lease_read refused
 twice on !<iid>: <second error>`. Context: both `ci_lease_read` errors,
 quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you read the CI lease and tell me who holds it (ci_lease_read refused)` | Tell me the holder | You check who holds the CI lease and I route on your answer. |
-| `iterate: you fixed the cause, read the lease again (ci_lease_read refused)` | Fixed it, read again | You fixed what refused the read and I read the lease again. |
-| `hold: keep this pane open with nothing moved (ci_lease_read refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| Value                                                                          | Label                | Description                                                  |
+| ------------------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------ |
+| `take: you read the CI lease and tell me who holds it (ci_lease_read refused)` | Tell me the holder   | You check who holds the CI lease and I route on your answer. |
+| `iterate: you fixed the cause, read the lease again (ci_lease_read refused)`   | Fixed it, read again | You fixed what refused the read and I read the lease again.  |
+| `hold: keep this pane open with nothing moved (ci_lease_read refused)`         | Hold this pane       | I stop with nothing moved and the pane stays open.           |
+| `leave it to me in the pane`                                                   | Leave it to me       | I write an error naming the refusal and you take over.       |
 
 Iterate passes `Off-script rounds = 2 (ci_lease_read)?` before reading
 again. A take routes on the holder the human names, as a read would.
@@ -221,12 +221,12 @@ Take the escalation step with this question. Label: `ci_lease_claim
 refused twice on !<iid>: <second error>`. Context: both `ci_lease_claim`
 errors, quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you set the CI lease for this pane (ci_lease_claim refused)` | Set the lease yourself | You give this pane the CI lease and I start the repair. |
-| `iterate: you fixed the cause, claim the lease again (ci_lease_claim refused)` | Fixed it, claim again | You fixed what refused the claim and I claim the lease again. |
-| `hold: keep this pane open with nothing moved (ci_lease_claim refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| Value                                                                          | Label                  | Description                                                   |
+| ------------------------------------------------------------------------------ | ---------------------- | ------------------------------------------------------------- |
+| `take: you set the CI lease for this pane (ci_lease_claim refused)`            | Set the lease yourself | You give this pane the CI lease and I start the repair.       |
+| `iterate: you fixed the cause, claim the lease again (ci_lease_claim refused)` | Fixed it, claim again  | You fixed what refused the claim and I claim the lease again. |
+| `hold: keep this pane open with nothing moved (ci_lease_claim refused)`        | Hold this pane         | I stop with nothing moved and the pane stays open.            |
+| `leave it to me in the pane`                                                   | Leave it to me         | I write an error naming the refusal and you take over.        |
 
 Iterate passes `Off-script rounds = 2 (ci_lease_claim)?` before claiming
 again.

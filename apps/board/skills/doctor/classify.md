@@ -216,10 +216,10 @@ Take the escalation step with a flaky job that failed again after its one
 retry. Label: `job <id> (<name>) failed again after one retry
 (retry-flake)`.
 
-| Value | Label | Description |
-|---|---|---|
+| Value                               | Label              | Description                                                            |
+| ----------------------------------- | ------------------ | ---------------------------------------------------------------------- |
 | `retry job <id> once more on <sha>` | Retry it once more | I retry job <id> one more time and watch the pipeline for <sha> again. |
-| `leave it to me in the pane` | Leave it to me | I stop here and write an error naming the failing job. |
+| `leave it to me in the pane`        | Leave it to me     | I stop here and write an error naming the failing job.                 |
 
 Spell the job id and the sha of its pipeline in the value (`retry job 812
 once more on <sha>`); the value carries both, so a resumed pane retries
@@ -233,12 +233,12 @@ or `ci_lease_claim` runs at this site in a run, so the site is one origin.
 Label: `lease check before retrying job <id> refused on !<iid>: <error>`.
 Context: the lease tool's error, quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you confirm this pane holds the lease, then retry job <id> (lease check refused before the retry)` | Lease is fine, retry | You confirm this pane holds the lease and I retry job <id>. |
-| `iterate: you fixed the cause, check the lease again (lease check refused before the retry)` | Fixed it, check again | You fixed what refused the check and I check the lease again. |
-| `hold: keep this pane open with nothing moved (lease check refused before the retry)` | Hold this pane | I stop before the retry and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| Value                                                                                                     | Label                 | Description                                                   |
+| --------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------- |
+| `take: you confirm this pane holds the lease, then retry job <id> (lease check refused before the retry)` | Lease is fine, retry  | You confirm this pane holds the lease and I retry job <id>.   |
+| `iterate: you fixed the cause, check the lease again (lease check refused before the retry)`              | Fixed it, check again | You fixed what refused the check and I check the lease again. |
+| `hold: keep this pane open with nothing moved (lease check refused before the retry)`                     | Hold this pane        | I stop before the retry and the pane stays open.              |
+| `leave it to me in the pane`                                                                              | Leave it to me        | I write an error naming the refusal and you take over.        |
 
 Iterate passes `Off-script rounds = 2 (lease check before the retry)?`
 before checking again.
@@ -249,12 +249,12 @@ Take the escalation step with this question. Label: `mr_pipeline refused
 twice on !<iid>: <second error>`. Context: both `mr_pipeline` errors,
 quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you tell me which jobs failed and why (mr_pipeline refused)` | Tell me failed jobs | You name the failed jobs and their causes and I classify them. |
+| Value                                                                         | Label                | Description                                                    |
+| ----------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------- |
+| `take: you tell me which jobs failed and why (mr_pipeline refused)`           | Tell me failed jobs  | You name the failed jobs and their causes and I classify them. |
 | `iterate: you fixed the cause, read the pipeline again (mr_pipeline refused)` | Fixed it, read again | You fixed what refused the read and I read the pipeline again. |
-| `hold: keep this pane open with nothing moved (mr_pipeline refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| `hold: keep this pane open with nothing moved (mr_pipeline refused)`          | Hold this pane       | I stop with nothing moved and the pane stays open.             |
+| `leave it to me in the pane`                                                  | Leave it to me       | I write an error naming the refusal and you take over.         |
 
 Iterate passes `Off-script rounds = 2 (mr_pipeline)?` before reading
 again.
@@ -265,12 +265,12 @@ Take the escalation step with this question. Label: `mr_job_trace refused
 twice for job <id> on !<iid>: <second error>`. Context: both
 `mr_job_trace` errors, quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you paste the failed job traces (mr_job_trace refused)` | Paste the traces | You paste the failed job traces and I classify from them. |
+| Value                                                                        | Label                | Description                                                  |
+| ---------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------ |
+| `take: you paste the failed job traces (mr_job_trace refused)`               | Paste the traces     | You paste the failed job traces and I classify from them.    |
 | `iterate: you fixed the cause, read the traces again (mr_job_trace refused)` | Fixed it, read again | You fixed what refused the read and I read the traces again. |
-| `hold: keep this pane open with nothing moved (mr_job_trace refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| `hold: keep this pane open with nothing moved (mr_job_trace refused)`        | Hold this pane       | I stop with nothing moved and the pane stays open.           |
+| `leave it to me in the pane`                                                 | Leave it to me       | I write an error naming the refusal and you take over.       |
 
 Iterate passes `Off-script rounds = 2 (mr_job_trace)?` before reading
 again.
@@ -281,12 +281,12 @@ Take the escalation step with this question. Label: `mr_retry refused
 twice for job <id> on !<iid>: <second error>`. Context: both `mr_retry`
 errors, quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you retry job <id> yourself, I watch for the result (mr_retry refused)` | Retry it yourself | You retry job <id> and I watch the pipeline for the result. |
+| Value                                                                              | Label                 | Description                                                             |
+| ---------------------------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------- |
+| `take: you retry job <id> yourself, I watch for the result (mr_retry refused)`     | Retry it yourself     | You retry job <id> and I watch the pipeline for the result.             |
 | `iterate: you fixed the cause, check the lease and retry again (mr_retry refused)` | Fixed it, retry again | You fixed what refused the retry and I check the lease and retry again. |
-| `hold: keep this pane open with nothing moved (mr_retry refused)` | Hold this pane | I stop before retrying and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| `hold: keep this pane open with nothing moved (mr_retry refused)`                  | Hold this pane        | I stop before retrying and the pane stays open.                         |
+| `leave it to me in the pane`                                                       | Leave it to me        | I write an error naming the refusal and you take over.                  |
 
 Iterate passes `Off-script rounds = 2 (mr_retry)?` before the lease check
 and the retry.

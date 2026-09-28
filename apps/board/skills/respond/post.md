@@ -171,11 +171,11 @@ What the graph cannot show:
   fixed thread (a `gate-1: fix` row) does anything push; otherwise push
   nothing. Gate 2's answer is the authorization: ask nothing more. The
   MR's source branch is the `sourceBranch` that `mr_view {mrUrl} (respond
-  source branch)` (in `triage.md`) returns on a fresh generic run, kept in the report as
+source branch)` (in `triage.md`) returns on a fresh generic run, kept in the report as
   `source-branch: <branch>`, where a resumed pane reads it; with no known
   source branch (the read refused past its off-script gate, or a report
   without the line), `On the MR's source branch?` answers `no, or an
-  error` and the fixed threads are held. `<root>` is the
+error` and the fixed threads are held. `<root>` is the
   absolute top level of the checkout this pane runs in (the board's
   configured respond checkout), where the generic path commits its fixes
   and where both git checks read; a resumed pane launches in the same
@@ -194,7 +194,7 @@ What the graph cannot show:
   array leaves the thread untouched. A held thread posts and resolves
   nothing. A thread marked posted already never posts its reply again,
   though its `resolve:` pick still runs. When Gate 2 offered a `gate-1:
-  reply` thread, or an answer value names one (a gate opened before this
+reply` thread, or an answer value names one (a gate opened before this
   rule), that thread's answer decides it instead, an empty array included,
   and no reply posts twice.
 
@@ -295,12 +295,12 @@ Take "Off-script step" with this question. Label: `push of <branch> refused
 on !<iid>: <second refusal>`. Context: both `git_push` refusals, quoted,
 with the branch, `<root>` and the fixed thread ids waiting on the push.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you push <branch> yourself, then I post the fixed replies (git_push refused)` | Push it yourself | You push the fixed commits and I post their replies. |
-| `iterate: you fixed the cause, check the target and push again with git_push (git_push refused)` | Fixed it, push again | You fixed what refused the push and I check the target and push again. |
-| `hold: keep this pane open with the fixes unpushed and nothing posted (git_push refused)` | Hold this pane | I stop with the fixes unpushed and no reply posted. |
-| `hand back: hold the fixed threads and post the other replies (git_push refused)` | Hold the fixed replies | I hold the fixed threads unposted and post every other reply. |
+| Value                                                                                            | Label                  | Description                                                            |
+| ------------------------------------------------------------------------------------------------ | ---------------------- | ---------------------------------------------------------------------- |
+| `take: you push <branch> yourself, then I post the fixed replies (git_push refused)`             | Push it yourself       | You push the fixed commits and I post their replies.                   |
+| `iterate: you fixed the cause, check the target and push again with git_push (git_push refused)` | Fixed it, push again   | You fixed what refused the push and I check the target and push again. |
+| `hold: keep this pane open with the fixes unpushed and nothing posted (git_push refused)`        | Hold this pane         | I stop with the fixes unpushed and no reply posted.                    |
+| `hand back: hold the fixed threads and post the other replies (git_push refused)`                | Hold the fixed replies | I hold the fixed threads unposted and post every other reply.          |
 
 A take continues to the posting walk as if the push went up. Iterate
 passes `Off-script rounds = 2 (git_push, respond)?`, then runs both push
@@ -314,12 +314,12 @@ Take "Off-script step" with this question. Label: `reply to thread
 <threadId> refused twice on !<iid>: <second error>`. Context: both
 `mr_reply_thread` errors, quoted, and the reply text.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you post the reply to thread <threadId> yourself (mr_reply_thread refused)` | Post it yourself | You post this reply and I continue with its resolve pick and the next thread. |
-| `iterate: you fixed the cause, post the reply to thread <threadId> again (mr_reply_thread refused)` | Fixed it, post again | You fixed what refused the reply and I post it again. |
-| `hold: keep this pane open with the remaining replies unposted (mr_reply_thread refused)` | Hold this pane | I stop here and the replies not yet posted stay unposted. |
-| `hand back: leave thread <threadId> unposted and post the rest (mr_reply_thread refused)` | Skip this reply | I leave this thread unposted and carry on with the rest. |
+| Value                                                                                               | Label                | Description                                                                   |
+| --------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------- |
+| `take: you post the reply to thread <threadId> yourself (mr_reply_thread refused)`                  | Post it yourself     | You post this reply and I continue with its resolve pick and the next thread. |
+| `iterate: you fixed the cause, post the reply to thread <threadId> again (mr_reply_thread refused)` | Fixed it, post again | You fixed what refused the reply and I post it again.                         |
+| `hold: keep this pane open with the remaining replies unposted (mr_reply_thread refused)`           | Hold this pane       | I stop here and the replies not yet posted stay unposted.                     |
+| `hand back: leave thread <threadId> unposted and post the rest (mr_reply_thread refused)`           | Skip this reply      | I leave this thread unposted and carry on with the rest.                      |
 
 A take counts the reply as posted and runs the thread's `resolve:` pick.
 Iterate passes `Off-script rounds = 2 (mr_reply_thread)?` for this
@@ -333,12 +333,12 @@ Take "Off-script step" with this question. Label: `resolving thread
 <threadId> refused twice on !<iid>: <second error>`. Context: both
 `mr_resolve_thread` errors, quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you resolve thread <threadId> yourself (mr_resolve_thread refused)` | Resolve it yourself | You resolve this thread and I carry on with the next one. |
-| `iterate: you fixed the cause, resolve thread <threadId> again (mr_resolve_thread refused)` | Fixed it, resolve again | You fixed what refused the resolve and I resolve it again. |
-| `hold: keep this pane open with the remaining threads untouched (mr_resolve_thread refused)` | Hold this pane | I stop here and the threads not yet handled stay untouched. |
-| `hand back: leave thread <threadId> open and carry on (mr_resolve_thread refused)` | Leave it open | I leave this thread unresolved and carry on with the rest. |
+| Value                                                                                        | Label                   | Description                                                 |
+| -------------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------- |
+| `take: you resolve thread <threadId> yourself (mr_resolve_thread refused)`                   | Resolve it yourself     | You resolve this thread and I carry on with the next one.   |
+| `iterate: you fixed the cause, resolve thread <threadId> again (mr_resolve_thread refused)`  | Fixed it, resolve again | You fixed what refused the resolve and I resolve it again.  |
+| `hold: keep this pane open with the remaining threads untouched (mr_resolve_thread refused)` | Hold this pane          | I stop here and the threads not yet handled stay untouched. |
+| `hand back: leave thread <threadId> open and carry on (mr_resolve_thread refused)`           | Leave it open           | I leave this thread unresolved and carry on with the rest.  |
 
 Iterate passes `Off-script rounds = 2 (mr_resolve_thread)?` for this
 thread before resolving again. Hand back, gate unavailable and a spent

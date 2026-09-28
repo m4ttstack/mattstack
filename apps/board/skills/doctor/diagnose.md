@@ -130,7 +130,7 @@ What this graph cannot show:
   skipped or manual, or no head pipeline at all, with no conflicts, has
   nothing to classify and nothing to watch, and no fix class starts one:
   `error` naming the state (`head pipeline for <sha> is canceled`, or `no
-  pipeline for <sha>`), so a human reruns or starts it.
+pipeline for <sha>`), so a human reruns or starts it.
 - **The rebase poll.** `Rebase state (doctor)?` reads the poll's `mr`
   fields: `rebaseInProgress` true is still rebasing; `rebaseInProgress`
   false with a `sha` other than the one the diagnosis read is rebased
@@ -166,12 +166,12 @@ Take the escalation step with this question. Only one of `ci_lease_read`
 the site is one origin. Label: `lease check before the rebase refused on
 !<iid>: <error>`. Context: the lease tool's error, quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you confirm this pane holds the lease, then rebase (lease check refused before the rebase)` | Lease is fine, rebase | You confirm this pane holds the lease and I run the rebase. |
-| `iterate: you fixed the cause, check the lease again (lease check refused before the rebase)` | Fixed it, check again | You fixed what refused the check and I check the lease again. |
-| `hold: keep this pane open with nothing moved (lease check refused before the rebase)` | Hold this pane | I stop before the rebase and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| Value                                                                                              | Label                 | Description                                                   |
+| -------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------- |
+| `take: you confirm this pane holds the lease, then rebase (lease check refused before the rebase)` | Lease is fine, rebase | You confirm this pane holds the lease and I run the rebase.   |
+| `iterate: you fixed the cause, check the lease again (lease check refused before the rebase)`      | Fixed it, check again | You fixed what refused the check and I check the lease again. |
+| `hold: keep this pane open with nothing moved (lease check refused before the rebase)`             | Hold this pane        | I stop before the rebase and the pane stays open.             |
+| `leave it to me in the pane`                                                                       | Leave it to me        | I write an error naming the refusal and you take over.        |
 
 Iterate passes `Off-script rounds = 2 (lease check before the rebase)?`
 before checking again.
@@ -181,12 +181,12 @@ before checking again.
 Take the escalation step with this question. Label: `mr_view refused twice
 on !<iid>: <second error>`. Context: both `mr_view` errors, quoted.
 
-| Value | Label | Description |
-|---|---|---|
+| Value                                                                             | Label                | Description                                                        |
+| --------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------ |
 | `take: you tell me the MR's state (conflicts, pipeline status) (mr_view refused)` | Tell me the MR state | You report conflicts and pipeline status and I diagnose from that. |
-| `iterate: you fixed the cause, read the MR again (mr_view refused)` | Fixed it, read again | You fixed what refused the read and I read the MR again. |
-| `hold: keep this pane open with nothing moved (mr_view refused)` | Hold this pane | I stop with nothing moved and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| `iterate: you fixed the cause, read the MR again (mr_view refused)`               | Fixed it, read again | You fixed what refused the read and I read the MR again.           |
+| `hold: keep this pane open with nothing moved (mr_view refused)`                  | Hold this pane       | I stop with nothing moved and the pane stays open.                 |
+| `leave it to me in the pane`                                                      | Leave it to me       | I write an error naming the refusal and you take over.             |
 
 Iterate passes `Off-script rounds = 2 (mr_view)?` before reading again.
 
@@ -196,12 +196,12 @@ Take the escalation step with this question. Label: `mr_rebase refused
 twice on !<iid>: <second error>`. Context: both `mr_rebase` errors,
 quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you rebase the MR yourself, I watch for the result (mr_rebase refused)` | Rebase it yourself | You rebase the MR and I poll it for the result. |
+| Value                                                                                | Label                  | Description                                                               |
+| ------------------------------------------------------------------------------------ | ---------------------- | ------------------------------------------------------------------------- |
+| `take: you rebase the MR yourself, I watch for the result (mr_rebase refused)`       | Rebase it yourself     | You rebase the MR and I poll it for the result.                           |
 | `iterate: you fixed the cause, check the lease and rebase again (mr_rebase refused)` | Fixed it, rebase again | You fixed what refused the rebase and I check the lease and rebase again. |
-| `hold: keep this pane open with nothing moved (mr_rebase refused)` | Hold this pane | I stop before rebasing and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error naming the refusal and you take over. |
+| `hold: keep this pane open with nothing moved (mr_rebase refused)`                   | Hold this pane         | I stop before rebasing and the pane stays open.                           |
+| `leave it to me in the pane`                                                         | Leave it to me         | I write an error naming the refusal and you take over.                    |
 
 Iterate passes `Off-script rounds = 2 (mr_rebase)?` before the lease check
 and the rebase.

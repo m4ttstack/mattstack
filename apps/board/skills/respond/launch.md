@@ -268,12 +268,12 @@ Take "Off-script step" with this question. Label: `mr_threads refused
 twice on the Posted already read for !<iid>: <second error>`. Context:
 both `mr_threads` errors, quoted, and the thread ids this pass could post.
 
-| Value | Label | Description |
-|---|---|---|
+| Value                                                                                                            | Label                 | Description                                                     |
+| ---------------------------------------------------------------------------------------------------------------- | --------------------- | --------------------------------------------------------------- |
 | `take: you name the threads that already carry this run's reply (mr_threads refused on the Posted already read)` | Name answered threads | You name the threads already answered and I post only the rest. |
-| `iterate: you fixed the cause, read the threads again (mr_threads refused on the Posted already read)` | Fixed it, read again | You fixed what refused the read and I read the threads again. |
-| `hold: keep this pane open with nothing posted (mr_threads refused on the Posted already read)` | Hold this pane | I stop before posting anything and the pane stays open. |
-| `hand back: write an error naming the refusal, nothing posted (mr_threads refused on the Posted already read)` | Hand it back | I write an error naming the refusal and post nothing. |
+| `iterate: you fixed the cause, read the threads again (mr_threads refused on the Posted already read)`           | Fixed it, read again  | You fixed what refused the read and I read the threads again.   |
+| `hold: keep this pane open with nothing posted (mr_threads refused on the Posted already read)`                  | Hold this pane        | I stop before posting anything and the pane stays open.         |
+| `hand back: write an error naming the refusal, nothing posted (mr_threads refused on the Posted already read)`   | Hand it back          | I write an error naming the refusal and post nothing.           |
 
 A take marks exactly the threads the human names as posted already.
 Iterate passes `Off-script rounds = 2 (posted-already mr_threads)?`

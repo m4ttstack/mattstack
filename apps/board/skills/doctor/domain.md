@@ -102,20 +102,20 @@ Hand the domain skill:
 - **The MR** (`mrUrl`), the tier (`--tier api` or the checkout tier), the
   `--fix-classes` allowlist, and the operator note as context.
 - **`--draft-bin`** and its exact call: `<draft-bin> doctor-draft <mrUrl>
-  <iid> <kind> <body...> --state <state>`. Every outbound MR note is a
+<iid> <kind> <body...> --state <state>`. Every outbound MR note is a
   held draft through it; never post a note directly.
 - **The lease mode and its rules.** Board mode: pass `underBoardLease:
-  true` to `ci_watch`, never claim, heartbeat or release, and check
+true` to `ci_watch`, never claim, heartbeat or release, and check
   `ci_lease_read {mrUrl}` before each push or retry. Own mode: re-claim
   with `ci_lease_claim {mrUrl, holder: doctor, branch?}` before each push
   or retry, and during a long fix call `ci_lease_heartbeat {mrUrl}` every
   five minutes, twelve at most; past twelve (an hour), report an
   enumerable budget decision back instead of fixing on. A lease that
   belongs to another owner at any check (`{ok: false, reason: "lost",
-  holder}` from a heartbeat, `claimed: false`, another owner in a read) is
+holder}` from a heartbeat, `claimed: false`, another owner in a read) is
   a stand-down: stop and report it.
 - **The push.** Push only with `git_push {tree: <worktree root>,
-  forceWithLease: true}`; a refused push is reported back with the local
+forceWithLease: true}`; a refused push is reported back with the local
   commit sha, the branch (the MR's source branch it pushed), the worktree
   root and the refusal, never retried around.
 - **The status milestones** it crosses: `rebasing`, `fixing`, `watching`,
@@ -174,12 +174,12 @@ or `ci_lease_claim` runs at this site in a run, so the site is one origin.
 Label: `lease check before pushing <branch> refused on !<iid>: <error>`.
 Context: the lease tool's error, quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you confirm this pane holds the lease, then push with git_push (lease check refused before git_push)` | Lease is fine, push | You confirm this pane holds the lease and I push with git_push. |
-| `iterate: you fixed the cause, check the lease again (lease check refused before git_push)` | Fixed it, check again | You fixed what refused the check and I check the lease again. |
-| `hold: keep this pane open with nothing moved (lease check refused before git_push)` | Hold this pane | I stop before the push and the local commit stays unpushed. |
-| `leave it to me in the pane` | Leave it to me | I write an error with the sha, branch and refusal, and you take over. |
+| Value                                                                                                        | Label                 | Description                                                           |
+| ------------------------------------------------------------------------------------------------------------ | --------------------- | --------------------------------------------------------------------- |
+| `take: you confirm this pane holds the lease, then push with git_push (lease check refused before git_push)` | Lease is fine, push   | You confirm this pane holds the lease and I push with git_push.       |
+| `iterate: you fixed the cause, check the lease again (lease check refused before git_push)`                  | Fixed it, check again | You fixed what refused the check and I check the lease again.         |
+| `hold: keep this pane open with nothing moved (lease check refused before git_push)`                         | Hold this pane        | I stop before the push and the local commit stays unpushed.           |
+| `leave it to me in the pane`                                                                                 | Leave it to me        | I write an error with the sha, branch and refusal, and you take over. |
 
 Iterate passes `Off-script rounds = 2 (lease check before git_push)?`
 before checking again.
@@ -195,12 +195,12 @@ when it names none, use the MR's source branch from `mr_view` if this run
 already read it, else leave the branch out of the label, context and
 values. Never invent a branch name.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you push <sha> to <branch> yourself (git_push refused)` | Push it yourself | You push the local commit and I watch the pipeline for it. |
-| `iterate: you fixed push access, check the lease and push again with git_push (git_push refused)` | Fixed access, push again | You fixed push access and I check the lease and push again. |
-| `hold: keep this pane open with the local commit unpushed (git_push refused)` | Hold this pane | I stop with the commit unpushed and the pane stays open. |
-| `leave it to me in the pane` | Leave it to me | I write an error with the sha, branch and refusal, and you take over. |
+| Value                                                                                             | Label                    | Description                                                           |
+| ------------------------------------------------------------------------------------------------- | ------------------------ | --------------------------------------------------------------------- |
+| `take: you push <sha> to <branch> yourself (git_push refused)`                                    | Push it yourself         | You push the local commit and I watch the pipeline for it.            |
+| `iterate: you fixed push access, check the lease and push again with git_push (git_push refused)` | Fixed access, push again | You fixed push access and I check the lease and push again.           |
+| `hold: keep this pane open with the local commit unpushed (git_push refused)`                     | Hold this pane           | I stop with the commit unpushed and the pane stays open.              |
+| `leave it to me in the pane`                                                                      | Leave it to me           | I write an error with the sha, branch and refusal, and you take over. |
 
 Iterate passes `Off-script rounds = 2 (git_push)?` before the lease check
 and the push, which runs `git_push {tree: <the domain skill's worktree
@@ -234,7 +234,7 @@ is optional.
 3. **Commit message must self-identify.** Whatever the repo's own commit
    message convention is, the message must make clear this is a doctor fix
    of that class (e.g. a `doctor: mechanical-lint ...` or `doctor:
-   code-fix ...` prefix or equivalent) so it reads unambiguously as an
+code-fix ...` prefix or equivalent) so it reads unambiguously as an
    autonomous fix in `git log`, not a human commit.
 4. **Push only with `git_push {tree, forceWithLease: true}`.** If the push
    is refused (no push access, protected branch, network or auth failure),

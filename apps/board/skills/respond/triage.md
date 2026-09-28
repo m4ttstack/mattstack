@@ -251,12 +251,12 @@ Take "Off-script step" with this question. Label: `mr_view refused twice
 on !<iid>: <second error>`. Context: both `mr_view` errors, quoted, and
 that the push check needs the MR's source branch.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you tell me the MR's source branch (mr_view refused)` | Tell me the branch | You name the MR's source branch and I use it for the push check. |
-| `iterate: you fixed the cause, read the MR again (mr_view refused)` | Fixed it, read again | You fixed what refused the read and I read the MR again. |
-| `hold: keep this pane open with nothing moved (mr_view refused)` | Hold this pane | I stop before reading the threads and the pane stays open. |
-| `hand back: carry on without the source branch, fixed replies held (mr_view refused)` | Carry on without it | I carry on without the branch and hold any fixed thread at the push. |
+| Value                                                                                 | Label                | Description                                                          |
+| ------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------- |
+| `take: you tell me the MR's source branch (mr_view refused)`                          | Tell me the branch   | You name the MR's source branch and I use it for the push check.     |
+| `iterate: you fixed the cause, read the MR again (mr_view refused)`                   | Fixed it, read again | You fixed what refused the read and I read the MR again.             |
+| `hold: keep this pane open with nothing moved (mr_view refused)`                      | Hold this pane       | I stop before reading the threads and the pane stays open.           |
+| `hand back: carry on without the source branch, fixed replies held (mr_view refused)` | Carry on without it  | I carry on without the branch and hold any fixed thread at the push. |
 
 A take keeps the branch the human names as the source branch. Iterate
 passes `Off-script rounds = 2 (mr_view, respond)?` before reading again.
@@ -271,12 +271,12 @@ Take "Off-script step" with this question. Label: `mr_threads refused
 twice on !<iid>: <second error>`. Context: both `mr_threads` errors,
 quoted.
 
-| Value | Label | Description |
-|---|---|---|
-| `take: you paste the unresolved threads with their discussion ids (mr_threads refused)` | Paste the threads | You paste each unresolved thread with its discussion id and I adjudicate them. |
-| `iterate: you fixed the cause, read the threads again (mr_threads refused)` | Fixed it, read again | You fixed what refused the read and I read the threads again. |
-| `hold: keep this pane open with nothing moved (mr_threads refused)` | Hold this pane | I stop before adjudicating and the pane stays open. |
-| `hand back: write an error naming the refusal (mr_threads refused)` | Hand it back | I write an error naming the refusal and you take over. |
+| Value                                                                                   | Label                | Description                                                                    |
+| --------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------ |
+| `take: you paste the unresolved threads with their discussion ids (mr_threads refused)` | Paste the threads    | You paste each unresolved thread with its discussion id and I adjudicate them. |
+| `iterate: you fixed the cause, read the threads again (mr_threads refused)`             | Fixed it, read again | You fixed what refused the read and I read the threads again.                  |
+| `hold: keep this pane open with nothing moved (mr_threads refused)`                     | Hold this pane       | I stop before adjudicating and the pane stays open.                            |
+| `hand back: write an error naming the refusal (mr_threads refused)`                     | Hand it back         | I write an error naming the refusal and you take over.                         |
 
 A take adjudicates the threads the human pasted, keyed by the discussion
 ids they give. Iterate passes `Off-script rounds = 2 (fetch mr_threads)?`
