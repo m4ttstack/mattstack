@@ -41,6 +41,11 @@ A10=$(printf "%s%s" "progres" "sive")
 A10B="(^|[^[:alnum:]])$A10([^[:alnum:]]|\$)"
 # A second carrier name, caught in the same picker-branch scrub as A10.
 A11=$(printf '%s%s' 'gei' 'co')
+# The skills pack's own gate banned three more terms that are ordinary
+# vocabulary elsewhere in the tree, so they are scoped to plugins/mattstack.
+P1=$(printf '%s%s' 'launch' 'darkly')
+P2=$(printf '%s%s' 'strong' 'dm')
+P3=$(printf '%s%s' 'parking' '-lot')
 
 PATTERN="$A1|$A2|$A3|$A4|$A5|$A6|$A7|$A8|$A9|$A10B|$A11"
 
@@ -79,6 +84,7 @@ fi
 TAB=$(printf '\t')
 SCOPED="
 plugins/herdr-chat${TAB}
+plugins/mattstack${TAB}$P1|$P2|$P3
 "
 if [ -n "${PURITY_SCOPED_EXTRA:-}" ]; then
   SCOPED="$SCOPED
