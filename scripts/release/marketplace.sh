@@ -112,15 +112,16 @@ if [ -d "$SRC/plugins" ]; then cp -R "$SRC/plugins" "$STAGE/plugins"; fi
 
 # Plugins that live in this repo's tree rather than under marketplace/: a
 # relative catalog source with no directory in $SRC/plugins is copied from
-# the tree (never symlinked; the guard below refuses links).
-TREE_PLUGINS="${RT_TREE_PLUGINS:-$ROOT/plugins}"
+# the tree's HEAD commit, so a local run on a dirty checkout cannot publish
+# untracked, ignored or uncommitted files (tracked links still reach the
+# guard below, which refuses them).
+TREE_ROOT="${RT_TREE_ROOT:-$ROOT}"
 TREE_NAMES="$(python3 -c 'import json,sys; [print(p["source"][len("./plugins/"):]) for p in json.load(open(sys.argv[1]))["plugins"] if isinstance(p.get("source"), str) and p["source"].startswith("./plugins/")]' "$CATALOG")" \
     || { echo "✗ cannot read plugin sources from $CATALOG" >&2; exit 1; }
 for name in $TREE_NAMES; do
-    if [ ! -d "$STAGE/plugins/$name" ] && [ -d "$TREE_PLUGINS/$name" ]; then
-        mkdir -p "$STAGE/plugins"
-        cp -R "$TREE_PLUGINS/$name" "$STAGE/plugins/$name"
-        rm -rf "$STAGE/plugins/$name/.git" "$STAGE/plugins/$name/.worktrees"
+    if [ ! -d "$STAGE/plugins/$name" ] && [ -n "$(git -C "$TREE_ROOT" ls-tree -d HEAD -- "plugins/$name")" ]; then
+        git -C "$TREE_ROOT" archive --format=tar HEAD -- "plugins/$name" | tar -xf - -C "$STAGE" \
+            || { echo "✗ cannot copy plugins/$name from $TREE_ROOT" >&2; exit 1; }
     fi
 done
 
