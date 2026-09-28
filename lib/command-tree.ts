@@ -101,9 +101,9 @@ export interface CommandNode {
 
   /**
    * "program": run by the mattstack apps, skills or daemon rather than typed
-   * by hand. Left out of pickers, usage and --help unless the
-   * rt.picker.showProgramVerbs setting is on or the command line starts with
-   * --all; always runnable by name.
+   * by hand. Left out of pickers, usage and --help unless rt.picker.show
+   * names it (or "*") or the command line starts with --all; always runnable
+   * by name.
    */
   audience?: "program";
 
@@ -225,7 +225,7 @@ export async function dispatch(
       // Unknown command — show help
       const { yellow } = await import("./tui.ts");
       console.error(`\n  ${yellow}unknown command: ${name}${reset}`);
-      console.error(`  ${dim}available: ${(await visibleEntries(tree)).map(([k]) => k).join(", ")}${reset}\n`);
+      console.error(`  ${dim}available: ${(await visibleEntries(tree, breadcrumb)).map(([k]) => k).join(", ")}${reset}\n`);
       process.exit(1);
     }
 
@@ -514,41 +514,63 @@ function renderHeader(breadcrumb: string[]): void {
   console.error(`  ${parts.join(` ${dim}›${reset} `)}\n`);
 }
 
+/** Verb paths ("pane", "worktree provision") from rt.picker.show/hide, plus --all. */
+export interface VerbFilter {
+  all: boolean;
+  show: ReadonlySet<string>;
+  hide: ReadonlySet<string>;
+}
+
 /**
- * Visible in pickers/usage: not hidden, (dev-only nodes) only in dev mode,
- * and (program verbs) only when program verbs are shown.
+ * Visible in pickers/usage: never a hidden node or (outside dev mode) a
+ * dev-only one; then --all shows the rest, hide beats show, and a program
+ * verb needs show to name it or "*".
  */
-export function isNodeVisible(node: CommandNode, isDev: boolean, showProgramVerbs = false): boolean {
-  return !node.hidden && (!node.devOnly || isDev) && (node.audience !== "program" || showProgramVerbs);
+export function isNodeVisible(node: CommandNode, isDev: boolean, path = "", filter?: VerbFilter): boolean {
+  if (node.hidden || (node.devOnly && !isDev)) return false;
+  if (filter?.all) return true;
+  if (filter?.hide.has(path)) return false;
+  return node.audience !== "program" || !!filter?.show.has("*") || !!filter?.show.has(path);
 }
 
 const ALL_FLAG = "--all";
 
 let showAllVerbs = false;
 
+type SettingsResolver = typeof import("./settings/resolve.ts");
+
+function readVerbList({ getSetting }: SettingsResolver, key: string): string[] {
+  try {
+    const value = getSetting<string[]>(key).value;
+    return Array.isArray(value) ? value : [];
+  } catch (err) {
+    console.error(`  ${dim}${key} could not be read, ignoring it: ${err instanceof Error ? err.message : String(err)}${reset}`);
+    return [];
+  }
+}
+
 /**
  * Read only on the listing paths, and imported lazily, so dispatching a verb
  * by name never pays for the settings resolver.
  */
-async function programVerbsShown(): Promise<boolean> {
-  if (showAllVerbs) return true;
-  const { getSetting } = await import("./settings/resolve.ts");
-  try {
-    return getSetting<boolean>("rt.picker.showProgramVerbs").value === true;
-  } catch (err) {
-    console.error(`  ${dim}rt.picker.showProgramVerbs could not be read, hiding program verbs: ${err instanceof Error ? err.message : String(err)}${reset}`);
-    return false;
-  }
+async function verbFilter(): Promise<VerbFilter> {
+  const resolver: SettingsResolver = await import("./settings/resolve.ts");
+  return {
+    all: showAllVerbs,
+    show: new Set(readVerbList(resolver, "rt.picker.show")),
+    hide: new Set(readVerbList(resolver, "rt.picker.hide")),
+  };
 }
 
-async function visibleEntries(tree: Record<string, CommandNode>): Promise<[string, CommandNode][]> {
-  const showProgram = await programVerbsShown();
-  return Object.entries(tree).filter(([, n]) => isNodeVisible(n, IS_DEV_MODE, showProgram));
+async function visibleEntries(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<[string, CommandNode][]> {
+  const filter = await verbFilter();
+  const prefix = breadcrumb.slice(1);
+  return Object.entries(tree).filter(([name, n]) => isNodeVisible(n, IS_DEV_MODE, [...prefix, name].join(" "), filter));
 }
 
 async function showUsage(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<void> {
   renderHeader(breadcrumb);
-  const visible = await visibleEntries(tree);
+  const visible = await visibleEntries(tree, breadcrumb);
   for (const [name, node] of visible) {
     const padded = name.padEnd(14);
     console.error(`  ${bold}${padded}${reset} ${dim}${node.description}${reset}`);
@@ -574,9 +596,9 @@ function argToken(a: CommandArg): string {
   return a.type === "boolean" ? `[${a.flag}]` : `[${a.flag} <${slugArg(a.name)}>]`;
 }
 
-async function printCommandListing(tree: Record<string, CommandNode>): Promise<void> {
+async function printCommandListing(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<void> {
   const { b, d, r } = helpColors();
-  const visible = await visibleEntries(tree);
+  const visible = await visibleEntries(tree, breadcrumb);
   const width = Math.max(...visible.map(([name]) => name.length), 0);
   for (const [name, sub] of visible) {
     console.log(`  ${b}${name.padEnd(width + 2)}${r}${d}${sub.description}${r}`);
@@ -593,7 +615,7 @@ async function printBranchHelp(
   console.log(`\n  ${b}usage:${r} ${breadcrumb.join(" ")} <command>`);
   if (node?.description) console.log(`  ${d}${node.description}${r}`);
   console.log("");
-  await printCommandListing(tree);
+  await printCommandListing(tree, breadcrumb);
   console.log("");
 }
 
@@ -628,7 +650,7 @@ async function printLeafHelp(node: CommandNode, breadcrumb: string[]): Promise<v
 
   if (node.subcommands) {
     console.log("");
-    await printCommandListing(node.subcommands);
+    await printCommandListing(node.subcommands, breadcrumb);
   }
   console.log("");
 }
@@ -660,7 +682,7 @@ export async function showPicker(
 ): Promise<PickerSelection | typeof BACK | null> {
   const { runPick } = await import("./ui/pick.ts");
 
-  const visible = await visibleEntries(tree);
+  const visible = await visibleEntries(tree, breadcrumb);
   const anyHasArgs = visible.some(([_, n]) => n.args?.length);
 
   // Filtering sees only the command name (the old fzf palette's --nth=1): the
