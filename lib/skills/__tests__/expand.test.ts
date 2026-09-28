@@ -114,6 +114,16 @@ describe("expandSkills", () => {
     expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).not.toThrow();
   });
 
+  test("refuses a CLAUDE_SKILL_DIR path in the frontmatter that leaves the output dir", () => {
+    write(
+      join(src, "escape", "SKILL.md"),
+      "---\nname: board:escape\ndescription: e\nallowed-tools: Bash(${CLAUDE_SKILL_DIR}/../../../../plugins/mattstack/scripts/x.sh:*)\n---\n\nBody.\n",
+    );
+    expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(
+      /escape\/SKILL\.md: "\$\{CLAUDE_SKILL_DIR\}\/\.\.\/\.\.\/\.\.\/\.\.\/plugins\/mattstack\/scripts\/x\.sh:\*" resolves outside/,
+    );
+  });
+
   test("refuses a source dir with no SKILL.md and a src that does not exist", () => {
     mkdirSync(join(src, "empty"));
     expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(/empty: no SKILL\.md/);
@@ -121,9 +131,12 @@ describe("expandSkills", () => {
   });
 });
 
+const EXPANDED_ORPHAN = `---\nname: board:stale\n---\n\n${EXPAND_HEADER}\n\nold\n`;
+const HAND_WRITTEN = "---\nname: board:mine\n---\n\n# Mine\n\nWritten by hand.\n";
+
 describe("writeExpanded and checkExpanded", () => {
   test("writes SKILL.md and vendored files, removes an orphan output dir, then checks clean", () => {
-    write(join(out, "stale", "SKILL.md"), "---\nname: board:stale\n---\n\nold\n");
+    write(join(out, "stale", "SKILL.md"), EXPANDED_ORPHAN);
     const skills = expandSkills({ srcDir: src, outDir: out, roots: roots() });
     const result = writeExpanded(out, skills);
     expect(result.written.sort()).toEqual(["recipes", "review"]);
@@ -142,7 +155,38 @@ describe("writeExpanded and checkExpanded", () => {
     expect(checkExpanded(out, skills)).toEqual([]);
   });
 
-  test("check names the cause: source, include, frontmatter, vendored, missing, orphan", () => {
+  test("a dir expand did not write makes the write throw, naming it, and touches nothing", () => {
+    const skills = expandSkills({ srcDir: src, outDir: out, roots: roots() });
+    writeExpanded(out, skills);
+    write(join(out, "stale", "SKILL.md"), EXPANDED_ORPHAN);
+    write(join(out, "mine", "SKILL.md"), HAND_WRITTEN);
+    write(join(out, "review", "scripts", "go.sh"), "changed\n");
+    expect(() => writeExpanded(out, skills)).toThrow(`${join(out, "mine")} is not expand output; move it or choose another --out`);
+    expect(readFileSync(join(out, "mine", "SKILL.md"), "utf8")).toBe(HAND_WRITTEN);
+    expect(readFileSync(join(out, "stale", "SKILL.md"), "utf8")).toBe(EXPANDED_ORPHAN);
+    expect(readFileSync(join(out, "review", "scripts", "go.sh"), "utf8")).toBe("changed\n");
+  });
+
+  test("a hand-written dir sharing a source skill's name is refused too", () => {
+    write(join(out, "review", "SKILL.md"), HAND_WRITTEN);
+    const skills = expandSkills({ srcDir: src, outDir: out, roots: roots() });
+    expect(() => writeExpanded(out, skills)).toThrow(/review is not expand output/);
+    expect(readFileSync(join(out, "review", "SKILL.md"), "utf8")).toBe(HAND_WRITTEN);
+    expect(checkExpanded(out, skills)).toContainEqual({ skill: "review", causes: ["foreign"] });
+  });
+
+  test("a plugin version bump alone is not drift, and the write still stamps the new version", () => {
+    writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
+    write(join(root, "plugins", "mattstack", ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version: "9.9.10" }));
+    const bumped = expandSkills({ srcDir: src, outDir: out, roots: roots() });
+    expect(checkExpanded(out, bumped)).toEqual([]);
+    writeExpanded(out, bumped);
+    const md = readFileSync(join(out, "review", "SKILL.md"), "utf8");
+    expect(md).toContain('compiled: "mattstack:note@9.9.10"');
+    expect(md).toContain("source=mattstack:note version=9.9.10 ");
+  });
+
+  test("check names the cause: source, include, frontmatter, vendored, missing, orphan, foreign", () => {
     const skills = expandSkills({ srcDir: src, outDir: out, roots: roots() });
     writeExpanded(out, skills);
 
@@ -163,18 +207,29 @@ describe("writeExpanded and checkExpanded", () => {
     writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
 
     write(join(out, "review", "scripts", "go.sh"), "changed\n");
-    expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([{ skill: "review", causes: ["vendored"] }]);
+    expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([
+      { skill: "review", causes: ["vendored (scripts/go.sh)"] },
+    ]);
 
     rmSync(join(out, "recipes"), { recursive: true });
-    write(join(out, "orphan", "SKILL.md"), "---\nname: x\n---\n");
+    write(join(out, "orphan", "SKILL.md"), EXPANDED_ORPHAN);
+    write(join(out, "mine", "SKILL.md"), HAND_WRITTEN);
     const drift = checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
     expect(drift).toContainEqual({ skill: "recipes", causes: ["missing"] });
     expect(drift).toContainEqual({ skill: "orphan", causes: ["orphan"] });
+    expect(drift).toContainEqual({ skill: "mine", causes: ["foreign"] });
   });
 
-  test("check reports a stale vendored file whose source was deleted", () => {
+  test("check names the vendored path that is extra or missing", () => {
     writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
     rmSync(join(src, "review", "scripts", "go.sh"));
-    expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([{ skill: "review", causes: ["vendored"] }]);
+    expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([
+      { skill: "review", causes: ["vendored (scripts/go.sh)"] },
+    ]);
+    write(join(src, "review", "scripts", "go.sh"), "#!/bin/sh\necho go\n");
+    write(join(src, "review", "scripts", "new.sh"), "#!/bin/sh\n");
+    expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([
+      { skill: "review", causes: ["vendored (scripts/new.sh)"] },
+    ]);
   });
 });

@@ -2,7 +2,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, resolve, sep } from "path";
 import { skillMdDriftCauses } from "./drift.ts";
 import { findPlaceholders, substituteIncludesOnly } from "./placeholders.ts";
-import { listFilesUnder, loadInclude, type PluginRoots } from "./sources.ts";
+import { maskProvenance } from "./provenance.ts";
+import { listFilesUnder, loadInclude, stripFrontmatter, type PluginRoots } from "./sources.ts";
 import type { AttachmentSource, PlaceholderContext } from "./types.ts";
 
 export const EXPAND_HEADER =
@@ -71,9 +72,9 @@ function includeOnlyContext(includes: Record<string, AttachmentSource>): Placeho
   };
 }
 
-function assertPathsInside(body: string, outDir: string, name: string, where: string): void {
+function assertPathsInside(text: string, outDir: string, name: string, where: string): void {
   const home = resolve(outDir);
-  for (const match of body.matchAll(SKILL_DIR_PATH_RE)) {
+  for (const match of text.matchAll(SKILL_DIR_PATH_RE)) {
     const text = match[0];
     const target = resolve(home, name, text.slice(`${SKILL_DIR_TOKEN}/`.length));
     if (target !== home && !target.startsWith(home + sep)) {
@@ -151,6 +152,7 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   }
 
   const expanded = substituteIncludesOnly(body, includeOnlyContext(includes), where).body;
+  assertPathsInside(fm[0], outDir, name, where);
   assertPathsInside(expanded, outDir, name, where);
 
   const stamp = names.length === 0 ? null : names.map((n) => `${includes[n]!.plugin}:${n}@${includes[n]!.version}`).join(" + ");
@@ -175,10 +177,38 @@ export function expandSkills(opts: { srcDir: string; outDir: string; roots: Plug
   return listSkillDirs(opts.srcDir).map((name) => expandOne(opts.srcDir, opts.outDir, name, opts.roots));
 }
 
+/** Authorship is the header, as compile decides it: a dir expand did not write is never deleted, whatever its name. */
+function isExpandOutput(dir: string): boolean {
+  const skillMdPath = join(dir, "SKILL.md");
+  if (!existsSync(skillMdPath)) return false;
+  return stripFrontmatter(readFileSync(skillMdPath, "utf8")).body.startsWith(EXPAND_HEADER);
+}
+
+function survey(outDir: string, skills: ExpandedSkill[]): { orphans: string[]; foreign: string[] } {
+  if (!existsSync(outDir)) return { orphans: [], foreign: [] };
+  const expected = new Set(skills.map((s) => s.name));
+  const orphans: string[] = [];
+  const foreign: string[] = [];
+  for (const d of listSkillDirs(outDir)) {
+    if (!isExpandOutput(join(outDir, d))) foreign.push(d);
+    else if (!expected.has(d)) orphans.push(d);
+  }
+  return { orphans, foreign };
+}
+
+/** The orphan dirs a write would remove; throws, touching nothing, when --out holds a dir expand did not write. */
+export function planRemoval(outDir: string, skills: ExpandedSkill[]): string[] {
+  const { orphans, foreign } = survey(outDir, skills);
+  if (foreign.length > 0) {
+    const named = foreign.map((d) => join(outDir, d)).join(", ");
+    throw new Error(`${named} ${foreign.length === 1 ? "is" : "are"} not expand output; move ${foreign.length === 1 ? "it" : "them"} or choose another --out`);
+  }
+  return orphans;
+}
+
 export function writeExpanded(outDir: string, skills: ExpandedSkill[]): { written: string[]; removed: string[] } {
+  const removed = planRemoval(outDir, skills);
   mkdirSync(outDir, { recursive: true });
-  const keep = new Set(skills.map((s) => s.name));
-  const removed = listSkillDirs(outDir).filter((d) => !keep.has(d));
   for (const d of removed) rmSync(join(outDir, d), { recursive: true, force: true });
   for (const s of skills) {
     const dir = join(outDir, s.name);
@@ -193,28 +223,36 @@ export function writeExpanded(outDir: string, skills: ExpandedSkill[]): { writte
   return { written: skills.map((s) => s.name), removed };
 }
 
+/** The first vendored path that is extra, missing or different, or null when the vendored files match. */
+function firstVendoredDrift(dir: string, s: ExpandedSkill): string | null {
+  const want = new Set(s.files.map((f) => f.path));
+  const have = new Set(filesOnDisk(dir).filter((p) => p !== "SKILL.md"));
+  const extra = [...have].filter((p) => !want.has(p)).sort()[0];
+  if (extra) return extra;
+  const missing = [...want].filter((p) => !have.has(p)).sort()[0];
+  if (missing) return missing;
+  return s.files.find((f) => !readFileSync(join(dir, f.path)).equals(readFileSync(f.copyFrom)))?.path ?? null;
+}
+
+/** SKILL.md compares with provenance masked, so a plugin version bump alone is not drift; a write still stamps the real version. */
 export function checkExpanded(outDir: string, skills: ExpandedSkill[]): ExpandDrift[] {
   const drift: ExpandDrift[] = [];
-  const expected = new Set(skills.map((s) => s.name));
+  const { orphans, foreign } = survey(outDir, skills);
+  const foreignSet = new Set(foreign);
   for (const s of skills) {
     const dir = join(outDir, s.name);
-    const skillMdPath = join(dir, "SKILL.md");
-    if (!existsSync(skillMdPath)) {
+    if (!existsSync(dir)) {
       drift.push({ skill: s.name, causes: ["missing"] });
       continue;
     }
-    const causes: string[] = skillMdDriftCauses(readFileSync(skillMdPath, "utf8"), s.skillMd);
-    const want = s.files.map((f) => f.path).sort();
-    const have = filesOnDisk(dir).filter((p) => p !== "SKILL.md").sort();
-    const vendoredMoved =
-      want.join("\n") !== have.join("\n") || s.files.some((f) => !readFileSync(join(dir, f.path)).equals(readFileSync(f.copyFrom)));
-    if (vendoredMoved) causes.push("vendored");
+    if (foreignSet.has(s.name)) continue;
+    const onDisk = maskProvenance(readFileSync(join(dir, "SKILL.md"), "utf8"));
+    const causes: string[] = skillMdDriftCauses(onDisk, maskProvenance(s.skillMd));
+    const vendored = firstVendoredDrift(dir, s);
+    if (vendored !== null) causes.push(`vendored (${vendored})`);
     if (causes.length > 0) drift.push({ skill: s.name, causes });
   }
-  if (existsSync(outDir)) {
-    for (const d of listSkillDirs(outDir)) {
-      if (!expected.has(d)) drift.push({ skill: d, causes: ["orphan"] });
-    }
-  }
+  for (const d of foreign) drift.push({ skill: d, causes: ["foreign"] });
+  for (const d of orphans) drift.push({ skill: d, causes: ["orphan"] });
   return drift;
 }
