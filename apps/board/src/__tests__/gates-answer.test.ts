@@ -71,7 +71,7 @@ function fakeIo(
 }
 
 describe('answerGate', () => {
-  test("resolves by gate id and proxies gateAnswer({id, answers, by: 'board'})", async () => {
+  test("resolves by gate id and proxies gateAnswer({id, answers, by: 'board', override: true})", async () => {
     const answers: GateAnswers = { outcome: 'approve' };
     const { io, calls } = fakeIo(true, () => ({
       ok: true,
@@ -87,7 +87,9 @@ describe('answerGate', () => {
 
     expect(result).toEqual({ kind: 'ok' });
     expect(calls.isAnswerable).toEqual([GATE_ID]);
-    expect(calls.gateAnswer).toEqual([{ id: GATE_ID, answers, by: 'board' }]);
+    expect(calls.gateAnswer).toEqual([
+      { id: GATE_ID, answers, by: 'board', override: true },
+    ]);
   });
 
   test('CAS conflict yields the winning row instead of an error', async () => {
@@ -312,7 +314,12 @@ describe('answerGate', () => {
 
     expect(result).toEqual({ kind: 'ok' });
     expect(calls).toEqual([
-      { id: GATE_ID, answers: { outcome: 'approve' }, by: 'board' },
+      {
+        id: GATE_ID,
+        answers: { outcome: 'approve' },
+        by: 'board',
+        override: true,
+      },
     ]);
   });
 });
