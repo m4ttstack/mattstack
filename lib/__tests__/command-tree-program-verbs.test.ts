@@ -83,6 +83,11 @@ describe("program verbs in listings", () => {
     expect(stdout()).not.toContain("herd");
   });
 
+  test("--help --all lists program verbs too", async () => {
+    await expect(dispatch(tree, ["--help", "--all"])).rejects.toThrow("exit sentinel");
+    expect(stdout()).toContain("herd");
+  });
+
   test("--all --help lists program verbs, and the next listing hides them again", async () => {
     await expect(dispatch(tree, ["--all", "--help"])).rejects.toThrow("exit sentinel");
     expect(stdout()).toContain("herd");

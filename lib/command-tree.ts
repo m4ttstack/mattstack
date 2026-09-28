@@ -209,6 +209,7 @@ export async function dispatch(
   }
 
   if (name && HELP_FLAGS.has(name)) {
+    if (rest[0] === ALL_FLAG) return dispatch(tree, [ALL_FLAG, name], breadcrumb, baseDir, rootTree, withArgs);
     await printBranchHelp(tree, breadcrumb, root);
     process.exit(0);
   }
