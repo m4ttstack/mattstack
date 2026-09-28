@@ -36,6 +36,22 @@ function reopenedSinceLastWrite(state: {
   return state.reopenedAt !== undefined && state.reopenedAt >= state.updatedAt;
 }
 
+function recordedGateIdFor(
+  domain: GateDomain,
+  mrUrl: string,
+  states: GateSweepStates
+): string | undefined {
+  if (domain === 'review') return states.reviews.get(mrUrl)?.gateId;
+  if (domain === 'respond') return states.responds.get(mrUrl)?.gateId;
+  return states.doctors.get(mrUrl)?.gateId;
+}
+
+// Only a status-bin `gate open` records gateId; any other producer's row of these kinds is not the board's to park.
+const RECORDED_ONLY_KINDS = new Set([
+  'review-escalation',
+  'respond-escalation',
+]);
+
 function tabIdFor(
   domain: GateDomain,
   mrUrl: string,
@@ -109,6 +125,11 @@ export function planSweep(
       continue;
     }
     const mrUrl = row.subject.slice(MR_SUBJECT_PREFIX.length);
+    if (
+      RECORDED_ONLY_KINDS.has(row.kind) &&
+      recordedGateIdFor(domain, mrUrl, states) !== row.id
+    )
+      continue;
     if (row.status !== 'open') continue;
     openByDomain[domain].add(mrUrl);
     if (now - row.openedAt >= graceMs) {

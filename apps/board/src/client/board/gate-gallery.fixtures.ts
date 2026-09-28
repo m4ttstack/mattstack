@@ -1898,39 +1898,38 @@ export const respondEscalation: GalleryGate = {
     openedAt: minutesAgo(19),
     domain: 'respond',
     origin: { presentation: 'form', paneId: 'w10:p1' },
-    context: `MR !713 ACME-2538. Renee escalated the tier-5 thread we pushed back on: new top-level "Re-review summary -- changes requested" (19:16 UTC) and MR set to requested_changes.
+    context: `mr_reply_thread attempt 1 on thread 5c1e9a07d2b4: "502 Bad Gateway: the forge did not answer in time"
+mr_reply_thread attempt 2 on thread 5c1e9a07d2b4: "403 Forbidden: this discussion is locked and accepts no new notes"
 
-RENEE'S ASK (verbatim): "Resolve the outstanding explicit-false provenance defect. Tier 5 reads $planToIssueAdditionalOtherStormAdvisory; when it explicitly answers false, preserve $planFlag as the source just as for true. Use an undefined source only when no tier asserts a result, and add a false-case test whose boolean and advisory-status leaves have distinct sources."
+Reply text:
+"good catch. the explicit false now keeps $planFlag as its source, same as tier 1 does for its negative, and there's a false-case test with distinct boolean and status sources."
 
-RE-CHECK VERDICT: Renee is right; our pushback's key point was wrong.
-- Our reply said the guard "would give the negative a source no other tier has." False: tier 1 already does it at readers.ts:702-703 (NO_PLAN_TO_ISSUE_ADVISORY -> sourcedValue(false, station.$advisoryStatus)). Tier 5 sourcing its explicit false to $planFlag is consistent with tier 1, not a one-off. The fresh adjudicator compared tier 5 to tiers 2-4 (arrays, no explicit-negative form) and missed tier 1.
-- File-wide pattern agrees: :299 and :1128 return sourcedValue(false, <deciding leaf>); :175 returns sourcedValue(false, undefined) for the truly-unasserted case. Renee's "undefined only when no tier asserts" is line 175.
-- "Nothing renders the false case" is not durable: pickLatestSource.ts:37-39 (ACME-2560) anticipates .value===false leaves rendered on absence cards, sourced to the leaf that decided the value. An explicit boolean false sourced to a never-answered $advisoryStatus is exactly that wrong-deciding-leaf case.
-
-SCOPE READ: "undefined source only when no tier asserts" is the principle, not a request to change the terminal; her first comment bracketed the terminal as "pre-existing and separate -- not asking for it here" and ACME-3301 lists terminal-false provenance as follow-up. Recommended: guard + test only, leave the terminal.
-
-DRAFT CONCESSION REPLY (thread 3757ca16ba3d, Pat's voice):
-"you're right, i had this backwards. tier 1 already sources its explicit NO_PLAN_TO_ISSUE_ADVISORY to $advisoryStatus, so an explicit boolean false sourced to $planFlag is the consistent move, not a one-off. added the guard and a false-case test with distinct boolean/status sources. left the terminal $advisoryStatus citation alone per your earlier note (ACME-3301 has it)."`,
+Gate 2 picked post and resolve on this thread. Two replies already posted; one reply-only thread is still to go.`,
     questions: [
       question(
-        'escalation',
-        "Renee's re-review holds against the code; how to proceed?",
+        'action',
+        'reply to thread 5c1e9a07d2b4 refused twice on !713: 403 Forbidden: this discussion is locked and accepts no new notes',
         false,
         [
           opt(
-            'concede-implement-reply',
-            'Concede + implement + reply (Recommended)',
-            'add the tier-5 explicit-false guard and a false-case test with distinct boolean/status sources, run the suite, push, post the concession reply; leave the terminal $advisoryStatus alone (Renee bracketed it; ACME-3301 owns it)'
+            'take: you post the reply to thread 5c1e9a07d2b4 yourself (mr_reply_thread refused, round 1)',
+            'Post it yourself',
+            'You post this reply and I continue with its resolve pick and the next thread.'
           ),
           opt(
-            'concede-also-terminal',
-            'Concede + also fix the terminal',
-            "same, plus change the terminal to sourcedValue(false, undefined) per line 175's pattern; flagged in the reply so Renee can object"
+            'iterate: you fixed the cause, post the reply to thread 5c1e9a07d2b4 again (mr_reply_thread refused, round 1)',
+            'Fixed it, post again',
+            'You fixed what refused the reply and I post it again.'
           ),
           opt(
-            'hold',
-            'Hold, I want to weigh in first',
-            'post and change nothing yet'
+            'hold: keep this pane open with the remaining replies unposted (mr_reply_thread refused, round 1)',
+            'Hold this pane',
+            'I stop here and the replies not yet posted stay unposted.'
+          ),
+          opt(
+            'hand back: leave thread 5c1e9a07d2b4 unposted and post the rest (mr_reply_thread refused, round 1)',
+            'Skip this reply',
+            'I leave this thread unposted and carry on with the rest.'
           ),
         ]
       ),

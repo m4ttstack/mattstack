@@ -59,7 +59,7 @@ describe('gateNotifyCopy', () => {
 
   test('a respond escalation asks for a decision', () => {
     expect(
-      gateNotifyCopy('respond-escalation', 713, [{ id: 'escalation' }])
+      gateNotifyCopy('respond-escalation', 713, [{ id: 'action' }])
     ).toEqual({
       headline: '!713 needs your call',
       summary: 'Waiting on your decision',
