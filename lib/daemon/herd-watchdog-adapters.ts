@@ -134,11 +134,17 @@ export function createWatchdogSensors(deps: WatchdogSensorDeps): RefreshingSenso
         const row = next.get(job.pane);
         if (!row || readingState(row) !== "idle") continue;
         const screen = await deps.herdr<{ read?: { text?: unknown } }>("pane.read", { pane_id: parsePaneRef(job.pane).paneId, source: "visible" }, { sockPath: row.socket });
-        // An ok reply's body is still herdr's to get wrong; anything but a
-        // text screen reads as not busy rather than throwing out of the sweep.
+        // An ok reply's body is still herdr's to get wrong. A read that yields
+        // no text screen is no evidence either way, so the previous entry and
+        // its stamp carry over: a flaky read must not restart the cap's clock.
         const text = screen.ok ? screen.result?.read?.text : undefined;
-        const task = typeof text === "string" ? backgroundTask(text) : null;
-        if (task !== null) nextBusy.set(job.pane, { task, sinceMs: busy.get(job.pane)?.sinceMs ?? t });
+        const previous = busy.get(job.pane);
+        if (typeof text !== "string") {
+          if (previous) nextBusy.set(job.pane, previous);
+          continue;
+        }
+        const task = backgroundTask(text);
+        if (task !== null) nextBusy.set(job.pane, { task, sinceMs: previous?.sinceMs ?? t });
       }
     }
     busy = nextBusy;

@@ -82,7 +82,8 @@ setting: `readWatchdogConfig` returns the default for it.
   glyph removed. The sensor keeps a `pane -> { task, since }` map: a pane first
   seen busy is stamped with the sweep time, a pane still busy keeps its stamp,
   and a pane not busy on a sweep (working, gone, or background cleared) drops
-  it. A turn the pane works therefore restarts the clock.
+  it; a failed screen read is none of those and keeps the stamp. A turn the
+  pane works therefore restarts the clock.
 - **Evaluator.** One helper decides the exemption. The work's age runs from
   the later of the sensor's stamp and the pane's last idle transition, so a
   turn that ended between two sweeps still restarts the clock. Background

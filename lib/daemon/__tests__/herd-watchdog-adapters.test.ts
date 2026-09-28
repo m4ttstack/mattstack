@@ -706,7 +706,7 @@ describe("watchdog sensors: background work", () => {
     expect(sensors.backgroundWork("w1:p1")).toBeNull();
   });
 
-  test("a failed read on one pane leaves it not busy and still reads the others", async () => {
+  test("a failed read on a pane never seen busy leaves it not busy and still reads the others", async () => {
     const { sensors } = fx({
       snapshots,
       jobs: [jobRow({ name: "a", pane: "w1:p1" }), jobRow({ name: "b", pane: "w1:p3" })],
@@ -757,5 +757,20 @@ describe("watchdog sensors: background work", () => {
     clock.now = NOW + 7 * MIN;
     await sensors.refresh();
     expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell, 1 monitor", sinceMs: NOW + 7 * MIN });
+  });
+
+  test("a failed read between two busy sweeps keeps the original stamp", async () => {
+    const clock = { now: NOW };
+    const screens: Record<string, string> = { "w1:p1": SHELL_FOOTER };
+    const { sensors } = fx({ snapshots, jobs: [jobRow()], screens, clock });
+    await sensors.refresh();
+    delete screens["w1:p1"];
+    clock.now = NOW + 5 * MIN;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
+    screens["w1:p1"] = SHELL_FOOTER;
+    clock.now = NOW + 10 * MIN;
+    await sensors.refresh();
+    expect(sensors.backgroundWork("w1:p1")).toEqual({ task: "1 shell", sinceMs: NOW });
   });
 });
