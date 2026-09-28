@@ -28,7 +28,7 @@ reasons:
    failing again with nothing pointing at why.
 3. A root is plain directory containment. It can only name all of
    `~/.mattstack/work`, which also holds `scratch/` (handoff notes), team
-   folders (`claimview/`) and old ticket folders. It cannot say "only the
+   folders (`acme/`) and old ticket folders. It cannot say "only the
    `evidence/` folder" or "only for a run that exists".
 4. It hides a built-in behavior in user-editable config: removing the entry
    looks like tidying and breaks the pipeline.
