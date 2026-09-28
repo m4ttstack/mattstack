@@ -1116,8 +1116,9 @@ nuance in the `{value, note}` form. Four things stay specific to
    the daemon records.
 
 - **Fitted files.** A gate opened from a fitted file never shows its JSON
-  in the form: run the `gate-ctx.sh` whose path the domain skill handed
-  back with the open file, in `prose` mode on the source file beside it
+  in the form: run the `gate-ctx.sh`
+  whose path the domain skill handed back with the open file,
+  in `prose` mode on the source file beside it
   (the open file's name with `.open.json` swapped for `.source.json`: `sh
   <gate-ctx.sh> prose < <dir>/review-post.source.json`), print its
   `.context` as one pane line before the form call, and make each
