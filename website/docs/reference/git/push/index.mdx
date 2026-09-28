@@ -7,7 +7,7 @@ sidebar_label: push
 
 `rt › git › push`
 
-Push current branch to origin/&lt;branch&gt;, fixing wrong upstream
+Push this branch, fixing its upstream if needed
 
 ## Usage
 
@@ -27,7 +27,7 @@ rt git push [flags]
 
 | Command | Description |
 | --- | --- |
-| [`force`](force) | Push with --force-with-lease (after rebase/amend) |
+| [`force`](force) | Force push safely after a rebase or amend |
 
 _See code: [commands/git/push.ts › pushCommand](https://github.com/m4ttstack/mattstack/blob/main/commands/git/push.ts)_
 

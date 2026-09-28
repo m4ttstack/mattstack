@@ -678,7 +678,7 @@ export const TREE: Record<string, CommandNode> = {
     description: "Everyday git shortcuts",
     subcommands: {
       rebase: {
-        description: "Smart rebase onto origin/master with auto-resolve",
+        description: "Rebase onto main and auto-resolve easy conflicts",
         module: "./commands/git/rebase.ts",
         fn: "rebaseCommand",
         context: "worktree",
@@ -690,7 +690,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
         subcommands: {
           onto: {
-            description: "Rebase onto a specific branch",
+            description: "Rebase onto a branch you pick",
             module: "./commands/git/rebase.ts",
             fn: "ontoCommand",
             omitBehavior: "picker",
@@ -706,24 +706,24 @@ export const TREE: Record<string, CommandNode> = {
         },
       },
       reset: {
-        description: "Safe reset with divergence detection",
+        description: "Reset your branch safely",
         subcommands: {
           origin: {
-            description: "Sync with origin/current-branch (after remote rebase)",
+            description: "Match origin after someone rebased the branch",
             module: "./commands/git/reset.ts",
             fn: "originCommand",
             context: "worktree",
             args: [],
           },
           soft: {
-            description: "Unstage everything, keeping your edits (to undo a commit, use rt git undo)",
+            description: "Unstage everything, keep your edits",
             module: "./commands/git/reset.ts",
             fn: "softResetCommand",
             context: "worktree",
             args: [],
           },
           hard: {
-            description: "Discard every working-tree change (to undo a commit, use rt git undo)",
+            description: "Throw away every uncommitted change",
             module: "./commands/git/reset.ts",
             fn: "hardResetCommand",
             context: "worktree",
@@ -732,14 +732,14 @@ export const TREE: Record<string, CommandNode> = {
         },
       },
       backup: {
-        description: "Back up the current branch",
+        description: "Save a backup of this branch",
         module: "./commands/git/backup.ts",
         fn: "backupCommand",
         context: "worktree",
         args: [],
       },
       restore: {
-        description: "Restore from a backup branch",
+        description: "Bring a branch back from a backup",
         module: "./commands/git/backup.ts",
         fn: "restoreCommand",
         context: "worktree",
@@ -747,7 +747,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [],
       },
       pull: {
-        description: "Pull from origin (mirror of GitHub Desktop's Pull button)",
+        description: "Pull from origin",
         module: "./commands/git/pull.ts",
         fn: "pullCommand",
         context: "worktree",
@@ -760,7 +760,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       push: {
-        description: "Push current branch to origin/<branch>, fixing wrong upstream",
+        description: "Push this branch, fixing its upstream if needed",
         module: "./commands/git/push.ts",
         fn: "pushCommand",
         context: "worktree",
@@ -771,7 +771,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
         subcommands: {
           force: {
-            description: "Push with --force-with-lease (after rebase/amend)",
+            description: "Force push safely after a rebase or amend",
             module: "./commands/git/push.ts",
             fn: "forcePushCommand",
             context: "worktree",
@@ -784,7 +784,7 @@ export const TREE: Record<string, CommandNode> = {
         },
       },
       upstream: {
-        description: "Fix branch upstream to track origin/<branch>",
+        description: "Point this branch at its origin branch",
         module: "./commands/git/push.ts",
         fn: "upstreamCommand",
         context: "worktree",
@@ -794,7 +794,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       status: {
-        description: "Working tree status: branch, ahead/behind, changed files",
+        description: "What's changed on this branch",
         module: "./commands/git/inspect.ts",
         fn: "statusCommand",
         context: "worktree",
@@ -804,7 +804,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       diff: {
-        description: "One file's diff (hunks and lines) from git-core",
+        description: "Show one file's changes",
         module: "./commands/git/inspect.ts",
         fn: "diffCommand",
         omitBehavior: "picker",
@@ -816,7 +816,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       log: {
-        description: "Recent commits on the current branch",
+        description: "Recent commits on this branch",
         module: "./commands/git/inspect.ts",
         fn: "logCommand",
         context: "worktree",
@@ -828,7 +828,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       branches: {
-        description: "Local branches with upstream and ahead/behind state",
+        description: "Your branches and how far ahead or behind they are",
         module: "./commands/git/inspect.ts",
         fn: "branchesCommand",
         context: "worktree",
@@ -838,7 +838,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       amend: {
-        description: "Amend the last commit with what is staged (message optional)",
+        description: "Add staged changes to the last commit",
         module: "./commands/git/mutate.ts",
         fn: "amendCommand",
         context: "worktree",
@@ -849,7 +849,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       undo: {
-        description: "Undo the last commit, keeping its changes in the working tree",
+        description: "Undo the last commit, keep its changes",
         module: "./commands/git/mutate.ts",
         fn: "undoCommand",
         context: "worktree",
@@ -858,10 +858,10 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       stash: {
-        description: "Stash the working tree and manage stashes",
+        description: "Set changes aside and bring them back",
         subcommands: {
           push: {
-            description: "Stash tracked changes (optionally untracked too)",
+            description: "Stash your changes",
             module: "./commands/git/mutate.ts",
             fn: "stashPushCommand",
             context: "worktree",
@@ -881,7 +881,7 @@ export const TREE: Record<string, CommandNode> = {
             ],
           },
           pop: {
-            description: "Apply a stash and drop it (default stash@{0})",
+            description: "Bring back a stash and delete it",
             module: "./commands/git/mutate.ts",
             fn: "stashPopCommand",
             context: "worktree",
@@ -891,7 +891,7 @@ export const TREE: Record<string, CommandNode> = {
             ],
           },
           apply: {
-            description: "Apply a stash, keeping it (default stash@{0})",
+            description: "Bring back a stash and keep it",
             module: "./commands/git/mutate.ts",
             fn: "stashApplyCommand",
             context: "worktree",
@@ -914,10 +914,10 @@ export const TREE: Record<string, CommandNode> = {
         },
       },
       tag: {
-        description: "Create, list, delete, and push tags",
+        description: "Create, list, delete and push tags",
         subcommands: {
           list: {
-            description: "List tags with their target commits",
+            description: "List tags",
             module: "./commands/git/mutate.ts",
             fn: "tagListCommand",
             context: "worktree",
@@ -926,7 +926,7 @@ export const TREE: Record<string, CommandNode> = {
             ],
           },
           create: {
-            description: "Create a tag (annotated when --message is given)",
+            description: "Create a tag",
             module: "./commands/git/mutate.ts",
             fn: "tagCreateCommand",
             omitBehavior: { exempt: "a new tag name is free text; nothing to enumerate" },
@@ -951,7 +951,7 @@ export const TREE: Record<string, CommandNode> = {
             ],
           },
           push: {
-            description: "Push one tag to a remote",
+            description: "Push a tag",
             module: "./commands/git/mutate.ts",
             fn: "tagPushCommand",
             omitBehavior: "picker",
@@ -980,7 +980,7 @@ export const TREE: Record<string, CommandNode> = {
     ],
     subcommands: {
       all: {
-        description: "Sync all worktrees in the current repo",
+        description: "Sync every worktree in this repo",
         module: "./commands/sync.ts",
         fn: "syncAllCommand",
         context: "repo",
@@ -1018,7 +1018,7 @@ export const TREE: Record<string, CommandNode> = {
     ],
     subcommands: {
       again: {
-        description: "Pick from recently run scripts across all repos",
+        description: "Rerun a recent script",
         module: "./commands/run.ts",
         fn: "runAgainCommand",
         requiresTTY: true,
@@ -1064,7 +1064,7 @@ export const TREE: Record<string, CommandNode> = {
     description: "Connect to databases through StrongDM",
     subcommands: {
       connect: {
-        description: "Pick a connection and connect",
+        description: "Pick a database and connect",
         module: "./commands/sdm.ts",
         fn: "connectCmd",
         omitBehavior: "picker",
@@ -1077,7 +1077,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       connections: {
-        description: "List StrongDM connections (machine-readable with --json)",
+        description: "List your StrongDM connections",
         module: "./commands/sdm.ts",
         fn: "connectionsCmd",
         args: [
@@ -1085,7 +1085,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       status: {
-        description: "CLI auth health + connected tunnels",
+        description: "Check your login and open tunnels",
         module: "./commands/sdm.ts",
         fn: "statusCmd",
         args: [
@@ -1093,7 +1093,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       login: {
-        description: "Log in to StrongDM (browser popup by default)",
+        description: "Log in to StrongDM",
         module: "./commands/sdm.ts",
         fn: "loginCmd",
         args: [
@@ -1102,13 +1102,13 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       refresh: {
-        description: "Re-scan StrongDM and refresh the resource cache",
+        description: "Refresh your list of StrongDM resources",
         module: "./commands/sdm.ts",
         fn: "refreshCmd",
         args: [],
       },
       enrichment: {
-        description: "Show or scaffold (init) the declarative enrichment map",
+        description: "Show or create the labels for your connections",
         module: "./commands/sdm.ts",
         fn: "enrichmentCmd",
         omitBehavior: "list",
@@ -1117,7 +1117,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       "set-email": {
-        description: "Set your StrongDM email (skips the browser-login email prompt)",
+        description: "Save your StrongDM email",
         module: "./commands/settings.ts",
         fn: "setSdmEmail",
         omitBehavior: "prompt",
@@ -1165,7 +1165,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   nav: {
-    description: "Browse folders and jump to one",
+    description: "A Finder for your terminal",
     module: "./commands/nav.ts",
     fn: "navigate",
     omitBehavior: "picker",
@@ -1182,7 +1182,7 @@ export const TREE: Record<string, CommandNode> = {
     description: "Create, list and clean up worktrees",
     subcommands: {
       provision: {
-        description: "Claim a worktree for a ticket or branch (from the on-deck pool, or freshly created)",
+        description: "Get a worktree for a ticket or branch",
         module: "./commands/worktree.ts",
         fn: "worktreeProvision",
         args: [
@@ -1226,10 +1226,10 @@ export const TREE: Record<string, CommandNode> = {
         args: [],
       },
       hook: {
-        description: "Claude Code worktree hook: install, remove, or inspect the WorktreeCreate/WorktreeRemove wiring",
+        description: "Set up Claude Code to use rt worktrees",
         subcommands: {
           install: {
-            description: "Write the hook pair into ~/.claude/settings.json",
+            description: "Install the hook",
             module: "./commands/worktree-hook.ts",
             fn: "hookInstallCommand",
             args: [
@@ -1237,7 +1237,7 @@ export const TREE: Record<string, CommandNode> = {
             ],
           },
           uninstall: {
-            description: "Remove rt's hook entries from ~/.claude/settings.json",
+            description: "Remove the hook",
             module: "./commands/worktree-hook.ts",
             fn: "hookUninstallCommand",
             args: [
@@ -1245,7 +1245,7 @@ export const TREE: Record<string, CommandNode> = {
             ],
           },
           status: {
-            description: "Report whether the hook is installed and healthy",
+            description: "Check the hook is installed and working",
             module: "./commands/worktree-hook.ts",
             fn: "hookStatusCommand",
             args: [
@@ -1255,7 +1255,7 @@ export const TREE: Record<string, CommandNode> = {
         },
       },
       create: {
-        description: "Create a fresh worktree (optionally straight into the on-deck pool)",
+        description: "Create a new worktree",
         module: "./commands/worktree.ts",
         fn: "worktreeCreate",
         args: [
@@ -1265,7 +1265,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       dispose: {
-        description: "Dispose a worktree (no target + TTY → picker)",
+        description: "Clean up a worktree",
         module: "./commands/worktree.ts",
         fn: "worktreeDispose",
         omitBehavior: "picker",
@@ -1279,7 +1279,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       restore: {
-        description: "Restore a disposed worktree from its retained trash entry (no target + TTY → picker)",
+        description: "Bring back a cleaned-up worktree",
         module: "./commands/worktree.ts",
         fn: "worktreeRestore",
         omitBehavior: "picker",
@@ -1292,7 +1292,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       "ready-approve": {
-        description: "Approve a repo's team-authored `ready` shell before it runs (no repo + TTY → picker)",
+        description: "Approve a repo's setup script before it runs",
         module: "./commands/worktree.ts",
         fn: "worktreeReadyApprove",
         omitBehavior: "picker",
@@ -1313,7 +1313,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       triage: {
-        description: "Stuck worktrees: why each one stayed, and what's safe to do",
+        description: "See why worktrees are stuck and what's safe to do",
         module: "./commands/worktree.ts",
         fn: "worktreeTriage",
         agentSafe: true,
@@ -1323,7 +1323,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       freshen: {
-        description: "Freshen worktrees (no arg + TTY → picker over freshenable trees)",
+        description: "Bring spare worktrees up to date with main",
         module: "./commands/worktree.ts",
         fn: "worktreeFreshen",
         omitBehavior: "picker",
@@ -1335,7 +1335,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       "await-ready": {
-        description: "Wait for a claimed tree's background ready steps to settle (no tree + TTY → picker)",
+        description: "Wait for a new worktree to finish setting up",
         module: "./commands/worktree.ts",
         fn: "worktreeAwaitReady",
         agentSafe: true,
@@ -1352,7 +1352,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       adopt: {
-        description: "One-shot migration: adopt an unmanaged repo's worktrees into the registry",
+        description: "Bring a repo's existing worktrees under rt",
         module: "./commands/worktree.ts",
         fn: "worktreeAdopt",
         args: [
@@ -1362,7 +1362,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       each: {
-        description: "Run a command in each worktree (--all | --on-deck, else pick)",
+        description: "Run a command in every worktree",
         module: "./commands/worktree.ts",
         fn: "worktreeEach",
         omitBehavior: { exempt: "the command to run is free-text; nothing to enumerate (the worktrees themselves do get a picker)" },
@@ -2168,7 +2168,7 @@ export const TREE: Record<string, CommandNode> = {
     description: "Add repos for rt to track",
     subcommands: {
       register: {
-        description: "Add repo paths to the rt index, optionally granting background tracking",
+        description: "Add a repo to rt",
         module: "./commands/repos.ts",
         fn: "reposRegister",
         omitBehavior: "picker",
@@ -2180,7 +2180,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       prune: {
-        description: "Drop index entries whose path is gone, and duplicate names left behind by a repo rename",
+        description: "Remove repos that no longer exist",
         module: "./commands/repos.ts",
         fn: "reposPrune",
         args: [
@@ -2189,7 +2189,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       locate: {
-        description: "Tell rt where a repo moved to — re-points the index, worktree registry, endpoint claims and git's worktree admin files together",
+        description: "Tell rt a repo moved folders",
         module: "./commands/repos.ts",
         fn: "reposLocate",
         omitBehavior: "picker",
@@ -2201,7 +2201,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       reidentify: {
-        description: "Move every per-repo store from one remote identity to another after a repo rename (github.com/owner/old to github.com/owner/new)",
+        description: "Update rt after a repo is renamed",
         module: "./commands/repos-reidentify.ts",
         fn: "reposReidentify",
         omitBehavior: { exempt: "agent-facing; identities are not enumerable" },
@@ -2213,7 +2213,7 @@ export const TREE: Record<string, CommandNode> = {
         ],
       },
       status: {
-        description: "All registered repos with git badges from the daemon sweep",
+        description: "Your repos and their git status",
         module: "./commands/repos.ts",
         fn: "reposStatus",
         agentSafe: true,

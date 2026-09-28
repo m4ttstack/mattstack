@@ -193,6 +193,22 @@ kit for the web console) is a separate concern and is exempt from this rule.
 
 Enforced by `lib/__tests__/no-ui-in-cli.test.ts`.
 
+## Command descriptions are plain language
+
+A node's `description` in `lib/command-tree-def.ts` is what a user reads in
+the picker, `--help` and the reference pages. Write it as a short, plain
+sentence about what the command does for them: "Jump to a repo or worktree",
+"See what's running on your ports and kill it", "Undo the last commit, keep
+its changes".
+
+Leave out what belongs in `args` hints or the reference page: flags
+(`--json`, `--force-with-lease`), picker behavior ("no target + TTY →
+picker"), implementation ("daemon-powered", "from git-core"), parenthetical
+lists of subcommands, and internal names (registry, index, on-deck pool). A
+verb that is only for the apps, skills or daemon goes in the
+`rt.picker.hidden` default rather than getting a description that warns
+people off it. After editing descriptions, run `bun run docs:gen`.
+
 ## Release & distribution
 
 Before touching the release workflow, the app bundle, signing, Sparkle, the
