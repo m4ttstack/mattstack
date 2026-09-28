@@ -5,7 +5,8 @@
  *
  * The source dir holds one directory per skill; each SKILL.md may carry
  * `{{include:<attachment>}}` lines and nothing else placeholder-shaped. The
- * output dir is owned by expand: every dir in it is regenerated or removed.
+ * output dir is owned by expand: every dir in it is regenerated or removed,
+ * and a dir expand did not write stops the run before anything is touched.
  */
 
 import { readFileSync } from "fs";
@@ -13,7 +14,7 @@ import { join } from "path";
 import { TREE } from "../lib/command-tree-def.ts";
 import { listAgentSafe } from "../lib/command-tree-resolve.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
-import { checkExpanded, expandSkills, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
+import { checkExpanded, expandSkills, planRemoval, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
 import { deriveRules, formatHit, isScriptPath, lintScriptFile, lintSkillText } from "../lib/skills/mcp-lint.ts";
 import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
 
@@ -109,7 +110,12 @@ export async function skillsExpand(args: string[]): Promise<void> {
     return;
   }
 
-  const result = flags.dryRun ? { written: skills.map((s) => s.name), removed: [] as string[] } : writeExpanded(flags.out, skills);
+  let result: { written: string[]; removed: string[] };
+  try {
+    result = flags.dryRun ? { written: skills.map((s) => s.name), removed: planRemoval(flags.out, skills) } : writeExpanded(flags.out, skills);
+  } catch (err) {
+    fail((err as Error).message);
+  }
   const lines = [...result.written.map((n) => `+ ${n}`), ...result.removed.map((n) => `- ${n}`)];
   emit(flags, { ok: lint.length === 0, mode: "expand", skills: result.written, removed: result.removed, drift: [], lint }, lines);
   if (lint.length > 0) {
