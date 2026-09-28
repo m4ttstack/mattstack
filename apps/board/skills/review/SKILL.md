@@ -78,6 +78,7 @@ digraph review_flow {
     "Load the preferences.md style, else conversational (review)" [shape=box];
     "Which entry (review writing style)?" [shape=diamond];
     "Review the MR yourself" [shape=box];
+    "Generic review result?" [shape=diamond];
     "Write the review report to --report" [shape=box];
 
     "Fitted review-post open file handed back?" [shape=diamond];
@@ -108,11 +109,13 @@ digraph review_flow {
     "Summary note carries findings?" [shape=diamond];
     "mr_comment {mrUrl, body}" [shape=plaintext];
     "mr_comment result?" [shape=diamond];
+    "STOP: the summary note posts through mr_comment" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_comment call once already?" [shape=diamond];
     "Fix what the mr_comment error names" [shape=box];
     "Outcome is approve?" [shape=diamond];
     "mr_approve {mrUrl}" [shape=plaintext];
     "mr_approve result?" [shape=diamond];
+    "STOP: the approval goes through mr_approve" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Fixed the mr_approve call once already?" [shape=diamond];
     "Fix what the mr_approve error names" [shape=box];
 
@@ -176,7 +179,9 @@ digraph review_flow {
     "Load the preferences.md style, else conversational (review)" -> "Which entry (review writing style)?";
     "Which entry (review writing style)?" -> "Review the MR yourself" [label="fresh review"];
     "Which entry (review writing style)?" -> "Findings left to post (review)?" [label="posting the answer"];
-    "Review the MR yourself" -> "Write the review report to --report";
+    "Review the MR yourself" -> "Generic review result?";
+    "Generic review result?" -> "Write the review report to --report" [label="findings produced"];
+    "Generic review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR link, mr_view refused, diff unreadable"];
     "Write the review report to --report" -> "Fitted review-post open file handed back?";
 
     "Fitted review-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
@@ -223,6 +228,8 @@ digraph review_flow {
     "mr_comment {mrUrl, body}" -> "mr_comment result?";
     "mr_comment result?" -> "Outcome is approve?" [label="posted"];
     "mr_comment result?" -> "Fixed the mr_comment call once already?" [label="tool error"];
+    "mr_comment result?" -> "STOP: the summary note posts through mr_comment" [label="tempted to post with the GitLab CLI or the API"];
+    "STOP: the summary note posts through mr_comment" -> "mr_comment {mrUrl, body}";
     "Fixed the mr_comment call once already?" -> "Fix what the mr_comment error names" [label="no"];
     "Fixed the mr_comment call once already?" -> "review off-script gate: mr_comment refused" [label="yes"];
     "Fix what the mr_comment error names" -> "mr_comment {mrUrl, body}";
@@ -231,6 +238,8 @@ digraph review_flow {
     "mr_approve {mrUrl}" -> "mr_approve result?";
     "mr_approve result?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="approved"];
     "mr_approve result?" -> "Fixed the mr_approve call once already?" [label="tool error"];
+    "mr_approve result?" -> "STOP: the approval goes through mr_approve" [label="tempted to approve with the GitLab CLI or the API"];
+    "STOP: the approval goes through mr_approve" -> "mr_approve {mrUrl}";
     "Fixed the mr_approve call once already?" -> "Fix what the mr_approve error names" [label="no"];
     "Fixed the mr_approve call once already?" -> "review off-script gate: mr_approve refused" [label="yes"];
     "Fix what the mr_approve error names" -> "mr_approve {mrUrl}";
@@ -304,9 +313,10 @@ What the graph cannot show:
   every finding in the report whose tier the `tiers` answer picked; on a
   clean review, none. An explicit empty array posts nothing from that
   question. A finding is anchored when it has both a `file` and a `line`:
-  `mr_comment_inline`'s `position` is `path` (the finding's `file`) and
-  `line`, with `oldPath` and `oldLine` instead only for a line the diff
-  removed. The daemon re-fetches the diff refs itself, so no sha is
+  `position` in the `mr_comment_inline` node stands for the top-level
+  arguments `path` (the finding's `file`) and `line`, always both, never
+  a `position` object; for a line the diff removed, add `oldPath` and
+  `oldLine` as well. The daemon re-fetches the diff refs itself, so no sha is
   needed. Every comment body is written in the loaded voice: the tier and
   title, what to change, and the anchor. The summary note posts once,
   after every anchored finding, and only when it carries findings.
@@ -363,6 +373,8 @@ review, never a silently mis-bound one.
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
+Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+
 Tell the domain skill these things:
 
 - the MR url;
@@ -415,6 +427,11 @@ checkout): fetch both branches from `origin`, then read the diff of the
 target branch to the source branch with read-only git. A failed read is
 never a reason to read with the GitLab CLI or the API.
 
+`Generic review result?` answers failed when the MR link is bad,
+`mr_view` refuses, or the diff cannot be read, and the review writes
+`error` naming which. A source branch this checkout's `origin` cannot
+reach (an MR from another project, or from a fork) is a failed read.
+
 Read the diff critically and produce findings. Each finding has:
 
 - a severity tier: `Critical`, `Important` or `Minor`, the report's fixed
@@ -446,7 +463,9 @@ this box is the generic path's. Either way the file exists before `done`.
 
 The generic path writes the Markdown only. The json sibling is the domain
 skill's structured report, so without one the gate takes the tier
-fallback, built from your own findings' tiers.
+fallback, built from your own findings' tiers. On the generic path a json
+sibling this pass did not write is stale: treat it as absent at `Report
+json sibling (review)?`.
 
 ### Build the per-finding questions (findings-N, outcome)
 
@@ -470,7 +489,8 @@ Only the empty array means clean ("Building the review-post questions",
 ### Print the tier-fallback line in the pane
 
 The json sibling is absent or malformed (no sibling `.json`, unparseable
-json, or a parsed report whose `findings` is missing or not an array).
+json, or a parsed report whose `findings` is missing, not an array, or
+holds entries that don't fit the schema).
 Print one line in the pane naming which case it was, for example:
 
 - `report.json not found; falling back to tier-level options`
@@ -518,18 +538,22 @@ summary); `open-gate.sh` opens it as it stands.
 
 The daemon was down at open time (`gate open` or `open-gate.sh` exited
 nonzero), or the gate step's wait failed three times ("A failing wait is
-not degradation" in `board:gate-cli-recipes`). Ask ONE combined
-AskUserQuestion carrying the same questions the gate would have: every
-`findings-N` chunk plus `outcome` when the json has findings, the
-fallback's `tiers` plus `outcome` on the json-absent path, `outcome` alone
-on a clean review. Never two gates. Render it by the same rules as the
-pane form (`Ask review-post as a pane form`), a fitted file flattened to
-prose exactly as that section describes, and proceed on its answers.
+not degradation" in `board:gate-cli-recipes`). Ask one combined native
+form carrying the same questions the gate would have: every `findings-N`
+chunk plus `outcome` when the json has findings, the fallback's `tiers`
+plus `outcome` on the json-absent path, `outcome` alone on a clean
+review. Past four questions, chunk it across AskUserQuestion calls in gate
+order, as the pane form does, and proceed only on the answers from every
+call. It is still one form, never two gates. Render it by the same rules
+as the pane form (`Ask review-post as a pane form`), a fitted file
+flattened to prose exactly as that section describes.
 When the daemon is down the PreToolUse hook allows the native form.
 
 ### Hand the answer to the domain skill to post
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
+
+Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Hand the domain skill the human's answer, the MR url and the `--report`
 path, so it executes the posting:
@@ -557,8 +581,8 @@ The note posts once, with `mr_comment`, after the last anchored finding.
 `mr_comment_inline` refused. Correct what the error names: `mrUrl` the
 MR's https URL, `.../-/merge_requests/<iid>`, whose project is registered
 with rt; `path` the finding's file as the diff names it; `line` a line
-the diff shows on its new side (or `oldPath` and `oldLine` for a line the
-diff removed); `body` the non-empty comment. A position GitLab rejects
+the diff shows, always given with `path` (plus `oldPath` and `oldLine`
+for a line the diff removed); `body` the non-empty comment. A position GitLab rejects
 with the anchor already matching the finding, or an error that names no
 input, has nothing to correct: post again unchanged, once, and the
 off-script gate follows. An error is never a reason to post with the
@@ -1024,8 +1048,8 @@ substitute the report's real `id`/`tier`/`title`/`file`/`line`/`fix`/
   sensible pick to *offer*.
 
 **Tier fallback.** When the json is absent or malformed (no sibling
-`.json`, unparseable json, or a parsed report whose `findings` is missing
-or not an array), fall back to tier-level options and print the pane line
+`.json`, unparseable json, or a parsed report whose `findings` is missing,
+not an array, or holds entries that don't fit the schema), fall back to tier-level options and print the pane line
 (`Print the tier-fallback line in the pane`). Posting accepts this
 `{tiers, outcome}` shape. Add a `tiers` question (multi-select over the
 severity levels the domain skill reported present, or your own findings'
