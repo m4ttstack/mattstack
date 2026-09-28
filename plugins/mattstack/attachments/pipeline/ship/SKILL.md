@@ -144,6 +144,8 @@ digraph ship {
     "ship gate ship" [shape=box];
     "ship answer (ship)?" [shape=diamond];
     "Ship gate rounds = 2 (ship)?" [shape=diamond];
+    "Rebase in progress (ship gate rounds spent)?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" [shape=plaintext];
     "dirty answer (ship)?" [shape=diamond];
     "Commit named files (ship)" [shape=box];
     "Stash them; nothing in this verb pops it" [shape=box];
@@ -263,7 +265,10 @@ digraph ship {
     "ship answer (ship)?" -> "dirty answer (ship)?" [label="proceed"];
     "ship answer (ship)?" -> "Ship gate rounds = 2 (ship)?" [label="iterate: redo with their note"];
     "Ship gate rounds = 2 (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
-    "Ship gate rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, their last note quoted"];
+    "Ship gate rounds = 2 (ship)?" -> "Rebase in progress (ship gate rounds spent)?" [label="yes: a failure, their last note quoted"];
+    "Rebase in progress (ship gate rounds spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" [label="yes"];
+    "Rebase in progress (ship gate rounds spent)?" -> "Which exit is this (ship)?" [label="no: a failure, their last note quoted"];
+    "git_rebase {tree: <root>, abort: true} (ship gate rounds spent)" -> "Which exit is this (ship)?" [label="a failure, their last note quoted"];
     "ship answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
     "ship answer (ship)?" -> "Rebase in progress (ship abort)?" [label="dirty = abort: nothing is pushed"];
     "Rebase in progress (ship abort)?" -> "git_rebase {tree: <root>, abort: true}" [label="yes"];
@@ -458,8 +463,9 @@ Abort and Hold push nothing.
 `Ship gate rounds = 2 (ship)?` counts Iterate answers at this gate within
 this pass through the verb, this one included: the first Iterate redoes
 the steps before the gate with the note, and the second fails the verb
-with the note quoted instead of redoing them. A reopening after the fix
-or conflict rounds are spent is not an Iterate and does not count.
+with the note quoted instead of redoing them. When a rebase is in
+progress, the failure aborts it first. A reopening after the fix or
+conflict rounds are spent is not an Iterate and does not count.
 
 ### Commit named files (ship)
 
@@ -587,9 +593,9 @@ the attachments are there (or are not).
 
 Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
 `Mark-ready rounds = 2 (ship)?` counts Iterate answers at this gate within
-this pass, this one included: the first opens a new gate with the note,
-and the second ends the verb as done with the MR left a draft and the
-note quoted.
+this pass through the verb, this one included: the first opens a new gate
+with the note, and the second ends the verb as done with the MR left a
+draft and the note quoted.
 
 ## What the graph cannot show
 
