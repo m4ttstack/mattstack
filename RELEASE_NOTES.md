@@ -1,41 +1,61 @@
-mattstack.app can now be set up for one person with no team, rt can move a repo's stored state to a new name ahead of the repo's rename to mattstack, and every chat session gets a hidden identity behind its handle.
+The mattstack Claude plugin and herdr-chat now live in this repo, rt drops the commands it no longer needs, and the agents rt launches keep their prompts out of `ps`.
 
-### Just me setup (RT-328)
+### Monorepo
 
-- a Just me card on the Team screen installs mattstack.app for one person: no team repo, no access rows, and team-only apps such as board stay off (#523, #520)
-- Settings > Apps lists every app with a toggle and a "Needs a team" caption on a solo install; `rt apps list`, `rt apps enable` and `rt apps disable` are the same switches from the CLI (#523, #520)
-- Settings > Team on a solo install offers Create a team and Join a team, which re-enter setup at the Team step and turn team apps back on (#523)
-- `rt team status` reports `mode: "solo"` when no team clone exists (#520)
-- deck reads `requiresTeam` from each app's manifest and can idle any app: a disabled app leaves the launcher and its launch agent is uninstalled until it is re-enabled (#517)
+- the `mattstack` Claude plugin moves into this repo (`plugins/mattstack`, now 0.28.4); the marketplace catalog serves it in-tree instead of pinning `m4ttstack/skills` (#538, #539)
+- the herdr chat plugin moves into this repo (`plugins/herdr-chat`) (#537)
+- the Sparkle feed, release constants, scripts and docs name `m4ttstack/mattstack` (#534)
+- mattstack.app ships gitq's five agent skills (absorb, publish, restructure, sync, track) alongside deck's and board's (#535, #536)
+- CI certifies the plugin's skills, dry-runs its compile, and fails on process-digraph warnings (#542, #544, #547)
 
-### Repo rename groundwork
+### Commands
 
-- `rt repos reidentify <old> <new>` moves every store rt keys by repo identity (the repo index, worktree registry and data dir, tracking, the events cursor, state.db tables, herds, editor prefs and `repos.<id>` settings sections) from one remote identity to another. Each store reports moved, already, none or refused; a refusal in one store never stops the others; `--dry-run` shows the counts first (#524)
-- the daemon runs the same move on its own when a tracked repo's remote now derives a new GitHub identity and GitHub confirms the old name redirects to it (#524)
-- the shared checkout resolves `~/Documents/GitHub/mattstack` first and falls back to `~/Documents/GitHub/repo-tools`, so a machine keeps working before and after the folder moves (#524)
+- `rt update`, `rt commit`, `rt git commit` and `rt mr map` are removed
+- `rt version` folds into `rt --version`
+- `rt chat` and `rt uninstall` are hidden by default, and the verbs the apps, skills and daemon run no longer appear in the picker or help; one `rt.picker.hidden` setting lists what is hidden and replaces `rt.picker.show` and `rt.picker.hide` (#545, #549)
+- `rt settings` shows only its store verbs in the picker
+- command descriptions use plain language
+- `rt hooks` shows one checklist where ticked means the hook runs, marks hooks that are off `[disabled]`, and says when a hook is skipped
+- `rt ci lease` (claim, heartbeat, release, show) and a CI watch loop give each MR one CI attendant at a time, run over MCP tools with no Bash call (RT-331, #525)
+- `rt skills expand` pastes mattstack attachments into hand-written skills; board's skills now carry the gate protocol this way (RT-358, #546)
 
-### Chat
+### Agents and herds
 
-- every session gets a hidden identity id behind its display name, so a recycled name never inherits another agent's rooms, DMs, unread or history; existing handles keep their rows (#521)
-- `rt chat sign-in --as <name or id>` continues an identity and `--name <name>` starts a fresh one; the agent name pool grows to 1,000 (#521)
+- rt keeps agent prompts out of process argv: pane launches read the prompt from an owner-only file, and headless launches take it on stdin (#528)
+- herd briefs name the shepherd by its chat handle and id, and the watchdog's background-work exemption expires after 60 minutes (RT-356, RT-359, #556)
+- the herd watchdog stops nagging "done, not closed" while a follow-up round is live, and gate pushes no longer interrupt herd workers with an Escape (RT-355, RT-357, #543)
+- a `herd-progress` skill renders a shepherd's `/progress` as one table (#553)
+- shepherdr's fence check counts a job's committed work (#557)
+- ship and stage-ship budget every loop, stage-ship's rebase aborts, and receive-review executes a handed plan (#552)
+- the rt, gitq, deck and board skills gain process digraphs with bounded loops and gates (RT-341, #531, #532, #533, #541, #548)
 
-### Settings
+### Board
 
-- eleven per-repo keys (`rt.roles`, `rt.worktrees`, `rt.hooks`, `rt.sync` and others) refuse a global value instead of applying it to every repo; `rt settings check` reports a stray one (#518)
-- the VS Code extension now reads repo sections for the open repo, and console's effective-inputs panel reads the run's own repo (#518)
+- MR cards link their `!iid` (GitLab) or `#iid` (GitHub) to the forge page
+- review findings cap body and fix lines at 100 characters, set their folders back, and lead each fix with an arrow
+- review and respond escalations park and resume like doctor's, a resumed review never posts twice, and a resumed doctor waits out its own old CI lease (#554)
 
-### Glance and gitq
+### Deck and console
 
-- the group dashboard rides one shared cable instead of a watcher per MR, a late MR joins the group's push, and a single MR dashboard follows the cable's connection state (#519)
-- `GitHubEventsPoller` commits its tick state only after a full tick (#519)
-- `gitq undo` moves refs by compare-and-swap, never by checkout, checks for holding worktrees first, and resumes a partial undo (#519)
+- in mattstack-dev, a row's deploy button becomes an amber Redeploy pill when its checkout has new code for that app (#559)
+- deck's command runs use your own bun ahead of the bundle's, so dev builds and Redeploy work inside mattstack.app (RT-352, #530)
+- every expanded setting in the console switches between its editor and JSON with one Form | JSON toggle (#555)
 
-### Also
+### Setup, worktrees and chat
 
-- MCP git tools accept a hand-made git worktree of a registered repo, such as `<checkout>/.worktrees/<name>`, and still refuse its subdirectories (#522)
-- the VS Code extension bundle is load-checked in the release (#519)
-- glitter's hovered tab button has symmetric padding (#514)
-- `@mattstack/glance-react` is private; it no longer publishes to npm (#516)
-- the marketplace catalog ships the current `mattstack` plugin (RT-338 wave 1, 0.26.1) and fast-browser plugin
+- `repos.clone` recognizes an existing clone by its normalized origin, not a substring (RT-360, #558)
+- worktree pool names are handed out in order, so a freed name waits its turn (RT-345, #526)
+- a new chat session's sign-in releases its pane from earlier sessions' rows (#529)
+- a solo install's Done screen stays solo after the Full Disk Access relaunch, instead of offering Open the board and Invite teammates (RT-328, #527)
 
-**Full Changelog**: https://github.com/m4ttstack/rt/compare/v2.14.0...v2.15.0
+### Release and build
+
+- `rt release update-machine` retries its #rt announce while the relaunched daemon comes back (#540)
+- the dev-app rebuild's turbo cache works outside a git checkout, which clears mattstack-dev's "build failed" badge (#560)
+- the clean-room VM gains a solo leg (RT-328, #527)
+
+### Bundled
+
+- fast-browser 0.1.7: browser-driver fills flow arg placeholders, and the flow runner treats an in-flight mutating step as possibly landed; the catalog's fast-browser plugin moves to match (#562)
+
+**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.15.0...v2.16.0
