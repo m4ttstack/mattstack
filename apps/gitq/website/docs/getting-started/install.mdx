@@ -73,15 +73,11 @@ gitq keeps almost nothing in your repository. At a glance:
 
 `GITQ_CONFIG_DIR` is read once per process, so exporting it for a single command is enough to point gitq at a throwaway store. That is worth knowing before you try anything experimental. If you used gitq before it moved to the app root, the first run copies `~/.config/gitq` in and leaves the original alone. See [State](/concepts/state) for the full picture.
 
-## Optional: the agent skills
+## The agent skills
 
-The four agent skills that drive gitq from a Claude pane install as symlinks into `~/.claude/skills`:
+The five agent skills that drive gitq from a Claude pane ship inside mattstack.app, and its setup links them into `~/.claude/skills`. With the app installed there is nothing to run. See [Agent skills](/guides/agent-skills).
 
-```bash
-bun run scripts/install-skills.ts
-```
-
-You only need this if you want the board's right-click actions, or want to invoke the skills by hand. See [Agent skills](/guides/agent-skills).
+Working on the skills themselves in a checkout, `bun run scripts/install-skills.ts` links them to the checkout instead. It is checkout-only, and it relinks over the app's links.
 
 ## Optional: a forge token
 
