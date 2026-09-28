@@ -151,9 +151,9 @@ One graph, one section per judgment step, and the tool calls are the nodes.
    - `python3 check-dot.py <SKILL.md>` fails on an unlabelled decision edge, a
      one-way decision, a dead end, a loop with no decision to leave it, an
      unreachable node, a STOP that is not named `STOP:`, an opaque id, or a
-     missing success outcome. On a new or edited graph run it with --strict:
-     it also fails two warnings the default run only prints (two calls in one
-     plaintext node, a tempted edge that leaves a step instead of a decision).
+     missing success outcome. It also fails two warnings (two calls in one
+     plaintext node, a tempted edge that leaves a step instead of a
+     decision); --warn-only prints them without failing.
 5. Test behavior with superpowers:writing-skills: fresh agents, describe-only,
    5 runs per scenario, prose version against graph version, and a deviation
    table (shell calls a tool covers, skipped steps, runaway loops, stops that

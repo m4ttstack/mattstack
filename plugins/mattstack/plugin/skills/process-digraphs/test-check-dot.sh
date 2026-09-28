@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Each case must make check-dot.py fail (or warn) with the named finding; a pass case must pass with no warning.
+# Each case must make check-dot.py fail with the named finding (the default run fails on a warning; --warn-only prints it and passes); a pass case must pass with no warning.
 set -u
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmp="$(mktemp -d)"
@@ -16,12 +16,12 @@ expect() { # name, expected substring (empty = must pass), dot body
   fi
 }
 
-expect_warn() { # name, expected substring, dot body: the default run passes with the warning, --strict fails on it
+expect_warn() { # name, expected substring, dot body: the default run fails on the warning, --warn-only passes with it printed
   printf '%s' "$3" > "$tmp/$1.dot"
   out="$(python3 "$here/check-dot.py" "$tmp/$1.dot" 2>&1)"; rc=$?
-  if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q "warn: .*$2"; then echo "ok   $1"; else echo "FAIL $1 (expected warning: $2)"; echo "$out"; fails=$((fails+1)); fi
-  out="$(python3 "$here/check-dot.py" --strict "$tmp/$1.dot" 2>&1)"; rc=$?
-  if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "$2"; then echo "ok   $1-strict"; else echo "FAIL $1-strict (expected failure: $2)"; echo "$out"; fails=$((fails+1)); fi
+  if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "warn: .*$2"; then echo "ok   $1"; else echo "FAIL $1 (expected failing warning: $2)"; echo "$out"; fails=$((fails+1)); fi
+  out="$(python3 "$here/check-dot.py" --warn-only "$tmp/$1.dot" 2>&1)"; rc=$?
+  if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q "warn: .*$2"; then echo "ok   $1-warn-only"; else echo "FAIL $1-warn-only (expected a passing warning: $2)"; echo "$out"; fails=$((fails+1)); fi
 }
 
 GOOD='digraph g {
@@ -84,8 +84,14 @@ out="$(python3 "$here/check-dot.py" "$tmp/empty.md" 2>&1)"; rc=$?
 if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "no \`\`\`dot block"; then echo "ok   no-blocks"; else echo "FAIL no-blocks"; echo "$out"; fails=$((fails+1)); fi
 
 printf 'digraph g { "S" [shape=ellipse]; "a {x}, or b" [shape=plaintext]; "A" [shape=doublecircle style=filled]; "S" -> "a {x}, or b"; "a {x}, or b" -> "A"; }' > "$tmp/late.dot"
-out="$(python3 "$here/check-dot.py" "$tmp/good.dot" "$tmp/late.dot" --strict 2>&1)"; rc=$?
-if [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "two calls"; then echo "ok   strict-after-path"; else echo "FAIL strict-after-path"; echo "$out"; fails=$((fails+1)); fi
+out="$(python3 "$here/check-dot.py" "$tmp/good.dot" "$tmp/late.dot" --warn-only 2>&1)"; rc=$?
+if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q "warn: .*two calls"; then echo "ok   warn-only-after-path"; else echo "FAIL warn-only-after-path"; echo "$out"; fails=$((fails+1)); fi
+
+out="$(python3 "$here/check-dot.py" --strict "$tmp/late.dot" 2>&1)"; rc=$?
+if [ $rc -eq 1 ] && printf '%s' "$out" | grep -q "two calls"; then echo "ok   strict-still-accepted"; else echo "FAIL strict-still-accepted"; echo "$out"; fails=$((fails+1)); fi
+
+out="$(python3 "$here/check-dot.py" --strict "$tmp/good.dot" 2>&1)"; rc=$?
+if [ $rc -eq 0 ]; then echo "ok   strict-clean-pass"; else echo "FAIL strict-clean-pass"; echo "$out"; fails=$((fails+1)); fi
 
 echo "---"
 [ $fails -eq 0 ] && echo "all cases pass" || echo "$fails case(s) failed"

@@ -74,9 +74,13 @@ digraph ship {
     "AFTER attempts = 3?" [shape=diamond];
     "Files to attach?" [shape=diamond];
     "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
-    "mr_view {mrUrl, maxAgeMs: 5000}, or gh pr view <mr> --json title,body on GitHub" [shape=plaintext];
+    "Forge host (read back the description)?" [shape=diamond];
+    "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
+    "gh pr view <mr> --json title,body" [shape=plaintext];
     "Write the title and description" [shape=box];
-    "mr_update {mrUrl, title, description}, or gh pr edit on GitHub" [shape=plaintext];
+    "Forge host (write the description)?" [shape=diamond];
+    "mr_update {mrUrl, title, description}" [shape=plaintext];
+    "gh pr edit <mr> --title <title> --body <description>" [shape=plaintext];
     "run_stage {action: fail, stage: ship, reason}" [shape=plaintext];
     "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [shape=plaintext];
     "run_field_set {key: hold, value: <their words, or held>, stage: ship}" [shape=plaintext];
@@ -162,11 +166,17 @@ digraph ship {
     "AFTER attempts = 3?" -> "Capture the AFTER when the domain names one" [label="no: another attempt"];
     "AFTER attempts = 3?" -> "Files to attach?" [label="yes: go on without it; the description names the gap"];
     "Files to attach?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="yes, GitLab"];
-    "Files to attach?" -> "mr_view {mrUrl, maxAgeMs: 5000}, or gh pr view <mr> --json title,body on GitHub" [label="no, or GitHub: link the paths"];
-    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_view {mrUrl, maxAgeMs: 5000}, or gh pr view <mr> --json title,body on GitHub";
-    "mr_view {mrUrl, maxAgeMs: 5000}, or gh pr view <mr> --json title,body on GitHub" -> "Write the title and description";
-    "Write the title and description" -> "mr_update {mrUrl, title, description}, or gh pr edit on GitHub";
-    "mr_update {mrUrl, title, description}, or gh pr edit on GitHub" -> "Ship done: return to the orchestrator";
+    "Files to attach?" -> "Forge host (read back the description)?" [label="no, or GitHub: link the paths"];
+    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_view {mrUrl, maxAgeMs: 5000}";
+    "Forge host (read back the description)?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="GitLab"];
+    "Forge host (read back the description)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
+    "mr_view {mrUrl, maxAgeMs: 5000}" -> "Write the title and description";
+    "gh pr view <mr> --json title,body" -> "Write the title and description";
+    "Write the title and description" -> "Forge host (write the description)?";
+    "Forge host (write the description)?" -> "mr_update {mrUrl, title, description}" [label="GitLab"];
+    "Forge host (write the description)?" -> "gh pr edit <mr> --title <title> --body <description>" [label="GitHub"];
+    "mr_update {mrUrl, title, description}" -> "Ship done: return to the orchestrator";
+    "gh pr edit <mr> --title <title> --body <description>" -> "Ship done: return to the orchestrator";
     "run_stage {action: fail, stage: ship, reason}" -> "Stage failed";
 }
 ```

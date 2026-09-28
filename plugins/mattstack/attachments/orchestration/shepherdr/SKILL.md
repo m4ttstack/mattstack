@@ -397,6 +397,7 @@ digraph shepherdr_watch {
 
     "Trigger: the herd is spawned or resumed" [shape=ellipse];
     "End the turn until something arrives" [shape=box];
+    "Next move while the turn is ended?" [shape=diamond];
     "STOP: the gates and the room report progress; never read a pane for it" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: nothing arms; no background wait, watcher or sweep" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Something arrives" [shape=ellipse];
@@ -450,9 +451,10 @@ digraph shepherdr_watch {
     "Go to lanes and wrap-up" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: the herd is spawned or resumed" -> "End the turn until something arrives";
-    "End the turn until something arrives" -> "Something arrives" [style=dashed];
-    "End the turn until something arrives" -> "STOP: the gates and the room report progress; never read a pane for it" [label="tempted to read a pane to see how it goes"];
-    "End the turn until something arrives" -> "STOP: nothing arms; no background wait, watcher or sweep" [label="tempted to arm a wait or a sweep"];
+    "End the turn until something arrives" -> "Next move while the turn is ended?";
+    "Next move while the turn is ended?" -> "Something arrives" [label="none: the daemon pushes the next arrival" style=dashed];
+    "Next move while the turn is ended?" -> "STOP: the gates and the room report progress; never read a pane for it" [label="tempted to read a pane to see how it goes"];
+    "Next move while the turn is ended?" -> "STOP: nothing arms; no background wait, watcher or sweep" [label="tempted to arm a wait or a sweep"];
     "STOP: the gates and the room report progress; never read a pane for it" -> "End the turn until something arrives";
     "STOP: nothing arms; no background wait, watcher or sweep" -> "End the turn until something arrives";
     "Something arrives" -> "What arrived?";

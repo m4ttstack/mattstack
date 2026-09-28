@@ -31,6 +31,7 @@ digraph implement {
     "Run RED, GREEN, REFACTOR from the named failing test" [shape=box];
     "Run the superpowers chain" [shape=box];
     "Commit incrementally on branch, inside worktree" [shape=box];
+    "Next move once committed?" [shape=diamond];
     "STOP: implement never pushes; ship owns the push" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "git log --format=%h <branch-point>..HEAD" [shape=plaintext];
     "run_field_set {key: commits, value: <shas>, stage: implement}" [shape=plaintext];
@@ -51,8 +52,9 @@ digraph implement {
     "Run RED, GREEN, REFACTOR from the named failing test" -> "run_stage {action: fail, stage: implement, reason}" [label="a failure the approach cannot get past"];
     "Run the superpowers chain" -> "Commit incrementally on branch, inside worktree";
     "Run the superpowers chain" -> "run_stage {action: fail, stage: implement, reason}" [label="a failure the approach cannot get past"];
-    "Commit incrementally on branch, inside worktree" -> "git log --format=%h <branch-point>..HEAD";
-    "Commit incrementally on branch, inside worktree" -> "STOP: implement never pushes; ship owns the push" [label="tempted to push"];
+    "Commit incrementally on branch, inside worktree" -> "Next move once committed?";
+    "Next move once committed?" -> "git log --format=%h <branch-point>..HEAD" [label="record the commits"];
+    "Next move once committed?" -> "STOP: implement never pushes; ship owns the push" [label="tempted to push"];
     "STOP: implement never pushes; ship owns the push" -> "git log --format=%h <branch-point>..HEAD";
     "git log --format=%h <branch-point>..HEAD" -> "run_field_set {key: commits, value: <shas>, stage: implement}";
     "run_field_set {key: commits, value: <shas>, stage: implement}" -> "Implement done: return to the orchestrator";

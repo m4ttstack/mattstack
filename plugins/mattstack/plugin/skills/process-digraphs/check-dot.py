@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Structure-check every ```dot block in a markdown file (or one .dot file).
 
-Usage: python3 check-dot.py [--strict] <SKILL.md | graph.dot> [...]
+Usage: python3 check-dot.py [--warn-only] <SKILL.md | graph.dot> [...]
 Exit 0 when every graph passes, 1 on any finding, 2 on a usage or parse error.
 
 Graphviz parses the graph (dot -Tjson), so a block that renders is exactly the
 block that is checked.
-Warnings print as "warn:" lines and exit 0; --strict makes them fail.
+Warnings print as "warn:" lines and fail the run like any finding;
+--warn-only prints them without failing. --strict is accepted and does nothing.
 """
 import json
 import re
@@ -210,10 +211,10 @@ def cycles(out):
 
 
 def main(argv):
-    strict = "--strict" in argv
-    paths = [a for a in argv if a != "--strict"]
+    warn_only = "--warn-only" in argv
+    paths = [a for a in argv if a not in ("--strict", "--warn-only")]
     if not paths:
-        print("usage: check-dot.py [--strict] <SKILL.md | graph.dot> [...]", file=sys.stderr)
+        print("usage: check-dot.py [--warn-only] <SKILL.md | graph.dot> [...]", file=sys.stderr)
         return 2
     failed, total, warned = False, 0, []
     for path in paths:
@@ -239,7 +240,7 @@ def main(argv):
     # certify shows only the first lines of a failure, so failures print before warnings.
     for w in warned:
         print(w)
-    failed = failed or (strict and bool(warned))
+    failed = failed or (not warn_only and bool(warned))
     print(f"{total} graph(s) checked, {'FAIL' if failed else 'ok'}, {len(warned)} warning(s)")
     return 1 if failed else 0
 
