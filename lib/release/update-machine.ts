@@ -573,11 +573,26 @@ export async function runDevAppRebuild(seams: UpdateMachineSeams, ref: string): 
   return { sha, result: okLeg("dev-bundle", DEV_BUNDLE_LABEL, `${leg.detail}; deck helper and managed apps restarted`) };
 }
 
+const ANNOUNCE_ATTEMPTS = 30;
+
+/** The dev bundle leg's relaunch takes the daemon down for several seconds, and a
+ *  chat post needs the daemon, so an announce straight after it fails until the
+ *  daemon answers again. */
+async function announceOnceDaemonAnswers(seams: UpdateMachineSeams, message: string): Promise<boolean> {
+  for (let attempt = 0; attempt < ANNOUNCE_ATTEMPTS; attempt++) {
+    if (attempt > 0) await seams.sleep(1000);
+    if (await seams.announce(message)) return true;
+  }
+  return false;
+}
+
 async function runDaemonLeg(seams: UpdateMachineSeams, ctx: ReleaseContext): Promise<LegResult> {
   // The dev daemon serves other sessions; the announce must land before it restarts
   // out from under them, and a failed announce refuses the restart outright.
-  const announced = await seams.announce(`update-machine: restarting the rt daemon for ${ctx.tag} (${ctx.sha.slice(0, 12)})`);
-  if (!announced) return abortedLeg("daemon", DAEMON_LABEL, "chat announce failed; refusing to restart the daemon");
+  const announced = await announceOnceDaemonAnswers(seams, `update-machine: restarting the rt daemon for ${ctx.tag} (${ctx.sha.slice(0, 12)})`);
+  if (!announced) {
+    return abortedLeg("daemon", DAEMON_LABEL, `chat announce in #${CHAT_ROOM} failed after ${ANNOUNCE_ATTEMPTS} attempts; refusing to restart the daemon`);
+  }
 
   const restart = await seams.exec(["rt", "daemon", "restart"]);
   if (restart.exitCode !== 0) return errorLeg("daemon", DAEMON_LABEL, `rt daemon restart failed: ${execTail(restart)}`);

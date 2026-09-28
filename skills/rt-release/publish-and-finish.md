@@ -215,7 +215,8 @@ this gate comes first, not a reason to pass `--yes` unasked. The legs, in order:
 - **Shared checkout sync**: the shared `~/Documents/GitHub/mattstack` checkout (or the older
   `~/Documents/GitHub/repo-tools` folder on a machine that has not moved it); refuses unless it is
   on main, then fast-forwards it and runs a frozen install.
-- **Daemon**: announces in #rt first and refuses to restart if the announce failed, then checks
+- **Daemon**: announces in #rt first, retrying for up to 30 seconds while the daemon comes back from
+  the dev app's relaunch, and refuses to restart if the announce never lands, then checks
   the daemon's `sourceRev` against the released commit (a prod daemon's null `sourceRev` counts as
   a mismatch).
 - **Served suite**: re-registers board, console, chat, boxscore and deck from the shared checkout,
