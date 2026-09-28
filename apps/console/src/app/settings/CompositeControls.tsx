@@ -46,6 +46,7 @@ import { DraftEditor } from './DraftEditor';
 import { ExpandToggle } from './ExpandToggle';
 import { editorKind, formOf, type FormShape } from './formShape';
 import { JsonBlock } from './JsonBlock';
+import { ModeToggle } from './ModeToggle';
 import { ScopeBadge } from './ScopeBadge';
 import listClasses from './StringList.module.css';
 import { unitOf } from './units';
@@ -106,6 +107,35 @@ function FieldRow({
   );
 }
 
+/** The same header the JSON draft shows, so Form and JSON line up: the
+    layer every edit here writes to, and the Form | JSON switch. */
+function LiveHeader({ row, onJson }: { row: Row; onJson: () => void }) {
+  const { text } = useSchemeColors();
+  return (
+    <Group justify="space-between" wrap="nowrap" gap={8} pt={4} pb={6}>
+      <Text fz={12} c={text.muted}>
+        {`Editing the ${targetLabel(row.target)} layer`}
+      </Text>
+      <ModeToggle value="form" onChange={m => m === 'json' && onJson()} />
+    </Group>
+  );
+}
+
+const LIVE_KINDS: ReadonlySet<RowKind> = new Set<RowKind>([
+  'stringList',
+  'stringMap',
+  'leaves',
+]);
+
+/** A string list short enough to edit inline in the row, with no body. */
+function isInlineList(v: unknown): boolean {
+  const list = strings(v);
+  return (
+    list.length <= INLINE_MAX_ITEMS &&
+    list.every(x => x.length <= INLINE_MAX_CHARS)
+  );
+}
+
 function strings(v: unknown): string[] {
   return Array.isArray(v)
     ? v.filter((x): x is string => typeof x === 'string')
@@ -141,6 +171,7 @@ function StringListBody({
     authored[0]!.scope === rungOf(row.target.scope, row.target.repo ?? null);
   return (
     <Body>
+      <LiveHeader row={row} onJson={onEditJson} />
       <div className={listClasses.cloud}>
         {list.map((item, i) => (
           <span key={`${i}:${item}`} className={listClasses.tag}>
@@ -179,11 +210,8 @@ function StringListBody({
           }}
         />
       </div>
-      <Group gap={4} pb={2}>
-        <Button size="compact-xs" variant="subtle" onClick={onEditJson}>
-          Edit as JSON
-        </Button>
-        {resettable && (
+      {resettable && (
+        <Group gap={4} pb={2}>
           <Button
             size="compact-xs"
             variant="subtle"
@@ -193,8 +221,8 @@ function StringListBody({
           >
             Reset to default
           </Button>
-        )}
-      </Group>
+        </Group>
+      )}
     </Body>
   );
 }
@@ -345,6 +373,7 @@ function StringMapBody({
   const [v, setV] = useState('');
   return (
     <Body>
+      <LiveHeader row={row} onJson={onEditJson} />
       {Object.entries(map).map(([key, value]) => (
         <FieldRow
           key={key}
@@ -417,11 +446,6 @@ function StringMapBody({
         >
           <Icons.plus size={14} />
         </UnstyledButton>
-      </Group>
-      <Group py={6}>
-        <Button size="compact-xs" variant="subtle" onClick={onEditJson}>
-          Edit as JSON
-        </Button>
       </Group>
     </Body>
   );
@@ -573,6 +597,7 @@ function LeavesBody({
     row.status === 'saving';
   return (
     <Body>
+      <LiveHeader row={row} onJson={onEditJson} />
       {shown.map(path => {
         const source = fieldSource(explained.rows, path);
         const value = getLeaf(def.effective.value, path);
@@ -638,11 +663,6 @@ function LeavesBody({
           {explained.error}
         </Text>
       )}
-      <Group py={6}>
-        <Button size="compact-xs" variant="subtle" onClick={onEditJson}>
-          Edit as JSON
-        </Button>
-      </Group>
     </Body>
   );
 }
@@ -754,12 +774,14 @@ function DraftBody({
   form,
   startIn,
   onDone,
+  onForm,
 }: {
   def: SettingDefWire;
   row: Row;
   form: FormShape | null;
   startIn?: 'form' | 'json';
   onDone?: () => void;
+  onForm?: () => void;
 }) {
   const repo = useSettingsRepo();
   const explained = useKeyExplain(def.key, repo);
@@ -791,6 +813,7 @@ function DraftBody({
         startIn={startIn}
         targetLabel={targetLabel(row.target)}
         saving={row.status === 'saving'}
+        onForm={onForm}
         onCancel={() => {
           setResets(n => n + 1);
           onDone?.();
@@ -849,6 +872,13 @@ export function compositeParts(
   // seeded from that would discard the layer's real, unseen stored value on
   // save. The guard runs before asJson (the row menu's forced JSON entry)
   // and the ordinary json/objectList/objectMap bodies alike.
+  // A live editor with a body to switch back to: not an inline short list,
+  // and not a value that would land on a shape lock.
+  const liveForm =
+    LIVE_KINDS.has(edit) &&
+    !(edit === 'stringList' && isInlineList(value)) &&
+    def.effective.invalid === undefined &&
+    (value === undefined || matchesSchema(def, value));
   if ((asJson && EDITOR_KINDS.has(edit)) || edit === 'json') {
     if (def.effective.invalid !== undefined)
       return { control: invalidLock(), body: null };
@@ -861,6 +891,7 @@ export function compositeParts(
           form={form}
           startIn="json"
           onDone={onDoneJson}
+          onForm={liveForm ? onDoneJson : undefined}
         />
       ) : null,
     };
@@ -897,10 +928,7 @@ export function compositeParts(
 
   if (kind === 'stringList') {
     const list = strings(value);
-    if (
-      list.length <= INLINE_MAX_ITEMS &&
-      list.every(x => x.length <= INLINE_MAX_CHARS)
-    )
+    if (isInlineList(value))
       return {
         control: <InlineTags def={def} row={row} list={list} />,
         body: null,
