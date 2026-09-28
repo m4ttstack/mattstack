@@ -65,11 +65,11 @@ Only a handful of skills are directly invocable once the plugin is
 installed: `mattstack:shepherdr`, `mattstack:subagent-review-loop`,
 `mattstack:editing-skills`, `mattstack:creating-a-pack`,
 `mattstack:extending-a-pack`, `mattstack:getting-current-time`,
-`mattstack:wrap-up`, and the three writing-style presets (see
-[Usage](#usage)). Everything else below is an engine: it is not on any slash
-menu, and it becomes runnable only once a team's own pack compiles it into a
-verb with `rt skills compile`. That split is deliberate; see
-[Configuration](#configuration).
+`mattstack:process-digraphs`, `mattstack:wrap-up`, and the three
+writing-style presets (see [Usage](#usage)). Everything else below is an
+engine: it is not on any slash menu, and it becomes runnable only once a
+team's own pack compiles it into a verb with `rt skills compile`. That split
+is deliberate; see [Configuration](#configuration).
 
 ### Orchestration
 
@@ -111,6 +111,11 @@ verb with `rt skills compile`. That split is deliberate; see
   sub-5-minute precision. The plugin's `hooks/hooks.json` runs this skill's
   `inject-time.sh` on every prompt and, throttled, during long turns, so the
   stamp is normally already there.
+- **mattstack:process-digraphs** -- the standard for writing a process skill
+  as a `dot` digraph an agent walks from start to end, with `render.sh` and
+  `check-dot.py` to render and lint the graph. Use it when writing or
+  revising a pipeline stage, a review verb, shepherdr or any other process
+  skill.
 
 ### The parameterized-skill primitive
 
