@@ -3,14 +3,19 @@
 #   scripts/turbo.sh <task>... [turbo flags]
 #   scripts/turbo.sh check [turbo flags]     every gate ci.yml runs
 # The cache lives in the repo's common git dir so every worktree of this
-# checkout shares it, and CI restores the same path.
+# checkout shares it, and CI restores the same path. A tree outside git (the
+# dev-app rebuild's scratch copy) caches under its own .turbo instead.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 # Run the Node shim under bun: a version-manager node shim cannot start under the HOME the test preload repoints.
 turbo="$root/node_modules/turbo/bin/turbo"
-cache="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)/turbo-cache"
+if common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+  cache="$common/turbo-cache"
+else
+  cache="$root/.turbo/cache"
+fi
 
 if [ "${1:-}" != check ]; then
   exec bun "$turbo" run --cache-dir="$cache" "$@"
