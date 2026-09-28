@@ -366,8 +366,7 @@ describe("settings/registry", () => {
         "agent.codex.yolo",
         "rt.trustedBrowserOrigins",
         "rt.mcp.uploadRoots",
-        "rt.picker.show",
-        "rt.picker.hide",
+        "rt.picker.hidden",
         "rt.daemonPath",
         "rt.notify.eventBridges",
         "rt.gates.escalationTtlMinutes",
@@ -383,7 +382,7 @@ describe("settings/registry", () => {
         "herd.watchdog.midRunTrustAccept",
         "panes.relocationAutoAccept",
       ];
-      expect(suiteKeys).toHaveLength(78);
+      expect(suiteKeys).toHaveLength(77);
 
       expect(allDefs().map((d) => d.key).sort()).toEqual(
         [...migratedFalseKeys, ...migratedTrueKeys, ...suiteKeys].sort(),

@@ -306,20 +306,14 @@ export const REGISTRY: readonly SettingDef[] = [
     description: "Absolute directories the mr_upload MCP tool may read files from, beside its built-in roots (the target repo's worktrees and this user's Claude Code temp root). Machine-only: path literals never travel. A non-absolute entry is ignored with a warning. A fresh key, not an ownership-latch port, so a default is fine here.",
   },
   {
-    key: "rt.picker.show",
+    key: "rt.picker.hidden",
     type: "array",
     scopes: ["user", "machine"],
-    default: [],
+    default: [
+      "agent", "apps", "bg", "ci", "cron", "daemon", "deps", "endpoint", "events", "gate", "herd", "home", "intercept", "pane", "plugin", "reconciler", "release", "runs", "secrets", "services", "setup", "skills", "state", "team", "tools", "verify",
+    ],
     merge: "replace",
-    description: "Program verbs to list in rt's pickers, usage and --help anyway, by path (\"pane\", \"daemon\"), or \"*\" for all of them. Program verbs are the ones the mattstack apps, skills and daemon run (rt state, rt skills, rt herd); they are left out by default, still run by name, and `rt --all` lists everything once. rt.picker.hide beats this. A fresh key, not an ownership-latch port, so a default is fine here.",
-  },
-  {
-    key: "rt.picker.hide",
-    type: "array",
-    scopes: ["user", "machine"],
-    default: [],
-    merge: "replace",
-    description: "Verbs to leave out of rt's pickers, usage and --help, by path (\"nav\", \"worktree provision\"), any verb including plugin verbs. They still run by name, and `rt --all` lists everything once. Beats rt.picker.show. A fresh key, not an ownership-latch port, so a default is fine here.",
+    description: "Verbs left out of rt's pickers, usage and --help, by path (\"pane\", or \"worktree provision\" for a nested verb). The default hides the verbs the mattstack apps, skills and daemon run; edit it to show one of those or hide any other verb, and [] lists everything. Hidden verbs still run by name, and `rt --all` lists everything once.",
   },
 
   // --- mattstack (installer-lane) -----------------------------------------

@@ -68,7 +68,7 @@ export const GROUPS: Group[] = [
     tier: 'rt',
     blurb:
       'Saved presets, variations and scheduled jobs for rt commands, and which verbs the pickers list.',
-    match: pattern(/^rt\.(variations|presets|cron|picker\.(show|hide))$/),
+    match: pattern(/^rt\.(variations|presets|cron|picker\.hidden)$/),
   },
   {
     id: 'board',
