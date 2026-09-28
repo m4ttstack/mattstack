@@ -71,12 +71,12 @@ describe("logins:fill", () => {
     expect(await s.h(pw)).toMatchObject({ ok: true, data: { kind: "password" } });
   });
 
-  test("a second password fill inside five minutes is limited; an email fill never counts", async () => {
+  test("a second password fill inside five minutes is limited, even from another client; an email fill never counts", async () => {
     const s = setup();
     await s.h(em);
     await s.h(em);
     expect((await s.h(pw)).ok).toBe(true);
-    expect(await s.h(pw)).toEqual({ ok: true, data: { refused: "limited", until: s.clock.t + ATTEMPT_WINDOW_MS } });
+    expect(await s.h({ ...pw, client: "other", pid: 43 })).toEqual({ ok: true, data: { refused: "limited", until: s.clock.t + ATTEMPT_WINDOW_MS } });
     expect(await s.h(em)).toMatchObject({ ok: true, data: { kind: "email" } });
   });
 
