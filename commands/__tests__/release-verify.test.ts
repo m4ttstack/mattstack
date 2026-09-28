@@ -18,7 +18,7 @@ const RELEASE = {
   publishedAt: "2026-09-18T21:07:55Z",
 };
 
-const RUNS = JSON.stringify({ workflow_runs: [{ id: 111, html_url: "https://github.com/m4ttstack/rt/actions/runs/111" }] });
+const RUNS = JSON.stringify({ workflow_runs: [{ id: 111, html_url: "https://github.com/m4ttstack/mattstack/actions/runs/111" }] });
 
 /** A seam set whose every layer verifies clean for v2.10.2. */
 function fakeSeams(overrides: Partial<VerifySeams> = {}): VerifySeams {

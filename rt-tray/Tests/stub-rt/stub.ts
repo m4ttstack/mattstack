@@ -326,7 +326,7 @@ else if (a0 === "apps" && a1 === "list") emit({ apps: [
 ] });
 else if (a0 === "apps" && (a1 === "enable" || a1 === "disable")) emit({ name: a2, enabled: a1 === "enable" });
 else if (a0 === "team" && a1 === "invite") emit({ code: "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567", expiresAt: "2026-08-28T00:00:00Z",
-  pasteBlock: "Install mattstack from https://github.com/m4ttstack/rt/releases, then open mattstack://join/ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567 or paste the code into Setup → Join a team.",
+  pasteBlock: "Install mattstack from https://github.com/m4ttstack/mattstack/releases, then open mattstack://join/ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567 or paste the code into Setup → Join a team.",
   forgeAccess: "granted", manualSteps: [], link: "https://mattstack.dev/join#ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23-4567" });
 else if (a0 === "uninstall" && args.includes("--dry-run")) emit({ actions: uninstallActions() });
 else if (a0 === "uninstall") {

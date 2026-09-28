@@ -38,12 +38,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/m4ttstack/rt.git",
+    "url": "git+https://github.com/m4ttstack/mattstack.git",
     "directory": "apps/gitq"
   },
-  "homepage": "https://github.com/m4ttstack/rt/tree/main/apps/gitq#readme",
+  "homepage": "https://github.com/m4ttstack/mattstack/tree/main/apps/gitq#readme",
   "bugs": {
-    "url": "https://github.com/m4ttstack/rt/issues"
+    "url": "https://github.com/m4ttstack/mattstack/issues"
   },
   "keywords": [
     "git",

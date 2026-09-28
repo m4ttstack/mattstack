@@ -59,7 +59,7 @@ export interface UpdateMachineSeams {
   sleep(ms: number): Promise<void>;
 }
 
-export const RELEASE_REPO = "m4ttstack/rt";
+export const RELEASE_REPO = "m4ttstack/mattstack";
 export const CHAT_ROOM = "rt";
 const PROD_APP_PATH = "/Applications/mattstack.app";
 const DEV_APP_PATH = "/Applications/mattstack-dev.app";

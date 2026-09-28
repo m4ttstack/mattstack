@@ -57,7 +57,7 @@ mattstack-dev may read Documents.
 ## Rebuilding from a pushed ref: `--ref`
 
 For "put main (or a pushed branch) in the dev app now", e.g. after a merge.
-It clones the ref from `m4ttstack/rt`, quits the app, and swaps the new
+It clones the ref from `m4ttstack/mattstack`, quits the app, and swaps the new
 bundle in immediately:
 
 ```bash

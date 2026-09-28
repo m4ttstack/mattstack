@@ -37,7 +37,7 @@ run()  { "$@" 2>&1 | tee -a "$LOG"; return "${PIPESTATUS[0]}"; }
 WORK=$(mktemp -d)
 if [ -n "$TAG" ]; then
   step "gh release download $TAG"
-  run gh release download "$TAG" -R m4ttstack/rt -p 'mattstack-*.zip' -D "$WORK" || exit 1
+  run gh release download "$TAG" -R m4ttstack/mattstack -p 'mattstack-*.zip' -D "$WORK" || exit 1
   ART=$(ls "$WORK"/mattstack-*.zip | head -1)
 fi
 if [ -n "$ART" ]; then

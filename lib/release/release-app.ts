@@ -17,7 +17,7 @@ import type { RunResult } from "../subprocess.ts";
 import { checkGate, compareVersions, keepsFastPath, movedServedApps } from "./preflight.ts";
 import { runVerify, type VerifyReport, type VerifySeams } from "./verify.ts";
 
-export const RT_REPO = "m4ttstack/rt";
+export const RT_REPO = "m4ttstack/mattstack";
 
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
 

@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/m4ttstack/rt"
+    "url": "https://github.com/m4ttstack/mattstack"
   },
   "engines": {
     "vscode": "^1.85.0"

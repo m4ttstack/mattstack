@@ -31,7 +31,7 @@ The token stays **server-side only** ... the browser never sees it.
   client's typed RPC) served through `serveMattstackApp` from `src/server/index.ts`. The
   metric math, GitLab fetch/store layer, and CLI live under it (`metrics/`, `store/`,
   `refresh/`, `linear/`, `cli.ts`); see "Notes & limitations" below for how that part works.
-- **`src/app`** is a [`@mattstack/app-kit`](https://github.com/m4ttstack/rt/tree/main/packages/ui) app:
+- **`src/app`** is a [`@mattstack/app-kit`](https://github.com/m4ttstack/mattstack/tree/main/packages/ui) app:
   `MattstackShell` for the frame/rail, [wouter](https://github.com/molefrog/wouter) for
   routing (`src/app/routes.ts` maps four routes ... `/`, `/user/:name`,
   `/user/:name/:stat`, `/settings` ... to a small `AppRoute` union), and
@@ -117,7 +117,7 @@ See `gitlab-leaderboard-spec.md` for the exact definitions.
 
 ## Notes & limitations
 
-- **GitLab transport is owned by [`@mattstack/glance`](https://github.com/m4ttstack/rt/tree/main/packages/glance),**
+- **GitLab transport is owned by [`@mattstack/glance`](https://github.com/m4ttstack/mattstack/tree/main/packages/glance),**
   not this repo ... GraphQL/REST field names, pagination, and retries live there. If a
   query fails, the error surfaces in the response `warnings`; verify field names against
   `<baseUrl>/-/graphql-explorer` and adjust glance, not boxscore.
