@@ -194,6 +194,7 @@ describe('POST /api/gates/:id/answer', () => {
         id: 'g1',
         answers: { q1: 'yes' },
         by: 'console',
+        override: true,
       },
       expect.anything()
     );

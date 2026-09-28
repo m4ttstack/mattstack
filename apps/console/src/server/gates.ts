@@ -132,6 +132,9 @@ export const gates = new Hono()
             id,
             answers: answers as GateAnswer['answers'],
             by: 'console',
+            // A human surface: the daemon's owner guard refuses a herd-owned
+            // gate unless the answer is marked as a human override.
+            override: true,
           },
           rtClientOptions()
         );
