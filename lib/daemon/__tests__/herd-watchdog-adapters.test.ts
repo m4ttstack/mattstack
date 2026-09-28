@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { rmSync } from "fs";
+import { readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import pino from "pino";
@@ -635,6 +635,28 @@ describe("hasBackgroundWork", () => {
   });
   test("a screen with no rule at all is not", () => {
     expect(hasBackgroundWork("1 shell")).toBe(false);
+  });
+
+  describe("a captured screen of a working pane running one shell and one subagent", () => {
+    // Copied byte for byte from a real pane: the rule, ⏵ and ⏺ glyphs must stay
+    // exactly as Claude Code painted them.
+    const CAPTURED = readFileSync(join(import.meta.dir, "fixtures", "pane-footer-1-shell.txt"), "utf8");
+    const withoutCount = CAPTURED.replace("1 shell · ", "");
+    const withoutPanel = withoutCount.split("\n").filter((line) => !/^\s*(?:⏺ main|◯ )/.test(line)).join("\n");
+
+    test("reads as background work as captured", () => {
+      expect(hasBackgroundWork(CAPTURED)).toBe(true);
+    });
+    test("still reads as background work with the shell count gone, on the agents panel alone", () => {
+      expect(withoutCount).not.toBe(CAPTURED);
+      expect(hasBackgroundWork(withoutCount)).toBe(true);
+    });
+    test("reads as none with the count and the agents panel both gone, the transcript's ⏺ line above the rules notwithstanding", () => {
+      expect(withoutPanel).toContain("⏺ Capturing");
+      expect(withoutPanel).not.toContain("⏺ main");
+      expect(withoutPanel).not.toContain("◯ general-purpose");
+      expect(hasBackgroundWork(withoutPanel)).toBe(false);
+    });
   });
 });
 
