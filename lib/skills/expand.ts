@@ -82,6 +82,34 @@ function assertPathsInside(body: string, outDir: string, name: string, where: st
   }
 }
 
+/** 1-based line of the first `{{` that no placeholder accounts for, or null. */
+function strayBraceLine(text: string): number | null {
+  const placed = new Map<number, number>();
+  for (const p of findPlaceholders(text)) placed.set(p.line, (placed.get(p.line) ?? 0) + 1);
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.split("{{").length - 1 > (placed.get(i + 1) ?? 0)) return i + 1;
+  }
+  return null;
+}
+
+function overlaps(a: string, b: string): boolean {
+  const x = resolve(a);
+  const y = resolve(b);
+  return x === y || x.startsWith(y + sep) || y.startsWith(x + sep);
+}
+
+/** Unfiltered on purpose: a stray dotfile or README in the output still ships, so it is drift. */
+function filesOnDisk(dir: string, sub = ""): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(join(dir, sub), { withFileTypes: true })) {
+    const rel = sub ? `${sub}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...filesOnDisk(dir, rel));
+    else out.push(rel);
+  }
+  return out;
+}
+
 function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRoots): ExpandedSkill {
   const dir = join(srcDir, name);
   const skillMdPath = join(dir, "SKILL.md");
@@ -95,11 +123,16 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
   const countLines = (s: string) => (s.match(/\n/g) ?? []).length;
   const bodyStartLine = countLines(fm[0]) + countLines(rest.slice(0, rest.length - rest.trimStart().length)) + 1;
 
+  const bodyLines = body.split("\n");
+  const fileLine = (bodyLine: number) => bodyLine + bodyStartLine - 1;
   const includes: Record<string, AttachmentSource> = {};
   const names: string[] = [];
   for (const p of findPlaceholders(body)) {
     if (p.kind !== "include" || !p.arg) {
-      throw new Error(`${where}: ${p.raw} at line ${p.line} -- only {{include:<name>}} is allowed here`);
+      throw new Error(`${where}: ${p.raw} at line ${fileLine(p.line)} -- only {{include:<name>}} is allowed here`);
+    }
+    if (bodyLines[p.line - 1]!.trim() !== p.raw) {
+      throw new Error(`${where}: ${p.raw} must be alone on its line (line ${fileLine(p.line)})`);
     }
     if (!(p.arg in includes)) {
       includes[p.arg] = loadInclude(p.arg, roots);
@@ -107,14 +140,22 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
     }
   }
 
+  const stray = strayBraceLine(body);
+  if (stray !== null) throw new Error(`${where}: literal "{{" at line ${fileLine(stray)} is not a placeholder`);
+  for (const n of names) {
+    const inc = includes[n]!;
+    const incStray = strayBraceLine(inc.body);
+    if (incStray !== null) {
+      throw new Error(`${where}: include "${n}" carries a literal "{{" at ${inc.srcPath} line ${incStray + inc.bodyStartLine - 1}`);
+    }
+  }
+
   const expanded = substituteIncludesOnly(body, includeOnlyContext(includes), where).body;
-  const brace = expanded.split("\n").findIndex((l) => l.includes("{{"));
-  if (brace !== -1) throw new Error(`${where}: literal "{{" survives expansion near output line ${brace + 1}`);
   assertPathsInside(expanded, outDir, name, where);
 
   const stamp = names.length === 0 ? null : names.map((n) => `${includes[n]!.plugin}:${n}@${includes[n]!.version}`).join(" + ");
   const frontmatter = stampFrontmatter(fm[0].replace(/\r?\n$/, ""), stamp, where);
-  const span = `lines=${bodyStartLine}-${bodyStartLine + body.split("\n").length - 1}`;
+  const span = `path=${where} lines=${bodyStartLine}-${bodyStartLine + bodyLines.length - 1}`;
   const skillMd = `${frontmatter}\n\n${EXPAND_HEADER}\n\n<!-- part: step source=${where} ${span} -->\n${expanded}\n`;
 
   const files = listFilesUnder(dir, new Set(["SKILL.md"])).map((path) => ({ path, copyFrom: join(dir, path) }));
@@ -128,6 +169,9 @@ function expandOne(srcDir: string, outDir: string, name: string, roots: PluginRo
 
 export function expandSkills(opts: { srcDir: string; outDir: string; roots: PluginRoots }): ExpandedSkill[] {
   if (!existsSync(opts.srcDir) || !statSync(opts.srcDir).isDirectory()) throw new Error(`${opts.srcDir} does not exist`);
+  if (overlaps(opts.srcDir, opts.outDir)) {
+    throw new Error(`out dir ${opts.outDir} overlaps src dir ${opts.srcDir}; expand deletes inside the out dir, so they must be disjoint`);
+  }
   return listSkillDirs(opts.srcDir).map((name) => expandOne(opts.srcDir, opts.outDir, name, opts.roots));
 }
 
@@ -160,10 +204,10 @@ export function checkExpanded(outDir: string, skills: ExpandedSkill[]): ExpandDr
       continue;
     }
     const causes: string[] = skillMdDriftCauses(readFileSync(skillMdPath, "utf8"), s.skillMd);
-    const vendoredMoved = s.files.some((f) => {
-      const onDisk = join(dir, f.path);
-      return !existsSync(onDisk) || !readFileSync(onDisk).equals(readFileSync(f.copyFrom));
-    });
+    const want = s.files.map((f) => f.path).sort();
+    const have = filesOnDisk(dir).filter((p) => p !== "SKILL.md").sort();
+    const vendoredMoved =
+      want.join("\n") !== have.join("\n") || s.files.some((f) => !readFileSync(join(dir, f.path)).equals(readFileSync(f.copyFrom)));
     if (vendoredMoved) causes.push("vendored");
     if (causes.length > 0) drift.push({ skill: s.name, causes });
   }

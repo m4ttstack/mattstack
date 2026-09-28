@@ -47,7 +47,7 @@ describe("expandSkills", () => {
     expect(review!.skillMd).toContain("allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/go.sh:*)\n");
     expect(review!.skillMd).toContain("metadata:\n  slots: \"review\"\n  compiled: \"mattstack:note@9.9.9\"\n---");
     expect(review!.skillMd).toContain(`\n${EXPAND_HEADER}\n`);
-    expect(review!.skillMd).toMatch(/<!-- part: step source=review\/SKILL\.md lines=\d+-\d+ -->/);
+    expect(review!.skillMd).toMatch(/<!-- part: step source=review\/SKILL\.md path=review\/SKILL\.md lines=\d+-\d+ -->/);
     expect(review!.skillMd).toContain("<!-- part: include:note source=mattstack:note version=9.9.9 path=attachments/note/SKILL.md lines=");
     expect(review!.skillMd).toContain("Shared rule one.");
     expect(review!.skillMd).not.toContain("{{");
@@ -70,12 +70,31 @@ describe("expandSkills", () => {
 
   test("refuses an include that is not alone on its line", () => {
     write(join(src, "inline", "SKILL.md"), "---\nname: board:inline\ndescription: i\n---\n\nSee {{include:note}} here.\n");
-    expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(/inline\/SKILL\.md: \{\{include:note\}\} must be alone on its line \(line 1\)/);
+    expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(/inline\/SKILL\.md: \{\{include:note\}\} must be alone on its line \(line 6\)/);
   });
 
   test("refuses any placeholder that is not an include", () => {
     write(join(src, "slotty", "SKILL.md"), "---\nname: board:slotty\ndescription: s\n---\n\n{{slot:domain}}\n");
-    expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(/slotty\/SKILL\.md: \{\{slot:domain\}\} at line 1 .* only \{\{include:<name>\}\}/);
+    expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(/slotty\/SKILL\.md: \{\{slot:domain\}\} at line 6 .* only \{\{include:<name>\}\}/);
+  });
+
+  test("refuses a literal {{ that is not a placeholder, at its file line", () => {
+    write(join(src, "stray", "SKILL.md"), "---\nname: board:stray\ndescription: s\n---\n\n# Stray\n\nSee {{not a placeholder here.\n");
+    expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(/stray\/SKILL\.md: literal "\{\{" at line 8 is not a placeholder/);
+  });
+
+  test("refuses an include whose body carries a literal {{", () => {
+    write(join(root, "plugins", "mattstack", "attachments", "note", "SKILL.md"), `${NOTE}\nOpen {{brace.\n`);
+    expect(() => expandSkills({ srcDir: src, outDir: out, roots: roots() })).toThrow(
+      /review\/SKILL\.md: include "note" carries a literal "\{\{" at attachments\/note\/SKILL\.md line 10/,
+    );
+  });
+
+  test("refuses an out dir that equals, contains, or sits inside the src dir", () => {
+    const overlap = /overlaps src dir/;
+    expect(() => expandSkills({ srcDir: src, outDir: src, roots: roots() })).toThrow(overlap);
+    expect(() => expandSkills({ srcDir: src, outDir: root, roots: roots() })).toThrow(overlap);
+    expect(() => expandSkills({ srcDir: src, outDir: join(src, "out"), roots: roots() })).toThrow(overlap);
   });
 
   test("refuses an unknown include by name", () => {
@@ -131,6 +150,10 @@ describe("writeExpanded and checkExpanded", () => {
     expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([{ skill: "review", causes: ["source"] }]);
     writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
 
+    write(join(src, "review", "SKILL.md"), readFileSync(join(src, "review", "SKILL.md"), "utf8").replace("Tail.", "Tail v2."));
+    expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([{ skill: "review", causes: ["include"] }]);
+    writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
+
     write(join(root, "plugins", "mattstack", "attachments", "note", "SKILL.md"), NOTE.replace("rule one", "rule two"));
     expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([{ skill: "review", causes: ["include"] }]);
     writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
@@ -147,5 +170,11 @@ describe("writeExpanded and checkExpanded", () => {
     const drift = checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
     expect(drift).toContainEqual({ skill: "recipes", causes: ["missing"] });
     expect(drift).toContainEqual({ skill: "orphan", causes: ["orphan"] });
+  });
+
+  test("check reports a stale vendored file whose source was deleted", () => {
+    writeExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }));
+    rmSync(join(src, "review", "scripts", "go.sh"));
+    expect(checkExpanded(out, expandSkills({ srcDir: src, outDir: out, roots: roots() }))).toEqual([{ skill: "review", causes: ["vendored"] }]);
   });
 });
