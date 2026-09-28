@@ -52,6 +52,10 @@ export const paneStatusSubscription = (pane: string) => [{ type: "pane.agent_sta
 // the trust dialog whose pane is then closed has crashed like any other, and its
 // open gates must close with it.
 const WATCHED: ReadonlySet<string> = new Set(["spawning", "active", "at-gate", "at-milestone", "stuck-at-modal"]);
+// A done job's pane stays subscribed: a follow-up round runs in the same
+// pane after the report, and the watchdog's quiet clock only sees it through
+// lastStatusChange (RT-355). WATCHED stays the set the notices act on.
+const SUBSCRIBED: ReadonlySet<string> = new Set([...WATCHED, "done"]);
 const RECONCILE_MS = 30_000;
 const TIMER_LABEL = "herd-lifecycle-reconcile";
 
@@ -150,7 +154,7 @@ export function createHerdLifecycle(opts: {
         // A hidden herd's row stores the bg: ref; herdr only knows the bare
         // id, so the subscription (and the pane key handleEvent will use)
         // must carry the parsed form.
-        if (!job.pane || !WATCHED.has(job.status)) continue;
+        if (!job.pane || !SUBSCRIBED.has(job.status)) continue;
         const pane = parsePaneRef(job.pane).paneId;
         wanted.set(paneKey(herd.herdrSocket, pane), { socket: herd.herdrSocket, pane });
       }
