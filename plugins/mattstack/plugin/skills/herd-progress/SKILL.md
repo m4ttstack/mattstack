@@ -50,9 +50,9 @@ Where each method's row comes from:
 | Method | spec, plan, exec, review | tasks and now |
 | --- | --- | --- |
 | superpowers, from-spec, from-plan | the report draft's milestones and the SDD ledger; spec is `·` on from-spec, spec and plan on from-plan | ledger `Task N: complete` lines against the plan's `Task N` headings; the ledger's latest line |
-| trivial, direct-tdd | exec only; the rest `·` (no ledger by design) | the brief's item codes against the draft's `- A1: done` lines; `?/n` until the draft exists |
-| delegate | the strategy the worker named on its draft's first line; `delegate: strategy not named yet` before that | as for the strategy it named |
-| a domain Method (a team's pipeline skill) | the pipeline run's `plan`, `implement` and review stages | `·`; the run's current stage, or its attention reason. Stages after review (ship, CI) show only here, so all ✓ with a stage in now is still running |
+| trivial, direct-tdd | exec only; the rest `·` (no ledger by design) | the brief's item codes against the draft's `- A1: done` lines. The draft is written at completion, so `?/n` for the whole run is normal |
+| delegate | once its draft names a strategy, that strategy's row; until then a ledger if one exists, else `delegate: strategy not named yet` | as for the strategy it named |
+| a domain Method (a team's pipeline skill) | the herd's pipeline run on the job's branch: its `plan`, `implement` and review stages | `·`; the run's current stage, or its attention reason. Stages after review (ship, CI) show only here, so all ✓ with a stage in now is still running. A run still going keeps the row running, with `pane idle` added when the worker's turn has ended |
 
 The header's trouble count is the **CRASHED**, **STUCK** and *idle* rows.
 

@@ -28,18 +28,19 @@ INLINE_METHODS = {"trivial", "direct-tdd"}
 STRATEGIES = sorted({*LEDGER_METHODS, *INLINE_METHODS}, key=len, reverse=True)
 
 
-def rt_json(args):
+def rt_json(args, required=True):
     what = f"rt {' '.join(args)}"
+    fail = sys.exit if required else (lambda _: {})
     try:
         out = subprocess.run(["rt", *args, "--json"], capture_output=True, text=True)  # mcp-lint: allow
     except FileNotFoundError:
-        sys.exit(f"{what} failed: rt is not on PATH")
+        return fail(f"{what} failed: rt is not on PATH")
     if out.returncode != 0:
-        sys.exit(f"{what} failed: {(out.stderr or out.stdout).strip()}")
+        return fail(f"{what} failed: {(out.stderr or out.stdout).strip()}")
     try:
         return json.loads(out.stdout)
     except json.JSONDecodeError:
-        sys.exit(f"{what} failed: output was not JSON")
+        return fail(f"{what} failed: output was not JSON")
 
 
 def mtime(path):
@@ -129,13 +130,12 @@ def method(brief, draft):
 
 def inline_progress(brief, draft):
     section = re.search(r"(?ms)^Tasks \(item-coded\):\n(.*?)^Verification", brief)
-    items = set(re.findall(r"(?m)^\s*-?\s*([A-Z]\d+)\b", section.group(1))) if section else set()
-    finished = set(re.findall(r"(?m)^\s*-\s*([A-Z]\d+):\s*(?:done|skipped)\b", draft)) & items
+    items = set(re.findall(r"(?m)^\s*-?\s*([A-Z]\d+)(?:\s*\([^)\n]*\))?:", section.group(1))) if section else set()
+    finished = set(re.findall(r"(?m)^\s*-\s*([A-Z]\d+)(?:\s*\([^)\n]*\))?:\s*(?:done|skipped)\b", draft)) & items
     return len(finished), len(items)
 
 
 def tree_branch(root):
-    """The job record's branch is null when a domain provisioned the tree."""
     dotgit = os.path.join(root, ".git")
     gitdir = dotgit
     if os.path.isfile(dotgit):
@@ -147,17 +147,25 @@ def tree_branch(root):
 
 
 def run_for(job, runs, herd_id, roots):
-    """Pipeline runs carry no job name; the herd spawned them on the job's branch."""
+    """Pipeline runs carry no job name, only the herd and branch. The job record's
+    branch is null when a domain provisioned the tree, and pool trees are reused,
+    so a finished job only owns runs that started inside its own lifetime."""
     branches = {job.get("branch")} if job.get("branch") else {tree_branch(r) for r in roots} - {""}
-    mine = [r for r in runs if r.get("spawned_by") == f"herd:{herd_id}" and r.get("branch") in branches]
+    start = job["createdAt"]
+    end = float("inf") if job["status"] in LIVE else (job.get("updatedAt") or float("inf"))
+    mine = [
+        r for r in runs
+        if r.get("spawned_by") == f"herd:{herd_id}" and r.get("branch") in branches
+        and start <= (r.get("started_at") or 0) <= end
+    ]
     return max(mine, key=lambda r: r.get("started_at") or 0) if mine else None
 
 
 def stage_mark(run, match):
-    hits = [s for s in run.get("stages") or [] if match(s["name"])]
+    hits = [s for s in run.get("stages") or [] if match(s.get("name") or "")]
     if not hits:
         return "" if run.get("status") == "running" else "·"
-    return {"done": "✓", "running": "▸", "failed": "✗"}.get(hits[-1].get("status"), "")
+    return {"done": "✓", "running": "▸", "failed": "✗", "skipped": "·"}.get(hits[-1].get("status"), "")
 
 
 def run_now(run):
@@ -218,7 +226,8 @@ def row(job, herd_id, gates, runs, now_s):
     draft = fresh_draft(roots, since)
     brief = brief_text(herd_id, job["name"])
     meth = method(brief, draft)
-    run = run_for(job, runs, herd_id, roots)
+    domain = meth not in STRATEGIES and meth != "delegate"
+    run = run_for(job, runs, herd_id, roots) if domain else None
     found = None if run else newest_ledger(roots, since)
     done, total, now = ledger_progress(found[0], found[2]) if found else (0, 0, "")
     known = True
@@ -251,13 +260,19 @@ def row(job, herd_id, gates, runs, now_s):
             now = "items in the report draft" if draft else "working inline, no ledger by design"
         elif meth == "delegate" and not found:
             now = "delegate: strategy not named yet"
+        elif domain and not found and live:
+            now = "no pipeline run yet"
     if live and not run and "▸" not in cols.values():
         for p in ("spec", "plan", "exec", "review"):
             if cols[p] == "":
                 cols[p] = "▸"
                 break
 
-    idle = live and job.get("paneStatus") in {"idle", "done"} and not gate
+    pane_idle = live and job.get("paneStatus") in {"idle", "done"} and not gate
+    run_going = bool(run) and run.get("status") == "running"
+    idle = pane_idle and not run_going
+    if pane_idle and run_going:
+        now = f"{now}; pane idle"
     if gate or job["status"] in {"at-gate", "at-milestone"}:
         rank, status = 0, "**NEEDS YOU**"
         now = gate_text(gate) if gate else f"{job['status']}, gate not listed"
@@ -294,7 +309,7 @@ def main():
     status = rt_json(["herd", "status", *herd_args])
     herd_id = status["herd"]["id"]
     gates = rt_json(["herd", "gates", "--herd", herd_id]).get("gates", [])
-    runs = rt_json(["runs"]).get("runs", [])
+    runs = rt_json(["runs"], required=False).get("runs", [])
     now_s = time.time()
     jobs = status["jobs"]
 
