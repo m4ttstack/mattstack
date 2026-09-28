@@ -53,7 +53,7 @@ export interface ReleaseData {
   publishedAt: string | null;
 }
 
-const GH_REPO = "m4ttstack/rt";
+const GH_REPO = "m4ttstack/mattstack";
 const RELEASE_WORKFLOW = "release.yml";
 // A real release.yml run (macOS build, notarize, clean room) takes 25-50
 // minutes; a budget shorter than that would report "pending" on nearly
