@@ -345,6 +345,7 @@ digraph respond_flow {
     "Ask the domain skill to revise at round n+1" -> "Fresh adjudication table handed back?";
     "Fresh adjudication table handed back?" -> "Write the verdict table and drafts to --report" [label="yes: a new round"];
     "Fresh adjudication table handed back?" -> "Domain skill resolved (skip)?" [label="no: nothing implemented this round, the skip hand-off"];
+    "Fresh adjudication table handed back?" -> "<status-bin> respond-status <state> error <what went wrong>" [label="failed"];
     "Revise the proposal yourself at round n+1" -> "Write the verdict table and drafts to --report";
 
     "Threads to offer at Gate 2?" -> "Domain skill resolved (reply-only)?" [label="none: no fixed thread, no override"];
@@ -879,7 +880,10 @@ this round: the edge goes to `Domain skill resolved (skip)?` and takes the
 skip branch's hand-off, so `Hand {plan, by} to the domain skill` hands it
 the Gate 1 answers with nothing to implement, and it records them, drafts
 any overrides and, when Gate 2 has nothing to offer, posts the reply-only
-threads.
+threads. A domain skill that fails during the revise (it reports a
+failure, or stops without a table or a clean "nothing changed") is
+`failed`: `error` naming what went wrong, with the drafts kept in
+`--report`, never the skip hand-off.
 
 ### Revise the proposal yourself at round n+1
 
