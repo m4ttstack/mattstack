@@ -3,9 +3,14 @@
 
 Usage: python3 herd_progress.py [--herd <id>]
 
-Reads the herd from rt (the same data herd_status and herd_gates return) and
-each job's SDD ledger, plan headings and report draft from its worktree. It
-only reads; nothing here writes to the herd, the room, a gate or a pane.
+Reads the herd from rt (the same data herd_status and herd_gates return), the
+pipeline runs the herd spawned, and from each job's worktree its SDD ledger,
+plan headings and report draft. Where progress lives depends on the job's
+method: an SDD ledger (superpowers, from-spec, from-plan), the brief's item
+list plus the report draft (trivial, direct-tdd), a pipeline run (a domain
+Method such as a team's work skill), or whichever of those a delegate job
+picked. It only reads; nothing here writes to the herd, the room, a gate or
+a pane.
 """
 import glob
 import json
@@ -18,21 +23,24 @@ import time
 BAR_CELLS = 10
 NOW_MAX = 64
 LIVE = {"spawning", "active", "at-gate", "at-milestone", "stuck-at-modal"}
-PIPELINE_METHODS = {"superpowers": ("spec", "plan"), "from-spec": ("plan",)}
+LEDGER_METHODS = {"superpowers": ("spec", "plan"), "from-spec": ("plan",), "from-plan": ()}
+INLINE_METHODS = {"trivial", "direct-tdd"}
+STRATEGIES = sorted({*LEDGER_METHODS, *INLINE_METHODS}, key=len, reverse=True)
 
 
-def rt_json(args):
+def rt_json(args, required=True):
     what = f"rt {' '.join(args)}"
+    fail = sys.exit if required else (lambda _: {})
     try:
         out = subprocess.run(["rt", *args, "--json"], capture_output=True, text=True)  # mcp-lint: allow
     except FileNotFoundError:
-        sys.exit(f"{what} failed: rt is not on PATH")
+        return fail(f"{what} failed: rt is not on PATH")
     if out.returncode != 0:
-        sys.exit(f"{what} failed: {(out.stderr or out.stdout).strip()}")
+        return fail(f"{what} failed: {(out.stderr or out.stdout).strip()}")
     try:
         return json.loads(out.stdout)
     except json.JSONDecodeError:
-        sys.exit(f"{what} failed: output was not JSON")
+        return fail(f"{what} failed: output was not JSON")
 
 
 def mtime(path):
@@ -105,15 +113,78 @@ def ledger_progress(root, ledger):
     return done, total, now
 
 
-def method(herd_id, job_name):
-    brief = read(os.path.expanduser(os.path.join("~/.mattstack/rt/herds", herd_id, job_name, "job.md")))
+def brief_text(herd_id, job_name):
+    return read(os.path.expanduser(os.path.join("~/.mattstack/rt/herds", herd_id, job_name, "job.md")))
+
+
+def method(brief, draft):
+    """A delegate job names the strategy it picked on its report's first line."""
     m = re.search(r"(?m)^Method:\s*([a-z-]+)", brief)
+    meth = m.group(1) if m else ""
+    if meth == "delegate":
+        first = draft.strip().splitlines()[0] if draft.strip() else ""
+        picked = re.search(r"\b(" + "|".join(STRATEGIES) + r")\b", first)
+        return picked.group(1) if picked else meth
+    return meth
+
+
+def inline_progress(brief, draft):
+    section = re.search(r"(?ms)^Tasks \(item-coded\):\n(.*?)^Verification", brief)
+    items = set(re.findall(r"(?m)^\s*-?\s*([A-Z]\d+)(?:\s*\([^)\n]*\))?:", section.group(1))) if section else set()
+    finished = set(re.findall(r"(?m)^\s*-\s*([A-Z]\d+)(?:\s*\([^)\n]*\))?:\s*(?:done|skipped)\b", draft)) & items
+    return len(finished), len(items)
+
+
+def tree_branch(root):
+    dotgit = os.path.join(root, ".git")
+    gitdir = dotgit
+    if os.path.isfile(dotgit):
+        m = re.match(r"gitdir:\s*(.+)", read(dotgit).strip())
+        gitdir = m.group(1) if m else ""
+        gitdir = gitdir if os.path.isabs(gitdir) else os.path.join(root, gitdir)
+    m = re.match(r"ref:\s*refs/heads/(.+)", read(os.path.join(gitdir, "HEAD")).strip())
     return m.group(1) if m else ""
 
 
-def bar(done, total):
+def run_for(job, runs, herd_id, roots):
+    """Pipeline runs carry no job name, only the herd and branch. The job record's
+    branch is null when a domain provisioned the tree, and pool trees are reused,
+    so a finished job only owns runs that started inside its own lifetime."""
+    branches = {job.get("branch")} if job.get("branch") else {tree_branch(r) for r in roots} - {""}
+    start = job["createdAt"]
+    end = float("inf") if job["status"] in LIVE else (job.get("updatedAt") or float("inf"))
+    mine = [
+        r for r in runs
+        if r.get("spawned_by") == f"herd:{herd_id}" and r.get("branch") in branches
+        and start <= (r.get("started_at") or 0) <= end
+    ]
+    return max(mine, key=lambda r: r.get("started_at") or 0) if mine else None
+
+
+def stage_mark(run, match):
+    hits = [s for s in run.get("stages") or [] if match(s.get("name") or "")]
+    if not hits:
+        return "" if run.get("status") == "running" else "·"
+    return {"done": "✓", "running": "▸", "failed": "✗", "skipped": "·"}.get(hits[-1].get("status"), "")
+
+
+def run_now(run):
+    attention = run.get("attention") or {}
+    if attention.get("needs"):
+        return f"run needs attention: {attention.get('reason') or 'no reason recorded'}"
+    stages = run.get("stages") or []
+    last = stages[-1] if stages else {}
+    stage = last.get("name") or run.get("current_stage") or "?"
+    if run.get("status") == "running":
+        return f"stage {stage}" + (" failed" if last.get("status") == "failed" else "")
+    return f"run {run.get('status')} at {stage}"
+
+
+def bar(done, total, known=True):
     if not total:
         return "`" + "·" * BAR_CELLS + "`" + (f" {done}/?" if done else "")
+    if not known:
+        return "`" + "·" * BAR_CELLS + f"` ?/{total}"
     filled = min(BAR_CELLS, round(BAR_CELLS * done / total))
     return "`" + "█" * filled + "░" * (BAR_CELLS - filled) + f"` {done}/{total}"
 
@@ -145,35 +216,63 @@ def gate_text(g):
     return f"{kind}: {label}"
 
 
-def row(job, herd_id, gates, now_s):
+def row(job, herd_id, gates, runs, now_s):
     since = job["createdAt"] / 1000
     roots = job_roots(job)
     live = job["status"] in LIVE
     reported = job["status"] in {"done", "closed"} and job.get("lastReport") is not None
     gate = gate_for(job, gates, herd_id) if live else None
 
-    found = newest_ledger(roots, since)
-    done, total, now = ledger_progress(found[0], found[2]) if found else (0, 0, "")
     draft = fresh_draft(roots, since)
-    meth = method(herd_id, job["name"])
-    phases = PIPELINE_METHODS.get(meth, ())
+    brief = brief_text(herd_id, job["name"])
+    meth = method(brief, draft)
+    domain = meth not in STRATEGIES and meth != "delegate"
+    run = run_for(job, runs, herd_id, roots) if domain else None
+    found = None if run else newest_ledger(roots, since)
+    done, total, now = ledger_progress(found[0], found[2]) if found else (0, 0, "")
+    known = True
+    if meth in INLINE_METHODS and not run:
+        done, total = inline_progress(brief, draft)
+        known = bool(draft)
+        if reported and not known:
+            done, total = 0, 0
+    phases = LEDGER_METHODS.get(meth, ())
 
     cols = {}
-    for p in ("spec", "plan"):
-        if p not in phases:
-            cols[p] = "·"
-        else:
-            written = re.search(rf"(?m)^\s*-?\s*{p}:", draft) or (p == "plan" and found)
-            cols[p] = "✓" if reported or written else ""
-    cols["exec"] = "✓" if reported or (total and done >= total) else ("" if not found else "▸")
-    cols["review"] = "✓" if reported else ("▸" if live and cols["exec"] == "✓" else "")
-    if live and "▸" not in cols.values():
+    if run:
+        cols["spec"] = "·"
+        cols["plan"] = stage_mark(run, lambda n: n == "plan")
+        cols["exec"] = stage_mark(run, lambda n: n == "implement")
+        cols["review"] = stage_mark(run, lambda n: "review" in n)
+        now = run_now(run)
+    else:
+        for p in ("spec", "plan"):
+            if p not in phases:
+                cols[p] = "·"
+            else:
+                written = re.search(rf"(?m)^\s*-?\s*{p}:", draft) or (p == "plan" and found)
+                cols[p] = "✓" if reported or written else ""
+        started = found or (meth in INLINE_METHODS and live)
+        cols["exec"] = "✓" if reported or (known and total and done >= total) else ("▸" if started else "")
+        cols["review"] = "✓" if reported else ("▸" if live and cols["exec"] == "✓" else "")
+        if meth in INLINE_METHODS:
+            cols["review"] = "·"
+            now = "items in the report draft" if draft else "working inline, no ledger by design"
+        elif meth == "delegate" and not found:
+            now = "delegate: strategy not named yet"
+        elif domain and not found and live:
+            now = "no pipeline run yet"
+    if live and not run and "▸" not in cols.values():
         for p in ("spec", "plan", "exec", "review"):
             if cols[p] == "":
                 cols[p] = "▸"
                 break
 
-    idle = live and job.get("paneStatus") in {"idle", "done"} and not gate
+    pane_idle = live and job.get("paneStatus") in {"idle", "done"} and not gate
+    run_going = bool(run) and run.get("status") == "running"
+    idle = pane_idle and not run_going
+    if pane_idle and run_going:
+        now = f"{now}; pane idle"
     if gate or job["status"] in {"at-gate", "at-milestone"}:
         rank, status = 0, "**NEEDS YOU**"
         now = gate_text(gate) if gate else f"{job['status']}, gate not listed"
@@ -188,7 +287,8 @@ def row(job, herd_id, gates, now_s):
         if cols["review"] == "▸":
             now = "all tasks done, no report yet"
     elif live:
-        rank, status = 3, "spawning" if job["status"] == "spawning" else "running"
+        spawning = job["status"] == "spawning" and not (run or found)
+        rank, status = 3, "spawning" if spawning else "running"
         if found and now_s - found[1] > 1800:
             now = f"ledger quiet {age(now_s - found[1])}; {now}"
     elif reported:
@@ -198,7 +298,7 @@ def row(job, herd_id, gates, now_s):
 
     if not now:
         now = "no ledger yet" if live else ""
-    tasks = bar(done, total) if (found or total) else "·"
+    tasks = bar(done, total, known) if (found or total) else "·"
     line = f"| {job['name']} | {status} | {cols['spec']} | {cols['plan']} | {cols['exec']} | {cols['review']} | {tasks} | {cell(now)} |"
     return rank, job["createdAt"], line
 
@@ -209,10 +309,11 @@ def main():
     status = rt_json(["herd", "status", *herd_args])
     herd_id = status["herd"]["id"]
     gates = rt_json(["herd", "gates", "--herd", herd_id]).get("gates", [])
+    runs = rt_json(["runs"], required=False).get("runs", [])
     now_s = time.time()
     jobs = status["jobs"]
 
-    rows = sorted(row(j, herd_id, gates, now_s) for j in jobs)
+    rows = sorted(row(j, herd_id, gates, runs, now_s) for j in jobs)
     counts = {"need": 0, "trouble": 0, "running": 0, "finished": 0}
     for rank, _, _ in rows:
         counts["need" if rank == 0 else "trouble" if rank in (1, 2) else "running" if rank == 3 else "finished"] += 1

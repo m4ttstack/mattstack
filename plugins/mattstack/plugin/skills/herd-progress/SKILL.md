@@ -8,7 +8,9 @@ allowed-tools:
 # Herd progress
 
 One script call renders the whole view: the herd from rt, and each job's
-tasks from its own SDD ledger and plan. The shepherd prints what it returns.
+progress from wherever its method keeps it (an SDD ledger and plan, the
+brief's items and the report draft, or a pipeline run). The shepherd prints
+what it returns.
 
 ## The reply
 
@@ -39,12 +41,23 @@ shows, so the turn is one call and one message.
 | Column | Values |
 | --- | --- |
 | status | **NEEDS YOU** (an open gate, herd or pipeline run), **CRASHED**, **STUCK** (parked at a dialog, or blocked at a prompt with no gate), *idle* (the worker's turn ended, no gate), running, spawning, done, *closed* (no report) |
-| spec, plan, exec, review | ✓ done, ▸ current, blank not yet, · not tracked for this job's method (trivial, direct-tdd, from-plan and delegate jobs; spec on from-spec jobs) |
-| tasks | `█` done and `░` left, from the ledger's `Task N: complete` lines against the plan's `Task N` headings; `·` bar with `n/?` when the plan total is unknown |
-| now | the gate's question for **NEEDS YOU**, else the ledger's latest line |
+| spec, plan, exec, review | ✓ done, ▸ current, ✗ failed (pipeline stage), blank not yet, · not tracked for this job's method |
+| tasks | `█` done and `░` left; `·` bar with `n/?` when the total is unknown, `?/n` when the done count is not written yet |
+| now | the gate's question for **NEEDS YOU**, else the method's latest signal |
 
-Task counts are the worker's own ledger, not a verified result: say "the
-ledger shows" when you quote one.
+Where each method's row comes from:
+
+| Method | spec, plan, exec, review | tasks and now |
+| --- | --- | --- |
+| superpowers, from-spec, from-plan | the report draft's milestones and the SDD ledger; spec is `·` on from-spec, spec and plan on from-plan | ledger `Task N: complete` lines against the plan's `Task N` headings; the ledger's latest line |
+| trivial, direct-tdd | exec only; the rest `·` (no ledger by design) | the brief's item codes against the draft's `- A1: done` lines. The draft is written at completion, so `?/n` for the whole run is normal |
+| delegate | once its draft names a strategy, that strategy's row; until then a ledger if one exists, else `delegate: strategy not named yet` | as for the strategy it named |
+| a domain Method (a team's pipeline skill) | the herd's pipeline run on the job's branch: its `plan`, `implement` and review stages | `·`; the run's current stage, or its attention reason. Stages after review (ship, CI) show only here, so all ✓ with a stage in now is still running. A run still going keeps the row running, with `pane idle` added when the worker's turn has ended |
+
+The header's trouble count is the **CRASHED**, **STUCK** and *idle* rows.
+
+Task counts are the worker's own ledger or draft, not a verified result:
+say "the ledger shows" when you quote one.
 
 ## When the script fails
 
