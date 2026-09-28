@@ -169,4 +169,43 @@ describe("redactSensitiveArgs", () => {
       expect(redactSensitiveArgs(args, "rt sdm connect")).toEqual(args);
     });
   });
+
+  describe("rt logins add keeps only the origin and --json, though the command refuses anything more", () => {
+    test("raw argv shape: a stray email and password are redacted", () => {
+      expect(redactSensitiveArgs(["logins", "add", "https://login.example.com", "dev@example.com", "hunter2", "--json"])).toEqual([
+        "logins",
+        "add",
+        "https://login.example.com",
+        "[redacted]",
+        "[redacted]",
+        "--json",
+      ]);
+    });
+
+    test("leaf `rest` shape: command carries the 'logins add' context", () => {
+      expect(redactSensitiveArgs(["https://login.example.com", "dev@example.com", "hunter2"], "logins add")).toEqual([
+        "https://login.example.com",
+        "[redacted]",
+        "[redacted]",
+      ]);
+    });
+
+    test("a first token that is not an origin is redacted too, and so is an unknown flag", () => {
+      expect(redactSensitiveArgs(["dev@example.com", "hunter2", "--password=hunter2"], "rt logins add")).toEqual([
+        "[redacted]",
+        "[redacted]",
+        "[redacted]",
+      ]);
+    });
+
+    test("an origin alone passes through untouched", () => {
+      const args = ["logins", "add", "https://login.example.com", "--json"];
+      expect(redactSensitiveArgs(args)).toEqual(args);
+    });
+
+    test("the other logins verbs are not affected", () => {
+      const args = ["https://login.example.com", "extra"];
+      expect(redactSensitiveArgs(args, "logins remove")).toEqual(args);
+    });
+  });
 });
