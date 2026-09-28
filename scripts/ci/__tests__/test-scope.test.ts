@@ -11,6 +11,7 @@ import {
   existingPluginDirs,
   isPluginTree,
   pluginDirs,
+  prPluginDirs,
   ROOT,
   RT_PLUGIN_TRIGGERS,
   rtTriggeredPluginDirs,
@@ -293,6 +294,8 @@ describe("rt changes that affect a plugin", () => {
     "commands/skills-sync.ts",
     "commands/skills.ts",
     "lib/command-tree-def.ts",
+    "lib/command-tree-resolve.ts",
+    "lib/command-tree.ts",
     "cli.ts",
   ])("%s runs plugin-mattstack when the plugin exists", (f) => {
     withPlugin("mattstack", (root) => expect(rtTriggeredPluginDirs([f], root)).toEqual(["plugins/mattstack"]));
@@ -304,5 +307,13 @@ describe("rt changes that affect a plugin", () => {
   });
   test("a trigger for a plugin directory that does not exist is dropped", () => {
     withPlugin(null, (root) => expect(rtTriggeredPluginDirs(["lib/mcp/tools.ts"], root)).toEqual([]));
+  });
+  test("a PR's plugin set lists a plugin touched directly and by an rt path once", () => {
+    withPlugin("mattstack", (root) =>
+      expect(prPluginDirs(["plugins/mattstack/README.md", "lib/mcp/tools.ts", "plugins/herdr-chat/x.ts"], root)).toEqual([
+        "plugins/herdr-chat",
+        "plugins/mattstack",
+      ]),
+    );
   });
 });

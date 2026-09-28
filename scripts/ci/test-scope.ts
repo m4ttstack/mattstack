@@ -125,7 +125,7 @@ export const RT_PLUGIN_TRIGGERS: Record<string, string> = {
   "commands/mcp.ts": "plugins/mattstack",
   "lib/skills/": "plugins/mattstack",
   "commands/skills": "plugins/mattstack",
-  "lib/command-tree-def.ts": "plugins/mattstack",
+  "lib/command-tree": "plugins/mattstack",
   "cli.ts": "plugins/mattstack",
 };
 
@@ -137,6 +137,10 @@ export function rtTriggeredPluginDirs(changed: string[], root: string = ROOT): s
     }
   }
   return [...out].sort();
+}
+
+export function prPluginDirs(changed: string[], root: string = ROOT): string[] {
+  return [...new Set([...pluginDirs(changed), ...rtTriggeredPluginDirs(changed, root)])].sort();
 }
 
 export function existingPluginDirs(root: string = ROOT): string[] {
@@ -267,11 +271,7 @@ if (import.meta.main) {
   const always = alwaysRunPaths().join(" ");
   console.log(`mode=${decision.mode} (${decision.reason})`);
   console.log(`dirs=${dirs}`);
-  const plugins = (
-    event === "pull_request"
-      ? [...new Set([...pluginDirs(changed), ...rtTriggeredPluginDirs(changed)])].sort()
-      : existingPluginDirs()
-  ).join(",");
+  const plugins = (event === "pull_request" ? prPluginDirs(changed) : existingPluginDirs()).join(",");
   console.log(`always=${always}`);
   console.log(`plugins=${plugins}`);
   if (!process.argv.includes("--explain") && process.env.GITHUB_OUTPUT) {

@@ -190,6 +190,38 @@ describe("pluginDirOf through discoverPacks", () => {
     expect(found.map((p) => [p.name, p.dir])).toEqual([["mattstack", realpathSync(pack)]]);
   });
 
+  function discoverSubdir(checkout: string, path: string): ReturnType<typeof discoverPacks> {
+    const market = tmp("rt-packs-market4-");
+    writeFile(join(market, ".claude-plugin", "marketplace.json"), JSON.stringify({
+      plugins: [{ name: "escape", source: { source: "git-subdir", url: pathToFileURL(checkout).href, path } }],
+    }));
+    const settingsPath = join(tmp("rt-packs-settings4-"), "settings.json");
+    writeFile(settingsPath, JSON.stringify({ extraKnownMarketplaces: { local: { source: { source: "directory", path: market } } } }));
+    return discoverPacks({ settingsPath });
+  }
+
+  test("a git-subdir path that climbs out of the checkout is not a pack", () => {
+    const parent = tmp("rt-packs-parent-");
+    const checkout = join(parent, "checkout");
+    writeFile(join(checkout, "README.md"), "x\n");
+    writeFile(join(parent, "x", "surface.jsonc"), `{ "public": [] }\n`);
+    expect(discoverSubdir(checkout, "../x")).toEqual([]);
+  });
+
+  test("an absolute git-subdir path outside the checkout is not a pack", () => {
+    const checkout = tmp("rt-packs-checkout5-");
+    const outside = tmp("rt-packs-outside-");
+    writeFile(join(outside, "surface.jsonc"), `{ "public": [] }\n`);
+    expect(discoverSubdir(checkout, outside)).toEqual([]);
+    expect(discoverSubdir(checkout, "/etc")).toEqual([]);
+  });
+
+  test("an empty git-subdir path is not a pack, even when the checkout root is one", () => {
+    const checkout = tmp("rt-packs-checkout6-");
+    writeFile(join(checkout, "surface.jsonc"), `{ "public": [] }\n`);
+    expect(discoverSubdir(checkout, "")).toEqual([]);
+  });
+
   test("a git-subdir with a remote url is not a readable pack", () => {
     const market = tmp("rt-packs-market3-");
     writeFile(join(market, "plugins", "mattstack", "surface.jsonc"), `{ "public": [] }\n`);

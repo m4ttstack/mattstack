@@ -221,8 +221,9 @@ jobs:
         working-directory: plugins/herdr-chat
         run: cargo build --release --locked && cargo test --locked
 
-  # The skills pack's own checks, run in-tree when plugins/mattstack changed
-  # (every push to main runs them). --mattstack-dir names an empty root so
+  # The skills pack's own checks, run in-tree when plugins/mattstack or the
+  # rt MCP, skills or command-tree sources it reads changed (every push to
+  # main runs them). --mattstack-dir names an empty root so
   # rt resolves plugins from it instead of `claude plugin list`. The comma
   # wrap makes the match exact, as for herdr-chat.
   plugin-mattstack:
