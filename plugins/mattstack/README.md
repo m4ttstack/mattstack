@@ -95,7 +95,7 @@ is deliberate; see [Configuration](#configuration).
   exhaustion decision tree. Binding-only; reached through a wrapper's
   accounts slot.
 - **mattstack:execution-strategy** -- name the method an executor should run
-  for a unit of work (trivial, direct-tdd, resume, superpowers, delegate)
+  for a unit of work (trivial, direct-tdd, from-spec, from-plan, superpowers, delegate)
   and the report contract that method owes, including the boundary rules for
   running the superpowers chain inside a dispatched worker.
 
