@@ -47,7 +47,7 @@ describe("notes", () => {
       "- board: serve a setup page (#156)",
       "- board: tidy the header",
       "",
-      "**Full Changelog**: https://github.com/m4ttstack/rt/compare/v2.13.1...v2.13.2",
+      "**Full Changelog**: https://github.com/m4ttstack/mattstack/compare/v2.13.1...v2.13.2",
       "",
     ].join("\n"));
   });

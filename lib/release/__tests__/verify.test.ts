@@ -108,7 +108,7 @@ describe("checkRun", () => {
   // tag's run in one call, not just one among the newest N.
   const runsFor = (id: number, url: string) => JSON.stringify({ workflow_runs: [{ id, html_url: url }] });
   const NO_RUNS = JSON.stringify({ workflow_runs: [] });
-  const FOUND = runsFor(111, "https://github.com/m4ttstack/rt/actions/runs/111");
+  const FOUND = runsFor(111, "https://github.com/m4ttstack/mattstack/actions/runs/111");
 
   test("ok when the tag's run is completed and successful", async () => {
     const s = seams({
@@ -406,7 +406,7 @@ describe("checkLatest", () => {
 });
 
 describe("runVerify", () => {
-  const RUNS = JSON.stringify({ workflow_runs: [{ id: 111, html_url: "https://github.com/m4ttstack/rt/actions/runs/111" }] });
+  const RUNS = JSON.stringify({ workflow_runs: [{ id: 111, html_url: "https://github.com/m4ttstack/mattstack/actions/runs/111" }] });
 
   function happyPathSeams(): VerifySeams {
     return seams({

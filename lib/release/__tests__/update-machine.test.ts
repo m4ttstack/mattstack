@@ -142,10 +142,10 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
         failExactSeen++;
         if (!opts.failExactOccurrence || failExactSeen === opts.failExactOccurrence) return fail("injected failure", opts.failExactCode ?? 1);
       }
-      if (cmd.startsWith("gh api repos/m4ttstack/rt/releases/latest")) return ok(`${TAG}\n`);
-      if (cmd.startsWith("gh api repos/m4ttstack/rt/commits/")) return ok(`${RELEASED_SHA}\n`);
-      if (cmd.startsWith("gh api repos/m4ttstack/rt/compare/") && cmd.includes("...main ")) return ok(`${opts.mainStatus ?? "ahead"}\n`);
-      if (cmd.startsWith("gh api repos/m4ttstack/rt/compare/") && opts.compareStatus) return ok(`${opts.compareStatus}\n`);
+      if (cmd.startsWith("gh api repos/m4ttstack/mattstack/releases/latest")) return ok(`${TAG}\n`);
+      if (cmd.startsWith("gh api repos/m4ttstack/mattstack/commits/")) return ok(`${RELEASED_SHA}\n`);
+      if (cmd.startsWith("gh api repos/m4ttstack/mattstack/compare/") && cmd.includes("...main ")) return ok(`${opts.mainStatus ?? "ahead"}\n`);
+      if (cmd.startsWith("gh api repos/m4ttstack/mattstack/compare/") && opts.compareStatus) return ok(`${opts.compareStatus}\n`);
       if (cmd.startsWith("shasum")) return ok(`${opts.shaMismatch ? "deadbeef" : "cafefeed"}  /work/mattstack-2.11.0.dmg\n`);
       if (cmd.startsWith("hdiutil attach")) {
         if (opts.attachExit) return fail("attach failed", opts.attachExit);
@@ -668,7 +668,7 @@ describe("rt release update-machine", () => {
       expect(report.legs.find((l) => l.id === "daemon")!.status).toBe("ok");
       expect(report.legs.find((l) => l.id === "daemon")!.detail).toContain("contains");
       expect(report.legs.find((l) => l.id === "verify")!.status).toBe("ok");
-      expect(calls).toContain(`gh api repos/m4ttstack/rt/compare/${RELEASED_SHA}...acf3442fa --jq .status`);
+      expect(calls).toContain(`gh api repos/m4ttstack/mattstack/compare/${RELEASED_SHA}...acf3442fa --jq .status`);
     });
 
     test("a daemon on a commit that does not contain the release fails, naming why", async () => {
@@ -698,7 +698,7 @@ describe("rt release update-machine", () => {
         const leg = (await runUpdateMachine(seams, { yes: true })).legs.find((l) => l.id === "daemon")!;
         expect(leg.status).toBe("error");
         expect(leg.detail).toContain("not a commit sha");
-        expect(calls.some((c) => c.startsWith("gh api repos/m4ttstack/rt/compare/"))).toBe(false);
+        expect(calls.some((c) => c.startsWith("gh api repos/m4ttstack/mattstack/compare/"))).toBe(false);
       }
     });
 
@@ -983,7 +983,7 @@ describe("runDevAppRebuild", () => {
     expect(sha).toBe(RELEASED_SHA);
     expect(result.id).toBe("dev-bundle");
     expect(result.status).toBe("ok");
-    expect(calls).toContain("gh api repos/m4ttstack/rt/commits/main --jq .sha");
+    expect(calls).toContain("gh api repos/m4ttstack/mattstack/commits/main --jq .sha");
     expect(calls).toContain(`git checkout ${RELEASED_SHA}`);
     expect(calls.some((c) => c.startsWith("rt-tray/build.sh dev"))).toBe(true);
     expect(calls.some((c) => c.includes("/Applications/mattstack.app"))).toBe(false);

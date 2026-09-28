@@ -72,7 +72,7 @@ class World {
 
   releaseRun(tag: string, conclusion: string, status = "completed"): void {
     const id = this.seq++;
-    this.runs.set(id, { id, tag, status, conclusion: status === "completed" ? conclusion : null, html_url: `https://github.com/m4ttstack/rt/actions/runs/${id}` });
+    this.runs.set(id, { id, tag, status, conclusion: status === "completed" ? conclusion : null, html_url: `https://github.com/m4ttstack/mattstack/actions/runs/${id}` });
   }
 
   resolve(ref: string): Commit | undefined {
@@ -165,11 +165,11 @@ class World {
       return ok();
     }
 
-    if ((m = cmd.match(/^gh api repos\/m4ttstack\/rt\/git\/trees --input (\S+) --jq \.sha$/))) {
+    if ((m = cmd.match(/^gh api repos\/m4ttstack\/mattstack\/git\/trees --input (\S+) --jq \.sha$/))) {
       this.written.set("tree-new", this.written.get(m[1]!)!);
       return ok("tree-new\n");
     }
-    if ((m = cmd.match(/^gh api repos\/m4ttstack\/rt\/git\/commits --input (\S+) --jq \.sha$/))) {
+    if ((m = cmd.match(/^gh api repos\/m4ttstack\/mattstack\/git\/commits --input (\S+) --jq \.sha$/))) {
       const body = JSON.parse(this.written.get(m[1]!)!) as { message: string; parents: string[] };
       const tree = JSON.parse(this.written.get("tree-new")!) as { tree: { content: string }[] };
       const parent = this.commits.get(body.parents[0]!)!;
@@ -177,7 +177,7 @@ class World {
       this.commit(sha, parent.sha, ["RELEASE_NOTES.md"], tree.tree[0]!.content, body.message);
       return ok(`${sha}\n`);
     }
-    if ((m = cmd.match(/^gh api -X PATCH repos\/m4ttstack\/rt\/git\/refs\/heads\/main --input (\S+)$/))) {
+    if ((m = cmd.match(/^gh api -X PATCH repos\/m4ttstack\/mattstack\/git\/refs\/heads\/main --input (\S+)$/))) {
       const body = JSON.parse(this.written.get(m[1]!)!) as { sha: string; force: boolean };
       if (this.patchFails === "moved") {
         this.land(["website/docs/other.md"]);
@@ -190,15 +190,15 @@ class World {
       this.main = c.sha;
       return ok("{}");
     }
-    if ((m = cmd.match(/^gh api repos\/m4ttstack\/rt\/actions\/workflows\/release\.yml\/runs\?event=push&branch=(\S+)&per_page=5$/))) {
+    if ((m = cmd.match(/^gh api repos\/m4ttstack\/mattstack\/actions\/workflows\/release\.yml\/runs\?event=push&branch=(\S+)&per_page=5$/))) {
       const runs = [...this.runs.values()].filter((r) => r.tag === m![1]);
       return ok(JSON.stringify({ workflow_runs: runs.map((r) => ({ id: r.id, html_url: r.html_url })) }));
     }
-    if ((m = cmd.match(/^gh run view (\d+) --repo m4ttstack\/rt --json status,conclusion$/))) {
+    if ((m = cmd.match(/^gh run view (\d+) --repo m4ttstack\/mattstack --json status,conclusion$/))) {
       const r = this.runs.get(Number(m[1]));
       return r ? ok(JSON.stringify({ status: r.status, conclusion: r.conclusion })) : err("no run");
     }
-    if ((m = cmd.match(/^gh release view (\S+) --repo m4ttstack\/rt --json body,assets,isDraft,isPrerelease,publishedAt$/))) {
+    if ((m = cmd.match(/^gh release view (\S+) --repo m4ttstack\/mattstack --json body,assets,isDraft,isPrerelease,publishedAt$/))) {
       const tag = m[1]!;
       const published = [...this.runs.values()].some((r) => r.tag === tag && r.status === "completed");
       if (!this.remoteTags.has(tag) || !published) return err("release not found");

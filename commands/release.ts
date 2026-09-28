@@ -6,20 +6,20 @@
  *   rt release update-machine [--tag <tag>] [--plan] [--verify-only] [--yes] [--json]
  *   rt release app <name> [--dry-run] [--json] [--yes-notes]
  *
- * Read-only report of the release's mechanical checks (the rt:release skill's
- * steps 1-2c): git/tag state, picker conformance, pin freshness for every
- * vendored layer, catalog pin drift, extension currency, and which gate
- * (fast vs full) the pending diff implies. Exit 0 only when every layer is
- * verified current; stale or unverifiable layers exit 1.
+ * Read-only report of the release's mechanical checks (the rt:release
+ * skill's preflight node): git/tag state, picker conformance, pin freshness
+ * for every vendored layer, catalog pin drift, extension currency, and which
+ * gate (fast vs full) the pending diff implies. Exit 0 only when every layer
+ * is verified current; stale or unverifiable layers exit 1.
  *
- * `verify` confirms a tagged release actually published (step 10): the
- * release.yml run, the release body against the committed RELEASE_NOTES.md,
- * the four build assets, draft/prerelease state, and releases/latest
- * propagation. Exit 0 only when every check verifies; stale, unverifiable,
- * or still-propagating rows exit 1.
+ * `verify` confirms a tagged release actually published: the release.yml
+ * run, the release body against the committed RELEASE_NOTES.md, the four
+ * build assets, draft/prerelease state, and releases/latest propagation.
+ * Exit 0 only when every check verifies; stale, unverifiable, or
+ * still-propagating rows exit 1.
  *
- * update-machine runs the skill's step 12: bring this machine's prod app,
- * dev bundle, daemon, and served suite up to a released tag.
+ * update-machine runs the skill's update-machine step: bring this machine's
+ * prod app, dev bundle, daemon, and served suite up to a released tag.
  *
  * `app` is the fast path for a single served-app fix: qualify the path fast
  * path, write and commit the notes, tag and verify in one resumable run
