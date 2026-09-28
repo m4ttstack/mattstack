@@ -1033,6 +1033,18 @@ describe("worker verbs", () => {
     if (!paneless.ok) expect(paneless.error).toContain("no pane");
     expect(store.getJob(herd, "job-p")!.status).toBe("done");
   });
+
+  test("follow-up refuses a done job whose herd is wrapped and leaves both as they were", async () => {
+    const { h, store, herd } = await withJob();
+    await h["herd:report"]({ herd, job: "job-a", body: "done: A1" });
+    expect((await h["herd:wrap-up"]({ herd })).ok).toBe(true);
+    expect(store.getJob(herd, "job-a")!.pane).not.toBeNull();
+    const res = await h["herd:follow-up"]({ herd, job: "job-a" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain(`herd "${herd}" is wrapped`);
+    expect(store.getJob(herd, "job-a")!.status).toBe("done");
+    expect(store.get(herd)!.status).toBe("wrapped");
+  });
 });
 
 describe("herd:spawn", () => {

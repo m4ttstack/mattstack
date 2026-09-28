@@ -580,6 +580,7 @@ export function createHerdHandlers(deps: HerdDeps) {
       if (!herdId || !name) return { ok: false, error: "herd and job are required" };
       const herd = store.get(herdId); const job = herd ? store.getJob(herdId, name) : null;
       if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+      if (herd.status !== "active") return { ok: false, error: `herd "${herdId}" is ${herd.status}; a follow-up round needs an active herd` };
       if (job.status !== "done") return { ok: false, error: `job "${name}" is ${job.status}, not done; only a job that has reported can start a follow-up round` };
       if (!job.pane) return { ok: false, error: `job "${name}" has no pane; a follow-up round runs in the worker's own pane` };
       // Back to active rather than a status of its own: the lifecycle and the
