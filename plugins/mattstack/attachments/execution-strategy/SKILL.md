@@ -11,15 +11,16 @@ Given a unit of work and the surface it will execute on, name the method
 the executor runs and the report contract that method produces. A brief
 that names no method leaves its executor to improvise one.
 
-## The five strategies
+## The six strategies
 
 | Strategy | Executor runs |
 |---|---|
 | `trivial` | the change directly; no test, because there is no runtime behavior to test |
 | `direct-tdd` | superpowers:test-driven-development inline: RED -> GREEN -> REFACTOR, failing test named before code |
-| `resume` | the superpowers chain entered at the supplied artifact: spec in hand -> writing-plans onward; plan in hand -> subagent-driven-development |
+| `from-spec` | the superpowers chain entered at the supplied spec: writing-plans, then subagent-driven-development |
+| `from-plan` | superpowers:subagent-driven-development on the supplied plan |
 | `superpowers` | the full chain: brainstorming -> spec -> writing-plans -> subagent-driven-development |
-| `delegate` | triages against this table, picks one of the other four, runs it |
+| `delegate` | triages against this table, picks one of the other five, runs it |
 
 `delegate` never picks itself, must respect the surface table below, and
 names its choice in its report so the dispatcher knows which report
@@ -36,9 +37,10 @@ dispatched workers are full Claude Code sessions, so it is dominated.
 - `direct-tdd` -- real code with clear criteria and an existing pattern.
 - `superpowers` -- everything else: new features, multiple valid
   approaches, vague criteria, cross-layer work, product decisions.
-- `resume` -- a completed spec or plan is already supplied.
+- `from-spec` -- a completed spec is already supplied.
+- `from-plan` -- a completed plan is already supplied.
 - `delegate` -- the dispatcher is not triaging; the executor triages
-  against this section and picks one of the other four.
+  against this section and picks one of the other five.
 
 When in doubt between `direct-tdd` and `superpowers`, go `superpowers`;
 between `trivial` and `direct-tdd`, go `direct-tdd`.
@@ -50,10 +52,10 @@ is tight -- "it's simple", "it's small", or "I'll test after" is the
 
 ## Surface support
 
-| Surface | `trivial` | `direct-tdd` | `resume` | `superpowers` | `delegate` |
-|---|---|---|---|---|---|
-| Pane worker with a question relay | yes | yes | yes | yes | yes |
-| Agent-tool subagent | yes | yes | yes | **no** | yes |
+| Surface | `trivial` | `direct-tdd` | `from-spec` | `from-plan` | `superpowers` | `delegate` |
+|---|---|---|---|---|---|---|
+| Pane worker with a question relay | yes | yes | yes | yes | yes | yes |
+| Agent-tool subagent | yes | yes | yes | yes | **no** | yes |
 
 `superpowers` starts with brainstorming, which needs a human in the loop
 throughout; an Agent-tool subagent cannot stop and wait for one.
@@ -63,8 +65,8 @@ Agent-tool subagent, the unit fails on this surface: report the conflict
 to the dispatcher rather than recording a strategy the surface cannot
 run (not `superpowers`-and-continue, not a downgraded tier to fit the
 surface). Name the two re-dispatch paths in the report: a pane worker
-with a question relay, or a supplied spec/plan that re-enters the work
-as `resume`, which this surface supports.
+with a question relay, or a supplied spec or plan that re-enters the work
+as `from-spec` or `from-plan`, which this surface supports.
 
 ## One plan, one executor
 
@@ -79,7 +81,8 @@ up: 1 job = 1 sub-project = 1 spec = 1 plan = 1 branch = 1 worktree =
 | Strategy | Report |
 |---|---|
 | `trivial`, `direct-tdd` | item-coded: one line per task item, plus verification results |
-| `resume`, `superpowers` | milestone lines (`spec: <path>`, `plan: <path>`) as they land, then commit range and final-review verdict |
+| `from-spec`, `superpowers` | milestone lines (`spec: <path>`, `plan: <path>`) as they land, then commit range and final-review verdict |
+| `from-plan` | commit range and final-review verdict |
 | `delegate` | the chosen strategy's shape, with the choice named first |
 
 ## Briefing an executor

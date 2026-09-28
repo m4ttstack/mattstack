@@ -4,8 +4,7 @@ One fixed body per strategy. The dispatcher copies the body for the
 assigned strategy verbatim into the brief's method section and fills every
 `<angle-bracket>` slot; it does not compose method prose per job. Slots:
 `<question-file>` and `<report-file>` are the dispatcher's contract-file
-paths; `<write-paths>` is the brief's write fence; `<spec or plan>`
-(resume only) names which artifact kind is supplied; `<task-list>` is the
+paths; `<write-paths>` is the brief's write fence; `<task-list>` is the
 job's item-coded tasks (trivial and direct-tdd only); `<verification>`
 is the job's must-pass commands.
 
@@ -57,14 +56,13 @@ then stop:
     <anything the user must know, max 5 lines>
 ```
 
-## resume
+## from-spec
 
 ```
-Method: resume. A completed <spec or plan> is supplied under
-## Inputs (read-only); read it in place, never modify it. Enter the
-superpowers chain at that level: spec in hand -> superpowers:writing-plans,
-then superpowers:subagent-driven-development; plan in hand ->
-superpowers:subagent-driven-development directly.
+Method: from-spec. A completed spec is supplied under ## Inputs
+(read-only); read it in place, never modify it. Run
+superpowers:writing-plans on it, then
+superpowers:subagent-driven-development.
 Wherever a superpowers skill says to ask your human partner, write
 <question-file> in the brief's question format and stop; the answer
 arrives as your next message.
@@ -82,6 +80,34 @@ in this format, then stop:
     status: done | done-with-issues
     ## Milestones
     - plan: <path>
+    ## Commits
+    <range>
+    ## Verification
+    - final whole-branch review: <verdict>
+    - <command>: <result>
+    ## Notes
+    <max 5 lines>
+```
+
+## from-plan
+
+```
+Method: from-plan. A completed plan is supplied under ## Inputs
+(read-only); read it in place, never modify it. Run
+superpowers:subagent-driven-development on it directly.
+Wherever a superpowers skill says to ask your human partner, write
+<question-file> in the brief's question format and stop; the answer
+arrives as your next message.
+When the final whole-branch review is clean, write <report-file> and
+stop. Integration is the dispatcher's decision.
+You may write only under <write-paths> and `.superpowers/sdd/` in this
+worktree (superpowers owns that ledger path; relocating it breaks
+compaction recovery).
+Verification (must pass before the work is done):
+<verification>
+Report: at completion write <report-file> in this format, then stop:
+    # REPORT
+    status: done | done-with-issues
     ## Commits
     <range>
     ## Verification
@@ -132,7 +158,7 @@ in this format, then stop:
 ```
 Method: delegate. Triage this job against the strategy table in
 <strategy-skill-file> and pick one of: trivial, direct-tdd,
-resume, superpowers -- never delegate itself. Respect your surface: an
+from-spec, from-plan, superpowers -- never delegate itself. Respect your surface: an
 Agent-tool subagent cannot run `superpowers` (brainstorming needs a
 human in the loop). Then run the strategy you picked, under all of that strategy's rules in <strategies-file>.
 Whichever you pick: wherever a superpowers skill says to ask your human
