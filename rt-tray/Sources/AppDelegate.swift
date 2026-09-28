@@ -78,6 +78,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// builds the coordinator (launch-by-link). Stashed here and drained at
     /// the end of `buildServices()`.
     private var pendingJoinCode: String?
+    /// A `mattstack://dev-logins/add` event can arrive before `buildServices()`
+    /// builds the coordinator (launch-by-link). Stashed here and drained at
+    /// the end of `buildServices()`.
+    private var pendingDevLoginOrigin: String?
     /// A `mattstack://open/...` or https `*.mattstack` event can arrive
     /// before `buildServices()` constructs `windowModel` (launch-by-link).
     /// Stashed here and drained at the end of `buildServices()`.
@@ -607,9 +611,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 pendingJoinCode = nil
                 coordinator?.handleJoin(code: code)
             }
-        } else if pendingJoinCode != nil {
-            pendingJoinCode = nil
-            TrayLog.warn("mattstack://join link received but rt could not be resolved; dropping")
+            if let origin = pendingDevLoginOrigin {
+                pendingDevLoginOrigin = nil
+                coordinator?.showDevLoginAdd(origin: origin)
+            }
+        } else {
+            if pendingJoinCode != nil {
+                pendingJoinCode = nil
+                TrayLog.warn("mattstack://join link received but rt could not be resolved; dropping")
+            }
+            if pendingDevLoginOrigin != nil {
+                pendingDevLoginOrigin = nil
+                TrayLog.warn("mattstack://dev-logins link received but rt could not be resolved; dropping")
+            }
         }
         if let request = pendingOpen {
             pendingOpen = nil
@@ -699,6 +713,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                     return
                 }
                 coordinator.handleJoin(code: code)
+            }
+            return
+        }
+        if let origin = DevLoginLink.origin(from: url) {
+            Task { @MainActor in
+                guard let coordinator else { pendingDevLoginOrigin = origin; return }
+                coordinator.showDevLoginAdd(origin: origin)
             }
             return
         }
