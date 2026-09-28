@@ -65,7 +65,7 @@
       "archive": "raw", "extract": "", "bundlePath": "Contents/Helpers/board", "exec": ["Contents/Helpers/board"],
       "exposeByDefault": false, "entitlements": "jit", "status": "bundled", "kind": "helper",
       "serve": { "port": 11006, "args": [] } },
-    { "name": "gitq", "version": "", "license": "MIT", "source": "tree",
+    { "name": "gitq", "version": "", "license": "MIT", "source": "tree", "skills": true,
       "archive": "raw", "extract": "", "bundlePath": "Contents/Helpers/gitq", "exec": ["Contents/Helpers/gitq"],
       "exposeByDefault": true, "entitlements": "jit", "status": "bundled", "kind": "helper" },
     { "name": "console", "version": "", "license": "MIT", "source": "tree",
