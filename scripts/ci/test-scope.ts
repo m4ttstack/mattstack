@@ -139,7 +139,12 @@ export function rtTriggeredPluginDirs(changed: string[], root: string = ROOT): s
   return [...out].sort();
 }
 
+// The workflow that defines every plugin job, and this script that routes
+// to them, can break any plugin job without touching a plugin file.
+export const ALL_PLUGIN_TRIGGERS = [".github/workflows/checks.yml", "scripts/ci/test-scope.ts"];
+
 export function prPluginDirs(changed: string[], root: string = ROOT): string[] {
+  if (changed.some((f) => ALL_PLUGIN_TRIGGERS.includes(f))) return existingPluginDirs(root);
   return [...new Set([...pluginDirs(changed), ...rtTriggeredPluginDirs(changed, root)])].sort();
 }
 
