@@ -23,8 +23,8 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   (the wire shapes `src/rt.rs` mirrors), and
   `docs/superpowers/specs/2026-09-27-chat-identity-design.md` (every
   identity is a hidden `handle` id plus a display `name`).
-- **The other half of the product**, the web viewer that owns read/compose: the
-  `chat` repo (`CLAUDE.md`, `ARCHITECTURE.md`), served at
+- **The other half of the product**, the web viewer that owns read/compose:
+  `apps/chat` in this repo (`CLAUDE.md`, `ARCHITECTURE.md`), served at
   <https://chat.mattstack>.
 
 ## Architecture (module map)
@@ -62,8 +62,8 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
   execs the freshly built binary.
 - Go back to the durable github install: `herdr plugin unlink m4ttstack.chat`
   first (a local link blocks it), then
-  `herdr plugin install m4ttstack/mattstack/plugins/herdr-chat --yes` (`--yes` is required
-  non-interactively).
+  `herdr plugin install m4ttstack/mattstack/plugins/herdr-chat --yes`
+  (`--yes` is required non-interactively).
 
 ## Gotchas (each cost a debugging round)
 
