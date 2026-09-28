@@ -90,8 +90,14 @@ printf '%s\n' "$SCOPED" | while IFS="$TAB" read -r SDIR SPAT; do
   [ -n "$SDIR" ] && [ -n "$SPAT" ] || continue
   # xargs folds every nonzero child status into 123, so the child maps grep's
   # "no match" (1) to 0 and anything worse to 255, which xargs reports as 124.
+  # Operands that are not regular files (a dangling symlink, a gitlink
+  # directory, a tracked file deleted from the working tree) are dropped
+  # first so they never read as a grep error; a bad pattern still fails
+  # closed through the file-name grep below.
   S_HITS=$(cd "$ROOT" && git ls-files -z -- "$SDIR" \
-    | xargs -0 sh -c 'grep -HIniE -e "$0" -- "$@"; [ $? -le 1 ] || exit 255' "$SPAT")
+    | xargs -0 sh -c 'for f; do shift; [ -f "$f" ] && set -- "$@" "$f"; done
+      [ $# -gt 0 ] || exit 0
+      grep -HIniE -e "$0" -- "$@"; [ $? -le 1 ] || exit 255' "$SPAT")
   S_RC=$?
   S_NAMES=$(cd "$ROOT" && git ls-files -- "$SDIR" | grep -iE -e "$SPAT")
   N_RC=$?

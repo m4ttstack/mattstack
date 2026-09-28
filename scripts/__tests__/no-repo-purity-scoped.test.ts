@@ -1,13 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 const SCRIPT = join(import.meta.dir, "..", "repo-purity.sh");
+const made: string[] = [];
 
-function repoWith(files: Record<string, string>): string {
+afterAll(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+
+const GIT_QUIET = ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"];
+
+function repoWith(files: Record<string, string>, prepare: (dir: string) => void = () => {}): string {
   const dir = mkdtempSync(join(tmpdir(), "rt-purity-scoped-"));
+  made.push(dir);
   execFileSync("git", ["init", "-q", "-b", "main", dir]);
   mkdirSync(join(dir, "scripts"), { recursive: true });
   copyFileSync(SCRIPT, join(dir, "scripts", "repo-purity.sh"));
@@ -15,8 +23,9 @@ function repoWith(files: Record<string, string>): string {
     mkdirSync(join(dir, rel, ".."), { recursive: true });
     writeFileSync(join(dir, rel), body);
   }
-  execFileSync("git", ["-C", dir, "add", "-A"]);
-  execFileSync("git", ["-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "seed"]);
+  prepare(dir);
+  execFileSync("git", ["-C", dir, "add", "-A"], { stdio: "ignore" });
+  execFileSync("git", ["-C", dir, ...GIT_QUIET, "commit", "-qm", "seed"]);
   return dir;
 }
 
@@ -83,5 +92,36 @@ describe("scoped purity terms", () => {
     const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\t(unclosed" });
     expect(r.code).toBe(1);
     expect(r.out).toContain("FAIL repo-purity (plugins/probe): grep error");
+  });
+
+  test("a dangling symlink in the directory is not a grep error", () => {
+    const dir = repoWith({ "plugins/probe/notes.md": "clean\n" }, (d) =>
+      symlinkSync("missing-target.md", join(d, "plugins/probe/dangling.md")),
+    );
+    const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\tPROBE_SCOPED_TERM" });
+    expect(r.out).toContain("ok   repo-purity");
+    expect(r.code).toBe(0);
+  });
+
+  test("a directory operand (gitlink) is not a grep error", () => {
+    const dir = repoWith({ "plugins/probe/notes.md": "clean\n" }, (d) => {
+      const nested = join(d, "plugins/probe/vendored");
+      mkdirSync(nested, { recursive: true });
+      execFileSync("git", ["init", "-q", "-b", "main", nested]);
+      writeFileSync(join(nested, "x.md"), "clean\n");
+      execFileSync("git", ["-C", nested, "add", "-A"]);
+      execFileSync("git", ["-C", nested, ...GIT_QUIET, "commit", "-qm", "inner"]);
+    });
+    const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\tPROBE_SCOPED_TERM" });
+    expect(r.out).toContain("ok   repo-purity");
+    expect(r.code).toBe(0);
+  });
+
+  test("a tracked file deleted from the working tree is not a grep error", () => {
+    const dir = repoWith({ "plugins/probe/notes.md": "clean\n", "plugins/probe/gone.md": "clean\n" });
+    unlinkSync(join(dir, "plugins/probe/gone.md"));
+    const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\tPROBE_SCOPED_TERM" });
+    expect(r.out).toContain("ok   repo-purity");
+    expect(r.code).toBe(0);
   });
 });
