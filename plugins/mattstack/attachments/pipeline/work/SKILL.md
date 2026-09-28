@@ -4,9 +4,7 @@ disable-model-invocation: true
 description: "Use when running a unit of work end to end through a pack's compiled pipeline -- 'run the feature pipeline', 'do this ticket end to end', 'start a unit of work'."
 allowed-tools:
   - Bash(git -C *:*)
-  - Bash(*/scripts/ci-watch.sh:*)
   - Bash(*/scripts/ci-triage.sh:*)
-  - Bash(*/scripts/ci-attendant.sh:*)
   - Bash(*/scripts/ci-forge.sh:*)
 type: pipeline-step
 slots:

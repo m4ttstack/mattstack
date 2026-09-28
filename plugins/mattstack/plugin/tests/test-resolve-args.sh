@@ -172,7 +172,7 @@ check slot_decl_invalid 1 '
   and (.errors[0].message | contains("sometimes"))'
 
 # --- case: watch-ci's ci scripts stay identical to stage-watch-ci's ---
-for f in ci-watch.sh ci-triage.sh ci-attendant.sh; do
+for f in ci-triage.sh; do
   if cmp -s "$HERE/../../attachments/pipeline/stage-watch-ci/scripts/$f" "$HERE/../../attachments/pipeline/watch-ci/scripts/$f"; then
     echo "ok   watch_ci_${f%.sh}_identical"
     PASS=$((PASS + 1))
