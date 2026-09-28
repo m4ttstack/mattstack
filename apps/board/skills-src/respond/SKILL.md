@@ -125,9 +125,14 @@ What the graph cannot show:
   origin's rounds counter at the value's round, and a resumed iterate
   seeds its origin's fix-once counter as spent (the named thread's, for
   the two posting origins), as a live iterate leaves it: a refusal after
-  the retry goes straight back to the off-script gate. An iterate at round
-  2 is spent. `Revise rounds = 3?` counts the
-  `revise` answers this pane acted on; a resumed pane counts from zero.
+  the retry goes straight back to the off-script gate. A resumed iterate
+  at round 2 never retries: it takes its origin's
+  `Off-script rounds = 2 (...)?` yes exit, as the live pane would: the
+  held path at `git_push`, the thread left down at the two posting
+  origins, `mr_threads` with no branch at `mr_view`, `error` at the two
+  `mr_threads` reads.
+  `Revise rounds = 3?` counts the `revise` answers this pane acted on; a
+  resumed pane counts from zero.
   `Fix attempts = 3 (this thread)?` counts attempts per fix thread.
   `Resumed wait failures = 3 (respond)?` counts failing resumed waits;
   closed, not found and `no gate open` are terminal, never counted.

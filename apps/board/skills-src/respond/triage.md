@@ -61,9 +61,9 @@ digraph respond_triage_and_gate_1 {
     "Trigger: a fresh generic run with the style loaded (from Launch and resume)" -> "mr_view {mrUrl} (respond source branch)";
     "Trigger: a resumed triage escalation (from Launch and resume)" -> "Which triage call refused (resumed)?";
     "Which triage call refused (resumed)?" -> "Delegate adjudication to the domain skill" [label="a domain skill resolved on this resume: it adjudicates afresh"];
-    "Which triage call refused (resumed)?" -> "mr_view {mrUrl} (respond source branch)" [label="mr_view iterate, or the Posted already read before Triage"];
-    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="mr_view take (the branch from its note) or hand back (no branch)"];
-    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="fetch mr_threads iterate"];
+    "Which triage call refused (resumed)?" -> "mr_view {mrUrl} (respond source branch)" [label="mr_view iterate at round 1"];
+    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="mr_view take (the branch from its note), or a hand back or round-2 iterate (no branch)"];
+    "Which triage call refused (resumed)?" -> "mr_threads {mrUrl, refresh: true} (fetch)" [label="fetch mr_threads iterate at round 1"];
     "Which triage call refused (resumed)?" -> "Adjudicate each unresolved thread" [label="fetch mr_threads take: the threads from its note"];
     "Delegate adjudication to the domain skill" -> "Domain adjudication result?";
     "Domain adjudication result?" -> "Unresolved human threads = 0?" [label="a verdict table handed back"];
@@ -298,10 +298,10 @@ write `error` naming the refusal.
 A pane resumed on either triage gate enters at `Trigger: a resumed triage
 escalation (from Launch and resume)`, and `Which triage call refused
 (resumed)?` reads the value's origin: a take never repeats the call the
-human answered for (the branch or the threads come from its note), an
-iterate reads again, and an `mr_view` hand back carries on without the
-branch. The Posted already read's origin before Triage carries no triage
-answer of its own, so triage starts over at `mr_view`. The source branch
-of a `mr_threads` origin comes from the report's `source-branch:` line.
+human answered for (the branch or the threads come from its note), a
+round-1 iterate reads again, and at `mr_view` a hand back or round-2
+iterate carries on without the branch, as the live spent budget does.
+The source branch of a `mr_threads` origin comes from the report's
+`source-branch:` line.
 Every triage origin is on the generic path; when this resume resolves a
 domain skill after all, it adjudicates afresh.

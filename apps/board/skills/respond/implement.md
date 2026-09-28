@@ -87,7 +87,9 @@ row gains a `gate-1` field: `reply`, `fix` or `skip` (a reply override
 turns into `override` at the next box). A `reply:` answer's `text`, when
 present, replaces the draft in its row. Posting, a resume included, reads
 which threads are reply-only (`gate-1: reply`) from these rows, never from
-the recommendation.
+the recommendation. On an escalation resume that continues here (the
+Posted already read before Implement), the answer is the report's
+`gate-1-answer:` line, never the escalation's own answer.
 
 ### Draft each override and mark it gate-1: override
 
@@ -106,7 +108,10 @@ Hand the domain skill `{plan: <answers>, by: <by>}`, the `--report` path
 and the current round. `by` is the wait's own decider field, so the
 domain skill's decision record names who decided instead of guessing. On
 a resume, tell it this is a resume (the resumed `gateId` and
-`answeredAt`), so its own Posted already rule runs.
+`answeredAt`), so its own Posted already rule runs. On an escalation
+resume, `{plan, by}` and `answeredAt` come from the `gate-1-answer:`
+line; the resumed `gateId` is the escalation's, not Gate 1's, so say
+that the Gate 1 answer was recorded rather than naming a gate.
 
 - **`approve`:** it implements the `fix:` threads one at a time, verified,
   updates `--report` with the finalized replies, and hands back the threads

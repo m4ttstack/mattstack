@@ -44,6 +44,7 @@ digraph respond_launch_and_resume {
     "Load the preferences.md style, else conversational (respond)" [shape=box];
     "Which entry (respond writing style)?" [shape=diamond];
     "Record the resumed Gate 1 or Gate 2 answer in --report" [shape=box];
+    "Record the resumed escalation's marks in --report" [shape=box];
     "mr_threads {mrUrl, refresh: true} (posted already)" [shape=plaintext];
     "mr_threads result (posted already)?" [shape=diamond];
     "Fixed the posted-already mr_threads call once already?" [shape=diamond];
@@ -96,8 +97,8 @@ digraph respond_launch_and_resume {
     "<status-bin> gate wait <state> (resumed respond gate)" -> "Resumed wait result (respond)?";
     "Resumed wait result (respond)?" -> "Which stage raised the escalation (respond)?" [label="answered"];
     "Which stage raised the escalation (respond)?" -> "Read <--report> (resumed respond)" [label="none: a respond-plan or respond-post resume"];
-    "Which stage raised the escalation (respond)?" -> "<status-bin> respond-status <state> triaging (resumed escalation)" [label="a triage origin, or the Posted already read before Triage"];
-    "Which stage raised the escalation (respond)?" -> "<status-bin> respond-status <state> drafting (resumed escalation)" [label="a posting origin, or the Posted already read before Implement or posting"];
+    "Which stage raised the escalation (respond)?" -> "<status-bin> respond-status <state> triaging (resumed escalation)" [label="a triage origin"];
+    "Which stage raised the escalation (respond)?" -> "<status-bin> respond-status <state> drafting (resumed escalation)" [label="a posting origin, or the Posted already read"];
     "<status-bin> respond-status <state> triaging (resumed escalation)" -> "Read <--report> (resumed respond)";
     "<status-bin> respond-status <state> drafting (resumed escalation)" -> "Read <--report> (resumed respond)";
     "Resumed wait result (respond)?" -> "Resumed gate gone: continue at Respond gate gone" [label="closed, not found, or no gate open"];
@@ -115,8 +116,9 @@ digraph respond_launch_and_resume {
     "Which entry (respond writing style)?" -> "Fresh generic run, style loaded: continue at Triage and Gate 1" [label="fresh run"];
     "Which entry (respond writing style)?" -> "Record the resumed Gate 1 or Gate 2 answer in --report" [label="resumed respond-plan or respond-post"];
     "Which entry (respond writing style)?" -> "Mark the threads that already carry this run's reply" [label="resumed escalation, a take at the Posted already read: its note names the threads"];
-    "Which entry (respond writing style)?" -> "Resumed kind (act)?" [label="resumed escalation: hold, an iterate at round 2, or a hand back at fetch mr_threads or the Posted already read"];
-    "Which entry (respond writing style)?" -> "mr_threads {mrUrl, refresh: true} (posted already)" [label="resumed escalation, any other answer"];
+    "Which entry (respond writing style)?" -> "Resumed kind (act)?" [label="resumed escalation: a triage origin, a hold, or a hand back or round-2 iterate at the Posted already read"];
+    "Which entry (respond writing style)?" -> "Record the resumed escalation's marks in --report" [label="resumed escalation, any other answer"];
+    "Record the resumed escalation's marks in --report" -> "mr_threads {mrUrl, refresh: true} (posted already)";
     "Record the resumed Gate 1 or Gate 2 answer in --report" -> "mr_threads {mrUrl, refresh: true} (posted already)";
     "mr_threads {mrUrl, refresh: true} (posted already)" -> "mr_threads result (posted already)?";
     "mr_threads result (posted already)?" -> "Mark the threads that already carry this run's reply" [label="ok"];
@@ -133,14 +135,12 @@ digraph respond_launch_and_resume {
     "--report carries respond-post-held (resume)?" -> "respond-post resume: continue at Gate 2 and posting" [label="no"];
     "Narrow this pass to the held threads" -> "respond-post resume: continue at Gate 2 and posting";
     "Route the resumed escalation by its origin (respond)" -> "Resumed escalation origin (respond)?";
-    "Resumed escalation origin (respond)?" -> "Launch error: continue at the error write" [label="iterate at round 2, any origin: the refusals are the reason"];
-    "Resumed escalation origin (respond)?" -> "Resumed triage escalation: continue at Triage and Gate 1" [label="a triage origin: take, iterate at round 1, or hand back at mr_view"];
-    "Resumed escalation origin (respond)?" -> "Resumed triage escalation: continue at Triage and Gate 1" [label="the Posted already read before Triage: take, or iterate at round 1"];
-    "Resumed escalation origin (respond)?" -> "--report carries gate-2 picks (resume)?" [label="a posting origin: take, iterate at round 1, or hand back"];
+    "Resumed escalation origin (respond)?" -> "Launch error: continue at the error write" [label="a hand back or round-2 iterate at fetch mr_threads or the Posted already read: the refusals are the reason"];
+    "Resumed escalation origin (respond)?" -> "Resumed triage escalation: continue at Triage and Gate 1" [label="a triage origin: take or round-1 iterate; at mr_view, also a hand back or round-2 iterate"];
+    "Resumed escalation origin (respond)?" -> "--report carries gate-2 picks (resume)?" [label="a posting origin: take, hand back, or iterate at either round"];
     "Resumed escalation origin (respond)?" -> "--report carries gate-2 picks (resume)?" [label="the Posted already read before posting: take, or iterate at round 1"];
     "Resumed escalation origin (respond)?" -> "--report carries a gate-1 answer (resume)?" [label="the Posted already read before Implement: take, or iterate at round 1"];
     "Resumed escalation origin (respond)?" -> "Held at a launch escalation: continue at Held" [label="hold"];
-    "Resumed escalation origin (respond)?" -> "Launch error: continue at the error write" [label="hand back at fetch mr_threads or the Posted already read"];
     "--report carries gate-2 picks (resume)?" -> "respond-post resume: continue at Gate 2 and posting" [label="yes"];
     "--report carries gate-2 picks (resume)?" -> "Launch error: continue at the error write" [label="no: never post from memory"];
     "--report carries a gate-1 answer (resume)?" -> "respond-plan resume joined: continue at Implement the plan" [label="yes"];
@@ -258,7 +258,11 @@ longer return this answer, so it goes into `--report` first.
   resumed wait's answer: the `gate-2` fields and the `gate-2-answer:`
   line.
 
-Never rewrite the verdict table or the drafts here.
+Either kind starts a new posting pass: drop every `escalation:` mark from
+the rows ("Escalation marks" in `post.md`). What an earlier pass posted or
+resolved by hand the Posted already read finds; a held push is retried,
+as any `respond-post-held:` resume retries it. Never rewrite the verdict
+table or the drafts here.
 
 ### Route the resumed escalation by its origin (respond)
 
@@ -266,57 +270,74 @@ The resumed wait returned a `respond-escalation` answer: an off-script
 gate an earlier pane opened on this MR. Read `answers.action`'s value (a
 bare value or a `{value, note}` object). It starts with its verb (`take:`,
 `iterate:`, `hold:` or `hand back:`) and ends `(<origin>, round <k>)`,
-the origin being the refused call its table names. Check the round first:
-an iterate at round 2 is that origin's second iterate, which the live
-pane's `Off-script rounds = 2 (...)?` answers yes to, so it writes `error`
-naming the refusals and never retries. Otherwise round `k` seeds that
-origin's `Off-script rounds = 2 (...)?` counter, and a later iterate at the
-same origin counts on from it. An iterate also seeds that origin's
-fix-once counter as spent (the named thread's, for `mr_reply_thread` and
-`mr_resolve_thread`), as a live iterate leaves it: a refusal after the
-retry goes straight back to the off-script gate. Both seeds hold from the
-moment the wait returns, so they already bound the Posted already read
-above when it is the retry.
+the origin being the refused call its table names. Round `k` seeds that
+origin's `Off-script rounds = 2 (...)?` counter, and a later iterate at
+the same origin counts on from it. An iterate at round 2 is that origin's
+second iterate, which the live pane's `Off-script rounds = 2 (...)?`
+answers yes to: it never retries, and takes that yes edge's exit, the
+same as the origin's hand back in every respond table. A round-1 iterate
+also seeds that origin's fix-once counter as spent (the named thread's,
+for `mr_reply_thread` and `mr_resolve_thread`), as a live iterate leaves
+it: a refusal after the retry goes straight back to the off-script gate.
+Both seeds hold from the moment the wait returns, so they already bound
+the Posted already read above when it is the retry.
+
+`Which entry (respond writing style)?` already read the value on the
+generic path, to decide whether the Posted already read runs: a triage
+origin, a hold, and a hand back or round-2 iterate at the Posted already
+read skip it (nothing of this run can post, or the pane stops); a take at
+the Posted already read skips it too, marking its note's threads; every
+other answer records its marks, then reads.
 
 - **Triage origins** (`mr_view refused`, `mr_threads refused`): no
-  verdict table exists yet, and `--report` may be missing or an earlier
-  run's; read nothing from it but the `source-branch:` line a
-  `mr_threads` origin wrote. The Posted already read finds nothing of
-  this run to mark. Triage continues at the refused call, as
-  `Which triage call refused (resumed)?` (in `triage.md`) draws it.
+  verdict table exists yet. `Read <--report> (resumed respond)` finding
+  no file is nothing read, never an error, and from a file (possibly an
+  earlier run's) only the `source-branch:` line a `mr_threads` origin
+  wrote counts. Triage continues at the refused call, as
+  `Which triage call refused (resumed)?` (in `triage.md`) draws it: a
+  take skips the call, a round-1 iterate reads again, and at `mr_view` a
+  hand back or round-2 iterate carries on without the branch. At fetch
+  `mr_threads`, a hand back or round-2 iterate writes `error`.
 - **Posting origins** (`git_push refused`, `mr_reply_thread refused`,
   `mr_resolve_thread refused`): Gate 2 was answered and its picks
   recorded before the escalation opened.
   `--report carries gate-2 picks (resume)?` answers yes when the
   `gate-2-answer:` line is present and parses and every thread it picks
-  has a report row; no is `error` naming
-  the file and which case it was. Never rebuild the picks from memory or
-  from the conversation. The recorded picks then stand in for the
-  resumed wait's answer at Gate 2 and posting.
-- **A take or hand back at a posting origin** marks what the walk skips,
-  before it starts: a `git_push` take pushes nothing (the human pushed),
-  a `git_push` hand back holds the fixed threads, an `mr_reply_thread`
-  take marks thread `<threadId>` posted already (its `resolve:` pick
-  still runs), an `mr_reply_thread` hand back leaves that thread unposted
-  and unresolved, an `mr_resolve_thread` take marks it resolved, and an
-  `mr_resolve_thread` hand back leaves it open. The taken call never runs
-  again. **An iterate at a posting origin** walks the posting again from
-  the top; the Posted already read has dropped what is up, so the refused
-  call is the first to run.
+  has a report row; no is `error` naming the file and which case it was.
+  Never rebuild the picks from memory or from the conversation. The
+  recorded picks then stand in for the resumed wait's answer at Gate 2
+  and posting, and the walk honours every `escalation:` mark in the rows
+  (`Record the resumed escalation's marks in --report`), so the taken
+  call never runs again and a handed-back one stays down.
+- **A round-1 iterate at a posting origin** walks the posting again from
+  the top, pushing and posting in the usual order; the Posted already
+  read has dropped what is up, so the refused call runs again in its
+  turn.
 - **The Posted already read**
   (`mr_threads refused on the Posted already read before <stage>`): a
   take marked exactly the threads its note names and skipped the read,
-  since that read is what refused; an iterate ran the read above. Either
-  way the pass continues at the stage the value names: `posting` checks
-  the recorded picks as a posting origin does; `Implement` needs the
-  `gate-1-answer:` line, which
+  since that read is what refused; a round-1 iterate ran the read above.
+  Either way the pass continues at the stage the value names: `posting`
+  checks the recorded picks as a posting origin does; `Implement` needs
+  the `gate-1-answer:` line, which
   `--report carries a gate-1 answer (resume)?` checks the same way (no
   is `error` naming the file), and whose answer then stands in for the
-  joined Gate 1 answer; `Triage` starts triage over.
+  joined Gate 1 answer. A hand back or round-2 iterate writes `error`
+  naming the refusal.
 - **Hold** keeps the pane open with nothing more moved and no terminal
-  status. **Hand back** at `mr_threads` (either read) writes `error`
-  naming the refusal; at the other origins it continues as the live
-  pane's hand back does, as above.
+  status.
+
+### Record the resumed escalation's marks in --report
+
+The generic path, before the Posted already read. A refusal at that read
+opens a second escalation, which moves the state's gate id, and a pane
+resumed on it could then no longer learn this answer. So a take, a hand
+back or a round-2 iterate at a posting origin writes its mark into the
+row now, as "Escalation marks" in `post.md` spells them: the same mark
+the live pane writes when it acts on that answer. A round-1 iterate, and
+any answer at the Posted already read, writes nothing. The marks outlive
+this pane: a pane resumed on a later escalation reads them back from the
+rows, and the posting walk honours them.
 
 ### Fix what the posted-already mr_threads error names
 
@@ -342,8 +363,7 @@ chain. A thread already carries this run's reply when it holds either:
   `respond-post` resume. On an escalation resume it comes from the line
   recorded for the stage the pass resumes: `gate-2-answer:` for a posting
   origin or a read before posting, `gate-1-answer:` for a read before
-  Implement. A triage origin has neither (nothing of this run is drafted
-  yet), so only the text rule applies there.
+  Implement. A triage origin never takes this read.
 
 Such a thread is posted: it counts toward `--posted`, it is never offered
 at a fresh Gate 2, and its reply is never posted again, whatever
@@ -412,8 +432,8 @@ both `mr_threads` errors, quoted, and the thread ids this pass could post.
 `<stage>` names where this pass goes after the read, since a pane resumed
 on this gate learns it only from the value: `Implement` on a
 `respond-plan` resume, `posting` on a `respond-post` resume or a posting
-origin's escalation resume, `Triage` on a triage origin's, and on a resume
-of this same gate the stage its value named.
+origin's escalation resume, and on a resume of this same gate the stage
+its value named.
 
 A take marks exactly the threads the human names as posted already.
 Iterate passes `Off-script rounds = 2 (posted-already mr_threads)?`
