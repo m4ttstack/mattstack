@@ -1,14 +1,13 @@
 /**
- * `rt setup`/`rt deps`/`rt team join`/`rt uninstall`/`rt update` — the setup
+ * `rt setup`/`rt deps`/`rt team join`/`rt uninstall` — the setup
  * verbs (MAT-383) driven against the COMPILED `dist/rt` binary, one
  * hermetic HOME, no live tray app or daemon.
  *
  * `RT_APP_SOCKET=/nonexistent.sock` is the load-bearing env var: it makes
- * every tray-socket probe (`fetchPermissions`, `rt update`'s check, apply's
- * `need()` reachability probe) fail the SAME deterministic way regardless of
- * whether this machine happens to have mattstack.app installed and running —
- * without it, `perm.fda` and `rt update`'s outcome would depend on whoever's
- * laptop the suite runs on.
+ * every tray-socket probe (`fetchPermissions`, apply's `need()` reachability
+ * probe) fail the SAME deterministic way regardless of whether this machine
+ * happens to have mattstack.app installed and running — without it,
+ * `perm.fda` would depend on whoever's laptop the suite runs on.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
@@ -122,13 +121,5 @@ describe("rt setup verbs (e2e, no live app/daemon)", () => {
     expect(out.contract).toBe(1);
     expect(out.error.code).toBe("unexpected-args");
     expect(out.error.args).toEqual(["gitq"]);
-  }, 15_000);
-
-  test("update --json exits 2 app-not-running", async () => {
-    const res = await run(["update", "--json"]);
-    expect(res.exitCode).toBe(2);
-
-    const out = JSON.parse(res.stdout.trim());
-    expect(out.error.code).toBe("app-not-running");
   }, 15_000);
 });

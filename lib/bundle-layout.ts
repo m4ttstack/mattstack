@@ -275,7 +275,7 @@ interface DepsLockCacheEntry {
 }
 
 // Keyed by root and invalidated by the lock file's mtime+size, not just root:
-// `rt update` replaces the bundle (and its deps.lock) in place at the same
+// a Sparkle update replaces the bundle (and its deps.lock) in place at the same
 // path, so caching on root alone would keep serving the pre-update lock for
 // the rest of the process's life.
 const depsLockMemo = new Map<string, DepsLockCacheEntry>();

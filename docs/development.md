@@ -157,8 +157,8 @@ git push --tags
 rt ships an Apple silicon (arm64) build only. Intel Macs are not supported, and
 `rt verify` fails the architecture row on one.
 
-Updates reach users through Sparkle, driven by mattstack.app. `rt update` only
-asks the app to check; it never downloads or installs anything itself.
+Updates reach users through Sparkle, driven by mattstack.app. rt never
+downloads or installs anything itself.
 
 `docs/release-and-distribution.md` carries the deeper release rules: the bundle
 layout, signing, the marketplace publish, and the clean-room VM.

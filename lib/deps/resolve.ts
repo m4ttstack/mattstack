@@ -127,7 +127,7 @@ const MAX_WRAPPER_BYTES = 4096;
  * line starts with LINK_TAG (the tagged wrapper written for multi-argv
  * tools). The symlink check works on a dangling link too — readlink()
  * reports the target even when it no longer exists, which is exactly what
- * lets a stale link (app moved, `rt update` renamed a helper) be recognized
+ * lets a stale link (app moved, an update renamed a helper) be recognized
  * as ours and repaired rather than left unrepairable.
  */
 export function isOurLink(p: Pick<Probes, "readlink" | "readFile" | "exists" | "fileSize" | "home">, tool: string): boolean {

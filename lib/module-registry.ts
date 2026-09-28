@@ -61,7 +61,6 @@ export const MODULE_REGISTRY: Record<string, () => Promise<any>> = {
   "./commands/cd.ts": () => import("../commands/cd.ts"),
   "./commands/version.ts": () => import("../commands/version.ts"),
   "./commands/verify.ts": () => import("../commands/verify.ts"),
-  "./commands/update.ts": () => import("../commands/update.ts"),
   "./commands/code.ts": () => import("../commands/code.ts"),
   "./commands/nav.ts": () => import("../commands/nav.ts"),
   "./commands/sdm.ts": () => import("../commands/sdm.ts"),

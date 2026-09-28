@@ -1,9 +1,8 @@
 /**
  * rt --post-install — the headless installer entry. Not auto-triggered:
  * an `rt` invocation without a daemon.json prints a setup hint (cli.ts)
- * and leaves running this to the user or the app. `rt update` does not
- * re-run this: it only asks mattstack.app (Sparkle) to check for an update —
- * the app owns download/install/restart.
+ * and leaves running this to the user or the app. A Sparkle update does not
+ * re-run this: the app owns download/install/restart.
  *
  * Three things happen, in order:
  *   1. A refusal if the running app is at a transient location (a mounted
