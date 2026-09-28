@@ -313,7 +313,7 @@ also uses (`WRITING_STYLE_SOURCE_LABEL`), so never restate it elsewhere.
 `use` refuses a skill id that is not installed and `new` copies a preset into
 the user's own skill, normalising CRLF and renaming the frontmatter so the
 copy is a skill of its own. The presets themselves ship in the mattstack
-plugin (`mattstack-skills`), not here; a preset id must exist there before
+plugin under `plugins/mattstack`; a preset id must exist there before
 `use` will accept it, and the `skills.writing-style` setup row is
 finish-gated and not waivable, so a machine with no resolvable style cannot
 Finish.

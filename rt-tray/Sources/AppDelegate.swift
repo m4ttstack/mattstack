@@ -959,7 +959,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             let title = switch watcher.sourcesState {
             case .loading: "Loading worktrees…"
             case .unreachable: "rt daemon not answering"
-            case .loaded: "No repo-tools worktrees"
+            case .loaded: "No mattstack worktrees"
             }
             let loading = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             loading.isEnabled = false
