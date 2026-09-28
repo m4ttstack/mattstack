@@ -347,7 +347,7 @@ test('a GitHub MR links GitHub, and no ticket means no Linear link', async () =>
   } as BoardMRWithReview;
   await renderModal(gate({}), mr);
   expect(linkLabels()).toEqual([
-    ['open !87 in GitHub', 'https://github.com/demo/app/pull/87'],
+    ['open #87 in GitHub', 'https://github.com/demo/app/pull/87'],
   ]);
 });
 

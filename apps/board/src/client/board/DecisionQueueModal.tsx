@@ -14,6 +14,7 @@ import { cleanTitle, signOff } from './format.ts';
 import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import { useGateForm } from './GateForm.tsx';
 import { GateSheet, type GateSheetQueue } from './GateSheet.tsx';
+import { mrRef } from './MrLinks.tsx';
 import { postPicks } from './respond-post.ts';
 import { RespondSheetBody } from './RespondSheet.tsx';
 import { isReviewSheetGate, paneContext } from './review-gate.ts';
@@ -311,7 +312,7 @@ function DecidedRow({ gate, mr }: { gate: GateRow; mr?: BoardMRWithReview }) {
       : '';
   return (
     <li className="tui-triage-done-row">
-      {mr && <span className="tui-triage-done-ref">!{mr.iid}</span>}
+      {mr && <span className="tui-triage-done-ref">{mrRef(mr)}</span>}
       <span className="tui-respond-chip">
         {domainForKind(gate.kind) ?? gate.kind.replaceAll('-', ' ')}
       </span>

@@ -1,5 +1,6 @@
 import type { BoardMRWithReview } from '../types.ts';
 import type { PlanCtx, PostCtx } from './gate-ctx.ts';
+import { onGitHub } from './MrLinks.tsx';
 
 export interface HeaderChip {
   key: string;
@@ -100,7 +101,8 @@ export function personName(
     board has no row for the MR, so the card never waits on the join. */
 export function subjectRef(subject: string): string {
   const m = subject.startsWith('mr:') ? /(\d+)\/?$/.exec(subject) : null;
-  return m ? `!${m[1]}` : subject;
+  if (!m) return subject;
+  return `${onGitHub(undefined, subject) ? '#' : '!'}${m[1]}`;
 }
 
 /** A respond context's prose facts and chips, under its reviewer line in

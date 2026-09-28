@@ -4,6 +4,7 @@ import type { BoardMR } from '../../data.ts';
 import type { ActionResult } from '../api.ts';
 import type { BoardMRWithReview, RowMenuState } from '../types.ts';
 import { ActionMenu } from './ActionMenu.tsx';
+import { mrRef } from './MrLinks.tsx';
 import {
   rowActions,
   type ActionEnv,
@@ -41,7 +42,7 @@ function RowMenu({
     <ActionMenu
       x={menu.x}
       y={menu.y}
-      subject={`!${mrx.iid}`}
+      subject={mrRef(mrx)}
       entries={actions}
       onClose={onClose}
       onRun={async (key, opts) => {

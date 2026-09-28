@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useAutoGrowTextarea } from '@mattstack/tui-kit/hooks';
 import type { BoardMRWithReview, RowContext } from '../types.ts';
 import { NoteGlyph } from './icons.tsx';
+import { mrRef } from './MrLinks.tsx';
 
 /** The row's last line (B10): a note the seat wrote for itself, in a band
     under everything the row already says. At rest it is text; under the
@@ -49,7 +50,7 @@ export function RowNote({
             value={text}
             placeholder="a note for yourself…"
             maxLength={2000}
-            aria-label={`note on !${mr.iid}`}
+            aria-label={`note on ${mrRef(mr)}`}
             onClick={e => e.stopPropagation()}
             onKeyDown={e => {
               e.stopPropagation();

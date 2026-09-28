@@ -24,7 +24,7 @@ import type { BoardMRWithReview } from '../types.ts';
 import { parseGateCtx, type PlanCtx, type PostCtx } from './gate-ctx.ts';
 import type { GateFormState } from './GateForm.tsx';
 import { MrCard } from './MrCard.tsx';
-import { forgeNoun } from './MrLinks.tsx';
+import { forgeNoun, mrRef } from './MrLinks.tsx';
 import { PersonLead, PersonTag } from './PersonLead.tsx';
 import {
   joinPlan,
@@ -1022,7 +1022,7 @@ function RespondSheetBody({
               <div className="tui-sheet-dock-head">
                 <h3 className="tui-sheet-dock-heading">
                   {revising ? 'Send back' : plan ? 'Responses' : 'Replies'}
-                  {` on ${mr ? `!${mr.iid}` : subjectRef(gate.subject)}`}
+                  {` on ${mr ? mrRef(mr) : subjectRef(gate.subject)}`}
                 </h3>
                 <button
                   type="button"

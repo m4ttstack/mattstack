@@ -621,6 +621,20 @@ test("the MR card's !iid links to the MR's forge page", async () => {
   expect(ref.textContent).toBe('!1235');
 });
 
+test('a GitHub pull request reads #iid on the card and the dock', async () => {
+  const pr = {
+    ...MR,
+    provider: 'github',
+    webUrl: 'https://github.com/acme/webapp/pull/1235',
+  } as BoardMRWithReview;
+  await render(ship(), pr);
+  const ref = $('.tui-mr-card .tui-id-card-ref') as HTMLAnchorElement;
+  expect(ref.textContent).toBe('#1235');
+  expect(ref.getAttribute('href')).toBe(pr.webUrl);
+  expect($('.tui-sheet-dock')?.textContent).toContain('#1235');
+  expect($('.tui-sheet-dock')?.textContent).not.toContain('!1235');
+});
+
 test('parked and escalated chips ride the head', async () => {
   await render(ship({ status: 'parked', escalatedAt: 5 }), MR);
   expect($('.tui-gate-sheet-actions [data-gate="parked"]')).not.toBeNull();

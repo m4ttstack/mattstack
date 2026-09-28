@@ -20,6 +20,7 @@ import {
   NoteGlyph,
   SlackLogo,
 } from './icons.tsx';
+import { mrRef } from './MrLinks.tsx';
 import { rowStatus, statusPhrase, statusReasons } from './row-status.ts';
 import { RowNote } from './RowNote.tsx';
 import { slackLadder } from './slack-ladder.ts';
@@ -281,7 +282,7 @@ function RowView({
             <span className="tui-title">{rowTitle(mr.title, ticket)}</span>
           </div>
           <div className="tui-row-2">
-            <span className="tui-mr-iid">!{mr.iid}</span>
+            <span className="tui-mr-iid">{mrRef(mr)}</span>
             {ticket ? (
               <TicketTag ticket={ticket} />
             ) : (
