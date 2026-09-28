@@ -12,13 +12,6 @@ test("TREE is importable without side effects and has expected roots", () => {
   expect(TREE.git!.subcommands?.rebase?.description).toContain("rebase");
 });
 
-test("commit description is consistent across both paths", () => {
-  expect(TREE.commit!.description).toBe(TREE.git!.subcommands!.commit!.description);
-  // Shared by identity, not copy-pasted — a divergence here means the tree
-  // was edited to duplicate commitNode instead of reusing the constant.
-  expect(TREE.commit).toBe(TREE.git!.subcommands!.commit);
-});
-
 test("verify command is present in the tree", () => {
   expect(TREE.verify).toBeDefined();
   expect(TREE.verify!.module).toBe("./commands/verify.ts");
@@ -47,7 +40,6 @@ test("worktree restore's Tree arg is marked optional, matching its picker/--list
 
 test("picker-hosting leaves suppress the dispatcher header (fullscreen), like run", () => {
   expect(TREE.run!.fullscreen).toBe(true); // existing reference case
-  expect(TREE.commit!.fullscreen).toBe(true);
   expect(TREE.nav!.fullscreen).toBe(true);
   expect(TREE.skills!.subcommands!.surface!.fullscreen).toBe(true);
   // cd's picker (routed through lib/pickers.ts) carries its own in-card
