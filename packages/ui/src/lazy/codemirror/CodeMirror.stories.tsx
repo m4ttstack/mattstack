@@ -76,6 +76,19 @@ export const JsonWithSchema: Story = {
   ),
 };
 
+export const Resizable: Story = {
+  render: () => (
+    <CodeMirror
+      language="json"
+      height="120px"
+      resizable
+      value={
+        '[\n  "agent",\n  "apps",\n  "bg",\n  "ci",\n  "cron",\n  "daemon"\n]'
+      }
+    />
+  ),
+};
+
 export const EmptyWithPlaceholder: Story = {
   render: () => (
     <CodeMirror placeholder="Type some JavaScript..." language="javascript" />
