@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { computePackSha, maskProvenance, mattstackProvenance, packProvenance } from "../provenance.ts";
+import { computePackSha, gitFacts, maskProvenance, mattstackProvenance, packProvenance } from "../provenance.ts";
 
 describe("maskProvenance", () => {
   test("masks marker versions, the compiled value, and baked provenance flags", () => {
@@ -107,5 +107,35 @@ describe("computePackSha", () => {
 
   test("packProvenance resolves nothing: no bare \"name=\" is ever baked", () => {
     expect(computePackSha({ feature: [] }, self, "/packs/acme", () => "")).toBe("");
+  });
+});
+
+describe("gitFacts", () => {
+  function repoWithPlugin(): { root: string; plugin: string } {
+    const root = mkdtempSync(join(tmpdir(), "rt-provenance-git-"));
+    const plugin = join(root, "plugins", "mattstack");
+    mkdirSync(plugin, { recursive: true });
+    writeFileSync(join(plugin, "a.md"), "a\n");
+    writeFileSync(join(root, "top.md"), "top\n");
+    const git = (...args: string[]) => execFileSync("git", ["-C", root, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { stdio: "pipe" });
+    git("init", "-q");
+    git("add", ".");
+    git("commit", "-q", "-m", "init");
+    return { root, plugin };
+  }
+
+  test("an in-tree dir ignores dirt elsewhere in its checkout", () => {
+    const { root, plugin } = repoWithPlugin();
+    writeFileSync(join(root, "top.md"), "changed\n");
+    writeFileSync(join(root, "untracked.md"), "x\n");
+    expect(gitFacts(plugin).dirty).toBe(0);
+  });
+
+  test("an in-tree dir reports its own dirt", () => {
+    const { plugin } = repoWithPlugin();
+    writeFileSync(join(plugin, "a.md"), "changed\n");
+    const facts = gitFacts(plugin);
+    expect(facts.dirty).toBe(1);
+    expect(facts.sha).toMatch(/^[0-9a-f]{4,}$/);
   });
 });
