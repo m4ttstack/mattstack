@@ -197,6 +197,13 @@ digraph ship {
     "AFTER attempts = 3 (ship)?" [shape=diamond];
     "Files to attach (ship)?" [shape=diamond];
     "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
+    "mr_upload result (ship)?" [shape=diamond];
+    "Upload retried with a corrected path (ship)?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" [shape=plaintext];
+    "STOP: upload only with mr_upload (ship)" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "ship off-script gate: mr_upload refused" [shape=box];
+    "ship off-script answer (mr_upload)?" [shape=diamond];
+    "Upload off-script rounds = 2 (ship)?" [shape=diamond];
     "Domain owns the title or description (ship)?" [shape=diamond];
     "Forge host (ship, read back the description)?" [shape=diamond];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
@@ -340,7 +347,22 @@ digraph ship {
     "AFTER attempts = 3 (ship)?" -> "Files to attach (ship)?" [label="yes: go on without it; the description names the gap"];
     "Files to attach (ship)?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="yes, GitLab"];
     "Files to attach (ship)?" -> "Domain owns the title or description (ship)?" [label="no, or GitHub: link the paths"];
-    "mr_upload {mrUrl, path} per file; keep each markdown" -> "Domain owns the title or description (ship)?";
+    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result (ship)?";
+    "mr_upload result (ship)?" -> "Domain owns the title or description (ship)?" [label="ok: every file uploaded"];
+    "mr_upload result (ship)?" -> "Upload retried with a corrected path (ship)?" [label="path must be absolute, or file not found"];
+    "mr_upload result (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="any other refusal: outside the roots, bytes, size"];
+    "mr_upload result (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="tempted to copy the file into an allowed root, or upload another way"];
+    "Upload retried with a corrected path (ship)?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
+    "Upload retried with a corrected path (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="yes"];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result (ship)?";
+    "STOP: upload only with mr_upload (ship)" -> "ship off-script gate: mr_upload refused";
+    "ship off-script gate: mr_upload refused" -> "ship off-script answer (mr_upload)?";
+    "ship off-script answer (mr_upload)?" -> "Domain owns the title or description (ship)?" [label="take: link the local paths"];
+    "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the upload refusal is the reason"];
+    "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hold: nothing uploaded"];
+    "ship off-script answer (mr_upload)?" -> "Upload off-script rounds = 2 (ship)?" [label="iterate: the human fixed the cause, retry the upload"];
+    "Upload off-script rounds = 2 (ship)?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
+    "Upload off-script rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the upload refusal quoted"];
     "Domain owns the title or description (ship)?" -> "Forge host (ship, read back the description)?" [label="yes, or files or an AFTER to link"];
     "Domain owns the title or description (ship)?" -> "Domain runs CI after the MR (ship)?" [label="no: the create call wrote them"];
     "Forge host (ship, read back the description)?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="GitLab"];
@@ -472,6 +494,17 @@ The human pushed outside this verb. Compare `git rev-parse HEAD` with the
 remote branch and say what it shows in the final report; never push from
 here. The push landed when the remote branch carries HEAD; otherwise the
 off-script gate reopens with the comparison as its context.
+
+### ship off-script gate: mr_upload refused
+
+The upload guard refused a file past its one fix. Scope
+`off-script:<stage>:<n>`, sharing `n` with the push's off-script gate,
+`context` quoting the refusal and the path; the `action`/`next` questions
+and selection are the push gate's. Take writes the description with the
+local paths linked instead of uploads; Iterate means the human moved the
+file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under an
+allowed root is only ever the human's move: the roots are the boundary on
+what leaves the machine.
 
 ### Capture the AFTER when the domain names one (ship)
 
