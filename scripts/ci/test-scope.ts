@@ -100,7 +100,8 @@ function isAppsTree(f: string): boolean {
 }
 
 // Imported plugins build and test in their own checks.yml jobs, keyed on
-// the plugins= output; the unit shards never read them.
+// the plugins= output; the unit shards run only for an rt test that reads
+// a plugin file by repo path.
 export function isPluginTree(f: string): boolean {
   return /^plugins\/[^/]+\//.test(f);
 }
@@ -123,8 +124,10 @@ export function existingPluginDirs(root: string = ROOT): string[] {
     .sort();
 }
 
+// A plugin file matches by its repo path only: plugin basenames (SKILL.md,
+// lib.rs, Cargo.toml) are common enough to false-positive against rt tests.
 function readBy(sources: Map<string, string>, f: string): string | undefined {
-  const name = basename(f);
+  const name = isPluginTree(f) ? f : basename(f);
   for (const [source, text] of sources) {
     if (text.includes(f) || text.includes(name)) return source;
   }
@@ -152,7 +155,7 @@ export function decide(input: ScopeInput): Decision {
     // Only the finite named apps root files are ever read by hardcoded path;
     // an ordinary apps source file's basename (index.ts, README.md) is common
     // enough to false-positive against unrelated rt tests.
-    const checkable = input.changed.filter((f) => (!isAppsTree(f) && !isPluginTree(f)) || APPS_ROOT_FILES.has(f));
+    const checkable = input.changed.filter((f) => !isAppsTree(f) || APPS_ROOT_FILES.has(f));
     const read = checkable.map((f) => [f, readBy(input.sources, f)] as const).find(([, by]) => by);
     if (!read) return { mode: "skip", reason: "only docs, swift, apps or plugin trees, none of it read by a unit test" };
     return { mode: "full", reason: `${read[0]} is read by ${read[1]}` };

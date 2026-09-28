@@ -37,7 +37,7 @@ their gates and rt's static gates; `bun run check` is what `checks.yml`'s
 `static` job runs. rt's unit suite is `bun run test` and never walks the apps'
 vitest packages: the `test` script names rt's directories one by one, and
 `scripts/ci/test-scope.ts` skips the macOS shards on a PR that touches only
-apps trees. Deck serves the apps from this checkout in dev mode
+apps trees or `plugins/` trees (each plugin has its own CI job). Deck serves the apps from this checkout in dev mode
 (`deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`, or the older
 `~/Documents/GitHub/repo-tools` folder on a machine that has not moved it), and the
 release builds them at the tagged commit (`scripts/build-apps.ts`, the
@@ -483,7 +483,8 @@ CI runs the unit suite as three macOS shards (`bun test --shard=i/3
 --timings=test-timings.json`, balanced by the committed timings file,
 which the Timings workflow regenerates) and runs the non-Mac gates on
 ubuntu. `scripts/ci/test-scope.ts` decides a PR's scope from its diff: only
-docs or Swift files that no unit test reads skips the shards; a
+docs, Swift files or `plugins/` trees (each plugin has its own CI job)
+that no unit test reads skips the shards; a
 TypeScript-only diff runs `--changed=HEAD^1` plus every `no-*.test.ts`
 guard in the unit directories; any other change runs the full suite (a
 non-TypeScript file outside that skip set, a fixture, the preload or its
