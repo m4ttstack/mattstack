@@ -10,6 +10,9 @@
   "public": [
     "subagent-review-loop",
     "editing-skills",
+    "creating-a-pack",
+    "extending-a-pack",
+    "process-digraphs",
     "getting-current-time",
     "shepherdr",
     "wrap-up",
