@@ -22,8 +22,8 @@ function rulesHash(): string {
 function refreshSteps(hash: string): string {
   return [
     'The strict mcp lint rule set changed, so packs with "strictLint": true (mattstack) may now fail `rt skills check --strict` and `rt skills sync`.',
-    "1. Run `bun cli.ts skills check --pack-dir <mattstack-skills> --strict` from this checkout.",
-    "2. Land allow markers or fixes for every new strict hit in mattstack-skills before this change merges.",
+    "1. Run `bun cli.ts skills check --pack-dir plugins/mattstack --strict` from this checkout.",
+    "2. Land allow markers or fixes for every new strict hit in plugins/mattstack in this same change.",
     `3. Set RULES_SHA256 in lib/skills/__tests__/mcp-lint-rules-hash.test.ts to ${hash}.`,
   ].join("\n");
 }
