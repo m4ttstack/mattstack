@@ -122,21 +122,31 @@ describe("rt.picker.hidden in listings", () => {
 describe("the rt.picker.hidden default", () => {
   const hidden = getDef("rt.picker.hidden")!.default as string[];
 
-  test("names only real top-level verbs", () => {
-    for (const name of hidden) {
-      expect(Object.keys(TREE), name).toContain(name);
+  test("names only real verb paths", () => {
+    for (const entry of hidden) {
+      let level: Record<string, CommandNode> | undefined = TREE;
+      for (const word of entry.split(" ")) {
+        expect(Object.keys(level ?? {}), entry).toContain(word);
+        level = level![word]!.subcommands;
+      }
     }
   });
 
   test("keeps the verbs typed by hand visible", () => {
-    for (const name of ["git", "sync", "run", "runner", "glitter", "cd", "nav", "code", "worktree", "settings", "cswap"]) {
+    for (const name of ["git", "sync", "run", "runner", "glitter", "cd", "nav", "code", "worktree", "cswap"]) {
       expect(hidden, name).not.toContain(name);
     }
   });
 
   test("hides the verbs only the apps, skills and daemon run", () => {
-    for (const name of ["state", "skills", "herd", "gate", "runs", "events", "reconciler", "release", "daemon", "pane", "uninstall", "chat"]) {
+    for (const name of ["state", "skills", "herd", "gate", "runs", "events", "reconciler", "release", "daemon", "pane", "uninstall", "chat", "settings"]) {
       expect(hidden, name).toContain(name);
+    }
+  });
+
+  test("leaves only the store verbs in the settings picker", () => {
+    for (const path of ["settings source-path", "settings schema", "settings test-push", "settings extension"]) {
+      expect(hidden, path).toContain(path);
     }
   });
 });

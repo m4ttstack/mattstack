@@ -310,7 +310,8 @@ export const REGISTRY: readonly SettingDef[] = [
     type: "array",
     scopes: ["user", "machine"],
     default: [
-      "agent", "apps", "bg", "chat", "ci", "cron", "daemon", "deps", "endpoint", "events", "gate", "herd", "home", "intercept", "pane", "plugin", "reconciler", "release", "runs", "secrets", "services", "setup", "skills", "state", "team", "tools", "uninstall", "verify",
+      "agent", "apps", "bg", "chat", "ci", "cron", "daemon", "deps", "endpoint", "events", "gate", "herd", "home", "intercept", "pane", "plugin", "reconciler", "release", "runs", "secrets", "services", "settings", "setup", "skills", "state", "team", "tools", "uninstall", "verify",
+      "settings source-path", "settings schema", "settings test-push", "settings extension",
     ],
     merge: "replace",
     description: "Verbs left out of rt's pickers, usage and --help, by path (\"pane\", or \"worktree provision\" for a nested verb). The default hides the verbs the mattstack apps, skills and daemon run; edit it to show one of those or hide any other verb, and [] lists everything. Hidden verbs still run by name, and `rt --all` lists everything once.",

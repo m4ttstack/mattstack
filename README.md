@@ -110,13 +110,9 @@ bar to check on demand.
 
 ## Quickstart
 
-Set your tokens once. They apply to every repo:
-
-```bash
-rt settings linear token     # Linear API key, for ticket lookup
-rt settings gitlab token     # GitLab personal access token, for MR data
-rt settings linear team      # default Linear team
-```
+Connect your accounts (GitHub or GitLab, Linear) in the app's setup checklist,
+or from a terminal with `rt setup <integration> connect`. They apply to every
+repo.
 
 Then check the install is healthy and start using it:
 
@@ -263,12 +259,12 @@ of its own.
 
 ### Global settings
 
+Change settings on the console's settings page. From a terminal:
+
 ```bash
-rt settings linear token       # Linear API key
-rt settings linear team        # default Linear team
-rt settings gitlab token       # GitLab personal access token
-rt settings notifications      # which events fire native macOS notifications
-rt settings runaway            # runaway process detection thresholds
+rt settings get <key>          # resolved value and where it came from
+rt settings set <key> <value>  # write it into one store (user, team or machine)
+rt settings explain <key>      # the full scope chain
 rt settings extension          # install the rt-context extension into local editors
 rt settings source-path        # show or set the rt checkout the dev app runs
 ```
