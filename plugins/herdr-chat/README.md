@@ -156,8 +156,9 @@ herdr plugin install m4ttstack/mattstack/plugins/herdr-chat
 ```
 
 herdr clones the whole mattstack repository to build this plugin; the
-first install takes <N> seconds and <M> MB on a 2026 MacBook Pro
-(measured on <date>).
+first install takes about 15 seconds and about 400 MB on a 2026
+MacBook Pro: roughly 170 MB of repository (56 MB of it git history) plus
+the 230 MB release build (measured on 2026-09-27).
 
 This builds the plugin and registers its actions (`launcher`, `broadcast`,
 `peek`, `quick-send`, `sign-in`, `sign-out`, `open-viewer`) and its popup
