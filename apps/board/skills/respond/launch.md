@@ -295,9 +295,9 @@ other answer records its marks, then reads.
 
 - **Triage origins** (`mr_view refused`, `mr_threads refused`): no
   verdict table exists yet. `Read <--report> (resumed respond)` finding
-  no file is nothing read, never an error, and from a file (possibly an
-  earlier run's) only the `source-branch:` line a `mr_threads` origin
-  wrote counts. Triage continues at the refused call, as
+  no file is nothing read, never an error, and from a file only the
+  `source-branch:` line counts, at a `mr_threads` origin. Triage
+  continues at the refused call, as
   `Which triage call refused (resumed)?` (in `triage.md`) draws it: a
   take skips the call, a round-1 iterate reads again, and at `mr_view` a
   hand back or round-2 iterate carries on without the branch. At fetch

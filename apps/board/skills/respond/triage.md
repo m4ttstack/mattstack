@@ -198,7 +198,8 @@ Honor the operator note (for example "push back on the naming comment",
 
 Before Gate 1 opens, `--report <path>` holds, as Markdown:
 
-- a `source-branch: <branch>` line (generic path, when `mr_view` gave it);
+- on the generic path, a `source-branch: <branch>` line when this run
+  knows the branch (see below);
 - the verdict table: one row per unresolved thread in verdict order, keyed
   by its thread id VERBATIM (the same `<threadId>` the gate's
   `reply:<threadId>`, `fix:<threadId>` and `skip:<threadId>` values carry),
@@ -214,6 +215,15 @@ the table and drafts and drop any earlier `gate-1-context: dropped` line;
 the new Gate 1 records its own. On every new table, a fresh run's
 included, drop any earlier `gate-1-answer:` or `gate-2-answer:` line:
 they answer an earlier table's gates.
+
+On the generic path the `source-branch:` line always describes this
+run, since the file outlives it. This run knows the branch when its
+`mr_view` gave `sourceBranch`, an `mr_view` take named it, or a resumed
+`mr_threads` origin read it from the line the pre-step below wrote:
+write that branch, replacing any earlier line. Otherwise (a hand back,
+gate unavailable, a spent round budget, a resumed round-2 iterate)
+delete any earlier `source-branch:` line, so the push check finds no
+branch and holds every fixed thread.
 
 ### Build the Gate 1 questions
 
@@ -271,17 +281,20 @@ that the push check needs the MR's source branch.
 A take keeps the branch the human names as the source branch. Iterate
 passes `Off-script rounds = 2 (mr_view, respond)?` before reading again.
 Hand back, gate unavailable and a spent round budget carry on to
-`mr_threads` with the source branch unknown: the report gets no
-`source-branch:` line, and the push check later holds every fixed thread
-rather than pushing it.
+`mr_threads` with the source branch unknown: any earlier
+`source-branch:` line is deleted from the report, and the push check
+later holds every fixed thread rather than pushing it.
 
 ### respond off-script gate: mr_threads refused (fetch)
 
 Take "Off-script step" with this question. Label: `mr_threads refused
 twice on !<iid>: <second error>`. Context: both `mr_threads` errors,
-quoted. Before the step, write the `source-branch: <branch>` line into
-`--report` when `mr_view` gave one, replacing any earlier line: a pane
-resumed on this gate has no other way to learn it.
+quoted. Before the step, make the report's `source-branch:` line
+describe this run, as "Write the verdict table and drafts to --report"
+does: write `source-branch: <branch>` when this run's `mr_view` gave the
+branch or an `mr_view` take named it, replacing any earlier line, and
+otherwise delete any earlier line. A pane resumed on this gate has no
+other way to learn the branch.
 
 | Value                                                                                              | Label                | Description                                                                    |
 | -------------------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------ |
