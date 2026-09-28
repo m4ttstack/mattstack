@@ -328,8 +328,8 @@ stage knows.
 
 One sentence above the form: the branch, the commits about to go, and
 whether the tree is dirty. When the gate reopens with a rebase in progress
-(the conflict rounds are spent), the context says so, since Abort then
-aborts that rebase.
+(the conflict rounds are spent), the context says so, since Abort or Go
+back then aborts that rebase.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
