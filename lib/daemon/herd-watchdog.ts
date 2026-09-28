@@ -74,8 +74,8 @@ type Background = { exempt: true } | { exempt: false; note: string };
 function background(pane: string, s: WatchdogSensors, cfg: WatchdogConfig, now: number): Background {
   const bg = s.backgroundWork(pane);
   if (bg === null) return { exempt: false, note: "" };
-  // A short turn can end between two sweeps without the sensor ever seeing
-  // the pane busy, so its stamp survives; the idle transition still moved.
+  // A short turn can start and end between two sweeps, so no sweep sees the
+  // pane working and the stamp survives; the idle transition still moved.
   const age = now - Math.max(bg.sinceMs, s.idleSinceMs(pane) ?? 0);
   return age < ms(cfg.backgroundCapMins) ? { exempt: true } : { exempt: false, note: `; background ${bg.task} for ${minutes(age)}m` };
 }
