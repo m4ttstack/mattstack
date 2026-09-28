@@ -35,7 +35,7 @@ digraph gitq_sync {
     "gitq --version (sync)" [shape=plaintext];
     "gitq on PATH (sync)?" [shape=diamond];
     "<status-bin> job-status <state> error \"gitq not on PATH\" (sync)" [shape=plaintext];
-    "gitq missing: told the human to run bun link in the gitq checkout (sync)" [shape=doublecircle];
+    "gitq missing: told the human to run rt deps link gitq (sync)" [shape=doublecircle];
     "<status-bin> job-status <state> error \"<reason>\" (sync)" [shape=plaintext];
     "Report the failure to the human (sync)" [shape=box];
     "sync failed: reported" [shape=doublecircle];
@@ -99,7 +99,7 @@ digraph gitq_sync {
     "gitq --version (sync)" -> "gitq on PATH (sync)?";
     "gitq on PATH (sync)?" -> "<status-bin> job-status <state> working \"syncing <stackName>\"" [label="yes"];
     "gitq on PATH (sync)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (sync)" [label="no"];
-    "<status-bin> job-status <state> error \"gitq not on PATH\" (sync)" -> "gitq missing: told the human to run bun link in the gitq checkout (sync)";
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (sync)" -> "gitq missing: told the human to run rt deps link gitq (sync)";
     "<status-bin> job-status <state> error \"<reason>\" (sync)" -> "Report the failure to the human (sync)";
     "Report the failure to the human (sync)" -> "sync failed: reported";
     "<status-bin> job-status <state> done \"rebased <n> branches, resolved <m> conflicts\"" -> "Launch asked for the MRs to be updated (sync)?";

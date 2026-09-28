@@ -36,7 +36,7 @@ digraph gitq_restructure {
     "gitq --version (restructure)" [shape=plaintext];
     "gitq on PATH (restructure)?" [shape=diamond];
     "<status-bin> job-status <state> error \"gitq not on PATH\" (restructure)" [shape=plaintext];
-    "gitq missing: told the human to run bun link in the gitq checkout (restructure)" [shape=doublecircle];
+    "gitq missing: told the human to run rt deps link gitq (restructure)" [shape=doublecircle];
     "<status-bin> job-status <state> error \"<reason>\" (restructure)" [shape=plaintext];
     "Report the failure to the human (restructure)" [shape=box];
     "restructure failed: reported" [shape=doublecircle];
@@ -107,7 +107,7 @@ digraph gitq_restructure {
     "gitq --version (restructure)" -> "gitq on PATH (restructure)?";
     "gitq on PATH (restructure)?" -> "<status-bin> job-status <state> working \"planning restructure\"" [label="yes"];
     "gitq on PATH (restructure)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (restructure)" [label="no"];
-    "<status-bin> job-status <state> error \"gitq not on PATH\" (restructure)" -> "gitq missing: told the human to run bun link in the gitq checkout (restructure)";
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (restructure)" -> "gitq missing: told the human to run rt deps link gitq (restructure)";
     "<status-bin> job-status <state> working \"planning restructure\"" -> "Instruction clear enough to act on (restructure)?";
     "<status-bin> job-status <state> error \"<reason>\" (restructure)" -> "Report the failure to the human (restructure)";
     "Report the failure to the human (restructure)" -> "restructure failed: reported";

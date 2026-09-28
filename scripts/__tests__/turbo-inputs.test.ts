@@ -33,3 +33,20 @@ test('every test that reads outside its package declares $TURBO_ROOT$ inputs', (
   }
   expect(offenders).toEqual([]);
 });
+
+// test-scope.ts skips the unit shards on an apps-only PR, so a guard over
+// apps/*/skills runs on that PR only through this always-run root task.
+test('the deps.lock skills-tree guard runs in //#turbo:test and rehashes on any apps skills edit', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  expect(pkg.scripts['turbo:test'].split(' ')).toContain('./lib/__tests__/deps-lock-live.test.ts');
+  const turbo = JSON.parse(readFileSync(join(ROOT, 'turbo.json'), 'utf8'));
+  expect(turbo.tasks['//#turbo:test'].inputs).toEqual(
+    expect.arrayContaining([
+      'rt-tray/deps.lock',
+      'lib/__tests__/deps-lock-live.test.ts',
+      'lib/bundle-layout.ts',
+      'lib/skills/sources.ts',
+      '$TURBO_ROOT$/apps/*/skills/**',
+    ])
+  );
+});

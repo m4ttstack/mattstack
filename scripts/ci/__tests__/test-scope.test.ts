@@ -134,6 +134,10 @@ describe("decide", () => {
     expect(d.mode).toBe("skip");
   });
 
+  test("an apps skills edit skips too, since //#turbo:test runs the skills-tree guard", () => {
+    expect(decide(prInput(["apps/gitq/skills/sync/SKILL.md"])).mode).toBe("skip");
+  });
+
   test("a glance source change runs rt's unit suite", () => {
     expect(decide(prInput(["packages/glance/src/index.ts"])).mode).toBe("full");
   });
