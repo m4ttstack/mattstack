@@ -211,7 +211,8 @@ digraph receive_review {
     "Read the PR's review threads with gh" -> "Keep only unresolved human threads";
     "Keep only unresolved human threads" -> "Executing a caller-handed {plan}?";
     "Executing a caller-handed {plan}?" -> "run_decision {contract: gate@1, scope: respond-plan, selection, decidedBy}" [label="yes, not yet spent: record it, never re-adjudicate"];
-    "Executing a caller-handed {plan}?" -> "Any unresolved human threads?" [label="no"];
+    "Executing a caller-handed {plan}?" -> "Any unresolved human threads?" [label="no, or the handed plan is spent by a revise"];
+    "Executing a caller-handed {plan}?" -> "Rewrite the receive-review report rows" [label="spent: run_snapshot already records it, not a revise: the rows from that record"];
     "Any unresolved human threads?" -> "Dispatch one fresh-context adjudicator over all the review threads" [label="yes"];
     "Any unresolved human threads?" -> "Report the outcome (to the caller when it owns the gates)" [label="none: say so"];
 
@@ -437,7 +438,9 @@ A caller handed you a `runDb` (a pipeline invoking this verb carries it in
 context) and `run_snapshot` with that `runDb` shows `run.status` =
 `running`: you were invoked from inside that run, you inherit it,
 `run.current_stage` is your stage, you pass that handed `runDb` on every
-`run_*` call, and you close nothing at the end.
+`run_*` call, and you close nothing at the end. A caller that owns the
+gates may hand the respond-plan open's path or the saved verdict report's
+path alongside `{plan}`, and the rows read drafts from them.
 
 ### Gate clarify for receive-review: Resume / Start fresh / Hold
 
@@ -520,12 +523,23 @@ On GitHub, fetch the threads with `gh`.
 Keep only **unresolved human** threads: drop system notes and bot authors.
 Capture each thread's id, its `file:line`, and its full note chain.
 
-With a caller-handed `{plan}` not yet spent, this read is only what
-execution needs: the threads' ids, `file:line` and note chains for the fix
-rows. Record the plan and go on to the rows; never dispatch the
+With a caller-handed `{plan}` not yet spent, keep every thread the plan
+names, resolved or not: the plan decides its row, not the resolved state.
+A named thread the forge no longer returns is held and reported.
+Unresolved threads the plan does not name get no row; the outcome report
+names them for the next run. The read is what every row the plan gives
+needs: the threads' ids, `file:line` and note chains. Fix rows need them
+to implement, and override rows need them to redraft. Record the plan,
+normalized as the decision intake under Build the open says, `decidedBy`
+the decider the caller names, then go on to the rows; never dispatch the
 adjudicator or draft a new verdict table for it. A plan answers an
 adjudication the human already saw, so a fresh one would change the drafts
 it approved.
+
+In a fresh pane, a handed plan is spent when `run_snapshot`'s latest
+respond-plan record is that plan. Not a revise: go to the rows from that
+record (the snapshot-only reading), never record it again. A revise:
+adjudicate afresh.
 
 ### Dispatch one fresh-context adjudicator over all the review threads
 
@@ -579,8 +593,9 @@ The verb adjudicates; it never decides what gets fixed or posted. Decision
 intake: when the caller hands decided answers -- the `{plan}`
 half alone (a board wrapper hands it after its own first gate, `{post}`
 following later when gate respond-post offers a thread) or a combined `{plan, post}` object from a
-caller that collected both up front -- `plan` is recorded at Keep only
-unresolved human threads, before any adjudication, and asks nothing: its
+caller that collected both up front -- `plan` is recorded at the
+`Executing a caller-handed {plan}?` decision after Keep only unresolved
+human threads, before any adjudication, and asks nothing: its
 per-question answers, keyed by question id with verbatim option strings,
 are the decision. A handed plan not yet spent never reaches this step. Use
 the decider the caller names alongside it. Record
@@ -806,7 +821,11 @@ session. Its rows read each thread's draft from the respond-plan open the
 caller built its gate from, or from the saved verdict report, when the
 caller hands either path. With neither, read the plan as the snapshot-only
 reading above: a `reply` thread with no `texts` entry is an override,
-redrafted and offered at gate 2, never posted from gate 1.
+redrafted and offered at gate 2, never posted from gate 1. When both the
+open and the saved verdict report are handed, the report wins, because it
+carries the `gate-1-context: dropped` line. A row's `<verdict>,
+recommended <action>` fields come from the open's verdict and recommended
+option, else `unknown`. Row order is the plan's `thread-<n>` order.
 
 `code-changes: revise` re-adjudicates: back to Dispatch one fresh-context
 adjudicator over all the review threads, a fresh dispatch with their note
