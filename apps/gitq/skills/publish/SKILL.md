@@ -55,7 +55,7 @@ digraph gitq_publish {
     "gitq --version (publish)" [shape=plaintext];
     "gitq on PATH (publish)?" [shape=diamond];
     "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" [shape=plaintext];
-    "gitq missing: told the human to run bun link in the gitq checkout (publish)" [shape=doublecircle];
+    "gitq missing: told the human to run rt deps link gitq (publish)" [shape=doublecircle];
     "<status-bin> job-status <state> working \"publishing <stackName>\"" [shape=plaintext];
     "gitq -C <repoPath> stacks --json (publish)" [shape=plaintext];
     "gitq -C <repoPath> diagnose --json (publish)" [shape=plaintext];
@@ -90,7 +90,7 @@ digraph gitq_publish {
     "gitq --version (publish)" -> "gitq on PATH (publish)?";
     "gitq on PATH (publish)?" -> "<status-bin> job-status <state> working \"publishing <stackName>\"" [label="yes"];
     "gitq on PATH (publish)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" [label="no"];
-    "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" -> "gitq missing: told the human to run bun link in the gitq checkout (publish)";
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" -> "gitq missing: told the human to run rt deps link gitq (publish)";
     "<status-bin> job-status <state> working \"publishing <stackName>\"" -> "gitq -C <repoPath> stacks --json (publish)";
     "gitq -C <repoPath> stacks --json (publish)" -> "gitq -C <repoPath> diagnose --json (publish)";
     "gitq -C <repoPath> diagnose --json (publish)" -> "Stack state (publish)?";

@@ -83,8 +83,9 @@ const APPS_ROOT_FILES = new Set([
 
 // The apps' trees run under turbo in `static`; the unit shards never read
 // them. Safe to skip only because //#turbo:test (scripts/turbo.sh, run every
-// static) covers the two rt tests that glob apps/packages content
-// (scripts/__tests__/turbo-inputs.test.ts and turbo-graph.test.ts) -- without
+// static) covers the rt tests that read apps/packages content
+// (scripts/__tests__/turbo-inputs.test.ts, turbo-graph.test.ts, and the
+// apps/*/skills guard in lib/__tests__/deps-lock-live.test.ts) -- without
 // that root task, an apps-only PR would bypass the guards written for it.
 function isAppsTree(f: string): boolean {
   return (
