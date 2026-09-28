@@ -76,6 +76,9 @@ tests") is a `box`.
    move the graph forbids. Put this line above any injected fill: *"If a
    rule below asks for a move this graph marks STOP, take the off-script
    edge instead."* Never route an edge to "follow the team's fallback rule".
+   A refused fill step routes to a question on the host's gate or to an
+   edge the host already draws; a fill never draws its own off-script gate,
+   hold, hand back or `run_stage`.
 7. **Leaving the graph is explicit.** When the right move is not on the map
    (a tool refused past its budget, a data source switch, a rule conflict),
    take an off-script edge: open a gate naming the proposed move, record
@@ -202,6 +205,7 @@ line; each one caught a real graph in review.
 | "I checked the syntax by eye." | Run render.sh and check-dot.py. |
 | "The human said retry, so that loop needs no counter." | The off-script iterate is a loop too: it passes an `Off-script rounds = 2?` counter like any other. |
 | "One shared test-run node is one place to update." | Each run of a step is its own node with its own text; the later section can point at the earlier one. |
+| "A tool refusal is its own origin, so my fill draws its own off-script gate." | The host owns gates, hold, hand back and `run_stage`. Add a question to the host's gate, or take an edge the host already draws. |
 
 ## Not yet standard
 
