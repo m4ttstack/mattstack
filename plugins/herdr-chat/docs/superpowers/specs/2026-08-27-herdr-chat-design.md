@@ -116,9 +116,8 @@ Ratified in brainstorming, 2026-08-27:
 
 ## The plugin (herdr-chat)
 
-Directory `plugins/herdr-chat` of `m4ttstack/mattstack`, plugin id
-`m4ttstack.chat`, a `herdr-plugin.toml` at that directory's root, installable
-with `herdr plugin install m4ttstack/mattstack/plugins/herdr-chat`.
+Repo `m4ttstack/herdr-chat`, plugin id `m4ttstack.chat`, a `herdr-plugin.toml`
+at the root, installable with `herdr plugin install m4ttstack/herdr-chat`.
 macOS first (the estate is macOS, deck's `open` and the deck API are local);
 Linux is a named follow-up.
 

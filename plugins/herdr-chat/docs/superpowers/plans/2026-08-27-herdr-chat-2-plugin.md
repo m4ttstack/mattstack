@@ -717,7 +717,7 @@ Expected: `broadcast`, `peek`, `quick-send`, `sign-in`, `sign-out`, `open-viewer
 
 - [ ] **Step 2: Document keybindings as a user-config step**
 
-In `README.md`, add an "Install" section: `herdr plugin install m4ttstack/mattstack/plugins/herdr-chat`, then the user adds to their herdr keys config:
+In `README.md`, add an "Install" section: `herdr plugin install m4ttstack/herdr-chat`, then the user adds to their herdr keys config:
 
 ```toml
 [[keys.command]]
