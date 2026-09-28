@@ -128,6 +128,24 @@ describe("mr:by-target", () => {
     expect(paths).toHaveLength(2);
   });
 
+  test("keeps walking past a full page that carries no x-next-page header", async () => {
+    const full = Array.from({ length: 100 }, (_, i) => row(i + 1, "a"));
+    const { provider, paths } = restProvider((path) => {
+      const n = new URLSearchParams(path.split("?")[1]).get("page");
+      return n === "1" ? new Response(JSON.stringify(full), { status: 200 }) : new Response(JSON.stringify([row(101, "b")]), { status: 200 });
+    });
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect((r as any).data.mrs).toHaveLength(101);
+    expect(paths).toHaveLength(2);
+  });
+
+  test("stops at a short page even with no x-next-page header", async () => {
+    const { provider, paths } = restProvider(() => new Response(JSON.stringify([row(1, "a")]), { status: 200 }));
+    const r = await handlers(provider)["mr:by-target"]!({ repoName: REPO, targetBranch: "feat" });
+    expect((r as any).data.mrs).toHaveLength(1);
+    expect(paths).toHaveLength(1);
+  });
+
   test("passes a state through and refuses an unknown one", async () => {
     const { provider, paths } = restProvider(() => page([]));
     const h = handlers(provider);

@@ -126,7 +126,9 @@ async function listMrsByTarget(
       const rows = (await res.json()) as unknown;
       if (!Array.isArray(rows)) return { ok: false, error: "GitLab's merge request listing was not a JSON array" };
       mrs.push(...(rows as RestMrRow[]).map(targetSummary));
-      if (!res.headers.get("x-next-page")) return { ok: true, mrs };
+      // GitLab can omit pagination headers, so an absent header ends the walk only on a short page.
+      const next = res.headers.get("x-next-page");
+      if (next === null ? rows.length < BY_TARGET_PER_PAGE : next === "") return { ok: true, mrs };
     }
   } catch (err) {
     return { ok: false, error: String(err) };
