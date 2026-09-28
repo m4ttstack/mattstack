@@ -206,7 +206,6 @@ rt git reset origin       # sync with origin after a remote rebase
 rt git reset soft         # unstage everything (resets the index to HEAD, keeps your edits)
 rt git reset hard         # discard every working-tree change (resets to HEAD)
 rt git undo               # undo the last commit, keeping its changes in the working tree
-rt git commit             # interactive staging + commit (file list with +/- stats)
 rt git backup             # back up the current branch to a backup ref
 rt git restore            # restore from a backup branch
 ```

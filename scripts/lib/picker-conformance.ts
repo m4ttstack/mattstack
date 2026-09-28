@@ -30,7 +30,7 @@ export function requiredPositionalLeaves(
   function visit(entries: Record<string, CommandNode>, prefix: string[]): void {
     for (const [name, node] of Object.entries(entries)) {
       if (!node || node.hidden || node.devOnly) continue;
-      // A node object shared across two paths (e.g. commitNode) is one command;
+      // A node object shared across two paths is one command;
       // classify it once, under the path it is first reached by.
       if (seen.has(node)) continue;
       seen.add(node);

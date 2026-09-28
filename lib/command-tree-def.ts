@@ -619,21 +619,6 @@ const endpointSubcommands: Record<string, CommandNode> = {
   },
 };
 
-// Shared so `rt commit` and `rt git commit` are one node (enrich once, render once).
-const commitNode: CommandNode = {
-  description: "Interactive staged/unstaged commit picker",
-  module: "./commands/commit.ts",
-  fn: "commitFlow",
-  context: "worktree",
-  requiresTTY: true,
-  // The picker renders an inline frame, not an alt-screen, so it owns the top
-  // region of the terminal; a dispatcher header printed above it would get
-  // orphaned by the frame's own repaints. The picker renders its own
-  // in-card breadcrumb instead.
-  fullscreen: true,
-  args: [],
-};
-
 const SETUP_JSON_ARG = { name: "JSON", flag: "--json", type: "boolean" as const, default: false, hint: "Machine-readable result" };
 
 /**
@@ -746,7 +731,6 @@ export const TREE: Record<string, CommandNode> = {
           },
         },
       },
-      commit: commitNode,
       backup: {
         description: "Back up the current branch",
         module: "./commands/git/backup.ts",
@@ -1065,8 +1049,6 @@ export const TREE: Record<string, CommandNode> = {
     args: [],
   },
 
-  commit: commitNode,
-
   port: {
     description: "Port scanner + killer (zero-config, daemon-powered)",
     module: "./commands/port.ts",
@@ -1167,9 +1149,9 @@ export const TREE: Record<string, CommandNode> = {
     description: "Worktree/repo directory picker",
     module: "./commands/cd.ts",
     fn: "worktreePicker",
-    // Same inline-frame constraint as commitNode above: the picker owns the
-    // top region and draws its own in-card breadcrumb, so the dispatcher
-    // header is suppressed here.
+    // The picker renders an inline frame, not an alt-screen, so it owns the
+    // top region; a dispatcher header printed above it would get orphaned by
+    // the frame's repaints. It draws its own in-card breadcrumb instead.
     fullscreen: true,
     requiresTTY: true,
     args: [
@@ -1195,8 +1177,8 @@ export const TREE: Record<string, CommandNode> = {
     fn: "navigate",
     omitBehavior: "picker",
     requiresTTY: true,
-    // Same inline-frame constraint as commitNode above: the picker owns the
-    // top region, so suppress the dispatcher header.
+    // Same inline-frame constraint as cd above: the picker owns the top
+    // region, so suppress the dispatcher header.
     fullscreen: true,
     args: [
       { name: "Path", type: "text", placeholder: ".", hint: "Starting directory; defaults to the current directory" },
@@ -2421,7 +2403,7 @@ export const TREE: Record<string, CommandNode> = {
         agentSafe: true,
         agentNoCwd: true,
         omitBehavior: "picker",
-        // Same inline-frame constraint as commitNode above: the palette owns
+        // Same inline-frame constraint as cd above: the palette owns
         // the top region, so suppress the dispatcher header.
         fullscreen: true,
         args: [
