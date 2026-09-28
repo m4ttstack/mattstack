@@ -86,6 +86,16 @@ describe("rt skills expand", () => {
     expect(parsed.lint[0]).toContain("glab mr note");
   });
 
+  test("--strict fails on a shell form in a vendored markdown file", async () => {
+    write(join(root, "src", "a", "stage.md"), "# Stage\n\nPost with `glab mr note 3 -m hi`.\n");
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--json"]));
+    expect(r.exitCode).toBe(1);
+    const parsed = JSON.parse(logs.at(-1)!);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.lint).toHaveLength(1);
+    expect(parsed.lint[0]).toContain(`${join(root, "out", "a", "stage.md")}:3`);
+  });
+
   test("--strict honours the allow marker", async () => {
     write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`. <!-- mcp-lint: allow -->\n\n{{include:note}}\n");
     const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--json"]));

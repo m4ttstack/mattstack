@@ -63,9 +63,13 @@ function lintExpanded(outDir: string, skills: ExpandedSkill[]): string[] {
   for (const s of skills) {
     const home = join(outDir, s.name);
     lint.push(...lintSkillText(s.skillMd, join(home, "SKILL.md"), rules).map(formatHit));
-    for (const f of s.files.filter((file) => isScriptPath(file.path))) {
-      for (const hit of lintScriptFile(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules)) {
-        console.error(`(advisory) ${formatHit(hit)}`);
+    for (const f of s.files) {
+      if (f.path.endsWith(".md")) {
+        lint.push(...lintSkillText(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules).map(formatHit));
+      } else if (isScriptPath(f.path)) {
+        for (const hit of lintScriptFile(readFileSync(f.copyFrom, "utf8"), join(home, f.path), rules)) {
+          console.error(`(advisory) ${formatHit(hit)}`);
+        }
       }
     }
   }
