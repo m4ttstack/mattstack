@@ -1,4 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { autocompletion } from '@codemirror/autocomplete';
 import { indentWithTab } from '@codemirror/commands';
 import { javascript } from '@codemirror/lang-javascript';
@@ -45,6 +51,9 @@ export interface CodeMirrorBaseProps {
   readOnly?: boolean;
   /** CSS height of the editor. @default '300px' */
   height?: string;
+  /** Adds a drag handle on the bottom edge. `height` is then only the
+      starting height: a later change to it does not undo a drag. @default false */
+  resizable?: boolean;
   /** Placeholder content shown when the editor is empty. */
   placeholder?: string;
   /** Focus the editor on mount. @default false */
@@ -91,6 +100,27 @@ export interface CodeMirrorRef {
  * own dark active-line color is a fixed, too-heavy teal wash. The frame
  * polish (padding, theme radius) rides along.
  */
+const MIN_RESIZABLE_HEIGHT_PX = 60;
+const KEY_STEP_PX = 20;
+const GRIP_STYLE = {
+  flex: 'none',
+  height: 12,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'ns-resize',
+  background: 'var(--ui-bg-4)',
+  borderTop: '1px solid var(--mantine-color-default-border)',
+  touchAction: 'none',
+} as const;
+const GRIP_BAR_STYLE = {
+  width: 28,
+  height: 3,
+  borderRadius: 2,
+  background: 'var(--mantine-color-dimmed)',
+  opacity: 0.6,
+} as const;
+
 const editorTheme = (height: string, dark: boolean): Extension =>
   EditorView.theme(
     {
@@ -263,6 +293,7 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
     language,
     readOnly = false,
     height = '300px',
+    resizable = false,
     placeholder,
     autoFocus = false,
     extensions = [],
@@ -275,7 +306,12 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
   ref
 ) {
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // React only writes a style value that changed, so a constant start height
+  // never overwrites the height a drag set on the frame.
+  const [startHeight] = useState(height);
+  const editorHeight = resizable ? '100%' : height;
   const languageCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
   const themeCompartment = useRef(new Compartment()).current;
@@ -338,7 +374,7 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
       // `extensions` prop doc for why this doesn't reconfigure live.
       ...extensions,
       themeCompartment.of(
-        resolveThemeExtension(theme, height, computedColorScheme)
+        resolveThemeExtension(theme, editorHeight, computedColorScheme)
       ),
     ];
     if (placeholder) {
@@ -387,10 +423,10 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
   useEffect(() => {
     viewRef.current?.dispatch({
       effects: themeCompartment.reconfigure(
-        resolveThemeExtension(theme, height, computedColorScheme)
+        resolveThemeExtension(theme, editorHeight, computedColorScheme)
       ),
     });
-  }, [computedColorScheme, height, theme, themeCompartment]);
+  }, [computedColorScheme, editorHeight, theme, themeCompartment]);
 
   // Reconfigure the language compartment when `language` changes.
   useEffect(() => {
@@ -423,7 +459,75 @@ const CodeMirrorBase = /* @__PURE__ */ forwardRef<
     });
   }, [language, hasJsonSchema, hasJsonCheck, schemaCompartment]);
 
-  return <div ref={parentRef} data-testid="codemirror-editor" />;
+  const editor = (
+    <div
+      ref={parentRef}
+      data-testid="codemirror-editor"
+      style={resizable ? { flex: 1, minHeight: 0 } : undefined}
+    />
+  );
+  if (!resizable) return editor;
+
+  const resizeTo = (px: number) => {
+    const frame = frameRef.current;
+    if (frame)
+      frame.style.height = `${Math.max(MIN_RESIZABLE_HEIGHT_PX, px)}px`;
+  };
+  // jsdom lays nothing out, so the inline height is read before the measured one.
+  const currentHeight = () => {
+    const frame = frameRef.current;
+    if (!frame) return 0;
+    return (
+      parseFloat(frame.style.height) || frame.getBoundingClientRect().height
+    );
+  };
+
+  return (
+    <div
+      ref={frameRef}
+      style={{
+        height: startHeight,
+        minHeight: MIN_RESIZABLE_HEIGHT_PX,
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: 'var(--mantine-radius-default)',
+        overflow: 'hidden',
+        background: 'var(--ui-bg-4)',
+      }}
+    >
+      {editor}
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize editor"
+        tabIndex={0}
+        style={GRIP_STYLE}
+        onPointerDown={e => {
+          const startY = e.clientY;
+          const startH = currentHeight();
+          const move = (ev: PointerEvent) =>
+            resizeTo(startH + ev.clientY - startY);
+          const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+          e.preventDefault();
+        }}
+        onKeyDown={e => {
+          if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+          e.preventDefault();
+          resizeTo(
+            currentHeight() +
+              (e.key === 'ArrowDown' ? KEY_STEP_PX : -KEY_STEP_PX)
+          );
+        }}
+      >
+        <span style={GRIP_BAR_STYLE} />
+      </div>
+    </div>
+  );
 });
 
 export default CodeMirrorBase;
