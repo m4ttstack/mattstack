@@ -2,10 +2,10 @@
  * The network-free half of mr:upload. Every mattstack MCP tool runs with no
  * permission check, so this is the only thing between an agent and sending an
  * arbitrary local file to a forge: the realpath must be a regular file under
- * one of the caller's roots or a run's own evidence folder (see runEvidenceRoot)
- * (a caller root must be a non-empty absolute string; anything else is skipped
- * rather than resolved against the daemon's own cwd), the extension must be an
- * image or video type, and the size is capped. Symlinks resolve
+ * one of the caller's roots or a run's own evidence folder (see runEvidenceRoot),
+ * the extension must be an image or video type, and the size is capped. A
+ * caller root must be a non-empty absolute string; anything else is skipped
+ * rather than resolved against the daemon's own cwd. Symlinks resolve
  * before the containment check, so a link inside a root that points outside
  * it is refused without its target ever being read. The bytes returned on
  * success are read from one descriptor opened O_NOFOLLOW|O_NONBLOCK (refuses

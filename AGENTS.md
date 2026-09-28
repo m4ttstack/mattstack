@@ -285,11 +285,11 @@ the one tool that sends a local file off the machine, so its daemon guard
 (`lib/daemon/upload-guard.ts`) refuses anything outside the target repo's
 worktrees, the user's Claude Code temp root, a pipeline run's own
 evidence folder (`~/.mattstack/work/<run id>/evidence/`, for a run that
-exists) and `rt.mcp.uploadRoots`, and anything whose bytes do not match its image or
-video extension; widen the roots through that setting, never by loosening
-the guard. Target resolution (`repoName` as identity, path or label, or
-`mrUrl`) lives in `lib/mcp/mr-target.ts`; the daemon verbs still take the
-serialized identity only.
+exists) and `rt.mcp.uploadRoots`, and anything whose bytes do not match
+its image or video extension; widen the roots through that setting, never
+by loosening the guard. Target resolution (`repoName` as identity, path or
+label, or `mrUrl`) lives in `lib/mcp/mr-target.ts`; the daemon verbs still
+take the serialized identity only.
 
 Decision gates (`rt gate ask`, `rt gate wait`, the board's stage sheet) are
 the only way an unattended pane asks a human anything. The
