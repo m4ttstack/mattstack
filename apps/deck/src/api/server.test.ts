@@ -1449,15 +1449,13 @@ describe('command route gating by app class', () => {
 
   test('deck-self shape: linked manifest with dev.deploy and no dev.start still runs deploy', async () => {
     const { putRecord } = await import('../registry/records.ts');
-    const dir = mkdtempSync(join(tmpdir(), 'deckself-'));
-    writeFileSync(
-      join(dir, 'mattstack.deck.json'),
-      JSON.stringify({
+    const dir = gitRepo({
+      'mattstack.deck.json': JSON.stringify({
         name: 'deckself',
         commands: {},
         dev: { deploy: 'echo deployed' },
-      })
-    );
+      }),
+    });
     putRecord({
       name: 'deckself',
       managedBy: 'deck',
