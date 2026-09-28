@@ -142,6 +142,8 @@ export const SCHEMAS = {
   "rt.hooks": z.looseObject({ enabled: z.boolean().optional(), hooks: z.record(z.string(), z.boolean()).optional() }),
   "rt.trustedBrowserOrigins": z.array(z.string()),
   "rt.mcp.uploadRoots": z.array(z.string()),
+  "rt.picker.show": z.array(z.string()),
+  "rt.picker.hide": z.array(z.string()),
   "rt.integrations": z.looseObject({ forgeHost: z.string().optional(), switchboardUrl: z.string().optional() }),
   "mattstack.integrations": z.looseObject({
     // A team scaffolded from a remote rt does not recognize as a forge stores forge: null.
