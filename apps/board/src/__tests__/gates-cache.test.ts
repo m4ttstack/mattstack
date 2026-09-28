@@ -821,6 +821,76 @@ describe('attachGates', () => {
       );
       expect(errored!.gates).toEqual([]);
     });
+
+    test('an answered review-escalation row follows the review state, not respond', () => {
+      const cache = new GateCache();
+      cache.applyRow(
+        row({
+          subject: SUBJECT,
+          kind: 'review-escalation',
+          id: 'gate-review-esc',
+          status: 'answered',
+          answer: {
+            answers: { action: 'hold' },
+            by: 'board-ui',
+            answeredAt: 2000,
+          },
+        })
+      );
+
+      const [live] = attachGates(
+        [
+          {
+            webUrl: WEB_URL,
+            review: { status: 'reviewing' as const },
+            respond: { status: 'done' as const },
+          },
+        ],
+        cache
+      );
+      expect(live!.gates).toHaveLength(1);
+
+      const [ended] = attachGates(
+        [{ webUrl: WEB_URL, review: { status: 'error' as const } }],
+        cache
+      );
+      expect(ended!.gates).toEqual([]);
+    });
+
+    test('an answered respond-escalation row follows the respond state', () => {
+      const cache = new GateCache();
+      cache.applyRow(
+        row({
+          subject: SUBJECT,
+          kind: 'respond-escalation',
+          id: 'gate-respond-esc',
+          status: 'answered',
+          answer: {
+            answers: { action: 'hold' },
+            by: 'board-ui',
+            answeredAt: 2000,
+          },
+        })
+      );
+
+      const [live] = attachGates(
+        [
+          {
+            webUrl: WEB_URL,
+            respond: { status: 'drafting' as const },
+            review: { status: 'done' as const },
+          },
+        ],
+        cache
+      );
+      expect(live!.gates).toHaveLength(1);
+
+      const [ended] = attachGates(
+        [{ webUrl: WEB_URL, respond: { status: 'done' as const } }],
+        cache
+      );
+      expect(ended!.gates).toEqual([]);
+    });
   });
 
   test("attachGates carries context, origin, and the kind's domain onto the board row", () => {

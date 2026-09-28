@@ -51,9 +51,9 @@ export interface RespondState {
   /** Facility gate id from the most recent `gate open`, so `gate wait` /
       `gate answer` can find it by state path alone. */
   gateId?: string;
-  /** The kind `gateId` was opened with ("respond-plan" or "respond-post") --
-      the wrapper's own re-entry reads this to know what a `--resumed-gate`
-      id names. */
+  /** The kind `gateId` was opened with, any respond-domain kind -- the
+      wrapper's own re-entry reads this to know what a `--resumed-gate` id
+      names. */
   gateKind?: string;
   /** Id of the gate the board has already resumed a parked-then-answered
       session for -- the exactly-once dedup marker (see gates/resume.ts). */

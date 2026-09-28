@@ -340,9 +340,9 @@ export type GateHost = {
     before kinds shipped, kept as a safe catch-all rather than never
     expiring. */
 function isAnsweredRowTerminal(kind: string, mr: GateHost): boolean {
-  if (kind === 'respond-plan' || kind === 'respond-post')
-    return isTerminal(mr.respond?.status);
-  if (kind === 'doctor-escalation') return isTerminal(mr.doctor?.status);
+  const domain = domainForKind(kind);
+  if (domain === 'respond') return isTerminal(mr.respond?.status);
+  if (domain === 'doctor') return isTerminal(mr.doctor?.status);
   return isTerminal(mr.review?.status);
 }
 

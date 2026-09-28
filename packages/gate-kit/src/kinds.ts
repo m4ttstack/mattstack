@@ -10,6 +10,8 @@ export const GATE_KINDS = [
   'respond-plan',
   'respond-post',
   'doctor-escalation',
+  'review-escalation',
+  'respond-escalation',
 ] as const;
 
 /** A kind outside this map (present or future) has no lifecycle to join
@@ -17,8 +19,13 @@ export const GATE_KINDS = [
     kinds (self-review, clarify, ...) flow through here as undefined by
     design. */
 export function domainForKind(kind: string): GateDomain | undefined {
-  if (kind === 'review-post') return 'review';
-  if (kind === 'respond-plan' || kind === 'respond-post') return 'respond';
+  if (kind === 'review-post' || kind === 'review-escalation') return 'review';
+  if (
+    kind === 'respond-plan' ||
+    kind === 'respond-post' ||
+    kind === 'respond-escalation'
+  )
+    return 'respond';
   if (kind === 'doctor-escalation') return 'doctor';
   return undefined;
 }

@@ -27,6 +27,7 @@ digraph respond_gate_2_and_posting {
     "Gate 2 step outcome?" [shape=diamond];
     "Ask Gate 2 as native forms (degraded)" [shape=box];
     "Domain skill resolved (Gate 2 act)?" [shape=diamond];
+    "Record the Gate 2 picks in --report" [shape=box];
     "Hand {post, by} to the domain skill" [shape=box];
     "Domain posting result (respond)?" [shape=diamond];
     "A fixed thread picked to post or resolve?" [shape=diamond];
@@ -74,7 +75,7 @@ digraph respond_gate_2_and_posting {
     "Threads to offer at Gate 2?" -> "Domain skill resolved (reply-only)?" [label="none: no fixed thread, no override"];
     "Threads to offer at Gate 2?" -> "<status-bin> respond-status <state> drafting (before Gate 2)" [label="some"];
     "Domain skill resolved (reply-only)?" -> "Posting finished: continue at the done write" [label="yes: it posted them on {plan}"];
-    "Domain skill resolved (reply-only)?" -> "Threads left to post (respond)?" [label="no: post the reply-only threads"];
+    "Domain skill resolved (reply-only)?" -> "Record the Gate 2 picks in --report" [label="no: post the reply-only threads"];
     "<status-bin> respond-status <state> drafting (before Gate 2)" -> "Fitted respond-post open file handed back?";
     "Fitted respond-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> respond-post <open-file>" [label="yes"];
     "Fitted respond-post open file handed back?" -> "Build the Gate 2 questions" [label="no"];
@@ -89,12 +90,14 @@ digraph respond_gate_2_and_posting {
     "Gate 2 step outcome?" -> "Ask Gate 2 as native forms (degraded)" [label="the wait keeps failing"];
     "Ask Gate 2 as native forms (degraded)" -> "Domain skill resolved (Gate 2 act)?";
     "Domain skill resolved (Gate 2 act)?" -> "Hand {post, by} to the domain skill" [label="yes"];
-    "Domain skill resolved (Gate 2 act)?" -> "A fixed thread picked to post or resolve?" [label="no"];
+    "Domain skill resolved (Gate 2 act)?" -> "Record the Gate 2 picks in --report" [label="no"];
+    "Record the Gate 2 picks in --report" -> "A fixed thread picked to post or resolve?";
     "Hand {post, by} to the domain skill" -> "Domain posting result (respond)?";
     "Domain posting result (respond)?" -> "Posting finished: continue at the done write" [label="posted: its counts"];
     "Domain posting result (respond)?" -> "Posting error: continue at the error write" [label="failed"];
-    "A fixed thread picked to post or resolve?" -> "git branch --show-current" [label="yes"];
-    "A fixed thread picked to post or resolve?" -> "Threads left to post (respond)?" [label="no: push nothing"];
+    "A fixed thread picked to post or resolve?" -> "git branch --show-current" [label="yes, and no fixed thread marked pushed by hand or push handed back"];
+    "A fixed thread picked to post or resolve?" -> "Threads left to post (respond)?" [label="no, or marked pushed by hand: push nothing"];
+    "A fixed thread picked to post or resolve?" -> "Hold the fixed threads: write respond-post-held into --report" [label="yes, marked push handed back"];
     "git branch --show-current" -> "On the MR's source branch?";
     "On the MR's source branch?" -> "git rev-parse --abbrev-ref @{push}" [label="yes"];
     "On the MR's source branch?" -> "Hold the fixed threads: write respond-post-held into --report" [label="no, or an error: never switch branches"];
@@ -105,30 +108,30 @@ digraph respond_gate_2_and_posting {
     "git_push result (respond)?" -> "Threads left to post (respond)?" [label="ok"];
     "git_push result (respond)?" -> "Fixed the git_push call once already (respond)?" [label="refused"];
     "git_push result (respond)?" -> "STOP: push only with git_push (respond)" [label="tempted to push from the shell or force past it"];
-    "STOP: push only with git_push (respond)" -> "git_push {tree: <root>}";
+    "STOP: push only with git_push (respond)" -> "Fixed the git_push call once already (respond)?";
     "Fixed the git_push call once already (respond)?" -> "Fix what the git_push error names (respond)" [label="no"];
     "Fixed the git_push call once already (respond)?" -> "respond off-script gate: git_push refused" [label="yes"];
     "Fix what the git_push error names (respond)" -> "git_push {tree: <root>}";
     "Hold the fixed threads: write respond-post-held into --report" -> "Threads left to post (respond)?";
     "Threads left to post (respond)?" -> "Post this thread's reply?" [label="yes"];
     "Threads left to post (respond)?" -> "Held threads from a respond-post-held line posted this pass?" [label="no"];
-    "Post this thread's reply?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="yes: picked post, or reply-only; not held, not posted already"];
+    "Post this thread's reply?" -> "mr_reply_thread {mrUrl, discussionId, body}" [label="yes: picked post, or reply-only; not held, not posted already, no mark on its reply"];
     "Post this thread's reply?" -> "Resolve this thread?" [label="no"];
     "mr_reply_thread {mrUrl, discussionId, body}" -> "mr_reply_thread result?";
     "mr_reply_thread result?" -> "Resolve this thread?" [label="posted"];
     "mr_reply_thread result?" -> "Fixed the mr_reply_thread call once already?" [label="tool error"];
     "mr_reply_thread result?" -> "STOP: replies post with mr_reply_thread" [label="tempted to post with the GitLab CLI or the API"];
-    "STOP: replies post with mr_reply_thread" -> "mr_reply_thread {mrUrl, discussionId, body}";
+    "STOP: replies post with mr_reply_thread" -> "Fixed the mr_reply_thread call once already?";
     "Fixed the mr_reply_thread call once already?" -> "Fix what the mr_reply_thread error names" [label="no"];
     "Fixed the mr_reply_thread call once already?" -> "respond off-script gate: mr_reply_thread refused" [label="yes"];
     "Fix what the mr_reply_thread error names" -> "mr_reply_thread {mrUrl, discussionId, body}";
-    "Resolve this thread?" -> "mr_resolve_thread {mrUrl, discussionId}" [label="yes: resolve picked, not held"];
+    "Resolve this thread?" -> "mr_resolve_thread {mrUrl, discussionId}" [label="yes: resolve picked; not held, no mark stopping its resolve"];
     "Resolve this thread?" -> "Threads left to post (respond)?" [label="no"];
     "mr_resolve_thread {mrUrl, discussionId}" -> "mr_resolve_thread result?";
     "mr_resolve_thread result?" -> "Threads left to post (respond)?" [label="resolved"];
     "mr_resolve_thread result?" -> "Fixed the mr_resolve_thread call once already?" [label="tool error"];
     "mr_resolve_thread result?" -> "STOP: threads resolve with mr_resolve_thread" [label="tempted to resolve with the GitLab CLI or the API"];
-    "STOP: threads resolve with mr_resolve_thread" -> "mr_resolve_thread {mrUrl, discussionId}";
+    "STOP: threads resolve with mr_resolve_thread" -> "Fixed the mr_resolve_thread call once already?";
     "Fixed the mr_resolve_thread call once already?" -> "Fix what the mr_resolve_thread error names" [label="no"];
     "Fixed the mr_resolve_thread call once already?" -> "respond off-script gate: mr_resolve_thread refused" [label="yes"];
     "Fix what the mr_resolve_thread error names" -> "mr_resolve_thread {mrUrl, discussionId}";
@@ -197,6 +200,24 @@ error` and the fixed threads are held. `<root>` is the
 reply` thread, or an answer value names one (a gate opened before this
   rule), that thread's answer decides it instead, an empty array included,
   and no reply posts twice.
+- **Escalation marks.** An off-script answer at a posting origin that
+  keeps a call from running again writes an `escalation:` field into the
+  row it touches, before the walk moves on, whether this pane or a
+  resumed one acts on it: `pushed by hand` (a `git_push` take) and
+  `push handed back` (a `git_push` hand back, gate unavailable or spent
+  round budget) on every fixed thread Gate 2 picked; `posted by hand` (an
+  `mr_reply_thread` take) and `reply handed back` (its hand back,
+  unavailable or spent budget) on that thread; `resolved by hand` (an
+  `mr_resolve_thread` take) and `resolve handed back` (the rest) on that
+  thread. A row can carry several, comma-separated. The walk reads them
+  back: `pushed by hand` pushes nothing, `push handed back` holds the
+  fixed threads, `posted by hand` counts the reply posted and skips it,
+  `reply handed back` posts and resolves nothing on that thread, and
+  either resolve mark skips its resolve. A pane resumed on a later
+  escalation has lost every earlier answer but these, so they are what
+  keeps a handed-back call down and a taken call from running twice. On
+  an escalation resume the picks themselves come from the rows' `gate-2:`
+  fields and the `gate-2-answer:` line, never from memory.
 
 ### Build the Gate 2 questions
 
@@ -223,22 +244,54 @@ Gate 2 as native forms alone, chunked exactly as the form branch in `gate-step.m
 thread questions in order, up to four per call, each a multi-select of
 post and resolve. Proceed on the combined answers with `by: pane`.
 
+### Record the Gate 2 picks in --report
+
+The generic path, before any push or post. Each thread Gate 2 offered gets
+one field in its row, from its answer: `gate-2: post`, `gate-2: resolve`,
+`gate-2: post, resolve`, or `gate-2: none` for an explicit empty array. A
+thread answer's `text` replaces that row's finalized reply. Then append
+one final line to `--report`:
+
+`gate-2-answer: <{answers, by, answeredAt} as one-line JSON>`
+
+replacing an existing one; never write a second. `answeredAt` is always
+epoch milliseconds, as the wait returns it. When the answer came with no
+`answeredAt` (this pane's own `gate answer` stood, or the degraded form),
+write the current time in epoch milliseconds, and `by` is `pane`. With
+nothing offered (the reply-only path), write the line with empty
+`answers`, `by` `pane` and the current time in epoch milliseconds: it
+still records that posting began.
+
+An off-script gate at the push or a post moves the state's gate id, and
+`gate wait` can then no longer return this answer. A pane resumed on that
+escalation reads the picks from these fields and this line, and `Mark the
+threads that already carry this run's reply` (in `launch.md`) dates notes
+against its `answeredAt`. On a resume the fields and line are already
+there (`Record the resumed Gate 1 or Gate 2 answer in --report` wrote them
+on a `respond-post` resume, an earlier pane on an escalation resume):
+confirm them and write what is missing.
+
 ### Hand {post, by} to the domain skill
 
 If a rule in the domain skill asks for a move this graph marks STOP, take the off-script edge instead.
 
-Here that means the STOP's redirect: the move goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
+Here that means the STOP's redirect: the move passes the same fix-once counter and goes through the tool the STOP names. On the domain path, a move the domain skill cannot make that way is its reported failure, which takes the `error` exit.
 
 Hand the domain skill `{post: <answers>, by: <by>}`, the `--report` path
 and the round, so it executes the posting, the reply-only threads
 included (unresolved). On a resume, tell it this is a resume, so its own
 Posted already rule runs, and hand it the narrowed list when the report
-carried `respond-post-held:`. Its push before any Fixed reply runs only
-after the source-branch and push-target checks, only with `git_push
-{tree: <root>}`, never from the shell; a failed check or a refused push
-holds those fixed threads and every other reply posts. It hands back
-which replies posted (the ones already up included), which it held, and
-its counts; a failure is `error` with its message.
+carried `respond-post-held:`. On an escalation resume, `{post, by}` come
+from the report's `gate-2-answer:` line, and hand it too every
+`escalation:` mark in the rows plus the resumed answer's own (a take, hand
+back or round-2 iterate at a posting origin, which a domain-path resume has
+not recorded), so it skips the taken calls and keeps the handed-back ones
+down. Its push before any Fixed reply
+runs only after the source-branch and push-target checks, only with
+`git_push {tree: <root>}`, never from the shell; a failed check or a
+refused push holds those fixed threads and every other reply posts. It
+hands back which replies posted (the ones already up included), which it
+held, and its counts; a failure is `error` with its message.
 
 ### Fix what the git_push error names (respond)
 
@@ -255,15 +308,16 @@ once, and the off-script gate follows. Never add `forceWithLease` or
 
 A push check failed (not on the source branch, a push target other than
 `origin/<source branch>`, an error, or no known source branch), or the
-`git_push` off-script gate handed back. Post and resolve none of the fixed
-threads Gate 2 picked, report the mismatch or the refusal verbatim in the
-pane, and never force, rebase, merge or switch branches past it. Write one
-line, `respond-post-held: <threadId>[, <threadId>...]`, into `--report`,
-replacing any earlier one. Every other reply still posts as decided. The
-run still marks `done`, counting each push-held thread in neither
-`--posted` nor `--held` (see "Counts and the badge" in SKILL.md): that
-partial badge is what leaves the run open, since the board then
-offers a resume, and the resume acts only on the listed threads.
+`git_push` off-script gate handed back (a resumed hand back included).
+Post and resolve none of the fixed threads Gate 2 picked, report the
+mismatch or the refusal verbatim in the pane, and never force, rebase,
+merge or switch branches past it. Write one line, `respond-post-held:
+<threadId>[, <threadId>...]`, into `--report`, replacing any earlier one.
+Every other reply still posts as decided. The run still marks `done`,
+counting each push-held thread in neither `--posted` nor `--held` (see
+"Counts and the badge" in SKILL.md): that partial badge is what leaves
+the run open, since the board then offers a resume, and the resume acts
+only on the listed threads.
 
 ### Fix what the mr_reply_thread error names
 
@@ -295,18 +349,19 @@ Take "Off-script step" with this question. Label: `push of <branch> refused
 on !<iid>: <second refusal>`. Context: both `git_push` refusals, quoted,
 with the branch, `<root>` and the fixed thread ids waiting on the push.
 
-| Value                                                                                            | Label                  | Description                                                            |
-| ------------------------------------------------------------------------------------------------ | ---------------------- | ---------------------------------------------------------------------- |
-| `take: you push <branch> yourself, then I post the fixed replies (git_push refused)`             | Push it yourself       | You push the fixed commits and I post their replies.                   |
-| `iterate: you fixed the cause, check the target and push again with git_push (git_push refused)` | Fixed it, push again   | You fixed what refused the push and I check the target and push again. |
-| `hold: keep this pane open with the fixes unpushed and nothing posted (git_push refused)`        | Hold this pane         | I stop with the fixes unpushed and no reply posted.                    |
-| `hand back: hold the fixed threads and post the other replies (git_push refused)`                | Hold the fixed replies | I hold the fixed threads unposted and post every other reply.          |
+| Value                                                                                                       | Label                  | Description                                                            |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------- |
+| `take: you push <branch> yourself, then I post the fixed replies (git_push refused, round <k>)`             | Push it yourself       | You push the fixed commits and I post their replies.                   |
+| `iterate: you fixed the cause, check the target and push again with git_push (git_push refused, round <k>)` | Fixed it, push again   | You fixed what refused the push and I check the target and push again. |
+| `hold: keep this pane open with the fixes unpushed and nothing posted (git_push refused, round <k>)`        | Hold this pane         | I stop with the fixes unpushed and no reply posted.                    |
+| `hand back: hold the fixed threads and post the other replies (git_push refused, round <k>)`                | Hold the fixed replies | I hold the fixed threads unposted and post every other reply.          |
 
-A take continues to the posting walk as if the push went up. Iterate
+A take continues to the posting walk as if the push went up, and marks
+the fixed threads `pushed by hand` ("Escalation marks"). Iterate
 passes `Off-script rounds = 2 (git_push, respond)?`, then runs both push
 checks again before `git_push`. Hand back, gate unavailable and a spent
 round budget take the held path: `respond-post-held:` for the fixed
-threads, every other reply posted.
+threads, marked `push handed back`, every other reply posted.
 
 ### respond off-script gate: mr_reply_thread refused
 
@@ -314,18 +369,20 @@ Take "Off-script step" with this question. Label: `reply to thread
 <threadId> refused twice on !<iid>: <second error>`. Context: both
 `mr_reply_thread` errors, quoted, and the reply text.
 
-| Value                                                                                               | Label                | Description                                                                   |
-| --------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------- |
-| `take: you post the reply to thread <threadId> yourself (mr_reply_thread refused)`                  | Post it yourself     | You post this reply and I continue with its resolve pick and the next thread. |
-| `iterate: you fixed the cause, post the reply to thread <threadId> again (mr_reply_thread refused)` | Fixed it, post again | You fixed what refused the reply and I post it again.                         |
-| `hold: keep this pane open with the remaining replies unposted (mr_reply_thread refused)`           | Hold this pane       | I stop here and the replies not yet posted stay unposted.                     |
-| `hand back: leave thread <threadId> unposted and post the rest (mr_reply_thread refused)`           | Skip this reply      | I leave this thread unposted and carry on with the rest.                      |
+| Value                                                                                                          | Label                | Description                                                                   |
+| -------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------- |
+| `take: you post the reply to thread <threadId> yourself (mr_reply_thread refused, round <k>)`                  | Post it yourself     | You post this reply and I continue with its resolve pick and the next thread. |
+| `iterate: you fixed the cause, post the reply to thread <threadId> again (mr_reply_thread refused, round <k>)` | Fixed it, post again | You fixed what refused the reply and I post it again.                         |
+| `hold: keep this pane open with the remaining replies unposted (mr_reply_thread refused, round <k>)`           | Hold this pane       | I stop here and the replies not yet posted stay unposted.                     |
+| `hand back: leave thread <threadId> unposted and post the rest (mr_reply_thread refused, round <k>)`           | Skip this reply      | I leave this thread unposted and carry on with the rest.                      |
 
-A take counts the reply as posted and runs the thread's `resolve:` pick.
+A take counts the reply as posted, marks the thread `posted by hand`, and
+runs the thread's `resolve:` pick.
 Iterate passes `Off-script rounds = 2 (mr_reply_thread)?` for this
 thread before posting again. Hand back, gate unavailable and a spent
-round budget leave this thread unposted and unresolved and move to the
-next thread; it counts neither posted nor held.
+round budget leave this thread unposted and unresolved, marked `reply
+handed back`, and move to the next thread; it counts neither posted nor
+held.
 
 ### respond off-script gate: mr_resolve_thread refused
 
@@ -333,16 +390,18 @@ Take "Off-script step" with this question. Label: `resolving thread
 <threadId> refused twice on !<iid>: <second error>`. Context: both
 `mr_resolve_thread` errors, quoted.
 
-| Value                                                                                        | Label                   | Description                                                 |
-| -------------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------- |
-| `take: you resolve thread <threadId> yourself (mr_resolve_thread refused)`                   | Resolve it yourself     | You resolve this thread and I carry on with the next one.   |
-| `iterate: you fixed the cause, resolve thread <threadId> again (mr_resolve_thread refused)`  | Fixed it, resolve again | You fixed what refused the resolve and I resolve it again.  |
-| `hold: keep this pane open with the remaining threads untouched (mr_resolve_thread refused)` | Hold this pane          | I stop here and the threads not yet handled stay untouched. |
-| `hand back: leave thread <threadId> open and carry on (mr_resolve_thread refused)`           | Leave it open           | I leave this thread unresolved and carry on with the rest.  |
+| Value                                                                                                   | Label                   | Description                                                 |
+| ------------------------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------- |
+| `take: you resolve thread <threadId> yourself (mr_resolve_thread refused, round <k>)`                   | Resolve it yourself     | You resolve this thread and I carry on with the next one.   |
+| `iterate: you fixed the cause, resolve thread <threadId> again (mr_resolve_thread refused, round <k>)`  | Fixed it, resolve again | You fixed what refused the resolve and I resolve it again.  |
+| `hold: keep this pane open with the remaining threads untouched (mr_resolve_thread refused, round <k>)` | Hold this pane          | I stop here and the threads not yet handled stay untouched. |
+| `hand back: leave thread <threadId> open and carry on (mr_resolve_thread refused, round <k>)`           | Leave it open           | I leave this thread unresolved and carry on with the rest.  |
 
-Iterate passes `Off-script rounds = 2 (mr_resolve_thread)?` for this
-thread before resolving again. Hand back, gate unavailable and a spent
-round budget leave the thread open and move to the next one. A resolve
+A take marks the thread `resolved by hand`. Iterate passes
+`Off-script rounds = 2 (mr_resolve_thread)?` for this thread before
+resolving again. Hand back, gate unavailable and a spent round budget
+leave the thread open, marked `resolve handed back`, and move to the next
+one. A resolve
 refusal changes no count: a thread whose reply posted still counts as
 posted, since `--posted` counts replies. Name the unresolved thread in the
 `done` message.

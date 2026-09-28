@@ -221,6 +221,10 @@ export const EscalationRespond = face(
   'Escalation: respond-escalation',
   G.respondEscalation
 );
+export const EscalationReview = face(
+  'Escalation: review-escalation',
+  G.reviewEscalation
+);
 export const EscalationWrapUp = face('Escalation: wrap-up', G.wrapUp);
 
 // --- Pane -------------------------------------------------------------------

@@ -48,6 +48,24 @@ describe('gateNotifyCopy', () => {
     });
   });
 
+  test('a review escalation asks for a decision, not a pick of what to post', () => {
+    expect(
+      gateNotifyCopy('review-escalation', 751, [{ id: 'action' }])
+    ).toEqual({
+      headline: '!751 needs your call',
+      summary: 'Waiting on your decision',
+    });
+  });
+
+  test('a respond escalation asks for a decision', () => {
+    expect(
+      gateNotifyCopy('respond-escalation', 713, [{ id: 'action' }])
+    ).toEqual({
+      headline: '!713 needs your call',
+      summary: 'Waiting on your decision',
+    });
+  });
+
   test('no copy carries a file path or a question label', () => {
     const questions = [
       { id: 'thread-1', label: 'apps/web/src/hooks/useFlagClient.tsx:56' },
