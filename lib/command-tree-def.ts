@@ -1150,6 +1150,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   verify: {
+    audience: "program",
     description: "Verify an rt installation end-to-end (run after installing)",
     module: "./commands/verify.ts",
     fn: "runVerify",
@@ -1414,6 +1415,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   ci: {
+    audience: "program",
     description: "CI attendant lease and pipeline watch",
     subcommands: {
       lease: {
@@ -1481,6 +1483,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   daemon: {
+    audience: "program",
     description: "Manage the rt background daemon",
     subcommands: {
       install: {
@@ -1561,11 +1564,13 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   events: {
+    audience: "program",
     description: "Optional event bus for panes and skills",
     subcommands: eventsSubcommands,
   },
 
   gate: {
+    audience: "program",
     description: "Human-decision gates: pause a subject until answered, parked, or closed",
     subcommands: gateSubcommands,
   },
@@ -1594,22 +1599,26 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   bg: {
+    audience: "program",
     description: "Daemon-owned background herdr server: status, claims, stop",
     subcommands: bgSubcommands,
   },
 
   reconciler: {
+    audience: "program",
     description: "Executor reconciler: pane-derived agent state, attention gates",
     subcommands: reconcilerSubcommands,
   },
 
   herd: {
+    audience: "program",
     description: "Run a herd: registry, worker questions as gates, chat room, lifecycle",
     subcommands: herdSubcommands,
   },
 
   // Self-dispatching leaf: agent() routes its own verbs (start/resume/show/list).
   agent: {
+    audience: "program",
     description: "Hand a prompt to a coding agent, claude or codex (herdr pane or headless), and keep the receipt",
     module: "./commands/agent.ts",
     fn: "agent",
@@ -1671,6 +1680,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   runs: {
+    audience: "program",
     description: "Pipeline run state: list, show, and the pipeline's write verbs",
     module: "./commands/runs.ts",
     fn: "runsList",
@@ -1681,16 +1691,19 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   intercept: {
+    audience: "program",
     description: "Generic dev-command interception (PATH shims, port claiming)",
     subcommands: interceptSubcommands,
   },
 
   endpoint: {
+    audience: "program",
     description: "Dev-endpoint claims (ports allocated for intercepted commands)",
     subcommands: endpointSubcommands,
   },
 
   deps: {
+    audience: "program",
     description: "Bundled tools: resolve by absolute path, expose on PATH with tagged links",
     subcommands: {
       resolve: {
@@ -1736,6 +1749,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   release: {
+    audience: "program",
     description: "Release-cycle verbs for the rt repo itself",
     subcommands: {
       preflight: {
@@ -1784,6 +1798,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   state: {
+    audience: "program",
     description: "rt's own state.db: backup, restore, and integrity",
     subcommands: {
       backup: {
@@ -2005,6 +2020,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   home: {
+    audience: "program",
     description: "The git-backed ~/.mattstack/user personal repo",
     subcommands: {
       init: {
@@ -2131,6 +2147,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   secrets: {
+    audience: "program",
     description: "sops-encrypted secrets under ~/.mattstack/user/secrets/",
     subcommands: {
       set: {
@@ -2171,6 +2188,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   pane: {
+    audience: "program",
     description: "herdr panes as rt sees them: list with chat presence, peek, spawn claude, cswap accounts, directory suggestions",
     subcommands: {
       list: {
@@ -2308,6 +2326,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   skills: {
+    audience: "program",
     description: "Compile, check, and manage the surface of the pack's committed skills",
     subcommands: {
       link: {
@@ -2495,6 +2514,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   cron: {
+    audience: "program",
     description: "Daemon cron triggers",
     subcommands: {
       install: {
@@ -2521,6 +2541,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   plugin: {
+    audience: "program",
     description: "Manage user plugins",
     subcommands: {
       new: {
@@ -2551,6 +2572,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   setup: {
+    audience: "program",
     description: "Set this Mac up for mattstack: readiness plan, install steps, account connections",
     module: "./commands/setup.ts",
     fn: "setupInteractive",
@@ -2682,6 +2704,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   services: {
+    audience: "program",
     description: "App-registered services (daemon, deck) via mattstack.app",
     subcommands: {
       list: {
@@ -2713,6 +2736,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   apps: {
+    audience: "program",
     description: "The mattstack apps deck serves on this Mac (board, console, chat, boxscore)",
     subcommands: {
       list: { description: "List the apps and whether each is on", module: "./commands/apps.ts", fn: "appsList", args: [SETUP_JSON_ARG] },
@@ -2734,6 +2758,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   tools: {
+    audience: "program",
     description: "Install or run the setup verb for a tool from a setup plan row",
     subcommands: {
       install: {
@@ -2774,6 +2799,7 @@ export const TREE: Record<string, CommandNode> = {
   },
 
   team: {
+    audience: "program",
     description: "Team repo: create, join, invite, publish, members",
     subcommands: {
       create: {

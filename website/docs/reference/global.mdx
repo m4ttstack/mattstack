@@ -25,6 +25,19 @@ rt daemon --help
 
 Unlike the other flags on this page, `--help` is handled by the command-tree dispatcher itself, so it works on every command and subcommand, not just at the root. See [Common flags](/guides/common-flags) for the full behavior.
 
+## `--all`
+
+```bash
+rt --all
+rt --all --help
+```
+
+Lists every verb, program verbs included, for this one run. Program verbs are the ones the mattstack apps, skills and daemon run for you (`rt state`, `rt skills`, `rt herd`, `rt gate` and similar). They're left out of the picker, the usage listing and `--help` by default, and they always run when named directly (`rt state backup`). To list them every time, turn on the `rt.picker.showProgramVerbs` setting:
+
+```bash
+rt settings set rt.picker.showProgramVerbs true --scope user
+```
+
 ## `--grant-fda`
 
 ```bash
