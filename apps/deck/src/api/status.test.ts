@@ -3,10 +3,10 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
+import { commit, gitRepo } from '../../test/git-fixture.ts';
+
 function linkedDir(manifest: object): string {
-  const dir = mkdtempSync(join(tmpdir(), 'status-link-'));
-  writeFileSync(join(dir, 'mattstack.deck.json'), JSON.stringify(manifest));
-  return dir;
+  return gitRepo({ 'mattstack.deck.json': JSON.stringify(manifest) });
 }
 
 const dir = mkdtempSync(join(tmpdir(), 'local-status-'));
@@ -19,7 +19,9 @@ process.env.LOCAL_APPS_SETTINGS_PATH = join(dir, 'settings.json');
 process.env.HOME = dir;
 
 const { buildStatus } = await import('./status.ts');
-const { putRecord, reloadRegistry } = await import('../registry/records.ts');
+const { getRecord, putRecord, reloadRegistry } =
+  await import('../registry/records.ts');
+const { resetNewCodeCache } = await import('../registry/new-code.ts');
 const { setCatalogReport } = await import('../registry/catalog-report.ts');
 const { setBundledResourcesDir } =
   await import('../registry/bundled-identity.ts');
@@ -53,6 +55,7 @@ beforeEach(() => {
     JSON.stringify([{ hostname: 'myapp.localhost', port: 19999, pid: 0 }])
   );
   setCatalogReport([]);
+  resetNewCodeCache();
 });
 
 const opts = {
@@ -538,4 +541,61 @@ test('a managed row with only a bundled identity carries its icon URL', async ()
   setBundledResourcesDir(null);
   const bare = (await buildStatus(opts)).apps.find(a => a.name === 'myapp')!;
   expect(bare.icon).toBeNull();
+});
+
+function staleApp(managedBy: string): string {
+  const root = gitRepo({
+    'apps/myapp/mattstack.deck.json': JSON.stringify({
+      name: 'myapp',
+      commands: {},
+      dev: { deploy: 'true' },
+    }),
+  });
+  const first = commit(root, { 'apps/myapp/a.ts': '1' });
+  commit(root, { 'apps/myapp/a.ts': '2' });
+  putRecord({
+    name: 'myapp',
+    managedBy,
+    port: 19999,
+    kind: 'service',
+    createdAt: 'x',
+    dev: { workingDirectory: join(root, 'apps/myapp') },
+    lastDeploy: { sha: first, at: 'then' },
+  });
+  return first;
+}
+
+test('newCode is set for a stale managed row in dev mode on a local call', async () => {
+  const first = staleApp('rt');
+  const row = (await buildStatus({ ...opts, devMode: true })).apps.find(
+    a => a.name === 'myapp'
+  )!;
+  expect(row.newCode?.deployed).toBe(first.slice(0, 7));
+});
+
+test('production never emits newCode or baselines a stamp', async () => {
+  staleApp('rt');
+  const { lastDeploy: _, ...rest } = getRecord('myapp')!;
+  putRecord(rest);
+  const row = (await buildStatus({ ...opts, devMode: false })).apps.find(
+    a => a.name === 'myapp'
+  )!;
+  expect(row.newCode).toBeUndefined();
+  expect(getRecord('myapp')!.lastDeploy).toBeUndefined();
+});
+
+test('a non-local caller never sees newCode', async () => {
+  staleApp('rt');
+  const row = (
+    await buildStatus({ ...opts, local: false, devMode: true })
+  ).apps.find(a => a.name === 'myapp')!;
+  expect(row.newCode).toBeUndefined();
+});
+
+test('a user app never carries newCode', async () => {
+  staleApp('user');
+  const row = (await buildStatus({ ...opts, devMode: true })).apps.find(
+    a => a.name === 'myapp'
+  )!;
+  expect(row.newCode).toBeUndefined();
 });

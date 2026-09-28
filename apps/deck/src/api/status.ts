@@ -25,8 +25,10 @@ import {
   statusIconUrl,
 } from '../registry/bundled-identity.ts';
 import { withCatalogReport } from '../registry/catalog-report.ts';
+import { newCodeFor, type NewCode } from '../registry/new-code.ts';
 import {
   isEnabled,
+  isMattstackOwned,
   listRecords,
   type AppRecord,
   type RemoteState,
@@ -135,6 +137,9 @@ export interface StatusRow {
   devLink?: 'unlinked' | 'linked' | 'broken';
   /** The linked source checkout, local-only (null through a public host), managed rows only. */
   devDir?: string | null;
+  /** Dev mode, local callers, linked managed rows only: the checkout has
+      commits touching this app since its last deploy. */
+  newCode?: NewCode;
   publicOrigin: 'tunnel' | 'railway';
   remote: { status: RemoteState['status']; url: string | null } | null;
 }
@@ -290,6 +295,16 @@ function runningDeckJson(deck: RunningDeck): StatusService {
   };
 }
 
+function newCodeForRow(
+  record: AppRecord | undefined,
+  opts: BuildStatusOpts
+): NewCode | undefined {
+  if (!record || !opts.devMode || !opts.local) return undefined;
+  if (!isMattstackOwned(record)) return undefined;
+  if (readLinkedManifest(record).state !== 'linked') return undefined;
+  return newCodeFor(record) ?? undefined;
+}
+
 export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
   const [routes, services] = [readRoutes(), await readServices()];
   const apps = joinApps(routes, services, opts.requestHost);
@@ -386,6 +401,7 @@ export async function buildStatus(opts: BuildStatusOpts): Promise<Status> {
               ? (record.dev?.workingDirectory ?? null)
               : null
             : undefined,
+        newCode: newCodeForRow(record, opts),
         publicOrigin:
           record?.remote?.status === 'live'
             ? ('railway' as const)
