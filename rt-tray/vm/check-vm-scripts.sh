@@ -13,6 +13,7 @@ t "launchctl-print.test.ts"      bun test run/helpers/__tests__/launchctl-print.
 t "catalog.test.ts"              bun test run/helpers/__tests__/catalog.test.ts
 t "served-verdict.test.ts"       bun test run/helpers/__tests__/served-verdict.test.ts
 t "served-apps-sh.test.ts"       bun test run/helpers/__tests__/served-apps-sh.test.ts
+t "walkthrough-teardown.test.ts" bun test run/helpers/__tests__/walkthrough-teardown.test.ts
 t "build-golden --dry-run"       bash golden/build-golden.sh 26 --dry-run
 # A pause nobody can answer used to exit mute under set -e, killing the VM
 # through the EXIT trap after 15 minutes of provisioning, with the failure
@@ -31,6 +32,9 @@ t "verify-golden checks Finder automation separately" bash -c \
 t "build-golden --xcode --dry-run selects the xcode image" bash -c \
   'out=$(bash golden/build-golden.sh 26 --xcode --dry-run 2>&1) && printf "%s" "$out" | grep -q "clone ghcr.io/cirruslabs/macos-tahoe-xcode:latest mattstack-golden-26-xcode"'
 t "walkthrough --dry-run"        env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --dry-run
+t "walkthrough --dry-run ledgers teardown once" bash -c \
+  'rm -rf /tmp/vmcheck-art-td; env VM_ARTIFACTS=/tmp/vmcheck-art-td bash run/walkthrough.sh --ver 26 --app ../mattstack.app --dry-run >/dev/null 2>&1 \
+   && [ "$(cat /tmp/vmcheck-art-td/*/phases.jsonl | grep -c "\"phase\":\"teardown\"")" -eq 1 ]; rc=$?; rm -rf /tmp/vmcheck-art-td; exit $rc'
 t "walkthrough usage"            bash -c '! bash run/walkthrough.sh >/dev/null 2>&1'
 t "walkthrough --fresh-team-repo --dry-run creates nothing" bash -c \
   'out=$(env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --fresh-team-repo --dry-run 2>&1) && ! printf "%s" "$out" | grep -q "unknown arg"'
