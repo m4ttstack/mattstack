@@ -119,7 +119,7 @@ From a clean checkout:
 
 ```console
 $ git clone https://github.com/m4ttstack/mattstack.git
-$ cd rt
+$ cd mattstack
 $ bun install                 # workspace install, from the repo root
 $ cd packages/tui-kit
 $ bun run dev:workshop
