@@ -178,6 +178,8 @@ digraph ship {
     "ship off-script answer (git_push)?" [shape=diamond];
     "Confirm the human's push landed (ship)" [shape=box];
     "Push landed (ship)?" [shape=diamond];
+    "Push off-script rounds = 2 (ship)?" [shape=diamond];
+    "Landing checks = 2 (ship)?" [shape=diamond];
 
     "Forge host (ship, open the MR)?" [shape=diamond];
     "mr_for_branch {repoName: <root>, branches: [<branch>]} (after git_push)" [shape=plaintext];
@@ -312,13 +314,16 @@ digraph ship {
     "STOP: push only with git_push (ship)" -> "ship off-script gate: git_push refused";
     "ship off-script gate: git_push refused" -> "ship off-script answer (git_push)?";
     "ship off-script answer (git_push)?" -> "Confirm the human's push landed (ship)" [label="take: the human pushed"];
-    "ship off-script answer (git_push)?" -> "Push needs force-with-lease (ship)?" [label="take: registration fixed, retry"];
     "ship off-script answer (git_push)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the refusal is the reason"];
     "ship off-script answer (git_push)?" -> "Which exit is this (ship)?" [label="hold"];
-    "ship off-script answer (git_push)?" -> "ship off-script gate: git_push refused" [label="iterate: a new gate with their note"];
+    "ship off-script answer (git_push)?" -> "Push off-script rounds = 2 (ship)?" [label="iterate: the human fixed the cause, retry the push"];
+    "Push off-script rounds = 2 (ship)?" -> "Push needs force-with-lease (ship)?" [label="no: retry the push"];
+    "Push off-script rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the push refusal quoted"];
     "Confirm the human's push landed (ship)" -> "Push landed (ship)?";
     "Push landed (ship)?" -> "Forge host (ship, open the MR)?" [label="yes: the remote branch carries HEAD"];
-    "Push landed (ship)?" -> "ship off-script gate: git_push refused" [label="no: reopen with what the comparison showed"];
+    "Push landed (ship)?" -> "Landing checks = 2 (ship)?" [label="no"];
+    "Landing checks = 2 (ship)?" -> "ship off-script gate: git_push refused" [label="no: reopen with what the comparison showed"];
+    "Landing checks = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the comparison quoted"];
 
     "Forge host (ship, open the MR)?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]} (after git_push)" [label="GitLab"];
     "Forge host (ship, open the MR)?" -> "gh pr create --fill --base <default>, --draft unless the gate said ready" [label="GitHub"];
@@ -490,10 +495,18 @@ attempt), `context` quoting the refusal.
 
 | Question | Options |
 |---|---|
-| `action` | **Take the proposed move** (the value spells the move in full, such as the human pushing, or a fixed tree registration and a retry) / **Hand back** |
+| `action` | **Take the proposed move** (the value spells the move in full, such as the human pushing) / **Hand back** |
 | `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |
 
 Selection: `{"move":"<the move>","why":"<the refusal>","action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
+
+Read `next` first: Hold ends the turn with nothing pushed; Iterate means
+the human fixed the cause (a tree registration, the daemon) and ignores
+`action`; only Proceed applies `action`. Retrying `git_push` is Iterate,
+never Take, whatever the answer calls it. `Push off-script rounds = 2
+(ship)?` counts Iterate rounds within this pass through the verb; once two
+retries have been refused, the verb fails with the refusal quoted instead
+of asking again.
 
 ### Confirm the human's push landed (ship)
 
@@ -501,6 +514,8 @@ The human pushed outside this verb. Compare `git rev-parse HEAD` with the
 remote branch and say what it shows in the final report; never push from
 here. The push landed when the remote branch carries HEAD; otherwise the
 off-script gate reopens with the comparison as its context.
+`Landing checks = 2 (ship)?` counts those misses within this pass; after
+the second, the verb fails with the comparison quoted.
 
 ### ship off-script gate: mr_upload refused
 
