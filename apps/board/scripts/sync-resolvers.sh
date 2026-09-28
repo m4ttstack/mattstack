@@ -1,14 +1,14 @@
 #!/bin/sh
-# sync-resolvers.sh -- resync every vendored resolve-args.sh under skills/
+# sync-resolvers.sh -- resync every vendored resolve-args.sh under skills-src/
 # with the canonical copy in the monorepo's plugins/mattstack, and report
 # what was synced.
 #
-# BOARD-15: the three wrapper skills (skills/review, skills/respond,
-# skills/doctor) each vendor a copy of parameterized-skills' resolve-args.sh
-# because a skill can't reach outside its own directory at runtime. The
-# vendored copies must be byte-identical to the canonical --
-# src/__tests__/skills-resolve.test.ts asserts this. Run this after the
-# canonical resolver changes.
+# The three wrapper skills (review, respond, doctor) each vendor a copy of
+# parameterized-skills' resolve-args.sh because a skill can't reach outside
+# its own directory at runtime. The copies live under skills-src/ and must
+# be byte-identical to the canonical (src/__tests__/skills-resolve.test.ts).
+# Run this after the canonical resolver changes, then run
+# `bun run skills:expand:board` at the repo root to regenerate skills/.
 #
 # Canonical source: $MATTSTACK_SKILLS_REPO (default <monorepo>/plugins/mattstack)
 # /attachments/parameterized-skills/scripts/resolve-args.sh
@@ -32,7 +32,7 @@ fi
 
 version=$(jq -r '.version' "$plugin_json")
 
-find "$repo_root/skills" -type f -name "resolve-args.sh" | while IFS= read -r target; do
+find "$repo_root/skills-src" -type f -name "resolve-args.sh" | while IFS= read -r target; do
   cp "$canonical" "$target"
   chmod +x "$target"
   echo "synced $target from mattstack $version"

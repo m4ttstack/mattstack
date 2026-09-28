@@ -66,7 +66,8 @@ back. Notes cap at 2000 characters. Triage never sends one.
 - herdr running locally.
 - The `board:review`, `board:respond`, and `board:doctor` wrapper skills
   installed. `bun run setup` symlinks them from `skills/` into
-  `~/.claude/skills/`.
+  `~/.claude/skills/`. `skills/` is generated from `skills-src/` by
+  `bun run skills:expand:board` at the repo root.
 - Whatever domain skill you point `doctorSkill` at, or a manifest binding.
   Review and respond have no config fallback: their skill comes solely from
   the manifest binding below, and with no binding the wrapper works
