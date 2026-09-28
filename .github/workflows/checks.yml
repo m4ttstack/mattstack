@@ -240,6 +240,13 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: plugin.json version bumped
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          bun scripts/ci/plugin-version-bumped.ts --base "$BASE_SHA" --plugin plugins/mattstack
       - name: Install graphviz
         run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
       - name: Digraph checker cases
