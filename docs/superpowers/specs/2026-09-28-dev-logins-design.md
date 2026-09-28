@@ -172,9 +172,14 @@ Changes shipped in one runtime release:
   locally, without asking for a value, when:
   - the frame origin is opaque (`about:blank`, `srcdoc`, `data:`, sandboxed);
   - the call is `browser_type` with `slowly: true` (keystrokes go to whatever
-    has focus, which a frame can steal mid-sequence).
+    has focus, which a frame can steal mid-sequence);
+  - video recording (`--save-video`) is on: a recording captures pixels no
+    redaction sees, and the login page is never evidence.
   Otherwise it sends the request below with the frame origin and the
   element's kind (`password` for `<input type="password">`, else `text`).
+  The kind is read from the page, which a same-origin page could fake, so it
+  is an extra check on an origin that already matched, never a barrier on
+  its own.
   The daemon compares them to the login (section 2), so a wrong-origin page
   never gets the value into the runtime and never uses up an attempt. On an
   answer, the runtime fills that same handle with `elementHandle.fill`.
@@ -302,7 +307,8 @@ Security tests, each of which must fail when its protection is removed:
 - Site lock refuses: `https://login.example.com.evil.test`,
   `http://login.example.com`, another port, a cross-origin iframe inside the
   right top-level page, `about:blank`, `srcdoc` and sandboxed frames, a
-  non-password input for a password entry, and `browser_type` with `slowly`.
+  non-password input for a password entry, `browser_type` with `slowly`, and
+  any fill while video recording is on.
 - A `devlogin:` value that does not resolve fails the call and types nothing.
 - A fill refused for origin or element kind releases no value and leaves the
   attempt counter unchanged.
