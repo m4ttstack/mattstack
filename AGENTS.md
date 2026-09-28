@@ -98,6 +98,7 @@ handlers, or `skills/rt-chat/`, read in this order:
 The viewer lives at `apps/chat` (`apps/chat/ARCHITECTURE.md`).
 `lib/chat-viewer-url.ts` builds the `/r/<room>#m-<id>` links the CLI
 prints; that route shape is a contract with the viewer's route table.
+The herdr plugin lives at `plugins/herdr-chat` (`plugins/herdr-chat/AGENTS.md`).
 
 ## rt-ui
 

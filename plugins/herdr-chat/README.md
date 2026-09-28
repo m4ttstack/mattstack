@@ -144,7 +144,7 @@ estate; it needs the pieces it touches:
 - **[herdr](https://github.com/herdrdev/herdr)** 0.8.0 or newer
 - **Rust toolchain**: `herdr plugin install` builds the plugin with
   `cargo build --release` on your machine
-- **`rt`** (the [repo-tools](https://github.com/m4ttstack/repo-tools) CLI)
+- **`rt`** (the [mattstack](https://github.com/m4ttstack/mattstack) CLI)
   with its daemon running: the plugin drives `rt chat` and `rt pane`
 - **deck** (optional): resolves the viewer URL; without it, "open viewer"
   has nowhere to hand off to
@@ -152,8 +152,12 @@ estate; it needs the pieces it touches:
 ## Installation
 
 ```bash
-herdr plugin install m4ttstack/herdr-chat
+herdr plugin install m4ttstack/mattstack/plugins/herdr-chat
 ```
+
+herdr clones the whole mattstack repository to build this plugin; the
+first install takes <N> seconds and <M> MB on a 2026 MacBook Pro
+(measured on <date>).
 
 This builds the plugin and registers its actions (`launcher`, `broadcast`,
 `peek`, `quick-send`, `sign-in`, `sign-out`, `open-viewer`) and its popup
@@ -242,8 +246,8 @@ rows = [
 Work from a checkout and link it instead of installing:
 
 ```bash
-git clone https://github.com/m4ttstack/herdr-chat.git
-cd herdr-chat
+git clone https://github.com/m4ttstack/mattstack.git
+cd mattstack/plugins/herdr-chat
 cargo build --release
 cargo test
 herdr plugin link .
@@ -256,8 +260,9 @@ shapes, and the module map are in [AGENTS.md](AGENTS.md).
 ## Contributing
 
 Start with [AGENTS.md](AGENTS.md): it maps the modules, names the traps, and
-points at the design docs that own each decision. PRs run the repo-purity
-gate in CI; keep employer or customer references out of the tree.
+points at the design docs that own each decision. The mattstack root's
+`scripts/repo-purity.sh` gates this tree in CI; keep employer or customer
+references out of it.
 
 ## License
 
