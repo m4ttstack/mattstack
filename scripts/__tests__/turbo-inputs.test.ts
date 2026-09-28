@@ -50,3 +50,27 @@ test('the deps.lock skills-tree guard runs in //#turbo:test and rehashes on any 
     ])
   );
 });
+
+test('the board skills drift guard runs in //#turbo:test and rehashes on its sources', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  expect(pkg.scripts['turbo:test'].split(' ')).toContain(
+    './lib/__tests__/no-board-skills-drift.test.ts'
+  );
+  const turbo = JSON.parse(readFileSync(join(ROOT, 'turbo.json'), 'utf8'));
+  expect(turbo.tasks['//#turbo:test'].inputs).toEqual(
+    expect.arrayContaining([
+      'lib/__tests__/no-board-skills-drift.test.ts',
+      'lib/skills/expand.ts',
+      'lib/skills/mcp-lint.ts',
+      'lib/mcp/**',
+      'commands/skills-expand.ts',
+      '$TURBO_ROOT$/apps/board/skills/**',
+      '$TURBO_ROOT$/apps/board/skills-src/**',
+      '$TURBO_ROOT$/plugins/mattstack/attachments/**',
+      '!$TURBO_ROOT$/**/node_modules/**',
+      '!$TURBO_ROOT$/**/.turbo/**',
+      '!$TURBO_ROOT$/**/dist/**',
+      '!$TURBO_ROOT$/**/dist-bin/**',
+    ])
+  );
+});
