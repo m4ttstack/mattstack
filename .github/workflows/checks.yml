@@ -22,6 +22,7 @@ jobs:
       mode: ${{ steps.scope.outputs.mode }}
       dirs: ${{ steps.scope.outputs.dirs }}
       always: ${{ steps.scope.outputs.always }}
+      plugins: ${{ steps.scope.outputs.plugins }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -196,11 +197,34 @@ jobs:
           fi
           echo "shard $SHARD: $(( $(date +%s) - start ))s ($MODE)"
 
+  # herdr-chat is a Rust herdr plugin; build and test it only when its tree
+  # changed (every push to main runs it). rt's unit shards never read it.
+  # The comma wrap makes the match exact, so a sibling named herdr-chat-x
+  # does not trigger it.
+  plugin-herdr-chat:
+    needs: scope
+    if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/herdr-chat,')
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            plugins/herdr-chat/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('plugins/herdr-chat/Cargo.lock') }}
+      - name: Build and test herdr-chat
+        working-directory: plugins/herdr-chat
+        run: cargo build --release --locked && cargo test --locked
+
   # The job branch protection requires. Without always(), a failed scope
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit]
+    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -212,13 +236,16 @@ jobs:
           GO: ${{ needs.go.result }}
           DECK: ${{ needs.deck-macos.result }}
           UNIT: ${{ needs.unit.result }}
+          HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
           MODE: ${{ needs.scope.outputs.mode }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           [ "$GO" = success ] || { echo "go did not succeed"; exit 1; }
           [ "$DECK" = success ] || { echo "deck-macos did not succeed"; exit 1; }
+          # skipped is the untouched case: a needed job whose if: is false.
+          [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
           [ "$UNIT" = success ] && exit 0
           [ "$UNIT" = skipped ] && [ "$MODE" = skip ] && exit 0
           echo "unit was $UNIT with mode $MODE"

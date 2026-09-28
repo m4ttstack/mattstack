@@ -1,7 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
-import { alwaysRun, alwaysRunPaths, CHANGED_ARGS, collectSources, decide, ROOT, unitDirs, type ScopeInput } from "../test-scope.ts";
+import {
+  alwaysRun,
+  alwaysRunPaths,
+  CHANGED_ARGS,
+  collectSources,
+  decide,
+  existingPluginDirs,
+  isPluginTree,
+  pluginDirs,
+  ROOT,
+  unitDirs,
+  type ScopeInput,
+} from "../test-scope.ts";
 
 // Synthetic unit test sources: one parity test that reads a Swift file and a
 // tray shell script by path, and one plain test.
@@ -205,5 +218,35 @@ describe("collectSources", () => {
     expect(sources.get("lib/__tests__/dev-mode.test.ts")).toContain("FlavorLaunch.swift");
     expect(sources.has("scripts/ci/__tests__/test-scope.test.ts")).toBe(false);
     expect(sources.has("commands/worktree.ts")).toBe(true);
+  });
+});
+
+describe("plugins", () => {
+  test("a plugins-only diff skips the shards and names the plugin", () => {
+    const changed = ["plugins/mattstack/skills/a/SKILL.md", "plugins/mattstack/tests/certify.sh"];
+    expect(decide(pr(changed)).mode).toBe("skip");
+    expect(pluginDirs(changed)).toEqual(["plugins/mattstack"]);
+  });
+  test("a plugin change beside rt code is full and still names the plugin", () => {
+    const changed = ["plugins/herdr-chat/src/lib.rs", "lib/foo.ts"];
+    expect(decide(pr(changed)).mode).toBe("full");
+    expect(pluginDirs(changed)).toEqual(["plugins/herdr-chat"]);
+  });
+  test("isPluginTree needs a plugin name segment", () => {
+    expect(isPluginTree("plugins/herdr-chat/Cargo.toml")).toBe(true);
+    expect(isPluginTree("plugins/README.md")).toBe(false);
+    expect(isPluginTree("lib/plugins/x.ts")).toBe(false);
+  });
+  test("existingPluginDirs lists every plugin directory, sorted, and nothing when the folder is absent", () => {
+    const root = mkdtempSync(join(tmpdir(), "test-scope-plugins-"));
+    try {
+      expect(existingPluginDirs(root)).toEqual([]);
+      mkdirSync(join(root, "plugins", "zeta"), { recursive: true });
+      mkdirSync(join(root, "plugins", "herdr-chat"), { recursive: true });
+      writeFileSync(join(root, "plugins", "README.md"), "");
+      expect(existingPluginDirs(root)).toEqual(["plugins/herdr-chat", "plugins/zeta"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
