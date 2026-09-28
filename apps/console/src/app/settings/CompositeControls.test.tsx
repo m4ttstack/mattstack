@@ -378,51 +378,79 @@ describe('composite rows', () => {
     );
   });
 
-  it('a long string list set over its default offers Reset to default, which unsets it', async () => {
+  function stubLayers(
+    rows: { scope: string; present: boolean; value?: unknown }[]
+  ) {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        def: {},
+        rows: rows.map(r => ({ file: null, ...r })),
+      }),
+    }));
+  }
+  const ROOTS = ['~/a', '~/b', '~/c', '~/d'];
+  const rootsDef = (scope: string) =>
+    def('rt.repoRoots', {
+      hasDefault: true,
+      defaultValue: [],
+      effective: { scope, file: '/m', value: ROOTS },
+    });
+
+  it('a long string list whose only authored layer is its own offers Reset to default, which unsets it', async () => {
+    stubLayers([
+      { scope: 'default', present: true, value: [] },
+      { scope: 'machine', present: true, value: ROOTS },
+    ]);
     const s = store();
     renderWithProviders(
-      <SettingRow
-        def={def('rt.repoRoots', {
-          hasDefault: true,
-          defaultValue: [],
-          effective: {
-            scope: 'machine',
-            file: '/m',
-            value: ['~/a', '~/b', '~/c', '~/d'],
-          },
-        })}
-        store={s}
-        subhead={null}
-        query=""
-      />
+      <SettingRow def={rootsDef('machine')} store={s} subhead={null} query="" />
     );
     await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
     await userEvent.click(
-      screen.getByRole('button', { name: 'Reset to default' })
+      await screen.findByRole('button', { name: 'Reset to default' })
     );
     await waitFor(() =>
       expect(s.unset).toHaveBeenCalledWith('rt.repoRoots', 'machine')
     );
   });
 
-  it('a long string list still on its default offers no reset', async () => {
+  it('no reset when another authored layer sits under the row’s own, since clearing it would not land on the default', async () => {
+    stubLayers([
+      { scope: 'default', present: true, value: [] },
+      { scope: 'team', present: true, value: ['~/a'] },
+      { scope: 'machine', present: true, value: ROOTS },
+    ]);
     renderWithProviders(
       <SettingRow
-        def={def('rt.repoRoots', {
-          hasDefault: true,
-          defaultValue: ['~/a', '~/b', '~/c', '~/d'],
-          effective: {
-            scope: 'default',
-            file: null,
-            value: ['~/a', '~/b', '~/c', '~/d'],
-          },
-        })}
+        def={rootsDef('machine')}
         store={store()}
         subhead={null}
         query=""
       />
     );
     await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await screen.findByRole('button', { name: 'Edit as JSON' });
+    await new Promise(r => setTimeout(r, 50));
+    expect(
+      screen.queryByRole('button', { name: 'Reset to default' })
+    ).toBeNull();
+  });
+
+  it('a long string list still on its default offers no reset', async () => {
+    stubLayers([{ scope: 'default', present: true, value: ROOTS }]);
+    renderWithProviders(
+      <SettingRow
+        def={rootsDef('default')}
+        store={store()}
+        subhead={null}
+        query=""
+      />
+    );
+    await userEvent.click(screen.getByRole('button', { name: /4 roots/ }));
+    await screen.findByRole('button', { name: 'Edit as JSON' });
+    await new Promise(r => setTimeout(r, 50));
     expect(
       screen.queryByRole('button', { name: 'Reset to default' })
     ).toBeNull();

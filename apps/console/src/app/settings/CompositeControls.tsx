@@ -124,10 +124,21 @@ function StringListBody({
   const list = strings(def.effective.value);
   const saving = row.status === 'saving';
   const [draft, setDraft] = useState('');
+  const explained = useKeyExplain(def.key, useSettingsRepo());
+  const save = (value: unknown) =>
+    row.save(value).then(ok => {
+      explained.refresh();
+      return ok;
+    });
+  // Clearing the row's layer lands on the default only when no other layer
+  // is authored underneath it.
+  const authored = explained.rows.filter(
+    r => r.present && r.scope !== 'default'
+  );
   const resettable =
     def.hasDefault &&
-    def.effective.scope !== 'default' &&
-    def.effective.scope === row.target.scope;
+    authored.length === 1 &&
+    authored[0]!.scope === rungOf(row.target.scope, row.target.repo ?? null);
   return (
     <Body>
       <div className={listClasses.cloud}>
@@ -139,7 +150,7 @@ function StringListBody({
               className={listClasses.remove}
               aria-label={`remove ${item}`}
               disabled={saving}
-              onClick={() => void row.save(list.filter(x => x !== item))}
+              onClick={() => void save(list.filter(x => x !== item))}
             >
               <Icons.close size={12} />
             </button>
@@ -164,7 +175,7 @@ function StringListBody({
           onKeyDown={e => {
             if (e.key !== 'Enter') return;
             const next = addToList(list, draft);
-            if (next) void row.save(next).then(ok => ok && setDraft(''));
+            if (next) void save(next).then(ok => ok && setDraft(''));
           }}
         />
       </div>
@@ -178,7 +189,7 @@ function StringListBody({
             variant="subtle"
             color="gray"
             disabled={saving}
-            onClick={() => void row.save(undefined)}
+            onClick={() => void save(undefined)}
           >
             Reset to default
           </Button>

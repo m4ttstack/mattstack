@@ -475,6 +475,44 @@ test('without jsonCheck there is no linting at all', async () => {
   expect(diagnosticCount(view.state)).toBe(0);
 });
 
+test('a resizable frame follows `height` until the user resizes it', async () => {
+  const ref = createRef<CodeMirrorRef>();
+  const { rerender } = renderWithProviders(
+    <CodeMirror ref={ref} value="[]" language="json" height="120px" resizable />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  const grip = screen.getByRole('separator', { name: 'Resize editor' });
+  expect(grip.getAttribute('aria-valuenow')).toBe('120');
+  rerender(
+    <CodeMirror
+      ref={ref}
+      value="[1]"
+      language="json"
+      height="300px"
+      resizable
+    />
+  );
+  expect(grip.parentElement!.style.height).toBe('300px');
+  expect(grip.getAttribute('aria-valuenow')).toBe('300');
+});
+
+test('only the main button drags, and a cancelled pointer ends the drag', async () => {
+  const ref = createRef<CodeMirrorRef>();
+  renderWithProviders(
+    <CodeMirror ref={ref} value="[]" language="json" height="120px" resizable />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  const grip = screen.getByRole('separator', { name: 'Resize editor' });
+  const frame = grip.parentElement!;
+  fireEvent.pointerDown(grip, { clientY: 100, button: 2 });
+  fireEvent.pointerMove(window, { clientY: 180 });
+  expect(frame.style.height).toBe('120px');
+  fireEvent.pointerDown(grip, { clientY: 100, button: 0 });
+  fireEvent.pointerCancel(window);
+  fireEvent.pointerMove(window, { clientY: 180 });
+  expect(frame.style.height).toBe('120px');
+});
+
 test('resizable adds a drag strip under the editor: the frame starts at `height`, arrow keys resize it, and a later height change keeps the dragged size', async () => {
   const ref = createRef<CodeMirrorRef>();
   const { rerender } = renderWithProviders(
