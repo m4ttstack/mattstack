@@ -83,7 +83,7 @@ function normalizeMarkerName(raw: string): string {
 
 /** Slots herd:spawn fills from the herd row on every launch, so assembly
     passes them through rather than refusing them as leftovers. */
-export const SPAWN_FILLED_SLOTS: readonly string[] = ["shepherd handle"];
+export const SPAWN_FILLED_SLOTS: readonly string[] = ["shepherd handle", "shepherd id"];
 
 const SPAWN_MARKER_RE = /<([^<>]+)>/g;
 

@@ -16,39 +16,44 @@ Spawn fills the handle, not `rt herd brief`. The herd row is the one source of
 truth for who the shepherd is, and it is read at every launch, so a respawn
 after `herd_resume` names the new shepherd. No `lib/mcp` change is needed.
 
+Shepherd gate 42b3a594 added the id: a shepherd `herd_start` signs in is
+displayed as `shepherd`, so a DM by name reaches whoever holds that name now.
+The brief names the shepherd by display name and tells the worker to DM its id.
+
 ### Design
 
 - **Template.** `job-template.md`'s `## Messages` section gains prose, outside
-  any backtick or quote span, that names the slot `<shepherd handle>`:
-  the shepherd is `<shepherd handle>` in chat, and anything sent to the
+  any backtick or quote span, that names two slots: the shepherd is
+  `<shepherd handle>` in chat (id `<shepherd id>`), and anything sent to the
   shepherd outside a gate, milestone or report goes by `chat_dm` to
-  `<shepherd handle>`, never to the bare role word. The compiled copy under
+  `<shepherd id>`, never to a handle guessed from the role. The compiled copy under
   `plugins/mattstack/skills/shepherdr/` is regenerated from it.
 - **Brief assembly** (`lib/herd-brief.ts`). A spawn-filled slot set,
-  exported as `SPAWN_FILLED_SLOTS = ["shepherd handle"]`. `substituteMarkers`
+  exported as `SPAWN_FILLED_SLOTS = ["shepherd handle", "shepherd id"]`. `substituteMarkers`
   never records these as leftovers, so `rt herd brief` and the `herd_brief`
   tool succeed and pass the marker through verbatim. An explicit
-  `--fill "shepherd handle=<x>"` still fills it (fills win; spawn then finds
-  nothing to replace).
+  `--fill "shepherd handle=<x>"` (or `shepherd id`) still fills it (fills
+  win; spawn then finds nothing to replace).
 - **Spawn fill** (`lib/herd-brief.ts`, `fillSpawnSlots(brief, values)`). Replaces
-  every `<shepherd handle>` marker (inner whitespace may wrap across lines,
+  every spawn-filled marker (inner whitespace may wrap across lines,
   matching `normalizeMarkerName`) with the value. A brief with no marker is
   returned unchanged.
 - **Spawn** (`lib/daemon/handlers/herd.ts`, `herd:spawn`). After the brief is
   resolved (passed or stored), the prompt handed to `agent:start` is
-  `fillSpawnSlots(brief, { "shepherd handle": name })`, where `name` is
+  `fillSpawnSlots(brief, { "shepherd handle": name, "shepherd id":
+  herd.shepherdHandle })`, where `name` is
   `deps.identityNames([herd.shepherdHandle]).get(herd.shepherdHandle) ??
   herd.shepherdHandle`, the same display-name resolution `herd:status` uses.
-  The stored `job.md` keeps the marker, so the next respawn refills from the
-  then-current herd row.
+  The stored `job.md` keeps both markers, so the next respawn refills from
+  the then-current herd row.
 
 ### Acceptance
 
-- A brief spawned in a herd whose shepherd is `tom` carries `tom` wherever it
-  tells the worker how to reach the shepherd (handler test with a fake
-  `identityNames`).
-- Assembling the real template: `shepherd handle` is not a leftover, and no
-  line tells the worker to DM the bare word `shepherd`.
+- A brief spawned in a herd whose shepherd is `shepherd.k3f9` (displayed
+  `shepherd`) names `shepherd` and tells the worker to DM `shepherd.k3f9`
+  (handler test with a fake `identityNames`).
+- Assembling the real template: neither slot is a leftover, and no line tells
+  the worker to DM the bare word `shepherd`.
 - A respawn with no `--brief` reuses the stored brief and fills the current
   shepherd name.
 

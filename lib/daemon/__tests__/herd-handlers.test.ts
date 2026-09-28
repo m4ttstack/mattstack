@@ -1055,20 +1055,26 @@ describe("herd:spawn", () => {
     return { ...hx, herd: s.data.herd, room: s.data.room };
   }
 
-  test("RT-356: the prompt names the herd's current shepherd, and job.md keeps the slot for the next launch", async () => {
-    let shepherdName = "tom";
-    const hx = harness({ identityNames: (ids: Iterable<string>) => new Map([...ids].map((id) => [id, shepherdName])) });
+  test("RT-356: the prompt names the herd's current shepherd and its id, and job.md keeps both slots for the next launch", async () => {
+    let shepherdName = "shepherd";
+    const hx = harness({
+      presenceIdentityForSession: (s) => (s === "sess-shep" ? { handle: "shepherd.k3f9", baseHandle: "shepherd", name: "shepherd" } : null),
+      identityNames: (ids: Iterable<string>) => new Map([...ids].map((id) => [id, shepherdName])),
+    });
     const s = await hx.h["herd:start"](START);
     if (!s.ok) throw new Error(s.error);
-    const first = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", brief: "# job\nDM <shepherd handle> when done.", dir: "/t" });
+    const brief = "# job\nDM <shepherd handle> (id <shepherd id>) when done.";
+    const first = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", brief, dir: "/t" });
     if (!first.ok) throw new Error(first.error);
-    expect(hx.agentCalls[0].prompt).toContain("DM tom when done.");
-    expect(hx.agentCalls[0].prompt).not.toContain("<shepherd handle>");
-    expect(readFileSync(join(hx.dir, "herds", s.data.herd, "job-a", "job.md"), "utf8")).toContain("<shepherd handle>");
+    expect(hx.agentCalls[0].prompt).toContain("DM shepherd (id shepherd.k3f9) when done.");
+    expect(hx.agentCalls[0].prompt).not.toMatch(/<shepherd (?:handle|id)>/);
+    const stored = readFileSync(join(hx.dir, "herds", s.data.herd, "job-a", "job.md"), "utf8");
+    expect(stored).toContain("<shepherd handle>");
+    expect(stored).toContain("<shepherd id>");
     shepherdName = "ann";
     const again = await hx.h["herd:spawn"]({ herd: s.data.herd, job: "job-a", dir: "/t" });
     if (!again.ok) throw new Error(again.error);
-    expect(hx.agentCalls[1].prompt).toContain("DM ann when done.");
+    expect(hx.agentCalls[1].prompt).toContain("DM ann (id shepherd.k3f9) when done.");
   });
 
   test("RT-356: a brief with no slot is launched unchanged", async () => {

@@ -458,7 +458,7 @@ export function createHerdHandlers(deps: HerdDeps) {
         // so a global codex default would silently degrade every herd. codex
         // workers are a separate change.
         provider: "claude",
-        repo: herd.repo, cwd: worktree, prompt: fillSpawnSlots(brief, { "shepherd handle": shepherdName }), surface: "herdr",
+        repo: herd.repo, cwd: worktree, prompt: fillSpawnSlots(brief, { "shepherd handle": shepherdName, "shepherd id": herd.shepherdHandle }), surface: "herdr",
         ...(str(p?.model) && { model: p!.model }), ...(str(p?.effort) && { effort: p!.effort }), ...(str(p?.account) && { account: p!.account }),
         label: name, caller: `herd:${herdId}`, workspace: herd.workspace, tab: name, handle: workerId,
         subject: herdSubject(herdId, name),

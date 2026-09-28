@@ -553,20 +553,21 @@ describe("stripAuthorNotes", () => {
 });
 
 describe("spawn-filled slots (RT-356)", () => {
-  const TEMPLATE = "# JOB: <name>\n\n## Method\n<method>\n\n## Messages\nDM <shepherd handle> when stuck.\n";
+  const TEMPLATE = "# JOB: <name>\n\n## Method\n<method>\n\n## Messages\nDM <shepherd handle> (id <shepherd id>) when stuck.\n";
   const method = { kind: "file" as const, content: "do it" };
+  const SPAWN = { "shepherd handle": "shepherd", "shepherd id": "shepherd.k3f9" };
 
-  test("an unfilled <shepherd handle> is not a leftover and passes through verbatim", () => {
+  test("unfilled spawn slots are not leftovers and pass through verbatim", () => {
     const r = assembleBrief({ template: TEMPLATE, job: "j", fills: {}, method });
     if (!r.ok) throw new Error(r.error);
-    expect(r.brief).toContain("DM <shepherd handle> when stuck.");
+    expect(r.brief).toContain("DM <shepherd handle> (id <shepherd id>) when stuck.");
   });
 
   test("an explicit fill still wins, leaving spawn nothing to replace", () => {
-    const r = assembleBrief({ template: TEMPLATE, job: "j", fills: { "shepherd handle": "ann" }, method });
+    const r = assembleBrief({ template: TEMPLATE, job: "j", fills: { "shepherd handle": "ann", "shepherd id": "ann.x1y2" }, method });
     if (!r.ok) throw new Error(r.error);
-    expect(r.brief).toContain("DM ann when stuck.");
-    expect(fillSpawnSlots(r.brief, { "shepherd handle": "tom" })).toBe(r.brief);
+    expect(r.brief).toContain("DM ann (id ann.x1y2) when stuck.");
+    expect(fillSpawnSlots(r.brief, SPAWN)).toBe(r.brief);
   });
 
   test("other unfilled markers are still refused", () => {
@@ -574,28 +575,44 @@ describe("spawn-filled slots (RT-356)", () => {
     expect(r).toMatchObject({ ok: false, leftover: ["paths"] });
   });
 
-  test("fillSpawnSlots replaces every marker, including one wrapped across a line", () => {
-    expect(fillSpawnSlots("to <shepherd handle>, and\n<shepherd\nhandle> again", { "shepherd handle": "tom" })).toBe("to tom, and\ntom again");
+  test("fillSpawnSlots fills both slots, including markers wrapped across a line", () => {
+    expect(fillSpawnSlots("to <shepherd handle>, and\n<shepherd\nhandle> (id <shepherd\nid>) again", SPAWN)).toBe(
+      "to shepherd, and\nshepherd (id shepherd.k3f9) again",
+    );
   });
 
   test("fillSpawnSlots leaves comments, other markers and unknown slots alone", () => {
     const text = "x <!-- mcp-lint: allow --> <id> <paths>";
-    expect(fillSpawnSlots(text, { "shepherd handle": "tom", paths: "p" })).toBe(text);
+    expect(fillSpawnSlots(text, { ...SPAWN, paths: "p" })).toBe(text);
   });
 
-  test("the real job template names the shepherd by the spawn-filled handle, never a bare shepherd", () => {
+  test("the real job template names the shepherd and tells the worker to DM the id", () => {
     const template = readFileSync(join(import.meta.dir, "../../plugins/mattstack/attachments/orchestration/shepherdr/references/job-template.md"), "utf8");
     const probe = assembleBrief({ template, job: "j", fills: {}, method });
     const leftover = probe.ok ? [] : (probe.leftover ?? []);
     const r = assembleBrief({ template, job: "j", fills: Object.fromEntries(leftover.map((n) => [n, "x"])), method });
     if (!r.ok) throw new Error(r.error);
     expect(r.brief).toContain("<shepherd handle>");
-    const brief = fillSpawnSlots(r.brief, { "shepherd handle": "tom" });
+    expect(r.brief).toContain("<shepherd id>");
+    const brief = fillSpawnSlots(r.brief, SPAWN);
     const messages = brief.slice(brief.indexOf("## Messages"), brief.indexOf("## Git"));
-    expect(messages).toContain("Your shepherd is tom in chat");
-    expect(messages).toMatch(/`chat_dm` to\s+tom\b/);
-    expect(brief).not.toContain("<shepherd handle>");
-    expect(brief).not.toMatch(/(?:chat_dm|chat dm)\s+`?shepherd\b/);
-    expect(brief).not.toMatch(/\bto:?\s+`?shepherd`?[\s.,]/);
+    expect(messages).toMatch(/Your shepherd is shepherd in chat\s+\(id shepherd\.k3f9\)/);
+    expect(messages).toMatch(/`chat_dm` to\s+shepherd\.k3f9\b/);
+    expect(brief).not.toMatch(/<shepherd\s+(?:handle|id)>/);
+    for (const bare of BARE_SHEPHERD_TARGETS) expect(brief).not.toMatch(bare);
+  });
+
+  test("the bare-shepherd probes catch a bare target but not a realistic id", () => {
+    const hits = ["chat_dm shepherd", "chat dm `shepherd`", "`chat_dm` to shepherd.", "to: `shepherd`,", "to = shepherd", "`to` = `shepherd`", "\"to\": \"shepherd\""];
+    for (const text of hits) expect(BARE_SHEPHERD_TARGETS.some((re) => re.test(text))).toBe(true);
+    const misses = ["`chat_dm` to shepherd.k3f9", "to = shepherd.k3f9", "`to` = `shepherd.k3f9`", "chat_dm shepherd.k3f9"];
+    for (const text of misses) expect(BARE_SHEPHERD_TARGETS.some((re) => re.test(text))).toBe(false);
   });
 });
+
+// `shepherd` as a DM target, not followed by `.<suffix>` (a minted id).
+const BARE_SHEPHERD = String.raw`[\x60"]?shepherd(?!\.\w|[\w-])[\x60"]?`;
+const BARE_SHEPHERD_TARGETS = [
+  new RegExp(String.raw`(?:chat_dm|chat dm)[\x60"]?\s+(?:to\s+)?` + BARE_SHEPHERD),
+  new RegExp(String.raw`\bto[\x60"]?\s*(?::|=)?\s+` + BARE_SHEPHERD),
+];
