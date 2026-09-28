@@ -28,6 +28,7 @@ digraph plan {
     "Plan stage entered" [shape=ellipse];
     "run_field_get {key: ticket}" [shape=plaintext];
     "Read the ticket" [shape=box];
+    "Next move after reading the ticket?" [shape=diamond];
     "STOP: no code, no file, no implementer dispatch before the printed block" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Pick the tier" [shape=box];
     "Print the triage block" [shape=box];
@@ -43,8 +44,9 @@ digraph plan {
 
     "Plan stage entered" -> "run_field_get {key: ticket}";
     "run_field_get {key: ticket}" -> "Read the ticket";
-    "Read the ticket" -> "Pick the tier";
-    "Read the ticket" -> "STOP: no code, no file, no implementer dispatch before the printed block" [label="tempted to start on the code"];
+    "Read the ticket" -> "Next move after reading the ticket?";
+    "Next move after reading the ticket?" -> "Pick the tier" [label="triage: pick the tier"];
+    "Next move after reading the ticket?" -> "STOP: no code, no file, no implementer dispatch before the printed block" [label="tempted to start on the code"];
     "STOP: no code, no file, no implementer dispatch before the printed block" -> "Pick the tier";
     "Pick the tier" -> "Print the triage block";
     "Print the triage block" -> "Gate plan (table below)";
