@@ -1001,6 +1001,38 @@ describe("worker verbs", () => {
     expect(herdrCalls).toContainEqual(["pane", "close", "w9:p7"]);
     expect(store.getJob(herd, "review-job-a")!.status).toBe("closed");
   });
+
+  test("follow-up flips a done job back to active and keeps its report", async () => {
+    const { h, store, herd } = await withJob();
+    const reported = await h["herd:report"]({ herd, job: "job-a", body: "done: A1" });
+    if (!reported.ok) throw new Error(reported.error);
+    const res = await h["herd:follow-up"]({ herd, job: "job-a" });
+    expect(res).toEqual({ ok: true, data: { job: "job-a", status: "active" } });
+    expect(store.getJob(herd, "job-a")).toMatchObject({ status: "active", lastReport: reported.data.message });
+  });
+
+  test("a follow-up round ends at the next report: done again with the new report", async () => {
+    const { h, store, herd } = await withJob();
+    await h["herd:report"]({ herd, job: "job-a", body: "done: A1" });
+    await h["herd:follow-up"]({ herd, job: "job-a" });
+    const second = await h["herd:report"]({ herd, job: "job-a", body: "done: follow-up fixes" });
+    if (!second.ok) throw new Error(second.error);
+    expect(store.getJob(herd, "job-a")).toMatchObject({ status: "done", lastReport: second.data.message });
+  });
+
+  test("follow-up refuses a job that is not done, an unknown job and a paneless job", async () => {
+    const { h, store, herd } = await withJob();
+    const live = await h["herd:follow-up"]({ herd, job: "job-a" });
+    expect(live.ok).toBe(false);
+    if (!live.ok) expect(live.error).toContain("not done");
+    const unknown = await h["herd:follow-up"]({ herd, job: "nope" });
+    expect(unknown.ok).toBe(false);
+    store.upsertJob({ herd, name: "job-p", worktree: "/w/p", handle: "job-p", status: "done", pane: null });
+    const paneless = await h["herd:follow-up"]({ herd, job: "job-p" });
+    expect(paneless.ok).toBe(false);
+    if (!paneless.ok) expect(paneless.error).toContain("no pane");
+    expect(store.getJob(herd, "job-p")!.status).toBe("done");
+  });
 });
 
 describe("herd:spawn", () => {

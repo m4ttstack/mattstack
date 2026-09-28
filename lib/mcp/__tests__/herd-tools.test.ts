@@ -42,13 +42,13 @@ function fake(opts: { statusError?: string; statusData?: unknown; pluginListErro
     return { ok: true, data: { herd: { id: a.herd, shepherdSession: "s1" }, jobs: [] } };
   }) as any;
   const deps: HerdToolDeps = {
-    start: rec("start"), spawn: rec("spawn"), close: rec("close"), status, list: rec("list"),
+    start: rec("start"), spawn: rec("spawn"), close: rec("close"), followUp: rec("followUp"), status, list: rec("list"),
     attend: rec("attend"), wrapUp: rec("wrapUp"), resume: rec("resume"), milestone: rec("milestone"),
     verb: (async (input: unknown) => { calls.push({ fn: "verb", a: input, o: undefined }); return { ok: true, body: { brief: "x" } }; }) as any,
     tempRoots: () => tempRoots,
     readRoots: () => readRoots,
   };
-  const destructive = () => calls.filter((c) => ["spawn", "close", "wrapUp", "resume", "attend"].includes(c.fn));
+  const destructive = () => calls.filter((c) => ["spawn", "close", "followUp", "wrapUp", "resume", "attend"].includes(c.fn));
   return { calls, destructive, tool: (n: string) => herdToolDefs(deps).find((t) => t.name === n)! };
 }
 const SESSION = { CLAUDE_CODE_SESSION_ID: "s1", HERDR_PANE_ID: "p1", HERDR_WORKSPACE_ID: "w1" } as NodeJS.ProcessEnv;
@@ -59,12 +59,13 @@ const NO_SESSION_ENV = { HERDR_PANE_ID: "p1" } as NodeJS.ProcessEnv;
 const SHEPHERD_ONLY: Array<[string, Record<string, unknown>]> = [
   ["herd_spawn", { herd: "hd-1", job: "j" }],
   ["herd_close", { herd: "hd-1", job: "j" }],
+  ["herd_follow_up", { herd: "hd-1", job: "j" }],
   ["herd_wrap_up", { herd: "hd-1", closePanes: true }],
   ["herd_attend", { herd: "hd-1", job: "j" }],
 ];
 
 describe("herd tools refuse a caller that does not own the herd", () => {
-  test("herd_spawn, herd_close, herd_wrap_up, herd_attend and herd_resume refuse in a worker pane, with zero daemon calls", async () => {
+  test("herd_spawn, herd_close, herd_follow_up, herd_wrap_up, herd_attend and herd_resume refuse in a worker pane, with zero daemon calls", async () => {
     for (const [name, input] of [...SHEPHERD_ONLY, ["herd_resume", { herd: "hd-1" }] as [string, Record<string, unknown>]]) {
       const { tool, calls } = fake();
       const r = await tool(name).handler(input, WORKER);
@@ -74,7 +75,7 @@ describe("herd tools refuse a caller that does not own the herd", () => {
     }
   });
 
-  test("herd_spawn, herd_close, herd_wrap_up and herd_attend refuse without a Claude Code session, with zero destructive calls", async () => {
+  test("herd_spawn, herd_close, herd_follow_up, herd_wrap_up and herd_attend refuse without a Claude Code session, with zero destructive calls", async () => {
     for (const [name, input] of SHEPHERD_ONLY) {
       const { tool, destructive } = fake();
       const r = await tool(name).handler(input, NO_SESSION_ENV);
@@ -84,7 +85,7 @@ describe("herd tools refuse a caller that does not own the herd", () => {
     }
   });
 
-  test("herd_spawn, herd_close, herd_wrap_up and herd_attend refuse a session that is not the herd's shepherd, with zero destructive calls", async () => {
+  test("herd_spawn, herd_close, herd_follow_up, herd_wrap_up and herd_attend refuse a session that is not the herd's shepherd, with zero destructive calls", async () => {
     for (const [name, input] of SHEPHERD_ONLY) {
       const { tool, destructive } = fake();
       const r = await tool(name).handler(input, OTHER_SESSION);
@@ -95,7 +96,7 @@ describe("herd tools refuse a caller that does not own the herd", () => {
     }
   });
 
-  test("herd_spawn, herd_close, herd_wrap_up and herd_attend run for the herd's own shepherd session", async () => {
+  test("herd_spawn, herd_close, herd_follow_up, herd_wrap_up and herd_attend run for the herd's own shepherd session", async () => {
     for (const [name, input] of SHEPHERD_ONLY) {
       const { tool, destructive } = fake();
       const r = await tool(name).handler(input, SESSION);
@@ -110,6 +111,13 @@ describe("herd tools refuse a caller that does not own the herd", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toContain("unknown herd");
     expect(destructive()).toEqual([]);
+  });
+
+  test("herd_follow_up sends the herd and job to the daemon verb", async () => {
+    const { tool, calls } = fake();
+    const r = await tool("herd_follow_up").handler({ herd: "hd-1", job: "j" }, SESSION);
+    expect(r.ok).toBe(true);
+    expect(calls.find((c) => c.fn === "followUp")!.a).toEqual({ herd: "hd-1", job: "j" });
   });
 
   test("herd_resume stays open to a session that is not the current shepherd, so a new session can take over", async () => {

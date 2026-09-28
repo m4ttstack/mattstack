@@ -574,6 +574,22 @@ export function createHerdHandlers(deps: HerdDeps) {
       return { ok: true, data: { message: posted.data.id } };
     },
 
+    "herd:follow-up": async (raw: unknown): Promise<CommandResult<"herd:follow-up">> => {
+      const p = raw as Commands["herd:follow-up"]["payload"] | undefined;
+      const herdId = str(p?.herd); const name = str(p?.job);
+      if (!herdId || !name) return { ok: false, error: "herd and job are required" };
+      const herd = store.get(herdId); const job = herd ? store.getJob(herdId, name) : null;
+      if (!herd || !job) return { ok: false, error: `unknown job "${name}" in herd "${herdId}"` };
+      if (job.status !== "done") return { ok: false, error: `job "${name}" is ${job.status}, not done; only a job that has reported can start a follow-up round` };
+      if (!job.pane) return { ok: false, error: `job "${name}" has no pane; a follow-up round runs in the worker's own pane` };
+      // Back to active rather than a status of its own: the lifecycle and the
+      // watchdog already judge an active job as a live worker, so the done
+      // nag stops and the worker backstop becomes the round's quiet limit.
+      // setJobStatus leaves lastReport alone; the next report replaces it.
+      store.setJobStatus(herdId, name, "active");
+      return { ok: true, data: { job: name, status: "active" } };
+    },
+
     "herd:attend": async (raw: unknown): Promise<CommandResult<"herd:attend">> => {
       const p = raw as Commands["herd:attend"]["payload"] | undefined;
       const herdId = str(p?.herd); const name = str(p?.job); const callerWorkspace = str(p?.callerWorkspace);
