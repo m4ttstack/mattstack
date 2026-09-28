@@ -37,11 +37,13 @@ their gates and rt's static gates; `bun run check` is what `checks.yml`'s
 `static` job runs. rt's unit suite is `bun run test` and never walks the apps'
 vitest packages: the `test` script names rt's directories one by one, and
 `scripts/ci/test-scope.ts` skips the macOS shards on a PR that touches only
-apps trees or `plugins/` trees (each plugin has its own CI job). Deck serves the apps from this checkout in dev mode
-(`deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`, or the older
-`~/Documents/GitHub/repo-tools` folder on a machine that has not moved it), and the
-release builds them at the tagged commit (`scripts/build-apps.ts`, the
-`build-apps` job in `release.yml`); `rt-tray/deps.lock` lists them as
+apps trees or `plugins/` trees (each plugin has its own CI job, which
+`scripts/__tests__/no-plugin-ci-jobs.test.ts` enforces). Deck serves the
+apps from this checkout in dev mode
+(`deck register --dir ~/Documents/GitHub/mattstack/apps/<name>`, or the
+older `~/Documents/GitHub/repo-tools` folder on a machine that has not
+moved it), and the release builds them at the tagged commit
+(`scripts/build-apps.ts`, the `build-apps` job in `release.yml`); `rt-tray/deps.lock` lists them as
 `source: "tree"` rows, which is deck's served-app catalog (the rows that
 carry a `serve` port; `apps/deck/src/registry/bundle-catalog.ts`). gitq is
 a tree row too, at `apps/gitq`, built the same way by `build-apps.ts` and
