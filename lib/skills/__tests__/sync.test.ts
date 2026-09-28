@@ -47,6 +47,7 @@ type World = {
   cswapSessionsDir?: string;
   configDir?: string;
   claudeBinOverride?: string | null;
+  mainVersions?: Record<string, string>;
 };
 
 /**
@@ -100,6 +101,14 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
         if (stderr) return { code: 1, stdout: "", stderr };
         const value = world.branchByDir ? (world.branchByDir[cwd] ?? "main") : (world.branch ?? "main");
         return { code: 0, stdout: value, stderr: "" };
+      }
+      if (args[0] === "show") {
+        const [ref, path] = args[1]!.split(/:(.*)/s);
+        if (ref !== "main") return { code: 128, stdout: "", stderr: `unknown ref ${ref}` };
+        const rel = path!.replace(/\/?\.claude-plugin\/plugin\.json$/, "");
+        const onMain = world.mainVersions?.[rel];
+        if (onMain) return { code: 0, stdout: JSON.stringify({ version: onMain }), stderr: "" };
+        return { code: 0, stdout: readFileSync(join(cwd, path!), "utf8"), stderr: "" };
       }
       if (args[0] === "pull") {
         const stderr = world.pullFail?.[cwd];
@@ -704,6 +713,10 @@ describe("in-tree engine", () => {
     const report = await syncPack(pack, engine, deps);
     const gitInEngine = world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir);
     expect(gitInEngine).toEqual([]);
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === dirname(engine.dir)).map((c) => c.args.join(" "))).toEqual([
+      "branch --show-current",
+      "show main:mattstack/.claude-plugin/plugin.json",
+    ]);
     expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
     expect(report.steps.find((s) => s.name === "pull-engine")).toMatchObject({ status: "skipped" });
     expect(report.steps.find((s) => s.name === "update-engine")).toMatchObject({ status: "ran" });
@@ -728,20 +741,23 @@ describe("in-tree pack", () => {
     const deps = { ...makeDeps(pack, engine, world), inTreeRoot: pack.dir };
     const report = await syncPack(pack, engine, deps);
     expect(report.ok).toBe(true);
-    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir)).toEqual([]);
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === pack.dir).map((c) => c.args[0])).toEqual(["branch", "show"]);
     expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
     expect(report.steps.find((s) => s.name === "pull-pack")).toMatchObject({ status: "skipped" });
     expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
     expect(report.versions.pack.source).toBe("0.1.1");
   });
 
-  test("the in-tree mattstack pack syncing itself runs no git at all", async () => {
+  test("the in-tree mattstack pack syncing itself runs only read-only git against main", async () => {
     const engine = fixturePack("mattstack", "mattstack", "1.2.3");
     const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.2" }, drift: [false] };
     const deps = { ...makeDeps(engine, engine, world), inTreeRoot: engine.dir };
     const report = await syncPack(engine, engine, deps);
     expect(report.ok).toBe(true);
-    expect(world.calls.filter((c) => c.cmd === "git")).toEqual([]);
+    expect(world.calls.filter((c) => c.cmd === "git").map((c) => c.args.join(" "))).toEqual([
+      "branch --show-current",
+      "show main:.claude-plugin/plugin.json",
+    ]);
     expect(report.steps.find((s) => s.name === "update-pack")).toMatchObject({ status: "ran" });
     expect(report.versions.pack.installedAfter).toBe("1.2.3");
   });
@@ -783,7 +799,7 @@ describe("inTreeRoot realpath", () => {
     const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" }, drift: [false] };
     const deps = { ...makeDeps(pack, engine, world), inTreeRoot: link };
     await syncPack(pack, engine, deps);
-    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir)).toEqual([]);
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir).map((c) => c.args[0])).toEqual(["branch", "show"]);
   });
 
   test("an inTreeRoot that does not exist leaves every git step in place", async () => {
@@ -794,5 +810,93 @@ describe("inTreeRoot realpath", () => {
     const report = await syncPack(pack, engine, deps);
     expect(report.ok).toBe(true);
     expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === engine.dir).map((c) => c.args[0])).toEqual(["status", "branch", "pull"]);
+  });
+});
+
+describe("in-tree plugins install from main", () => {
+  test("reads the in-tree engine version from main, not the working tree", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "9.9.9", join(root, "plugins"));
+    const pack = fixturePack("acme", "mattstack", "0.1.0");
+    const world: World = {
+      calls: [],
+      installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" },
+      drift: [false],
+      mainVersions: { "plugins/mattstack": "1.2.3" },
+    };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    const report = await syncPack(pack, engine, deps);
+    expect(report.ok).toBe(true);
+    expect(report.steps.find((s) => s.name === "update-engine")).toMatchObject({ status: "skipped", detail: "engine already at 1.2.3" });
+    expect(world.calls.filter((c) => c.cmd === "git" && c.cwd === root).map((c) => c.args.join(" "))).toContain(
+      "show main:plugins/mattstack/.claude-plugin/plugin.json",
+    );
+  });
+
+  test("reads the in-tree pack version from main, not the working tree", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("acme", "mattstack", "0.5.0", join(root, "plugins"));
+    const world: World = {
+      calls: [],
+      installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" },
+      drift: [false],
+      mainVersions: { "plugins/acme": "0.1.0" },
+    };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    const report = await syncPack(pack, engine, deps);
+    expect(report.ok).toBe(true);
+    expect(report.versions.pack.source).toBe("0.1.0");
+    expect(stepNames(report.steps)).not.toContain("update-pack");
+  });
+
+  test("warns without failing when the shared checkout is on another branch", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3", join(root, "plugins"));
+    const pack = fixturePack("acme", "mattstack", "0.1.0");
+    const world: World = {
+      calls: [],
+      installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" },
+      drift: [false],
+      branchByDir: { [root]: "feature-x" },
+    };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    const report = await syncPack(pack, engine, deps);
+    expect(report.ok).toBe(true);
+    const pullEngine = report.steps.find((s) => s.name === "pull-engine")!;
+    expect(pullEngine.status).toBe("skipped");
+    expect(pullEngine.detail).toContain(`shared checkout ${root} is on "feature-x"`);
+    expect(pullEngine.detail).toContain("installs from main");
+    expect(report.warnings.some((w) => w.includes("feature-x"))).toBe(true);
+  });
+
+  test("says nothing about the branch when the shared checkout is on main", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3", join(root, "plugins"));
+    const pack = fixturePack("acme", "mattstack", "0.1.0");
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" }, drift: [false] };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    const report = await syncPack(pack, engine, deps);
+    expect(report.warnings).toEqual([]);
+    expect(report.steps.find((s) => s.name === "pull-engine")!.detail).not.toContain("branch");
+  });
+});
+
+describe("in-tree pack drift", () => {
+  test("refuses before writing anything and never commits or pushes in the shared checkout", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3");
+    const pack = fixturePack("acme", "mattstack", "0.1.0", join(root, "plugins"));
+    const world: World = { calls: [], installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" }, drift: [true, false] };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    const report = await syncPack(pack, engine, deps);
+    expect(report.ok).toBe(false);
+    const bump = report.steps.find((s) => s.name === "bump")!;
+    expect(bump.status).toBe("refused");
+    expect(bump.detail).toContain("in-tree");
+    expect(bump.detail).toContain("pull request");
+    expect(stepNames(report.steps)).not.toContain("commit-push");
+    expect(world.calls.some((c) => c.cmd === "git" && (c.args[0] === "commit" || c.args[0] === "push" || c.args[0] === "add"))).toBe(false);
+    expect(readVersion(pack.dir)).toBe("0.1.0");
   });
 });
