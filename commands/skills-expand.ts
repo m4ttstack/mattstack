@@ -1,0 +1,93 @@
+/**
+ * rt skills expand -- paste mattstack attachments into hand-written skills.
+ *
+ *   rt skills expand --src <dir> --out <dir> [--mattstack-dir <root>] [--check] [--strict] [--dry-run] [--json]
+ *
+ * The source dir holds one directory per skill; each SKILL.md may carry
+ * `{{include:<attachment>}}` lines and nothing else placeholder-shaped. The
+ * output dir is owned by expand: every dir in it is regenerated or removed.
+ */
+
+import { TREE } from "../lib/command-tree-def.ts";
+import { listAgentSafe } from "../lib/command-tree-resolve.ts";
+import { mcpTools } from "../lib/mcp/tools.ts";
+import { checkExpanded, expandSkills, writeExpanded, type ExpandDrift, type ExpandedSkill } from "../lib/skills/expand.ts";
+import { deriveRules, formatHit, lintPackDir, lintPackScripts } from "../lib/skills/mcp-lint.ts";
+import { resolvePluginRoots, resolvePluginRootsFromDir } from "../lib/skills/sources.ts";
+
+type Flags = { src: string; out: string; mattstackDir: string | null; check: boolean; strict: boolean; dryRun: boolean; json: boolean };
+
+function fail(message: string): never {
+  console.error(`rt skills expand: ${message}`);
+  process.exit(1);
+}
+
+function parseFlags(args: string[]): Flags {
+  const flags: Flags = { src: "", out: "", mattstackDir: null, check: false, strict: false, dryRun: false, json: false };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    switch (a) {
+      case "--src": flags.src = args[++i] ?? ""; break;
+      case "--out": flags.out = args[++i] ?? ""; break;
+      case "--mattstack-dir": flags.mattstackDir = args[++i] ?? null; break;
+      case "--check": flags.check = true; break;
+      case "--strict": flags.strict = true; break;
+      case "--dry-run": flags.dryRun = true; break;
+      case "--json": flags.json = true; break;
+      default: fail(`unknown flag ${a}`);
+    }
+  }
+  if (!flags.src) fail("--src <dir> is required");
+  if (!flags.out) fail("--out <dir> is required");
+  return flags;
+}
+
+function lintOutput(outDir: string): string[] {
+  const rules = deriveRules(
+    mcpTools(),
+    listAgentSafe(TREE).map((l) => ({ path: l.path, deniedFlags: l.node.agentDeniedFlags, noCwd: l.node.agentNoCwd })),
+  );
+  return [...lintPackDir(outDir, rules), ...lintPackScripts(outDir, rules)].map(formatHit);
+}
+
+function emit(flags: Flags, payload: { ok: boolean; mode: "expand" | "check"; skills: string[]; removed: string[]; drift: ExpandDrift[]; lint: string[] }, lines: string[]): void {
+  if (flags.json) {
+    console.log(JSON.stringify(payload));
+    return;
+  }
+  for (const line of lines) console.log(line);
+}
+
+export async function skillsExpand(args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  const roots = flags.mattstackDir ? resolvePluginRootsFromDir(flags.mattstackDir) : resolvePluginRoots();
+
+  let skills: ExpandedSkill[];
+  try {
+    skills = expandSkills({ srcDir: flags.src, outDir: flags.out, roots });
+  } catch (err) {
+    fail((err as Error).message);
+  }
+
+  if (flags.check) {
+    const drift = checkExpanded(flags.out, skills);
+    const lint = flags.strict ? lintOutput(flags.out) : [];
+    const ok = drift.length === 0 && lint.length === 0;
+    emit(flags, { ok, mode: "check", skills: skills.map((s) => s.name), removed: [], drift, lint }, ok ? [`expanded skills current (${skills.length})`] : []);
+    if (!ok) {
+      for (const d of drift) console.error(`${d.skill}: ${d.causes.join(", ")}`);
+      for (const hit of lint) console.error(hit);
+      process.exit(1);
+    }
+    return;
+  }
+
+  const result = flags.dryRun ? { written: skills.map((s) => s.name), removed: [] as string[] } : writeExpanded(flags.out, skills);
+  const lint = flags.strict && !flags.dryRun ? lintOutput(flags.out) : [];
+  const lines = [...result.written.map((n) => `+ ${n}`), ...result.removed.map((n) => `- ${n}`)];
+  emit(flags, { ok: lint.length === 0, mode: "expand", skills: result.written, removed: result.removed, drift: [], lint }, lines);
+  if (lint.length > 0) {
+    for (const hit of lint) console.error(hit);
+    process.exit(1);
+  }
+}
