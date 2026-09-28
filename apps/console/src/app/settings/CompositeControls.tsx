@@ -47,6 +47,7 @@ import { ExpandToggle } from './ExpandToggle';
 import { editorKind, formOf, type FormShape } from './formShape';
 import { JsonBlock } from './JsonBlock';
 import { ScopeBadge } from './ScopeBadge';
+import listClasses from './StringList.module.css';
 import { unitOf } from './units';
 import { useKeyExplain, useSettingsRepo } from './useConsoleSettings';
 import type { useRowSave } from './useRowSave';
@@ -123,47 +124,76 @@ function StringListBody({
   const list = strings(def.effective.value);
   const saving = row.status === 'saving';
   const [draft, setDraft] = useState('');
+  const explained = useKeyExplain(def.key, useSettingsRepo());
+  const save = (value: unknown) =>
+    row.save(value).then(ok => {
+      explained.refresh();
+      return ok;
+    });
+  // Clearing the row's layer lands on the default only when no other layer
+  // is authored underneath it.
+  const authored = explained.rows.filter(
+    r => r.present && r.scope !== 'default'
+  );
+  const resettable =
+    def.hasDefault &&
+    authored.length === 1 &&
+    authored[0]!.scope === rungOf(row.target.scope, row.target.repo ?? null);
   return (
     <Body>
-      {list.map((item, i) => (
-        <FieldRow
-          key={`${i}:${item}`}
-          label={
-            <Text fz={12} ff="monospace">
-              {item}
-            </Text>
-          }
-        >
-          <UnstyledButton
-            aria-label={`remove ${item}`}
-            disabled={saving}
-            onClick={() => void row.save(list.filter(x => x !== item))}
-          >
-            <Icons.close size={14} />
-          </UnstyledButton>
-        </FieldRow>
-      ))}
-      <Box py={6}>
+      <div className={listClasses.cloud}>
+        {list.map((item, i) => (
+          <span key={`${i}:${item}`} className={listClasses.tag}>
+            {item}
+            <button
+              type="button"
+              className={listClasses.remove}
+              aria-label={`remove ${item}`}
+              disabled={saving}
+              onClick={() => void save(list.filter(x => x !== item))}
+            >
+              <Icons.close size={12} />
+            </button>
+          </span>
+        ))}
         <TextInput
           aria-label={`add to ${def.key}`}
           disabled={saving}
           size="xs"
-          maw={360}
-          ff="monospace"
+          w={160}
+          leftSection={<Icons.plus size={12} />}
+          styles={{
+            input: {
+              ...INPUT_TYPE.code.input,
+              height: TAG_HEIGHT,
+              minHeight: TAG_HEIGHT,
+            },
+          }}
           placeholder="add an item"
           value={draft}
           onTextChange={setDraft}
           onKeyDown={e => {
             if (e.key !== 'Enter') return;
             const next = addToList(list, draft);
-            if (next) void row.save(next).then(ok => ok && setDraft(''));
+            if (next) void save(next).then(ok => ok && setDraft(''));
           }}
         />
-      </Box>
-      <Group py={6}>
+      </div>
+      <Group gap={4} pb={2}>
         <Button size="compact-xs" variant="subtle" onClick={onEditJson}>
           Edit as JSON
         </Button>
+        {resettable && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            disabled={saving}
+            onClick={() => void save(undefined)}
+          >
+            Reset to default
+          </Button>
+        )}
       </Group>
     </Body>
   );

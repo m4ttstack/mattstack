@@ -1,0 +1,58 @@
+/*
+ * The expanded string list: items wrap as tags, and a tag's remove button
+ * gains a target on hover. :hover and :focus-visible cannot be inline
+ * styles, so this is a CSS module; every value is a token.
+ */
+.cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 10px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 3px 0 8px;
+  border-radius: 4px;
+  background: var(--tk-raised);
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+}
+
+.tag:hover,
+.tag:focus-within {
+  background: var(--tk-line-2);
+}
+
+.remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--tk-text-3);
+  cursor: pointer;
+}
+
+.tag:hover .remove {
+  color: var(--tk-text-1);
+}
+
+.remove:hover,
+.remove:focus-visible {
+  background: var(--tk-border);
+  color: var(--tk-text-1);
+}
+
+.remove:disabled {
+  cursor: default;
+}

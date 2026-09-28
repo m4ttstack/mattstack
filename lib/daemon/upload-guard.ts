@@ -2,9 +2,10 @@
  * The network-free half of mr:upload. Every mattstack MCP tool runs with no
  * permission check, so this is the only thing between an agent and sending an
  * arbitrary local file to a forge: the realpath must be a regular file under
- * one of the caller's roots (a non-empty absolute string; anything else is
- * skipped rather than resolved against the daemon's own cwd), the extension
- * must be an image or video type, and the size is capped. Symlinks resolve
+ * one of the caller's roots or a run's own evidence folder (see runEvidenceRoot),
+ * the extension must be an image or video type, and the size is capped. A
+ * caller root must be a non-empty absolute string; anything else is skipped
+ * rather than resolved against the daemon's own cwd. Symlinks resolve
  * before the containment check, so a link inside a root that points outside
  * it is refused without its target ever being read. The bytes returned on
  * success are read from one descriptor opened O_NOFOLLOW|O_NONBLOCK (refuses
@@ -16,8 +17,10 @@
  * open is not defended against: that already requires a writer inside an
  * allowed root, which can defeat the byte check by other means too.
  */
-import { closeSync, constants, fstatSync, openSync, readSync, realpathSync, statSync, type Stats } from "fs";
-import { basename, extname, isAbsolute, relative } from "path";
+import { closeSync, constants, fstatSync, openSync, readdirSync, readSync, realpathSync, statSync, type Stats } from "fs";
+import { homedir } from "os";
+import { basename, extname, isAbsolute, join, relative, sep } from "path";
+import { isPathComponent, runsRoot } from "../runs/paths.ts";
 
 export const UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -91,6 +94,35 @@ function contained(real: string, roots: readonly unknown[]): boolean {
   });
 }
 
+export function workRoot(): string {
+  return join(process.env.HOME ?? homedir(), ".mattstack", "work");
+}
+
+function safeReaddir(p: string): string[] {
+  try {
+    return readdirSync(p);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The pipeline saves an unbound run's captures under <work root>/<run id>/evidence/.
+ * Split from the file's realpath, never the caller's string, so `..` and every
+ * symlink have already resolved: a link out of the work root derives no run.
+ */
+export function runEvidenceRoot(real: string, opts: { workRoot: string; runsRoot: string }): string | null {
+  if (!isValidRoot(opts.workRoot) || !isValidRoot(opts.runsRoot)) return null;
+  const workReal = safeRealpath(opts.workRoot);
+  if (workReal === null || !isInsideRoot(real, workReal)) return null;
+  const [id, folder, ...rest] = relative(workReal, real).split(sep);
+  if (id === undefined || !isPathComponent(id) || folder !== "evidence" || rest.length === 0) return null;
+  const hasRun = safeReaddir(opts.runsRoot).some(
+    (repo) => isPathComponent(repo) && safeStat(join(opts.runsRoot, repo, id, "state.db"))?.isFile() === true,
+  );
+  return hasRun ? join(workReal, id, "evidence") : null;
+}
+
 /**
  * Reads the whole file from one descriptor, verified against `expect` (the
  * stat taken before this open) so the bytes returned are the bytes that were
@@ -145,7 +177,11 @@ function readVerified(real: string, expect: Stats, maxBytes: number): { bytes: U
   }
 }
 
-export function checkUploadPath(path: unknown, roots: readonly string[], opts: { maxBytes?: number } = {}): UploadCheck {
+export function checkUploadPath(
+  path: unknown,
+  roots: readonly string[],
+  opts: { maxBytes?: number; workRoot?: string; runsRoot?: string } = {},
+): UploadCheck {
   if (typeof path !== "string" || !isAbsolute(path)) return { ok: false, error: "path must be absolute" };
   const real = safeRealpath(path);
   if (real === null) return { ok: false, error: "file not found" };
@@ -153,8 +189,9 @@ export function checkUploadPath(path: unknown, roots: readonly string[], opts: {
   if (stat === null) return { ok: false, error: "file not found" };
   if (!stat.isFile()) return { ok: false, error: "path is not a regular file" };
 
-  if (!contained(real, roots)) {
-    return { ok: false, error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, or an rt.mcp.uploadRoots entry)" };
+  const evidence = { workRoot: opts.workRoot ?? workRoot(), runsRoot: opts.runsRoot ?? runsRoot() };
+  if (!contained(real, roots) && runEvidenceRoot(real, evidence) === null) {
+    return { ok: false, error: "path is outside the allowed upload roots (a worktree of the target repo, the Claude Code temp root, a run's evidence folder, or an rt.mcp.uploadRoots entry)" };
   }
 
   const ext = extname(real).slice(1).toLowerCase() as (typeof UPLOAD_EXTENSIONS)[number];
