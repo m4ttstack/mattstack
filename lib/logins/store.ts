@@ -37,6 +37,9 @@ function parse(key: string, raw: string): DevLogin {
   } catch {
     throw new CorruptLoginError(`dev login "${key}" is not valid JSON; replace it with rt logins add`);
   }
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    throw new CorruptLoginError(`dev login "${key}" is not a login record; replace it with rt logins add`);
+  }
   const o = v as Partial<DevLogin>;
   if (typeof o.origin !== "string" || typeof o.email !== "string" || typeof o.password !== "string") {
     throw new CorruptLoginError(`dev login "${key}" is missing a field; replace it with rt logins add`);

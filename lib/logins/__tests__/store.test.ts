@@ -79,6 +79,24 @@ describe("dev logins store", () => {
     expect(String(err.message)).not.toContain(CANARY);
   });
 
+  const corruptShapes: [string, string][] = [
+    ["not valid JSON", `{"password":"${CANARY}"`],
+    ["JSON null", "null"],
+    ["a bare string", JSON.stringify(CANARY)],
+    ["a number", "42"],
+    ["an array", JSON.stringify(["https://login.example.com", "a@example.com", CANARY])],
+    ["a missing field", JSON.stringify({ origin: "https://login.example.com", password: CANARY })],
+    ["a non-string field", JSON.stringify({ origin: "https://login.example.com", email: 7, password: CANARY })],
+  ];
+  for (const [shape, raw] of corruptShapes) {
+    test(`an entry holding ${shape} is corrupt, named by key, never by content`, async () => {
+      const err = await getLogin(memoryBackend({ "login.example.com": raw }), "login.example.com").catch((e) => e);
+      expect(err).toBeInstanceOf(CorruptLoginError);
+      expect(String(err.message)).toContain("login.example.com");
+      expect(String(err.message)).not.toContain(CANARY);
+    });
+  }
+
   test("an unknown key is null", async () => {
     expect(await getLogin(memoryBackend(), "login.example.com")).toBeNull();
   });
