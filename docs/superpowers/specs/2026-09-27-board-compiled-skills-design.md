@@ -28,7 +28,7 @@ not change, and the pack compiler is not touched.
 - **Expand, not compile.** Making board a pack needed an empty bindings
   manifest, a `pipeline-step` label on skills that are not steps, an optional
   roster description, a pack-local engine lookup and a namespace field, all
-  so the verb pipeline that claimview and mattstack run on could paste one
+  so the verb pipeline that team packs and mattstack run on could paste one
   block. A hand-written skill with include lines is a different, simpler
   thing: the frontmatter is already right, there are no blanks to fill, and
   the only job is the paste plus the bookkeeping around it. Expand reuses
