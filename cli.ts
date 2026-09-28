@@ -150,7 +150,7 @@ if (args[0] === "--version" || args[0] === "-V") {
     process.env.CI !== "true" &&
     process.env.RT_SKIP_SETUP !== "1" &&
     !process.env.RT_APP_SOCKET &&
-    !FIRST_RUN_HINT_SKIP.has(args[0] ?? "")
+    !FIRST_RUN_HINT_SKIP.has((args[0] === "--all" ? args[1] : args[0]) ?? "")
   ) {
     const { existsSync } = await import("fs");
     const { join } = await import("path");

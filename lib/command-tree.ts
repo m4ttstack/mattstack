@@ -100,6 +100,14 @@ export interface CommandNode {
   hidden?: boolean;
 
   /**
+   * "program": run by the mattstack apps, skills or daemon rather than typed
+   * by hand. Left out of pickers, usage and --help unless rt.picker.show
+   * names it (or "*") or the command line starts with --all; always runnable
+   * by name.
+   */
+  audience?: "program";
+
+  /**
    * Dev-mode only: hidden from pickers/usage AND unrunnable unless dev mode is
    * active (~/.local/bin/rt wrapper present), so experimental commands can live
    * in the tree without shipping in the compiled binary's surface.
@@ -191,8 +199,18 @@ export async function dispatch(
   const root = rootTree ?? tree;
   const [name, ...rest] = args;
 
+  if (name === ALL_FLAG) {
+    showAllVerbs = true;
+    try {
+      return await dispatch(tree, rest, breadcrumb, baseDir, rootTree, withArgs);
+    } finally {
+      showAllVerbs = false;
+    }
+  }
+
   if (name && HELP_FLAGS.has(name)) {
-    printBranchHelp(tree, breadcrumb, root);
+    if (rest[0] === ALL_FLAG) return dispatch(tree, [ALL_FLAG, name], breadcrumb, baseDir, rootTree, withArgs);
+    await printBranchHelp(tree, breadcrumb, root);
     process.exit(0);
   }
 
@@ -208,13 +226,13 @@ export async function dispatch(
       // Unknown command — show help
       const { yellow } = await import("./tui.ts");
       console.error(`\n  ${yellow}unknown command: ${name}${reset}`);
-      console.error(`  ${dim}available: ${Object.keys(tree).filter(k => isNodeVisible(tree[k]!, IS_DEV_MODE)).join(", ")}${reset}\n`);
+      console.error(`  ${dim}available: ${(await visibleEntries(tree, breadcrumb)).map(([k]) => k).join(", ")}${reset}\n`);
       process.exit(1);
     }
 
     // No args → interactive picker
     if (!process.stdin.isTTY) {
-      showUsage(tree, breadcrumb);
+      await showUsage(tree, breadcrumb);
       process.exit(0);
     }
 
@@ -256,7 +274,7 @@ export async function dispatch(
     } else {
       // No more args and no own handler → show subcommand picker
       if (!process.stdin.isTTY) {
-        showUsage(node.subcommands, [...breadcrumb, resolvedName]);
+        await showUsage(node.subcommands, [...breadcrumb, resolvedName]);
         process.exit(0);
       }
 
@@ -273,7 +291,7 @@ export async function dispatch(
   // --help as the FIRST remaining arg only — a later token may be a flag's
   // value (e.g. `pane send x --text --help`), which must reach the handler.
   if (rest[0] && HELP_FLAGS.has(rest[0]) && !node.passThroughHelp) {
-    printLeafHelp(node, [...breadcrumb, resolvedName]);
+    await printLeafHelp(node, [...breadcrumb, resolvedName]);
     process.exit(0);
   }
 
@@ -497,14 +515,63 @@ function renderHeader(breadcrumb: string[]): void {
   console.error(`  ${parts.join(` ${dim}›${reset} `)}\n`);
 }
 
-/** Visible in pickers/usage: not hidden, and (dev-only nodes) only in dev mode. */
-export function isNodeVisible(node: CommandNode, isDev: boolean): boolean {
-  return !node.hidden && (!node.devOnly || isDev);
+/** Verb paths ("pane", "worktree provision") from rt.picker.show/hide, plus --all. */
+export interface VerbFilter {
+  all: boolean;
+  show: ReadonlySet<string>;
+  hide: ReadonlySet<string>;
 }
 
-function showUsage(tree: Record<string, CommandNode>, breadcrumb: string[]): void {
+/**
+ * Visible in pickers/usage: never a hidden node or (outside dev mode) a
+ * dev-only one; then --all shows the rest, hide beats show, and a program
+ * verb needs show to name it or "*".
+ */
+export function isNodeVisible(node: CommandNode, isDev: boolean, path = "", filter?: VerbFilter): boolean {
+  if (node.hidden || (node.devOnly && !isDev)) return false;
+  if (filter?.all) return true;
+  if (filter?.hide.has(path)) return false;
+  return node.audience !== "program" || !!filter?.show.has("*") || !!filter?.show.has(path);
+}
+
+const ALL_FLAG = "--all";
+
+let showAllVerbs = false;
+
+type SettingsResolver = typeof import("./settings/resolve.ts");
+
+function readVerbList({ getSetting }: SettingsResolver, key: string): string[] {
+  try {
+    const value = getSetting<string[]>(key).value;
+    return Array.isArray(value) ? value : [];
+  } catch (err) {
+    console.error(`  ${dim}${key} could not be read, ignoring it: ${err instanceof Error ? err.message : String(err)}${reset}`);
+    return [];
+  }
+}
+
+/**
+ * Read only on the listing paths, and imported lazily, so dispatching a verb
+ * by name never pays for the settings resolver.
+ */
+async function verbFilter(): Promise<VerbFilter> {
+  const resolver: SettingsResolver = await import("./settings/resolve.ts");
+  return {
+    all: showAllVerbs,
+    show: new Set(readVerbList(resolver, "rt.picker.show")),
+    hide: new Set(readVerbList(resolver, "rt.picker.hide")),
+  };
+}
+
+async function visibleEntries(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<[string, CommandNode][]> {
+  const filter = await verbFilter();
+  const prefix = breadcrumb.slice(1);
+  return Object.entries(tree).filter(([name, n]) => isNodeVisible(n, IS_DEV_MODE, [...prefix, name].join(" "), filter));
+}
+
+async function showUsage(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<void> {
   renderHeader(breadcrumb);
-  const visible = Object.entries(tree).filter(([_, n]) => isNodeVisible(n, IS_DEV_MODE));
+  const visible = await visibleEntries(tree, breadcrumb);
   for (const [name, node] of visible) {
     const padded = name.padEnd(14);
     console.error(`  ${bold}${padded}${reset} ${dim}${node.description}${reset}`);
@@ -530,30 +597,30 @@ function argToken(a: CommandArg): string {
   return a.type === "boolean" ? `[${a.flag}]` : `[${a.flag} <${slugArg(a.name)}>]`;
 }
 
-function printCommandListing(tree: Record<string, CommandNode>): void {
+async function printCommandListing(tree: Record<string, CommandNode>, breadcrumb: string[]): Promise<void> {
   const { b, d, r } = helpColors();
-  const visible = Object.entries(tree).filter(([, n]) => isNodeVisible(n, IS_DEV_MODE));
+  const visible = await visibleEntries(tree, breadcrumb);
   const width = Math.max(...visible.map(([name]) => name.length), 0);
   for (const [name, sub] of visible) {
     console.log(`  ${b}${name.padEnd(width + 2)}${r}${d}${sub.description}${r}`);
   }
 }
 
-function printBranchHelp(
+async function printBranchHelp(
   tree: Record<string, CommandNode>,
   breadcrumb: string[],
   root: Record<string, CommandNode>,
-): void {
+): Promise<void> {
   const { b, d, r } = helpColors();
   const node = nodeAtPath(root, breadcrumb.slice(1));
   console.log(`\n  ${b}usage:${r} ${breadcrumb.join(" ")} <command>`);
   if (node?.description) console.log(`  ${d}${node.description}${r}`);
   console.log("");
-  printCommandListing(tree);
+  await printCommandListing(tree, breadcrumb);
   console.log("");
 }
 
-function printLeafHelp(node: CommandNode, breadcrumb: string[]): void {
+async function printLeafHelp(node: CommandNode, breadcrumb: string[]): Promise<void> {
   const { b, d, r } = helpColors();
   const args = node.args ?? [];
   const tokens = [
@@ -584,7 +651,7 @@ function printLeafHelp(node: CommandNode, breadcrumb: string[]): void {
 
   if (node.subcommands) {
     console.log("");
-    printCommandListing(node.subcommands);
+    await printCommandListing(node.subcommands, breadcrumb);
   }
   console.log("");
 }
@@ -616,7 +683,7 @@ export async function showPicker(
 ): Promise<PickerSelection | typeof BACK | null> {
   const { runPick } = await import("./ui/pick.ts");
 
-  const visible = Object.entries(tree).filter(([_, n]) => isNodeVisible(n, IS_DEV_MODE));
+  const visible = await visibleEntries(tree, breadcrumb);
   const anyHasArgs = visible.some(([_, n]) => n.args?.length);
 
   // Filtering sees only the command name (the old fzf palette's --nth=1): the
