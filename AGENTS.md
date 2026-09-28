@@ -602,8 +602,9 @@ non-`optional`, text/select arg) must set `omitBehavior` on its node in
 `lib/command-tree-def.ts` (`"picker" | "list" | "prompt" | { exempt: "why" }`).
 `bun run picker:check` (`scripts/lib/picker-conformance.ts`) and
 `lib/__tests__/picker-conformance.test.ts` fail otherwise; the check gates
-`.github/workflows/checks.yml` and step 1 of the `rt:release` skill. Adding a
-command that just errors on a missing positional breaks CI, not review.
+`.github/workflows/checks.yml` and the preflight node of the `rt:release` skill
+(`skills/rt-release/SKILL.md`). Adding a command that just errors on a missing
+positional breaks CI, not review.
 
 The picker itself is the other half: rt is driven non-interactively by agents and
 scripts as much as by humans, so **every leaf picker must gate `process.stdin.isTTY

@@ -19,3 +19,7 @@ rt-repo-identity
 
 # Rebuilding and reinstalling the dev app. Maintainer action.
 rt-build-dev-app
+
+# Running or debugging the mattstack.app build and publish pipeline by hand.
+# Maintainer action.
+mattstack-release
