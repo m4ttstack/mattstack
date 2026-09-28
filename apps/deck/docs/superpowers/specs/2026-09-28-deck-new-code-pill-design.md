@@ -83,7 +83,9 @@ In `CommandsCell` (`core/board/AppsTable.tsx`), when `row.newCode` is set, the
 the tooltip "Deployed at `<deployed>`, checkout at `<head>`". Pressing it runs
 the same `onRunCommand(name, 'deploy')` as today. Colours come from existing
 tui-kit warning tokens per `docs/apps/ui-authoring.md`, never a raw hex. The
-drawer's `SourceScreen` gets the same treatment on its deploy button.
+drawer's `SourceScreen` has no command buttons (it lists command names as a
+fact), so the pill lives in the table only. `newCode` is emitted only to
+local callers (`opts.local`), like `devDir`.
 
 The pill clears on the first poll after the deploy starts, because the stamp
 moved to HEAD. `core/generated/board.{js,css}` is regenerated in the same
@@ -95,7 +97,7 @@ commit as the board source.
   layout: a commit under `apps/x` reports new code; a commit under
   `packages/` reports new code; a commit touching only another path reports
   none; no stamp baselines and reports none; an unknown sha reports none and
-  warns; the cache skips `git diff` when nothing moved.
+  warns once.
 - Command route: `deploy` in dev mode stamps HEAD; `build` does not; a
   production deck stamps nothing and runs no git.
 - `buildStatus`: `newCode` absent in production and on user rows.
