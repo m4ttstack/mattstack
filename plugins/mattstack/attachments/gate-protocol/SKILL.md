@@ -167,6 +167,13 @@ Keep `id` and `presentation`: every node after it acts on them.
   and the gate context too when it alone is over, loudly: the result
   carries `contextOmitted: true`. Do not measure or trim a prose context
   yourself; a structured open pre-flights instead.
+- **Prose layout.** A prose `context` is Markdown that reads the same
+  unrendered, since the console renders it and the pane form shows it as
+  plain text. Its parts, in order: the one or two lines that frame the
+  decision; then each group as a label line (`Important:`) followed by one
+  `-` bullet per item (a finding, a step, a failing check); a blank line
+  between blocks; file paths, symbols, commands and shas in backticks.
+  Keep the material's own words and set them in this shape.
 - **Where text goes.** Gate-level `context` is background every question
   shares. A question's own `context` is setup for that one question, when
   the gate asks several that need different framing. An option's
@@ -225,8 +232,9 @@ active, an open gate matching the pane's LAUNCH subject is what lets the
 form through, and so is the pane's own worktree carrying its own open run:
 gate. Render each option's `label` when it has one and its `description`
 when it has one (the AskUserQuestion option's own description field). The
-form never shows a structured context's JSON: flatten each context to prose
-for the form's question text.
+form never shows a structured context's JSON: flatten a structured context
+to prose for the form's question text, and carry a prose context into it
+as written.
 
 When the gate carries more questions than one form call fits, ask them in
 gate order, one chunk per call, and answer once after the last chunk; a
