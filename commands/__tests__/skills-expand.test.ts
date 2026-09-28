@@ -69,6 +69,39 @@ describe("rt skills expand", () => {
     expect(r.errors.join("\n")).toContain("--out");
   });
 
+  test("--mattstack-dir with no value is a usage error", async () => {
+    const r = await runExpectingCleanExit(() => skillsExpand(["--src", join(root, "src"), "--out", join(root, "out"), "--mattstack-dir"]));
+    expect(r.exitCode).toBe(1);
+    expect(r.errors.join("\n")).toContain("--mattstack-dir needs a value");
+  });
+
+  test("--strict fails on a shell form in the expanded output, dry run included", async () => {
+    write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`.\n\n{{include:note}}\n");
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--dry-run", "--json"]));
+    expect(r.exitCode).toBe(1);
+    const parsed = JSON.parse(logs.at(-1)!);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.lint).toHaveLength(1);
+    expect(parsed.lint[0]).toContain(join(root, "out", "a", "SKILL.md"));
+    expect(parsed.lint[0]).toContain("glab mr note");
+  });
+
+  test("--strict honours the allow marker", async () => {
+    write(join(root, "src", "a", "SKILL.md"), "---\nname: app:a\ndescription: a\n---\n\nPost with `glab mr note 3 -m hi`. <!-- mcp-lint: allow -->\n\n{{include:note}}\n");
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--strict", "--json"]));
+    expect(r.exitCode).toBeUndefined();
+    expect(JSON.parse(logs.at(-1)!)).toMatchObject({ ok: true, lint: [] });
+  });
+
+  test("--strict reports script hits as advisory without failing", async () => {
+    write(join(root, "src", "a", "scripts", "post.sh"), "glab mr note 3 -m hi\n");
+    await skillsExpand(base());
+    const r = await runExpectingCleanExit(() => skillsExpand([...base(), "--check", "--strict", "--json"]));
+    expect(r.exitCode).toBeUndefined();
+    expect(r.errors.join("\n")).toContain(`(advisory) ${join(root, "out", "a", "scripts", "post.sh")}:1`);
+    expect(JSON.parse(logs.at(-1)!).lint).toEqual([]);
+  });
+
   test("an expand error exits 1 with the file named", async () => {
     write(join(root, "src", "b", "SKILL.md"), "---\nname: app:b\ndescription: b\n---\n\n{{include:nope}}\n");
     const r = await runExpectingCleanExit(() => skillsExpand(base()));
