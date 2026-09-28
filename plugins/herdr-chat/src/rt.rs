@@ -314,7 +314,7 @@ pub fn pane_send(
 }
 
 // rt's `resolveBody` treats a lone `-` positional as "read the body from
-// stdin" (repo-tools/commands/chat.ts, `positionals`/`resolveBody`); a body
+// stdin" (commands/chat.ts, `positionals`/`resolveBody`); a body
 // that IS exactly `-` would otherwise be swallowed as that sentinel rather
 // than posted literally. So any body starting with `-` rides stdin under a
 // literal `-` positional instead, mirroring pane_send's `--text -` sentinel;

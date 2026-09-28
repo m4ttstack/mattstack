@@ -37,3 +37,5 @@ apps/*/src/server/embedded/manifest.ts
 /packages/git-core
 /.github
 /*.md
+# Imported plugins keep their own style
+/plugins
