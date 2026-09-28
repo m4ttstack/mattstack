@@ -125,6 +125,7 @@ digraph evidence {
     "attach answer?" -> "Gate evidence-attach (table below)" [label="iterate: re-ask with their note"];
     "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
     "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
     "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
     "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
     "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
@@ -133,7 +134,7 @@ digraph evidence {
     "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
     "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)";
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:evidence:<n>)" -> "upload off-script answer?";
-    "upload off-script answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="proceed + take: link the local paths, ship attaches"];
+    "upload off-script answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="proceed + take: link the refused files' local paths, ship attaches"];
     "upload off-script answer?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="proceed + hand back"];
     "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
     "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
@@ -176,13 +177,14 @@ same source. The counter is attempts within this pass through the stage.
 
 The upload guard refused a file past its one fix. Scope
 `off-script:evidence:<n>`, sharing `n` with the stage's other off-script
-gate, `context` quoting the refusal and the path. Take links the local
-paths in the handed-back markdown, and ship calls `mr_upload` on the same
-files, where its own upload gate asks again if the guard still refuses
-(the human can widen the roots in between); Iterate means the human moved
-the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under
-an allowed root is only ever the human's move: the roots are the boundary
-on what leaves the machine.
+gate, `context` quoting the refusal and the path. Take links the refused
+files' local paths in the handed-back markdown, while files already
+uploaded keep their upload markdown, and ship calls `mr_upload` on the
+refused files, where its own upload gate asks again if the guard still
+refuses (the human can widen the roots in between); Iterate means the
+human moved the file, widened `rt.mcp.uploadRoots` or recaptured. Copying
+a file under an allowed root is only ever the human's move: the roots are
+the boundary on what leaves the machine.
 
 ## What the graph cannot show
 

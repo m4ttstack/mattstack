@@ -176,6 +176,7 @@ digraph ship {
     "Files to attach?" -> "Forge host (read back the description)?" [label="no, or GitHub: link the paths"];
     "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
     "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
     "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
     "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
     "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
@@ -184,7 +185,7 @@ digraph ship {
     "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
     "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)";
     "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" -> "upload off-script answer?";
-    "upload off-script answer?" -> "Forge host (read back the description)?" [label="proceed + take: link the local paths"];
+    "upload off-script answer?" -> "Forge host (read back the description)?" [label="proceed + take: link the refused files' local paths"];
     "upload off-script answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="proceed + hand back"];
     "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
     "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
@@ -241,10 +242,11 @@ Unbound, there is no AFTER.
 The upload guard refused a file past its one fix. Scope
 `off-script:ship:<n>`, sharing `n` with the push's off-script gate,
 `context` quoting the refusal and the path. Take writes the description
-with the local paths linked instead of uploads; Iterate means the human
-moved the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file
-under an allowed root is only ever the human's move: the roots are the
-boundary on what leaves the machine.
+with the refused files' local paths linked instead of uploads, while files
+already uploaded keep their upload markdown; Iterate means the human moved
+the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under
+an allowed root is only ever the human's move: the roots are the boundary
+on what leaves the machine.
 
 ### Write the title and description
 

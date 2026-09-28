@@ -349,6 +349,7 @@ digraph ship {
     "Files to attach (ship)?" -> "Domain owns the title or description (ship)?" [label="no, or GitHub: link the paths"];
     "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result (ship)?";
     "mr_upload result (ship)?" -> "Domain owns the title or description (ship)?" [label="ok: every file uploaded"];
+    "mr_upload result (ship)?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="ok: files still to upload"];
     "mr_upload result (ship)?" -> "Upload retried with a corrected path (ship)?" [label="path must be absolute, or file not found"];
     "mr_upload result (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="any other refusal: outside the roots, bytes, size"];
     "mr_upload result (ship)?" -> "STOP: upload only with mr_upload (ship)" [label="tempted to copy the file into an allowed root, or upload another way"];
@@ -357,7 +358,7 @@ digraph ship {
     "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result (ship)?";
     "STOP: upload only with mr_upload (ship)" -> "ship off-script gate: mr_upload refused";
     "ship off-script gate: mr_upload refused" -> "ship off-script answer (mr_upload)?";
-    "ship off-script answer (mr_upload)?" -> "Domain owns the title or description (ship)?" [label="take: link the local paths"];
+    "ship off-script answer (mr_upload)?" -> "Domain owns the title or description (ship)?" [label="take: link the refused files' local paths"];
     "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the upload refusal is the reason"];
     "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hold: nothing linked"];
     "ship off-script answer (mr_upload)?" -> "Upload off-script rounds = 2 (ship)?" [label="iterate: the human fixed the cause, retry the upload"];
@@ -501,7 +502,8 @@ The upload guard refused a file past its one fix. Scope
 `off-script:<stage>:<n>`, sharing `n` with the push's off-script gate,
 `context` quoting the refusal and the path; the `action`/`next` questions
 and selection are the push gate's. Take writes the description with the
-local paths linked instead of uploads; Iterate means the human moved the
+refused files' local paths linked instead of uploads, while files already
+uploaded keep their upload markdown; Iterate means the human moved the
 file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under an
 allowed root is only ever the human's move: the roots are the boundary on
 what leaves the machine.
