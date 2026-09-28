@@ -10,6 +10,8 @@ import {
   test,
 } from 'bun:test';
 
+import { commit, gitRepo } from '../../test/git-fixture.ts';
+
 const dir = mkdtempSync(join(tmpdir(), 'local-api-'));
 process.env.LOCAL_REGISTRY_PATH = join(dir, 'registry.json');
 process.env.LOCAL_STATE_DIR = dir;
@@ -1604,6 +1606,91 @@ describe('command route gating by app class', () => {
     );
     expect(status.status).toBe(200);
     expect(['running', 'exited']).toContain((await status.json()).status);
+  });
+});
+
+describe('deploy stamping', () => {
+  function deployableRepo(name: string, port: number, deploy: string) {
+    const root = gitRepo({
+      [`apps/${name}/mattstack.deck.json`]: JSON.stringify({
+        name,
+        commands: {},
+        dev: { deploy, build: 'true' },
+      }),
+    });
+    return { root, appDir: join(root, `apps/${name}`), port };
+  }
+
+  test('a dev deploy stamps the checkout HEAD on the record', async () => {
+    const { putRecord, getRecord } = await import('../registry/records.ts');
+    const { root, appDir } = deployableRepo('stampapp', 4920, 'true');
+    const head = commit(root, { [`apps/stampapp/a.ts`]: '1' });
+    putRecord({
+      name: 'stampapp',
+      managedBy: 'rt',
+      port: 4920,
+      kind: 'service',
+      createdAt: 'x',
+      dev: { workingDirectory: appDir },
+    });
+    const res = await devPost('/api/v1/apps/stampapp/commands/deploy', {});
+    expect(res.status).toBe(200);
+    expect(getRecord('stampapp')!.lastDeploy?.sha).toBe(head);
+  });
+
+  test('a dev build does not stamp', async () => {
+    const { putRecord, getRecord } = await import('../registry/records.ts');
+    const { appDir } = deployableRepo('buildonly', 4921, 'true');
+    putRecord({
+      name: 'buildonly',
+      managedBy: 'rt',
+      port: 4921,
+      kind: 'service',
+      createdAt: 'x',
+      dev: { workingDirectory: appDir },
+    });
+    const res = await devPost('/api/v1/apps/buildonly/commands/build', {});
+    expect(res.status).toBe(200);
+    expect(getRecord('buildonly')!.lastDeploy).toBeUndefined();
+  });
+
+  test('a production deploy is 404 and stamps nothing', async () => {
+    const { putRecord, getRecord } = await import('../registry/records.ts');
+    const { appDir } = deployableRepo('prodstamp', 4922, 'true');
+    putRecord({
+      name: 'prodstamp',
+      managedBy: 'rt',
+      port: 4922,
+      kind: 'service',
+      createdAt: 'x',
+      dev: { workingDirectory: appDir },
+    });
+    const res = await prodPost('/api/v1/apps/prodstamp/commands/deploy', {});
+    expect(res.status).toBe(404);
+    expect(getRecord('prodstamp')!.lastDeploy).toBeUndefined();
+  });
+
+  test('a deploy refused as busy does not move the stamp', async () => {
+    const { putRecord, getRecord } = await import('../registry/records.ts');
+    const { root, appDir } = deployableRepo('busyapp', 4923, 'sleep 1');
+    putRecord({
+      name: 'busyapp',
+      managedBy: 'rt',
+      port: 4923,
+      kind: 'service',
+      createdAt: 'x',
+      dev: { workingDirectory: appDir },
+    });
+    expect(
+      (await devPost('/api/v1/apps/busyapp/commands/deploy', {})).status
+    ).toBe(200);
+    const first = getRecord('busyapp')!.lastDeploy?.sha;
+    expect(first).toBeDefined();
+    commit(root, { 'apps/busyapp/a.ts': '1' });
+    expect(
+      (await devPost('/api/v1/apps/busyapp/commands/deploy', {})).status
+    ).toBe(409);
+    expect(getRecord('busyapp')!.lastDeploy?.sha).toBe(first);
   });
 });
 

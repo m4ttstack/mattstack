@@ -14,7 +14,7 @@ import { logPortHolder, redirectAgentOutput } from './agent-log.ts';
 import { isDevMode } from './api/dev-mode.ts';
 import { reresolveManagedApps } from './api/register.ts';
 import { startApi } from './api/server.ts';
-import { claimApiInfo, stateDir } from './api/state.ts';
+import { claimApiInfo, runModeFromEnv, stateDir } from './api/state.ts';
 import { reconcileMattstackTld } from './api/tld-reconcile.ts';
 import { bootSweepGate, reresolveOnBoot } from './boot-reresolve.ts';
 import { resolveCfDns, type CfDns } from './edge/cf-dns.ts';
@@ -22,6 +22,7 @@ import { PortlessCli } from './edge/portless.ts';
 import { CloudflaredCli } from './edge/tunnel.ts';
 import { bindGatewayOrExit } from './gateway-boot.ts';
 import { migrateManagedDevShape } from './registry/migrate-dev-shape.ts';
+import { stampSelfOnBoot } from './registry/new-code.ts';
 import { listRecords } from './registry/records.ts';
 import { reconcileSelfPort } from './registry/self-port.ts';
 import { bundleRootFromExec } from './services/bundle-layout.ts';
@@ -67,6 +68,11 @@ export async function serve(): Promise<void> {
       selfPid: process.pid,
     },
     log: console.log,
+  });
+  stampSelfOnBoot({
+    devMode: isDevMode(),
+    runMode: runModeFromEnv(process.env).runMode,
+    record: listRecords().find(r => isPlatformManagedBy(r.managedBy)),
   });
 
   // ---- canary / auto-heal state, lifted verbatim from core/server.ts ----
