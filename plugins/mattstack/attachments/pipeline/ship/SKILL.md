@@ -512,7 +512,7 @@ attempt), `context` quoting the refusal.
 
 | Question | Options |
 |---|---|
-| `action` | **Take the proposed move** (the value spells the move in full, such as the human pushing) / **Hand back** |
+| `action` | **Take the proposed move** (the value spells the move in full: here, only the human pushing) / **Hand back** |
 | `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |
 
 Selection: `{"move":"<the move>","why":"<the refusal>","action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
@@ -595,7 +595,7 @@ Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redi
 `Mark-ready rounds = 2 (ship)?` counts Iterate answers at this gate within
 this pass through the verb, this one included: the first opens a new gate
 with the note, and the second ends the verb as done with the MR left a
-draft and the note quoted.
+draft and the note quoted in the final report.
 
 ## What the graph cannot show
 
