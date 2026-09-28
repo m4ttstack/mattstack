@@ -94,5 +94,51 @@ check "an empty screen is none"       '[ "$(vm_dialog_verdict "")" = none ]'
 # A probe that could not reach the guest must never read as a clean screen.
 check "unreachable probe is not a pass" '[ "$(vm_dialog_verdict PROBE_UNREACHABLE)" != prompt ]'
 
+# A guest ssh that loses its peer must end on its own, and a phase must end at
+# its wall-clock limit: the v2.16.0 walkthrough otherwise sat in screens 1.5h.
+gone() { local n=0; while pgrep -f "$1" >/dev/null 2>&1; do [ "$n" -ge 30 ] && return 1; sleep 0.1; n=$((n+1)); done; }
+STUB="$(mktemp -d)"
+printf '#!/bin/bash\necho 10.0.0.9\n' > "$STUB/tart"
+cat > "$STUB/ssh" <<EOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$STUB/ssh.args"
+for a; do last="\$a"; done
+[ "\$last" = hang ] && exec sleep 30
+exit 0
+EOF
+chmod +x "$STUB/tart" "$STUB/ssh"
+opts="$(printf '%s\n' "${VM_SSH_OPTS[@]}")"
+check "ssh opts send keepalives"                  'printf "%s\n" "$opts" | grep -qx "ServerAliveInterval=10" && printf "%s\n" "$opts" | grep -qx "ServerAliveCountMax=3"'
+check "vm_ssh_try hands ssh the keepalives"       '( PATH="$STUB:$PATH"; vm_ssh_try tester vm1 true ) && grep -qx "ServerAliveInterval=10" "$STUB/ssh.args"'
+check "vm_bounded returns the command's status"   'rc=0; vm_bounded 5 sh -c "exit 3" || rc=$?; [ "$rc" -eq 3 ]'
+check "vm_bounded keeps stdin"                    '[ "$(printf hi | vm_bounded 5 cat)" = hi ]'
+check "vm_bounded ends an overrun with 124"       's=$(date +%s); rc=0; vm_bounded 1 sleep 30 || rc=$?; [ "$rc" -eq 124 ] && [ $(( $(date +%s) - s )) -le 4 ]'
+check "vm_bounded kills the overrun's children"   '{ vm_bounded 1 sh -c "sleep 2718 & wait" || true; } && gone "sleep 2718"'
+check "vm_bounded leaves no watchdog behind"      'vm_bounded 4242 true && gone "sleep 4242"'
+check "vm_bounded on a spent budget runs nothing" 'rc=0; vm_bounded 0 touch "$VM_RUN_DIR/ran" || rc=$?; [ "$rc" -eq 124 ] && [ ! -e "$VM_RUN_DIR/ran" ]'
+
+VM_PHASE_LIMIT_BUDGETED=1
+vm_phase_begin budgeted
+check "the open phase's limit bounds a guest ssh" 'rc=0; ( PATH="$STUB:$PATH"; vm_ssh_try tester vm1 hang ) || rc=$?; [ "$rc" -eq 124 ]'
+printf 'one\ntwo\tcols\r\nthree\nfour\nfive\nsix\n' > "$VM_RUN_DIR/logs/drive.log"
+reason="$(vm_fail_reason 124 "$VM_RUN_DIR/logs/drive.log" "copy failed")"
+check "timeout reason names phase, elapsed, limit" 'printf "%s" "$reason" | grep -qE "^budgeted timed out after [0-9]+s \(limit 1s\)"'
+check "timeout reason carries the log's tail"     'printf "%s" "$reason" | grep -qF "; last lines of logs/drive.log: two cols | three | four | five | six"'
+check "dropped-session reason names ssh + phase"  'vm_fail_reason 255 /nonexistent "copy failed" | grep -qE "^ssh to the guest failed or dropped after [0-9]+s in budgeted \(exit 255\)$"'
+check "other failures keep the caller's reason"   '[ "$(vm_fail_reason 1 "$VM_RUN_DIR/logs/drive.log" "copy failed")" = "copy failed" ]'
+vm_phase_end budgeted fail "$reason"
+check "a cut phase's ledger line is valid JSON"   'tail -1 "$VM_RUN_DIR/phases.jsonl" | jq -e ".phase == \"budgeted\"" >/dev/null'
+check "a closed phase leaves guest commands unbounded" 'rc=0; vm_guest_cmd sleep 2 || rc=$?; [ "$rc" -eq 0 ]'
+
+vm_phase_begin orphaned
+vm_phase_abandon "interrupted by SIGTERM"
+check "an abandoned phase is ledgered as failed"  'grep -qE "\"phase\":\"orphaned\",\"status\":\"fail\",\"reason\":\"interrupted by SIGTERM after [0-9]+s\"" "$VM_RUN_DIR/phases.jsonl"'
+check "abandoning with no open phase writes nothing" 'n=$(wc -l < "$VM_RUN_DIR/phases.jsonl"); vm_phase_abandon x; [ "$(wc -l < "$VM_RUN_DIR/phases.jsonl")" -eq "$n" ]'
+
+vm_phase_begin piped; vm_phase_end piped fail "a | b"
+vm_render_report
+check "report escapes a pipe inside a reason"     'grep -qF "| piped | fail | " "$VM_RUN_DIR/report.md" && grep -qF "a \| b" "$VM_RUN_DIR/report.md"'
+rm -rf "$STUB"
+
 rm -rf "$VM_ARTIFACTS"
 [ "$fails" -eq 0 ] && echo "common.test.sh: all ok" || { echo "common.test.sh: $fails failed"; exit 1; }

@@ -11,8 +11,15 @@ VM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${VM_TESTER_USER:=tester}"
 : "${VM_TESTER_PASS:=tester}"
 : "${VM_APPCAST_PORT:=8765}"
+# Seconds a phase may run before its guest commands are killed; a script raises
+# its long phases with VM_PHASE_LIMIT_<PHASE> (dashes become underscores).
+: "${VM_PHASE_LIMIT_DEFAULT:=1200}"
 
-VM_SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
+# Keepalives end a session whose peer vanished in about 30s. Without them a
+# dropped connection leaves the host ssh waiting forever, since a quiet driver
+# gives it nothing to fail a write on.
+VM_SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5
+  -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
 
 vm_log()  { printf '  %s\n' "$*" >&2; }
 vm_warn() { printf '  ! %s\n' "$*" >&2; }
@@ -66,9 +73,20 @@ vm_run_init() {
 }
 
 _vm_phase_started=0
+_vm_phase_name=""
+_vm_phase_limit=0
+_vm_phase_deadline=""
 vm_phase_begin() {
   _vm_phase_started=$(date +%s)
+  _vm_phase_name="$1"
+  _vm_phase_limit=$(vm_phase_limit "$1")
+  _vm_phase_deadline=$(( _vm_phase_started + _vm_phase_limit ))
   vm_log "── phase: $1"
+}
+
+vm_phase_limit() {
+  local var; var="VM_PHASE_LIMIT_$(printf '%s' "$1" | tr 'a-z-' 'A-Z_')"
+  printf '%s' "${!var:-$VM_PHASE_LIMIT_DEFAULT}"
 }
 
 # vm_phase_end <name> <pass|fail|skip> [reason] [screenshot...]
@@ -80,6 +98,7 @@ vm_phase_end() {
   local esc_reason; esc_reason=$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')
   printf '{"phase":"%s","status":"%s","reason":"%s","at":"%s","seconds":%d,"screenshots":[%s]}\n' \
     "$name" "$status" "$esc_reason" "$(vm_now)" "$secs" "$shots" >> "$VM_RUN_DIR/phases.jsonl"
+  _vm_phase_name=""; _vm_phase_deadline=""
   case "$status" in
     pass) vm_log "   ✓ $name" ;;
     skip) vm_warn "   – $name skipped: $reason" ;;
@@ -89,6 +108,35 @@ vm_phase_end() {
 }
 
 vm_phases_failed() { grep -c '"status":"fail"' "$VM_RUN_DIR/phases.jsonl" 2>/dev/null || true; }
+
+# Ledgers the open phase as failed; a run that dies mid-phase must not render a
+# report that counts nothing failed.
+vm_phase_abandon() {
+  [ -n "$_vm_phase_name" ] || return 0
+  vm_phase_end "$_vm_phase_name" fail "$1 after $(( $(date +%s) - _vm_phase_started ))s"
+}
+
+# The last lines of a log on one line, safe for the ledger's JSON and the
+# report's table.
+vm_log_tail() {
+  tail -n "${2:-5}" "$1" 2>/dev/null | LC_ALL=C tr -d '\000-\010\013-\037' | tr '\t' ' ' | cut -c1-200 \
+    | awk 'NR > 1 { printf " | " } { printf "%s", $0 }'
+}
+
+# vm_fail_reason <rc> <log> <reason>: the reason to ledger for a failed guest
+# command. 124 (the phase ran out of time) and 255 (ssh itself failed, which
+# includes a keepalive giving up) name the phase, the elapsed time and the
+# log's last lines; any other status keeps the caller's own reason.
+vm_fail_reason() {
+  local rc="$1" log="$2" secs=$(( $(date +%s) - _vm_phase_started ))
+  case "$rc" in
+    124) printf '%s timed out after %ss (limit %ss)' "$_vm_phase_name" "$secs" "$_vm_phase_limit" ;;
+    255) printf 'ssh to the guest failed or dropped after %ss in %s (exit 255)' "$secs" "$_vm_phase_name" ;;
+    *)   printf '%s' "$3"; return 0 ;;
+  esac
+  if [ -s "$log" ]; then printf '; last lines of %s: %s' "${log#"$VM_RUN_DIR"/}" "$(vm_log_tail "$log")"; fi
+  return 0
+}
 
 vm_render_report() {
   local f="$VM_RUN_DIR/phases.jsonl" out="$VM_RUN_DIR/report.md"
@@ -103,7 +151,8 @@ vm_render_report() {
     echo
     echo "| phase | status | seconds | reason | screenshots |"
     echo "|---|---|---|---|---|"
-    sed -E 's/^\{"phase":"([^"]*)","status":"([^"]*)","reason":"((\\.|[^"\\])*)","at":"[^"]*","seconds":([0-9]+),"screenshots":\[([^]]*)\]\}$/| \1 | \2 | \5 | \3 | \6 |/' "$f" \
+    sed 's/|/\\|/g' "$f" \
+      | sed -E 's/^\{"phase":"([^"]*)","status":"([^"]*)","reason":"((\\.|[^"\\])*)","at":"[^"]*","seconds":([0-9]+),"screenshots":\[([^]]*)\]\}$/| \1 | \2 | \5 | \3 | \6 |/' \
       | sed -E 's/\\"/"/g; s/\\\\/\\/g'
     echo
     echo "Logs: \`logs/\` · Screenshots: \`screenshots/\` · Ledger: \`phases.jsonl\`"
@@ -123,10 +172,71 @@ vm_ip() {
   return 1
 }
 
+vm_tree_pids() {
+  local c
+  for c in $(pgrep -P "$1" 2>/dev/null || true); do vm_tree_pids "$c"; done
+  printf '%s\n' "$1"
+}
+
+_vm_bounded_pid=""
+# vm_bounded <seconds> <cmd...>: the command's status, or 124 once the limit
+# passes (its whole process tree gets TERM, then KILL 5s on). The command runs
+# in the background and is reaped with the wait builtin, because bash defers a
+# trapped signal until a foreground child exits, which a hung ssh never does.
+vm_bounded() {
+  local limit="$1"; shift
+  [ "$limit" -gt 0 ] 2>/dev/null || return 124
+  local start pid dog rc=0
+  start=$(date +%s)
+  "$@" <&0 &
+  pid=$!
+  _vm_bounded_pid=$pid
+  ( sleep "$limit"; pids=$(vm_tree_pids "$pid"); kill -TERM $pids || true; sleep 5; kill -KILL $pids || true ) </dev/null >/dev/null 2>&1 &
+  dog=$!
+  wait "$pid" 2>/dev/null || rc=$?
+  while kill -0 "$pid" 2>/dev/null; do rc=0; wait "$pid" 2>/dev/null || rc=$?; done
+  _vm_bounded_pid=""
+  kill -TERM $(vm_tree_pids "$dog") 2>/dev/null || true
+  wait "$dog" 2>/dev/null || true
+  if [ "$rc" -ne 0 ] && [ $(( $(date +%s) - start )) -ge "$limit" ]; then return 124; fi
+  return "$rc"
+}
+
+# Host-to-guest commands spend the open phase's remaining budget; between
+# phases they run unbounded, as before.
+vm_guest_cmd() {
+  if [ -z "$_vm_phase_deadline" ]; then "$@"; return; fi
+  vm_bounded "$(( _vm_phase_deadline - $(date +%s) ))" "$@"
+}
+
+# INT/TERM/HUP handler: stops the guest command in flight, ledgers the open
+# phase, and exits so the caller's EXIT trap tears down.
+vm_on_signal() {
+  local sig="$1"
+  vm_warn "caught SIG$sig; tearing down"
+  if [ -n "$_vm_bounded_pid" ]; then kill -TERM $(vm_tree_pids "$_vm_bounded_pid") 2>/dev/null || true; fi
+  vm_phase_abandon "interrupted by SIG$sig"
+  case "$sig" in INT) exit 130 ;; HUP) exit 129 ;; *) exit 143 ;; esac
+}
+
+vm_trap_signals() {
+  trap 'vm_on_signal INT' INT
+  trap 'vm_on_signal TERM' TERM
+  trap 'vm_on_signal HUP' HUP
+}
+
+# vm_reap <pid> <seconds>: waits for a background job, TERMs it past the limit.
+vm_reap() {
+  local n=0
+  while kill -0 "$1" 2>/dev/null && [ "$n" -lt $(( $2 * 2 )) ]; do sleep 0.5; n=$((n+1)); done
+  kill -TERM "$1" 2>/dev/null || true
+  wait "$1" 2>/dev/null || true
+}
+
 vm_ssh_try() {
   local user="$1" vm="$2"; shift 2
   local ip; ip=$(vm_ip "$vm" 1) || return 1
-  ssh "${VM_SSH_OPTS[@]}" -i "$VM_SSH_KEY" "$user@$ip" "$@"
+  vm_guest_cmd ssh "${VM_SSH_OPTS[@]}" -i "$VM_SSH_KEY" "$user@$ip" "$@"
 }
 
 # vm_ssh/vm_scp/vm_ssh_pw exit the whole script on failure — preconditions only.
@@ -139,14 +249,14 @@ vm_ssh() {
 vm_scp() {
   local user="$1" vm="$2" src="$3" dest="$4"
   local ip; ip=$(vm_ip "$vm" 1) || vm_die "no ip for $vm"
-  scp -r "${VM_SSH_OPTS[@]}" -i "$VM_SSH_KEY" "$src" "$user@$ip:$dest"
+  vm_guest_cmd scp -r "${VM_SSH_OPTS[@]}" -i "$VM_SSH_KEY" "$src" "$user@$ip:$dest"
 }
 
 # Guest → host copy; the mirror of vm_scp.
 vm_scp_from() {
   local user="$1" vm="$2" src="$3" dest="$4"
   local ip; ip=$(vm_ip "$vm" 1) || vm_die "no ip for $vm"
-  scp "${VM_SSH_OPTS[@]}" -i "$VM_SSH_KEY" "$user@$ip:$src" "$dest"
+  vm_guest_cmd scp "${VM_SSH_OPTS[@]}" -i "$VM_SSH_KEY" "$user@$ip:$src" "$dest"
 }
 
 vm_ssh_pw() {
@@ -163,7 +273,7 @@ vm_ssh_pw() {
 vm_ssh_pw_try() {
   local user="$1" pass="$2" vm="$3"; shift 3
   local ip; ip=$(vm_ip "$vm" 1) || return 1
-  sshpass -p "$pass" ssh "${VM_SSH_OPTS[@]}" \
+  vm_guest_cmd sshpass -p "$pass" ssh "${VM_SSH_OPTS[@]}" \
     -o PubkeyAuthentication=no -o PreferredAuthentications=password -o IdentitiesOnly=yes \
     "$user@$ip" "$@"
 }
