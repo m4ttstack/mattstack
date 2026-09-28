@@ -67,6 +67,8 @@ export interface AppRecord {
   issues?: SyncIssue[];
   /** Present only while the app is in remote (Railway) public-serving mode. */
   remote?: RemoteState;
+  /** Dev mode only: the checkout HEAD the app last deployed from. */
+  lastDeploy?: { sha: string; at: string };
 }
 
 /** A mattstack product (rt-registered, or deck itself) rather than a user's own app. */
@@ -173,5 +175,16 @@ export function clearIssues(name: string, source: SyncIssue['source']): void {
   if (!r?.issues) return;
   r.issues = r.issues.filter(i => i.source !== source);
   if (r.issues.length === 0) delete r.issues;
+  save();
+}
+
+export function setLastDeploy(
+  name: string,
+  lastDeploy: { sha: string; at: string }
+): void {
+  cache = load();
+  const r = own(name);
+  if (!r) return;
+  r.lastDeploy = lastDeploy;
   save();
 }
