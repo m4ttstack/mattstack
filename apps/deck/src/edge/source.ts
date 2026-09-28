@@ -4,7 +4,10 @@
 // blocks the upload outright -- so every call here shells `git` via
 // Bun.spawnSync rather than the async Bun.spawn the rest of edge/ uses.
 
-function git(args: string[], dir: string): { code: number; stdout: string } {
+export function git(
+  args: string[],
+  dir: string
+): { code: number; stdout: string } {
   const proc = Bun.spawnSync(['git', ...args], {
     cwd: dir,
     stdout: 'pipe',
