@@ -658,6 +658,13 @@ export function herdClose(
   return rtCommand<Commands["herd:close"]["data"]>("herd:close", { herd: a.herd, job: a.job }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
 }
 
+export function herdFollowUp(
+  a: Commands["herd:follow-up"]["payload"],
+  o: RtClientOptions = {},
+): Promise<RtResponse<Commands["herd:follow-up"]["data"]>> {
+  return rtCommand<Commands["herd:follow-up"]["data"]>("herd:follow-up", { herd: a.herd, job: a.job }, { sockPath: o.sockPath, timeoutMs: o.timeoutMs ?? 30_000 });
+}
+
 /** Three sequential herdr CLI calls (pane get, tab create, pane run), each under the runner's own 15s budget. */
 export function herdAttend(
   a: Commands["herd:attend"]["payload"],

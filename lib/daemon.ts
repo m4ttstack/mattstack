@@ -119,7 +119,7 @@ import { createBgService, type BgService } from "./daemon/bg-service.ts";
 import { createBgClaimsStore, type BgClaimsStore } from "./daemon/bg-claims-store.ts";
 import { createGatePush, type GatePush } from "./daemon/gate-push.ts";
 import { createGateEscalation, type GateEscalation } from "./daemon/gate-escalation.ts";
-import { createEscapeInjector } from "./daemon/gate-escape.ts";
+import { createEscapeInjector, createPaneStatusProbe } from "./daemon/gate-escape.ts";
 import { createReconciler, type Reconciler } from "./daemon/reconciler.ts";
 import { createPaneDriveGuard, createRelocationWatcher, type RelocationWatcher } from "./daemon/relocation-announce.ts";
 import { snapshotPanes, type LivePane } from "./daemon/pane-resolve-live.ts";
@@ -698,6 +698,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           resolveAll: resolveAllLiveInboxes,
           log,
           injectEscape: createEscapeInjector(),
+          paneStatus: createPaneStatusProbe(),
         });
         gateEscalation = createGateEscalation({
           store: gatesStore,
