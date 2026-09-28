@@ -1874,56 +1874,11 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Machine-readable output" },
         ],
       },
-      linear: {
-        description: "Linear API configuration",
-        subcommands: {
-          token: {
-            description: "Set Linear API key",
-            module: "./commands/settings.ts",
-            fn: "setLinearToken",
-            args: [],
-          },
-          team: {
-            description: "Set default Linear team",
-            module: "./commands/settings.ts",
-            fn: "setLinearTeam",
-            args: [],
-          },
-        },
-      },
-      gitlab: {
-        description: "GitLab API configuration",
-        subcommands: {
-          token: {
-            description: "Set GitLab personal access token",
-            module: "./commands/settings.ts",
-            fn: "setGitlabToken",
-            args: [],
-          },
-        },
-      },
-      notifications: {
-        description: "Toggle notification preferences",
-        module: "./commands/settings.ts",
-        fn: "configureNotifications",
-        requiresTTY: true,
-        args: [],
-      },
       "test-push": {
         description: "Send a test push notification via rt tray",
         module: "./commands/settings.ts",
         fn: "sendTestPushNotification",
         args: [],
-      },
-      runaway: {
-        description: "Configure runaway process detection thresholds",
-        module: "./commands/settings.ts",
-        fn: "configureRunaway",
-        omitBehavior: "list",
-        args: [
-          { name: "Field", type: "select", hint: "Omit both to show current thresholds", options: [{ value: "cpu-threshold", label: "cpu-threshold", hint: "CPU percent" }, { value: "sustain-min", label: "sustain-min", hint: "Minutes sustained before flagging" }, { value: "grace-min", label: "grace-min", hint: "Grace period in minutes" }] },
-          { name: "Value", type: "text", placeholder: "80", hint: "Numeric value for the chosen field" },
-        ],
       },
       extension: {
         description: "Install RT Context extension in editors",

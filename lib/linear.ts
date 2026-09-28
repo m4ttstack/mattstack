@@ -259,53 +259,6 @@ export async function fetchTicketsBatch(
   return results;
 }
 
-
-
-
-// ─── Team configuration ─────────────────────────────────────────────────────
-
-const TEAMS_QUERY = `
-  query Teams {
-    teams { nodes { id key name } }
-  }
-`;
-
-export interface LinearTeam {
-  id: string;
-  key: string;
-  name: string;
-}
-
-export async function fetchTeams(apiKey: string): Promise<LinearTeam[]> {
-  try {
-    const data = (await linearGraphql(apiKey, TEAMS_QUERY, {})) as {
-      teams: { nodes: Array<{ id: string; key: string; name: string }> };
-    };
-    return data.teams.nodes;
-  } catch {
-    return [];
-  }
-}
-
-export async function getTeamConfig(
-  seams: SecretsSeams = defaultSecretsSeams(),
-): Promise<{ teamId: string; teamKey: string } | null> {
-  const secrets = await loadSecrets(seams);
-  if (secrets.linearTeamId && secrets.linearTeamKey) {
-    return { teamId: secrets.linearTeamId, teamKey: secrets.linearTeamKey };
-  }
-  return null;
-}
-
-export async function saveTeamConfig(
-  teamId: string,
-  teamKey: string,
-  seams: SecretsSeams = defaultSecretsSeams(),
-): Promise<void> {
-  await writeSecret(RT_SECRET_DOMAIN, "linearTeamId", teamId, seams);
-  await writeSecret(RT_SECRET_DOMAIN, "linearTeamKey", teamKey, seams);
-}
-
 // ─── Fetch team tickets ──────────────────────────────────────────────────────
 
 // Tickets eligible for branch creation: assigned to the viewer, on the

@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import {
   pickStartedState, fetchMyTodoTickets, searchTickets,
-  loadSecrets, saveSecret, saveTeamConfig, getTeamConfig,
+  loadSecrets, saveSecret,
 } from "../linear.ts";
 import { secretsFilePath, resetSecretsMemo, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../secrets/store.ts";
 import type { AgeExecResult, AgeKeySeam } from "../home/age-key.ts";
@@ -100,7 +100,7 @@ function fakeSecretsSeams(seedDomains: Record<string, Record<string, string>> = 
   return { ageKeySeam: fakeAgeKeySeam(), execSeam };
 }
 
-describe("loadSecrets / saveSecret / saveTeamConfig / getTeamConfig — encrypted store", () => {
+describe("loadSecrets / saveSecret — encrypted store", () => {
   const origHome = process.env.HOME;
   let home: string;
 
@@ -125,24 +125,6 @@ describe("loadSecrets / saveSecret / saveTeamConfig / getTeamConfig — encrypte
     await saveSecret("linearApiKey", "new-key", seams);
 
     expect((await loadSecrets(seams)).linearApiKey).toBe("new-key");
-  });
-
-  test("saveTeamConfig writes both linearTeamId and linearTeamKey to the encrypted store", async () => {
-    const seams = fakeSecretsSeams();
-
-    await saveTeamConfig("team-123", "CV", seams);
-
-    const secrets = await loadSecrets(seams);
-    expect(secrets.linearTeamId).toBe("team-123");
-    expect(secrets.linearTeamKey).toBe("CV");
-  });
-
-  test("getTeamConfig is null until both id and key are set, then returns the pair", async () => {
-    const seams = fakeSecretsSeams();
-    expect(await getTeamConfig(seams)).toBeNull();
-
-    await saveTeamConfig("team-456", "EM", seams);
-    expect(await getTeamConfig(seams)).toEqual({ teamId: "team-456", teamKey: "EM" });
   });
 
   function brokenExecSeam(): SecretsExecSeam {

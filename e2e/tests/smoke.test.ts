@@ -29,12 +29,12 @@ describe("smoke", () => {
     const expectedCommands = [
       "git", "sync", "run", "glitter",
       "port", "worktree",
-      "cd", "nav", "settings", "hooks",
+      "cd", "nav", "hooks",
     ];
     for (const cmd of expectedCommands) {
       expect(verbs).toContain(cmd);
     }
-    for (const cmd of ["daemon", "state", "skills", "herd", "uninstall"]) {
+    for (const cmd of ["daemon", "state", "skills", "herd", "uninstall", "chat", "settings"]) {
       expect(verbs).not.toContain(cmd);
     }
   });

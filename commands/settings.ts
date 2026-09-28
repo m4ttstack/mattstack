@@ -1,10 +1,5 @@
 /**
- * rt settings — Configure API keys, team defaults, and repo data.
- *
- * Subcommands (registered in cli.ts as a branch node):
- *   settings linear token   — set Linear API key
- *   settings linear team    — set default Linear team
- *   settings gitlab token   — set GitLab personal access token
+ * rt settings test-push and source-path, plus rt sdm email.
  */
 
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs";
@@ -14,109 +9,15 @@ import { rtDir } from "../lib/rt-paths.ts";
 import { DEV_MODE_TAG, devWrapperOwnsRt, installRtBinary, rtBinaryPath } from "../lib/dev-mode.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { spawnSync } from "child_process";
-import { bold, cyan, dim, green, red, reset, yellow } from "../lib/tui.ts";
-import {
-  loadSecrets,
-  saveSecret,
-  fetchTeams,
-  saveTeamConfig,
-} from "../lib/linear.ts";
-import {
-  loadNotificationPrefs,
-  saveNotificationPrefs,
-  NOTIFICATION_TYPES,
-} from "../lib/notifier.ts";
+import { dim, green, red, reset, yellow } from "../lib/tui.ts";
+import { loadSecrets, saveSecret } from "../lib/linear.ts";
 import { SHARED_CHECKOUT_CANDIDATES } from "../lib/release/shared-checkout.ts";
-import { getSetting } from "../lib/settings/resolve.ts";
-import { setSetting } from "../lib/settings/write.ts";
 import {
   getKvValue,
   hasKvValue,
   importLegacyJsonFile,
   setKvValue,
 } from "../lib/state/index.ts";
-
-// ─── Linear token ────────────────────────────────────────────────────────────
-
-export async function setLinearToken(): Promise<void> {
-  const { textInput } = await import("../lib/rt-render.ts");
-  const secrets = await loadSecrets();
-
-  // try scopes the prompt only — a failed *save* must surface as an error,
-  // not masquerade as "keeping existing key".
-  let linearKey: string;
-  try {
-    linearKey = await textInput({
-      message: "Linear API key (lin_api_...)",
-      placeholder: secrets.linearApiKey
-        ? "••• (already set, leave empty to keep)"
-        : "lin_api_...",
-    });
-  } catch {
-    if (secrets.linearApiKey) {
-      console.log(`  ${dim}keeping existing Linear API key${reset}`);
-    }
-    return;
-  }
-
-  if (!linearKey.trim()) {
-    if (secrets.linearApiKey) {
-      console.log(`  ${dim}keeping existing Linear API key${reset}`);
-    } else {
-      console.log(`  ${yellow}no key entered${reset}`);
-    }
-    return;
-  }
-
-  try {
-    await saveSecret("linearApiKey", linearKey.trim());
-  } catch (err) {
-    console.log(`\n  ${red}✗ failed to save Linear API key: ${err instanceof Error ? err.message : String(err)}${reset}\n`);
-    process.exit(1);
-  }
-  console.log(`\n  ${green}✓${reset} Linear API key saved\n`);
-}
-
-// ─── GitLab token ────────────────────────────────────────────────────────────
-
-export async function setGitlabToken(): Promise<void> {
-  const { textInput } = await import("../lib/rt-render.ts");
-  const secrets = await loadSecrets();
-
-  // try scopes the prompt only — a failed *save* must surface as an error,
-  // not masquerade as "keeping existing token".
-  let gitlabToken: string;
-  try {
-    gitlabToken = await textInput({
-      message: "GitLab personal access token",
-      placeholder: secrets.gitlabToken
-        ? "••• (already set, leave empty to keep)"
-        : "glpat-...",
-    });
-  } catch {
-    if (secrets.gitlabToken) {
-      console.log(`  ${dim}keeping existing GitLab token${reset}`);
-    }
-    return;
-  }
-
-  if (!gitlabToken.trim()) {
-    if (secrets.gitlabToken) {
-      console.log(`  ${dim}keeping existing GitLab token${reset}`);
-    } else {
-      console.log(`  ${yellow}no token entered${reset}`);
-    }
-    return;
-  }
-
-  try {
-    await saveSecret("gitlabToken", gitlabToken.trim());
-  } catch (err) {
-    console.log(`\n  ${red}✗ failed to save GitLab token: ${err instanceof Error ? err.message : String(err)}${reset}\n`);
-    process.exit(1);
-  }
-  console.log(`\n  ${green}✓${reset} GitLab token saved\n`);
-}
 
 // ─── StrongDM email ──────────────────────────────────────────────────────────
 
@@ -165,149 +66,6 @@ export async function setSdmEmail(args: string[]): Promise<void> {
     process.exit(1);
   }
   console.log(`\n  ${green}✓${reset} StrongDM email saved\n`);
-}
-
-// ─── Linear team ─────────────────────────────────────────────────────────────
-
-export async function setLinearTeam(): Promise<void> {
-  const secrets = await loadSecrets();
-  if (!secrets.linearApiKey) {
-    console.log(`\n  ${yellow}Linear API key not configured${reset}`);
-    console.log(`  ${dim}run: rt settings linear token${reset}\n`);
-    return;
-  }
-
-  const result = await pickAndSaveTeam(secrets.linearApiKey);
-  if (result) {
-    console.log(`\n  ${green}✓${reset} default team set to ${bold}${result.teamKey}${reset}\n`);
-  }
-}
-
-async function pickAndSaveTeam(apiKey: string): Promise<{ teamId: string; teamKey: string } | null> {
-  console.log(`\n  ${dim}fetching teams…${reset}`);
-  const teams = await fetchTeams(apiKey);
-
-  if (teams.length === 0) {
-    console.log(`  ${red}✗${reset} no teams found\n`);
-    return null;
-  }
-
-  const { filterableSelect } = await import("../lib/pick-wrappers.ts");
-
-  const selectedId = await filterableSelect({
-    message: "Select your team",
-    options: teams.map((t) => ({
-      value: t.id,
-      label: `${t.key}  ${t.name}`,
-      hint: "",
-    })),
-  });
-
-  if (!selectedId) return null;
-
-  const team = teams.find((t) => t.id === selectedId);
-  if (!team) return null;
-
-  await saveTeamConfig(team.id, team.key);
-  return { teamId: team.id, teamKey: team.key };
-}
-
-// ─── Notification preferences ────────────────────────────────────────────────
-
-export async function configureNotifications(): Promise<void> {
-  const { filterableMultiselect } = await import("../lib/pick-wrappers.ts");
-
-  const prefs = loadNotificationPrefs();
-
-  const options = NOTIFICATION_TYPES.map((t) => ({
-    value: t.key,
-    label: t.label,
-    hint: t.description,
-  }));
-
-  const enabledKeys = NOTIFICATION_TYPES
-    .filter((t) => prefs[t.key] !== false)
-    .map((t) => t.key);
-
-  const selected = await filterableMultiselect({
-    message: "Notifications",
-    options,
-    initialValues: enabledKeys,
-  });
-
-  if (selected === null) {
-    console.log(`\n  ${dim}cancelled — no changes${reset}\n`);
-    return;
-  }
-
-  // Build new prefs: selected = enabled, unselected = disabled
-  const newPrefs: Record<string, boolean> = {};
-  for (const t of NOTIFICATION_TYPES) {
-    newPrefs[t.key] = selected.includes(t.key);
-  }
-
-  saveNotificationPrefs(newPrefs);
-
-  const enabledCount = selected.length;
-  const totalCount = NOTIFICATION_TYPES.length;
-  console.log(`\n  ${green}✓${reset} ${enabledCount}/${totalCount} notification types enabled`);
-
-  console.log("");
-}
-
-// ─── Runaway process detection thresholds ────────────────────────────────────
-
-export async function configureRunaway(args: string[]): Promise<void> {
-  const field = args[0];
-  const value = args[1];
-
-  // A resolver throw (unexpandable ${...} variable) must not block editing
-  // the setting that would fix it — degrade to {} same as loadRunawayConfig.
-  let stored: Record<string, number> | undefined;
-  try {
-    stored = getSetting<Record<string, number> | undefined>("rt.runaway").value;
-  } catch { /* degrade below */ }
-  const config: Record<string, number> = stored ? { ...stored } : {};
-
-  if (!field) {
-    console.log(`\n  ${bold}Runaway process detection${reset}\n`);
-    console.log(`  ${dim}cpu-threshold${reset}  ${config.cpuThreshold ?? 80}%`);
-    console.log(`  ${dim}sustain-min${reset}    ${(config.sustainMs ?? 300_000) / 60_000} minutes`);
-    console.log(`  ${dim}grace-min${reset}      ${(config.graceMs ?? 120_000) / 60_000} minutes`);
-    console.log(`\n  ${dim}usage: rt settings runaway <field> <value>${reset}\n`);
-    return;
-  }
-
-  if (!value) {
-    console.log(`  ${red}missing value${reset}`);
-    return;
-  }
-
-  const num = parseFloat(value);
-  if (isNaN(num)) {
-    console.log(`  ${red}value must be a number${reset}`);
-    return;
-  }
-
-  switch (field) {
-    case "cpu-threshold":
-      config.cpuThreshold = num;
-      break;
-    case "sustain-min":
-      config.sustainMs = num * 60_000;
-      break;
-    case "grace-min":
-      config.graceMs = num * 60_000;
-      break;
-    default:
-      console.log(`  ${red}unknown field: ${field}${reset}`);
-      console.log(`  ${dim}fields: cpu-threshold, sustain-min, grace-min${reset}`);
-      return;
-  }
-
-  setSetting("rt.runaway", config, "machine");
-  console.log(`  ${green}✓${reset} saved`);
-  console.log(`  ${dim}restart daemon to apply: rt daemon restart${reset}`);
 }
 
 // ─── Test push notification ──────────────────────────────────────────────────

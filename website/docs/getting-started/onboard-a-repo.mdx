@@ -43,11 +43,4 @@ An untracked repo fetches its data on demand. Once a repo is tracked, merge-requ
 
 The accounts rt uses (your team's GitHub or GitLab, Linear, and whatever else the team declares) are connected in the setup checklist and apply to every repo. Reopen the checklist with **Setup status…** in the menu bar app to connect or rotate one. See [Install](/getting-started/install#before-we-begin).
 
-Two per-user preferences live in the CLI, stored under `~/.mattstack/`:
-
-```bash
-rt settings linear team        # default Linear team for ticket lists
-rt settings notifications      # which events fire native macOS notifications
-```
-
-See [rt settings linear team](/reference/settings/linear/team) and [rt settings notifications](/reference/settings/notifications).
+Preferences such as which events fire native macOS notifications (`rt.notifications`) are settings: change them on the console's settings page, or with [`rt settings set`](/reference/settings/set).
