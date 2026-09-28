@@ -187,7 +187,7 @@ digraph ship {
     "upload off-script answer?" -> "Forge host (read back the description)?" [label="proceed + take: link the local paths"];
     "upload off-script answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="proceed + hand back"];
     "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
-    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing uploaded"];
+    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
     "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: hand back, the refusal quoted"];
     "Forge host (read back the description)?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="GitLab"];
@@ -259,8 +259,8 @@ domain's title, template and voice rules win over this paragraph.
 
 - **Off-script answers.** Read `next` first: Hold ends the turn with no
   move made; Iterate means the human fixed the cause and ignores
-  `action`; only Proceed applies `action`. Retrying `git_push` is
-  Iterate, never Take; rounds count per stage attempt.
+  `action`; only Proceed applies `action`. Retrying `git_push` or
+  `mr_upload` is Iterate, never Take; rounds count per stage attempt.
 - After a rebase that rewrote already-pushed commits, push with
   `git_push {tree: <root>, forceWithLease: true}` instead. Never force
   otherwise, and never push a branch whose tests you have not seen pass in

@@ -136,7 +136,7 @@ digraph evidence {
     "upload off-script answer?" -> "run_field_set {key: evidence, value: <labelled paths and URLs>, stage: evidence}" [label="proceed + take: link the local paths, ship attaches"];
     "upload off-script answer?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="proceed + hand back"];
     "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
-    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing uploaded"];
+    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:evidence:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing linked"];
     "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: evidence, reason, detailPath}" [label="yes: hand back, the refusal quoted"];
     "mr_view {mrUrl, maxAgeMs: 5000}" -> "mr_update {mrUrl, description: <the body read back plus the evidence markdown>}";
@@ -177,18 +177,23 @@ same source. The counter is attempts within this pass through the stage.
 The upload guard refused a file past its one fix. Scope
 `off-script:evidence:<n>`, sharing `n` with the stage's other off-script
 gate, `context` quoting the refusal and the path. Take links the local
-paths in the handed-back markdown so ship attaches them; Iterate means the
-human moved the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a
-file under an allowed root is only ever the human's move: the roots are
-the boundary on what leaves the machine.
+paths in the handed-back markdown, and ship calls `mr_upload` on the same
+files, where its own upload gate asks again if the guard still refuses
+(the human can widen the roots in between); Iterate means the human moved
+the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file under
+an allowed root is only ever the human's move: the roots are the boundary
+on what leaves the machine.
 
 ## What the graph cannot show
 
-- **Off-script answers.** Read `next` first: Hold ends the turn with no
-  capture made; Iterate means the human fixed the evidence gate's source
-  and ignores `action`; only Proceed applies `action`. Retrying the
+- **Off-script answers.** Read `next` first: at the data-source gate, Hold
+  ends the turn with no capture made and Iterate means the human fixed the
+  evidence gate's source; at the upload gate, Hold ends the turn with
+  nothing linked and Iterate retries the upload after the human's fix.
+  Iterate ignores `action`; only Proceed applies `action`. Retrying the
   evidence gate's source is Iterate; the proposed new source is only Take;
-  rounds count per stage attempt.
+  retrying `mr_upload` is Iterate, never Take; rounds count per stage
+  attempt.
 
 ## Gate `evidence` (before any capture)
 

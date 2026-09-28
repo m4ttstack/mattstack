@@ -359,7 +359,7 @@ digraph ship {
     "ship off-script gate: mr_upload refused" -> "ship off-script answer (mr_upload)?";
     "ship off-script answer (mr_upload)?" -> "Domain owns the title or description (ship)?" [label="take: link the local paths"];
     "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the upload refusal is the reason"];
-    "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hold: nothing uploaded"];
+    "ship off-script answer (mr_upload)?" -> "Which exit is this (ship)?" [label="hold: nothing linked"];
     "ship off-script answer (mr_upload)?" -> "Upload off-script rounds = 2 (ship)?" [label="iterate: the human fixed the cause, retry the upload"];
     "Upload off-script rounds = 2 (ship)?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
     "Upload off-script rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the upload refusal quoted"];
