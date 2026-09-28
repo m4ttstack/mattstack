@@ -74,6 +74,13 @@ digraph ship {
     "AFTER attempts = 3?" [shape=diamond];
     "Files to attach?" [shape=diamond];
     "mr_upload {mrUrl, path} per file; keep each markdown" [shape=plaintext];
+    "mr_upload result?" [shape=diamond];
+    "Upload retried with a corrected path?" [shape=diamond];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" [shape=plaintext];
+    "STOP: upload only with mr_upload; another route is off-script" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" [shape=box];
+    "upload off-script answer?" [shape=diamond];
+    "Upload off-script rounds = 2?" [shape=diamond];
     "Forge host (read back the description)?" [shape=diamond];
     "mr_view {mrUrl, maxAgeMs: 5000}" [shape=plaintext];
     "gh pr view <mr> --json title,body" [shape=plaintext];
@@ -167,7 +174,22 @@ digraph ship {
     "AFTER attempts = 3?" -> "Files to attach?" [label="yes: go on without it; the description names the gap"];
     "Files to attach?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="yes, GitLab"];
     "Files to attach?" -> "Forge host (read back the description)?" [label="no, or GitHub: link the paths"];
-    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_view {mrUrl, maxAgeMs: 5000}";
+    "mr_upload {mrUrl, path} per file; keep each markdown" -> "mr_upload result?";
+    "mr_upload result?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="ok: every file uploaded"];
+    "mr_upload result?" -> "Upload retried with a corrected path?" [label="path must be absolute, or file not found"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="any other refusal: outside the roots, bytes, size"];
+    "mr_upload result?" -> "STOP: upload only with mr_upload; another route is off-script" [label="tempted to copy the file into an allowed root, or upload another way"];
+    "Upload retried with a corrected path?" -> "mr_upload {mrUrl, path: <the corrected absolute path>}" [label="no: this file's one fix"];
+    "Upload retried with a corrected path?" -> "STOP: upload only with mr_upload; another route is off-script" [label="yes"];
+    "mr_upload {mrUrl, path: <the corrected absolute path>}" -> "mr_upload result?";
+    "STOP: upload only with mr_upload; another route is off-script" -> "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)";
+    "Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)" -> "upload off-script answer?";
+    "upload off-script answer?" -> "Forge host (read back the description)?" [label="proceed + take: link the local paths"];
+    "upload off-script answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="proceed + hand back"];
+    "upload off-script answer?" -> "Upload off-script rounds = 2?" [label="iterate: the human fixed the cause, retry the upload"];
+    "upload off-script answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold: nothing uploaded"];
+    "Upload off-script rounds = 2?" -> "mr_upload {mrUrl, path} per file; keep each markdown" [label="no: retry the refused files"];
+    "Upload off-script rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: hand back, the refusal quoted"];
     "Forge host (read back the description)?" -> "mr_view {mrUrl, maxAgeMs: 5000}" [label="GitLab"];
     "Forge host (read back the description)?" -> "gh pr view <mr> --json title,body" [label="GitHub"];
     "mr_view {mrUrl, maxAgeMs: 5000}" -> "Write the title and description";
@@ -213,6 +235,16 @@ The same view as the BEFORE in `evidence`, on the sha you pushed. The
 counter is attempts within this pass through the stage; after the third
 failure, ship without it and say in the description what was tried.
 Unbound, there is no AFTER.
+
+### Off-script gate: mr_upload refused (gate-protocol, scope off-script:ship:<n>)
+
+The upload guard refused a file past its one fix. Scope
+`off-script:ship:<n>`, sharing `n` with the push's off-script gate,
+`context` quoting the refusal and the path. Take writes the description
+with the local paths linked instead of uploads; Iterate means the human
+moved the file, widened `rt.mcp.uploadRoots` or recaptured. Copying a file
+under an allowed root is only ever the human's move: the roots are the
+boundary on what leaves the machine.
 
 ### Write the title and description
 
