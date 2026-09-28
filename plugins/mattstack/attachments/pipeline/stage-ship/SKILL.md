@@ -56,6 +56,8 @@ digraph ship {
     "Rebase in progress (stage abort)?" [shape=diamond];
     "git_rebase {tree: <root>, abort: true} (stage abort)" [shape=plaintext];
     "git_rebase {tree: <root>, abort: true} (after a failed continue)" [shape=plaintext];
+    "Rebase in progress (go back)?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true} (go back)" [shape=plaintext];
     "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
     "git_push result?" [shape=diamond];
     "Retried with the printed root?" [shape=diamond];
@@ -115,7 +117,10 @@ digraph ship {
     "ship answer?" -> "Ship gate rounds = 2?" [label="iterate: redo with their note"];
     "Ship gate rounds = 2?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
     "Ship gate rounds = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
-    "ship answer?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
+    "ship answer?" -> "Rebase in progress (go back)?" [label="go back"];
+    "Rebase in progress (go back)?" -> "git_rebase {tree: <root>, abort: true} (go back)" [label="yes"];
+    "Rebase in progress (go back)?" -> "Hand the Go back answer to the orchestrator" [label="no"];
+    "git_rebase {tree: <root>, abort: true} (go back)" -> "Hand the Go back answer to the orchestrator";
     "ship answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
     "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: ship}";
     "run_field_set {key: hold, value: <their words, or held>, stage: ship}" -> "Held: end the turn naming run and stage";
@@ -336,6 +341,8 @@ aborts that rebase.
 
 Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
 Abort pushes nothing and aborts a rebase in progress before the stage fails.
+Go back also aborts a rebase in progress first, so the earlier stage never
+receives a tree that is mid-rebase.
 `Ship gate rounds = 2?` counts Iterate answers at this gate within this
 pass through the stage, this one included: the first redoes the steps
 before the gate with the note, and the second fails the stage with the
