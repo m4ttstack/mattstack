@@ -1,0 +1,7 @@
+{"target": "!87", "reviewer": "renee", "round": 2,
+ "questions": [
+  {"id": "outcome", "label": "Verdict on !87: ready once the live-path guard lands", "multi": false,
+   "options": [
+     {"value": "comment", "label": "comment (recommended)", "description": "post the picked findings, no merge decision yet"},
+     {"value": "approve", "label": "approve", "description": "post the picked findings and approve the MR"}]}
+ ]}

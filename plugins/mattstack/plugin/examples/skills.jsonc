@@ -1,0 +1,32 @@
+// Example bindings manifest. Copy to <repo>/.mattstack/skills.jsonc or
+// ~/.mattstack/skills.jsonc and edit. Schema: ../schemas/skills-manifest.schema.json
+{
+  "version": 1,
+  "skills": {
+    // Declarative record of the stack skills this repo uses (phase 1: docs only).
+    "enabled": ["mattstack:shepherdr", "mattstack:model-tiering", "mattstack:execution-strategy", "mattstack:cswap-accounts"]
+  },
+  "pipelines": {
+    // The stage roster: work walks all eight in a fixed order.
+    "feature": [
+      "mattstack:stage-provision",
+      "mattstack:stage-plan",
+      "mattstack:stage-gates",
+      "mattstack:stage-evidence",
+      "mattstack:stage-implement",
+      "mattstack:stage-self-review",
+      "mattstack:stage-ship",
+      "mattstack:stage-watch-ci"
+    ]
+  },
+  "bindings": {
+    "mattstack:shepherdr": {
+      // Slot "tiering" demands contract model-tiering@1.
+      "tiering": "mattstack:model-tiering",
+      // Slot "strategy" demands contract execution-strategy@1.
+      "strategy": "mattstack:execution-strategy",
+      // Slot "accounts" (optional) demands contract account-pool@1.
+      "accounts": "mattstack:cswap-accounts"
+    }
+  }
+}

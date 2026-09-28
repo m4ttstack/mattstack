@@ -1,0 +1,9 @@
+// Fixture: bound to a skill that exists nowhere.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fake:absent"
+    }
+  }
+}

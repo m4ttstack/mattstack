@@ -1,0 +1,6 @@
+[
+  {"id": 104, "status": "success", "web_url": "https://gitlab.example.com/group/proj/-/pipelines/104", "source": "push"},
+  {"id": 103, "status": "failed", "web_url": "https://gitlab.example.com/group/proj/-/pipelines/103", "source": "external"},
+  {"id": 102, "status": "running", "web_url": "https://gitlab.example.com/group/proj/-/pipelines/102", "source": "schedule"},
+  {"id": 101, "status": "success", "web_url": "https://gitlab.example.com/group/proj/-/pipelines/101", "source": "push"}
+]

@@ -4,8 +4,9 @@ import { listAgentSafe } from "../../command-tree-resolve.ts";
 import { mcpTools } from "../../mcp/tools.ts";
 import { deriveRules, KEPT_ON_BASH } from "../mcp-lint.ts";
 
-// mattstack-skills packs with "strictLint": true are checked against this
-// rule set, so a change here can newly fail their strict lint.
+// The in-tree plugins/mattstack pack and any other pack with
+// "strictLint": true are checked against this rule set, so a change here
+// can newly fail their strict lint.
 const RULES_SHA256 = "e42a7a30052e88bcab65c572fa6314f8a4c3f4a579de0a3d70a3c937495293ea";
 
 function rulesHash(): string {
@@ -22,8 +23,8 @@ function rulesHash(): string {
 function refreshSteps(hash: string): string {
   return [
     'The strict mcp lint rule set changed, so packs with "strictLint": true (mattstack) may now fail `rt skills check --strict` and `rt skills sync`.',
-    "1. Run `bun cli.ts skills check --pack-dir <mattstack-skills> --strict` from this checkout.",
-    "2. Land allow markers or fixes for every new strict hit in mattstack-skills before this change merges.",
+    "1. Run `bun cli.ts skills check --pack-dir plugins/mattstack --strict` from this checkout.",
+    "2. Land allow markers or fixes for every new strict hit in plugins/mattstack in this same change.",
     `3. Set RULES_SHA256 in lib/skills/__tests__/mcp-lint-rules-hash.test.ts to ${hash}.`,
   ].join("\n");
 }

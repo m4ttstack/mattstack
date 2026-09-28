@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -35,6 +35,17 @@ function run(dir: string, env: Record<string, string> = {}): { code: number; out
     env: { ...process.env, PURITY_BASE: "HEAD", ...env },
   });
   return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
+}
+
+// The skills pack's terms are only ever spelled by the script's own fragments,
+// so the test rebuilds them from those lines rather than naming them.
+function packTerms(): string[] {
+  const lines = readFileSync(SCRIPT, "utf8")
+    .split("\n")
+    .filter((l) => /^P[0-9]+=/.test(l));
+  const names = lines.map((l) => l.slice(0, l.indexOf("=")));
+  const script = [...lines, ...names.map((n) => `printf '%s\\n' "$${n}"`)].join("\n");
+  return execFileSync("sh", ["-c", script], { encoding: "utf8" }).trim().split("\n");
 }
 
 describe("scoped purity terms", () => {
@@ -123,5 +134,31 @@ describe("scoped purity terms", () => {
     const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/probe\tPROBE_SCOPED_TERM" });
     expect(r.out).toContain("ok   repo-purity");
     expect(r.code).toBe(0);
+  });
+
+  test("an alternation pattern scoped to plugins/mattstack catches a probe word", () => {
+    const dir = repoWith({ "plugins/mattstack/skills/x/SKILL.md": "talks about ZETA_PROBE a lot\n" });
+    const r = run(dir, { PURITY_SCOPED_EXTRA: "plugins/mattstack\tALPHA_PROBE|ZETA_PROBE" });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("FAIL repo-purity (plugins/mattstack)");
+    expect(r.out).toContain("plugins/mattstack/skills/x/SKILL.md:");
+  });
+
+  test("the built-in plugins/mattstack entry bans each of the pack's three terms", () => {
+    const terms = packTerms();
+    expect(terms).toHaveLength(3);
+    for (const term of terms) {
+      const dir = repoWith({ "plugins/mattstack/notes.md": `mentions ${term} here\n` });
+      const r = run(dir);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain("FAIL repo-purity (plugins/mattstack)");
+    }
+  });
+
+  test("the pack's terms outside plugins/mattstack pass", () => {
+    const dir = repoWith({ "lib/x.ts": `// ${packTerms().join(" ")}\n` });
+    const r = run(dir);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("ok   repo-purity");
   });
 });

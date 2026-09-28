@@ -1,0 +1,5 @@
+Running with gitlab-runner 16.0.0
+$ npm test
+> test:unit
+  15 passing (2s)
+Job succeeded

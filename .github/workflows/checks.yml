@@ -221,11 +221,66 @@ jobs:
         working-directory: plugins/herdr-chat
         run: cargo build --release --locked && cargo test --locked
 
+  # The skills pack's own checks, run in-tree when plugins/mattstack or the
+  # rt MCP, skills or command-tree sources it reads changed (every push to
+  # main runs them). --mattstack-dir names an empty root so
+  # rt resolves plugins from it instead of `claude plugin list`. The comma
+  # wrap makes the match exact, as for herdr-chat.
+  plugin-mattstack:
+    needs: scope
+    if: contains(format(',{0},', needs.scope.outputs.plugins), ',plugins/mattstack,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RT_SKIP_SETUP: "1"
+      RT_BATCH: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      # A PR checkout is the merge commit, so HEAD^1 is the base branch tip,
+      # the same base the scope job diffs against.
+      - name: plugin.json version bumped
+        if: github.event_name == 'pull_request'
+        run: bun scripts/ci/plugin-version-bumped.ts --base HEAD^1 --plugin plugins/mattstack
+      - name: Install graphviz
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
+      - name: Digraph checker cases
+        run: bash plugins/mattstack/plugin/skills/process-digraphs/test-check-dot.sh
+      - name: Certify every skill and attachment dir
+        working-directory: plugins/mattstack
+        run: |
+          set -e
+          for d in skills/*/ attachments/*/ attachments/*/*/; do
+            [ -f "${d}SKILL.md" ] || continue
+            sh tests/certify.sh "$d"
+          done
+      - name: skills check (compile drift and strict mcp lint)
+        run: |
+          mkdir -p "$RUNNER_TEMP/mattstack"
+          bun cli.ts skills check --pack-dir "$GITHUB_WORKSPACE/plugins/mattstack" --mattstack-dir "$RUNNER_TEMP/mattstack" --strict
+      - name: mcp-tools reference is current
+        run: |
+          set -o pipefail
+          generated="$RUNNER_TEMP/mcp-tools-reference.md"
+          bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts > "$generated" || {
+            echo "The reference generator failed (bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts); see the error above."
+            exit 1
+          }
+          cmp "$generated" plugins/mattstack/attachments/mcp-tools/reference.md || {
+            echo "reference.md is stale. Regenerate: bun cli.ts mcp tools --json | bun plugins/mattstack/scripts/gen-mcp-tools.ts > plugins/mattstack/attachments/mcp-tools/reference.md"
+            exit 1
+          }
+
   # The job branch protection requires. Without always(), a failed scope
   # would skip unit and this job too, and a skipped required check reads as
   # passing on GitHub.
   checks:
-    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat]
+    needs: [scope, static, go, deck-macos, unit, plugin-herdr-chat, plugin-mattstack]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -238,15 +293,17 @@ jobs:
           DECK: ${{ needs.deck-macos.result }}
           UNIT: ${{ needs.unit.result }}
           HERDR_CHAT: ${{ needs.plugin-herdr-chat.result }}
+          MATTSTACK: ${{ needs.plugin-mattstack.result }}
           MODE: ${{ needs.scope.outputs.mode }}
         run: |
-          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mode=$MODE"
+          echo "scope=$SCOPE static=$STATIC go=$GO deck=$DECK unit=$UNIT herdr-chat=$HERDR_CHAT mattstack=$MATTSTACK mode=$MODE"
           [ "$SCOPE" = success ] || { echo "scope did not succeed"; exit 1; }
           [ "$STATIC" = success ] || { echo "static did not succeed"; exit 1; }
           [ "$GO" = success ] || { echo "go did not succeed"; exit 1; }
           [ "$DECK" = success ] || { echo "deck-macos did not succeed"; exit 1; }
           # skipped is the untouched case: a needed job whose if: is false.
           [ "$HERDR_CHAT" = success ] || [ "$HERDR_CHAT" = skipped ] || { echo "plugin-herdr-chat did not succeed"; exit 1; }
+          [ "$MATTSTACK" = success ] || [ "$MATTSTACK" = skipped ] || { echo "plugin-mattstack did not succeed"; exit 1; }
           [ "$UNIT" = success ] && exit 0
           [ "$UNIT" = skipped ] && [ "$MODE" = skip ] && exit 0
           echo "unit was $UNIT with mode $MODE"

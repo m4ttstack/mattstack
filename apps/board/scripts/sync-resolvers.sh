@@ -1,22 +1,23 @@
 #!/bin/sh
 # sync-resolvers.sh -- resync every vendored resolve-args.sh under skills/
-# with the canonical copy in mattstack-skills, and report what was synced.
+# with the canonical copy in the monorepo's plugins/mattstack, and report
+# what was synced.
 #
 # BOARD-15: the three wrapper skills (skills/review, skills/respond,
 # skills/doctor) each vendor a copy of parameterized-skills' resolve-args.sh
 # because a skill can't reach outside its own directory at runtime. The
 # vendored copies must be byte-identical to the canonical --
-# src/__tests__/skills-resolve.test.ts asserts this whenever a
-# mattstack-skills checkout is present. Run this after the canonical resolver
-# changes upstream.
+# src/__tests__/skills-resolve.test.ts asserts this. Run this after the
+# canonical resolver changes.
 #
-# Canonical source: $MATTSTACK_SKILLS_REPO (default
-# ~/Documents/GitHub/mattstack-skills)/attachments/parameterized-skills/scripts/resolve-args.sh
+# Canonical source: $MATTSTACK_SKILLS_REPO (default <monorepo>/plugins/mattstack)
+# /attachments/parameterized-skills/scripts/resolve-args.sh
 # Requires: sh, find, jq.
 set -eu
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
-canonical_repo="${MATTSTACK_SKILLS_REPO:-$HOME/Documents/GitHub/mattstack-skills}"
+monorepo_root=$(cd "$(dirname "$0")/../../.." && pwd)
+canonical_repo="${MATTSTACK_SKILLS_REPO:-$monorepo_root/plugins/mattstack}"
 canonical="$canonical_repo/attachments/parameterized-skills/scripts/resolve-args.sh"
 plugin_json="$canonical_repo/.claude-plugin/plugin.json"
 

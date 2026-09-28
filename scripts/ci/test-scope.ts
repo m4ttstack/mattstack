@@ -116,6 +116,38 @@ export function pluginDirs(changed: string[]): string[] {
   return [...out].sort();
 }
 
+// rt paths a plugin's own checks read through `rt`: plugin-mattstack runs
+// `rt skills check` and diffs its mcp-tools reference against `rt mcp tools`,
+// so a change to either surface can turn it red with no plugin file touched.
+// Keys are repo path prefixes.
+export const RT_PLUGIN_TRIGGERS: Record<string, string> = {
+  "lib/mcp/": "plugins/mattstack",
+  "commands/mcp.ts": "plugins/mattstack",
+  "lib/skills/": "plugins/mattstack",
+  "commands/skills": "plugins/mattstack",
+  "lib/command-tree": "plugins/mattstack",
+  "cli.ts": "plugins/mattstack",
+};
+
+export function rtTriggeredPluginDirs(changed: string[], root: string = ROOT): string[] {
+  const out = new Set<string>();
+  for (const f of changed) {
+    for (const [prefix, dir] of Object.entries(RT_PLUGIN_TRIGGERS)) {
+      if (f.startsWith(prefix) && existsSync(join(root, dir))) out.add(dir);
+    }
+  }
+  return [...out].sort();
+}
+
+// The workflow that defines every plugin job, and this script that routes
+// to them, can break any plugin job without touching a plugin file.
+export const ALL_PLUGIN_TRIGGERS = [".github/workflows/checks.yml", "scripts/ci/test-scope.ts"];
+
+export function prPluginDirs(changed: string[], root: string = ROOT): string[] {
+  if (changed.some((f) => ALL_PLUGIN_TRIGGERS.includes(f))) return existingPluginDirs(root);
+  return [...new Set([...pluginDirs(changed), ...rtTriggeredPluginDirs(changed, root)])].sort();
+}
+
 export function existingPluginDirs(root: string = ROOT): string[] {
   const dir = join(root, "plugins");
   if (!existsSync(dir)) return [];
@@ -244,7 +276,7 @@ if (import.meta.main) {
   const always = alwaysRunPaths().join(" ");
   console.log(`mode=${decision.mode} (${decision.reason})`);
   console.log(`dirs=${dirs}`);
-  const plugins = (event === "pull_request" ? pluginDirs(changed) : existingPluginDirs()).join(",");
+  const plugins = (event === "pull_request" ? prPluginDirs(changed) : existingPluginDirs()).join(",");
   console.log(`always=${always}`);
   console.log(`plugins=${plugins}`);
   if (!process.argv.includes("--explain") && process.env.GITHUB_OUTPUT) {

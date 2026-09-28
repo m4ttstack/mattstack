@@ -1,0 +1,9 @@
+// Fixture: bound skill declares no provides at all.
+{
+  "version": 1,
+  "bindings": {
+    "fixture:wrapper": {
+      "tiering": "fake:no-provides"
+    }
+  }
+}
