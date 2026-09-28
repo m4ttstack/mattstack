@@ -18,7 +18,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1501 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1571 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -129,6 +129,7 @@ digraph review_flow {
     "Hand the answer to the domain skill to post" [shape=box];
     "Domain posting result (review)?" [shape=diamond];
     "Writing style loaded (review act)?" [shape=diamond];
+    "Record the resumed take's mark in --report (review)" [shape=box];
     "Resumed pane (review posting)?" [shape=diamond];
     "mr_threads {mrUrl, refresh: true} (review posted already)" [shape=plaintext];
     "mr_threads result (review posted already)?" [shape=diamond];
@@ -211,11 +212,12 @@ digraph review_flow {
     "Report fits the resumed answer (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="no: missing or malformed for the answer's shape"];
     "Route the resumed escalation by its origin (review)" -> "Resumed escalation origin (review)?";
     "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="iterate at round 2, any origin: the refusals are the reason"];
-    "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="mr_view, not on a re-review: take with branches, or iterate at round 1"];
-    "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="a re-review origin: take, or iterate at round 1"];
+    "Resumed escalation origin (review)?" -> "Delegate the review to the domain skill" [label="a pre-verdict origin, take or iterate at round 1, a domain skill resolved on this resume: it reviews afresh"];
+    "Resumed escalation origin (review)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="generic path, mr_view, not on a re-review: take with branches, or iterate at round 1"];
+    "Resumed escalation origin (review)?" -> "Read <--report> (prior review, resumed re-review)" [label="generic path, a re-review origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Read <--report>, its verdict line and json sibling (resumed escalation)" [label="a posting origin: take, or iterate at round 1"];
     "Resumed escalation origin (review)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
-    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back, or a take at mr_view with no branches"];
+    "Resumed escalation origin (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back, or a generic-path take at mr_view with no branches"];
     "Read <--report> (prior review, resumed re-review)" -> "rt_verb {args: [skills, writing-style, show]} (review)";
     "Read <--report>, its verdict line and json sibling (resumed escalation)" -> "Verdict line present (review)?";
     "Verdict line present (review)?" -> "Domain skill resolved (review act)?" [label="yes, and the report fits its answer"];
@@ -235,7 +237,9 @@ digraph review_flow {
     "Load the named writing-style skill (review)" -> "Which entry (review writing style)?";
     "Load the preferences.md style, else conversational (review)" -> "Which entry (review writing style)?";
     "Which entry (review writing style)?" -> "mr_view {mrUrl} (review)" [label="fresh review"];
-    "Which entry (review writing style)?" -> "Resumed pane (review posting)?" [label="posting the answer"];
+    "Which entry (review writing style)?" -> "Resumed pane (review posting)?" [label="posting the answer, not a resumed take"];
+    "Which entry (review writing style)?" -> "Record the resumed take's mark in --report (review)" [label="posting the answer, a resumed take at a posting origin or the Posted already read"];
+    "Record the resumed take's mark in --report (review)" -> "Resumed pane (review posting)?";
     "Which entry (review writing style)?" -> "mr_view {mrUrl} (review)" [label="resumed escalation, pre-verdict origin, not a take at mr_view"];
     "Which entry (review writing style)?" -> "--re-review given (thread read)?" [label="resumed escalation, take at mr_view: branches from its note"];
     "mr_view {mrUrl} (review)" -> "mr_view result (review)?";
@@ -318,7 +322,7 @@ digraph review_flow {
     "Fix what the posted-already mr_threads error names (review)" -> "mr_threads {mrUrl, refresh: true} (review posted already)";
     "Mark the findings and summary already posted" -> "Findings left to post (review)?";
     "review off-script gate: mr_threads refused (posted already)" -> "Off-script outcome (review posted-already mr_threads)?";
-    "Off-script outcome (review posted-already mr_threads)?" -> "Mark the findings and summary already posted" [label="take: the human names what is already up"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "Mark the findings and summary already posted" [label="take: the human names what is already up, marked in --report"];
     "Off-script outcome (review posted-already mr_threads)?" -> "Off-script rounds = 2 (review posted-already mr_threads)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (review posted-already mr_threads)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Off-script outcome (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back: nothing posts unchecked"];
@@ -339,7 +343,7 @@ digraph review_flow {
     "Fixed the mr_comment_inline call once already?" -> "Fix what the mr_comment_inline error names" [label="no"];
     "Fixed the mr_comment_inline call once already?" -> "review off-script gate: mr_comment_inline refused" [label="yes"];
     "Fix what the mr_comment_inline error names" -> "mr_comment_inline {mrUrl, body, path, line}";
-    "Summary note carries findings?" -> "mr_comment {mrUrl, body}" [label="yes, not already posted"];
+    "Summary note carries findings?" -> "mr_comment {mrUrl, body}" [label="yes, not already posted or marked posted by hand"];
     "Summary note carries findings?" -> "Outcome is approve?" [label="no"];
     "mr_comment {mrUrl, body}" -> "mr_comment result?";
     "mr_comment result?" -> "Outcome is approve?" [label="posted"];
@@ -350,7 +354,7 @@ digraph review_flow {
     "Fixed the mr_comment call once already?" -> "review off-script gate: mr_comment refused" [label="yes"];
     "Fix what the mr_comment error names" -> "mr_comment {mrUrl, body}";
     "Outcome is approve?" -> "mr_approve {mrUrl}" [label="yes, not marked approved"];
-    "Outcome is approve?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="no: comment, or a resumed take marked it approved"];
+    "Outcome is approve?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="no: comment, or --report marks it approved by hand"];
     "mr_approve {mrUrl}" -> "mr_approve result?";
     "mr_approve result?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="approved, or already approved by this account"];
     "mr_approve result?" -> "Fixed the mr_approve call once already?" [label="tool error"];
@@ -361,7 +365,7 @@ digraph review_flow {
     "Fix what the mr_approve error names" -> "mr_approve {mrUrl}";
 
     "review off-script gate: mr_comment_inline refused" -> "Off-script outcome (mr_comment_inline)?";
-    "Off-script outcome (mr_comment_inline)?" -> "Findings left to post (review)?" [label="take: the human posted it"];
+    "Off-script outcome (mr_comment_inline)?" -> "Findings left to post (review)?" [label="take: the human posted it, marked in --report"];
     "Off-script outcome (mr_comment_inline)?" -> "Off-script rounds = 2 (mr_comment_inline)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (mr_comment_inline)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Off-script outcome (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
@@ -371,7 +375,7 @@ digraph review_flow {
     "Off-script rounds = 2 (mr_comment_inline)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
     "review off-script gate: mr_comment refused" -> "Off-script outcome (mr_comment)?";
-    "Off-script outcome (mr_comment)?" -> "Outcome is approve?" [label="take: the human posted it"];
+    "Off-script outcome (mr_comment)?" -> "Outcome is approve?" [label="take: the human posted it, marked in --report"];
     "Off-script outcome (mr_comment)?" -> "Off-script rounds = 2 (mr_comment)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (mr_comment)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Off-script outcome (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
@@ -381,7 +385,7 @@ digraph review_flow {
     "Off-script rounds = 2 (mr_comment)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
 
     "review off-script gate: mr_approve refused" -> "Off-script outcome (mr_approve)?";
-    "Off-script outcome (mr_approve)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="take: the human approved it"];
+    "Off-script outcome (mr_approve)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="take: the human approved it, marked in --report"];
     "Off-script outcome (mr_approve)?" -> "Off-script rounds = 2 (mr_approve)?" [label="iterate: the cause is fixed"];
     "Off-script outcome (mr_approve)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
     "Off-script outcome (mr_approve)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
@@ -450,12 +454,26 @@ What the graph cannot show:
   every anchored finding, and only when it carries findings and is not
   already posted. `mr_approve` runs only when the outcome is `approve`,
   after the findings; approval has no read, so a resumed pane approves
-  again unless a resumed `mr_approve` take marked it approved, and a
-  refusal saying this account already approved counts as approved. Read
+  again unless `--report` marks it approved by hand ("Escalation marks"),
+  and a refusal saying this account already approved counts as approved. Read
   each answer's `value` (an answer may be a `{value, note}` object); a
   note is the human's steer on the wording of what posts. No finding
   posts twice: a resumed pane reads what is already up with `mr_threads
   {mrUrl, refresh: true} (review posted already)` before anything posts.
+- **Escalation marks.** An off-script take at a posting origin, or at the
+  Posted already read, writes a mark line into `--report` before the walk
+  moves on, whether this pane or a resumed one acts on it. Each mark is
+  one line with the fixed prefix `review-escalation-mark:`:
+  `review-escalation-mark: finding <id> posted by hand` (an
+  `mr_comment_inline` take, or each finding a Posted already read take's
+  note names), `review-escalation-mark: summary posted by hand` (an
+  `mr_comment` take, or a Posted already read take whose note names the
+  summary) and `review-escalation-mark: approved by hand` (an `mr_approve`
+  take). The walk reads them back: a finding marked posted by hand never
+  posts, a summary marked posted by hand never posts, and an approval
+  marked by hand never runs. A pane resumed on a later escalation has lost
+  every earlier answer but these, so they are what keeps a taken call from
+  running twice.
 - **Budgets.** `Fixed the mr_comment_inline call once already?` counts per
   finding; the `mr_comment` and `mr_approve` counters, and the three read
   counters (`mr_view`, the re-review `mr_threads` and the posted-already
@@ -555,7 +573,10 @@ to the off-script gate.
   fresh take and iterate edges do. The writing style loads first. A take
   at `mr_view` continues with the branches its note gives and skips the
   read; a note with no branches takes the `hand back` edge. An iterate at
-  `mr_view` reads the MR again.
+  `mr_view` reads the MR again. Every pre-verdict escalation opened on the
+  generic path; when this resume resolves a domain skill after all, a take
+  or round-1 iterate delegates the review afresh, and the domain skill
+  makes its own reads.
 - **Re-review origins** (`mr_view refused on a re-review`, `mr_threads
   refused on the re-review read`) make this pass a re-review, though the
   launch carries no `--re-review`. `--report` still holds the prior
@@ -574,13 +595,15 @@ to the off-script gate.
   answers no when the line is missing or unparseable, or when the report
   does not fit its answer by that section's rules; the `error` names the
   file and which case it was. Never rebuild the verdict from memory or
-  from the conversation.
-- **A take at a posting origin** marks what the human did before the
-  walk: finding `<id>` posted (`mr_comment_inline`), the summary posted
-  (`mr_comment`), or the approval done (`mr_approve`). The Posted already
-  read then runs as for any resumed pane. A take at the Posted already
-  read itself marks exactly what its note names and skips the read, since
-  that read is what refused.
+  from the conversation. The same read loads every
+  `review-escalation-mark:` line an earlier pane wrote ("Escalation
+  marks"), and the walk honours them.
+- **A take at a posting origin** writes its mark before the walk
+  (`Record the resumed take's mark in --report (review)`): finding `<id>` posted
+  (`mr_comment_inline`), the summary posted (`mr_comment`), or the
+  approval done (`mr_approve`). The Posted already read then runs as for
+  any resumed pane. A take at the Posted already read itself marks exactly
+  what its note names and skips the read, since that read is what refused.
 - **An iterate at a posting origin** walks the posting again from the
   top; the Posted already read drops what is up, so the refused call is
   the first to post.
@@ -603,7 +626,11 @@ Tell the domain skill these things:
 - under `--re-review`, the re-review framing: the prior review read at
   `Read <--report> (prior review)` (or that none was found), "check what
   the author addressed since the last review", and "flag it and fall back
-  to a full review if nothing was acted on" ("Re-review mode").
+  to a full review if nothing was acted on" ("Re-review mode"). A resumed
+  re-review origin gets the same framing, with the prior review still at
+  `--report`;
+- on a resumed pre-verdict escalation, that it reviews afresh: the
+  escalation's take or iterate belonged to the generic path's own read.
 
 Pass the operator note along as context when the launch carries one.
 
@@ -785,10 +812,15 @@ to `--report`:
 
 It is the whole answer envelope, not just `answers`. When `--report`
 already ends in a `review-post-answer:` line, replace it; never write a
-second. When the answer came with no `answeredAt` (this pane's own
-`gate answer` stood, or the degraded form), write the current UTC time in
-ISO 8601 as you write the line, and `by` is `pane`: nothing has posted
-yet, so no note from this pass predates it.
+second. `answeredAt` is always epoch milliseconds, as the wait returns
+it. When the answer came with no `answeredAt` (this pane's own `gate
+answer` stood, or the degraded form), write the current time in epoch
+milliseconds as you write the line, and `by` is `pane`: nothing has
+posted yet, so no note from this pass predates it.
+
+The verdict starts a new posting pass: delete every
+`review-escalation-mark:` line from `--report` ("Escalation marks"). What
+an earlier pass posted by hand the Posted already read finds.
 
 The line exists because an off-script gate moves the state's gate id to
 the escalation, and `gate wait` can then no longer return the verdict. A
@@ -814,7 +846,12 @@ path, so it executes the posting:
 Pass each answer's notes along with it. On a resumed pane
 (`--resumed-gate` given), tell the domain skill the pass is a resume, so
 it runs its own Posted already read before anything posts and hands back
-what it found already up. The domain skill posts through the mr_* tools
+what it found already up. On an escalation resume the answer comes from
+the report's `review-post-answer:` line, and hand it too every
+`review-escalation-mark:` line in `--report` plus the resumed answer's own
+take (at a posting origin or the Posted already read, which a
+domain-path resume has not recorded), so it skips what the human already
+posted or approved. The domain skill posts through the mr_* tools
 and hands back what posted, the findings it found already up included; a
 failure it reports is `error` with its message.
 
@@ -871,9 +908,22 @@ on an escalation resume):
 `Summary note carries findings?` answers no when the summary is marked
 posted. They count as posted in the `done` summary. One read covers every
 finding and the summary. After an off-script take, what the human names
-is the list. A resumed escalation's take has already marked its finding,
-summary or approval: keep those marks and add what the read finds.
-Approval has no read: `mr_approve` runs again unless a take marked it.
+is the list. Every `review-escalation-mark:` line in `--report` already
+marks its finding, summary or approval: keep those marks and add what the
+read finds. Approval has no read: `mr_approve` runs again unless a mark
+says it was approved by hand.
+
+### Record the resumed take's mark in --report (review)
+
+The generic path, before the Posted already read. A refusal at that read
+opens a second escalation, which moves the state's gate id, and a pane
+resumed on it could then no longer learn this answer. So a resumed take
+writes its mark now, as "Escalation marks" spells it: the same mark the
+live pane writes when it acts on that take. A take at a posting origin
+writes the one mark its value names; a take at the Posted already read
+writes one mark per finding its note names, and one for the summary when
+the note names it. The marks outlive this pane: a pane resumed on a later
+escalation reads them back, and the posting walk honours them.
 
 ### Fix what the mr_comment_inline error names
 
@@ -961,7 +1011,9 @@ this pass could post.
 | `hold: keep this pane open with nothing posted (mr_threads refused on the Posted already read, round <k>)` | Hold this pane | I stop before posting anything and the pane stays open. |
 | `hand back: write an error naming the refusal, nothing posted (mr_threads refused on the Posted already read, round <k>)` | Hand it back | I write an error naming the refusal and post nothing. |
 
-A take marks exactly what the human names in the note as posted already.
+A take marks exactly what the human names in the note as posted already,
+one `review-escalation-mark:` line per finding and one for the summary
+("Escalation marks"), before the walk moves on.
 Iterate passes `Off-script rounds = 2 (review posted-already
 mr_threads)?` before reading again. Hand back, gate unavailable and a
 spent round budget write `error` naming the refusal; nothing posts
@@ -981,10 +1033,12 @@ body.
 | `hold: keep this pane open with the remaining findings unposted (mr_comment_inline refused, round <k>)` | Hold this pane | I stop here and the findings not yet posted stay unposted. |
 | `hand back: write an error naming the refusal and what already posted (mr_comment_inline refused, round <k>)` | Hand it back | I write an error naming the refusal and what posted, and you take over. |
 
-A take counts the finding as posted and moves to the next one. Iterate
-passes `Off-script rounds = 2 (mr_comment_inline)?` for this finding
-before posting again. Hand back, gate unavailable and a spent round budget
-write `error` naming the refusal and which findings posted.
+A take counts the finding as posted, writes
+`review-escalation-mark: finding <id> posted by hand` into `--report`,
+and moves to the next one. Iterate passes `Off-script rounds = 2
+(mr_comment_inline)?` for this finding before posting again. Hand back,
+gate unavailable and a spent round budget write `error` naming the
+refusal and which findings posted.
 
 ### review off-script gate: mr_comment refused
 
@@ -999,7 +1053,8 @@ quoted, and the note's text.
 | `hold: keep this pane open with the summary unposted and no verdict applied (mr_comment refused, round <k>)` | Hold this pane | I stop here with the summary unposted and the verdict unapplied. |
 | `hand back: write an error naming the refusal and what already posted (mr_comment refused, round <k>)` | Hand it back | I write an error naming the refusal and what posted, and you take over. |
 
-A take continues to `Outcome is approve?`. Iterate passes `Off-script
+A take writes `review-escalation-mark: summary posted by hand` into
+`--report` and continues to `Outcome is approve?`. Iterate passes `Off-script
 rounds = 2 (mr_comment)?` before posting again. Hand back, gate
 unavailable and a spent round budget write `error` naming the refusal and
 which findings posted inline.
@@ -1016,7 +1071,8 @@ refused twice: <second error>`. Context: both `mr_approve` errors, quoted.
 | `hold: keep this pane open with the findings posted and no approval (mr_approve refused, round <k>)` | Hold this pane | I stop here with the findings posted and no approval. |
 | `hand back: write an error naming the refusal, the findings stay posted (mr_approve refused, round <k>)` | Hand it back | I write an error naming the refusal and you take over. |
 
-A take marks the review `done` with `--outcome approve`. Iterate passes
+A take writes `review-escalation-mark: approved by hand` into `--report`
+and marks the review `done` with `--outcome approve`. Iterate passes
 `Off-script rounds = 2 (mr_approve)?` before approving again. Hand back,
 gate unavailable and a spent round budget write `error` naming the
 refusal; the posted findings stay.
@@ -1247,6 +1303,18 @@ from the value, so both are spelled exactly as the box's table gives
 them. `label` is 2 to 6 words; `description` is one sentence saying what
 happens on that answer. Four options stay inside the native form's
 per-question cap.
+
+At round 2 the iterate cannot retry: `Off-script rounds = 2 (...)?`
+answers yes, and in every review table that exit writes `error` as the
+hand back row does. Keep the iterate's `value` exactly as the table
+spells it, so a resumed pane still routes it as an iterate at round 2,
+and give it the label `No retry: ` plus the hand back row's label (its
+first letter lowercased) and the description `Retries are spent, so `
+plus the hand back row's description:
+
+```json
+{"value": "iterate: you fixed the cause, post the summary note again (mr_comment refused, round 2)", "label": "No retry: hand it back", "description": "Retries are spent, so I write an error naming the refusal and what posted, and you take over."}
+```
 
 `--context` quotes both errors verbatim (the first refusal and the one
 after the fix) with the call that was refused. Never send an empty
@@ -1501,6 +1569,8 @@ everything else is here.
 Below, `gate_ask` is what this wrapper's `<status-bin> gate open` already
 did; `gate_answer` is `<status-bin> gate answer <state> --answers <json>
 --by pane`; `rt gate wait` is the wait recipe in `board:gate-cli-recipes`.
+This wrapper's own "Off-script step" replaces the protocol's "Off-script
+gate" section.
 
 <!-- part: include:gate-protocol source=mattstack:gate-protocol version=0.28.0 path=attachments/gate-protocol/SKILL.md lines=7-444 -->
 # Gate protocol
