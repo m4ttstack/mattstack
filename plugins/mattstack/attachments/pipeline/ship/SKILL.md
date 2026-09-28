@@ -503,10 +503,11 @@ Selection: `{"move":"<the move>","why":"<the refusal>","action":"take|handback",
 Read `next` first: Hold ends the turn with nothing pushed; Iterate means
 the human fixed the cause (a tree registration, the daemon) and ignores
 `action`; only Proceed applies `action`. Retrying `git_push` is Iterate,
-never Take, whatever the answer calls it. `Push off-script rounds = 2
-(ship)?` counts Iterate rounds within this pass through the verb; once two
-retries have been refused, the verb fails with the refusal quoted instead
-of asking again.
+never Take, whatever the answer calls it.
+`Push off-script rounds = 2 (ship)?` counts Iterate answers within this
+pass through the verb, this one included: the first Iterate retries the
+push, and the second fails the verb with the refusal quoted instead of
+retrying.
 
 ### Confirm the human's push landed (ship)
 
