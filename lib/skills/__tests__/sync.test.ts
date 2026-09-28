@@ -870,6 +870,24 @@ describe("in-tree plugins install from main", () => {
     expect(report.warnings.some((w) => w.includes("feature-x"))).toBe(true);
   });
 
+  test("names a detached shared checkout as detached", async () => {
+    const root = tmp("rt-sync-checkout-");
+    const engine = fixturePack("mattstack", "mattstack", "1.2.3", join(root, "plugins"));
+    const pack = fixturePack("acme", "mattstack", "0.1.0");
+    const world: World = {
+      calls: [],
+      installed: { "mattstack@mattstack": "1.2.3", "acme@mattstack": "0.1.0" },
+      drift: [false],
+      branchByDir: { [root]: "" },
+    };
+    const deps = { ...makeDeps(pack, engine, world), inTreeRoot: root };
+    const report = await syncPack(pack, engine, deps);
+    expect(report.ok).toBe(true);
+    const detail = report.steps.find((s) => s.name === "pull-engine")!.detail;
+    expect(detail).toContain(`shared checkout ${root} is detached`);
+    expect(detail).not.toContain('""');
+  });
+
   test("says nothing about the branch when the shared checkout is on main", async () => {
     const root = tmp("rt-sync-checkout-");
     const engine = fixturePack("mattstack", "mattstack", "1.2.3", join(root, "plugins"));

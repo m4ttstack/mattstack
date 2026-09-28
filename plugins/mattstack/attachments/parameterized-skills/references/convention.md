@@ -1,6 +1,6 @@
 # Parameterized skills -- slot and provides declarations
 
-Status: v1 convention. Ships with the mattstack-skills plugin. The
+Status: v1 convention. Ships with the mattstack plugin (plugins/mattstack in the mattstack monorepo). The
 enforcement companion is `scripts/resolve-args.sh` in the
 parameterized-skills skill directory.
 

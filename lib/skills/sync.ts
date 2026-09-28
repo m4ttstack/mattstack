@@ -143,7 +143,8 @@ async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
   if (res.code !== 0) return `; could not read the shared checkout's branch (${res.stderr.trim()}); the in-tree plugin installs from ${IN_TREE_REF}`;
   const branch = res.stdout.trim();
   if (branch === IN_TREE_REF) return "";
-  return `; shared checkout ${root} is on "${branch}", not ${IN_TREE_REF}; the in-tree plugin installs from ${IN_TREE_REF}`;
+  const where = branch === "" ? "is detached" : `is on "${branch}"`;
+  return `; shared checkout ${root} ${where}, not ${IN_TREE_REF}; the in-tree plugin installs from ${IN_TREE_REF}`;
 }
 
 function guardSummary(engineInTree: boolean, packInTree: boolean): string {

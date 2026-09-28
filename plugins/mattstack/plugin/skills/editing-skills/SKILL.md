@@ -1,6 +1,6 @@
 ---
 name: editing-skills
-description: Use when adding, editing, publishing, or debugging why a change isn't live in any mattstack-connected skill surface -- the mattstack plugin, a team pack (acme), or a compiled/vendored pipeline verb -- e.g. "add a mattstack skill", "why isn't my skill or pipeline change showing up", "rt skills compile / check / sync", "an installed cache is lagging", "update the work orchestrator", or any change under mattstack-skills, a teams/<team> pack, or a shared work/review engine.
+description: Use when adding, editing, publishing, or debugging why a change isn't live in any mattstack-connected skill surface -- the mattstack plugin, a team pack (acme), or a compiled/vendored pipeline verb -- e.g. "add a mattstack skill", "why isn't my skill or pipeline change showing up", "rt skills compile / check / sync", "an installed cache is lagging", "update the work orchestrator", or any change under plugins/mattstack, a teams/<team> pack, or a shared work/review engine.
 ---
 
 # Editing and Publishing Estate Skills
@@ -455,7 +455,7 @@ starting again at zero. Takes over: the human chases the cache.
   the call never carries a `cwd`. `--pack-dir <dir>` rides in `args` for
   `check` only.
 - A team pack's own skill certifies with `--domain`
-  (`sh <mattstack-skills>/tests/certify.sh <dir> --domain`): the purity greps skip, every
+  (`sh ${CLAUDE_PLUGIN_ROOT}/tests/certify.sh <dir> --domain`): the purity greps skip, every
   structural check still runs.
 - The cswap sessions sync warns about are those whose `plugins` is not a
   symlink resolving to `<config>/plugins`.
@@ -485,7 +485,7 @@ verbs. The compiler fills the `{{placeholder}}` markers in the mattstack
 engines (`work`, `stage-*`, `review`, `self-review`, `receive-review`,
 `ship`, `watch-ci`, `shepherdr`) with the pack's fills and writes public
 verbs to `<pack>/skills/<verb>/`, internal verbs and stages to
-`<pack>/attachments/<name>/`. Edit the engine (mattstack-skills) or the fill
+`<pack>/attachments/<name>/`. Edit the engine (plugins/mattstack in the monorepo) or the fill
 (`<pack>/attachments/<fill>/`), then recompile; the next compile overwrites
 compiled files. The mattstack pack is one such pack: `pack/stubs.jsonc`
 rosters `shepherdr`, bound through `pack/skills.jsonc` (a standalone pack
@@ -517,5 +517,5 @@ What `compile` and `check` read:
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | mattstack engines, includes, mattstack fills | the INSTALLED mattstack plugin cache                                                                                                 |
 | the pack's own fills                         | the pack checkout (`--pack-dir`)                                                                                                     |
-| everything, for `--pack mattstack` itself    | the mattstack-skills CHECKOUT (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
+| everything, for `--pack mattstack` itself    | the monorepo CHECKOUT's plugins/mattstack (engines, fills, and `pack/skills.jsonc`); the installed cache is never consulted                      |
 | mattstack version in every seam marker       | mattstack's `plugin.json` at compile time; `check` masks it, so a bump that changed no inlined engine, include, or fill is not drift |
