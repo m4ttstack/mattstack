@@ -567,7 +567,10 @@ test('deployPill: offers the pill on deploy when newCode is set', () => {
 });
 
 test('deployPill: never on other commands, without newCode, or mid-run', () => {
-  const stale = { ...baseRow, newCode: { deployed: 'abc1234', head: 'def5678' } };
+  const stale = {
+    ...baseRow,
+    newCode: { deployed: 'abc1234', head: 'def5678' },
+  };
   expect(deployPill(stale, 'build', undefined)).toBeNull();
   expect(deployPill(baseRow, 'deploy', undefined)).toBeNull();
   expect(deployPill(stale, 'deploy', 'running')).toBeNull();
