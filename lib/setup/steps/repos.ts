@@ -9,7 +9,7 @@
 import { join } from "path";
 import { getSetting } from "../../settings/resolve.ts";
 import { updateRepoIndexAsync } from "../../repo-index.ts";
-import { serializeIdentity } from "../../settings/identity.ts";
+import { normalizeRemote, serializeIdentity } from "../../settings/identity.ts";
 import { gitWithToken } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -54,7 +54,12 @@ async function indexDest(ctx: ApplyContext, identity: string, base: string, dest
 /** A real clone of `identity`, not just any directory that happens to share its basename — two tracked identities can collide on basename (`gitlab.com/a/api`, `github.com/b/api`), and an unrelated folder can already occupy the path. */
 function isCloneOf(p: ApplyContext["p"], dest: string, identity: string): boolean {
   const config = p.readFile(join(dest, ".git", "config"));
-  return config !== null && config.includes(identity);
+  if (config === null) return false;
+  // Any remote's URL, in whatever form git accepts (scp-style ssh has no slash after the host), normalized to the identity's own host/path form.
+  for (const match of config.matchAll(/^\s*url\s*=\s*(\S+)/gm)) {
+    if (normalizeRemote(match[1]!) === identity) return true;
+  }
+  return false;
 }
 
 async function reposCloneRun(ctx: ApplyContext): Promise<StepOutcome> {
