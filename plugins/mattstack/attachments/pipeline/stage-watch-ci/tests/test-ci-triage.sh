@@ -240,8 +240,8 @@ grep -q 'ownership: INHERITED (also failing on main)' "$TMP/out" \
 
 # pipeline-and-ref-together (F1 coverage): a caller who already knows the
 # pipeline id must still be able to hand over --ref alongside it, so base-ref
-# resolution (target-branch) still runs -- this is the combination ci-watch.sh
-# now relies on for its own triage calls.
+# resolution (target-branch) still runs: a caller holding a pipeline id may
+# still pass --ref with it.
 rc=$(run_triage_git main ownership --pipeline 31 --ref feat-y --out-dir "$TMP/t22")
 grep -q 'ownership: INHERITED (also failing on main)' "$TMP/out" \
   && ok pipeline-and-ref-together || fail pipeline-and-ref-together "rc=$rc out=$(cat "$TMP/out")"

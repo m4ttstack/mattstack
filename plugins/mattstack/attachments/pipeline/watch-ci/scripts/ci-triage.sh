@@ -49,7 +49,7 @@ forge() { # sets FORGE_OUT; returns 0/1; exits 5 (whole script) on rc >= 2
 # (noisy-jobs, real-patterns, infra-patterns) EXTEND the engine defaults;
 # scalars (base-depth, base-ref, skip-base) take flag > config > default
 # (timeout/interval are parsed for validity elsewhere but unused by triage
-# itself -- ci-watch.sh is their consumer).
+# itself; nothing in the engines consumes them now).
 cfg() { if [ -n "$CONFIG" ]; then jq -r "$1 // empty" "$CONFIG" 2>/dev/null || true; fi; }
 
 BASE_DEPTH=${CI_TRIAGE_BASE_DEPTH:-$(cfg '."base-depth"')}; BASE_DEPTH=${BASE_DEPTH:-3}

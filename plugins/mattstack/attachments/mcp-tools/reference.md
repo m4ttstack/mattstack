@@ -1309,7 +1309,7 @@ GitLab only. The MR's discussion threads; refresh: true fetches from GitLab firs
 ### mr_pipeline
 
 <!-- mcp-lint: allow -->
-GitLab only. The MR's head pipeline (live by default, maxAgeMs 5000) and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. pipeline.jobs may be empty for a cache entry written at list weight; pass jobId for one job's detail. jobId is the numeric part of a job id like gitlab:job:123. Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. merged and closed results cover only recently closed MRs still held in the daemon's open-MR cache, not a project's full history. That cache may be limited to certain authors and a recent time window, so an MR outside it reads as not found. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+GitLab only. The MR's head pipeline (live by default, maxAgeMs 5000), carrying sha, ref and mergeRequestEventType ("merged_result", "detached", "merge_train" or null; for merged-results pipelines sha is the merge commit, not the source branch head), and, with jobId, that job's detail: a bridge job's downstream pipeline, or for any other job {type: "trace", traceVia: "mr_job_trace"}, since its log is read with mr_job_trace. pipeline.jobs may be empty for a cache entry written at list weight; pass jobId for one job's detail. jobId is the numeric part of a job id like gitlab:job:123. Take it from this MR's pipeline: the daemon does not check that the job belongs to this MR, so jobId may name any job in the MR's project. merged and closed results cover only recently closed MRs still held in the daemon's open-MR cache, not a project's full history. That cache may be limited to certain authors and a recent time window, so an MR outside it reads as not found. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
 
 ```json
 {
@@ -2115,6 +2115,150 @@ Report this session's identity as the other tools see it: its Claude Code sessio
 {
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### ci_lease_claim
+
+<!-- mcp-lint: allow -->
+Claim this MR's CI attendant lease for this session. Returns {claimed: true, lease, previousOwner?} or {claimed: false, holder}. Re-claiming a lease this session holds refreshes it. holder is the role (watch-ci default, or doctor); ttlSeconds 60 to 900, default 600. One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)."
+    },
+    "holder": {
+      "type": "string",
+      "enum": [
+        "watch-ci",
+        "doctor"
+      ]
+    },
+    "branch": {
+      "type": "string",
+      "description": "The MR's source branch; pass it so the board's stack preflight sees this attendant."
+    },
+    "ttlSeconds": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "mrUrl"
+  ],
+  "additionalProperties": false
+}
+```
+
+### ci_lease_heartbeat
+
+<!-- mcp-lint: allow -->
+Refresh this session's CI attendant lease on the MR. Returns {ok: true, lease}, or {ok: false, reason: "lost", holder} when another owner holds it now, or {ok: false, reason: "none"}. ci_watch heartbeats on every poll, so call this only between watches (during a long fix). One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)."
+    }
+  },
+  "required": [
+    "mrUrl"
+  ],
+  "additionalProperties": false
+}
+```
+
+### ci_lease_release
+
+<!-- mcp-lint: allow -->
+Release this session's CI attendant lease on the MR. Returns {released: true}, or {released: false, reason} when the lease is absent or another owner's. One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)."
+    }
+  },
+  "required": [
+    "mrUrl"
+  ],
+  "additionalProperties": false
+}
+```
+
+### ci_lease_read
+
+<!-- mcp-lint: allow -->
+Read the MR's CI attendant lease: {lease: <fresh lease or null>, stale: <a stale lease on disk or null>, mine: <true when the fresh lease is this session's>}. A lease with no owner field was written by the pack script and reads as owner legacy:<holder>. A stale lease of this session's own is revived by calling ci_lease_heartbeat, which checks ownership only, not freshness. One CI attendant per MR: a fresh lease held by another owner refuses the claim (reported, not an error); a lease goes stale ttlSeconds after its last heartbeat and can then be taken over. The owner is always this session; there is no owner input.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR or PR https URL (.../-/merge_requests/<iid> or .../pull/<n>)."
+    }
+  },
+  "required": [
+    "mrUrl"
+  ],
+  "additionalProperties": false
+}
+```
+
+### ci_watch
+
+<!-- mcp-lint: allow -->
+GitLab only. Watch the MR's pipeline for the pushed commit sha until it settles or maxWaitSeconds (default 300, cap 1800) passes, polling every intervalSeconds (default 30, 10 to 120, and never more than half the lease's ttlSeconds). Only a pipeline for sha counts: a branch pipeline by its sha, a merged-results or merge-train pipeline by its merge commit's parents, or (fast-forward trains) by being new since the push; pass priorPipelineId (the head pipeline id read before pushing) so that proof never stalls; a result that proved it without one carries priorPipelineId to pass on the next call. Every poll heartbeats this session's CI lease and returns state lease_lost the moment another owner holds the MR; with underBoardLease (a doctor the board launched) it only reads the lease and needs a fresh board doctor lease. Returns state (success, success_with_warnings, failed, canceled, skipped, manual when settled; running or waiting means call again; superseded, lease_lost or aborted end the watch), the pipeline with sha and ref, failedJobs with a trace tail for up to five blocking failures, blockingFailures, lease and next. Chat messages reach you only between calls, so a long maxWaitSeconds delays them. Name the target with repoName (the repo's serialized identity, e.g. remote:gitlab.com%2Facme%2Facme-dev, an absolute path to a local checkout or worktree, or a repo label that matches exactly one registered repo) or with mrUrl (the MR's https URL, which also supplies iid; its project must be registered with rt). Given both, they must agree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "repoName": {
+      "type": "string",
+      "description": "Serialized identity, absolute checkout or worktree path, or a label matching exactly one registered repo."
+    },
+    "iid": {
+      "type": "number",
+      "description": "The MR's iid; omit when mrUrl is given, which supplies it."
+    },
+    "mrUrl": {
+      "type": "string",
+      "description": "The MR's https URL; supplies both the repo and iid."
+    },
+    "sha": {
+      "type": "string",
+      "description": "The pushed commit, 7 to 40 hex characters."
+    },
+    "maxWaitSeconds": {
+      "type": "number"
+    },
+    "intervalSeconds": {
+      "type": "number"
+    },
+    "priorPipelineId": {
+      "type": "number",
+      "description": "The MR's head pipeline id read before the push: the numeric part of a gitlab:pipeline:N id, as mr_pipeline returns it."
+    },
+    "underBoardLease": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "sha"
+  ],
   "additionalProperties": false
 }
 ```
