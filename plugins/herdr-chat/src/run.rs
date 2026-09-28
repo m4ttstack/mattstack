@@ -95,19 +95,35 @@ impl Runner for RealRunner {
 
 /// The `rt` binary path: `RT_BIN_PATH` else `rt` on `PATH`.
 pub fn rt_bin() -> String {
-    std::env::var("RT_BIN_PATH").unwrap_or_else(|_| "rt".to_string())
+    resolve_bin(ambient("RT_BIN_PATH"), "rt")
 }
 
 /// The `herdr` binary path: `HERDR_BIN_PATH` else `herdr` on `PATH`.
 // Consumed by the herdr subprocess calls a later task (herdr.rs) adds.
 #[allow(dead_code)]
 pub fn herdr_bin() -> String {
-    std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".to_string())
+    resolve_bin(ambient("HERDR_BIN_PATH"), "herdr")
 }
 
 /// The `deck` binary path: `DECK_BIN_PATH` else `deck` on `PATH`.
 pub fn deck_bin() -> String {
-    std::env::var("DECK_BIN_PATH").unwrap_or_else(|_| "deck".to_string())
+    resolve_bin(ambient("DECK_BIN_PATH"), "deck")
+}
+
+fn resolve_bin(value: Option<String>, bare: &str) -> String {
+    value.unwrap_or_else(|| bare.to_string())
+}
+
+#[cfg(not(test))]
+fn ambient(var: &str) -> Option<String> {
+    std::env::var(var).ok()
+}
+
+// A herdr pane exports the *_BIN_PATH overrides, and the tests assert argv
+// against the bare names, so the test build never reads them.
+#[cfg(test)]
+fn ambient(_var: &str) -> Option<String> {
+    None
 }
 
 #[cfg(test)]
@@ -171,9 +187,14 @@ mod tests {
 
     #[test]
     fn bin_resolvers_default_to_bare_names() {
-        // No env override in the test process, so the bare command name wins.
         assert_eq!(rt_bin(), "rt");
         assert_eq!(herdr_bin(), "herdr");
         assert_eq!(deck_bin(), "deck");
+    }
+
+    #[test]
+    fn a_bin_override_wins_over_the_bare_name() {
+        assert_eq!(resolve_bin(Some("/opt/rt".to_string()), "rt"), "/opt/rt");
+        assert_eq!(resolve_bin(None, "rt"), "rt");
     }
 }

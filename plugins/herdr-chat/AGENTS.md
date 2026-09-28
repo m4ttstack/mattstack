@@ -55,8 +55,7 @@ build on it and the traps to avoid. Don't duplicate what the linked docs own.
 
 ## Dev loop
 
-- Build `cargo build --release`; test
-  `unset HERDR_BIN_PATH RT_BIN_PATH DECK_BIN_PATH; cargo test --release`.
+- Build `cargo build --release`; test `cargo test --release`.
 - Iterate against live herdr: `herdr plugin link <this dir>`. Re-run
   `herdr plugin link` after **any manifest edit** so herdr re-reads popup sizes
   and commands; code-only changes apply on the next popup open, since each pane
