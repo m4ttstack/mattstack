@@ -82,8 +82,10 @@ setting: `readWatchdogConfig` returns the default for it.
   seen busy is stamped with the sweep time, a pane still busy keeps its stamp,
   and a pane not busy on a sweep (working, gone, or background cleared) drops
   it. A turn the pane works therefore restarts the clock.
-- **Evaluator.** One helper decides the exemption: background work younger
-  than `backgroundCapMins` exempts the pane exactly as today; older work does
+- **Evaluator.** One helper decides the exemption. The work's age runs from
+  the later of the sensor's stamp and the pane's last idle transition, so a
+  turn that ended between two sweeps still restarts the clock. Background
+  work younger than `backgroundCapMins` exempts the pane exactly as today; older work does
   not, and the nag and both backstop evidences gain
   `; background <task> for <N>m`. The fast paths (unread DMs, unconsumed
   answers) are unchanged.

@@ -249,12 +249,24 @@ describe("evaluateJob", () => {
   });
 
   test("RT-359: a done job on background work past the cap draws the nag, naming the task", () => {
-    const s = sensors({ ...idleFor(40), backgroundWork: bgFor(61) });
-    const j = job({ status: "done", lastReport: 2758, updatedAt: NOW - 60 * MIN });
+    const s = sensors({ ...idleFor(70), backgroundWork: bgFor(61) });
+    const j = job({ status: "done", lastReport: 2758, updatedAt: NOW - 90 * MIN });
     expect(evaluateJob(j, s, cfg)).toEqual({
       kind: "finished-lingering",
-      evidence: "job-a done with report 60m ago, quiet 40m; background 1 shell for 61m; if a follow-up round is in flight run rt herd follow-up job-a --herd demo-1, else rt herd close job-a --herd demo-1",
+      evidence: "job-a done with report 90m ago, quiet 70m; background 1 shell for 61m; if a follow-up round is in flight run rt herd follow-up job-a --herd demo-1, else rt herd close job-a --herd demo-1",
     });
+  });
+
+  test("RT-359: a turn since the background work was first seen restarts the clock", () => {
+    const s = sensors({ ...idleFor(15), backgroundWork: bgFor(90) });
+    expect(evaluateJob(job({ updatedAt: NOW - 120 * MIN }), s, cfg)).toEqual({ kind: "healthy" });
+    const done = sensors({ ...idleFor(40), backgroundWork: bgFor(90) });
+    expect(evaluateJob(job({ status: "done", lastReport: 2758, updatedAt: NOW - 120 * MIN }), done, cfg)).toEqual({ kind: "healthy" });
+  });
+
+  test("RT-359: a turn older than the cap does not restart the clock past it", () => {
+    const s = sensors({ ...idleFor(70), backgroundWork: bgFor(90) });
+    expect(evaluateJob(job({ updatedAt: NOW - 120 * MIN }), s, cfg)).toEqual({ kind: "wedged", path: "backstop", evidence: "idle 70m with no open gate; background 1 shell for 70m" });
   });
 
   test("RT-359: the shepherd backstop fires on a done job whose background work outlived the cap", () => {
