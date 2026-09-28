@@ -104,6 +104,14 @@ async function refreshDefaultBranchSymref(cwd: string, remote: string): Promise<
   } catch { /* self-heal only; never fails the action it rides along with */ }
 }
 
+// GHD's pull.ts verbatim: git itself reads pull.rebase (the "with rebase"
+// title is display only), and --ff is added only when the user has no
+// pull.ff, since git refuses a diverged pull with neither set.
+async function pullArgs(cwd: string, remote: string): Promise<string[]> {
+  const pullFFSet = (await spawnGit(cwd, ["config", "--get", "pull.ff"])).ok;
+  return ["-c", "rebase.backend=merge", "pull", ...(pullFFSet ? [] : ["--ff"]), "--recurse-submodules", "--", remote];
+}
+
 /** Publishing a repository needs a name and visibility first, so it runs through publishRepo, never here. */
 export type RunnableAction = Exclude<ActionKind, "publish-repo">;
 
@@ -123,13 +131,9 @@ export async function runAction(
       if (result.ok) await refreshDefaultBranchSymref(cwd, remote);
       return result;
     }
-    case "pull": {
-      const result = await spawnGit(cwd, ["pull", remote]);
-      if (result.ok) await refreshDefaultBranchSymref(cwd, remote);
-      return result;
-    }
+    case "pull":
     case "pull-rebase": {
-      const result = await spawnGit(cwd, ["pull", "--rebase", remote]);
+      const result = await spawnGit(cwd, await pullArgs(cwd, remote));
       if (result.ok) await refreshDefaultBranchSymref(cwd, remote);
       return result;
     }
