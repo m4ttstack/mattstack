@@ -7,6 +7,7 @@ import {
   commandKey,
   commandStuckToast,
   commandToast,
+  deployPill,
   editPatch,
   HEAL_RECENT_MS,
   isPlatform,
@@ -553,4 +554,22 @@ test('commandStuckToast: names the app to look at rather than claiming an outcom
   expect(commandStuckToast('myapp', 'deploy')).toBe(
     'deploy is still running after 10 minutes · deck logs myapp'
   );
+});
+
+const baseRow = makeRow();
+
+test('deployPill: offers the pill on deploy when newCode is set', () => {
+  const row = { ...baseRow, newCode: { deployed: 'abc1234', head: 'def5678' } };
+  expect(deployPill(row, 'deploy', undefined)).toEqual({
+    label: 'New code · Redeploy',
+    tip: 'Deployed at abc1234, checkout at def5678',
+  });
+});
+
+test('deployPill: never on other commands, without newCode, or mid-run', () => {
+  const stale = { ...baseRow, newCode: { deployed: 'abc1234', head: 'def5678' } };
+  expect(deployPill(stale, 'build', undefined)).toBeNull();
+  expect(deployPill(baseRow, 'deploy', undefined)).toBeNull();
+  expect(deployPill(stale, 'deploy', 'running')).toBeNull();
+  expect(deployPill(stale, 'deploy', 'restarting')).toBeNull();
 });

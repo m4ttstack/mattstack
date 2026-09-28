@@ -17,6 +17,7 @@ import {
 import {
   commandButtonLabel,
   commandKey,
+  deployPill,
   isPlatform,
   showDevLinkPrompt,
   type CommandRuns,
@@ -485,6 +486,21 @@ function CommandsCell({
     <>
       {(row.commands ?? []).map(name => {
         const phase = commandRuns[commandKey(row.name, name)];
+        const pill = deployPill(row, name, phase);
+        if (pill)
+          return (
+            <Tooltip key={name} tip={pill.tip}>
+              <Button
+                intent="warn"
+                variant="light"
+                size="sm"
+                aria-label={`${name} ${row.name}`}
+                onClick={() => onRunCommand(row, name)}
+              >
+                {pill.label}
+              </Button>
+            </Tooltip>
+          );
         return (
           <Button
             key={name}
