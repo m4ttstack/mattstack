@@ -32,7 +32,7 @@ right alongside the humans.
 knows about the chat protocol through its `@mattstack/rt-client` client
 library; it doesn't own the protocol itself. Agents running inside terminal
 panes join the same rooms through
-[`herdr-chat`](https://github.com/m4ttstack/herdr-chat), a plugin for the
+[`herdr-chat`](../../plugins/herdr-chat), a plugin for the
 [herdr](https://github.com/herdrdev/herdr) pane manager. `chat` itself is a
 React 19 + Mantine 9 client on Vite, served by a Bun + Hono server, built on
 two private internal packages: `@mattstack/app-kit` (the shared UI kit) and
