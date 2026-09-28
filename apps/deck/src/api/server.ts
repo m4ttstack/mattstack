@@ -56,6 +56,7 @@ import { gitProvenance, untrackedEnvPresent } from '../edge/source.ts';
 import type { TunnelDriver } from '../edge/tunnel.ts';
 import { convert } from '../registry/convert.ts';
 import { migrate } from '../registry/migrate.ts';
+import { stampDeploy } from '../registry/new-code.ts';
 import { getRecord, listRecords } from '../registry/records.ts';
 import { readLinkedManifest } from '../registry/serve-shape.ts';
 import {
@@ -514,6 +515,7 @@ export function startApi(deps: ApiDeps) {
             const record = getRecord(name);
             if (!record) return json({ error: 'not found' }, 404);
             const dev = (deps.devMode ?? isDevMode)();
+            let fromManifest = false;
             let shell: string | undefined;
             let cwd: string | undefined;
             // A managed row with commands and no dev link predates the dev-link
@@ -539,6 +541,7 @@ export function startApi(deps: ApiDeps) {
                 return json({ error: 'not found' }, 404); // a broken link 404s rather than failing later
               shell = ownCommand(link.manifest.dev, cmd);
               cwd = link.dir;
+              fromManifest = true;
             }
             if (!shell) return json({ error: 'not found' }, 404);
 
@@ -564,6 +567,7 @@ export function startApi(deps: ApiDeps) {
                 detached: name === PLATFORM_NAME,
               });
               if (!started.started) return json({ error: 'busy' }, 409);
+              if (fromManifest && cmd === 'deploy') stampDeploy(name, cwd);
               return json({ started: true, runId: started.runId });
             }
           }
