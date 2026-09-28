@@ -1,3 +1,7 @@
+import {
+  isLocalRequest,
+  type LocalServer,
+} from '@mattstack/app-server/local-request';
 import { panesForOrigin, resolveOriginFocus } from '@mattstack/gate-kit/server';
 import {
   gateAnswer,
@@ -119,6 +123,9 @@ export const gates = new Hono()
       return { answers: v?.answers };
     }),
     async c => {
+      if (!isLocalRequest(c.req.raw, c.env as LocalServer | undefined)) {
+        return c.json({ error: 'forbidden' }, 403);
+      }
       const { id } = c.req.param();
       const { answers } = c.req.valid('json');
       if (!answers || typeof answers !== 'object') {
