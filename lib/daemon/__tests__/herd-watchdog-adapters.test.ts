@@ -62,9 +62,9 @@ function jobRow(over: Partial<HerdJobRow> = {}): HerdJobRow {
 function fx(over: { snapshots?: Snap; herds?: HerdRow[]; gates?: GateRow[]; answered?: GateRow[]; db?: ReturnType<typeof freshDb>; clock?: { now: number }; jobs?: HerdJobRow[]; screens?: Record<string, string> } = {}) {
   const snapshots: Snap = over.snapshots ?? {};
   const clock = over.clock ?? { now: NOW };
-  const herdrCalls: Array<{ method: string; sock: string | undefined }> = [];
+  const herdrCalls: Array<{ method: string; params: unknown; sock: string | undefined }> = [];
   const herdr = (async (method: string, _params: unknown, opts?: { sockPath?: string }) => {
-    herdrCalls.push({ method, sock: opts?.sockPath });
+    herdrCalls.push({ method, params: _params, sock: opts?.sockPath });
     if (method === "pane.read") {
       const text = over.screens?.[(_params as { pane_id: string }).pane_id];
       return text === undefined ? { ok: false, code: "pane_not_found", message: "no such pane" } : { ok: true, result: { read: { text } } };
@@ -705,6 +705,20 @@ describe("watchdog sensors: background work", () => {
     await sensors.refresh();
     expect(sensors.backgroundWork("w1:p1")).toBe(false);
     expect(sensors.backgroundWork("w1:p3")).toBe(true);
+  });
+
+  test("a hidden herd's job pane is read by its bare id on the herd's own socket, and answers under its bg: ref", async () => {
+    const { sensors, herdrCalls } = fx({
+      snapshots: { [BG]: [{ pane_id: "w1:p1", agent: "claude", agent_status: "idle" }] },
+      herds: [herd({ id: "hid-1", herdrSocket: BG, hidden: true })],
+      jobs: [jobRow({ herd: "hid-1", pane: "bg:w1:p1" })],
+      screens: { "w1:p1": SHELL_FOOTER },
+    });
+    await sensors.refresh();
+    const reads = herdrCalls.filter((c) => c.method === "pane.read");
+    expect(reads).toEqual([{ method: "pane.read", params: { pane_id: "w1:p1", source: "visible" }, sock: BG }]);
+    expect(sensors.backgroundWork("bg:w1:p1")).toBe(true);
+    expect(sensors.backgroundWork("w1:p1")).toBe(false);
   });
 
   test("the next refresh drops a pane whose background work finished", async () => {
