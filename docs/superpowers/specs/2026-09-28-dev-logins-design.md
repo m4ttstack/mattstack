@@ -58,18 +58,20 @@ Defended:
   redaction.
 - **A page stealing a value.** A lookalike page, a redirect target, or a
   hostile or opaque-origin frame inside the real page gets nothing: the
-  runtime fills only the resolved element whose own frame origin exactly
-  matches the login's origin.
-- **A page reading the filled value back to the model.** While the active
-  page is on a saved login's origin, the runtime refuses the tools that can
+  daemon releases a value only for a resolved element whose own frame origin
+  exactly matches the login's origin, and the runtime fills that element.
+- **A page reading the filled value back to the model.** From a fill until
+  the filled frame navigates away, the runtime refuses the tools that can
   read page state or request bodies (section 3).
 - **Account lockout.** The daemon grants at most one password fill per login
   per 5 minutes and 5 per day, across every session on the machine. A
   replaced login resets its counters.
-- **A login saved for the wrong site.** The add sheet makes the human type
-  the host of a first-time origin before Save enables (section 6). Neither a
-  crafted `mattstack://` link nor a run steered to a lookalike page can
-  pre-approve an origin.
+- **A login saved for the wrong site, by inattention.** The add sheet makes
+  the human type the host of a first-time origin before Save enables
+  (section 6), so neither a crafted `mattstack://` link nor a run steered to
+  a lookalike page can pre-approve an origin with one click. This stops
+  inattention, not a convincing lookalike: a human copies what they see, and
+  `login-example.com` reads like `login.example.com`.
 
 Not defended, stated so nobody assumes otherwise:
 
@@ -86,6 +88,12 @@ Not defended, stated so nobody assumes otherwise:
   exposes no peer credentials), so it logs every value it serves with the
   caller-declared client and pid, labelled unverified. That makes reads
   visible; it does not prove who made them.
+- **Whoever holds a localhost port next.** An `http://localhost:<port>` login
+  is bound to the port, not the app. Whatever server holds that port later
+  (another worktree's app, which may log request bodies) receives the login
+  when a run fills there. Prefer saving the hosted identity provider's
+  `https` origin; save a localhost origin only for an app that hosts its own
+  login.
 - **Plaintext on disk during a write.** rt's secret writes stage plaintext
   under `~/.mattstack/rt/tmp/` for the length of one sops encrypt and unlink
   it afterwards (`lib/secrets/store.ts`). The encrypted file then travels
@@ -117,7 +125,7 @@ plain-language descriptions, `bun run docs:gen` after):
 | Verb | Does | Agent-safe |
 |---|---|---|
 | `rt logins list [--json]` | Origins, emails and placeholder names; never passwords | yes |
-| `rt logins open-add <origin>` | Opens `mattstack://dev-logins/add?origin=<origin>`; collects nothing | yes |
+| `rt logins open-add <origin> [--json]` | Opens `mattstack://dev-logins/add?origin=<origin>`; collects nothing | yes |
 | `rt logins add <origin>` | Hidden-input prompts for email and password; `--json` reads `{email, password}` from stdin (the app's path) | no |
 | `rt logins remove <origin>` | Deletes one login | no |
 
@@ -132,11 +140,14 @@ plain-language descriptions, `bun run docs:gen` after):
   password: "<name>"}}]`. The names are the reserved placeholder names
   (section 3): `devlogin:<key>:email` and `devlogin:<key>:password`.
 - New socket-only daemon verb `logins:fill` for the Fast Browser launcher.
-  Payload `{token, client, pid, name}` where `name` is one placeholder name.
-  It requires the API token, resolves the login, and for a `password` name
-  applies the attempt limit before answering. It answers
-  `{origin, kind, value}` or a refusal (`unknown`, `limited` with the time the
-  limit lifts). Every answer and refusal is logged at `info` with the name,
+  Payload `{token, client, pid, name, frameOrigin, elementKind}` where `name`
+  is one placeholder name. It requires the API token and resolves the login.
+  It refuses with `mismatch`, without releasing the value or counting an
+  attempt, when `frameOrigin` is not exactly the login's origin or a
+  `password` name targets a non-password element. Only then, for a
+  `password` name, does it apply the attempt limit. It answers
+  `{origin, kind, value}` or a refusal (`unknown`, `mismatch`, `limited`
+  with the time the limit lifts). Every answer and refusal is logged at `info` with the name,
   origin and caller-declared `{client, pid}` (unverified), never the value.
 - The attempt limit is kept in the daemon's memory, keyed by login, and reset
   when `add` replaces that login. A daemon restart resets it too; that is
@@ -153,26 +164,32 @@ Changes shipped in one runtime release:
   existing `--secrets` file keep today's behavior (the cloud contract is
   unchanged); a `--secrets` file that defines a `devlogin:` name is refused
   at load.
-- **Launcher channel.** `--secrets-channel-fd=<n>` names a duplex socket to
-  the launcher. For a `devlogin:` value the runtime sends
-  `{"name": "<placeholder>"}` and waits up to 10 s for
-  `{origin, kind, value}` or a refusal. Values are requested per fill and
-  never cached across fills.
-- **Site lock.** The runtime resolves the target to one element handle, reads
-  that element's frame origin from the browser's frame URL (never from page
-  JavaScript), and fills that same handle with `elementHandle.fill`. It
-  refuses when:
-  - the frame origin is not exactly the login's origin (scheme, host, port);
+- **Site lock, checked before any value moves.** The runtime first resolves
+  the target to one element handle and reads that element's frame origin from
+  the browser's frame URL (never from page JavaScript). It refuses locally,
+  without asking for a value, when:
   - the frame origin is opaque (`about:blank`, `srcdoc`, `data:`, sandboxed);
-  - `kind` is `password` and the element is not `<input type="password">`;
   - the call is `browser_type` with `slowly: true` (keystrokes go to whatever
     has focus, which a frame can steal mid-sequence).
+  Otherwise it sends the request below with the frame origin and the
+  element's kind (`password` for `<input type="password">`, else `text`).
+  The daemon compares them to the login (section 2), so a wrong-origin page
+  never gets the value into the runtime and never uses up an attempt. On an
+  answer, the runtime fills that same handle with `elementHandle.fill`.
   A refusal types nothing and names the placeholder and the reason.
-- **Readback refusal.** While the active tab's top-level origin is a saved
-  login's origin, the runtime refuses `browser_evaluate`,
-  `browser_run_code_unsafe`, `browser_network_request` and
-  `browser_network_requests`. The login page is only a stop on the way back
-  to the app; nothing on it needs those tools.
+- **Launcher channel.** `--secrets-channel-fd=<n>` names a duplex socket to
+  the launcher. The runtime sends
+  `{"id", "name", "frameOrigin", "elementKind"}` and waits up to 10 s for a
+  reply echoing the same `id` and `name`: `{origin, kind, value}` or a
+  refusal. A reply whose `id` is not the pending request is dropped, so a
+  late answer is never taken for the next request. Values are requested per
+  fill and never cached across fills.
+- **Readback refusal.** From a successful saved-login fill until the filled
+  frame navigates or the filled element is detached, the runtime refuses
+  `browser_evaluate`, `browser_run_code_unsafe`, `browser_network_request`
+  and `browser_network_requests`. The refusal is tied to the filled document,
+  not to an origin, so it needs no list of saved origins and does not block
+  an app that hosts its own login on its own origin once the login is done.
 - **Redaction of encoded forms.** Once a value has been filled it joins the
   redaction set for the rest of the runtime's life. Redaction replaces the
   raw value and its URL-encoded, form-encoded (`+` for space),
@@ -193,10 +210,11 @@ Changes shipped in one runtime release:
   today.
 - Values are never logged, written to disk, put in an env var, or passed
   through a macro or `browser_run_code_unsafe`.
-- **Flow compile.** A traced step whose value is a `devlogin:` placeholder is
-  never compiled into a flow. A trace containing one compiles with that
-  segment dropped and a note in the flow's review metadata, so replays can
-  never repeat a login attempt.
+- **Flow compile.** A saved-login fill is never compiled into a flow. The
+  dropped segment runs from the step that arrived on the filled page to the
+  first step after the page left that origin, so the submit click goes with
+  the fill and no replay submits an empty login. The flow's review metadata
+  notes the drop.
 
 ### 5. Skills
 
@@ -209,10 +227,14 @@ Changes shipped in one runtime release:
      `browser_fill_form` and submit. On an identifier-first page, repeat once
      for the password screen on the same origin. Then a required check that
      the page left the login origin. Never retried.
-  4. Stop and return an outcome to the caller with the origin when:
-     no saved login (`no-saved-login`), the check fails or the runtime says
-     `limited` (`saved-login-failed`), or the page shows 2FA, a captcha or an
-     account chooser (`needs-human`).
+  4. On `limited`, another run probably just logged in and the shared Chrome
+     session may already carry this one: reload once and repeat the
+     signed-in check before giving up.
+  5. Stop and return an outcome to the caller with the origin when:
+     no saved login (`no-saved-login`), the check fails after a fill
+     (`saved-login-failed`), still `limited` after the reload
+     (`login-limited`, with the time it lifts), or the page shows 2FA, a
+     captcha or an account chooser (`needs-human`).
   The existing "never type a credential" rule narrows to "never type a
   credential yourself; only a saved login's `devlogin:` placeholders".
 - **A team pack's evidence skill:** maps the outcomes to its login gate. The
@@ -224,6 +246,9 @@ Changes shipped in one runtime release:
     own runtime.
   - `saved-login-failed`: **Update login** (same flow) / **Log in by hand** /
     **Leave uncaptured**.
+  - `login-limited`: says a saved login was tried recently and names when the
+    next try is allowed: **Wait and retry** / **Log in by hand** /
+    **Leave uncaptured**. It never suggests the password is wrong.
   - The pack change carries no rt ticket ids.
 - mattstack's `stage-evidence` does not change.
 
@@ -273,14 +298,20 @@ Security tests, each of which must fail when its protection is removed:
   right top-level page, `about:blank`, `srcdoc` and sandboxed frames, a
   non-password input for a password entry, and `browser_type` with `slowly`.
 - A `devlogin:` value that does not resolve fails the call and types nothing.
-- Readback tools are refused while the tab is on a saved login's origin.
+- A fill refused for origin or element kind releases no value and leaves the
+  attempt counter unchanged.
+- A late channel reply with a stale `id` is dropped, not used for the next
+  request.
+- Readback tools are refused between a fill and the filled frame's
+  navigation, and allowed again after it, including on a same-origin app.
 - Canary value, seeded with `@`, `&`, `+`, `%` and a space, then a login run:
   the value appears in no raw or encoded form in tool output,
   `~/.fast-browser/output` (traces, sessions, network captures), runtime,
   launcher, daemon, CLI or tray logs, bus events, or `rt logins list --json`.
 - `logins:fill` refuses a wrong token; grants one password fill per login per
   5 minutes across two simulated clients; resets on replace.
-- A trace containing a `devlogin:` step compiles with the step dropped.
+- A trace containing a saved-login fill compiles with the whole login
+  segment dropped, submit click included.
 - The CLI refuses a value passed as an argument, an origin that fails the
   origin rules, and a host containing `_`.
 - The link route ignores extra parameters and never pre-fills a password; a
