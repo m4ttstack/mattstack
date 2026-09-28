@@ -251,6 +251,11 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq graphviz
       - name: Digraph checker cases
         run: bash plugins/mattstack/plugin/skills/process-digraphs/test-check-dot.sh
+      - name: Every plugin digraph passes check-dot (warnings fail)
+        working-directory: plugins/mattstack
+        run: |
+          set -o pipefail
+          grep -rl --null -E '^[[:space:]]*```dot[[:space:]]*$' --include='*.md' . | sort -z | xargs -0 python3 plugin/skills/process-digraphs/check-dot.py
       - name: Certify every skill and attachment dir
         working-directory: plugins/mattstack
         run: |

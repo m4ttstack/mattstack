@@ -4,12 +4,12 @@ description: "Use when fanning work out across parallel Claude Code agents in he
 allowed-tools:
   - "Bash(*/scripts/pick-account.py:*)"
 metadata:
-  compiled: "mattstack@0.26.3 + mattstack:model-tiering@0.26.3 + mattstack:execution-strategy@0.26.3 + mattstack:cswap-accounts@0.26.3"
+  compiled: "mattstack@0.27.1 + mattstack:model-tiering@0.27.1 + mattstack:execution-strategy@0.27.1 + mattstack:cswap-accounts@0.27.1"
 ---
 
 <!-- compiled by rt skills compile from the sources below; slots pre-resolved; edits here are working-tree drift (rt skills promote) -->
 
-<!-- part: step source=mattstack:shepherdr version=0.26.3 path=attachments/orchestration/shepherdr/SKILL.md lines=15-876 -->
+<!-- part: step source=mattstack:shepherdr version=0.27.1 path=attachments/orchestration/shepherdr/SKILL.md lines=15-878 -->
 
 # shepherdr
 
@@ -27,7 +27,7 @@ For herdr CLI mechanics, load the `herdr` skill.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:tiering binding=mattstack:model-tiering version=0.26.3 path=attachments/model-tiering/SKILL.md lines=8-117 -->
+<!-- part: slot:tiering binding=mattstack:model-tiering version=0.27.1 path=attachments/model-tiering/SKILL.md lines=8-117 -->
 # Model Tiering
 
 Use the least capable model tier **and effort** that can succeed at each unit
@@ -143,7 +143,7 @@ this skill is the generic framework they override.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.26.3 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
+<!-- part: slot:strategy binding=mattstack:execution-strategy version=0.27.1 path=attachments/execution-strategy/SKILL.md lines=8-93 -->
 # Execution Strategy
 
 Given a unit of work and the surface it will execute on, name the method
@@ -255,7 +255,7 @@ When nothing is inlined above, every default in this engine stands as written.
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.26.3 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
+<!-- part: slot:accounts binding=mattstack:cswap-accounts version=0.27.1 path=attachments/cswap-accounts/SKILL.md lines=9-76 -->
 # cswap account pool
 
 Given the herd's model mix and the accounts already assigned this run,
@@ -660,6 +660,7 @@ digraph shepherdr_watch {
 
     "Trigger: the herd is spawned or resumed" [shape=ellipse];
     "End the turn until something arrives" [shape=box];
+    "Next move while the turn is ended?" [shape=diamond];
     "STOP: the gates and the room report progress; never read a pane for it" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "STOP: nothing arms; no background wait, watcher or sweep" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Something arrives" [shape=ellipse];
@@ -713,9 +714,10 @@ digraph shepherdr_watch {
     "Go to lanes and wrap-up" [shape=doublecircle style=filled fillcolor=lightgreen];
 
     "Trigger: the herd is spawned or resumed" -> "End the turn until something arrives";
-    "End the turn until something arrives" -> "Something arrives" [style=dashed];
-    "End the turn until something arrives" -> "STOP: the gates and the room report progress; never read a pane for it" [label="tempted to read a pane to see how it goes"];
-    "End the turn until something arrives" -> "STOP: nothing arms; no background wait, watcher or sweep" [label="tempted to arm a wait or a sweep"];
+    "End the turn until something arrives" -> "Next move while the turn is ended?";
+    "Next move while the turn is ended?" -> "Something arrives" [label="none: the daemon pushes the next arrival" style=dashed];
+    "Next move while the turn is ended?" -> "STOP: the gates and the room report progress; never read a pane for it" [label="tempted to read a pane to see how it goes"];
+    "Next move while the turn is ended?" -> "STOP: nothing arms; no background wait, watcher or sweep" [label="tempted to arm a wait or a sweep"];
     "STOP: the gates and the room report progress; never read a pane for it" -> "End the turn until something arrives";
     "STOP: nothing arms; no background wait, watcher or sweep" -> "End the turn until something arrives";
     "Something arrives" -> "What arrived?";
@@ -1116,7 +1118,7 @@ the Bash command `rt herd stop --hidden` (no tool runs it); never run it unpromp
 
 *If a rule below asks for a move this graph marks STOP, take the off-script edge instead.*
 
-<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.26.3 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
+<!-- part: include:wrap-up-form source=mattstack:wrap-up-form version=0.27.1 path=attachments/wrap-up-form/SKILL.md lines=7-33 -->
 # Wrap-up
 
 The reply is one optional sentence of context, then a form, then stop. Wait

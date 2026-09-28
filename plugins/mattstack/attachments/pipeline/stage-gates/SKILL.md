@@ -39,8 +39,8 @@ digraph gates {
     "Domain rules inlined?" -> "Say in one line there are no domain gates" [label="no"];
     "Domain rules inlined?" -> "Apply every triggered pre-implementation gate" [label="yes"];
     "Say in one line there are no domain gates" -> "Gates done: return to the orchestrator";
-    "Say in one line there are no domain gates" -> "STOP: never invent a gate" [label="tempted to add one"];
-    "STOP: never invent a gate" -> "Gates done: return to the orchestrator";
+    "Domain rules inlined?" -> "STOP: never invent a gate" [label="tempted to invent a gate when none is inlined"];
+    "STOP: never invent a gate" -> "Say in one line there are no domain gates";
     "Apply every triggered pre-implementation gate" -> "run_field_set {key: extra.gates, value: <the gates that fired>, stage: gates}";
     "run_field_set {key: extra.gates, value: <the gates that fired>, stage: gates}" -> "Any gate failed?";
     "Any gate failed?" -> "run_stage {action: fail, stage: gates, reason}" [label="yes"];
