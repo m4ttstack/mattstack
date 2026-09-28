@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createEscapeInjector } from "../gate-escape.ts";
+import { createEscapeInjector, createPaneStatusProbe } from "../gate-escape.ts";
 import type { LivePane } from "../pane-resolve-live.ts";
 
 const pane = (over: Partial<LivePane>): LivePane => ({
@@ -58,5 +58,16 @@ describe("createEscapeInjector", () => {
     });
     const res = await injector({ paneId: "w1:p2" });
     expect(res.ok).toBe(false);
+  });
+});
+
+describe("createPaneStatusProbe", () => {
+  test("reads the agent status of the pane the hints resolve to", async () => {
+    const probe = createPaneStatusProbe({ snapshot: async () => [pane({ paneRef: "wE2:p8", sessionId: "s-1", agentStatus: "idle" })] });
+    expect(await probe({ paneId: "wE2:p6", sessionId: "s-1" })).toBe("idle");
+  });
+  test("null when no herdr server answers or nothing resolves", async () => {
+    expect(await createPaneStatusProbe({ snapshot: async () => null })({ paneId: "wE2:p8" })).toBeNull();
+    expect(await createPaneStatusProbe({ snapshot: async () => [] })({ paneId: "wE2:p8" })).toBeNull();
   });
 });

@@ -7,7 +7,7 @@ import pino from "pino";
 import { createGatesStore, GATE_BY_PANE, type GatesStore, type GateQuestion } from "../gates-store.ts";
 import { createGatePush, GATE_ANSWERED_PHRASE, GATE_CLOSED_PHRASE, GATE_SUBSCRIPTION_PHRASE, safeSurface } from "../gate-push.ts";
 import { wrapCrossSession } from "../inbox.ts";
-import type { PaneHints } from "../pane-resolve-live.ts";
+import type { LivePane, PaneHints } from "../pane-resolve-live.ts";
 
 const log = pino({ level: "silent" });
 
@@ -207,7 +207,14 @@ describe("gate-push", () => {
   });
 });
 
-function w4Harness(opts: { deliverOk?: boolean; injectOk?: boolean; withInjector?: boolean } = {}) {
+function w4Harness(opts: {
+  deliverOk?: boolean;
+  injectOk?: boolean;
+  withInjector?: boolean;
+  paneStatus?: LivePane["agentStatus"] | null | "throw";
+  withProbe?: boolean;
+  traceProbe?: boolean;
+} = {}) {
   const store = freshStore();
   const events: string[] = [];
   const deliver = async (_socketPath: string, _body: string) => {
@@ -220,14 +227,22 @@ function w4Harness(opts: { deliverOk?: boolean; injectOk?: boolean; withInjector
       ? { ok: false as const, error: "pane_not_found: gone" }
       : { ok: true as const, paneRef: hints.paneId ?? "resolved-via-session" };
   };
+  const probes: PaneHints[] = [];
+  const paneStatus = async (hints: PaneHints) => {
+    probes.push(hints);
+    if (opts.traceProbe) events.push("probe");
+    if (opts.paneStatus === "throw") throw new Error("herdr exploded");
+    return opts.paneStatus === undefined ? ("blocked" as const) : opts.paneStatus;
+  };
   const push = createGatePush({
     store,
     deliver,
     resolveSession: (sessionId) => ({ socketPath: sessionId }),
     log,
     ...(opts.withInjector === false ? {} : { injectEscape }),
+    ...(opts.withProbe === false ? {} : { paneStatus }),
   });
-  return { push, store, events };
+  return { push, store, events, probes };
 }
 
 function answeredFormGate(store: GatesStore, by: string, origin?: Record<string, unknown>, pane: string | null = "pane-7") {
@@ -309,6 +324,52 @@ describe("gate-push escape injection (W4)", () => {
     const { push, store, events } = w4Harness({ withInjector: false });
     await push.onAnswered(answeredFormGate(store, "console"));
     expect(events).toEqual(["deliver"]);
+  });
+
+  test("RT-357: a form gate whose pane sits at an idle prompt gets the doorbell only", async () => {
+    for (const status of ["idle", "done", "working", "unknown"] as const) {
+      const { push, store, events } = w4Harness({ paneStatus: status });
+      await push.onAnswered(answeredFormGate(store, "shepherd"));
+      expect(events, status).toEqual(["deliver"]);
+    }
+  });
+
+  test("the pane is probed before the doorbell, then Escape follows it", async () => {
+    const { push, store, events } = w4Harness({ traceProbe: true });
+    await push.onAnswered(answeredFormGate(store, "console"));
+    expect(events).toEqual(["probe", "deliver", "inject:pane-7"]);
+  });
+
+  test("an unreadable pane, a probe that throws, or no probe wired gets the doorbell only", async () => {
+    for (const opts of [{ paneStatus: null }, { paneStatus: "throw" as const }, { withProbe: false }]) {
+      const { push, store, events } = w4Harness(opts);
+      const row = answeredFormGate(store, "console");
+      await push.onAnswered(row);
+      expect(events, JSON.stringify(opts)).toEqual(["deliver"]);
+      expect(store.get(row.id)!.delivery!.outcome).toBe("delivered");
+    }
+  });
+
+  test("a self-answered or wait gate is never probed", async () => {
+    const self = w4Harness();
+    await self.push.onAnswered(answeredFormGate(self.store, "pane"));
+    expect(self.probes).toEqual([]);
+    const wait = w4Harness();
+    await wait.push.onAnswered(answeredFormGate(wait.store, "console", { presentation: "wait", paneId: "pane-7" }));
+    expect(wait.probes).toEqual([]);
+  });
+
+  test("a closed form gate follows the same rule: idle pane doorbell only, blocked pane doorbell then Escape", async () => {
+    for (const [status, expected] of [["idle", ["deliver"]], ["blocked", ["deliver", "inject:pane-7"]]] as const) {
+      const { push, store, events } = w4Harness({ paneStatus: status });
+      const row = store.open({
+        subject: "mr:https://gitlab.example.com/x/1", kind: "review-post", questions: qs(),
+        nudge: { session: "sess-1" }, pane: "pane-7", origin: { presentation: "form", paneId: "pane-7" },
+      }).row;
+      store.close(row.id, "abandoned");
+      await push.onClosed(store.get(row.id)!);
+      expect(events, status).toEqual([...expected]);
+    }
   });
 });
 
@@ -864,4 +925,5 @@ test("the daemon wires gate-push to the liveness-checked resolvers", () => {
   const wiring = block.slice(0, block.indexOf("});"));
   expect(wiring).toContain("resolveSession: resolveLiveInbox");
   expect(wiring).toContain("resolveAll: resolveAllLiveInboxes");
+  expect(wiring).toContain("paneStatus: createPaneStatusProbe()");
 });

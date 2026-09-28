@@ -28,3 +28,17 @@ export function createEscapeInjector(deps: {
       : { ok: false as const, error: `${res.code}: ${res.message}` };
   };
 }
+
+export type PaneStatusProbe = (hints: PaneHints) => Promise<LivePane["agentStatus"] | null>;
+
+/** The agent status of the pane the hints resolve to, read from a fresh
+    snapshot the same way the injector resolves. Null when no herdr server
+    answers or no pane resolves. */
+export function createPaneStatusProbe(deps: { snapshot?: () => Promise<LivePane[] | null> } = {}): PaneStatusProbe {
+  const snapshot = deps.snapshot ?? snapshotPanes;
+  return async (hints) => {
+    const panes = await snapshot();
+    if (!panes) return null;
+    return resolveLivePane(hints, panes)?.agentStatus ?? null;
+  };
+}
