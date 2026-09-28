@@ -76,7 +76,7 @@ Defended:
 Not defended, stated so nobody assumes otherwise:
 
 - **The agent, or a page steering it, deliberately extracting a value by
-  code.** `browser_run_code_unsafe` runs inside the runtime's own Node
+  code or by driving the page** in ways the readback refusal does not cover. `browser_run_code_unsafe` runs inside the runtime's own Node
   process, and a `vm` context is not a security boundary. Code that escapes
   it could read a value the runtime holds. The design narrows the window (a
   value exists in the runtime only from the fill to the end of that tool
@@ -166,8 +166,10 @@ Changes shipped in one runtime release:
   at load.
 - **Site lock, checked before any value moves.** The runtime first resolves
   the target to one element handle and reads that element's frame origin from
-  the browser's frame URL (never from page JavaScript). It refuses locally,
-  without asking for a value, when:
+  the browser's own record of it (the CDP frame tree's `securityOrigin`),
+  never from page JavaScript and never from the frame URL alone: a sandboxed
+  frame reports its URL but has an opaque (`"null"`) origin. It refuses
+  locally, without asking for a value, when:
   - the frame origin is opaque (`about:blank`, `srcdoc`, `data:`, sandboxed);
   - the call is `browser_type` with `slowly: true` (keystrokes go to whatever
     has focus, which a frame can steal mid-sequence).
@@ -186,8 +188,10 @@ Changes shipped in one runtime release:
   fill and never cached across fills.
 - **Readback refusal.** From a successful saved-login fill until the filled
   frame navigates or the filled element is detached, the runtime refuses
-  `browser_evaluate`, `browser_run_code_unsafe`, `browser_network_request`
-  and `browser_network_requests`. The refusal is tied to the filled document,
+  `browser_evaluate`, `browser_run_code_unsafe`, `browser_network_request`,
+  `browser_network_requests` and `browser_take_screenshot` (a "show
+  password" toggle plus a screenshot would leak pixels no redaction sees;
+  the login page is never evidence). The refusal is tied to the filled document,
   not to an origin, so it needs no list of saved origins and does not block
   an app that hosts its own login on its own origin once the login is done.
 - **Redaction of encoded forms.** Once a value has been filled it joins the
@@ -243,7 +247,9 @@ Changes shipped in one runtime release:
     **Leave uncaptured**. Save runs `rt logins open-add <origin>`, then retries
     the fill every 5 s for up to 2 minutes. An unsaved login fails fast with
     `unknown` and costs no attempt, so polling is safe and each run checks its
-    own runtime.
+    own runtime. If the poll ends still `unknown` (nothing saved, or a
+    different origin saved), the run returns to the same gate, which says no
+    login for this origin arrived.
   - `saved-login-failed`: **Update login** (same flow) / **Log in by hand** /
     **Leave uncaptured**.
   - `login-limited`: says a saved login was tried recently and names when the
@@ -302,8 +308,10 @@ Security tests, each of which must fail when its protection is removed:
   attempt counter unchanged.
 - A late channel reply with a stale `id` is dropped, not used for the next
   request.
-- Readback tools are refused between a fill and the filled frame's
-  navigation, and allowed again after it, including on a same-origin app.
+- Readback tools and screenshots are refused between a fill and the filled
+  frame's navigation, and allowed again after it, including on a
+  same-origin app.
+- A sandboxed iframe loaded from the login's exact URL is refused as opaque.
 - Canary value, seeded with `@`, `&`, `+`, `%` and a space, then a login run:
   the value appears in no raw or encoded form in tool output,
   `~/.fast-browser/output` (traces, sessions, network captures), runtime,
