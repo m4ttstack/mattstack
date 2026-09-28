@@ -18,7 +18,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1176 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1382 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the
@@ -84,6 +84,23 @@ digraph review_flow {
     "Load the named writing-style skill (review)" [shape=box];
     "Load the preferences.md style, else conversational (review)" [shape=box];
     "Which entry (review writing style)?" [shape=diamond];
+    "mr_view {mrUrl} (review)" [shape=plaintext];
+    "mr_view result (review)?" [shape=diamond];
+    "STOP: MR reads go through mr_view (review)" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Fixed the mr_view call once already (review)?" [shape=diamond];
+    "Fix what the mr_view error names (review)" [shape=box];
+    "review off-script gate: mr_view refused" [shape=box];
+    "Off-script outcome (mr_view, review)?" [shape=diamond];
+    "Off-script rounds = 2 (mr_view, review)?" [shape=diamond];
+    "--re-review given (thread read)?" [shape=diamond];
+    "mr_threads {mrUrl, refresh: true} (re-review)" [shape=plaintext];
+    "mr_threads result (re-review)?" [shape=diamond];
+    "STOP: threads are read with mr_threads (review)" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Fixed the re-review mr_threads call once already?" [shape=diamond];
+    "Fix what the re-review mr_threads error names" [shape=box];
+    "review off-script gate: mr_threads refused (re-review)" [shape=box];
+    "Off-script outcome (re-review mr_threads)?" [shape=diamond];
+    "Off-script rounds = 2 (re-review mr_threads)?" [shape=diamond];
     "Review the MR yourself" [shape=box];
     "Generic review result?" [shape=diamond];
     "Write the review report to --report" [shape=box];
@@ -105,6 +122,16 @@ digraph review_flow {
     "Hand the answer to the domain skill to post" [shape=box];
     "Domain posting result (review)?" [shape=diamond];
     "Writing style loaded (review act)?" [shape=diamond];
+    "Resumed pane (review posting)?" [shape=diamond];
+    "mr_threads {mrUrl, refresh: true} (review posted already)" [shape=plaintext];
+    "mr_threads result (review posted already)?" [shape=diamond];
+    "STOP: the Posted already read goes through mr_threads (review)" [shape=octagon style=filled fillcolor=red fontcolor=white];
+    "Fixed the posted-already mr_threads call once already (review)?" [shape=diamond];
+    "Fix what the posted-already mr_threads error names (review)" [shape=box];
+    "Mark the findings and summary already posted" [shape=box];
+    "review off-script gate: mr_threads refused (posted already)" [shape=box];
+    "Off-script outcome (review posted-already mr_threads)?" [shape=diamond];
+    "Off-script rounds = 2 (review posted-already mr_threads)?" [shape=diamond];
     "Findings left to post (review)?" [shape=diamond];
     "Anchored to a diff line (this finding)?" [shape=diamond];
     "mr_comment_inline {mrUrl, body, path, line}" [shape=plaintext];
@@ -187,11 +214,47 @@ digraph review_flow {
     "rt_verb named a style skill (review)?" -> "Load the preferences.md style, else conversational (review)" [label="no: refused, failed or unavailable"];
     "Load the named writing-style skill (review)" -> "Which entry (review writing style)?";
     "Load the preferences.md style, else conversational (review)" -> "Which entry (review writing style)?";
-    "Which entry (review writing style)?" -> "Review the MR yourself" [label="fresh review"];
-    "Which entry (review writing style)?" -> "Findings left to post (review)?" [label="posting the answer"];
+    "Which entry (review writing style)?" -> "mr_view {mrUrl} (review)" [label="fresh review"];
+    "Which entry (review writing style)?" -> "Resumed pane (review posting)?" [label="posting the answer"];
+    "mr_view {mrUrl} (review)" -> "mr_view result (review)?";
+    "mr_view result (review)?" -> "--re-review given (thread read)?" [label="ok: keep title, description, branches"];
+    "mr_view result (review)?" -> "Fixed the mr_view call once already (review)?" [label="tool error"];
+    "mr_view result (review)?" -> "STOP: MR reads go through mr_view (review)" [label="tempted to read the MR with the GitLab CLI or the API"];
+    "STOP: MR reads go through mr_view (review)" -> "Fixed the mr_view call once already (review)?";
+    "Fixed the mr_view call once already (review)?" -> "Fix what the mr_view error names (review)" [label="no"];
+    "Fixed the mr_view call once already (review)?" -> "review off-script gate: mr_view refused" [label="yes"];
+    "Fix what the mr_view error names (review)" -> "mr_view {mrUrl} (review)";
+    "review off-script gate: mr_view refused" -> "Off-script outcome (mr_view, review)?";
+    "Off-script outcome (mr_view, review)?" -> "--re-review given (thread read)?" [label="take: the human gave the branches in the note"];
+    "Off-script outcome (mr_view, review)?" -> "Off-script rounds = 2 (mr_view, review)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (mr_view, review)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (mr_view, review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
+    "Off-script outcome (mr_view, review)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (mr_view, review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
+    "Off-script rounds = 2 (mr_view, review)?" -> "mr_view {mrUrl} (review)" [label="no: read again"];
+    "Off-script rounds = 2 (mr_view, review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
+    "--re-review given (thread read)?" -> "mr_threads {mrUrl, refresh: true} (re-review)" [label="yes"];
+    "--re-review given (thread read)?" -> "Review the MR yourself" [label="no"];
+    "mr_threads {mrUrl, refresh: true} (re-review)" -> "mr_threads result (re-review)?";
+    "mr_threads result (re-review)?" -> "Review the MR yourself" [label="ok"];
+    "mr_threads result (re-review)?" -> "Fixed the re-review mr_threads call once already?" [label="tool error"];
+    "mr_threads result (re-review)?" -> "STOP: threads are read with mr_threads (review)" [label="tempted to read them with the GitLab CLI or the API"];
+    "STOP: threads are read with mr_threads (review)" -> "Fixed the re-review mr_threads call once already?";
+    "Fixed the re-review mr_threads call once already?" -> "Fix what the re-review mr_threads error names" [label="no"];
+    "Fixed the re-review mr_threads call once already?" -> "review off-script gate: mr_threads refused (re-review)" [label="yes"];
+    "Fix what the re-review mr_threads error names" -> "mr_threads {mrUrl, refresh: true} (re-review)";
+    "review off-script gate: mr_threads refused (re-review)" -> "Off-script outcome (re-review mr_threads)?";
+    "Off-script outcome (re-review mr_threads)?" -> "Review the MR yourself" [label="take: a full review without the thread history"];
+    "Off-script outcome (re-review mr_threads)?" -> "Off-script rounds = 2 (re-review mr_threads)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (re-review mr_threads)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (re-review mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back"];
+    "Off-script outcome (re-review mr_threads)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (re-review mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
+    "Off-script rounds = 2 (re-review mr_threads)?" -> "mr_threads {mrUrl, refresh: true} (re-review)" [label="no: read again"];
+    "Off-script rounds = 2 (re-review mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
     "Review the MR yourself" -> "Generic review result?";
     "Generic review result?" -> "Write the review report to --report" [label="findings produced"];
-    "Generic review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR link, mr_view refused, diff unreadable"];
+    "Generic review result?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed: bad MR link or diff unreadable"];
     "Write the review report to --report" -> "Fitted review-post open file handed back?";
 
     "Fitted review-post open file handed back?" -> "${CLAUDE_SKILL_DIR}/scripts/open-gate.sh <status-bin> <state> review-post <open-file>" [label="yes"];
@@ -218,8 +281,28 @@ digraph review_flow {
     "Hand the answer to the domain skill to post" -> "Domain posting result (review)?";
     "Domain posting result (review)?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="posted"];
     "Domain posting result (review)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="failed"];
-    "Writing style loaded (review act)?" -> "Findings left to post (review)?" [label="yes"];
+    "Writing style loaded (review act)?" -> "Resumed pane (review posting)?" [label="yes"];
     "Writing style loaded (review act)?" -> "rt_verb {args: [skills, writing-style, show]} (review)" [label="no: a resumed pane"];
+    "Resumed pane (review posting)?" -> "mr_threads {mrUrl, refresh: true} (review posted already)" [label="yes"];
+    "Resumed pane (review posting)?" -> "Findings left to post (review)?" [label="no: this pane opened the gate"];
+    "mr_threads {mrUrl, refresh: true} (review posted already)" -> "mr_threads result (review posted already)?";
+    "mr_threads result (review posted already)?" -> "Mark the findings and summary already posted" [label="ok"];
+    "mr_threads result (review posted already)?" -> "Fixed the posted-already mr_threads call once already (review)?" [label="tool error"];
+    "mr_threads result (review posted already)?" -> "STOP: the Posted already read goes through mr_threads (review)" [label="tempted to skip the read and post anyway"];
+    "STOP: the Posted already read goes through mr_threads (review)" -> "Fixed the posted-already mr_threads call once already (review)?";
+    "Fixed the posted-already mr_threads call once already (review)?" -> "Fix what the posted-already mr_threads error names (review)" [label="no"];
+    "Fixed the posted-already mr_threads call once already (review)?" -> "review off-script gate: mr_threads refused (posted already)" [label="yes"];
+    "Fix what the posted-already mr_threads error names (review)" -> "mr_threads {mrUrl, refresh: true} (review posted already)";
+    "Mark the findings and summary already posted" -> "Findings left to post (review)?";
+    "review off-script gate: mr_threads refused (posted already)" -> "Off-script outcome (review posted-already mr_threads)?";
+    "Off-script outcome (review posted-already mr_threads)?" -> "Mark the findings and summary already posted" [label="take: the human names what is already up"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "Off-script rounds = 2 (review posted-already mr_threads)?" [label="iterate: the cause is fixed"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "Held at a review off-script gate: the pane stays" [label="hold"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="hand back: nothing posts unchecked"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "Review gate gone: ended cleanly, no status write" [label="gate gone"];
+    "Off-script outcome (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="gate unavailable"];
+    "Off-script rounds = 2 (review posted-already mr_threads)?" -> "mr_threads {mrUrl, refresh: true} (review posted already)" [label="no: read again"];
+    "Off-script rounds = 2 (review posted-already mr_threads)?" -> "<status-bin> review-status <state> error <what went wrong>" [label="yes: the refusals are the reason"];
     "Findings left to post (review)?" -> "Anchored to a diff line (this finding)?" [label="yes"];
     "Findings left to post (review)?" -> "Summary note carries findings?" [label="no"];
     "Anchored to a diff line (this finding)?" -> "mr_comment_inline {mrUrl, body, path, line}" [label="yes"];
@@ -233,7 +316,7 @@ digraph review_flow {
     "Fixed the mr_comment_inline call once already?" -> "Fix what the mr_comment_inline error names" [label="no"];
     "Fixed the mr_comment_inline call once already?" -> "review off-script gate: mr_comment_inline refused" [label="yes"];
     "Fix what the mr_comment_inline error names" -> "mr_comment_inline {mrUrl, body, path, line}";
-    "Summary note carries findings?" -> "mr_comment {mrUrl, body}" [label="yes"];
+    "Summary note carries findings?" -> "mr_comment {mrUrl, body}" [label="yes, not already posted"];
     "Summary note carries findings?" -> "Outcome is approve?" [label="no"];
     "mr_comment {mrUrl, body}" -> "mr_comment result?";
     "mr_comment result?" -> "Outcome is approve?" [label="posted"];
@@ -246,7 +329,7 @@ digraph review_flow {
     "Outcome is approve?" -> "mr_approve {mrUrl}" [label="yes"];
     "Outcome is approve?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="no: comment"];
     "mr_approve {mrUrl}" -> "mr_approve result?";
-    "mr_approve result?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="approved"];
+    "mr_approve result?" -> "<status-bin> review-status <state> done <summary> --outcome <comment|approve>" [label="approved, or already approved by this account"];
     "mr_approve result?" -> "Fixed the mr_approve call once already?" [label="tool error"];
     "mr_approve result?" -> "STOP: the approval goes through mr_approve" [label="tempted to approve with the GitLab CLI or the API"];
     "STOP: the approval goes through mr_approve" -> "mr_approve {mrUrl}";
@@ -303,8 +386,10 @@ What the graph cannot show:
   lives in the rt daemon's registry, and a fresh open mints a new `gateId`
   and orphans the answer recorded against the old one. Once the answer is
   read, `Read <--report> and its json sibling (resumed review)` loads the
-  findings it picked before anything posts, and an off-script gate at a
-  posting refusal opens normally. This
+  findings it picked before anything posts, the Posted already read
+  (`Mark the findings and summary already posted` on the generic path, the
+  domain skill's own otherwise) drops what an earlier pane already put up,
+  and an off-script gate at a read or posting refusal opens normally. This
   invocation supersedes any earlier gate contract remembered in the
   conversation.
 - **What a resumed pane carries.** From the resumed wait: `answers`, `by`
@@ -320,7 +405,8 @@ What the graph cannot show:
   the json sibling, verbatim. The same string keys the finding in the json,
   so a picked value joins its finding with no renumbering.
 - **Posting.** On the generic path, `Findings left to post (review)?`
-  walks the picked findings in gate order. On the per-finding path they
+  walks the picked findings in gate order, skipping every finding `Mark
+  the findings and summary already posted` marked. On the per-finding path they
   are the union of every `findings-N` answer array; on the tier fallback,
   every finding in the report whose tier the `tiers` answer picked; on a
   clean review, none. An explicit empty array posts nothing from that
@@ -330,14 +416,20 @@ What the graph cannot show:
   for a line the diff removed, add `oldPath` and `oldLine` as well. The daemon re-fetches the diff refs itself, so no sha is
   needed. Every comment body is written in the loaded voice: the tier and
   title, what to change, and the anchor. The summary note posts once,
-  after every anchored finding, and only when it carries findings.
-  `mr_approve` runs only when the outcome is `approve`, after the
-  findings. Read each answer's `value` (an answer may be a `{value, note}`
-  object); a note is the human's steer on the wording of what posts. No
-  finding posts twice.
+  after every anchored finding, and only when it carries findings and is
+  not already posted. `mr_approve` runs only when the outcome is
+  `approve`, after the findings; approval has no read, so a resumed pane
+  approves again, and a refusal saying this account already approved
+  counts as approved. Read each answer's `value` (an answer may be a
+  `{value, note}` object); a note is the human's steer on the wording of
+  what posts. No finding posts twice: a resumed pane reads what is already
+  up with `mr_threads {mrUrl, refresh: true} (review posted already)`
+  before anything posts.
 - **Budgets.** `Fixed the mr_comment_inline call once already?` counts per
-  finding; the `mr_comment` and `mr_approve` counters count for the whole
-  run. None resets after an off-script iterate: a refusal after an iterate
+  finding; the `mr_comment` and `mr_approve` counters, and the three read
+  counters (`mr_view`, the re-review `mr_threads` and the posted-already
+  `mr_threads`), count for the whole run. None resets after an off-script
+  iterate: a refusal after an iterate
   goes straight back to that origin's off-script gate, and its
   `Off-script rounds = 2 (...)?` counter (per finding for
   `mr_comment_inline`) bounds the loop. `Resumed wait failures = 3
@@ -347,8 +439,9 @@ What the graph cannot show:
   the report's summary line, e.g. `"2 issues: 1 critical, 1 minor"` or
   `"looks solid"`, and `--outcome` is the human's pick. `error` names what
   went wrong specifically: the bad MR link, the mismatched MR and ticket,
-  the fetch failure, the failed domain skill, the refused tool with its
-  error and what already posted, or the resumed wait's third failure. Gate
+  the fetch failure, the failed domain skill, the refused read or post
+  tool with its error and what already posted, or the resumed wait's
+  third failure. Gate
   gone writes no status: say so in the pane and stop, since whatever
   superseded the gate (a re-review relaunch, a fresh pane) already owns
   this MR's board state.
@@ -456,17 +549,20 @@ off-script origin.
 
 ### Review the MR yourself
 
-The generic path, in the loaded voice. Read the MR record with `mr_view
-{mrUrl}` for its title, description, source and target branches. Read the
-diff in the checkout this pane runs in (the board's configured review
-checkout): fetch both branches from `origin`, then read the diff of the
-target branch to the source branch with read-only git. A failed read is
-never a reason to read with the GitLab CLI or the API.
+The generic path, in the loaded voice. The MR record is already read:
+`mr_view {mrUrl} (review)` gave its title, description, source and target
+branches, or after that read's off-script take, the human's note gave the
+branches. Under `--re-review` the threads are already read too, at
+`mr_threads {mrUrl, refresh: true} (re-review)`. Read the diff in the
+checkout this pane runs in (the board's configured review checkout): fetch
+both branches from `origin`, then read the diff of the target branch to
+the source branch with read-only git. A failed read is never a reason to
+read with the GitLab CLI or the API.
 
-`Generic review result?` answers failed when the MR link is bad,
-`mr_view` refuses, or the diff cannot be read, and the review writes
-`error` naming which. A source branch this checkout's `origin` cannot
-reach (an MR from another project, or from a fork) is a failed read.
+`Generic review result?` answers failed when the MR link is bad or the
+diff cannot be read, and the review writes `error` naming which. A source
+branch this checkout's `origin` cannot reach (an MR from another project,
+or from a fork) is a failed read.
 
 Read the diff critically and produce findings. Each finding has:
 
@@ -479,14 +575,16 @@ Honor the operator note (for example "focus on the migration files", "skip
 the vendored code").
 
 Under `--re-review`, frame the review as "Re-review mode" says: check the
-MR's discussions and new commits since the last review against the prior
-review. **Author acted:** re-review focused on that: for each prior
-comment, was it adequately addressed? Are the new changes sound? Note
-anything still open. **No action found** (no threads addressed, no
+threads already read and the new commits since the last review against
+the prior review. **Author acted:** re-review focused on that: for each
+prior comment, was it adequately addressed? Are the new changes sound?
+Note anything still open. **No action found** (no threads addressed, no
 relevant new changes since the last review): say so explicitly in the
 report's summary line, e.g. `"no author action found since last review"`,
 and fall back to a normal full review of the whole MR so the pass is still
-useful.
+useful. **No thread history** (the re-review read's off-script take): a
+full review of the whole MR, its summary line saying the threads could
+not be read, e.g. `"threads unreadable; full review"`.
 
 ### Write the review report to --report
 
@@ -600,9 +698,12 @@ path, so it executes the posting:
   post.
 - **Tier fallback:** `{tiers, outcome}`.
 
-Pass each answer's notes along with it. The domain skill posts through the
-mr_* tools and hands back what posted; a failure it reports is `error`
-with its message.
+Pass each answer's notes along with it. On a resumed pane
+(`--resumed-gate` given), tell the domain skill the pass is a resume, so
+it runs its own Posted already read before anything posts and hands back
+what it found already up. The domain skill posts through the mr_* tools
+and hands back what posted, the findings it found already up included; a
+failure it reports is `error` with its message.
 
 ### Add the finding to the summary note
 
@@ -611,6 +712,52 @@ the json's `fileLabel`, or `file` alone). It posts in the review's summary
 comment instead of an inline thread. Add it to the summary note: its tier
 and title, what to change, and its `fileLabel` or `file` when it has one.
 The note posts once, with `mr_comment`, after the last anchored finding.
+
+### Fix what the mr_view error names (review)
+
+`mr_view` refused. Correct what the error names: `mrUrl` the MR's https
+URL, `.../-/merge_requests/<iid>`, whose project is registered with rt.
+An error that names no input (the daemon down, a GitLab fetch failure)
+has nothing to correct: read again unchanged, once, and the off-script
+gate follows. An error is never a reason to read the MR with the GitLab
+CLI or the API.
+
+### Fix what the re-review mr_threads error names
+
+`mr_threads` refused the re-review read. Correct what the error names:
+`mrUrl` the MR's https URL, whose project is registered with rt;
+`refresh` a boolean. An error that names no input has nothing to correct:
+read again unchanged, once, and the off-script gate follows. An error is
+never a reason to read the threads with the GitLab CLI or the API.
+
+### Fix what the posted-already mr_threads error names (review)
+
+`mr_threads` refused the Posted already read. Correct what the error
+names: `mrUrl` the MR's https URL, whose project is registered with rt;
+`refresh` a boolean. An error that names no input (the daemon down, a
+GitLab fetch failure) has nothing to correct: read again unchanged, once,
+and the off-script gate follows. An error is never a reason to skip the
+read and post anyway: a finding posted twice is what this read prevents.
+
+### Mark the findings and summary already posted
+
+The Posted already rule, on a resumed pane (`--resumed-gate` given) before
+anything posts. An earlier pane may have posted part of this answer before
+it died, so read what is up in the `mr_threads` result, each thread's full
+note chain, against the picked findings. A note counts only when the
+account this pane posts as wrote it after the verdict's `answeredAt`
+(from the resumed wait):
+
+- a picked finding is posted when a thread carries such a note whose body
+  is the finding's comment (its tier and title) or that sits at the
+  finding's `path:line`;
+- the summary is posted when such a top-level note carries the summary.
+
+`Findings left to post (review)?` skips every finding marked posted, and
+`Summary note carries findings?` answers no when the summary is. They
+count as posted in the `done` summary. One read covers every finding and
+the summary. After an off-script take, what the human names is the list.
+Approval has no read: `mr_approve` runs again.
 
 ### Fix what the mr_comment_inline error names
 
@@ -638,8 +785,67 @@ reason to post with the GitLab CLI or the API.
 URL, whose project is registered with rt. A refusal about the approval
 itself (the token's user may not approve this MR) has nothing to correct
 in the call: approve again unchanged, once, and the off-script gate
-follows. An error is never a reason to approve with the GitLab CLI or the
-API.
+follows. A refusal saying this account already approved is not an error:
+it counts as approved. An error is never a reason to approve with the
+GitLab CLI or the API.
+
+### review off-script gate: mr_view refused
+
+Take "Off-script step" with this question. Label: `mr_view refused twice
+on !<iid>: <second error>`. Context: both `mr_view` errors, quoted, with
+the MR url.
+
+| Value | Label | Description |
+|---|---|---|
+| `take: you give the source and target branches in a note (mr_view refused)` | Give the branches | You name both branches in a note and I review the diff between them. |
+| `iterate: you fixed the cause, read the MR again (mr_view refused)` | Fixed it, read again | You fixed what refused the read and I read the MR again. |
+| `hold: keep this pane open with the review not started (mr_view refused)` | Hold this pane | I stop here before reviewing anything and the pane stays open. |
+| `hand back: write an error naming the refusal, nothing reviewed (mr_view refused)` | Hand it back | I write an error naming the refusal and you take over. |
+
+A take reads the source and target branches from the answer's note and
+continues without the title and description; a take with no branches in
+its note is a hand back. Iterate passes `Off-script rounds = 2 (mr_view,
+review)?` before reading again. Hand back, gate unavailable and a spent
+round budget write `error` naming the refusal.
+
+### review off-script gate: mr_threads refused (re-review)
+
+Take "Off-script step" with this question. Label: `mr_threads refused
+twice on the re-review read for !<iid>: <second error>`. Context: both
+`mr_threads` errors, quoted, and whether a prior review was found at
+`--report`.
+
+| Value | Label | Description |
+|---|---|---|
+| `take: review the whole MR without the thread history, saying so in the summary (mr_threads refused on the re-review read)` | Full review instead | I review the whole MR without the threads and the summary says so. |
+| `iterate: you fixed the cause, read the threads again (mr_threads refused on the re-review read)` | Fixed it, read again | You fixed what refused the read and I read the threads again. |
+| `hold: keep this pane open with the re-review not started (mr_threads refused on the re-review read)` | Hold this pane | I stop here before reviewing anything and the pane stays open. |
+| `hand back: write an error naming the refusal, nothing reviewed (mr_threads refused on the re-review read)` | Hand it back | I write an error naming the refusal and you take over. |
+
+A take continues at `Review the MR yourself` as a full review with no
+thread history. Iterate passes `Off-script rounds = 2 (re-review
+mr_threads)?` before reading again. Hand back, gate unavailable and a
+spent round budget write `error` naming the refusal.
+
+### review off-script gate: mr_threads refused (posted already)
+
+Take "Off-script step" with this question. Label: `mr_threads refused
+twice on the Posted already read for !<iid>: <second error>`. Context:
+both `mr_threads` errors, quoted, and the picked findings' ids and anchors
+this pass could post.
+
+| Value | Label | Description |
+|---|---|---|
+| `take: you name the findings and summary already posted (mr_threads refused on the Posted already read)` | Name what is posted | You name what is already up and I post only the rest. |
+| `iterate: you fixed the cause, read the threads again (mr_threads refused on the Posted already read)` | Fixed it, read again | You fixed what refused the read and I read the threads again. |
+| `hold: keep this pane open with nothing posted (mr_threads refused on the Posted already read)` | Hold this pane | I stop before posting anything and the pane stays open. |
+| `hand back: write an error naming the refusal, nothing posted (mr_threads refused on the Posted already read)` | Hand it back | I write an error naming the refusal and post nothing. |
+
+A take marks exactly what the human names in the note as posted already.
+Iterate passes `Off-script rounds = 2 (review posted-already mr_threads)?`
+before reading again. Hand back,
+gate unavailable and a spent round budget write `error` naming the
+refusal; nothing posts unchecked.
 
 ### review off-script gate: mr_comment_inline refused
 
@@ -1143,8 +1349,8 @@ before anything else.
    carry on with the re-review framing anyway, since a human may have
    reviewed outside the board.
 2. **Check whether the author actually acted.** Look at the MR's
-   discussions (`mr_threads {mrUrl}`) and new commits since the last
-   review. Did the author address the prior feedback?
+   discussions (read at `mr_threads {mrUrl, refresh: true} (re-review)`)
+   and new commits since the last review. Did the author address the prior feedback?
 3. **Branch.** Author acted: re-review focused on that. No action found:
    say so explicitly in the report's summary line and fall back to a
    normal full review. `Review the MR yourself` carries both branches.
