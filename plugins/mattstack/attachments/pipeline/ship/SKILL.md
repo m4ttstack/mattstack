@@ -143,6 +143,10 @@ digraph ship {
     "git status --porcelain; git log --oneline @{upstream}.. or -5" [shape=plaintext];
     "ship gate ship" [shape=box];
     "ship answer (ship)?" [shape=diamond];
+    "Ship gate rounds = 2 (ship)?" [shape=diamond];
+    "Ship gate reopenings = 2 (ship)?" [shape=diamond];
+    "Rebase in progress (ship gate budget spent)?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [shape=plaintext];
     "dirty answer (ship)?" [shape=diamond];
     "Commit named files (ship)" [shape=box];
     "Stash them; nothing in this verb pops it" [shape=box];
@@ -163,6 +167,8 @@ digraph ship {
     "git remote get-url origin (ship)" [shape=plaintext];
     "Forge host (ship, before git_push)?" [shape=diamond];
     "ship gate clarify: which forge?" [shape=box];
+    "Forge clarify answer (ship)?" [shape=diamond];
+    "Forge clarify rounds = 2 (ship)?" [shape=diamond];
     "mr_for_branch {repoName: <root>, branches: [<branch>]} (before git_push)" [shape=plaintext];
     "Open MR on the branch (before git_push)?" [shape=diamond];
     "Push moves the MR's head (ship)?" [shape=diamond];
@@ -178,6 +184,8 @@ digraph ship {
     "ship off-script answer (git_push)?" [shape=diamond];
     "Confirm the human's push landed (ship)" [shape=box];
     "Push landed (ship)?" [shape=diamond];
+    "Push off-script rounds = 2 (ship)?" [shape=diamond];
+    "Landing checks = 2 (ship)?" [shape=diamond];
 
     "Forge host (ship, open the MR)?" [shape=diamond];
     "mr_for_branch {repoName: <root>, branches: [<branch>]} (after git_push)" [shape=plaintext];
@@ -224,6 +232,7 @@ digraph ship {
     "MR still a draft (ship)?" [shape=diamond];
     "ship gate mark-ready" [shape=box];
     "mark-ready answer (ship)?" [shape=diamond];
+    "Mark-ready rounds = 2 (ship)?" [shape=diamond];
     "Forge host (ship, mark-ready)?" [shape=diamond];
     "mr_ready {repoName: <root>, iid}" [shape=plaintext];
     "gh pr ready <number>" [shape=plaintext];
@@ -257,7 +266,12 @@ digraph ship {
     "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "ship gate ship";
     "ship gate ship" -> "ship answer (ship)?";
     "ship answer (ship)?" -> "dirty answer (ship)?" [label="proceed"];
-    "ship answer (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="iterate: redo with their note"];
+    "ship answer (ship)?" -> "Ship gate rounds = 2 (ship)?" [label="iterate: redo with their note"];
+    "Ship gate rounds = 2 (ship)?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
+    "Ship gate rounds = 2 (ship)?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
+    "Rebase in progress (ship gate budget spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [label="yes"];
+    "Rebase in progress (ship gate budget spent)?" -> "Which exit is this (ship)?" [label="no: a failure, what was quoted is the reason"];
+    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" -> "Which exit is this (ship)?" [label="a failure, what was quoted is the reason"];
     "ship answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
     "ship answer (ship)?" -> "Rebase in progress (ship abort)?" [label="dirty = abort: nothing is pushed"];
     "Rebase in progress (ship abort)?" -> "git_rebase {tree: <root>, abort: true}" [label="yes"];
@@ -272,7 +286,7 @@ digraph ship {
     "Checks pass (ship)?" -> "Domain rebases, and no rebase finished this pass (ship)?" [label="yes"];
     "Checks pass (ship)?" -> "Fix rounds = 3 (ship)?" [label="no"];
     "Fix rounds = 3 (ship)?" -> "Fix test-first, commit, rerun (ship)" [label="no"];
-    "Fix rounds = 3 (ship)?" -> "ship gate ship" [label="yes: reopen, failing output quoted"];
+    "Fix rounds = 3 (ship)?" -> "Ship gate reopenings = 2 (ship)?" [label="yes: reopen, failing output quoted"];
     "Fix test-first, commit, rerun (ship)" -> "Run the domain's fast checks (none when unbound)";
     "Domain rebases, and no rebase finished this pass (ship)?" -> "git_rebase {tree: <root>, onto: origin/<default>}" [label="yes"];
     "Domain rebases, and no rebase finished this pass (ship)?" -> "git remote get-url origin (ship)" [label="no"];
@@ -281,7 +295,9 @@ digraph ship {
     "Rebase status (ship)?" -> "Conflict rounds = 3 (ship)?" [label="conflict"];
     "Rebase status (ship)?" -> "Which exit is this (ship)?" [label="any other error: a failure, quoted as the reason"];
     "Conflict rounds = 3 (ship)?" -> "Resolve the files, then git rebase --continue on Bash (ship)" [label="no"];
-    "Conflict rounds = 3 (ship)?" -> "ship gate ship" [label="yes: reopen, conflicted files quoted"];
+    "Conflict rounds = 3 (ship)?" -> "Ship gate reopenings = 2 (ship)?" [label="yes: reopen, conflicted files quoted"];
+    "Ship gate reopenings = 2 (ship)?" -> "ship gate ship" [label="no: reopen with what was quoted"];
+    "Ship gate reopenings = 2 (ship)?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, the failing output or conflicted files quoted"];
     "Resolve the files, then git rebase --continue on Bash (ship)" -> "Continue result (ship)?";
     "Continue result (ship)?" -> "Conflict rounds = 3 (ship)?" [label="another commit conflicted"];
     "Continue result (ship)?" -> "Run the domain's fast checks (none when unbound)" [label="rebase finished"];
@@ -291,8 +307,13 @@ digraph ship {
     "git remote get-url origin (ship)" -> "Forge host (ship, before git_push)?";
     "Forge host (ship, before git_push)?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]} (before git_push)" [label="GitLab"];
     "Forge host (ship, before git_push)?" -> "Push needs force-with-lease (ship)?" [label="GitHub"];
-    "Forge host (ship, before git_push)?" -> "ship gate clarify: which forge?" [label="anything else"];
-    "ship gate clarify: which forge?" -> "Forge host (ship, before git_push)?" [label="answered: the named forge"];
+    "Forge host (ship, before git_push)?" -> "Forge clarify rounds = 2 (ship)?" [label="anything else"];
+    "Forge clarify rounds = 2 (ship)?" -> "ship gate clarify: which forge?" [label="no: ask which forge"];
+    "Forge clarify rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the origin URL and their answer quoted"];
+    "ship gate clarify: which forge?" -> "Forge clarify answer (ship)?";
+    "Forge clarify answer (ship)?" -> "Forge host (ship, before git_push)?" [label="answered: GitLab or GitHub, the host from here on"];
+    "Forge clarify answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
+    "Forge clarify answer (ship)?" -> "Which exit is this (ship)?" [label="hand back: a failure, no forge this verb knows"];
     "mr_for_branch {repoName: <root>, branches: [<branch>]} (before git_push)" -> "Open MR on the branch (before git_push)?";
     "Open MR on the branch (before git_push)?" -> "Push moves the MR's head (ship)?" [label="yes"];
     "Push moves the MR's head (ship)?" -> "mr_pipeline {repoName, iid} (the prior pipeline id, ship)" [label="yes: HEAD differs"];
@@ -312,13 +333,16 @@ digraph ship {
     "STOP: push only with git_push (ship)" -> "ship off-script gate: git_push refused";
     "ship off-script gate: git_push refused" -> "ship off-script answer (git_push)?";
     "ship off-script answer (git_push)?" -> "Confirm the human's push landed (ship)" [label="take: the human pushed"];
-    "ship off-script answer (git_push)?" -> "Push needs force-with-lease (ship)?" [label="take: registration fixed, retry"];
     "ship off-script answer (git_push)?" -> "Which exit is this (ship)?" [label="hand back: a failure, the refusal is the reason"];
     "ship off-script answer (git_push)?" -> "Which exit is this (ship)?" [label="hold"];
-    "ship off-script answer (git_push)?" -> "ship off-script gate: git_push refused" [label="iterate: a new gate with their note"];
+    "ship off-script answer (git_push)?" -> "Push off-script rounds = 2 (ship)?" [label="iterate: the human fixed the cause, retry the push"];
+    "Push off-script rounds = 2 (ship)?" -> "Push needs force-with-lease (ship)?" [label="no: retry the push"];
+    "Push off-script rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the push refusal quoted"];
     "Confirm the human's push landed (ship)" -> "Push landed (ship)?";
     "Push landed (ship)?" -> "Forge host (ship, open the MR)?" [label="yes: the remote branch carries HEAD"];
-    "Push landed (ship)?" -> "ship off-script gate: git_push refused" [label="no: reopen with what the comparison showed"];
+    "Push landed (ship)?" -> "Landing checks = 2 (ship)?" [label="no"];
+    "Landing checks = 2 (ship)?" -> "ship off-script gate: git_push refused" [label="no: reopen with what the comparison showed"];
+    "Landing checks = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: a failure, the comparison quoted"];
 
     "Forge host (ship, open the MR)?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]} (after git_push)" [label="GitLab"];
     "Forge host (ship, open the MR)?" -> "gh pr create --fill --base <default>, --draft unless the gate said ready" [label="GitHub"];
@@ -401,7 +425,9 @@ digraph ship {
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="keep it draft: done"];
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="go back (inherited run only)"];
     "mark-ready answer (ship)?" -> "Which exit is this (ship)?" [label="hold"];
-    "mark-ready answer (ship)?" -> "ship gate mark-ready" [label="iterate: a new gate with their note"];
+    "mark-ready answer (ship)?" -> "Mark-ready rounds = 2 (ship)?" [label="iterate: a new gate with their note"];
+    "Mark-ready rounds = 2 (ship)?" -> "ship gate mark-ready" [label="no: a new gate with their note"];
+    "Mark-ready rounds = 2 (ship)?" -> "Which exit is this (ship)?" [label="yes: done, the MR stays a draft, their last note quoted"];
     "Forge host (ship, mark-ready)?" -> "mr_ready {repoName: <root>, iid}" [label="GitLab"];
     "Forge host (ship, mark-ready)?" -> "gh pr ready <number>" [label="GitHub"];
     "mr_ready {repoName: <root>, iid}" -> "Which exit is this (ship)?";
@@ -444,6 +470,21 @@ so, and Abort aborts that rebase first.
 
 Scope `ship`. Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|hold","note":"<their words or null>"}`.
 Abort and Hold push nothing.
+`Ship gate rounds = 2 (ship)?` counts Iterate answers at this gate within
+this pass through the verb, this one included: the first Iterate redoes
+the steps before the gate with the note, and the second fails the verb
+with the note quoted instead of redoing them. When a rebase is in
+progress, the failure aborts it first. A reopening after the fix or
+conflict rounds are spent is not an Iterate and does not count.
+
+`Ship gate reopenings = 2 (ship)?` counts the times the fix or conflict
+rounds run out and reopen this gate within this pass through the verb,
+this one included: the first reopens the gate with the failing output or
+conflicted files quoted, and the second fails the verb with them quoted,
+aborting a rebase in progress first. The fix and conflict rounds carry
+over a reopen: the reopened gate is the human's turn to fix it, so a
+Proceed whose checks still fail reaches this counter again without new
+fix rounds.
 
 ### Commit named files (ship)
 
@@ -481,7 +522,15 @@ like a clean one.
 ### ship gate clarify: which forge?
 
 The origin host is neither GitLab nor GitHub. Ask which forge it is, quoting
-the `git remote get-url origin` line as the context.
+the `git remote get-url origin` line as the context. Options: **GitLab** /
+**GitHub** / **Hand back**, and `next`: **Proceed** / **Hold**.
+`Forge clarify rounds = 2 (ship)?` counts the times the host reads as
+neither within this pass through the verb, this one included: the first
+asks, and the second fails the verb with the origin URL and the answer
+quoted. The named forge stands for the host from here on: this diamond
+and every later forge diamond read the answer, never the origin URL
+again, so the counter trips only when the answer names no forge this
+verb knows.
 
 ### ship off-script gate: git_push refused
 
@@ -490,10 +539,20 @@ attempt), `context` quoting the refusal.
 
 | Question | Options |
 |---|---|
-| `action` | **Take the proposed move** (the value spells the move in full, such as the human pushing, or a fixed tree registration and a retry) / **Hand back** |
+| `action` | **Take the proposed move** (the value spells the move in full: here, only the human pushing) / **Hand back** |
 | `next` | **Proceed** (Recommended) / **Iterate here** / **Hold** |
 
 Selection: `{"move":"<the move>","why":"<the refusal>","action":"take|handback","next":"proceed|iterate|hold","note":"<their words or null>"}`.
+
+Read `next` first: Hold ends the turn with nothing pushed by this verb;
+Iterate means the human fixed the cause (a tree registration, the daemon)
+and ignores `action`; only Proceed applies `action`. Retrying `git_push`
+is Iterate, never Take, whatever the answer calls it; if the retry is
+refused again, the Iterate note goes into the next gate's context.
+`Push off-script rounds = 2 (ship)?` counts Iterate answers within this
+pass through the verb, this one included: the first Iterate retries the
+push, and the second fails the verb with the refusal quoted instead of
+retrying.
 
 ### Confirm the human's push landed (ship)
 
@@ -501,6 +560,8 @@ The human pushed outside this verb. Compare `git rev-parse HEAD` with the
 remote branch and say what it shows in the final report; never push from
 here. The push landed when the remote branch carries HEAD; otherwise the
 off-script gate reopens with the comparison as its context.
+`Landing checks = 2 (ship)?` counts those misses within this pass; after
+the second, the verb fails with the comparison quoted.
 
 ### ship off-script gate: mr_upload refused
 
@@ -558,6 +619,10 @@ the attachments are there (or are not).
 | `to` | one option per earlier stage, split `to-1`, `to-2`, ... over 4; with exactly one candidate it labels **Go back to `<stage>`** in `next` instead | Go back answered and `run_snapshot` shows more than one earlier stage row |
 
 Scope `mark-ready`. Selection: `{"ready":true|false,"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+`Mark-ready rounds = 2 (ship)?` counts Iterate answers at this gate within
+this pass through the verb, this one included: the first opens a new gate
+with the note, and the second ends the verb as done with the MR left a
+draft and the note quoted in the final report.
 
 ## What the graph cannot show
 
