@@ -15,7 +15,9 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "os";
 import { join } from "path";
 import {
+  applyHookSelection,
   discoverHooks,
+  runningHooks,
   generateShims,
   hooksConfigPath,
   loadHooksConfig,
@@ -224,6 +226,53 @@ describe("commands/hooks", () => {
       generateShims(dataDir, ["pre-push"]);
       const shim = readFileSync(join(dataDir, "hooks", "pre-push"), "utf8");
       expect(shim).not.toContain("on-deck");
+    });
+
+    function runShim(hook: string): { code: number; stderr: string } {
+      const res = Bun.spawnSync(["bash", join(dataDir, "hooks", hook)], { cwd: repoRoot, env: { PATH: "/usr/bin:/bin", HOME: home } });
+      return { code: res.exitCode, stderr: res.stderr.toString() };
+    }
+
+    test("a hook turned off is skipped with a note on stderr", () => {
+      writeLegacy({ enabled: true, hooks: { "pre-commit": true, "pre-push": false } });
+      generateShims(dataDir, ["pre-commit", "pre-push"]);
+      const res = runShim("pre-push");
+      expect(res.code).toBe(0);
+      expect(res.stderr).toContain("rt: pre-push skipped (turned off with rt hooks)");
+    });
+
+    test("every hook is skipped with the same note when hooks are off for the repo", () => {
+      writeLegacy({ enabled: false, hooks: { "pre-commit": true, "pre-push": true } });
+      generateShims(dataDir, ["pre-commit", "pre-push"]);
+      const res = runShim("pre-push");
+      expect(res.code).toBe(0);
+      expect(res.stderr).toContain("rt: pre-push skipped (turned off with rt hooks)");
+    });
+  });
+
+  // ─── the interactive checklist: ticked means the hook runs ──────────────────
+
+  describe("runningHooks / applyHookSelection", () => {
+    const discovered = ["pre-commit", "pre-push"];
+
+    test("the checklist starts from the hooks that actually run", () => {
+      expect(runningHooks({ enabled: true, hooks: { "pre-commit": true, "pre-push": false } }, discovered)).toEqual(["pre-commit"]);
+      expect(runningHooks({ enabled: false, hooks: { "pre-commit": true, "pre-push": true } }, discovered)).toEqual([]);
+    });
+
+    test("ticked hooks run and unticked ones do not", () => {
+      const next = applyHookSelection({ enabled: true, hooks: { "pre-commit": true, "pre-push": true } }, discovered, ["pre-commit"]);
+      expect(next).toEqual({ enabled: true, hooks: { "pre-commit": true, "pre-push": false } });
+    });
+
+    test("ticking a hook while hooks are off for the repo turns them back on", () => {
+      const next = applyHookSelection({ enabled: false, hooks: { "pre-commit": true, "pre-push": true } }, discovered, ["pre-push"]);
+      expect(next).toEqual({ enabled: true, hooks: { "pre-commit": false, "pre-push": true } });
+    });
+
+    test("unticking everything turns hooks off for the repo", () => {
+      const next = applyHookSelection({ enabled: true, hooks: { "pre-commit": true, "pre-push": true } }, discovered, []);
+      expect(next).toEqual({ enabled: false, hooks: { "pre-commit": false, "pre-push": false } });
     });
   });
 
