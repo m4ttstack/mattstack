@@ -3,7 +3,7 @@ import { highlightingFor } from '@codemirror/language';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import {
@@ -473,4 +473,95 @@ test('without jsonCheck there is no linting at all', async () => {
   forceLinting(view);
   await new Promise(resolve => setTimeout(resolve, 300));
   expect(diagnosticCount(view.state)).toBe(0);
+});
+
+test('a resizable frame follows `height` until the user resizes it', async () => {
+  const ref = createRef<CodeMirrorRef>();
+  const { rerender } = renderWithProviders(
+    <CodeMirror ref={ref} value="[]" language="json" height="120px" resizable />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  const grip = screen.getByRole('separator', { name: 'Resize editor' });
+  expect(grip.getAttribute('aria-valuenow')).toBe('120');
+  rerender(
+    <CodeMirror
+      ref={ref}
+      value="[1]"
+      language="json"
+      height="300px"
+      resizable
+    />
+  );
+  expect(grip.parentElement!.style.height).toBe('300px');
+  expect(grip.getAttribute('aria-valuenow')).toBe('300');
+});
+
+test('only the main button drags, and a cancelled pointer ends the drag', async () => {
+  const ref = createRef<CodeMirrorRef>();
+  renderWithProviders(
+    <CodeMirror ref={ref} value="[]" language="json" height="120px" resizable />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  const grip = screen.getByRole('separator', { name: 'Resize editor' });
+  const frame = grip.parentElement!;
+  fireEvent.pointerDown(grip, { clientY: 100, button: 2 });
+  fireEvent.pointerMove(window, { clientY: 180 });
+  expect(frame.style.height).toBe('120px');
+  fireEvent.pointerDown(grip, { clientY: 100, button: 0 });
+  fireEvent.pointerCancel(window);
+  fireEvent.pointerMove(window, { clientY: 180 });
+  expect(frame.style.height).toBe('120px');
+});
+
+test('resizable adds a drag strip under the editor: the frame starts at `height`, arrow keys resize it, and a later height change keeps the dragged size', async () => {
+  const ref = createRef<CodeMirrorRef>();
+  const { rerender } = renderWithProviders(
+    <CodeMirror ref={ref} value="[]" language="json" height="120px" resizable />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  const grip = screen.getByRole('separator', { name: 'Resize editor' });
+  const frame = grip.parentElement!;
+  expect(frame.style.height).toBe('120px');
+
+  grip.focus();
+  await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+  expect(frame.style.height).toBe('160px');
+
+  rerender(
+    <CodeMirror
+      ref={ref}
+      value="[1]"
+      language="json"
+      height="140px"
+      resizable
+    />
+  );
+  expect(frame.style.height).toBe('160px');
+});
+
+test('a drag on the strip resizes the frame and never below the minimum', async () => {
+  const ref = createRef<CodeMirrorRef>();
+  renderWithProviders(
+    <CodeMirror ref={ref} value="[]" language="json" height="120px" resizable />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  const grip = screen.getByRole('separator', { name: 'Resize editor' });
+  const frame = grip.parentElement!;
+  fireEvent.pointerDown(grip, { clientY: 100 });
+  fireEvent.pointerMove(window, { clientY: 180 });
+  expect(frame.style.height).toBe('200px');
+  fireEvent.pointerMove(window, { clientY: -500 });
+  expect(frame.style.height).toBe('60px');
+  fireEvent.pointerUp(window);
+  fireEvent.pointerMove(window, { clientY: 300 });
+  expect(frame.style.height).toBe('60px');
+});
+
+test('without resizable there is no drag strip', async () => {
+  const ref = createRef<CodeMirrorRef>();
+  renderWithProviders(
+    <CodeMirror ref={ref} value="[]" language="json" height="120px" />
+  );
+  await waitFor(() => expect(ref.current?.view).toBeTruthy());
+  expect(screen.queryByRole('separator')).toBeNull();
 });
