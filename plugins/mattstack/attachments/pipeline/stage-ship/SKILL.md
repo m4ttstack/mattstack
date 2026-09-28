@@ -34,6 +34,12 @@ digraph ship {
     "git status --porcelain; git log --oneline @{upstream}.. or -5" [shape=plaintext];
     "Gate ship (table below)" [shape=box];
     "ship answer?" [shape=diamond];
+    "Ship gate rounds = 2?" [shape=diamond];
+    "Ship gate reopenings = 2?" [shape=diamond];
+    "Rebase in progress (ship gate budget spent)?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [shape=plaintext];
+    "Forge clarify answer?" [shape=diamond];
+    "Forge clarify rounds = 2?" [shape=diamond];
     "dirty answer?" [shape=diamond];
     "Commit named files, ticket-prefixed subject" [shape=box];
     "Stash them; nothing in this stage pops it" [shape=box];
@@ -47,6 +53,11 @@ digraph ship {
     "Conflict rounds = 3?" [shape=diamond];
     "Resolve the files, then git rebase --continue on Bash" [shape=box];
     "Continue result?" [shape=diamond];
+    "Rebase in progress (stage abort)?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true} (stage abort)" [shape=plaintext];
+    "git_rebase {tree: <root>, abort: true} (after a failed continue)" [shape=plaintext];
+    "Rebase in progress (go back)?" [shape=diamond];
+    "git_rebase {tree: <root>, abort: true} (go back)" [shape=plaintext];
     "git_push {tree: <root>, setUpstream: true}" [shape=plaintext];
     "git_push result?" [shape=diamond];
     "Retried with the printed root?" [shape=diamond];
@@ -103,12 +114,20 @@ digraph ship {
     "git status --porcelain; git log --oneline @{upstream}.. or -5" -> "Gate ship (table below)";
     "Gate ship (table below)" -> "ship answer?";
     "ship answer?" -> "dirty answer?" [label="proceed"];
-    "ship answer?" -> "Run the domain steps before the gate (none when unbound)" [label="iterate: redo with their note"];
-    "ship answer?" -> "Hand the Go back answer to the orchestrator" [label="go back"];
+    "ship answer?" -> "Ship gate rounds = 2?" [label="iterate: redo with their note"];
+    "Ship gate rounds = 2?" -> "Run the domain steps before the gate (none when unbound)" [label="no: redo with their note"];
+    "Ship gate rounds = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, their last note quoted"];
+    "ship answer?" -> "Rebase in progress (go back)?" [label="go back"];
+    "Rebase in progress (go back)?" -> "git_rebase {tree: <root>, abort: true} (go back)" [label="yes"];
+    "Rebase in progress (go back)?" -> "Hand the Go back answer to the orchestrator" [label="no"];
+    "git_rebase {tree: <root>, abort: true} (go back)" -> "Hand the Go back answer to the orchestrator";
     "ship answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
     "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" -> "run_field_set {key: hold, value: <their words, or held>, stage: ship}";
     "run_field_set {key: hold, value: <their words, or held>, stage: ship}" -> "Held: end the turn naming run and stage";
-    "ship answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="dirty = abort: reason 'aborted at the ship gate'"];
+    "ship answer?" -> "Rebase in progress (stage abort)?" [label="dirty = abort: reason 'aborted at the ship gate'"];
+    "Rebase in progress (stage abort)?" -> "git_rebase {tree: <root>, abort: true} (stage abort)" [label="yes"];
+    "Rebase in progress (stage abort)?" -> "run_stage {action: fail, stage: ship, reason}" [label="no: reason 'aborted at the ship gate'"];
+    "git_rebase {tree: <root>, abort: true} (stage abort)" -> "run_stage {action: fail, stage: ship, reason}" [label="reason 'aborted at the ship gate'"];
     "dirty answer?" -> "Commit named files, ticket-prefixed subject" [label="commit"];
     "dirty answer?" -> "Stash them; nothing in this stage pops it" [label="stash"];
     "dirty answer?" -> "Run the domain's fast checks (none when unbound)" [label="clean tree"];
@@ -118,7 +137,7 @@ digraph ship {
     "Checks pass?" -> "Domain rebases, and no rebase finished this pass?" [label="yes"];
     "Checks pass?" -> "Fix rounds = 3?" [label="no"];
     "Fix rounds = 3?" -> "Fix test-first, commit, rerun" [label="no"];
-    "Fix rounds = 3?" -> "Gate ship (table below)" [label="yes: reopen, failing output quoted"];
+    "Fix rounds = 3?" -> "Ship gate reopenings = 2?" [label="yes: reopen, failing output quoted"];
     "Fix test-first, commit, rerun" -> "Run the domain's fast checks (none when unbound)";
     "Domain rebases, and no rebase finished this pass?" -> "git_rebase {tree: <root>, onto: origin/<default>}" [label="yes"];
     "Domain rebases, and no rebase finished this pass?" -> "git_push {tree: <root>, setUpstream: true}" [label="no"];
@@ -127,10 +146,17 @@ digraph ship {
     "Rebase status?" -> "Conflict rounds = 3?" [label="conflict"];
     "Rebase status?" -> "run_stage {action: fail, stage: ship, reason}" [label="any other error: quote it as the reason"];
     "Conflict rounds = 3?" -> "Resolve the files, then git rebase --continue on Bash" [label="no"];
-    "Conflict rounds = 3?" -> "Gate ship (table below)" [label="yes: reopen, conflicted files quoted"];
+    "Conflict rounds = 3?" -> "Ship gate reopenings = 2?" [label="yes: reopen, conflicted files quoted"];
+    "Ship gate reopenings = 2?" -> "Gate ship (table below)" [label="no: reopen with what was quoted"];
+    "Ship gate reopenings = 2?" -> "Rebase in progress (ship gate budget spent)?" [label="yes: a failure, the failing output or conflicted files quoted"];
+    "Rebase in progress (ship gate budget spent)?" -> "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" [label="yes"];
+    "Rebase in progress (ship gate budget spent)?" -> "run_stage {action: fail, stage: ship, reason}" [label="no: a failure, what was quoted is the reason"];
+    "git_rebase {tree: <root>, abort: true} (ship gate budget spent)" -> "run_stage {action: fail, stage: ship, reason}" [label="a failure, what was quoted is the reason"];
     "Resolve the files, then git rebase --continue on Bash" -> "Continue result?";
     "Continue result?" -> "Conflict rounds = 3?" [label="another commit conflicted"];
     "Continue result?" -> "Run the domain's fast checks (none when unbound)" [label="rebase finished"];
+    "Continue result?" -> "git_rebase {tree: <root>, abort: true} (after a failed continue)" [label="any other error: a failure, quoted"];
+    "git_rebase {tree: <root>, abort: true} (after a failed continue)" -> "run_stage {action: fail, stage: ship, reason}" [label="a failure, the continue error is the reason"];
     "git_push {tree: <root>, setUpstream: true}" -> "git_push result?";
     "git_push {tree: <the root the error prints>, setUpstream: true}" -> "git_push result?";
     "git_push result?" -> "git remote get-url origin" [label="ok"];
@@ -150,8 +176,13 @@ digraph ship {
     "git remote get-url origin" -> "Forge host?";
     "Forge host?" -> "mr_for_branch {repoName: <root>, branches: [<branch>]}" [label="GitLab"];
     "Forge host?" -> "gh pr create, draft unless the gate said ready" [label="GitHub"];
-    "Forge host?" -> "Gate clarify: which forge?" [label="anything else"];
-    "Gate clarify: which forge?" -> "Forge host?" [label="answered: the named forge"];
+    "Forge host?" -> "Forge clarify rounds = 2?" [label="anything else"];
+    "Forge clarify rounds = 2?" -> "Gate clarify: which forge?" [label="no: ask which forge"];
+    "Forge clarify rounds = 2?" -> "run_stage {action: fail, stage: ship, reason}" [label="yes: a failure, the origin URL and their answer quoted"];
+    "Gate clarify: which forge?" -> "Forge clarify answer?";
+    "Forge clarify answer?" -> "Forge host?" [label="answered: GitLab or GitHub, the host from here on"];
+    "Forge clarify answer?" -> "run_decision {contract: gate@1, scope: hold:ship:<attempt>, selection: {reason}, decidedBy}" [label="hold"];
+    "Forge clarify answer?" -> "run_stage {action: fail, stage: ship, reason}" [label="hand back: a failure, no forge this stage knows"];
     "mr_for_branch {repoName: <root>, branches: [<branch>]}" -> "Open MR on the branch?";
     "Open MR on the branch?" -> "run_field_set {key: mr, value: <url>, stage: ship}" [label="yes: keep its url"];
     "Open MR on the branch?" -> "Created once already?" [label="no"];
@@ -234,7 +265,9 @@ Resolve each conflicted file `git_rebase` returned, then continue the
 rebase on Bash (no tool continues one). A later commit that conflicts
 counts as another round. Once a rebase finishes, clean or resolved, the
 fast checks run again because the tree changed under them, and then the
-push follows: this pass never starts a second rebase.
+push follows: this pass never starts a second rebase. A continue that
+fails with anything but another conflict aborts the rebase, then fails
+the stage with the error quoted.
 
 ### Capture the AFTER when the domain names one
 
@@ -265,6 +298,19 @@ read back: keep what is already there (evidence the evidence stage
 attached, a teammate's edits) and change only what this stage owns. The
 domain's title, template and voice rules win over this paragraph.
 
+### Gate clarify: which forge?
+
+The origin host is neither GitLab nor GitHub. Ask which forge it is,
+quoting the `git remote get-url origin` line as the context. Options:
+**GitLab** / **GitHub** / **Hand back**, and `next`: **Proceed** /
+**Hold**. `Forge clarify rounds = 2?` counts the times the host reads as
+neither within this pass through the stage, this one included: the first
+asks, and the second fails the stage with the origin URL and the answer
+quoted. The named forge stands for the host from here on: this diamond
+and every later forge diamond read the answer, never the origin URL
+again, so the counter trips only when the answer names no forge this
+stage knows.
+
 ## What the graph cannot show
 
 - **Off-script answers.** Read `next` first: Hold ends the turn with no
@@ -281,7 +327,9 @@ domain's title, template and voice rules win over this paragraph.
 ## Gate `ship` (before the push)
 
 One sentence above the form: the branch, the commits about to go, and
-whether the tree is dirty.
+whether the tree is dirty. When the gate reopens with a rebase in progress
+(the conflict rounds are spent), the context says so, since Abort or Go
+back then aborts that rebase.
 
 | Question | Options (recommended first) | Shown when |
 |---|---|---|
@@ -292,6 +340,20 @@ whether the tree is dirty.
 | `to` | one option per earlier stage, split `to-1`, ... over 4 | Go back answered and more than one earlier stage row |
 
 Selection: `{"dirty":"commit|stash|abort|null","open_as":"draft|ready","domain":{<answers>},"next":"proceed|iterate|redirect|hold","to":"<stage or null>","note":"<their words or null>"}`.
+Abort pushes nothing and aborts a rebase in progress before the stage fails.
+Go back also aborts a rebase in progress first, so the earlier stage never
+receives a tree that is mid-rebase.
+`Ship gate rounds = 2?` counts Iterate answers at this gate within this
+pass through the stage, this one included: the first redoes the steps
+before the gate with the note, and the second fails the stage with the
+note quoted. `Ship gate reopenings = 2?` counts the times the fix or
+conflict rounds run out and reopen this gate within this pass through
+the stage, this one included: the first reopens it with the failing
+output or conflicted files quoted, and the second fails the stage with
+them quoted. The fix and conflict rounds carry over a reopen: the
+reopened gate is the human's turn to fix it, so a Proceed whose checks
+still fail reaches this counter again without new fix rounds. Either
+failure aborts a rebase in progress first.
 
 ## Domain rules
 
