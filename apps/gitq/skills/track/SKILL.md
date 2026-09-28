@@ -138,7 +138,7 @@ digraph gitq_track {
     "Fill the Root and Members slots (track)" -> "Forge (track)?" [label="first member"];
     "Forge (track)?" -> "mr_for_branch {repoName: <repoPath>, branches: [<branch>]}" [label="GitLab"];
     "Forge (track)?" -> "gh pr list --repo <owner/repo> --head <branch> --state open" [label="GitHub"];
-    "Forge (track)?" -> "Write unknown in Published for <branch> and say why (track)" [label="forge unreachable"];
+    "Forge (track)?" -> "Write unknown in Published for <branch> and say why (track)" [label="no forge tool or CLI, a host that is neither forge, or unreachable"];
     "Forge (track)?" -> "STOP: Published comes from the forge or reads unknown" [label="tempted to write none without asking the forge"];
     "STOP: Published comes from the forge or reads unknown" -> "Forge (track)?";
     "mr_for_branch {repoName: <repoPath>, branches: [<branch>]}" -> "Forge answered for <branch> (track)?";
@@ -210,7 +210,7 @@ digraph gitq_track {
 
     "gitq -C <repoPath> stacks (after import)" -> "Imported chain matches, nothing excluded came along (track)?";
     "Imported chain matches, nothing excluded came along (track)?" -> "Reproduce the Step 1 block, report the chain and exclusions (track 5a)" [label="yes"];
-    "Imported chain matches, nothing excluded came along (track)?" -> "track gate: imported chain differs" [label="no"];
+    "Imported chain matches, nothing excluded came along (track)?" -> "track gate: imported chain differs" [label="no: it differs, or an excluded branch or another stack came along"];
     "Imported chain matches, nothing excluded came along (track)?" -> "STOP: tracking is read-only on git; gitq stacks is the check (after import)" [label="tempted to sync, push or publish to check the tracking"];
     "STOP: tracking is read-only on git; gitq stacks is the check (after import)" -> "gitq -C <repoPath> stacks (after import)";
     "track gate: imported chain differs" -> "Imported chain answer (track)?";
@@ -495,9 +495,11 @@ Context: the `gitq:` stderr line verbatim and the remote's host.
 ### track gate: imported chain differs
 
 Opens when the chain `gitq stacks` prints after an import differs from slot
-2, or a branch you meant to exclude came along. Import reads each branch's
-parent from its MR target, so a difference is either a stale MR target or a
-wrong slot 2.
+2, a branch you meant to exclude came along, or import created other stacks
+besides this chain. Import reads each branch's parent from its MR target, so
+a difference is either a stale MR target or a wrong slot 2. Import rebuilds
+every chain from the project's open MRs, not only this one, so any other
+open-MR chain in the project is now tracked as a stack of its own.
 
 An empty store is its own case. When the remote names a different project
 than the one the MRs belong to (a renamed or transferred project), import
@@ -507,15 +509,16 @@ line in the context, say the remote needs fixing before an import can work,
 and set `recommended: true` on hand back and list it first.
 
 An iterate answer means the human changed the tracking themselves, for
-example `gitq remove <branch>` to drop a branch that came along, or fixed
+example `gitq remove <branch>` to drop a branch that came along,
+`gitq untrack <stack>` to drop another stack, or fixed
 the remote and imported again; I only read `gitq stacks` again.
 
 Context: the imported chain and slot 2 side by side, every branch that came
-along though you meant to exclude it, and, for an empty store, gitq's
-stderr line verbatim.
+along though you meant to exclude it, every other stack import created with
+its branches, and, for an empty store, gitq's stderr line verbatim.
 
-When an excluded branch came along, set `recommended: true` on iterate and
-list it first; for an empty store, hand back goes first; otherwise take
+When an excluded branch or another stack came along, set
+`recommended: true` on iterate and list it first; for an empty store, hand back goes first; otherwise take
 stays first.
 
 | Question | Options (recommended first) |

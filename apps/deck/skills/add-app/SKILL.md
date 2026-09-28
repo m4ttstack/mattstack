@@ -49,7 +49,7 @@ digraph deck_add_app {
     "deck status" [shape=plaintext];
     "Row up (deck)?" [shape=diamond];
     "deck url <name>" [shape=plaintext];
-    "curl -s https://<name>.localhost/" [shape=plaintext];
+    "curl -s -o /dev/null -w '%{http_code}' <url>" [shape=plaintext];
     "Serves (deck)?" [shape=diamond];
     "Repair attempts = 2 (deck)?" [shape=diamond];
     "deck logs <name> --lines 100" [shape=plaintext];
@@ -98,6 +98,7 @@ digraph deck_add_app {
     "deck domain <domain>" [shape=plaintext];
     "deck domain (verify the bind)" [shape=plaintext];
     "Bound with the edge healthy (deck)?" [shape=diamond];
+    "Edge checks = 3 (deck)?" [shape=diamond];
     "Machine-wide domain bound (deck)" [shape=doublecircle];
     "deck off-script gate: domain bind failed" [shape=box];
     "Bind-failure answer (deck)?" [shape=diamond];
@@ -120,7 +121,7 @@ digraph deck_add_app {
     "Held (deck): the teardown waits on the user" [shape=doublecircle];
     "Row to remove (deck)?" [shape=diamond];
     "STOP: never remove deck's own row; it stops the platform" [shape=octagon style=filled fillcolor=red fontcolor=white];
-    "Tell the user deck's own row is never removed (deck)" [shape=box];
+    "Tell the user this row is never removed (deck)" [shape=box];
     "deck remove <name>" [shape=plaintext];
     "deck remove result (deck)?" [shape=diamond];
     "STOP: a 409 is relayed verbatim, never forced" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -194,10 +195,10 @@ digraph deck_add_app {
     "deck status" -> "Row up (deck)?";
     "Row up (deck)?" -> "deck url <name>" [label="yes"];
     "Row up (deck)?" -> "Repair attempts = 2 (deck)?" [label="no"];
-    "deck url <name>" -> "curl -s https://<name>.localhost/";
-    "curl -s https://<name>.localhost/" -> "Serves (deck)?";
-    "Serves (deck)?" -> "App registered and serving (deck)" [label="yes"];
-    "Serves (deck)?" -> "Repair attempts = 2 (deck)?" [label="no"];
+    "deck url <name>" -> "curl -s -o /dev/null -w '%{http_code}' <url>";
+    "curl -s -o /dev/null -w '%{http_code}' <url>" -> "Serves (deck)?";
+    "Serves (deck)?" -> "App registered and serving (deck)" [label="yes: a 2xx or 3xx status"];
+    "Serves (deck)?" -> "Repair attempts = 2 (deck)?" [label="no: 000, 4xx or 5xx"];
     "Repair attempts = 2 (deck)?" -> "deck logs <name> --lines 100" [label="no"];
     "Repair attempts = 2 (deck)?" -> "deck gate: app will not come up" [label="yes: budget spent"];
     "deck logs <name> --lines 100" -> "Fix what the logs name (deck)";
@@ -235,6 +236,7 @@ digraph deck_add_app {
     "deck access <name> domains <c,d>" -> "Visibility move result (deck)?";
     "deck access <name> off" -> "Visibility move result (deck)?";
     "Visibility move result (deck)?" -> "Visibility set (deck)" [label="applied"];
+    "Visibility move result (deck)?" -> "Report the refusal to the user (deck)" [label="applied, but deck access warned the Cloudflare sync failed"];
     "Visibility move result (deck)?" -> "deck off-script gate: visibility move refused" [label="refused or errored"];
     "deck off-script gate: visibility move refused" -> "Visibility answer (deck)?";
     "Visibility answer (deck)?" -> "Visibility rounds = 2 (deck)?" [label="take: the human fixed it, move again"];
@@ -266,7 +268,10 @@ digraph deck_add_app {
     "deck domain <domain>" -> "deck domain (verify the bind)";
     "deck domain (verify the bind)" -> "Bound with the edge healthy (deck)?";
     "Bound with the edge healthy (deck)?" -> "Machine-wide domain bound (deck)" [label="yes"];
-    "Bound with the edge healthy (deck)?" -> "deck off-script gate: domain bind failed" [label="no: the bind errored or the edge is not ready"];
+    "Bound with the edge healthy (deck)?" -> "deck off-script gate: domain bind failed" [label="no: the bind errored"];
+    "Bound with the edge healthy (deck)?" -> "Edge checks = 3 (deck)?" [label="not yet: the connector is still starting or the edge is not ready"];
+    "Edge checks = 3 (deck)?" -> "deck domain (verify the bind)" [label="no: wait, then check again"];
+    "Edge checks = 3 (deck)?" -> "deck off-script gate: domain bind failed" [label="yes: budget spent"];
     "Bound with the edge healthy (deck)?" -> "STOP: the user sets the deck Cloudflare secrets" [label="tempted to fix a missing secret yourself"];
     "deck off-script gate: domain bind failed" -> "Bind-failure answer (deck)?";
     "Bind-failure answer (deck)?" -> "Bind runs after the failure = 2 (deck)?" [label="take: the user fixed the prereq, bind again"];
@@ -306,10 +311,10 @@ digraph deck_add_app {
     "Teardown rounds = 2 (deck)?" -> "Report the refusal to the user (deck)" [label="yes: budget spent"];
 
     "Row to remove (deck)?" -> "deck remove <name>" [label="the user's app"];
-    "Row to remove (deck)?" -> "Tell the user deck's own row is never removed (deck)" [label="deck's own row"];
+    "Row to remove (deck)?" -> "Tell the user this row is never removed (deck)" [label="deck's own row, or a row managed by rt"];
     "Row to remove (deck)?" -> "STOP: never remove deck's own row; it stops the platform" [label="tempted to remove deck's own row anyway"];
-    "STOP: never remove deck's own row; it stops the platform" -> "Tell the user deck's own row is never removed (deck)";
-    "Tell the user deck's own row is never removed (deck)" -> "Rows left to remove (deck)?";
+    "STOP: never remove deck's own row; it stops the platform" -> "Tell the user this row is never removed (deck)";
+    "Tell the user this row is never removed (deck)" -> "Rows left to remove (deck)?";
     "deck remove <name>" -> "deck remove result (deck)?";
     "deck remove result (deck)?" -> "Rows left to remove (deck)?" [label="removed"];
     "deck remove result (deck)?" -> "Relay the 409 message verbatim (deck)" [label="409: another registrar owns the app"];
@@ -477,6 +482,16 @@ and the second spent round is reported instead of retried.
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | deck register refused. What next? | `take: fixed it, register again`: you fixed what the refusal names (freed the port, renamed the app), and I run deck register again. `iterate: try again with a note`: I edit the manifest with your note, then register again. `hold: leave it with you`: this run ends with nothing changed. `hand back: stop and report`: I report the refusal and what was tried. |
 
+### Supervised or routed (deck)?
+
+`deck add --cmd` splits its value on whitespace and runs the words directly,
+with no shell, so `--cmd` takes a plain argv only (`bun run start`). A start
+command with shell syntax (a pipe, `&&`, a redirect, quoting, `$VAR`, a
+leading `FOO=bar` assignment) does not survive that split. It goes through
+the manifest path instead, where deck runs a `commands.start` that needs a
+shell under `sh -c`: answer `Manifest or quick add (deck)?` with manifest
+for it.
+
 ### deck off-script gate: deck add refused
 
 Opens when a quick `deck add` exits non-zero or prints an error, and whenever
@@ -498,7 +513,13 @@ names in the app itself: a wrong start command, a missing env var, a build
 that was never run, a server bound to a fixed port instead of `$PORT`. A fix
 to `mattstack.deck.json` (a start command, an env var) goes through
 `deck register --dir <appDir>` so deck syncs it; any other fix goes straight
-to the restart. Never touch the plist or the route: those are deck's, and
+to the restart.
+
+An app added with `deck add` has no manifest. When its fix is a start
+command or an env var, scaffold one with `deck config init` in the app
+directory, give it the row's exact `name`, and take the manifest edge:
+`deck register --dir <appDir>` re-syncs the existing record rather than
+adding a second one. Never touch the plist or the route: those are deck's, and
 `deck restart <name>` is the only kickstart.
 
 ### deck gate: app will not come up
@@ -520,7 +541,9 @@ Take passes `Come-up takes = 2 (deck)?`, iterate passes
 
 Apply exactly the fix the user named, nothing more. A manifest change then
 syncs through `deck register --dir <appDir>`; anything else goes straight to
-`deck restart <name>`. A fix that means writing a plist, a route or a port by
+`deck restart <name>`. For an app added with `deck add`, a start command or
+env fix means scaffolding a manifest with the row's exact `name`, as
+`Fix what the logs name (deck)` describes, then registering it. A fix that means writing a plist, a route or a port by
 hand is not one this skill applies: quote it back at the gate instead.
 
 ### Hand the deck password command to the user (deck)
@@ -596,13 +619,21 @@ edge health), and every published app whose public hostname moves.
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Bind this domain for the whole machine? | `take: bind this domain`: I run deck domain with it and verify the edge. `iterate: a different domain`: you name another domain or add a note, and I ask again. `hold: leave it with you`: this run ends with no domain bound. `hand back: stop and report`: I report what was checked and bind nothing. |
 
+### Edge checks = 3 (deck)?
+
+A bind that succeeded can print "connector still starting, check deck domain
+in a moment", and the verifying `deck domain` then shows the edge not ready
+yet. That is not a failure until it outlasts the checks: wait about 10
+seconds, then run `deck domain` again. Three checks spend the budget, and
+an edge still not ready then goes to the bind-failure gate.
+
 ### deck off-script gate: domain bind failed
 
 Opens when `deck domain <domain>` errors, or the verifying `deck domain`
 shows the edge not ready, and whenever you are tempted to fix a missing
 secret yourself. A bind that asks for one step first (the tunnel login)
 prints that command; a missing secret, a zone deck cannot find, and a
-connector that never comes up land here too. A rebind that deck refuses
+connector still not ready after three edge checks land here too. A rebind that deck refuses
 because it would move live apps asks for `--force`: the forced rebind is the
 user's to run, so quote it and let them run it or hand back.
 
@@ -636,7 +667,8 @@ Opens once `deck status (teardown)` runs, before any row is touched, and
 again after each iterate round.
 
 Context, quoted and never trimmed: every row `deck status` shows except
-deck's own rows `deck` and `local`, the bound domain `deck domain` reports
+deck's own rows `deck` and `local` and every row whose third column is `rt`,
+the bound domain `deck domain` reports
 (or none), and what each removal does: `deck remove <name>` unregisters
 that row, and `deck domain unbind` tears down the public edge and takes
 every published app offline. The context also says, in these words:
@@ -655,13 +687,21 @@ and the second spent round is reported instead of retried.
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Remove these rows and unbind this domain? | `take: remove the listed rows`: I run deck remove on exactly the rows named and deck domain unbind for exactly the domain named, nothing else. `iterate: edit the list`: you add, drop or correct a row or the domain, and I gate again with the updated list. `hold: leave it with you`: this run ends with nothing removed. `hand back: stop and report`: I report the list and remove nothing. |
 
-### Tell the user deck's own row is never removed (deck)
+### Tell the user this row is never removed (deck)
 
-Deck's own rows are `deck` and the legacy `local`. Each shares the
-supervisor's launchd label, so removing it stops the platform. Say that the
-row stays and why: removing deck itself is the user's own step, `deck
-uninstall` in their own terminal, which refuses while other records exist
-and so comes only after this teardown finishes. The agent never runs it.
+Two kinds of row are never removed here, and neither goes on the confirmed
+list; one the user adds anyway reaches this box.
+
+- Deck's own rows, `deck` and the legacy `local`. Each shares the
+  supervisor's launchd label, so removing it stops the platform. Say that
+  the row stays and why: removing deck itself is the user's own step,
+  `deck uninstall` in their own terminal, which refuses while other records
+  exist and so comes only after this teardown finishes. The agent never
+  runs it.
+- A row whose third column in `deck status` is `rt`: a mattstack app deck
+  manages for the mattstack install, not an app the user registered. Say
+  that the row stays because the mattstack install owns it, and that a
+  bundled app's row comes back on deck's next start anyway.
 
 ### Relay the 409 message verbatim (deck)
 
@@ -692,7 +732,7 @@ confirmed row not yet walked, so each row is walked once and nothing
 outside the list is touched.
 
 Report each confirmed row and what happened to it: removed, kept as deck's
-own row, or kept because another registrar owns it (with the 409 message
+own row or an rt row, or kept because another registrar owns it (with the 409 message
 verbatim). Then restate that deck's own rows stay, and that removing deck
 itself is the user's `deck uninstall`, run in their own terminal now that
 this teardown has finished.
@@ -703,9 +743,15 @@ The shared hand-back report: which deck command ran, what deck said
 (verbatim), what was tried and how many times, and the state now. Nothing
 changed beyond what the report names.
 
+After a `deck access` move, read its stderr even on exit 0: "warning:
+Cloudflare sync failed, see the app's row on the board" means deck saved
+the access rule but Cloudflare did not take it. Quote that warning, say the
+sign-in gate may not be enforced at the public edge yet, and point at the
+app's row on the board. Never report it as visibility set.
+
 ## What the graph cannot show
 
-- Every deck command changes state: run it against the user's actual app,
+- Every deck write changes state: run it against the user's actual app,
   its real directory, name and port, never a guess.
 - `deck config init` and a bare `deck register` act on the current
   directory, so run `deck config init` from the app directory. This skill
@@ -720,15 +766,19 @@ changed beyond what the report names.
 - A teardown walks `Row to remove (deck)?` once per row on the confirmed
   list, and `Rows left to remove (deck)?` ends the loop when the list is
   used up, so the list bounds it. A list that names the domain then walks
-  the unbind branch once. Deck's own row always reaches the tell box, never
-  `deck remove`.
+  the unbind branch once. Deck's own rows and rt rows always reach the tell
+  box, never `deck remove`.
 - When `Domain bound for access (deck)?` answers no, the run binds a domain
   first and ends in the domain flow. Its closing message tells the user to
   ask for the access move again once the domain is bound.
 - A registered supervised app already starts at login: the plists deck
   writes carry `RunAtLoad`, so nothing more is needed for that.
-- Each counter counts per run: repair attempts, each gate's rounds, and the
-  take counters. A counter diamond's `yes` edge is taken once its count has
+- The serve check reads the HTTP status of the URL `deck url <name>`
+  printed: a 2xx or 3xx serves; `000` (nothing answered), a 4xx or a 5xx
+  does not.
+- Each counter counts per run (repair attempts, each gate's rounds, the
+  take counters), except the edge checks, which restart with each bind. A
+  counter diamond's `yes` edge is taken once its count has
   reached the number.
 
 ## Rationalizations

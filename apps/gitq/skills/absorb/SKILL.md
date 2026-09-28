@@ -40,6 +40,7 @@ digraph gitq_absorb {
     "Trigger: /gitq:absorb <repoPath> <stackName> [--state <path> --status-bin <path>]" [shape=ellipse];
     "gitq --version (absorb)" [shape=plaintext];
     "gitq on PATH (absorb)?" [shape=diamond];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (absorb)" [shape=plaintext];
     "gitq missing: told the human to run bun link in the gitq checkout (absorb)" [shape=doublecircle];
     "<status-bin> job-status <state> error \"<reason>\" (absorb)" [shape=plaintext];
     "Report the failure to the human (absorb)" [shape=box];
@@ -118,7 +119,8 @@ digraph gitq_absorb {
     "Trigger: /gitq:absorb <repoPath> <stackName> [--state <path> --status-bin <path>]" -> "gitq --version (absorb)";
     "gitq --version (absorb)" -> "gitq on PATH (absorb)?";
     "gitq on PATH (absorb)?" -> "<status-bin> job-status <state> working \"absorbing into <stackName>\"" [label="yes"];
-    "gitq on PATH (absorb)?" -> "gitq missing: told the human to run bun link in the gitq checkout (absorb)" [label="no"];
+    "gitq on PATH (absorb)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (absorb)" [label="no"];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (absorb)" -> "gitq missing: told the human to run bun link in the gitq checkout (absorb)";
     "<status-bin> job-status <state> error \"<reason>\" (absorb)" -> "Report the failure to the human (absorb)";
     "Report the failure to the human (absorb)" -> "absorb failed: reported";
     "<status-bin> job-status <state> done \"absorbed <n> files into <m> branches\"" -> "Report what landed where (absorb)";
@@ -139,7 +141,7 @@ digraph gitq_absorb {
     "Runs after \"the preview refused\" = 2 (absorb)?" -> "<status-bin> job-status <state> error \"<reason>\" (absorb)" [label="yes: budget spent"];
     "Preview result (absorb)?" -> "<status-bin> job-status <state> done \"nothing to absorb\"" [label="attributed and unattributed both empty"];
     "Preview result (absorb)?" -> "<status-bin> job-status <state> error \"<reason>\" (absorb)" [label="unapplied not empty"];
-    "Preview result (absorb)?" -> "STOP: an unapplied edit is reported, never re-aimed by a rerun" [label="tempted to rerun without --at so it lands somewhere"];
+    "Preview result (absorb)?" -> "STOP: an unapplied edit is reported, never re-aimed by a rerun" [label="tempted to rerun with or without --at so it lands somewhere"];
     "STOP: an unapplied edit is reported, never re-aimed by a rerun" -> "<status-bin> job-status <state> error \"<reason>\" (absorb)";
     "Preview result (absorb)?" -> "<status-bin> job-status <state> done \"nothing attributable\"" [label="attributed empty, unattributed not"];
     "Preview result (absorb)?" -> "Name the unattributed files to the human (absorb)" [label="something attributed"];
@@ -190,7 +192,8 @@ digraph gitq_absorb {
     "gitq -C <repoPath> continue --stack <stackName> --json (absorb)" -> "gitq continue exit (absorb)?";
     "gitq continue exit (absorb)?" -> "<status-bin> job-status <state> done \"absorbed <n> files into <m> branches\"" [label="0"];
     "gitq continue exit (absorb)?" -> "Same pause as before (absorb)?" [label="2"];
-    "gitq continue exit (absorb)?" -> "absorb off-script gate: gitq continue refused" [label="1"];
+    "gitq continue exit (absorb)?" -> "absorb off-script gate: gitq continue refused" [label="1 with a gitq: line"];
+    "gitq continue exit (absorb)?" -> "<status-bin> job-status <state> error \"<reason>\" (absorb)" [label="1 after JSON: the cascade ended with a failed branch"];
     "gitq continue exit (absorb)?" -> "STOP: the cascade moves only through gitq continue and gitq abort (absorb)" [label="tempted to drive the rebase with git directly"];
     "STOP: the cascade moves only through gitq continue and gitq abort (absorb)" -> "gitq -C <repoPath> continue --stack <stackName> --json (absorb)";
     "Same pause as before (absorb)?" -> "Resolve attempts on this pause = 3 (absorb)?" [label="yes: same branch and commit"];
@@ -353,7 +356,8 @@ carried, if any.
 Read the preview's `result`: `attributed` maps each branch to the files it
 owns, `unattributed` lists the files absorb will leave in the worktree, and
 `unapplied` (a subset of `unattributed`) lists files whose edit does not
-replay onto the `--at` branch it was headed for. Absorb commits the
+replay onto the branch it was attributed to: the `--at` target, or the
+branch line attribution picked. Absorb commits the
 attributed files and nothing else; the rest stay in the worktree,
 uncommitted, exactly as found.
 
@@ -542,12 +546,18 @@ and writes "conflict pauses past 20 not settled after 2 rounds".
 
 ### absorb off-script gate: gitq continue refused
 
-Opens when `gitq continue` exits 1: a `gitq:` refusal, or the rebase's
-continue failing with no conflicted files (a commit hook, for one). Fixing
-what the refusal names (lint, a hook's complaint, the tree) is the human's
-call, not this run's.
+Opens when `gitq continue` exits 1 with a `gitq:` line on stderr: a
+refusal, with the lease still parked and the pause intact. Fixing what the
+refusal names is the human's call, not this run's.
 
-Context: the `gitq:` stderr line verbatim, plus any hook output it printed.
+An exit 1 after the normal JSON is not this gate. It means the rebase's
+continue failed with no conflicted files: the failing `results` entry has
+`success: false` and the error "rebase --continue failed", and gitq has
+already ended the cascade, cleared its pause and released the lease. There
+is nothing left to continue or abort, so that edge writes the error "gitq
+continue failed on <branch>: rebase --continue failed" and reports.
+
+Context: the `gitq:` stderr line verbatim.
 
 | Question | Options (recommended first) |
 |---|---|
@@ -562,10 +572,13 @@ continue refused on <branch>: <the gitq: line>".
 Say why the run stopped, in the words of the reason just written. The
 error write's reason is the string the board shows:
 
-- An unapplied edit, reason "<files> will not replay onto <branch>": name
-  each `unapplied` file and the `--at` branch it was headed for. Nothing was
-  committed. The fix is the human's to choose and relaunch with: a
-  different `--at` target, or splitting the edit.
+- An unapplied edit, reason "<files> will not replay onto <branch>", where
+  `<branch>` is the branch each file was attributed to: name each
+  `unapplied` file and that branch. Nothing was committed. The fix is the
+  human's to choose and relaunch with. When the preview carried `--at`: a
+  different `--at` target, or splitting the edit. When line attribution
+  picked the branch: splitting the edit so each part replays where it
+  belongs, or an `--at` naming a branch it does replay onto.
 - A hand back at the attribution gate, reason "attribution declined: <file>
   headed to <branch>", or its budget spent, reason "attribution not settled
   after 2 rounds": nothing was committed; quote the rows in question.
@@ -574,7 +587,12 @@ error write's reason is the string the board shows:
   was committed. After a restack refusal, say the absorbed commits are on
   their branches and gitq:sync restacks them.
 - A hand back at the continue-refused gate, reason "gitq continue refused
-  on <branch>: <the gitq: line>": quote any hook output with it.
+  on <branch>: <the gitq: line>": quote the line.
+- A continue that ended the cascade with a failed branch, reason "gitq
+  continue failed on <branch>: rebase --continue failed": gitq released the
+  lease, but the rebase may still be in progress in the slot
+  (`<rebaseDir>`). Name the slot and the branch so the human can look there
+  before running gitq:sync.
 - A hand back at the judgment gate, reason "conflict on <file> needs human
   judgment: <why>", or its budget spent, reason "conflict on <file> not
   settled after 2 rounds": lay out the conflict and both sides so the human
@@ -605,8 +623,8 @@ route list what `git -C <repoPath> status --porcelain` still shows.
 When an exit 0 apply's `result.unapplied` is non-empty (the gate's `--at`
 take skipped a preview with that `--at`, and gitq exits 0 when the target
 does not replay), name each of those files as not replaying onto the `--at`
-branch and still dirty, and give both fixes for the human to choose: a
-different `--at` target, or splitting the edit.
+branch and still dirty, and give the `--at` fixes for the human to choose:
+a different `--at` target, or splitting the edit.
 
 ## What the graph cannot show
 
@@ -618,8 +636,9 @@ different `--at` target, or splitting the edit.
   spawn.
 - `Human asked for --at (absorb)?` answers yes only when the human asked
   for `--at <branch>` on this absorb, naming the branch; that preview then
-  carries the same `--at` as the apply. `unapplied` is non-empty only on
-  such a preview.
+  carries the same `--at` as the apply. `unapplied` can be non-empty on any
+  preview: a file whose edit will not replay onto its attributed branch,
+  whether `--at` or line attribution picked it.
   `Preview result (absorb)?` reads `unapplied` first: a non-empty
   `unapplied` is the error edge even when other files were attributed.
 - The report that ends at `Nothing absorbed: reported (absorb)` names every
@@ -636,13 +655,13 @@ different `--at` target, or splitting the edit.
   per pause and restart on a new one; conflict pauses count per run. Each
   gate's rounds and each `Runs after` counter count per gate. A counter
   diamond's `yes` edge is taken once its count has reached the number.
-- Every path but a hold or the missing-gitq stop ends through a `done` or
-  `error` write, so the board badge never sticks. On a hold, tell the human
-  in the pane what is waiting on them. At the attribution gate nothing is
-  committed and the worktree is as found, and after a preview refusal the
-  same holds. After a refusal, quote it. When a cascade is paused, that is
-  where it sits (`<rebaseDir>`, branch, conflicted files), and gitq:sync
-  reaches its take-over gate and resumes it.
+- Every path but a hold ends through a `done` or `error` write, the
+  missing-gitq stop included, so the board badge never sticks. On a hold,
+  tell the human in the pane what is waiting on them. At the attribution
+  gate nothing is committed and the worktree is as found, and after a
+  preview refusal the same holds. After a refusal, quote it. When a cascade
+  is paused, that is where it sits (`<rebaseDir>`, branch, conflicted
+  files), and gitq:sync reaches its take-over gate and resumes it.
 
 ## Rationalizations
 
@@ -650,6 +669,6 @@ different `--at` target, or splitting the edit.
 |---|---|
 | "the skill's 'always end with a terminal done or error' rule refers to eventual completion, not to this mid-preview pause" | A mid-preview question is `absorb gate: surprising attribution`, asked through `gate_ask`. Only a gate may wait without a write, and every answer but hold then ends through one. |
 | "the status stays at `working` until the human resolves the question" | A question to the human is a gate, never prose. The badge stays `working` only while that gate waits. |
-| "since this run cannot complete as requested" | A non-empty `unapplied` is the graph's error edge: write the error, name each file and its `--at` branch, and give the human both fixes. |
-| "I would treat it as an error rather than a done, as my own judgment call filling the gap" | There is no gap: the `unapplied not empty` edge writes the error. Rerunning without `--at` is the STOP on the same diamond. |
+| "since this run cannot complete as requested" | A non-empty `unapplied` is the graph's error edge: write the error, name each file and the branch it was attributed to, and give the human the fixes. |
+| "I would treat it as an error rather than a done, as my own judgment call filling the gap" | There is no gap: the `unapplied not empty` edge writes the error. Rerunning with or without `--at` is the STOP on the same diamond. |
 | "They said keep it moving, I'm in a meeting, so I answer the gate for them" | A remark in the pane before any gate opened is not an answer to a gate. Open it through `gate_ask` and act only on the answer it records. |

@@ -34,12 +34,14 @@ digraph gitq_sync {
     "Trigger: /gitq:sync <repoPath> <stackName> [--state <path> --status-bin <path>]" [shape=ellipse];
     "gitq --version (sync)" [shape=plaintext];
     "gitq on PATH (sync)?" [shape=diamond];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (sync)" [shape=plaintext];
     "gitq missing: told the human to run bun link in the gitq checkout (sync)" [shape=doublecircle];
     "<status-bin> job-status <state> error \"<reason>\" (sync)" [shape=plaintext];
     "Report the failure to the human (sync)" [shape=box];
     "sync failed: reported" [shape=doublecircle];
     "Held (sync): cascade paused for the human" [shape=doublecircle];
     "<status-bin> job-status <state> done \"rebased <n> branches, resolved <m> conflicts\"" [shape=plaintext];
+    "Launch asked for the MRs to be updated (sync)?" [shape=diamond];
     "Report the rebased branches and each resolution (sync)" [shape=box];
     "Stack rebased (sync)" [shape=doublecircle style=filled fillcolor=lightgreen];
     "gitq -C <repoPath> stacks --json (sync)" [shape=plaintext];
@@ -48,6 +50,7 @@ digraph gitq_sync {
     "Take-over answer (sync)?" [shape=diamond];
     "Take-over rounds = 2 (sync)?" [shape=diamond];
     "Recover the pause from the parked lease" [shape=box];
+    "Unmerged paths in the parked slot (sync)?" [shape=diamond];
     "Held (sync): the pause belongs to another pane" [shape=doublecircle];
     "gitq -C <repoPath> preflight --json" [shape=plaintext];
     "Preflight for <stackName> (sync)?" [shape=diamond];
@@ -95,10 +98,15 @@ digraph gitq_sync {
     "Trigger: /gitq:sync <repoPath> <stackName> [--state <path> --status-bin <path>]" -> "gitq --version (sync)";
     "gitq --version (sync)" -> "gitq on PATH (sync)?";
     "gitq on PATH (sync)?" -> "<status-bin> job-status <state> working \"syncing <stackName>\"" [label="yes"];
-    "gitq on PATH (sync)?" -> "gitq missing: told the human to run bun link in the gitq checkout (sync)" [label="no"];
+    "gitq on PATH (sync)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (sync)" [label="no"];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (sync)" -> "gitq missing: told the human to run bun link in the gitq checkout (sync)";
     "<status-bin> job-status <state> error \"<reason>\" (sync)" -> "Report the failure to the human (sync)";
     "Report the failure to the human (sync)" -> "sync failed: reported";
-    "<status-bin> job-status <state> done \"rebased <n> branches, resolved <m> conflicts\"" -> "Report the rebased branches and each resolution (sync)";
+    "<status-bin> job-status <state> done \"rebased <n> branches, resolved <m> conflicts\"" -> "Launch asked for the MRs to be updated (sync)?";
+    "Launch asked for the MRs to be updated (sync)?" -> "Report the rebased branches and each resolution (sync)" [label="no"];
+    "Launch asked for the MRs to be updated (sync)?" -> "Report the rebased branches and each resolution (sync)" [label="yes: the report names gitq push as the human's move"];
+    "Launch asked for the MRs to be updated (sync)?" -> "STOP: sync never pushes; the report names gitq push for the human" [label="tempted to push the restacked branches"];
+    "STOP: sync never pushes; the report names gitq push for the human" -> "Report the rebased branches and each resolution (sync)";
     "Report the rebased branches and each resolution (sync)" -> "Stack rebased (sync)";
     "<status-bin> job-status <state> working \"syncing <stackName>\"" -> "gitq -C <repoPath> stacks --json (sync)";
     "gitq -C <repoPath> stacks --json (sync)" -> "Parked lease on this stack (sync)?";
@@ -134,7 +142,8 @@ digraph gitq_sync {
     "gitq -C <repoPath> continue --stack <stackName> --json (sync)" -> "gitq continue exit (sync)?";
     "gitq continue exit (sync)?" -> "<status-bin> job-status <state> done \"rebased <n> branches, resolved <m> conflicts\"" [label="0"];
     "gitq continue exit (sync)?" -> "Same pause as before (sync)?" [label="2"];
-    "gitq continue exit (sync)?" -> "sync off-script gate: gitq continue refused" [label="1"];
+    "gitq continue exit (sync)?" -> "sync off-script gate: gitq continue refused" [label="1 with a gitq: line"];
+    "gitq continue exit (sync)?" -> "<status-bin> job-status <state> error \"<reason>\" (sync)" [label="1 after JSON: the cascade ended with a failed branch"];
     "gitq continue exit (sync)?" -> "STOP: the cascade moves only through gitq continue and gitq abort (sync)" [label="tempted to drive the rebase with git directly"];
     "STOP: the cascade moves only through gitq continue and gitq abort (sync)" -> "gitq -C <repoPath> continue --stack <stackName> --json (sync)";
     "Same pause as before (sync)?" -> "Resolve attempts on this pause = 3 (sync)?" [label="yes: same branch and commit"];
@@ -178,13 +187,13 @@ digraph gitq_sync {
     "Runs after \"gitq continue refused\" = 2 (sync)?" -> "gitq -C <repoPath> continue --stack <stackName> --json (sync)" [label="no"];
     "Runs after \"gitq continue refused\" = 2 (sync)?" -> "gitq -C <repoPath> abort --stack <stackName> (sync)" [label="yes: budget spent"];
     "gitq -C <repoPath> abort --stack <stackName> (sync)" -> "<status-bin> job-status <state> error \"<reason>\" (sync)";
-    "Recover the pause from the parked lease" -> "<status-bin> job-status <state> conflict \"<n> conflicts on <branch> (commit <i>/<total>)\" (sync)";
+    "Recover the pause from the parked lease" -> "Unmerged paths in the parked slot (sync)?";
+    "Unmerged paths in the parked slot (sync)?" -> "<status-bin> job-status <state> conflict \"<n> conflicts on <branch> (commit <i>/<total>)\" (sync)" [label="yes"];
+    "Unmerged paths in the parked slot (sync)?" -> "git -C <rebaseDir> status --porcelain (sync)" [label="no: no unmerged paths remain"];
     "gitq sync exit (sync)?" -> "<status-bin> job-status <state> done \"rebased <n> branches, resolved <m> conflicts\"" [label="0"];
     "gitq sync exit (sync)?" -> "<status-bin> job-status <state> conflict \"<n> conflicts on <branch> (commit <i>/<total>)\" (sync)" [label="2: paused on a conflict"];
     "gitq sync exit (sync)?" -> "sync gate: take over the parked pause" [label="1 naming a parked lease"];
     "gitq sync exit (sync)?" -> "sync off-script gate: gitq sync refused" [label="1, any other reason"];
-    "gitq sync exit (sync)?" -> "STOP: sync never pushes; the report names gitq push for the human" [label="tempted to push the restacked branches"];
-    "STOP: sync never pushes; the report names gitq push for the human" -> "<status-bin> job-status <state> done \"rebased <n> branches, resolved <m> conflicts\"";
     "sync off-script gate: gitq sync refused" -> "Answer to \"gitq sync refused\" (sync)?";
     "Answer to \"gitq sync refused\" (sync)?" -> "Runs after \"gitq sync refused\" = 2 (sync)?" [label="take: the human fixed it, run it again"];
     "Answer to \"gitq sync refused\" (sync)?" -> "Runs after \"gitq sync refused\" = 2 (sync)?" [label="iterate: run it again with the note"];
@@ -288,12 +297,16 @@ at one of its own gates, and the lease cannot tell which. A held pause
 belongs to the pane that asked, so this run never takes it without an
 answer.
 
-Context: the lease's worktree `path`, its paused `branch`, the unmerged
-lines from `git -C <path> status --porcelain`, and any open gate on this
-stack from `gate_list {open: true}`, quoted.
+Context: the lease's worktree `path`, its paused `branch`, its
+`lease.action` (the gitq command that parked it: `sync`, `absorb`, `split`,
+`fold` or `reparent`), the unmerged lines from
+`git -C <path> status --porcelain`, and any open gate on this stack from
+`gate_list {open: true}`, quoted.
 
-When `gate_list` shows an open gate on this stack, set `recommended: true`
-on hold and list hold first; otherwise set it on take and list take first.
+Set `recommended: true` on hold and list hold first when `gate_list` shows
+an open gate on this stack, or when `lease.action` is not `sync`: a pause
+another command parked belongs to the run that started it. Otherwise set it
+on take and list take first.
 
 | Question | Options (recommended first) |
 |---|---|
@@ -312,8 +325,9 @@ not show a lease parked in a work slot, so neither can answer this.
 
 From that entry: `<rebaseDir>` is its `path`, the paused branch is its
 `branch`, and the conflicted files are the unmerged lines of
-`git -C <rebaseDir> status --porcelain`. The lease carries no commit
-position, so the first conflict write names the branch and writes the commit
+`git -C <rebaseDir> status --porcelain`. When no unmerged lines remain,
+the earlier pane staged every file before it stopped, so go straight to the
+porcelain check and the continue. The lease carries no commit position, so the first conflict write names the branch and writes the commit
 as `?/?`, and `Same pause as before (sync)?` compares on the branch alone
 until `gitq continue` returns a `pauseInfo`.
 
@@ -414,12 +428,18 @@ and writes "conflict pauses past 20 not settled after 2 rounds".
 
 ### sync off-script gate: gitq continue refused
 
-Opens when `gitq continue` exits 1: a `gitq:` refusal, or the rebase's
-continue failing with no conflicted files (a commit hook, for one). Fixing
-what the refusal names (lint, a hook's complaint, the tree) is the human's
-call, not this run's.
+Opens when `gitq continue` exits 1 with a `gitq:` line on stderr: a
+refusal, with the lease still parked and the pause intact. Fixing what the
+refusal names is the human's call, not this run's.
 
-Context: the `gitq:` stderr line verbatim, plus any hook output it printed.
+An exit 1 after the normal JSON is not this gate. It means the rebase's
+continue failed with no conflicted files: the failing `results` entry has
+`success: false` and the error "rebase --continue failed", and gitq has
+already ended the cascade, cleared its pause and released the lease. There
+is nothing left to continue or abort, so that edge writes the error "gitq
+continue failed on <branch>: rebase --continue failed" and reports.
+
+Context: the `gitq:` stderr line verbatim.
 
 | Question | Options (recommended first) |
 |---|---|
@@ -463,7 +483,12 @@ error write's reason is the string the board shows:
   pauses", or its budget spent, reason "conflict pauses past 20 not settled
   after 2 rounds": name the pauses so far.
 - A hand back at the continue-refused gate, reason "gitq continue refused
-  on <branch>: <the gitq: line>": quote any hook output with it.
+  on <branch>: <the gitq: line>": quote the line.
+- A continue that ended the cascade with a failed branch, reason "gitq
+  continue failed on <branch>: rebase --continue failed": gitq released the
+  lease, but the rebase may still be in progress in the slot
+  (`<rebaseDir>`). Name the slot and the branch so the human can look there
+  before running the sync again.
 - A hand back at the take-over gate, reason "stack has a parked cascade
   owned elsewhere", or its budget spent, reason "take-over of the parked
   cascade not settled after 2 rounds": quote the lease.
@@ -497,13 +522,13 @@ updated.
   per pause and restart on a new one; conflict pauses count per run. Each
   gate's rounds and each `Runs after` counter count per gate. A counter
   diamond's `yes` edge is taken once its count has reached the number.
-- Every path but a hold or the missing-gitq stop ends through a `done` or
-  `error` write, so the board badge never sticks. On a hold, tell the human
-  in the pane what is waiting on them. When a cascade is paused, that is
-  where it sits (`<rebaseDir>`, branch, conflicted files), and running the
-  sync again reaches the take-over gate and resumes it. When `gitq sync`
-  itself refused, no cascade exists: quote the refusal, and running the
-  sync again starts fresh once it is fixed.
+- Every path but a hold ends through a `done` or `error` write, the
+  missing-gitq stop included, so the board badge never sticks. On a hold,
+  tell the human in the pane what is waiting on them. When a cascade is
+  paused, that is where it sits (`<rebaseDir>`, branch, conflicted files),
+  and running the sync again reaches the take-over gate and resumes it. When
+  `gitq sync` itself refused, no cascade exists: quote the refusal, and
+  running the sync again starts fresh once it is fixed.
 
 ## Rationalizations
 

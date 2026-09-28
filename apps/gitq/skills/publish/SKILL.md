@@ -54,6 +54,7 @@ digraph gitq_publish {
     "Trigger: /gitq:publish <repoPath> <stackName> [--state <path> --status-bin <path>]" [shape=ellipse];
     "gitq --version (publish)" [shape=plaintext];
     "gitq on PATH (publish)?" [shape=diamond];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" [shape=plaintext];
     "gitq missing: told the human to run bun link in the gitq checkout (publish)" [shape=doublecircle];
     "<status-bin> job-status <state> working \"publishing <stackName>\"" [shape=plaintext];
     "gitq -C <repoPath> stacks --json (publish)" [shape=plaintext];
@@ -61,7 +62,7 @@ digraph gitq_publish {
     "Stack state (publish)?" [shape=diamond];
     "STOP: publish never rewrites git; a stack that needs a sync is named at the gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
     "Write each branch's MR title and description" [shape=box];
-    "Save the mr-meta JSON to a mktemp .json file" [shape=box];
+    "Save the mr-meta JSON to <mktemp -d>/meta.json" [shape=box];
     "publish gate: approve the MR chain" [shape=box];
     "Publish gate answer (publish)?" [shape=diamond];
     "STOP: nothing leaves the machine before an approve at the publish gate" [shape=octagon style=filled fillcolor=red fontcolor=white];
@@ -88,16 +89,17 @@ digraph gitq_publish {
     "Trigger: /gitq:publish <repoPath> <stackName> [--state <path> --status-bin <path>]" -> "gitq --version (publish)";
     "gitq --version (publish)" -> "gitq on PATH (publish)?";
     "gitq on PATH (publish)?" -> "<status-bin> job-status <state> working \"publishing <stackName>\"" [label="yes"];
-    "gitq on PATH (publish)?" -> "gitq missing: told the human to run bun link in the gitq checkout (publish)" [label="no"];
+    "gitq on PATH (publish)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" [label="no"];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (publish)" -> "gitq missing: told the human to run bun link in the gitq checkout (publish)";
     "<status-bin> job-status <state> working \"publishing <stackName>\"" -> "gitq -C <repoPath> stacks --json (publish)";
     "gitq -C <repoPath> stacks --json (publish)" -> "gitq -C <repoPath> diagnose --json (publish)";
     "gitq -C <repoPath> diagnose --json (publish)" -> "Stack state (publish)?";
     "Stack state (publish)?" -> "<status-bin> job-status <state> error \"<reason>\" (publish)" [label="a parked lease on this stack, or a rebase in progress"];
     "Stack state (publish)?" -> "Write each branch's MR title and description" [label="ready; behind or conflicted branches noted for the gate"];
     "Stack state (publish)?" -> "STOP: publish never rewrites git; a stack that needs a sync is named at the gate" [label="tempted to sync or rebase first"];
-    "STOP: publish never rewrites git; a stack that needs a sync is named at the gate" -> "Write each branch's MR title and description";
-    "Write each branch's MR title and description" -> "Save the mr-meta JSON to a mktemp .json file";
-    "Save the mr-meta JSON to a mktemp .json file" -> "publish gate: approve the MR chain";
+    "STOP: publish never rewrites git; a stack that needs a sync is named at the gate" -> "Stack state (publish)?";
+    "Write each branch's MR title and description" -> "Save the mr-meta JSON to <mktemp -d>/meta.json";
+    "Save the mr-meta JSON to <mktemp -d>/meta.json" -> "publish gate: approve the MR chain";
     "publish gate: approve the MR chain" -> "Publish gate answer (publish)?";
     "Publish gate answer (publish)?" -> "gitq -C <repoPath> publish --stack <stackName> --mr-meta <tempPath> --json" [label="take: approve"];
     "Publish gate answer (publish)?" -> "Draft rounds = 3 (publish)?" [label="iterate: revise the drafts with the note"];
@@ -245,7 +247,7 @@ write a title and a description.
 On an iterate answer from the publish gate, rewrite the drafts the note
 names and keep the rest as drafted.
 
-### Save the mr-meta JSON to a mktemp .json file
+### Save the mr-meta JSON to <mktemp -d>/meta.json
 
 BSD `mktemp` only fills an X run at the end of its template, so a `.json`
 suffix does not work. Create a directory with `mktemp -d` and write
@@ -255,7 +257,7 @@ suffix does not work. Create a directory with `mktemp -d` and write
 { "<branch>": { "title": "...", "description": "..." } }
 ```
 
-`<dir>/meta.json` is `<tempPath>` in the publish call. After an iterate
+`<mktemp -d>/meta.json` is `<tempPath>` in the publish call. After an iterate
 round, overwrite that same file so the gate and the publish read one
 version.
 
@@ -378,13 +380,13 @@ Report every branch that went through.
   cascade is paused.
 - Publish never edits branches, rebases or otherwise mutates git. A stack
   that needs a rebase is gitq:sync's job, named at the gate.
-- Every path but a hold or the missing-gitq stop ends through a `done` or
-  `error` write, so the board badge never sticks. A hold, and a pane parked
-  at a gate the human has not answered, writes no `done`. On a hold, tell
-  the human in the pane what is waiting on them: after a publish gate hold,
-  the drafts saved at `<tempPath>`; after a refusal gate hold, the quoted
-  `gitq:` line. Nothing was pushed either way, and running the publish again
-  starts fresh.
+- Every path but a hold ends through a `done` or `error` write, the
+  missing-gitq stop included, so the board badge never sticks. A hold, and a
+  pane parked at a gate the human has not answered, writes no `done`. On a
+  hold, tell the human in the pane what is waiting on them: after a publish
+  gate hold, the drafts saved at `<tempPath>`; after a refusal gate hold,
+  the quoted `gitq:` line. Nothing was pushed either way, and running the
+  publish again starts fresh.
 - Each counter counts per run: draft rounds across the publish gate,
   attempts and rounds across the refusal gate. A counter diamond's `yes`
   edge is taken once its count has reached the number.

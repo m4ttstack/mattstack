@@ -35,6 +35,7 @@ digraph gitq_restructure {
     "Trigger: /gitq:restructure <repoPath> <stackName> [instruction] [--state <path> --status-bin <path>]" [shape=ellipse];
     "gitq --version (restructure)" [shape=plaintext];
     "gitq on PATH (restructure)?" [shape=diamond];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (restructure)" [shape=plaintext];
     "gitq missing: told the human to run bun link in the gitq checkout (restructure)" [shape=doublecircle];
     "<status-bin> job-status <state> error \"<reason>\" (restructure)" [shape=plaintext];
     "Report the failure to the human (restructure)" [shape=box];
@@ -58,12 +59,12 @@ digraph gitq_restructure {
     "gitq -C <repoPath> diagnose --json (restructure verify)" [shape=plaintext];
     "<status-bin> job-status <state> done \"<summary>\"" [shape=plaintext];
     "Report the new tree shape (restructure)" [shape=box];
-    "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> --json" [shape=plaintext];
-    "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> --json" [shape=plaintext];
-    "gitq -C <repoPath> fold <branch> --json" [shape=plaintext];
-    "gitq -C <repoPath> reparent <branch> --onto <newParent> --json" [shape=plaintext];
-    "gitq -C <repoPath> rename <old> <new> --json" [shape=plaintext];
-    "gitq -C <repoPath> reset <branch> --json" [shape=plaintext];
+    "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> [--stack <stackName>] --json" [shape=plaintext];
+    "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <stackName>] --json" [shape=plaintext];
+    "gitq -C <repoPath> fold <branch> [--stack <stackName>] --json" [shape=plaintext];
+    "gitq -C <repoPath> reparent <branch> --onto <newParent> [--stack <stackName>] --json" [shape=plaintext];
+    "gitq -C <repoPath> rename <old> <new> [--stack <stackName>] --json" [shape=plaintext];
+    "gitq -C <repoPath> reset <branch> [--stack <stackName>] --json" [shape=plaintext];
     "Stack restructured (restructure)" [shape=doublecircle style=filled fillcolor=lightgreen];
     "<status-bin> job-status <state> conflict \"<n> conflicts on <branch> (commit <i>/<total>)\" (restructure)" [shape=plaintext];
     "Resolve the next conflicted file in <rebaseDir> (restructure)" [shape=box];
@@ -104,20 +105,21 @@ digraph gitq_restructure {
 
     "Trigger: /gitq:restructure <repoPath> <stackName> [instruction] [--state <path> --status-bin <path>]" -> "gitq --version (restructure)";
     "gitq --version (restructure)" -> "gitq on PATH (restructure)?";
-    "gitq on PATH (restructure)?" -> "Instruction clear enough to act on (restructure)?" [label="yes"];
-    "gitq on PATH (restructure)?" -> "gitq missing: told the human to run bun link in the gitq checkout (restructure)" [label="no"];
+    "gitq on PATH (restructure)?" -> "<status-bin> job-status <state> working \"planning restructure\"" [label="yes"];
+    "gitq on PATH (restructure)?" -> "<status-bin> job-status <state> error \"gitq not on PATH\" (restructure)" [label="no"];
+    "<status-bin> job-status <state> error \"gitq not on PATH\" (restructure)" -> "gitq missing: told the human to run bun link in the gitq checkout (restructure)";
+    "<status-bin> job-status <state> working \"planning restructure\"" -> "Instruction clear enough to act on (restructure)?";
     "<status-bin> job-status <state> error \"<reason>\" (restructure)" -> "Report the failure to the human (restructure)";
     "Report the failure to the human (restructure)" -> "restructure failed: reported";
-    "Instruction clear enough to act on (restructure)?" -> "<status-bin> job-status <state> working \"planning restructure\"" [label="yes"];
+    "Instruction clear enough to act on (restructure)?" -> "gitq -C <repoPath> stacks --json (restructure)" [label="yes"];
     "Instruction clear enough to act on (restructure)?" -> "restructure gate: what should change" [label="missing, too vague, or two plausible readings"];
     "restructure gate: what should change" -> "Instruction answer (restructure)?";
-    "Instruction answer (restructure)?" -> "<status-bin> job-status <state> working \"planning restructure\"" [label="take: the human's instruction"];
+    "Instruction answer (restructure)?" -> "gitq -C <repoPath> stacks --json (restructure)" [label="take: the human's instruction"];
     "Instruction answer (restructure)?" -> "Instruction rounds = 2 (restructure)?" [label="iterate: ask again with the note"];
     "Instruction answer (restructure)?" -> "Held (restructure): waiting on the instruction" [label="hold"];
     "Instruction answer (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="hand back"];
     "Instruction rounds = 2 (restructure)?" -> "Instruction clear enough to act on (restructure)?" [label="no"];
     "Instruction rounds = 2 (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="yes: budget spent"];
-    "<status-bin> job-status <state> working \"planning restructure\"" -> "gitq -C <repoPath> stacks --json (restructure)";
     "gitq -C <repoPath> stacks --json (restructure)" -> "gitq -C <repoPath> diagnose --json (restructure plan)";
     "gitq -C <repoPath> diagnose --json (restructure plan)" -> "Map the instruction to surgery operations (restructure)";
     "Map the instruction to surgery operations (restructure)" -> "restructure gate: approve the plan";
@@ -128,18 +130,18 @@ digraph gitq_restructure {
     "Plan answer (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="hand back"];
     "Plan rounds = 3 (restructure)?" -> "Map the instruction to surgery operations (restructure)" [label="no"];
     "Plan rounds = 3 (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="yes: budget spent"];
-    "Next approved operation (restructure)?" -> "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> --json" [label="split at a commit"];
-    "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> --json" -> "Operation exit (restructure)?";
-    "Next approved operation (restructure)?" -> "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> --json" [label="split by files"];
-    "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> --json" -> "Operation exit (restructure)?";
-    "Next approved operation (restructure)?" -> "gitq -C <repoPath> fold <branch> --json" [label="fold"];
-    "gitq -C <repoPath> fold <branch> --json" -> "Operation exit (restructure)?";
-    "Next approved operation (restructure)?" -> "gitq -C <repoPath> reparent <branch> --onto <newParent> --json" [label="reparent"];
-    "gitq -C <repoPath> reparent <branch> --onto <newParent> --json" -> "Operation exit (restructure)?";
-    "Next approved operation (restructure)?" -> "gitq -C <repoPath> rename <old> <new> --json" [label="rename"];
-    "gitq -C <repoPath> rename <old> <new> --json" -> "Operation exit (restructure)?";
-    "Next approved operation (restructure)?" -> "gitq -C <repoPath> reset <branch> --json" [label="reset"];
-    "gitq -C <repoPath> reset <branch> --json" -> "Operation exit (restructure)?";
+    "Next approved operation (restructure)?" -> "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> [--stack <stackName>] --json" [label="split at a commit"];
+    "gitq -C <repoPath> split <branch> --at <sha> --name <newBranch> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
+    "Next approved operation (restructure)?" -> "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <stackName>] --json" [label="split by files"];
+    "gitq -C <repoPath> split <branch> --files <glob[,glob...]> --name <newBranch> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
+    "Next approved operation (restructure)?" -> "gitq -C <repoPath> fold <branch> [--stack <stackName>] --json" [label="fold"];
+    "gitq -C <repoPath> fold <branch> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
+    "Next approved operation (restructure)?" -> "gitq -C <repoPath> reparent <branch> --onto <newParent> [--stack <stackName>] --json" [label="reparent"];
+    "gitq -C <repoPath> reparent <branch> --onto <newParent> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
+    "Next approved operation (restructure)?" -> "gitq -C <repoPath> rename <old> <new> [--stack <stackName>] --json" [label="rename"];
+    "gitq -C <repoPath> rename <old> <new> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
+    "Next approved operation (restructure)?" -> "gitq -C <repoPath> reset <branch> [--stack <stackName>] --json" [label="reset"];
+    "gitq -C <repoPath> reset <branch> [--stack <stackName>] --json" -> "Operation exit (restructure)?";
     "Next approved operation (restructure)?" -> "gitq -C <repoPath> diagnose --json (restructure verify)" [label="none left"];
     "Next approved operation (restructure)?" -> "STOP: surgery runs only through gitq operations the plan approved" [label="tempted to do surgery with git, or an operation the plan did not list"];
     "STOP: surgery runs only through gitq operations the plan approved" -> "restructure gate: approve the plan";
@@ -163,7 +165,8 @@ digraph gitq_restructure {
     "gitq -C <repoPath> continue --stack <stackName> --json (restructure)" -> "gitq continue exit (restructure)?";
     "gitq continue exit (restructure)?" -> "Next approved operation (restructure)?" [label="0"];
     "gitq continue exit (restructure)?" -> "Same pause as before (restructure)?" [label="2"];
-    "gitq continue exit (restructure)?" -> "restructure off-script gate: gitq continue refused" [label="1"];
+    "gitq continue exit (restructure)?" -> "restructure off-script gate: gitq continue refused" [label="1 with a gitq: line"];
+    "gitq continue exit (restructure)?" -> "<status-bin> job-status <state> error \"<reason>\" (restructure)" [label="1 after JSON: the cascade ended with a failed branch"];
     "gitq continue exit (restructure)?" -> "STOP: the cascade moves only through gitq continue and gitq abort (restructure)" [label="tempted to drive the rebase with git directly"];
     "STOP: the cascade moves only through gitq continue and gitq abort (restructure)" -> "gitq -C <repoPath> continue --stack <stackName> --json (restructure)";
     "Same pause as before (restructure)?" -> "Resolve attempts on this pause = 3 (restructure)?" [label="yes: same branch and commit"];
@@ -334,7 +337,7 @@ touches, read `git -C <repoPath> log --oneline <parent>..<branch>`.
 
 Then choose from the surgery set, one node in the graph per operation:
 
-| Operation | Call (as `gitq -C <repoPath> ...`, with `--json`) | What it does to the tree |
+| Operation | Call (as `gitq -C <repoPath> ...`, with `[--stack <stackName>] --json`) | What it does to the tree |
 |---|---|---|
 | tail split | `split <branch> --at <sha> --name <newBranch>` | everything from `<sha>` onward moves to a new child of `<branch>` |
 | file split | `split <branch> --files <glob[,glob...]> --name <newBranch>` | the files matching the globs move to a new branch |
@@ -530,12 +533,19 @@ after 2 rounds".
 
 ### restructure off-script gate: gitq continue refused
 
-Opens when `gitq continue` exits 1: a `gitq:` refusal, or the rebase's
-continue failing with no conflicted files (a commit hook, for one). Fixing
-what the refusal names (lint, a hook's complaint, the tree) is the human's
-call, not this run's.
+Opens when `gitq continue` exits 1 with a `gitq:` line on stderr: a
+refusal, with the lease still parked and the pause intact. Fixing what the
+refusal names is the human's call, not this run's.
 
-Context: the `gitq:` stderr line verbatim, plus any hook output it printed.
+An exit 1 after the normal JSON is not this gate. It means the rebase's
+continue failed with no conflicted files: the failing `results` entry has
+`success: false` and the error "rebase --continue failed", and gitq has
+already ended the cascade, cleared its pause and released the lease. There
+is nothing left to continue or abort, so that edge writes the error "gitq
+continue failed on <branch>: rebase --continue failed", skips the rest of
+the plan and reports.
+
+Context: the `gitq:` stderr line verbatim.
 
 | Question | Options (recommended first) |
 |---|---|
@@ -567,7 +577,8 @@ only a logged `reparent` can be walked back with `gitq undo`.
 | hand back at the judgment gate, or its rounds spent | "conflict on <file> needs human judgment: <why>", or "conflict on <file> not settled after 2 rounds"; the conflict and both sides, so the human can resolve it by hand |
 | hand back at the pause gate, or its rounds spent | "pause on <branch> (commit <i>/<total>) will not clear: <files still conflicted>", or "pause on <branch> (commit <i>/<total>) not settled after 2 rounds"; each attempt and what it tried |
 | hand back at the twenty-pause gate, or its rounds spent | "stopped after <n> conflict pauses", or "conflict pauses past 20 not settled after 2 rounds"; the pauses so far |
-| continue refused, handed back or budget spent | "gitq continue refused on <branch>: <the gitq: line>" on hand back; the `gitq:` stderr line and any hook output |
+| continue refused, handed back or budget spent | "gitq continue refused on <branch>: <the gitq: line>" on hand back; the `gitq:` stderr line |
+| continue ended the cascade with a failed branch | "gitq continue failed on <branch>: rebase --continue failed"; gitq released the lease, but the rebase may still be in progress in the slot (`<rebaseDir>`), so name the slot and the branch for the human to look at |
 
 After an abort, the reparent that paused is started but not finished: its
 cascade stopped at the paused branch, and a paused reparent is not in the
@@ -591,15 +602,15 @@ operation log, so `gitq undo` cannot walk it back.
   per pause and restart on a new one; conflict pauses count per run. Each
   gate's rounds and each `Runs after` counter count per gate. A counter
   diamond's `yes` edge is taken once its count has reached the number.
-- Every path but a hold or the missing-gitq stop ends through a `done` or
-  `error` write, so the board badge never sticks. On a hold, tell the human
-  in the pane what is waiting on them and which operations ran. At the
-  instruction gate nothing ran; at the plan gate nothing ran unless it
-  reopened mid-run, and then the operations already run stay applied. At
-  the refusal gate, quote the `gitq:` line. When a cascade is paused, say
-  where it sits (`<rebaseDir>`, branch, conflicted files) and that the
-  operations after it did not run; gitq:sync takes over a parked pause on
-  this stack.
+- Every path but a hold ends through a `done` or `error` write, the
+  missing-gitq stop included, so the board badge never sticks. On a hold,
+  tell the human in the pane what is waiting on them and which operations
+  ran. At the instruction gate nothing ran; at the plan gate nothing ran
+  unless it reopened mid-run, and then the operations already run stay
+  applied. At the refusal gate, quote the `gitq:` line. When a cascade is
+  paused, say where it sits (`<rebaseDir>`, branch, conflicted files) and
+  that the operations after it did not run; gitq:sync takes over a parked
+  pause on this stack.
 
 ## Rationalizations
 
