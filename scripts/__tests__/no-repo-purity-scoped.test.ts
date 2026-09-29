@@ -162,3 +162,24 @@ describe("scoped purity terms", () => {
     expect(r.out).toContain("ok   repo-purity");
   });
 });
+
+// Rebuilt from the script's own fragment line so this file never spells it.
+function shortTerm(): string {
+  const line = readFileSync(SCRIPT, "utf8").split("\n").find((l) => l.startsWith("A9="))!;
+  return execFileSync("sh", ["-c", `${line}\nprintf '%s' "$A9"`], { encoding: "utf8" });
+}
+
+describe("the three-letter term", () => {
+  test("on its own it fails the gate, in any case", () => {
+    for (const spelled of [shortTerm(), shortTerm().toLowerCase(), `${shortTerm()}-12`]) {
+      const r = run(repoWith({ "lib/x.ts": `// see ${spelled} here\n` }));
+      expect(r.code).toBe(1);
+    }
+  });
+
+  test("inside a generated id it passes", () => {
+    const id = `zl${shortTerm().slice(0, 1).toLowerCase()}${shortTerm().slice(1)}`;
+    const r = run(repoWith({ "docs/design.pen": `{ "id": "${id}" }\n` }));
+    expect(r.code).toBe(0);
+  });
+});

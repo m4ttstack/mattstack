@@ -4,7 +4,7 @@
  *   rt release preflight [--json]
  *   rt release verify [tag] [--json] [--no-wait]
  *   rt release update-machine [--tag <tag>] [--plan] [--verify-only] [--yes] [--json]
- *   rt release app <name> [--dry-run] [--json] [--yes-notes]
+ *   rt release apps [--dry-run] [--json] [--yes-notes]
  *
  * Read-only report of the release's mechanical checks (the rt:release
  * skill's preflight node): git/tag state, picker conformance, pin freshness
@@ -32,18 +32,17 @@ import type { CommandContext } from "../lib/command-tree.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
 import { runCapture } from "../lib/subprocess.ts";
-import { runPreflight, keepsFastPath, type CheckRow, type PreflightSeams } from "../lib/release/preflight.ts";
+import { runPreflight, type CheckRow, type PreflightSeams } from "../lib/release/preflight.ts";
 import { runVerify, type VerifyRow, type VerifySeams } from "../lib/release/verify.ts";
 import { runUpdateMachine, CHAT_ROOM, type LegResult, type UpdateMachineOptions, type UpdateMachineSeams } from "../lib/release/update-machine.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import {
+  listJoin,
   runReleaseApp,
   type ReleaseAppOptions,
   type ReleaseAppReport,
   type ReleaseAppSeams,
 } from "../lib/release/release-app.ts";
-import { parseDepsLock } from "../lib/bundle-layout.ts";
-import type { SelectOption } from "../lib/pick-wrappers.ts";
 import { conformanceViolations } from "../scripts/lib/picker-conformance.ts";
 import { TREE } from "../lib/command-tree-def.ts";
 import { flagValue } from "../lib/cli-args.ts";
@@ -239,33 +238,17 @@ async function createRealReleaseAppSeams(json: boolean): Promise<{ seams: Releas
 
 export interface ReleaseAppCommandDeps {
   seams?: ReleaseAppSeams;
-  pickApp?: (options: SelectOption[]) => Promise<string | null>;
   run?: (seams: ReleaseAppSeams, opts: ReleaseAppOptions) => Promise<ReleaseAppReport>;
 }
 
-const RELEASE_APP_USAGE = "usage: rt release app <name> [--dry-run] [--json] [--yes-notes <notes hash>]";
-
-async function pickReleaseApp(options: SelectOption[]): Promise<string | null> {
-  const { filterableSelect } = await import("../lib/pick-wrappers.ts");
-  return filterableSelect({ message: "Release which app?", options, breadcrumb: ["rt", "release", "app"] });
-}
-
-/** The fast-path app directories this checkout's deps.lock builds from a tree; empty when it is not an rt checkout. */
-function releaseAppOptions(seams: ReleaseAppSeams): SelectOption[] {
-  const raw = seams.readFile(join(seams.repoRoot, "rt-tray", "deps.lock"));
-  if (!raw) return [];
-  const rows = parseDepsLock(raw).tools;
-  return rows
-    .filter((r) => r.source === "tree" && keepsFastPath(r.name))
-    .map((r) => ({ value: r.name, label: r.name, ...(r.version ? { hint: r.version } : {}) }));
-}
+const RELEASE_APPS_USAGE = "usage: rt release apps [--dry-run] [--json] [--yes-notes <notes hash>]";
 
 function releaseAppSummary(report: ReleaseAppReport): string {
   switch (report.status) {
     case "released":
       return `released ${report.nextTag}`;
     case "planned":
-      return `dry run: nothing changed; rerun without --dry-run to release ${report.app} as ${report.nextTag}`;
+      return `dry run: nothing changed; rerun without --dry-run to release ${listJoin(report.apps)} as ${report.nextTag}`;
     case "awaiting-approval":
       return `the notes need approval; to accept them: ${report.resume}`;
     case "declined":
@@ -279,7 +262,7 @@ function releaseAppSummary(report: ReleaseAppReport): string {
   }
 }
 
-export async function releaseApp(args: string[], _ctx: CommandContext = {}, deps: ReleaseAppCommandDeps = {}): Promise<void> {
+export async function releaseApps(args: string[], _ctx: CommandContext = {}, deps: ReleaseAppCommandDeps = {}): Promise<void> {
   const json = args.includes("--json");
   const real = deps.seams ? null : await createRealReleaseAppSeams(json);
   const seams = deps.seams ?? real!.seams;
@@ -292,7 +275,7 @@ export async function releaseApp(args: string[], _ctx: CommandContext = {}, deps
       // best effort; a leftover scratch dir under tmpdir() is not worth failing the verb over
     }
   };
-  const usage = () => exitUserError(new UserActionableError("usage", RELEASE_APP_USAGE), json, "release app");
+  const usage = () => exitUserError(new UserActionableError("usage", RELEASE_APPS_USAGE), json, "release apps");
 
   try {
     let yesNotes: string | null;
@@ -303,19 +286,9 @@ export async function releaseApp(args: string[], _ctx: CommandContext = {}, deps
     }
     if (yesNotes !== null && !/^[0-9a-f]{12}$/.test(yesNotes)) return usage();
     const yesAt = args.indexOf("--yes-notes");
-    let name = args.find((a, i) => !a.startsWith("--") && !(yesAt >= 0 && i === yesAt + 1));
-    if (!name && process.stdin.isTTY && !json && !process.env.RT_BATCH) {
-      const options = releaseAppOptions(seams);
-      if (options.length) {
-        const picked = await (deps.pickApp ?? pickReleaseApp)(options);
-        if (!picked) return;
-        name = picked;
-      }
-    }
-    if (!name || !/^[a-z0-9][a-z0-9-]*$/.test(name)) usage();
+    if (args.some((a, i) => !a.startsWith("--") && !(yesAt >= 0 && i === yesAt + 1))) return usage();
 
     const report = await (deps.run ?? runReleaseApp)(seams, {
-      name: name!,
       dryRun: args.includes("--dry-run"),
       json,
       yesNotes,

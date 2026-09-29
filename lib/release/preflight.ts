@@ -63,19 +63,47 @@ export interface PreflightSeams {
   violations(): { path: string }[];
 }
 
-/** Apps built from this tree at the release SHA; a diff limited to their directories, the notes and website keeps the fast path. */
+/** Apps built from this tree at the release SHA; a diff limited to their directories, their served-only kits, the notes and website keeps the fast path. */
 export const SERVE_ONLY_APPS = ["board", "boxscore", "chat", "console", "gitq"] as const;
 const FAST_PATH_FILES = new Set(["RELEASE_NOTES.md"]);
 
-export function fastPathApp(file: string): string | null {
-  for (const app of SERVE_ONLY_APPS) if (file.startsWith(`apps/${app}/`)) return app;
-  return null;
+/**
+ * Shared packages only served apps build from, and the apps each one moves.
+ * `no-fast-path-packages-drift.test.ts` recomputes this from the workspace
+ * graph and rt's own imports, so a new consumer outside the fast path fails CI.
+ */
+export const SERVED_ONLY_PACKAGES: Readonly<Record<string, readonly (typeof SERVE_ONLY_APPS)[number][]>> = {
+  "gate-kit": ["board", "console"],
+  "settings-kit": ["board", "boxscore", "console"],
+  tokyo: ["boxscore", "chat", "console"],
+  ui: ["boxscore", "chat", "console"],
+};
+
+function servedOnlyPackage(file: string): string | null {
+  const m = file.match(/^packages\/([^/]+)\//);
+  return m && Object.hasOwn(SERVED_ONLY_PACKAGES, m[1]!) ? m[1]! : null;
+}
+
+/** The served apps this one file moves: its own app, every app a served-only kit feeds, or none. */
+function appsMovedBy(file: string): readonly string[] {
+  for (const app of SERVE_ONLY_APPS) if (file.startsWith(`apps/${app}/`)) return [app];
+  const pkg = servedOnlyPackage(file);
+  return pkg ? SERVED_ONLY_PACKAGES[pkg]! : [];
 }
 
 export function movedServedApps(files: string[]): string[] {
-  const seen = new Set<string>();
-  for (const f of files) { const app = fastPathApp(f); if (app) seen.add(app); }
+  const seen = new Set(files.flatMap(appsMovedBy));
   return SERVE_ONLY_APPS.filter((a) => seen.has(a));
+}
+
+/** The directories whose history describes this app's part of a release over `files`. */
+export function appPaths(app: string, files: string[]): string[] {
+  const kits = new Set<string>();
+  for (const f of files) {
+    const pkg = servedOnlyPackage(f);
+    if (pkg && SERVED_ONLY_PACKAGES[pkg]!.includes(app as (typeof SERVE_ONLY_APPS)[number])) kits.add(`packages/${pkg}/`);
+  }
+  return [`apps/${app}/`, ...[...kits].sort()];
 }
 
 /** Whether this name is one of the apps built from this tree at the release SHA. */
@@ -285,8 +313,8 @@ export async function checkGate(seams: Pick<PreflightSeams, "repoRoot" | "exec">
   try {
     const files = (await git(seams, ["diff", "--no-renames", "--name-only", `${tag}..${ref}`])).split("\n").map((f) => f.trim()).filter(Boolean);
     if (files.length === 0) return { path: "full", reason: "no changes since the tag" };
-    const outside = files.filter((f) => !FAST_PATH_FILES.has(f) && !f.startsWith("website/") && !fastPathApp(f));
-    if (outside.length > 0) return { path: "full", reason: `changes outside the served apps, notes and website: ${outside.slice(0, 5).join(", ")}` };
+    const outside = files.filter((f) => !FAST_PATH_FILES.has(f) && !f.startsWith("website/") && appsMovedBy(f).length === 0);
+    if (outside.length > 0) return { path: "full", reason: `changes outside the served apps, their kits, notes and website: ${outside.slice(0, 5).join(", ")}` };
     const moved = movedServedApps(files);
     if (moved.length === 0) return { path: "full", reason: "no served app moved since the tag" };
     return { path: "fast", reason: `served app(s) moved: ${moved.join(", ")}` };

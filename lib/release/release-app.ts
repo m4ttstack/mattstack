@@ -1,7 +1,7 @@
 /**
- * rt release app <name>: a served-app patch release end to end: qualify
- * origin/main for the path fast path, write and commit the notes, tag, and
- * verify the publish. Every step first detects whether it already happened,
+ * rt release apps: a patch release of every served app that moved, end to
+ * end: qualify origin/main for the path fast path, write and commit the
+ * notes, tag, and verify the publish. Every step first detects whether it already happened,
  * so a rerun resumes: qualify always checks the newest tag's own verify
  * status before doing anything else. A clean newest tag that already covers
  * origin/main means nothing moved to release, so qualify declines; an
@@ -14,7 +14,7 @@
 import { join } from "path";
 import { createHash } from "crypto";
 import type { RunResult } from "../subprocess.ts";
-import { checkGate, compareVersions, keepsFastPath, movedServedApps } from "./preflight.ts";
+import { SERVE_ONLY_APPS, appPaths, checkGate, compareVersions, movedServedApps } from "./preflight.ts";
 import { runVerify, type VerifyReport, type VerifySeams } from "./verify.ts";
 
 export const RT_REPO = "m4ttstack/mattstack";
@@ -44,7 +44,7 @@ export interface NotesSection {
   subjects: string[];
 }
 
-function listJoin(items: string[]): string {
+export function listJoin(items: string[]): string {
   return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
@@ -57,6 +57,12 @@ export function renderNotes(o: { sections: NotesSection[]; lastTag: string; next
   }
   lines.push(`**Full Changelog**: https://github.com/${RT_REPO}/compare/${o.lastTag}...${o.nextTag}`, "");
   return lines.join("\n");
+}
+
+/** The served apps a tag's notes say it shipped, read back from renderNotes' `### <app>` sections. */
+export function shippedApps(notes: string): string[] {
+  const headed = new Set([...notes.matchAll(/^### (\S+)$/gm)].map((m) => m[1]!));
+  return SERVE_ONLY_APPS.filter((a) => headed.has(a));
 }
 
 /** What `--yes-notes` binds an approval to: these exact notes, not whatever a later run generates. */
@@ -79,7 +85,7 @@ export interface StepResult {
 export type ReleaseStatus = "released" | "planned" | "awaiting-approval" | "declined" | "pending" | "failed";
 
 export interface ReleaseAppReport {
-  app: string;
+  apps: string[];
   status: ReleaseStatus;
   lastTag: string | null;
   nextTag: string | null;
@@ -90,7 +96,6 @@ export interface ReleaseAppReport {
 }
 
 export interface ReleaseAppOptions {
-  name: string;
   dryRun?: boolean;
   json?: boolean;
   /** The hash a stopped run printed for the notes it showed; null/omitted asks, or stops off a TTY. */
@@ -213,27 +218,27 @@ async function resolvePhase(seams: ReleaseAppSeams, headSha: string, newestTag: 
 }
 
 interface Ctx {
-  name: string;
   headSha: string;
   lastTag: string;
   nextTag: string;
   moved: string[];
+  /** Every file changed since lastTag, for the per-app notes history. */
+  files: string[];
   phase: Phase;
   /** The qualify step's own "ok" detail, phrased with whatever verify actually found. */
   qualifyDetail: string;
 }
 
-async function qualify(seams: ReleaseAppSeams, name: string): Promise<Ctx> {
-  if (!keepsFastPath(name)) throw new StepFailure("qualify", `${name} does not keep the fast path; use the full release process`, null);
+async function qualify(seams: ReleaseAppSeams): Promise<Ctx> {
   const { headSha } = await refreshMain(seams);
   const lastTag = newestReleaseTag(await remoteTags(seams));
   const structural = await resolvePhase(seams, headSha, lastTag);
   const verify = await runVerify(seams, { tag: lastTag, noWait: true, skipLatest: true });
 
   if (structural === "released") {
-    if (verify.clean) throw new StepFailure("qualify", `${name} has not moved since ${lastTag}`, null);
+    if (verify.clean) throw new StepFailure("qualify", `nothing has moved since ${lastTag}`, null);
     return {
-      name, headSha, lastTag, nextTag: lastTag, moved: [], phase: "released",
+      headSha, lastTag, nextTag: lastTag, moved: [], files: [], phase: "released",
       qualifyDetail: `${lastTag} has not moved since; its publish has not verified yet (${unverifiedSummary(verify)}), so re-checking it before any new release`,
     };
   }
@@ -246,18 +251,17 @@ async function qualify(seams: ReleaseAppSeams, name: string): Promise<Ctx> {
   if (gate.path !== "fast") throw new StepFailure("qualify", `not a fast-path diff since ${lastTag}: ${gate.reason}`, null);
   const files = (await git(seams, ["diff", "--no-renames", "--name-only", `${lastTag}..origin/main`])).split("\n").map((f) => f.trim()).filter(Boolean);
   const moved = movedServedApps(files);
-  if (!moved.includes(name)) throw new StepFailure("qualify", `${name} has not moved since ${lastTag} (moved: ${moved.join(", ") || "none"})`, null);
   const nextTag = nextPatchTag(lastTag);
   return {
-    name, headSha, lastTag, nextTag, moved, phase: "notes",
-    qualifyDetail: `origin/main is on the fast path since ${lastTag}; ${moved.join(", ")} moved; releasing ${name} as ${nextTag}`,
+    headSha, lastTag, nextTag, moved, files, phase: "notes",
+    qualifyDetail: `origin/main is on the fast path since ${lastTag}; releasing ${moved.join(", ")} as ${nextTag}`,
   };
 }
 
-export async function notesSectionsFor(seams: ReleaseAppSeams, lastTag: string, apps: string[]): Promise<NotesSection[]> {
+export async function notesSectionsFor(seams: ReleaseAppSeams, lastTag: string, apps: string[], files: string[]): Promise<NotesSection[]> {
   const sections: NotesSection[] = [];
   for (const app of apps) {
-    const out = await git(seams, ["log", "--format=%s", `${lastTag}..origin/main`, "--", `apps/${app}/`]);
+    const out = await git(seams, ["log", "--format=%s", `${lastTag}..origin/main`, "--", ...appPaths(app, files)]);
     const subjects = out.split("\n").map((l) => l.trim()).filter(Boolean);
     sections.push({ app, subjects });
   }
@@ -337,7 +341,7 @@ async function commitNotes(seams: ReleaseAppSeams, ctx: Ctx, notes: string): Pro
     message: `chore(release): notes for ${ctx.nextTag}`,
     prefix: "notes",
     currentHead: async () => (await git(seams, ["ls-remote", "origin", "refs/heads/main"], 30_000)).split(/\s+/)[0] ?? "",
-    resume: `rt release app ${ctx.name}`,
+    resume: "rt release apps",
   });
   // commitFiles lands the notes commit on GitHub via the API; the local git object
   // set does not have it until fetched, and tagStep tags it locally right after this.
@@ -353,7 +357,7 @@ async function tagStep(seams: ReleaseAppSeams, ctx: Ctx, sha: string, rec: Recor
   if (local.exitCode === 0) {
     const at = local.stdout.trim();
     if (at !== sha) {
-      throw new StepFailure("tag", `local tag ${tag} points at ${at.slice(0, 9)}, not the notes commit ${sha.slice(0, 9)}`, `git tag -d ${tag}, then rt release app ${ctx.name}`);
+      throw new StepFailure("tag", `local tag ${tag} points at ${at.slice(0, 9)}, not the notes commit ${sha.slice(0, 9)}`, `git tag -d ${tag}, then rt release apps`);
     }
   } else {
     await git(seams, ["tag", "-a", tag, sha, "-m", tag]);
@@ -406,16 +410,17 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
 
   let lastTag: string | null = null;
   let nextTag: string | null = null;
+  let apps: string[] = [];
   let notes: string | null = null;
   let hash: string | null = null;
   const report = (status: ReleaseStatus, resume: string | null = null): ReleaseAppReport => ({
-    app: opts.name, status, lastTag, nextTag, steps, notes, notesHash: hash, resume,
+    apps, status, lastTag, nextTag, steps, notes, notesHash: hash, resume,
   });
-  const rerun = `rt release app ${opts.name}`;
+  const rerun = "rt release apps";
 
   let ctx: Ctx;
   try {
-    ctx = await inStep("qualify", rerun, () => qualify(seams, opts.name));
+    ctx = await inStep("qualify", rerun, () => qualify(seams));
   } catch (err) {
     if (!(err instanceof StepFailure)) throw err;
     if (err.resume === null) {
@@ -427,12 +432,14 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
   }
   lastTag = ctx.lastTag;
   nextTag = ctx.nextTag;
+  apps = ctx.moved;
 
   if (ctx.phase === "released") {
     rec("qualify", "ok", ctx.qualifyDetail);
     try {
       notes = await git(seams, ["show", `${ctx.lastTag}:RELEASE_NOTES.md`]);
       hash = notesHash(notes);
+      apps = shippedApps(notes);
     } catch {
       // no RELEASE_NOTES.md at this ref; the report simply carries no notes text
     }
@@ -449,7 +456,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
 
   let sections: NotesSection[];
   try {
-    sections = await inStep("notes", rerun, () => notesSectionsFor(seams, ctx.lastTag, ctx.moved));
+    sections = await inStep("notes", rerun, () => notesSectionsFor(seams, ctx.lastTag, ctx.moved, ctx.files));
   } catch (err) {
     if (!(err instanceof StepFailure)) throw err;
     rec("notes", "failed", err.message);

@@ -1,5 +1,5 @@
 /**
- * e2e: `rt release app <name> --json` resolves a plan, or stops for notes
+ * e2e: `rt release apps --json` resolves a plan, or stops for notes
  * approval, from a real rt checkout without touching anything remote. Git is
  * real, pointed at a local bare repo built fresh per test: the served apps
  * live under `apps/<name>/` in this same repo, so no separate apps clone is
@@ -30,6 +30,7 @@ esac
 interface ReleaseAppBody {
   contract: number;
   status: string;
+  apps: string[];
   lastTag: string | null;
   nextTag: string | null;
   notesHash: string | null;
@@ -37,7 +38,7 @@ interface ReleaseAppBody {
   steps: { id: string; status: string; detail: string; command?: string }[];
 }
 
-describe("rt release app", () => {
+describe("rt release apps", () => {
   let home: string;
   let cleanup: () => void;
   let seq = 0;
@@ -95,7 +96,7 @@ describe("rt release app", () => {
     const { bare, checkout } = makeOrigin({ "apps/board/x.ts": "export {};\n", "RELEASE_NOTES.md": "v0.1.1 notes\n" });
     const refsBefore = git(home, "ls-remote", bare);
 
-    const result = await runCli(["release", "app", "board", "--dry-run", "--json"], checkout);
+    const result = await runCli(["release", "apps", "--dry-run", "--json"], checkout);
 
     expect(result.exitCode).toBe(0);
     const body = JSON.parse(result.stdout) as ReleaseAppBody;
@@ -110,11 +111,23 @@ describe("rt release app", () => {
     expect(git(checkout, "tag", "--list", "v0.1.1")).toBe("");
   });
 
+  test("a served-only kit change plans one release of every app built from it", async () => {
+    const { checkout } = makeOrigin({ "packages/ui/src/Button.tsx": "export {};\n" });
+
+    const result = await runCli(["release", "apps", "--dry-run", "--json"], checkout);
+
+    expect(result.exitCode).toBe(0);
+    const body = JSON.parse(result.stdout) as ReleaseAppBody;
+    expect(body.status).toBe("planned");
+    expect(body.apps).toEqual(["boxscore", "chat", "console"]);
+    expect(body.notes?.split("\n")[0]).toBe("A patch release that ships boxscore, chat and console.");
+  });
+
   test("a diff that leaves the fast path is declined, naming the offending file", async () => {
     const { bare, checkout } = makeOrigin({ "apps/board/x.ts": "export {};\n", "lib/x.ts": "export {};\n" });
     const refsBefore = git(home, "ls-remote", bare);
 
-    const result = await runCli(["release", "app", "board", "--dry-run", "--json"], checkout);
+    const result = await runCli(["release", "apps", "--dry-run", "--json"], checkout);
 
     expect(result.exitCode).toBe(1);
     const body = JSON.parse(result.stdout) as ReleaseAppBody;
@@ -130,7 +143,7 @@ describe("rt release app", () => {
     const refsBefore = git(home, "ls-remote", bare);
     const notesBefore = readFileSync(join(checkout, "RELEASE_NOTES.md"), "utf8");
 
-    const result = await runCli(["release", "app", "board", "--json"], checkout);
+    const result = await runCli(["release", "apps", "--json"], checkout);
 
     expect(result.exitCode).toBe(0);
     const body = JSON.parse(result.stdout) as ReleaseAppBody;
