@@ -1114,10 +1114,12 @@ export function Board() {
     draftsHidden
   );
   const dataAge = dataAgeLabel(data.dataSyncedAt, now);
-  // Both known and the board asks for more history than rt actually syncs --
-  // config drift the board can't self-correct, so it needs to be visible.
+  // An explicit board window wider than rt actually syncs is config drift the
+  // board can't self-correct, so it needs to be visible. Unset follows rt.
   const windowMismatch =
-    data.scopeWindowDays !== null && data.staleAfterDays > data.scopeWindowDays
+    data.staleAfterDays !== null &&
+    data.scopeWindowDays !== null &&
+    data.staleAfterDays > data.scopeWindowDays
       ? `board shows ${data.staleAfterDays} days but rt syncs ${data.scopeWindowDays} days... align configs`
       : null;
 

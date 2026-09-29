@@ -489,7 +489,7 @@ export const REGISTRY: readonly SettingDef[] = [
     type: "number",
     scopes: ["user"],
     merge: "replace",
-    description: "Days of MR inactivity before the board flags it stale, for this developer.",
+    description: "Days of MR inactivity before the board flags it stale, for this developer. Absent = follow rt's project MR sync window (the narrowest across the board's projects).",
   },
   {
     key: "board.gateGraceMinutes",

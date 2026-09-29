@@ -122,6 +122,10 @@ function scrubAvatarUrls(value: unknown): void {
   }
 }
 
+/** Parity with rt's DEFAULT_PROJECT_MRS_WINDOW_DAYS (lib/repo-tracking.ts):
+    the stale window an unset board uses when no read reported rt's window. */
+export const RT_DEFAULT_SYNC_WINDOW_DAYS = 30;
+
 /**
  * Shape raw MRs into a flat board list: authored by a configured member (or
  * tagged into a configured codeowners tab's section), open, not draft, in a
@@ -131,16 +135,21 @@ function scrubAvatarUrls(value: unknown): void {
  * unsorted. `tags` (keyed by pr.id) is the per-MR codeowner sections a daemon
  * read reported; omitted entirely for callers that never declare
  * codeownerSections demand (e.g. the single-member fetch).
+ * `scopeWindowDays` is rt's sync window, the stale cutoff whenever the
+ * config leaves staleAfterDays unset.
  */
 export function buildBoard(
   prs: PullRequest[],
   config: BoardConfig,
   now: number = Date.now(),
-  tags?: Map<string, string[]>
+  tags?: Map<string, string[]>,
+  scopeWindowDays: number | null = null
 ): BoardMR[] {
   const members = new Set(config.members.map(m => m.username));
   const projects = new Set(config.projects);
-  const staleCutoff = now - config.staleAfterDays * 86_400_000;
+  const staleDays =
+    config.staleAfterDays ?? scopeWindowDays ?? RT_DEFAULT_SYNC_WINDOW_DAYS;
+  const staleCutoff = now - staleDays * 86_400_000;
   const prefixes = new Set(config.ticketPrefixes);
   const tabSections = new Set(
     config.tabs.flatMap(t =>

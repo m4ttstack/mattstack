@@ -99,4 +99,57 @@ describe('collectProjectPRs', () => {
     expect(tags.get('pr-1')).toEqual(['islands']);
     expect(tags.has('pr-2')).toBe(false);
   });
+
+  test('reports the narrowest sync window any project read carried', async () => {
+    const boardConfig = {
+      projects: ['a/b', 'c/d', 'e/f'],
+      rtRepos: {
+        'a/b': 'gitlab.com/a/b',
+        'c/d': 'gitlab.com/c/d',
+        'e/f': 'gitlab.com/e/f',
+      },
+    };
+    const windows: Record<string, number | undefined> = {
+      'a%2Fb': 30,
+      'c%2Fd': 14,
+      'e%2Ff': undefined,
+    };
+    const fetchProjectMRs = stubReader(async repoId => {
+      const key = Object.keys(windows).find(k => repoId.includes(k))!;
+      const windowDays = windows[key];
+      return {
+        ok: true,
+        data: {
+          mrs: {},
+          listSyncedAt: 0,
+          source: 'poll',
+          syncedAt: 0,
+          ...(windowDays === undefined
+            ? {}
+            : { scope: { windowDays, uncovered: [] } }),
+        },
+      };
+    });
+    const { scopeWindowDays } = await collectProjectPRs(
+      boardConfig,
+      fetchProjectMRs
+    );
+    expect(scopeWindowDays).toBe(14);
+  });
+
+  test('reports no sync window when no read carried one', async () => {
+    const boardConfig = {
+      projects: ['a/b'],
+      rtRepos: { 'a/b': 'gitlab.com/a/b' },
+    };
+    const fetchProjectMRs = stubReader(async () => ({
+      ok: true,
+      data: { mrs: {}, listSyncedAt: 0, source: 'poll', syncedAt: 0 },
+    }));
+    const { scopeWindowDays } = await collectProjectPRs(
+      boardConfig,
+      fetchProjectMRs
+    );
+    expect(scopeWindowDays).toBeNull();
+  });
 });

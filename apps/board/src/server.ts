@@ -763,7 +763,7 @@ const cache = new SnapshotCache(async () => {
     syncError,
     tags,
   } = await fetchTeamMRs(force);
-  const mrs = buildBoard(prs, config, undefined, tags);
+  const mrs = buildBoard(prs, config, undefined, tags, scopeWindowDays);
   await enrichReviewerComments(mrs);
   return {
     mrs,
@@ -785,6 +785,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   const out: PullRequest[] = [];
   const tags = new Map<string, string[]>();
   const errors: string[] = [];
+  const reads: SyncScopeRead[] = [];
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
@@ -796,6 +797,11 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
       errors.push(`${projectPath}: ${res.error ?? 'empty daemon response'}`);
       continue;
     }
+    reads.push({
+      syncedAt: res.data.syncedAt,
+      scope: res.data.scope,
+      syncError: res.data.syncError,
+    });
     for (const entry of Object.values(res.data.mrs)) {
       if (entry.pr.state !== 'opened' || entry.pr.author?.username !== username)
         continue;
@@ -805,7 +811,8 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
     }
   }
   if (errors.length) throw new Error(errors.join(' · '));
-  const mrs = buildBoard(out, config, undefined, tags);
+  const { scopeWindowDays } = aggregateSyncScope(reads);
+  const mrs = buildBoard(out, config, undefined, tags, scopeWindowDays);
   await enrichReviewerComments(mrs);
   return mrs;
 }

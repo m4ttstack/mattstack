@@ -40,7 +40,7 @@ describe('parseConfig', () => {
       { username: 'bob' },
     ]);
     expect(cfg.title).toBe('MRs ready for review');
-    expect(cfg.staleAfterDays).toBe(90);
+    expect(cfg.staleAfterDays).toBeNull();
     expect(cfg.gateGraceMinutes).toBe(90);
     expect(cfg.ticketPrefixes).toEqual([]);
   });
@@ -78,6 +78,13 @@ describe('parseConfig', () => {
       parseConfig(JSON.stringify({ ...base, staleAfterDays: 30 }))
         .staleAfterDays
     ).toBe(30);
+  });
+
+  test('an explicit null staleAfterDays reads as unset', () => {
+    expect(
+      parseConfig(JSON.stringify({ ...base, staleAfterDays: null }))
+        .staleAfterDays
+    ).toBeNull();
   });
 
   test('throws when staleAfterDays is not a positive number', () => {

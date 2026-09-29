@@ -12,7 +12,8 @@
  * Codeowner sections come back on the same read, so they are collected here
  * too: buildBoard needs them to keep a codeowner-tagged MR whose author is
  * not a configured member, and a pass that drops them cannot see those MRs
- * at all.
+ * at all. The same goes for rt's sync window: an unset stale window
+ * follows it, so a pass that drops it filters differently from the board.
  */
 import type { PullRequest } from '@mattstack/glance';
 import type { readProjectMRs } from '@mattstack/rt-client';
@@ -21,19 +22,30 @@ import { daemonRepoField, type BoardConfig } from '../config.ts';
 export async function collectProjectPRs(
   boardConfig: Pick<BoardConfig, 'projects' | 'rtRepos'>,
   fetchProjectMRs: typeof readProjectMRs
-): Promise<{ prs: PullRequest[]; tags: Map<string, string[]> }> {
+): Promise<{
+  prs: PullRequest[];
+  tags: Map<string, string[]>;
+  scopeWindowDays: number | null;
+}> {
   const prs: PullRequest[] = [];
   const tags = new Map<string, string[]>();
+  let scopeWindowDays: number | null = null;
   for (const projectPath of boardConfig.projects) {
     const repoId = daemonRepoField(boardConfig, projectPath);
     if (!repoId) continue;
     const res = await fetchProjectMRs(repoId);
     if (!res.ok || !res.data) continue;
+    const windowDays = res.data.scope?.windowDays;
+    if (windowDays !== undefined)
+      scopeWindowDays =
+        scopeWindowDays === null
+          ? windowDays
+          : Math.min(scopeWindowDays, windowDays);
     for (const entry of Object.values(res.data.mrs)) {
       prs.push(entry.pr as PullRequest);
       if (entry.codeownerSections?.length)
         tags.set(entry.pr.id, entry.codeownerSections);
     }
   }
-  return { prs, tags };
+  return { prs, tags, scopeWindowDays };
 }

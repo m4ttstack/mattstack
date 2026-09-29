@@ -142,8 +142,9 @@ export interface BoardConfig {
   members: Member[];
   /** Username of the member the board defaults to (or "all"), absent URL/localStorage overrides. */
   defaultMember: string;
-  /** Hide MRs with no activity (last update) in more than this many days. */
-  staleAfterDays: number;
+  /** Hide MRs with no activity (last update) in more than this many days.
+      null follows rt's project MR sync window instead. */
+  staleAfterDays: number | null;
   /** How long an `open` review gate waits for an answer before the sweep
       parks it. Minutes. */
   gateGraceMinutes: number;
@@ -262,7 +263,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     );
   }
   if (
-    cfg.staleAfterDays !== undefined &&
+    cfg.staleAfterDays != null &&
     (typeof cfg.staleAfterDays !== 'number' || cfg.staleAfterDays <= 0)
   ) {
     throw new Error(`${source} "staleAfterDays" must be a positive number`);
@@ -347,7 +348,7 @@ export function parseConfig(raw: string, source = 'config.json'): BoardConfig {
     projects: cfg.projects!,
     members: cfg.members!,
     defaultMember: cfg.defaultMember ?? 'all',
-    staleAfterDays: cfg.staleAfterDays ?? 90,
+    staleAfterDays: cfg.staleAfterDays ?? null,
     gateGraceMinutes: cfg.gateGraceMinutes ?? 90,
     // Normalize to uppercase so matching is case-insensitive (ticket keys are uppercased).
     ticketPrefixes: (cfg.ticketPrefixes ?? []).map(p => p.trim().toUpperCase()),
