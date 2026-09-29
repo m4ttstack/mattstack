@@ -190,9 +190,46 @@ columns. A dedicated mobile design is out of scope.
 - Server: `facts` per stat in the existing metrics tests; the CLI report
   still prints `summary`.
 - Kit: story, treeshake case, eslint wall test.
-- Visual sign-off: every page rendered in Fast Browser against the served
-  dev app and compared with its render in both schemes before the PR is
-  called done; mismatches are reported, not glossed.
+- Visual parity (below) passes for every board in both schemes before the
+  PR is called done.
+
+### Visual parity
+
+The app must match the boards exactly: same geometry, same colours, same
+content. Parity is checked by machine, not by eye.
+
+- **Design dataset.** `apps/boxscore/test/fixtures/design/` holds the
+  invented data drawn on the canvas (people, values, deltas, evidence rows,
+  refresh progress) as leaderboard, detail and refresh payloads. Setting
+  `BOXSCORE_FIXTURE=design` makes the server answer every API route from it,
+  including a scripted refresh job that sits at "MR details 142 / 310" and a
+  stalled variant. The app then renders exactly what each board shows.
+- **Design geometry.** `docs/apps/design/boxscore/parity/<board>.json` is
+  exported from `boxscore.pen` with the Pencil MCP: for each named layer
+  that matters (frames, bars, pills, dots, text blocks), its board-relative
+  box and its fill and stroke tokens. A script in
+  `apps/boxscore/scripts/parity/` regenerates it; the JSON is committed.
+- **Parity hooks.** Components put `data-parity="<layer name>"` on the
+  elements those layers map to. Repeated layers (rows, cells, bins) use the
+  layer name plus an index, in the same order as the canvas.
+- **The check.** For each board and scheme, Fast Browser loads the
+  corresponding route at a 1440 x board-height viewport with
+  `data-mantine-color-scheme` forced, and one `browser_run_code_unsafe`
+  script collects every `data-parity` element's box (relative to the page
+  frame) and computed colours. `apps/boxscore/scripts/parity/compare.ts`
+  diffs that against the design JSON:
+  - box x, y, width, height within 1px, except text elements, whose width
+    may differ (Inter on the canvas, the system sans in the app) while their
+    x, y and height still hold to 1px;
+  - fill, stroke and text colour equal to the token's value in that scheme;
+  - every design layer present in the DOM, and no extra parity element.
+  It writes a mismatch table and a side-by-side PNG (design render, app
+  screenshot, 50% difference overlay) to `~/.fast-browser/output/`.
+- **Pass bar.** Zero mismatches on all seven boards in both schemes. Each
+  plan task that builds a board ends with its parity run, and the final task
+  runs all fourteen. A mismatch is fixed in the app, or, if the board itself
+  is wrong, in the `.pen` with Matt's approval and a regenerated render and
+  parity JSON. It is never waved through.
 
 ## Out of scope
 
