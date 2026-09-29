@@ -49,6 +49,8 @@ export interface Probes {
   removeDir(path: string): void;
   symlink(target: string, path: string): void;
   mkdirp(path: string, mode?: number): void;
+  /** Creates exactly `path` (its parent must exist): true when this call made it, false when it already existed. Other errors throw. */
+  mkdirExclusive(path: string): boolean;
   /** Never throws: network failure yields status 0, body "", headers {}. Header names are lowercased. */
   fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }): Promise<{ status: number; body: string; headers: Record<string, string> }>;
   tray: TrayClient;
@@ -302,6 +304,16 @@ export function createRealProbes(): Probes {
 
     mkdirp(path, mode) {
       mkdirSync(path, { recursive: true, ...(mode !== undefined ? { mode } : {}) });
+    },
+
+    mkdirExclusive(path) {
+      try {
+        mkdirSync(path);
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+        throw err;
+      }
     },
 
     async fetch(url, init) {

@@ -10,7 +10,7 @@
 import { join } from "path";
 import { resolveIndexPathForIdentity, updateRepoIndexAsync } from "../../repo-index.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { normalizeRemote, serializeIdentity } from "../../settings/identity.ts";
+import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../../settings/identity.ts";
 import { gitWithToken } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -80,14 +80,28 @@ function cloneFailureReason(result: ExecResult): string {
   return output ? `${output} (git exited ${result.code})` : `git exited ${result.code} with no output`;
 }
 
+/**
+ * `isCloneOf` is only a prefilter: any `url =` line matches it, so a fork
+ * whose `upstream` is the tracked repo, or a superproject carrying it as a
+ * submodule, would pass. The repo's own derived identity (origin) decides.
+ */
+async function isReusableCloneOf(p: ApplyContext["p"], path: string, identity: string): Promise<boolean> {
+  if (!isCloneOf(p, path, identity)) return false;
+  try {
+    return serializeIdentity(await deriveRepoIdentity(path)) === serializeIdentity({ kind: "remote", id: identity });
+  } catch {
+    return false;
+  }
+}
+
 /** An existing clone of `identity` somewhere other than `dest`: the index's own row first, then any direct child of a repo root. */
 async function findExistingClone(p: ApplyContext["p"], identity: string, dest: string, rootPaths: string[]): Promise<{ path: string; indexed: boolean } | null> {
   const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
-  if (indexed && indexed !== dest && isCloneOf(p, indexed, identity)) return { path: indexed, indexed: true };
+  if (indexed && indexed !== dest && (await isReusableCloneOf(p, indexed, identity))) return { path: indexed, indexed: true };
   for (const rootPath of rootPaths) {
     for (const child of p.readDir(rootPath)) {
       const candidate = join(rootPath, child);
-      if (candidate !== dest && isCloneOf(p, candidate, identity)) return { path: candidate, indexed: false };
+      if (candidate !== dest && (await isReusableCloneOf(p, candidate, identity))) return { path: candidate, indexed: false };
     }
   }
   return null;
@@ -165,14 +179,21 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
       continue;
     }
 
+    // Claiming `dest` with an exclusive mkdir makes "this run created it" a fact rather than an earlier observation, so the cleanup below can never remove a folder something else made meanwhile.
+    p.mkdirp(rootPath);
+    if (!p.mkdirExclusive(dest)) {
+      failed.push(base);
+      ctx.log("repos.clone", `${base}: ${dest} appeared while this step was running; left alone, rerun the step to check it`);
+      continue;
+    }
+
     const remote = `https://${identity}.git`;
     const git = gitWithToken([...CLONE_STALL_ARGS, "clone", remote, dest], await trustedForgeTokenFor(ctx, remote), CLONE_ENV);
     const result = await p.exec(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS });
     if (result.code !== 0) {
       failed.push(base);
       ctx.log("repos.clone", `${base}: clone failed: ${cloneFailureReason(result)}`);
-      // `dest` did not exist before this clone, so whatever is there now is the clone's own half-made tree.
-      if (p.exists(dest)) p.removeDir(dest);
+      p.removeDir(dest);
       continue;
     }
 

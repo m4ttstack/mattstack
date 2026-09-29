@@ -242,6 +242,14 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
       if (mode !== undefined) calls.modes[path] = mode;
     },
 
+    mkdirExclusive(path) {
+      if (resolveThroughLinks(path) !== null) return false;
+      dirs[path] = [];
+      const parentList = dirs[dirname(path)] ?? (dirs[dirname(path)] = []);
+      if (!parentList.includes(basename(path))) parentList.push(basename(path));
+      return true;
+    },
+
     async fetch(url, init) {
       calls.fetch.push(url);
       calls.fetchInits.push({ url, init });
