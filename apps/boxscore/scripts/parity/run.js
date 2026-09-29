@@ -34,9 +34,87 @@ async (
     await page.setViewportSize({ width: cfg.width, height: cfg.height });
     await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
 
+    // The export sets text in the canvas fonts (Inter, JetBrains Mono); the app uses the
+    // theme's stacks. Font is the one difference the spec allows, so the design page is
+    // re-set in the app's own stacks before anything is measured.
+    step = 'app: read fonts';
+    await page.goto(`${cfg.appOrigin}/`);
+    await page.waitForFunction(
+      () =>
+        document.documentElement.hasAttribute('data-mantine-color-scheme') &&
+        getComputedStyle(document.documentElement)
+          .getPropertyValue('--mantine-font-family-monospace')
+          .trim() !== ''
+    );
+    const fonts = await page.evaluate(async () => {
+      const probe = document.createElement('span');
+      probe.style.fontFamily = 'var(--mantine-font-family-monospace)';
+      document.body.appendChild(probe);
+      const mono = getComputedStyle(probe).fontFamily;
+      probe.remove();
+      // The app's own @font-face rules, their files inlined as data URLs so the
+      // design page (a file:// origin) loads the very same font files.
+      const faces = [];
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try {
+          rules = sheet.cssRules;
+        } catch {
+          continue;
+        }
+        for (const rule of rules) {
+          if (!(rule instanceof CSSFontFaceRule)) continue;
+          let css = rule.cssText;
+          for (const m of css.matchAll(/url\("?([^")]+)"?\)/g)) {
+            const abs = new URL(m[1], sheet.href ?? location.href).href;
+            const res = await fetch(abs);
+            const type = res.headers.get('content-type') ?? 'font/woff2';
+            const bytes = new Uint8Array(await res.arrayBuffer());
+            let bin = '';
+            for (const b of bytes) bin += String.fromCharCode(b);
+            css = css.replace(m[0], `url("data:${type};base64,${btoa(bin)}")`);
+          }
+          faces.push(css);
+        }
+      }
+      return { sans: getComputedStyle(document.body).fontFamily, mono, faces };
+    });
+    result.fonts = {
+      sans: fonts.sans,
+      mono: fonts.mono,
+      faces: fonts.faces.length,
+    };
+
+    // The export pulls the canvas fonts from Google Fonts. Blocked, so the only
+    // faces on the design page are the app's own.
+    const webFonts = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
+    await page.route(webFonts, r => r.abort());
     step = 'design: load';
     await page.goto(cfg.designUrl);
-    await page.evaluate(() => document.fonts.ready);
+    await page.unroute(webFonts);
+    step = 'design: set app fonts';
+    const leftover = await page.evaluate(({ sans, mono, faces }) => {
+      const style = document.createElement('style');
+      style.textContent = faces.join('\n');
+      document.head.appendChild(style);
+      for (const el of document.querySelectorAll('[style*="font-family"]')) {
+        el.style.fontFamily = /JetBrains Mono/i.test(el.style.fontFamily)
+          ? mono
+          : sans;
+      }
+      return [...document.querySelectorAll('[style*="font-family"]')].filter(
+        el => ![sans, mono].includes(getComputedStyle(el).fontFamily)
+      ).length;
+    }, fonts);
+    if (leftover > 0)
+      throw new Error(`${leftover} design layers still use a canvas font`);
+    const loaded = await page.evaluate(async ({ mono }) => {
+      const faces = await document.fonts.load(`13px ${mono}`);
+      await document.fonts.ready;
+      return faces.length;
+    }, fonts);
+    if (fonts.faces.length > 0 && loaded === 0)
+      throw new Error('the app font faces did not load on the design page');
     // Pencil's html-css export writes a stroked layer as content-box but leaves its padding
     // inside the width and height it states, so every padded, stroked layer renders too big.
     // Taking the padding back out makes the page match the board renders.
@@ -54,6 +132,55 @@ async (
         if (h !== null && padY) s.height = `${h - padY}px`;
       }
     });
+    // The export freezes a stroked layer that hugs its content at the width Pencil
+    // measured in the canvas font. With the app's fonts set, those layers hug again
+    // (the pen says which), so they reflow instead of keeping a canvas-font width.
+    step = 'design: unfreeze hug widths';
+    const unfrozen = await page.evaluate(
+      ({ targets, attr }) => {
+        let count = 0;
+        for (const t of targets) {
+          const root = [...document.querySelectorAll(`[${attr}]`)].find(
+            el => el.getAttribute(attr) === t.root
+          );
+          if (!root) continue;
+          const hug = new Set(t.hugWidths);
+          const namedKids = el => {
+            const found = [];
+            for (const k of el.children) {
+              if (k.hasAttribute(attr)) found.push(k);
+              else found.push(...namedKids(k));
+            }
+            return found;
+          };
+          const walk = (el, prefix) => {
+            const kids = namedKids(el);
+            const counts = {};
+            for (const k of kids) {
+              const n = k.getAttribute(attr);
+              counts[n] = (counts[n] || 0) + 1;
+            }
+            const seen = {};
+            for (const k of kids) {
+              const n = k.getAttribute(attr);
+              const idx =
+                counts[n] > 1 ? `[${(seen[n] = (seen[n] ?? -1) + 1)}]` : '';
+              const path = prefix ? `${prefix}/${n}${idx}` : `${n}${idx}`;
+              if (hug.has(path) && /px$/.test(k.style.width)) {
+                k.style.width = 'fit-content';
+                count += 1;
+              }
+              walk(k, path);
+            }
+          };
+          walk(root, '');
+        }
+        return count;
+      },
+      { targets: cfg.targets, attr: cfg.designAttr }
+    );
+    result.unfrozen = unfrozen;
+
     const designShots = {};
     for (const [i, t] of cfg.targets.entries()) {
       step = `design: collect ${t.root}`;
@@ -167,4 +294,4 @@ async (
       url: page.url(),
     };
   }
-}
+};

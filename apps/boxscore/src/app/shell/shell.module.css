@@ -267,10 +267,9 @@
   gap: 6px;
 }
 
-/* The board sets the title in Inter, whose normal line box is 31px at this size; the system sans runs a pixel short. */
 .title {
   margin: 0;
-  line-height: 31px;
+  line-height: normal;
   white-space: nowrap;
   color: var(--tk-text-1);
   font-size: 26px;

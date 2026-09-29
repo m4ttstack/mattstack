@@ -32,6 +32,28 @@ collecting, after which the page matches the renders pixel for pixel in size.
 Never collect a design page without that step (the plain `collect.js` file
 does not do it).
 
+The font is the one difference the spec allows, so `run.js` removes it at
+the source before measuring the design:
+
+1. It opens the app first and reads its sans stack (the body's computed
+   `font-family`), its monospace stack (`--mantine-font-family-monospace`)
+   and its own `@font-face` rules, inlining each font file as a data URL.
+2. It loads the export with Google Fonts blocked, injects the app's
+   `@font-face` rules, and re-sets every layer that names a font: JetBrains
+   Mono layers take the app's monospace stack, everything else the app's
+   sans stack. It fails the run if any layer still computes another family,
+   or if the app's faces did not load.
+3. After the content-box correction, every layer the pen marks as hugging
+   its width (a frame with no width, or `fit_content`; `scripts/parity/pen.ts`)
+   that the export froze at a px width gets `width: fit-content`, so it
+   reflows with the app's fonts instead of keeping Pencil's Inter width. The
+   harness sends these paths per target (`hugWidths` in `/config`); a layer
+   with a fixed pen width keeps it, and the app must match it.
+
+The result reports `fonts` (both stacks and the face count) and `unfrozen`
+(how many layers step 3 released). `pen.test.ts` checks that the pen paths
+map one to one onto the export's named layers.
+
 ## How keys work (read before adding `data-parity`)
 
 A node's key is the `/`-joined layer names of its **visible** ancestors plus

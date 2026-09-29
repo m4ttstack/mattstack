@@ -19,6 +19,7 @@ import {
   VIEWPORT_WIDTH,
 } from './boards';
 import { OUTPUT_DIR } from './compare';
+import { hugWidthPaths, readPen } from './pen';
 
 export const HARNESS_PORT = Number(process.env.PARITY_HARNESS_PORT ?? 11096);
 export const APP_ORIGIN =
@@ -34,6 +35,7 @@ function config(slug: string, scheme: string) {
     throw new Error(`scheme must be dark or light, got "${scheme}"`);
   }
   const board = boardBySlug(slug);
+  const pen = readPen();
   return {
     ...board,
     scheme,
@@ -42,7 +44,10 @@ function config(slug: string, scheme: string) {
     designAttr: DESIGN_NAME_ATTR,
     appAttr: APP_NAME_ATTR,
     appOrigin: APP_ORIGIN,
-    targets: targetsOf(board),
+    targets: targetsOf(board).map(t => ({
+      ...t,
+      hugWidths: hugWidthPaths(pen, t.root),
+    })),
     collectSource: readFileSync(COLLECT_PATH, 'utf8'),
     outDir: OUTPUT_DIR,
   };

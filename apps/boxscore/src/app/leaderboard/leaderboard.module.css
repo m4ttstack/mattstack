@@ -137,6 +137,7 @@
 
 .youRow {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   margin-top: -0.5px;
   padding-top: 8px;
