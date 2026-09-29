@@ -557,7 +557,8 @@ const FETCH_CONCURRENCY = 4;
 /** fetchTeamMRs' result: the opened MRs plus the aggregated sync facts from
     every project read, for the caller to fold into the snapshot. `tags` is
     every tagged MR's codeowner sections, keyed by pr.id, for buildBoard to
-    intersect against the configured tabs. */
+    intersect against the configured tabs. `windows` is each project's rt
+    sync window, keyed by project path, for buildBoard's stale cutoff. */
 interface TeamMRsResult {
   prs: PullRequest[];
   dataSyncedAt: number | null;
@@ -567,6 +568,7 @@ interface TeamMRsResult {
   scopeKnownSections: string[] | null;
   syncError: BoardSyncError | null;
   tags: Map<string, string[]>;
+  windows: Map<string, number>;
 }
 
 /**
@@ -589,6 +591,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
   const tags = new Map<string, string[]>();
   const errors: string[] = [];
   const reads: SyncScopeRead[] = [];
+  const windows = new Map<string, number>();
   const demand = boardDemand(config, port);
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
@@ -606,6 +609,7 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
       scope: res.data.scope,
       syncError: res.data.syncError,
     });
+    if (res.data.scope) windows.set(projectPath, res.data.scope.windowDays);
     for (const entry of Object.values(res.data.mrs)) {
       if (entry.pr.state !== 'opened') continue;
       byId.set(entry.pr.id, entry.pr);
@@ -614,7 +618,12 @@ async function fetchTeamMRs(force = false): Promise<TeamMRsResult> {
     }
   }
   if (errors.length) throw new Error(errors.join(' · '));
-  return { prs: [...byId.values()], ...aggregateSyncScope(reads), tags };
+  return {
+    prs: [...byId.values()],
+    ...aggregateSyncScope(reads),
+    tags,
+    windows,
+  };
 }
 
 /** Author string for a herdr tab label: the display name, else the username. */
@@ -762,8 +771,9 @@ const cache = new SnapshotCache(async () => {
     scopeKnownSections,
     syncError,
     tags,
+    windows,
   } = await fetchTeamMRs(force);
-  const mrs = buildBoard(prs, config, undefined, tags, scopeWindowDays);
+  const mrs = buildBoard(prs, config, undefined, tags, windows);
   await enrichReviewerComments(mrs);
   return {
     mrs,
@@ -785,7 +795,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
   const out: PullRequest[] = [];
   const tags = new Map<string, string[]>();
   const errors: string[] = [];
-  const reads: SyncScopeRead[] = [];
+  const windows = new Map<string, number>();
   for (const projectPath of config.projects) {
     const repoId = daemonRepoField(config, projectPath);
     if (!repoId) {
@@ -797,11 +807,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
       errors.push(`${projectPath}: ${res.error ?? 'empty daemon response'}`);
       continue;
     }
-    reads.push({
-      syncedAt: res.data.syncedAt,
-      scope: res.data.scope,
-      syncError: res.data.syncError,
-    });
+    if (res.data.scope) windows.set(projectPath, res.data.scope.windowDays);
     for (const entry of Object.values(res.data.mrs)) {
       if (entry.pr.state !== 'opened' || entry.pr.author?.username !== username)
         continue;
@@ -811,8 +817,7 @@ async function fetchMemberMRs(username: string): Promise<BoardMR[]> {
     }
   }
   if (errors.length) throw new Error(errors.join(' · '));
-  const { scopeWindowDays } = aggregateSyncScope(reads);
-  const mrs = buildBoard(out, config, undefined, tags, scopeWindowDays);
+  const mrs = buildBoard(out, config, undefined, tags, windows);
   await enrichReviewerComments(mrs);
   return mrs;
 }

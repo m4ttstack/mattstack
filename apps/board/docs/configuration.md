@@ -32,7 +32,7 @@ install, or seed the team store once and point everyone at it.
 | `members` | array of `{ "username", "name"?, "hidden"? }`: the teammates whose authored MRs the board shows, in sidebar order |
 | `defaultMember` | member username the board opens to by default, or `"all"`. The URL and remembered state override it |
 | `title` | page heading and tab title |
-| `staleAfterDays` | hide MRs with no activity in more than this many days (default: rt's project MR sync window, the narrowest across `projects`; 30 when rt has not reported one) |
+| `staleAfterDays` | hide MRs with no activity in more than this many days (default: each project's rt MR sync window; 30 when rt has not reported one) |
 | `ticketPrefixes` | when non-empty, show only MRs whose ticket key starts with one of these prefixes, e.g. `["ACME"]`. Case-insensitive; MRs with no detectable key are hidden. Empty shows all |
 | `botUsernames` | extra bot accounts whose general MR comments to hide, on top of the built-in heuristic |
 | `reviewCwd` | absolute path the review agent's pane starts in (a repo checkout). Empty disables the review launch |

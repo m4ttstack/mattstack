@@ -135,21 +135,18 @@ export const RT_DEFAULT_SYNC_WINDOW_DAYS = 30;
  * unsorted. `tags` (keyed by pr.id) is the per-MR codeowner sections a daemon
  * read reported; omitted entirely for callers that never declare
  * codeownerSections demand (e.g. the single-member fetch).
- * `scopeWindowDays` is rt's sync window, the stale cutoff whenever the
- * config leaves staleAfterDays unset.
+ * `syncWindows` is rt's sync window per project path, each project's stale
+ * cutoff whenever the config leaves staleAfterDays unset.
  */
 export function buildBoard(
   prs: PullRequest[],
   config: BoardConfig,
   now: number = Date.now(),
   tags?: Map<string, string[]>,
-  scopeWindowDays: number | null = null
+  syncWindows: ReadonlyMap<string, number> = new Map()
 ): BoardMR[] {
   const members = new Set(config.members.map(m => m.username));
   const projects = new Set(config.projects);
-  const staleDays =
-    config.staleAfterDays ?? scopeWindowDays ?? RT_DEFAULT_SYNC_WINDOW_DAYS;
-  const staleCutoff = now - staleDays * 86_400_000;
   const prefixes = new Set(config.ticketPrefixes);
   const tabSections = new Set(
     config.tabs.flatMap(t =>
@@ -171,8 +168,6 @@ export function buildBoard(
     // your own show up with a DRAFT chip and a "mark ready" action. With
     // defaultMember "all" there's no single "you", so no drafts are shown.
     if (pr.draft && pr.author.username !== config.defaultMember) continue;
-    // Drop MRs gone quiet: no activity (last update) within the stale window.
-    if (pr.updatedAt && Date.parse(pr.updatedAt) < staleCutoff) continue;
     // Team filter: keep only MRs whose Linear ticket prefix is configured.
     // No prefixes configured → keep everything. Untagged MRs are dropped.
     // Ticket-prefix filtering is a roster-board concept; a row kept by its
@@ -186,6 +181,13 @@ export function buildBoard(
       ? projectPathFromWebUrl(pr.webUrl, config.gitlabHost)
       : null;
     if (!path || !projects.has(path)) continue;
+    // Drop MRs gone quiet: no activity (last update) within the stale window.
+    const staleDays =
+      config.staleAfterDays ??
+      syncWindows.get(path) ??
+      RT_DEFAULT_SYNC_WINDOW_DAYS;
+    if (pr.updatedAt && Date.parse(pr.updatedAt) < now - staleDays * 86_400_000)
+      continue;
     const props = getMRDashboardProps(pr);
     // Mutates the freshly-parsed daemon read, never a cached board: each fetch
     // JSON-parses its own objects, and the snapshot cache holds this output.
