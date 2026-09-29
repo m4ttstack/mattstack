@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { parseDepsLock, servedAppCatalog } from "../bundle-layout.ts";
+import { upstreamForToolRow } from "../release/preflight.ts";
 
 const LOCK_PATH = join(import.meta.dir, "..", "..", "rt-tray", "deps.lock");
 
@@ -14,7 +15,7 @@ describe("rt-tray/deps.lock", () => {
   });
   test("every suite app is bundled; sparkle is a build tool", () => {
     const by = Object.fromEntries(lock.tools.map((t) => [t.name, t]));
-    for (const n of ["jq", "gh", "glab", "bun", "node", "fast-browser", "gitq", "age-keygen", "age", "zstd", "git-lfs", "sops", "deck", "board", "console", "chat", "cloudflared", "portless"])
+    for (const n of ["jq", "gh", "glab", "bun", "node", "fast-browser", "gitq", "age-keygen", "age", "zstd", "git-lfs", "sops", "deck", "board", "console", "chat", "cloudflared", "portless", "logdy"])
       expect(by[n]?.status).toBe("bundled");
     expect(by["sparkle"]?.kind).toBe("buildtool");
   });
@@ -33,6 +34,20 @@ describe("rt-tray/deps.lock", () => {
     expect(by["age"]?.license).toBe("BSD-3-Clause");
     expect(by["zstd"]?.license).toBe("BSD-3-Clause");
     expect(by["git-lfs"]?.license).toBe("MIT");
+  });
+  // The tray's View Logs runs under launchd's PATH, which never sees brew,
+  // so the viewer must ride the bundle; preflight's drift check reads its
+  // upstream straight off the GitHub release url.
+  test("logdy is a single-file helper pinned to a logdy-core GitHub release", () => {
+    const logdy = lock.tools.find((t) => t.name === "logdy")!;
+    expect(logdy.kind).toBe("helper");
+    expect(logdy.archive).toBe("raw");
+    expect(logdy.bundlePath).toBe("Contents/Helpers/logdy");
+    expect(logdy.exec).toEqual(["Contents/Helpers/logdy"]);
+    expect(logdy.exposeByDefault).toBe(false);
+    expect(logdy.license).toBe("Apache-2.0");
+    expect(logdy.url).toBe(`https://github.com/logdyhq/logdy-core/releases/download/v${logdy.version}/logdy_darwin_arm64`);
+    expect(upstreamForToolRow(logdy as never)).toEqual({ kind: "github", repo: "logdyhq/logdy-core" });
   });
   test("age and age-keygen come out of the same upstream tarball", () => {
     const by = Object.fromEntries(lock.tools.map((t) => [t.name, t]));
