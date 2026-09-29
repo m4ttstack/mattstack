@@ -106,10 +106,9 @@ describe('App: cold-cache orchestration', () => {
     expect(skeleton()).toBeInTheDocument();
 
     await user.click(
-      within(document.getElementById('page-shell-header')!).getByRole(
-        'button',
-        { name: /cancel/i }
-      )
+      within(screen.getByRole('banner')).getByRole('button', {
+        name: /cancel/i,
+      })
     );
 
     // cancel() never routes through onDone or onError, so if the handler does not clear the
@@ -192,10 +191,9 @@ describe('App: cold-cache orchestration', () => {
       container.querySelector('[data-parity="Fresh Label"]')?.textContent
     ).toBe('Refreshing · 0s');
     expect(
-      within(document.getElementById('page-shell-header')!).getByRole(
-        'button',
-        { name: /cancel/i }
-      )
+      within(screen.getByRole('banner')).getByRole('button', {
+        name: /cancel/i,
+      })
     ).toBeInTheDocument();
   });
 });

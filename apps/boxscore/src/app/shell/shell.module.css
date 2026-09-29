@@ -18,14 +18,6 @@
 
 /* Topbar */
 
-.topbar {
-  display: flex;
-  flex: 1 1 0;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-}
-
 .crumbs,
 .topRight,
 .freshness {

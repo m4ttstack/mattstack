@@ -35,94 +35,95 @@ export function syncedLabel(generatedAt: string, now: number): string {
   return `Synced ${Math.floor(hours / 24)} d ago`;
 }
 
-export function Topbar({
-  crumbs,
+export function TopbarCrumbs({ crumbs }: { crumbs: string[] }) {
+  const [app, ...trail] = crumbs;
+  return (
+    <div className={classes.crumbs} data-parity="Crumbs">
+      <span className={classes.appName} data-parity="App Name">
+        {app}
+      </span>
+      {trail.map((c, i) => (
+        <Fragment key={i}>
+          <span className={classes.sep} data-parity={SEP_NAMES[i]}>
+            /
+          </span>
+          <span className={classes.crumb} data-parity={CRUMB_NAMES[i]}>
+            {c}
+          </span>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+export function TopbarActions({
   scope,
   freshness,
   action,
   onAction,
 }: {
-  crumbs: string[];
   scope: string | null;
   freshness: Freshness | null;
   action: 'refresh' | 'cancel';
   onAction: () => void;
 }) {
-  const [app, ...trail] = crumbs;
   return (
-    <header className={classes.topbar} data-parity="Topbar">
-      <div className={classes.crumbs} data-parity="Crumbs">
-        <span className={classes.appName} data-parity="App Name">
-          {app}
-        </span>
-        {trail.map((c, i) => (
-          <Fragment key={i}>
-            <span className={classes.sep} data-parity={SEP_NAMES[i]}>
-              /
-            </span>
-            <span className={classes.crumb} data-parity={CRUMB_NAMES[i]}>
-              {c}
-            </span>
-          </Fragment>
-        ))}
-      </div>
-      <div className={classes.topRight} data-parity="Top Right">
-        {scope !== null && (
-          <Badge
-            variant="default"
-            size="lg"
-            radius="sm"
-            tt="none"
-            data-parity="Scope Chip"
-            leftSection={
-              <Glyph
-                name="gitBranch"
-                size={13}
-                color="var(--tk-text-3)"
-                parity="Repo Icon"
-              />
-            }
-          >
-            <span className={classes.scope} data-parity="Scope">
-              {scope}
-            </span>
-          </Badge>
-        )}
-        {freshness !== null && (
-          <span className={classes.freshness}>
-            <span
-              className={classes.freshDot}
-              data-parity="Fresh Dot"
-              style={{ background: DOT[freshness.tone] }}
-            />
-            <span
-              className={classes.freshLabel}
-              data-parity="Fresh Label"
-              style={{ color: LABEL[freshness.tone] }}
-            >
-              {freshness.label}
-            </span>
-          </span>
-        )}
-        <Button
+    <div className={classes.topRight} data-parity="Top Right">
+      {scope !== null && (
+        <Badge
           variant="default"
-          size="xs"
-          data-parity="Refresh Button"
-          onClick={onAction}
+          size="lg"
+          radius="sm"
+          tt="none"
+          data-parity="Scope Chip"
           leftSection={
             <Glyph
-              name={action === 'refresh' ? 'refresh' : 'close'}
-              size={14}
-              color="currentColor"
-              parity="Refresh Icon"
+              name="gitBranch"
+              size={13}
+              color="var(--tk-text-3)"
+              parity="Repo Icon"
             />
           }
         >
-          <span data-parity="Refresh Label">
-            {action === 'refresh' ? 'Refresh' : 'Cancel'}
+          <span className={classes.scope} data-parity="Scope">
+            {scope}
           </span>
-        </Button>
-      </div>
-    </header>
+        </Badge>
+      )}
+      {freshness !== null && (
+        <span className={classes.freshness}>
+          <span
+            className={classes.freshDot}
+            data-parity="Fresh Dot"
+            style={{ background: DOT[freshness.tone] }}
+          />
+          <span
+            className={classes.freshLabel}
+            data-parity="Fresh Label"
+            style={{ color: LABEL[freshness.tone] }}
+          >
+            {freshness.label}
+          </span>
+        </span>
+      )}
+      <Button
+        variant="default"
+        size="compact-sm"
+        data-parity="Refresh Button"
+        onClick={onAction}
+        leftSection={
+          <Glyph
+            name={action === 'refresh' ? 'refresh' : 'close'}
+            size={14}
+            color="currentColor"
+            parity="Refresh Icon"
+          />
+        }
+      >
+        <span data-parity="Refresh Label">
+          {action === 'refresh' ? 'Refresh' : 'Cancel'}
+        </span>
+      </Button>
+    </div>
   );
 }

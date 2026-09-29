@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
@@ -39,6 +39,14 @@ describe('kit shell', () => {
     expect(
       screen.getByRole('button', { name: 'Color scheme' })
     ).toBeInTheDocument();
+    const banner = screen.getByRole('banner');
+    expect(banner).toHaveTextContent('boxscore/Leaderboard');
+    expect(
+      within(banner).getByRole('button', { name: /refresh/i })
+    ).toBeInTheDocument();
+    expect(
+      within(banner).queryByRole('button', { name: 'Apps' })
+    ).not.toBeInTheDocument();
   });
 
   it('links settings out to the console boxscore section in a new tab', () => {

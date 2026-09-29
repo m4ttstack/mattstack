@@ -38,7 +38,12 @@ import { useAppRoute } from './routes';
 import { PageHeader, type RangeState, type ViewMode } from './shell/PageHeader';
 import { SettingsRailEntry } from './shell/SettingsRailEntry';
 import classes from './shell/shell.module.css';
-import { syncedLabel, Topbar, type Freshness } from './shell/Topbar';
+import {
+  syncedLabel,
+  TopbarActions,
+  TopbarCrumbs,
+  type Freshness,
+} from './shell/Topbar';
 
 const queryClient = new QueryClient();
 
@@ -306,7 +311,6 @@ function AppShell() {
   return (
     <MattstackShell
       name="boxscore"
-      appName="boxscore"
       mark={
         <img
           src="/favicon.svg"
@@ -317,6 +321,22 @@ function AppShell() {
         />
       }
     >
+      <MattstackShell.Header
+        actions={
+          <TopbarActions
+            scope={shownScope ? scopeLabel(shownScope) : null}
+            freshness={freshness}
+            action={refreshJob.refreshing ? 'cancel' : 'refresh'}
+            onAction={
+              refreshJob.refreshing
+                ? cancelRefresh
+                : () => void refreshJob.start(selection)
+            }
+          />
+        }
+      >
+        <TopbarCrumbs crumbs={crumbs} />
+      </MattstackShell.Header>
       <MattstackShell.Rail>
         <RailLink
           icon="trophy"
@@ -328,21 +348,8 @@ function AppShell() {
       <MattstackShell.RailBottom>
         <SettingsRailEntry />
       </MattstackShell.RailBottom>
-      <PageShell headerHeight={52}>
+      <PageShell>
         <PageShell.Main>
-          <PageShell.Header px={32}>
-            <Topbar
-              crumbs={crumbs}
-              scope={shownScope ? scopeLabel(shownScope) : null}
-              freshness={freshness}
-              action={refreshJob.refreshing ? 'cancel' : 'refresh'}
-              onAction={
-                refreshJob.refreshing
-                  ? cancelRefresh
-                  : () => void refreshJob.start(selection)
-              }
-            />
-          </PageShell.Header>
           <PageShell.Content bg="var(--tk-panel)" contentContainer={false}>
             <main className={classes.content}>{page}</main>
           </PageShell.Content>
