@@ -9,6 +9,8 @@ struct DoneScreen: View {
     /// A solo install turns board off, so the screen points at console.
     let solo: Bool
     let onInvite: () -> Void
+    /// Resumes Install from a partial step; the flow goes back to the Install screen to show the rerun.
+    let onRetry: (String) -> Void
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
 
@@ -75,6 +77,31 @@ struct DoneScreen: View {
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(AXID.doneBeforeYouFinish)
+                }
+                if !install.partialSteps.isEmpty {
+                    Section("Needs another try") {
+                        ForEach(install.partialSteps) { step in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 10) {
+                                    StatusBadge(status: .missing, id: AXID.donePartialStepStatus(step.id))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(step.info.title)
+                                        if let d = step.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.orange) }
+                                    }
+                                    Spacer()
+                                    Button("Retry from here") { onRetry(step.id) }
+                                        .controlSize(.small)
+                                        .disabled(install.isRunning)
+                                        .accessibilityIdentifier(AXID.donePartialStepRetry(step.id))
+                                }
+                                if let r = step.remedy {
+                                    Text(r).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.leading, 30)
+                                }
+                            }
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier(AXID.donePartialStep(step.id))
+                        }
+                    }
                 }
                 if !model.stillToDoRows.isEmpty {
                     Section("Still to do") {
@@ -150,7 +177,9 @@ struct DoneScreen: View {
     private var verifySummary: String {
         let verify = install.steps.first { $0.id == "verify" }
         let n = install.steps.filter { $0.state == .done }.count
-        return verify?.detail.map { "\($0) · \(n) steps done" } ?? "\(n) steps done"
+        let partial = install.partialSteps.count
+        let steps = partial == 0 ? "\(n) steps done" : "\(n) steps done, \(partial) need\(partial == 1 ? "s" : "") another try"
+        return verify?.detail.map { "\($0) · \(steps)" } ?? steps
     }
 
     private var homeApp: (title: String, host: String, url: URL) {

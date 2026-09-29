@@ -69,6 +69,9 @@ enum AXID {
     static let installRetry = "setup.install.retry"
     static let installRetryStream = "setup.install.retryStream"
     static func installRetryPartial(_ id: String) -> String { "setup.install.step.\(id).retry" }
+    static func donePartialStep(_ id: String) -> String { "setup.done.partial.\(id)" }
+    static func donePartialStepStatus(_ id: String) -> String { "setup.done.partial.\(id).status" }
+    static func donePartialStepRetry(_ id: String) -> String { "setup.done.partial.\(id).retry" }
     static let installNotes = "setup.install.notes"
     static let logCopy = "setup.install.log.copy"
     static let logDone = "setup.install.log.done"

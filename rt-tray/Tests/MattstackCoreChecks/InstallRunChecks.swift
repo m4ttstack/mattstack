@@ -118,10 +118,16 @@ let installRunChecks: [Check] = [
             c.expectEqual(m.phase, .succeeded)
             c.expectEqual(m.steps[1].state, .partial)
             c.expectEqual(m.steps[1].remedy, "Retry from here.")
+            c.expectEqual(m.partialSteps.map(\.id), ["services.register"])
+            c.expect(!m.advancesOnSuccess, "a partial step keeps Install on screen so its remedy and Retry are seen")
             m.retry(from: "services.register")
         }
         for _ in 0..<50 { if await MainActor.run(body: { m.steps[1].state == .done }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
-        await MainActor.run { c.expectEqual(m.steps[1].state, .done) }
+        for _ in 0..<50 { if await MainActor.run(body: { m.phase == .succeeded }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.steps[1].state, .done)
+            c.expect(m.advancesOnSuccess, "once the retry clears it, Install moves on by itself again")
+        }
         c.expectEqual(count.froms, [nil, "services.register"])
     },
     Check("a stream error surfaces as streamError") { c in
