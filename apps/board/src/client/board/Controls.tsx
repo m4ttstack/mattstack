@@ -220,6 +220,12 @@ function ThemeControl({
     null
   );
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const checkedRef = useRef<HTMLButtonElement>(null);
+  const close = () => {
+    setAt(null);
+    triggerRef.current?.focus();
+  };
   const alignRight = () => {
     const width = menuRef.current?.offsetWidth;
     if (!width) return;
@@ -230,6 +236,7 @@ function ThemeControl({
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         className="tui-theme-control"
         aria-label="Color scheme"
@@ -255,20 +262,22 @@ function ThemeControl({
           x={at.x}
           y={at.y}
           ariaLabel="color scheme"
-          onClose={() => setAt(null)}
+          onClose={close}
+          initialFocusRef={checkedRef}
           onPositioned={alignRight}
           style={{ transformOrigin: 'top right' }}
         >
           {THEME_OPTIONS.map(o => (
             <ContextMenu.Item
               key={o.value}
+              ref={theme === o.value ? checkedRef : undefined}
               role="menuitemradio"
               aria-checked={theme === o.value}
               label={o.label}
               trailing={theme === o.value ? <Icon d={CHECK_ICON} /> : null}
               onClick={() => {
                 pickTheme(o.value);
-                setAt(null);
+                close();
               }}
             />
           ))}

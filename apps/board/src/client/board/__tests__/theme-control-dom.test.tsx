@@ -80,3 +80,21 @@ test('picking an option reports it and closes the menu', async () => {
   expect(picked).toEqual(['dark']);
   expect(items()).toHaveLength(0);
 });
+
+test('focus lands on the checked choice and returns to the trigger on close', async () => {
+  await render('light', []);
+  await React.act(async () => trigger().click());
+  expect(document.activeElement).toBe(items()[1]!);
+
+  await React.act(async () => {
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+    );
+  });
+  expect(items()).toHaveLength(0);
+  expect(document.activeElement).toBe(trigger());
+
+  await React.act(async () => trigger().click());
+  await React.act(async () => items()[2]!.click());
+  expect(document.activeElement).toBe(trigger());
+});
