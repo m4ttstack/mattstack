@@ -1,5 +1,5 @@
 /**
- * `repos.clone` — clones every repo the team snapshot declares as tracked
+ * `repos.clone`: clones every repo the team snapshot declares as tracked
  * (`mattstack.tracking`) into the first configured `rt.repoRoots` entry,
  * unless a clone of it already exists: at the destination, at the path the
  * repo index holds for it (`rt repos register`), or directly under any repo
