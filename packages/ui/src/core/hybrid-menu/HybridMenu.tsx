@@ -1,10 +1,16 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Menu, Text, Tooltip } from '@mantine/core';
-import type { MantineColor, MenuItemProps } from '@mantine/core';
+import type {
+  MantineColor,
+  MantineTransition,
+  MenuItemProps,
+  MenuProps,
+} from '@mantine/core';
 import { useUncontrolled } from '@mantine/hooks';
 
 import { Icons } from '@mattstack/app-kit/icons';
+import classes from './HybridMenu.module.css';
 
 export interface HybridMenuOption {
   label: string;
@@ -39,7 +45,21 @@ export interface HybridMenuProps {
   disableAllValuesTooltip?: string;
   disableAllActions?: boolean;
   disableAllActionsTooltip?: string;
+  /** Dropdown placement against the target; the pop-in grows from the
+   *  corner nearest the target, after any flip. @default 'bottom-end' */
+  position?: MenuProps['position'];
 }
+
+/** Mantine's pop with its origin left to a CSS variable, which the module
+ *  sets from the dropdown's resolved (post-flip) placement. No slide: the
+ *  flip lands after the first frame, and a transitioned translate would
+ *  carry the pre-flip direction into the first open. */
+const POP_FROM_ANCHOR: MantineTransition = {
+  in: { opacity: 1, transform: 'scale(1)' },
+  out: { opacity: 0, transform: 'scale(.9)' },
+  common: { transformOrigin: 'var(--pop-origin)' },
+  transitionProperty: 'transform, opacity',
+};
 
 /**
  * A menu that's part `Select` (a list of mutually-exclusive `options`, one
@@ -60,6 +80,7 @@ export function HybridMenu({
   disableAllActionsTooltip = 'These actions are not allowed.',
   disableAllValues = false,
   disableAllValuesTooltip = 'Changing the value is not allowed.',
+  position = 'bottom-end',
 }: HybridMenuProps) {
   const [opened, setOpened] = useState(false);
   const [_value, handleChange] = useUncontrolled({
@@ -74,7 +95,9 @@ export function HybridMenu({
       onChange={setOpened}
       width="auto"
       styles={{ dropdown: { minWidth: 120 } }}
-      position="bottom-end"
+      classNames={{ dropdown: classes.dropdown }}
+      position={position}
+      transitionProps={{ transition: POP_FROM_ANCHOR }}
     >
       <Menu.Target>
         {typeof target === 'function'

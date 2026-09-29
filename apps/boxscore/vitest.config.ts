@@ -18,7 +18,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'server',
-          include: ['test/**/*.test.ts'],
+          include: ['test/**/*.test.ts', 'scripts/parity/**/*.test.ts'],
           environment: 'node',
           // Points the store at a test-only file so a run never touches the developer's real one.
           env: { BOXSCORE_DB: '.cache-test/test.sqlite' },

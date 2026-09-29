@@ -28,3 +28,27 @@
 .notificationRoot {
   box-shadow: var(--mantine-shadow-md);
 }
+
+/* Mantine's disabled rule paints one grey fill over every variant. A
+   `variant="default"` control keeps its own surface and border, dimmed, so a
+   disabled control still reads as the same control. The attribute selector
+   outside `:where` lifts specificity over Mantine's own disabled rule. */
+.actionIconRoot[data-variant='default']:where(
+    :disabled:not([data-loading]),
+    [data-disabled]:not([data-loading])
+  ) {
+  border: var(--ai-bd);
+  background: var(--ai-bg);
+  color: var(--ai-color);
+  opacity: 0.5;
+}
+
+.buttonRoot[data-variant='default']:where(
+    :disabled:not([data-loading]),
+    [data-disabled]:not([data-loading])
+  ) {
+  border: var(--button-bd);
+  background: var(--button-bg);
+  color: var(--button-color);
+  opacity: 0.5;
+}

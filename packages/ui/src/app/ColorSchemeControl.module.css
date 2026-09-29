@@ -1,0 +1,4 @@
+/* Hover keeps Mantine's own subtle hover colour, so only the resting icon is muted. */
+.muted:not(:hover) {
+  color: var(--mantine-color-dimmed);
+}

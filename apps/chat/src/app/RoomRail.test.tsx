@@ -392,6 +392,32 @@ test('the fleet drawer names the daemon health and closes on its own close contr
   expect(onClose).toHaveBeenCalled();
 });
 
+test('the fleet drawer switches the scheme through the kit System/Light/Dark control', async () => {
+  renderWithProviders(
+    <FleetDrawer
+      opened
+      onClose={vi.fn()}
+      rooms={[]}
+      buddies={[]}
+      onSelectRoom={vi.fn()}
+      onOpenDm={vi.fn()}
+    />
+  );
+  const scheme = () =>
+    document.documentElement.getAttribute('data-mantine-color-scheme');
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Color scheme: System' })
+  );
+  expect(screen.getByRole('menuitem', { name: 'System' })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Dark' }));
+  expect(scheme()).toBe('dark');
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Color scheme: Dark' })
+  );
+  await userEvent.click(screen.getByRole('menuitem', { name: 'Light' }));
+  expect(scheme()).toBe('light');
+});
+
 test('a drawer tap on a recycled name opens the DM by id and is labelled by name', async () => {
   const onOpenDm = vi.fn();
   renderWithProviders(

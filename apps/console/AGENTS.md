@@ -42,8 +42,8 @@ wire form `@mattstack/rt-client`'s `serializeIdentity` produces, because a repo 
 a slash would otherwise 404 every lookup. A malformed percent-escape reads as `not-found`, never a
 thrown error.
 
-`App.tsx` mounts `MattstackShell` (from `@mattstack/app-kit/app`) with `name="console"
-appName="console"`, a `MattstackShell.Rail` of `RailLink`s (Runs, Search) plus the app-specific
+`App.tsx` mounts `MattstackShell` (from `@mattstack/app-kit/app`) with `name="console"` and no
+`appName` (the mattstack viewer owns app switching), a `MattstackShell.Rail` of `RailLink`s (Runs, Search) plus the app-specific
 `WiringRailEntry`, and routes each `AppRoute` to its page component inside a per-path
 `RouteErrorBoundary` (keyed on `path` so a caught error on one route doesn't linger after
 navigating away, since Mantine has no error boundary of its own and the run-detail suspense query

@@ -1,0 +1,19 @@
+/* Same specificity as Mantine's per-scheme tooltip border rules, so this
+   file must stay imported after @mantine/charts/styles.css. */
+.mantine-ChartTooltip-tooltip {
+  background-color: var(--tk-raised);
+  border: 1px solid var(--tk-border);
+  color: var(--tk-text-1);
+}
+
+.mantine-ChartTooltip-tooltipLabel {
+  color: var(--tk-text-1);
+}
+
+.mantine-ChartTooltip-tooltipItemName {
+  color: var(--tk-text-2);
+}
+
+.mantine-ChartTooltip-tooltipItemData {
+  color: var(--tk-text-1);
+}

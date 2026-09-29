@@ -40,6 +40,6 @@ export function isReverted(mr: NormMr, revertedTitles: Set<string>): boolean {
   return revertedTitles.has(normalizeTitle(mr.title));
 }
 
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   return title.trim().toLowerCase();
 }

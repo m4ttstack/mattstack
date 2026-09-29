@@ -46,13 +46,19 @@ describe('stallNotice', () => {
     expect(stallNotice(STALL_AFTER_MS - 1)).toBeNull();
   });
 
-  it('reports the stall once the reading stops moving', () => {
-    expect(stallNotice(STALL_AFTER_MS)).toBe('stalled 20s');
+  it('reports how long the reading has held once it stops moving', () => {
+    expect(stallNotice(STALL_AFTER_MS)).toBe('No progress for 20s');
+    expect(stallNotice(REQUEST_DEADLINE_MS - 1_000)).toBe(
+      'No progress for 29s'
+    );
   });
 
-  it('says it is retrying only once the request deadline has certainly passed', () => {
-    expect(stallNotice(REQUEST_DEADLINE_MS - 1_000)).toBe('stalled 29s');
-    expect(stallNotice(REQUEST_DEADLINE_MS)).toBe('stalled 30s · retrying');
-    expect(stallNotice(95_000)).toBe('stalled 95s · retrying');
+  it('says it is still waiting on GitLab once the request deadline has certainly passed', () => {
+    expect(stallNotice(REQUEST_DEADLINE_MS)).toBe(
+      'No progress for 30s · still waiting on GitLab, cancel to try again later'
+    );
+    expect(stallNotice(95_000)).toBe(
+      'No progress for 95s · still waiting on GitLab, cancel to try again later'
+    );
   });
 });

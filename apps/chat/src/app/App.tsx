@@ -1117,9 +1117,9 @@ function ChatPage({
 }
 
 /**
- * The whole app, today: `MattstackShell` (rail + header chrome, appName=chat
- * so the shared app launcher mounts) around the Rooms placeholder, routed by
- * wouter's default browser-location hooks (see ./routes). The kit's
+ * The whole app, today: `MattstackShell` (rail + header chrome) around the
+ * Rooms placeholder, routed by wouter's default browser-location hooks (see
+ * ./routes). The kit's
  * full-screen PageShell demo stays reachable at '/demo' -- inherited
  * scaffold content, unrelated to chat, and it bypasses the chrome entirely
  * the same way it always has.
@@ -1417,7 +1417,7 @@ export function App({ initialState }: { initialState?: AppInitialState } = {}) {
       actions={buddyActions}
     >
       <PanePickerProvider>
-        <MattstackShell name="chat" appName="chat" mark={<AppMark size={30} />}>
+        <MattstackShell name="chat" mark={<AppMark size={30} />}>
           <MattstackShell.Rail>
             <RailLink
               icon="inbox"

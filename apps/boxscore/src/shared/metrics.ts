@@ -14,7 +14,27 @@ import type {
 export type MetricKind = 'scalar' | 'dist';
 /** "desc" = higher is better; "asc" = lower is better (latency, revert rate). */
 export type Better = 'asc' | 'desc';
-export type MetricGroup = 'volume' | 'quality' | 'delivery';
+export type MetricGroup =
+  'delivery' | 'volume' | 'quality' | 'consistency' | 'collaboration';
+
+export const GROUP_ORDER: MetricGroup[] = [
+  'delivery',
+  'volume',
+  'quality',
+  'consistency',
+  'collaboration',
+];
+
+export const GROUPS: Record<
+  MetricGroup,
+  { label: string; hue: 'cyan' | 'neutral' | 'accent' | 'gold' | 'purple' }
+> = {
+  delivery: { label: 'Delivery', hue: 'cyan' },
+  volume: { label: 'Volume', hue: 'neutral' },
+  quality: { label: 'Quality', hue: 'accent' },
+  consistency: { label: 'Consistency', hue: 'gold' },
+  collaboration: { label: 'Collaboration', hue: 'purple' },
+};
 
 export interface MetricDescriptor {
   key: MetricKey;
@@ -85,7 +105,7 @@ const METRIC_TABLE = [
     description: 'Pipelines the user triggered in the window.',
   },
 
-  // --- Quality / consistency (spec 4.5-4.10): counterweights ---
+  // --- Quality (spec 4.5-4.10): counterweights ---
   {
     key: 'reviewDepth',
     kind: 'scalar',
@@ -143,11 +163,13 @@ const METRIC_TABLE = [
     description:
       "Share of the user's merged MRs in the reviewable size band. Higher is better.",
   },
+
+  // --- Consistency ---
   {
     key: 'codingDays',
     kind: 'scalar',
     label: 'Coding days',
-    group: 'quality',
+    group: 'consistency',
     better: 'desc',
     description:
       'Number of distinct days the user pushed at least one commit (to the tracked project) during the window.',
@@ -156,7 +178,7 @@ const METRIC_TABLE = [
     key: 'currentStreak',
     kind: 'scalar',
     label: 'Current streak',
-    group: 'quality',
+    group: 'consistency',
     better: 'desc',
     description:
       "Consecutive calendar days, ending on the user's most recent merge day, on which they merged at least one MR.",
@@ -165,16 +187,18 @@ const METRIC_TABLE = [
     key: 'longestStreak',
     kind: 'scalar',
     label: 'Merge streak',
-    group: 'quality',
+    group: 'consistency',
     better: 'desc',
     description:
       'Longest run of consecutive calendar days on which the user merged at least one MR, within the window. E.g. 4 = merged an MR on 4 days in a row at some point. (Based on merges, not pushes.)',
   },
+
+  // --- Collaboration ---
   {
     key: 'reciprocity',
     kind: 'scalar',
     label: 'Reciprocity',
-    group: 'quality',
+    group: 'collaboration',
     better: 'desc',
     description:
       'Reviews given divided by reviews received ... ~1 means pulling your weight.',

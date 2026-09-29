@@ -145,6 +145,7 @@ export function RoomMenu({
   return (
     <Menu
       position="bottom-end"
+      transitionProps={{ transition: 'pop-top-right' }}
       withinPortal
       radius="md"
       shadow="md"

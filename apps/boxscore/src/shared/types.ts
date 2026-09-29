@@ -125,6 +125,8 @@ export interface EvidenceRow {
   cells: string[];
   /** Deep link for the row (GitLab MR, Linear issue). null = not linkable. */
   href?: string | null;
+  /** Links for the MRs a row names, in the order its MR cell lists them. */
+  mrHrefs?: string[];
   /** Render de-emphasized: the row exists but did NOT count toward the stat (e.g. stale issue). */
   muted?: boolean;
 }
@@ -135,6 +137,8 @@ export interface MetricEvidence {
   rows: EvidenceRow[];
   /** One-line context, e.g. "p50 19.4h over 5 MRs" or "43 of 47 excluded as stale". */
   summary?: string;
+  /** Typed totals the UI reads instead of parsing summary. Computed before row truncation. */
+  facts?: Record<string, number>;
 }
 
 /** Per-person drill-down: the ranked row (for the rail) plus per-metric evidence. */
@@ -171,21 +175,32 @@ export interface LeaderboardResponse {
   warnings: LeaderboardWarning[];
 }
 
+export type RefreshPhase =
+  | 'users'
+  | 'mrs-list'
+  | 'mrs-detail'
+  | 'pipelines'
+  | 'pushes'
+  | 'linear'
+  | 'compute';
+
 /** Live progress for a background refresh run. `total: 0` => indeterminate phase. */
 export interface RefreshProgress {
-  phase:
-    | 'users'
-    | 'mrs-list'
-    | 'mrs-detail'
-    | 'pipelines'
-    | 'pushes'
-    | 'linear'
-    | 'compute';
+  phase: RefreshPhase;
   label: string;
   done: number;
   total: number;
   /** Trend runs the whole pipeline twice; which window this progress belongs to. */
   window: 'current' | 'prior';
+  /** The last total each phase reported in this window, so finished phases can say what they covered. */
+  totals?: Partial<Record<RefreshPhase, number>>;
+}
+
+/** What a cache-only leaderboard probe answers when nothing is stored for the window yet. */
+export interface ColdCacheResponse {
+  cached: false;
+  window: TimeWindow;
+  scope: Scope;
 }
 
 export type RefreshJobStatus = 'running' | 'done' | 'error' | 'cancelled';

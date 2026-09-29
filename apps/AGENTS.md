@@ -34,9 +34,11 @@ it precedes the numbered kit contract sections.
 4. The kit contract below (sections 1 to 10): import walls, theme and icon
    extension points, the boot family, and the consumer requirements a new
    app must not skip.
-5. `docs/apps/ui-authoring.md` -- MANDATORY before writing UI colour or type
-   anywhere in this repo: the Radix step model, the role tokens, the
-   contrast bars and their ledger, and the type rules. Each app's own
+5. `docs/apps/ui-authoring.md` -- MANDATORY before writing any UI
+   anywhere in this repo: kit chrome and components over design boards,
+   the rail and `PageShell` rule, the Mantine styling ladder, the Radix
+   step model, the role tokens, the contrast bars and their ledger, and
+   the type rules. Each app's own
    `apps/<name>/AGENTS.md` points back here and carries that app's
    specifics.
 
@@ -759,6 +761,23 @@ Light / Dark). `Rail` and `RailBottom` are compound statics attached with
   <MattstackShell.RailBottom>
     {/* optional, above the scheme control */}
   </MattstackShell.RailBottom>
+  {children}
+</MattstackShell>
+```
+
+A one-page app passes `rail={false}`: the kit renders no rail, the
+page takes the full width, and the colour-scheme control moves to the
+right end of the app bar. The page context goes in the app bar through
+`MattstackShell.Header` (`children` for the breadcrumb, `actions` for
+the rest), written as a direct child of `MattstackShell`. Rail and
+RailBottom children are dropped under `rail={false}` (a development
+build warns). `docs/apps/ui-authoring.md` says when each mode applies.
+
+```tsx
+<MattstackShell name="boxscore" mark={<AppMark size={30} />} rail={false}>
+  <MattstackShell.Header actions={<RefreshButton />}>
+    <Crumbs />
+  </MattstackShell.Header>
   {children}
 </MattstackShell>
 ```

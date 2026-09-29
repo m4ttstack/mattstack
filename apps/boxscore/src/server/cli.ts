@@ -11,6 +11,7 @@
  */
 import {
   formatValue as fmt,
+  GROUPS,
   metricByKey,
   metricRank,
   METRICS,
@@ -130,7 +131,7 @@ function printDetail(res: UserDetailResponse): void {
     const headline = fmt(metricValue(res.user.metrics, d), d);
     const rank = metricRank(res.user.metrics, d);
     console.log(
-      `── ${d.label}  =${headline}${rank ? ` (#${rank})` : ''} ${desc ? `· ${desc.group}` : ''}`
+      `── ${d.label}  =${headline}${rank ? ` (#${rank})` : ''} ${desc ? `· ${GROUPS[desc.group].label}` : ''}`
     );
     if (!ev || ev.rows.length === 0) {
       console.log(`   ${ev?.summary ?? '(no records)'}\n`);

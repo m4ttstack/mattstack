@@ -18767,7 +18767,7 @@
                     {
                       "type": "frame",
                       "id": "k0rEEt",
-                      "name": "Stat Panel",
+                      "name": "Panel · Issues done",
                       "clip": true,
                       "width": "fill_container",
                       "fill": "$tk-card",
@@ -18779,7 +18779,7 @@
                         {
                           "type": "frame",
                           "id": "wU5ij",
-                          "name": "Panel Top",
+                          "name": "Top · Issues done",
                           "width": "fill_container",
                           "layout": "vertical",
                           "gap": 16,

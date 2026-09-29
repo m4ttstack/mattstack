@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { METRICS } from '../src/shared/metrics.js';
+import { GROUP_ORDER, GROUPS, METRICS } from '../src/shared/metrics.js';
 import { makeMetrics } from './builders.js';
 
 describe('metric metadata coherence', () => {
@@ -32,7 +32,7 @@ describe('metric metadata coherence', () => {
     for (const d of METRICS) {
       expect(d.label.length, `${d.key} label`).toBeGreaterThan(0);
       expect(d.description.length, `${d.key} description`).toBeGreaterThan(0);
-      expect(['volume', 'quality', 'delivery']).toContain(d.group);
+      expect(GROUP_ORDER).toContain(d.group);
       expect(['asc', 'desc']).toContain(d.better);
     }
   });
@@ -56,10 +56,13 @@ describe('metric metadata coherence', () => {
     expect(METRICS.find(d => d.key === 'sizeHealthPct')!.percent).toBe(true);
   });
 
-  it('volume, quality, and delivery groups are all represented', () => {
-    expect(METRICS.some(d => d.group === 'volume')).toBe(true);
-    expect(METRICS.some(d => d.group === 'quality')).toBe(true);
-    expect(METRICS.some(d => d.group === 'delivery')).toBe(true);
+  it('every group is represented', () => {
+    for (const g of GROUP_ORDER) {
+      expect(
+        METRICS.some(d => d.group === g),
+        g
+      ).toBe(true);
+    }
   });
 
   it('computed metrics are also described, so they display and rank', () => {
@@ -68,7 +71,7 @@ describe('metric metadata coherence', () => {
     expect(reverted?.better).toBe('asc');
     expect(reverted?.group).toBe('quality');
     expect(current?.better).toBe('desc');
-    expect(current?.group).toBe('quality');
+    expect(current?.group).toBe('consistency');
   });
 
   it('every rankable UserMetrics key has exactly one descriptor', () => {
@@ -81,5 +84,27 @@ describe('metric metadata coherence', () => {
       .sort();
     const described = METRICS.map(d => d.key).sort();
     expect(described).toEqual(rankable);
+  });
+});
+
+describe('metric groups', () => {
+  it('uses the five design groups in board order', () => {
+    expect(GROUP_ORDER).toEqual([
+      'delivery',
+      'volume',
+      'quality',
+      'consistency',
+      'collaboration',
+    ]);
+    expect(GROUPS.consistency).toEqual({ label: 'Consistency', hue: 'gold' });
+  });
+  it('places each metric in its design group', () => {
+    const by = Object.fromEntries(METRICS.map(m => [m.key, m.group]));
+    expect(by.codingDays).toBe('consistency');
+    expect(by.currentStreak).toBe('consistency');
+    expect(by.longestStreak).toBe('consistency');
+    expect(by.reciprocity).toBe('collaboration');
+    expect(by.reviewDepth).toBe('quality');
+    expect(by.pipelines).toBe('volume');
   });
 });

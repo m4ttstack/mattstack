@@ -80,6 +80,7 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/turbo.json",
+        "$TURBO_ROOT$/docs/apps/design/boxscore/**",
         "!$TURBO_ROOT$/**/node_modules/**",
         "!$TURBO_ROOT$/**/.turbo/**",
         "!$TURBO_ROOT$/**/dist/**",

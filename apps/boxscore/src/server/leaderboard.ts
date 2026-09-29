@@ -26,6 +26,13 @@ import { baseWindow, covers, priorWindow } from './util/window.js';
 /** Thrown by getLeaderboard when cacheOnly is set and the store has never been populated. */
 export class ColdCacheError extends Error {
   override readonly name = 'ColdCacheError';
+
+  constructor(
+    message: string,
+    readonly scope: Scope
+  ) {
+    super(message);
+  }
 }
 
 export interface LeaderboardOptions {
@@ -147,7 +154,8 @@ async function buildLeaderboard(
     !hasDataFor(store, settings.projects, read)
   ) {
     throw new ColdCacheError(
-      `no data back to ${read.start} for ${settings.projects.join(', ')}`
+      `no data back to ${read.start} for ${settings.projects.join(', ')}`,
+      scope
     );
   }
 

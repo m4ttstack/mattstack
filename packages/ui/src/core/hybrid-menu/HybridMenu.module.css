@@ -1,0 +1,26 @@
+/* data-position is the placement after floating-ui's flip, so the origin
+   follows a menu that flipped above its target. */
+.dropdown {
+  --pop-origin: top center;
+}
+.dropdown[data-position='top'] {
+  --pop-origin: bottom center;
+}
+.dropdown[data-position='bottom-start'] {
+  --pop-origin: top left;
+}
+.dropdown[data-position='bottom-end'] {
+  --pop-origin: top right;
+}
+.dropdown[data-position='top-start'] {
+  --pop-origin: bottom left;
+}
+.dropdown[data-position='top-end'] {
+  --pop-origin: bottom right;
+}
+.dropdown[data-position^='left'] {
+  --pop-origin: right center;
+}
+.dropdown[data-position^='right'] {
+  --pop-origin: left center;
+}

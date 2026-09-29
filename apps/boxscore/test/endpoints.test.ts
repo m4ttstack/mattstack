@@ -107,6 +107,8 @@ describe('refresh endpoints', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.cached).toBe(false);
+    expect(body.window).toMatchObject({ start: '2019-01-01T00:00:00.000Z' });
+    expect(body.scope).toEqual({ type: 'projects', projectPaths: PROJECTS });
   });
 
   // The trend flag must not bypass the cold-store check: a probe still needs to know the
@@ -155,5 +157,11 @@ describe('deleted routes', () => {
   it('the settings API is gone', async () => {
     expect((await app.request('/api/settings')).status).toBe(404);
     expect((await app.request('/api/settings/linear-states')).status).toBe(404);
+    const write = await app.request('/api/settings/set', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: 'boxscore.defaultRange', value: '7d' }),
+    });
+    expect(write.status).toBe(404);
   });
 });

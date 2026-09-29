@@ -1,0 +1,32 @@
+/* The kit Table's highlightOnHover surface, scoped per scheme exactly as Mantine scopes it on the table. */
+:where([data-mantine-color-scheme='light']) .row {
+  --row-hover-bg: var(--mantine-color-gray-1);
+}
+
+:where([data-mantine-color-scheme='dark']) .row {
+  --row-hover-bg: var(--mantine-color-dark-5);
+}
+
+@media (hover: hover) {
+  .row:hover {
+    background-color: var(--row-hover-bg);
+  }
+}
+
+.row:focus-within {
+  background-color: var(--row-hover-bg);
+}
+
+.row[data-you] {
+  background-color: var(--mantine-color-accent-light);
+}
+
+@media (hover: hover) {
+  .row[data-you]:hover {
+    background-color: var(--mantine-color-accent-light-hover);
+  }
+}
+
+.row[data-you]:focus-within {
+  background-color: var(--mantine-color-accent-light-hover);
+}

@@ -60,11 +60,10 @@ import {
   type RunnerDeps,
 } from './action-runner.ts';
 import { ActionMenu } from './ActionMenu.tsx';
-import { AppLauncher } from './AppLauncher.tsx';
 import { AppMark } from './AppMark.tsx';
 import { CommentsDrawer } from './CommentsDrawer.tsx';
 import { ConfigModal } from './ConfigModal.tsx';
-import { Controls, ThemeToggle } from './Controls.tsx';
+import { Controls, ThemeControl } from './Controls.tsx';
 import type { QueueEntry } from './decision-queue.ts';
 import { decidedEntries, useDecisionQueue } from './decision-queue.ts';
 import {
@@ -1318,9 +1317,8 @@ export function Board() {
           <div className="tui-controls tui-controls-header">
             <Controls {...controlProps} />
           </div>
-          <div className="tui-app-launcher">
-            <ThemeToggle theme={theme} pickTheme={pickTheme} />
-            <AppLauncher />
+          <div className="tui-header-corner">
+            <ThemeControl theme={theme} pickTheme={pickTheme} />
           </div>
         </header>
 

@@ -34,6 +34,7 @@ export const importWall = {
     wall('@mantine/notifications', 'notifications'),
     wall('@mantine/spotlight', 'spotlight'),
     wall('@mantine/code-highlight', 'lazy'),
+    wall('@mantine/charts', 'charts'),
     wall('@mantine/dates', 'core'),
     {
       name: 'lucide-react',
@@ -48,6 +49,10 @@ export const importWall = {
     {
       group: ['codemirror', '@codemirror/*'],
       message: `Import from '${KIT}/lazy' instead.`,
+    },
+    {
+      group: ['recharts', 'recharts/*'],
+      message: `Import from '${KIT}/charts' instead.`,
     },
     {
       group: ['@ui/*'],

@@ -1,0 +1,204 @@
+.num {
+  font-family: var(--mantine-font-family-monospace);
+}
+
+.text {
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.leaderMark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--tk-fill-gold);
+}
+
+.leaderNumeral {
+  color: var(--tk-on-fill-gold);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.rankRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+
+.rankSlot {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.rankNumber {
+  color: var(--tk-text-3);
+  font-size: 10px;
+}
+
+.who {
+  flex-shrink: 0;
+  width: 92px;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.whoLink {
+  display: flex;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+.rankRow .track {
+  flex: 1;
+  min-width: 0;
+  background-color: var(--tk-line-3);
+}
+
+.rankRow .bar {
+  border-radius: 2px;
+}
+
+.val {
+  flex-shrink: 0;
+  width: 62px;
+  color: var(--tk-text-1);
+  font-size: 12px;
+  text-align: right;
+}
+
+.delta {
+  font-size: 10px;
+}
+
+.groupTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.groupTile {
+  gap: 6px;
+}
+
+.groupPill {
+  padding: 3px 8px;
+  border-radius: 5px;
+}
+
+.swatch {
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.groupLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.chipCount {
+  font-weight: 500;
+}
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.axis {
+  position: relative;
+  height: 22px;
+}
+
+.axisLine {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 360px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tk-line-3);
+}
+
+/* Pencil strokes the ellipse on its edge: half the 2px ring sits outside the box. */
+.dot {
+  position: absolute;
+  border-radius: 50%;
+  outline: 2px solid var(--tk-card);
+  outline-offset: -1px;
+}
+
+.scale {
+  display: flex;
+  justify-content: space-between;
+  width: 360px;
+  color: var(--tk-text-3);
+  font-size: 10px;
+}
+
+.calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.calRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dow {
+  padding-left: 44px;
+}
+
+.dowLabel {
+  width: 40px;
+  color: var(--tk-text-3);
+  font-size: 10px;
+  text-align: center;
+}
+
+.weekLabel {
+  flex-shrink: 0;
+  width: 38px;
+  color: var(--tk-text-3);
+  font-size: 10px;
+}
+
+.day {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.dayCount {
+  color: var(--tk-on-fill-gold);
+  font-size: 10px;
+  font-weight: 700;
+}
