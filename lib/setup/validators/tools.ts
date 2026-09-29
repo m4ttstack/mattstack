@@ -282,7 +282,7 @@ function fastBrowserRow(probe: FastBrowserProbe, solo: boolean): Row {
   // CLI that cannot run; data-permissions is the check that reads config.json.
   const config = checkState(probe.doctor, "data-permissions");
   if (config === "absent") return row({ ...base, ...pending, status: "error", detail: "fast-browser doctor report has no data-permissions check" });
-  if (config === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "runtime ok, but setup has not finished", action: FAST_BROWSER_SETUP_ACTION });
+  if (config === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "runtime ok, but setup needs to run again", action: FAST_BROWSER_SETUP_ACTION });
   return row({ ...base, status: "ready", detail: "runtime ok" });
 }
 
@@ -296,7 +296,8 @@ const FAST_BROWSER_WEB_STORE_URL = "https://chromewebstore.google.com/detail/fnf
 const FAST_BROWSER_LOAD_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
-  steps: [`Install Fast Browser from the Chrome Web Store: ${FAST_BROWSER_WEB_STORE_URL}`, ...PAIRING_STEPS],
+  // The app renders an inline [text](https://…) link in a step as linked text.
+  steps: [`Install Fast Browser from the [Chrome Web Store](${FAST_BROWSER_WEB_STORE_URL})`, ...PAIRING_STEPS],
 };
 const FAST_BROWSER_PAIR_STEPS: Action = { type: "steps", label: "Show steps…", steps: PAIRING_STEPS };
 /** A doctor report this build cannot read blocks Finish like any other non-ready state, so the row carries its own way out rather than leaving Skip for now as the only affordance. */

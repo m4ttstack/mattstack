@@ -44,7 +44,7 @@ const row = (id: string, kind: string, title: string, why: string, required: boo
 const EXTENSION_ID = "tool.fast-browser-extension";
 // Mirrors FAST_BROWSER_LOAD_STEPS in lib/setup/validators/tools.ts.
 const FAST_BROWSER_STEPS = [
-  "Install Fast Browser from the Chrome Web Store: https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm",
+  "Install Fast Browser from the [Chrome Web Store](https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm)",
   "Click the Fast Browser icon in Chrome and copy its reconnect token",
   "Run: fast-browser configure --connection auto, then paste the token into the Keychain prompt",
   "Run: fast-browser doctor",

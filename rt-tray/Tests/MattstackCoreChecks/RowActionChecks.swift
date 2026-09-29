@@ -100,14 +100,16 @@ let rowActionChecks: [Check] = [
                       .rtVerb(args: ["skills", "writing-style", "use", "team-voice", "--json"], stdin: nil))
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .choose, label: "x"), fieldValues: ["id": "a"], alternative: nil), .none)
     },
-    Check("a step's https URL renders as a link; the rest of the step, and non-web text, stays plain") { c in
+    Check("a step's [text](https URL) renders as that text, linked; everything else stays plain") { c in
         let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
-        let step = StepText.attributed("Install Fast Browser from the Chrome Web Store: \(url)")
-        let links = step.runs.compactMap { run in run.link.map { (String(step[run.range].characters), $0) } }
-        c.expectEqual(links.map(\.0), [url])
-        c.expectEqual(links.map(\.1.absoluteString), [url])
-        c.expectEqual(String(step.characters), "Install Fast Browser from the Chrome Web Store: \(url)")
-        let plain = StepText.attributed("Open chrome://extensions and click the reload arrow")
-        c.expect(plain.runs.allSatisfy { $0.link == nil }, "a chrome:// page cannot be opened from outside Chrome")
+        let step = StepText.attributed("Install Fast Browser from the [Chrome Web Store](\(url))")
+        c.expectEqual(String(step.characters), "Install Fast Browser from the Chrome Web Store")
+        let links = step.runs.compactMap { run in run.link.map { (String(step[run.range].characters), $0.absoluteString) } }
+        c.expectEqual(links.map(\.0), ["Chrome Web Store"])
+        c.expectEqual(links.map(\.1), [url])
+        let plain = "Run `fast-browser setup`, then open chrome://extensions and see [not a link](chrome://extensions)"
+        let untouched = StepText.attributed(plain)
+        c.expectEqual(String(untouched.characters), plain)
+        c.expect(untouched.runs.allSatisfy { $0.link == nil }, "only https links render; no other markdown is read")
     },
 ]

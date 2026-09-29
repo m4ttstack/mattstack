@@ -351,7 +351,7 @@ describe("toolRows — tool.fast-browser", () => {
     const p = fakeProbes({ exec: doctorExec(SETUP_INCOMPLETE_DOCTOR, 1) });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("runtime ok, but setup has not finished");
+    expect(r.detail).toBe("runtime ok, but setup needs to run again");
     expect(r.required).toBe(false);
     expect(r.action).toEqual({ type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] });
   });
@@ -479,7 +479,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
     const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toBe(`Install Fast Browser from the Chrome Web Store: ${WEB_STORE_URL}`);
+    expect(steps[0]).toBe(`Install Fast Browser from the [Chrome Web Store](${WEB_STORE_URL})`);
     expect(steps.join(" ")).not.toMatch(/Developer mode|Load unpacked/);
     expect(steps.join(" ")).toContain("reconnect token");
   });
