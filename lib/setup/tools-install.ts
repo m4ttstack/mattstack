@@ -285,6 +285,12 @@ async function setupFastBrowser(p: Probes, seams: ToolsInstallSeams, marketplace
   const resolved = seams.resolveTool(p, "fast-browser");
   if (!resolved.exec) throw new UserActionableError("tool-missing", "fast-browser is not resolvable (not bundled, no user copy on PATH)");
 
+  // rt owns ~/.local/bin/fast-browser whenever the bundled copy is the one in
+  // use. Linking first means fast-browser setup finds rt's wrapper and leaves
+  // it, rather than writing its own shim that needs a system node. A refusal
+  // here is a live user copy holding the slot, which setup also leaves alone.
+  if (resolved.bundled) seams.link(p, "fast-browser");
+
   // Non-interactive setup refuses to guess a host even when only one is
   // detected, and refuses a "mattstack" marketplace registered from any
   // source but the one it is told — so it is told the one plugins.install used.

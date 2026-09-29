@@ -318,11 +318,11 @@ describe("installTool — apple-clt", () => {
 });
 
 describe("setupTool — fast-browser", () => {
+  const BUNDLED_FB = (_p: unknown, tool: string) => (tool === "fast-browser" ? { tool, bundled: "node", exec: ["node", "fast-browser.mjs"], userCopy: null, linked: false, chosen: "node" } : noopResolution(tool));
+  const LINKED: ToolsInstallSeams["link"] = (p, tool) => ({ ok: true, path: `${p.home}/.local/bin/${tool}`, state: "linked" });
+
   test("exec=[node, mjs] records argv [node, mjs, setup]", async () => {
-    const seams: ToolsInstallSeams = {
-      ...NOOP_SEAMS,
-      resolveTool: (_p, tool) => (tool === "fast-browser" ? { tool, bundled: "node", exec: ["node", "fast-browser.mjs"], userCopy: null, linked: false, chosen: "node" } : noopResolution(tool)),
-    };
+    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, resolveTool: BUNDLED_FB, link: LINKED };
     const exec: ExecScript = (argv) => (argv[0] === "node" ? ok() : ok());
     const p = fakeProbes({ exec });
     const result = await setupTool(p, "fast-browser", { configDirs: [] }, seams);
@@ -340,14 +340,51 @@ describe("setupTool — fast-browser", () => {
   });
 
   test("setup script exits non-zero -> honest failure", async () => {
-    const seams: ToolsInstallSeams = {
-      ...NOOP_SEAMS,
-      resolveTool: (_p, tool) => (tool === "fast-browser" ? { tool, bundled: "node", exec: ["node", "fast-browser.mjs"], userCopy: null, linked: false, chosen: "node" } : noopResolution(tool)),
-    };
+    const seams: ToolsInstallSeams = { ...NOOP_SEAMS, resolveTool: BUNDLED_FB, link: LINKED };
     const exec: ExecScript = () => ({ code: 1, stdout: "", stderr: "boom" });
     const p = fakeProbes({ exec });
     const result = await setupTool(p, "fast-browser", { configDirs: [] }, seams);
     expect(result.ok).toBe(false);
+  });
+
+  // rt owns ~/.local/bin/fast-browser whenever the bundled copy is the one in
+  // use; linking first means fast-browser setup finds rt's wrapper and leaves
+  // it, instead of writing a shim that needs a system node.
+  test("bundled: links the launcher before fast-browser setup runs", async () => {
+    const order: string[] = [];
+    const seams: ToolsInstallSeams = {
+      ...NOOP_SEAMS,
+      resolveTool: BUNDLED_FB,
+      link: (p, tool) => {
+        order.push(`link ${tool}`);
+        return LINKED(p, tool);
+      },
+    };
+    const p = fakeProbes({ exec: (argv) => { order.push(argv.slice(2, 3).join(" ")); return ok(); } });
+
+    const result = await setupTool(p, "fast-browser", { configDirs: [] }, seams);
+
+    expect(result.ok).toBe(true);
+    expect(order).toEqual(["link fast-browser", "setup"]);
+  });
+
+  test("bundled: a refused link (a live user copy holds the slot) does not fail setup", async () => {
+    const seams: ToolsInstallSeams = {
+      ...NOOP_SEAMS,
+      resolveTool: BUNDLED_FB,
+      link: () => ({ ok: false, reason: "occupied", detail: "occupied" }),
+    };
+    const p = fakeProbes({ exec: () => ok() });
+    expect((await setupTool(p, "fast-browser", { configDirs: [] }, seams)).ok).toBe(true);
+  });
+
+  test("a user copy (nothing bundled) runs setup without touching the launcher", async () => {
+    const seams: ToolsInstallSeams = {
+      ...NOOP_SEAMS,
+      resolveTool: (_p, tool) => ({ tool, bundled: null, exec: ["/opt/fb/fast-browser"], userCopy: "/opt/fb/fast-browser", linked: false, chosen: "/opt/fb/fast-browser" }),
+    };
+    const p = fakeProbes({ exec: () => ok() });
+    expect((await setupTool(p, "fast-browser", { configDirs: [] }, seams)).ok).toBe(true);
   });
 });
 

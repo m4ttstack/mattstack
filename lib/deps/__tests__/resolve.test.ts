@@ -127,6 +127,18 @@ describe("bundled-tool resolution", () => {
     expect(userCopyOnPath(p, "gh")).toBeNull();
   });
 
+  test("userCopyOnPath skips fast-browser setup's shim into a deleted checkout, and counts a live one", () => {
+    const slot = linkPath(home, "fast-browser");
+    const shim = (entry: string) => `#!/bin/sh\n# Managed by fast-browser setup; rewritten on every setup run. Do not edit.\nexec /usr/bin/env node "${entry}" "$@"\n`;
+
+    const disposed = bundleProbe({ env: { PATH: "/usr/bin" }, files: { [slot]: shim("/worktrees/gone/bin/fast-browser.mjs") } });
+    expect(userCopyOnPath(disposed, "fast-browser")).toBeNull();
+
+    const entry = "/src/fast-browser/bin/fast-browser.mjs";
+    const live = bundleProbe({ env: { PATH: "/usr/bin" }, files: { [slot]: shim(entry), [entry]: "x" } });
+    expect(userCopyOnPath(live, "fast-browser")).toBe(slot);
+  });
+
   // Vendor installers (herdr, claude) land in ~/.local/bin next to rt's own
   // links — a real binary there is a user copy, and it must be found even
   // before Install has put that directory on PATH.
