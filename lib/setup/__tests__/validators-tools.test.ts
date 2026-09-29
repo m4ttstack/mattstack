@@ -1268,10 +1268,14 @@ describe("toolRows: tool.linear-mcp", () => {
     expect(r.detail).toContain("not a Linear MCP");
   });
 
-  test("a Linear MCP under another name -> missing, naming it", async () => {
+  const ADD_TO_CLAUDE = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
+
+  test("a Linear MCP under another name -> missing, naming it, with a way to add linear", async () => {
     const r = await rowFor(conf({ mcpServers: { "linear-matt": hosted } }), HAS_KEY);
     expect(r.status).toBe("missing");
     expect(r.detail).toContain("linear-matt");
+    expect(r.detail).toContain("not added yet");
+    expect(r.action).toEqual(ADD_TO_CLAUDE);
   });
 
   test("a Linear MCP under another name with no key -> needs-you, since Install would skip", async () => {
@@ -1288,9 +1292,10 @@ describe("toolRows: tool.linear-mcp", () => {
     expect(r.action).toEqual({ type: "connect", label: "Connect Linear", integration: "linear", fields: [{ name: "apiKey", label: "Linear API key", secret: true, hint: "lin_api_…" }] });
   });
 
-  test("nothing configured but a key is stored -> missing, Install's job", async () => {
+  test("nothing configured but a key is stored -> missing, and the row adds it (Linear connected after Install skipped it)", async () => {
     const r = await rowFor(conf({}), HAS_KEY);
-    expect([r.status, r.detail]).toEqual(["missing", "installed by Install (linear.mcp)"]);
+    expect([r.status, r.detail]).toEqual(["missing", "Linear is connected but not added to Claude Code yet"]);
+    expect(r.action).toEqual(ADD_TO_CLAUDE);
   });
 
   test("an absent config file is not an error", async () => {

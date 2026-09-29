@@ -689,6 +689,8 @@ function stateBackupRow(p: Probes, seams: ToolsSeams): Row {
 // ─── tool.linear-mcp ────────────────────────────────────────────────────────
 
 const CONNECT_LINEAR_ACTION: Action = { type: "connect", label: "Connect Linear", integration: "linear", fields: integrationDef("linear").fields };
+/** Linear connected after Install already skipped `linear.mcp` has no other way in, since nothing reruns Install. */
+const ADD_LINEAR_MCP_ACTION: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
 
 /** Wiring only: the credential itself is `account.linear`'s job, which validates this same secret against api.linear.app. Two probes of one key is one probe too many, and two rows that can disagree. */
 async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
@@ -725,12 +727,12 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
   if (others.length > 0) {
     const present = `Linear MCP present as ${others.join(", ")}`;
     return hasKey
-      ? row({ ...base, status: "missing", detail: `${present}; skills call mcp__linear__*` })
+      ? row({ ...base, status: "missing", detail: `${present}; linear is not added yet, and skills call mcp__linear__*`, action: ADD_LINEAR_MCP_ACTION })
       : row({ ...base, status: "needs-you", detail: `${present}; connect Linear so Install can add linear`, action: CONNECT_LINEAR_ACTION });
   }
 
   if (!hasKey) return row({ ...base, status: "needs-you", detail: "no Linear account connected", action: CONNECT_LINEAR_ACTION });
-  return row({ ...base, status: "missing", detail: "installed by Install (linear.mcp)" });
+  return row({ ...base, status: "missing", detail: "Linear is connected but not added to Claude Code yet", action: ADD_LINEAR_MCP_ACTION });
 }
 
 // ─── entry point ────────────────────────────────────────────────────────────
