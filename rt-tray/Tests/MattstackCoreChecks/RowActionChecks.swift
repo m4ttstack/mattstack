@@ -100,4 +100,14 @@ let rowActionChecks: [Check] = [
                       .rtVerb(args: ["skills", "writing-style", "use", "team-voice", "--json"], stdin: nil))
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .choose, label: "x"), fieldValues: ["id": "a"], alternative: nil), .none)
     },
+    Check("a step's https URL renders as a link; the rest of the step, and non-web text, stays plain") { c in
+        let url = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm"
+        let step = StepText.attributed("Install Fast Browser from the Chrome Web Store: \(url)")
+        let links = step.runs.compactMap { run in run.link.map { (String(step[run.range].characters), $0) } }
+        c.expectEqual(links.map(\.0), [url])
+        c.expectEqual(links.map(\.1.absoluteString), [url])
+        c.expectEqual(String(step.characters), "Install Fast Browser from the Chrome Web Store: \(url)")
+        let plain = StepText.attributed("Open chrome://extensions and click the reload arrow")
+        c.expect(plain.runs.allSatisfy { $0.link == nil }, "a chrome:// page cannot be opened from outside Chrome")
+    },
 ]
