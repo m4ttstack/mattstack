@@ -129,10 +129,15 @@ struct DevLoginSheet: View {
         guard let origin = validOrigin?.origin else { return }
         saving = true
         error = nil
+        let email = email, password = password
         Task {
-            error = await onSave(origin, email, password)
+            let outcome = await DevLoginSaveRace.run { await onSave(origin, email, password) }
             saving = false
-            if error == nil { password = ""; dismiss() }
+            switch outcome {
+            case .saved: self.password = ""; dismiss()
+            case .failed(let message): error = message
+            case .timedOut: error = DevLoginSaveRace.timeoutMessage
+            }
         }
     }
 }

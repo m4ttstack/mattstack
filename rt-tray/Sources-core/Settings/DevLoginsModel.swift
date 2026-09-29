@@ -92,3 +92,52 @@ public enum DevLoginSheetCopy {
 
     public static func title(replacing: Bool) -> String { replacing ? "Replace dev login" : "Save a dev login" }
 }
+
+/// A link must never swap out an open sheet: SwiftUI would drop it mid-save,
+/// past its disabled Cancel. The newest held origin opens once the sheet closes.
+public struct DevLoginLinkQueue: Equatable {
+    public private(set) var pending: String?
+    public init() {}
+
+    /// The origin to open now, or nil when it is held behind an open sheet.
+    public mutating func arrive(_ origin: String, sheetPresented: Bool) -> String? {
+        guard sheetPresented else { return origin }
+        pending = origin
+        return nil
+    }
+
+    public mutating func sheetDismissed() -> String? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+public enum DevLoginSaveOutcome: Equatable, Sendable { case saved, failed(String), timedOut }
+
+/// `rt` runs have no timeout of their own, and the sheet cannot be dismissed
+/// while it waits, so the wait is bounded here. A result that lands after the
+/// timeout is dropped: the sheet has already moved on.
+@MainActor
+public enum DevLoginSaveRace {
+    public static let timeoutMessage = "Still saving. Close this and check the list."
+
+    public static func run(timeout: Duration = .seconds(30), _ save: @escaping () async -> String?) async -> DevLoginSaveOutcome {
+        await withCheckedContinuation { (continuation: CheckedContinuation<DevLoginSaveOutcome, Never>) in
+            var finished = false
+            let finish: (DevLoginSaveOutcome) -> Void = { outcome in
+                guard !finished else { return }
+                finished = true
+                continuation.resume(returning: outcome)
+            }
+            let timer = Task { @MainActor in
+                try? await Task.sleep(for: timeout)
+                if !Task.isCancelled { finish(.timedOut) }
+            }
+            Task { @MainActor in
+                let error = await save()
+                timer.cancel()
+                finish(error.map { .failed($0) } ?? .saved)
+            }
+        }
+    }
+}

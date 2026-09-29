@@ -6,6 +6,7 @@ struct DevLoginsPane: View {
     let env: SettingsEnvironment
     @ObservedObject private var model: DevLoginsModel
     @State private var sheetTarget: SheetTarget?
+    @State private var linkQueue = DevLoginLinkQueue()
     @State private var confirmDelete: String?
     @State private var actionError: String?
 
@@ -63,9 +64,11 @@ struct DevLoginsPane: View {
         .task { await model.load() }
         .onReceive(model.$addRequest.compactMap { $0 }) { origin in
             model.addRequest = nil
-            open(origin)
+            if let now = linkQueue.arrive(origin, sheetPresented: sheetTarget != nil) { open(now) }
         }
-        .sheet(item: $sheetTarget) { target in
+        .sheet(item: $sheetTarget, onDismiss: {
+            if let held = linkQueue.sheetDismissed() { open(held) }
+        }) { target in
             DevLoginSheet(fixedOrigin: target.origin, email: target.email, isSaved: { model.isSaved($0) }) { origin, email, password in
                 await model.save(origin: origin, email: email, password: password)
             }

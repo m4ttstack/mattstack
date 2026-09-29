@@ -87,4 +87,38 @@ let devLoginsModelChecks: [Check] = [
         c.expect(cancel.contains(".disabled(saving)"), "Cancel stays enabled during a save")
         c.expect(text.contains(".interactiveDismissDisabled(saving)"), "the sheet can be dismissed during a save")
     },
+    Check("dev login link queue: a link that arrives over an open sheet waits for it to close") { c in
+        var queue = DevLoginLinkQueue()
+        c.expectEqual(queue.arrive("https://login.example.com", sheetPresented: false), "https://login.example.com")
+        c.expectEqual(queue.sheetDismissed(), nil, "nothing is held after an immediate open")
+        c.expectEqual(queue.arrive("https://a.example.com", sheetPresented: true), nil, "an open sheet is never swapped out")
+        c.expectEqual(queue.arrive("https://b.example.com", sheetPresented: true), nil)
+        c.expectEqual(queue.sheetDismissed(), "https://b.example.com", "the newest held link opens once the sheet closes")
+        c.expectEqual(queue.sheetDismissed(), nil, "a held link opens once")
+    },
+    Check("dev login save race: a result inside the limit wins") { c in
+        let saved = await DevLoginSaveRace.run(timeout: .seconds(5)) { nil }
+        c.expectEqual(saved, .saved)
+        let failed = await DevLoginSaveRace.run(timeout: .seconds(5)) { "rt logins add failed." }
+        c.expectEqual(failed, .failed("rt logins add failed."))
+    },
+    Check("dev login save race: a hung save times out and its late result is dropped") { c in
+        let started = Date()
+        let outcome = await DevLoginSaveRace.run(timeout: .milliseconds(50)) {
+            try? await Task.sleep(for: .milliseconds(300))
+            return nil
+        }
+        c.expectEqual(outcome, .timedOut)
+        c.expect(Date().timeIntervalSince(started) < 0.25, "the wait is bounded by the timeout, not the save")
+        try? await Task.sleep(for: .milliseconds(400))
+        c.expectEqual(DevLoginSaveRace.timeoutMessage, "Still saving. Close this and check the list.")
+    },
+    Check("dev logins pane and sheet: link queue and bounded save are wired in") { c in
+        let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Sources/Settings")
+        let pane = try String(contentsOf: dir.appendingPathComponent("DevLoginsPane.swift").standardized, encoding: .utf8)
+        let sheet = try String(contentsOf: dir.appendingPathComponent("DevLoginSheet.swift").standardized, encoding: .utf8)
+        c.expect(pane.contains("linkQueue.arrive(") && pane.contains("onDismiss:") && pane.contains("linkQueue.sheetDismissed()"),
+                 "a link replaces an open sheet without waiting")
+        c.expect(sheet.contains("DevLoginSaveRace.run {"), "the save wait is unbounded")
+    },
 ]
