@@ -17,6 +17,8 @@ export interface ExecResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** The signal that ended the child (e.g. "SIGTERM"), when one did. */
+  signal?: string;
 }
 
 export interface Probes {
@@ -48,6 +50,8 @@ export interface Probes {
   removeDir(path: string): void;
   symlink(target: string, path: string): void;
   mkdirp(path: string, mode?: number): void;
+  /** Creates exactly `path` (its parent must exist): true when this call made it, false when it already existed. Other errors throw. */
+  mkdirExclusive(path: string): boolean;
   /** Never throws: network failure yields status 0, body "", headers {}. Header names are lowercased. */
   fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }): Promise<{ status: number; body: string; headers: Record<string, string> }>;
   tray: TrayClient;
@@ -121,9 +125,11 @@ export async function execWithTimeout(argv: string[], opts?: { cwd?: string; tim
     const stderrP = opts?.inherit ? Promise.resolve("") : new Response(proc.stderr as ReadableStream).text();
     const collected = Promise.all([stdoutP, stderrP, proc.exited]);
 
+    const withSignal = (r: ExecResult): ExecResult => (proc.signalCode ? { ...r, signal: proc.signalCode } : r);
+
     if (!opts?.timeoutMs) {
       const [stdout, stderr, code] = await collected;
-      return { code, stdout, stderr };
+      return withSignal({ code, stdout, stderr });
     }
 
     // A backgrounded grandchild can hold the stdout/stderr pipe open even
@@ -138,7 +144,7 @@ export async function execWithTimeout(argv: string[], opts?: { cwd?: string; tim
       timedOut.then(() => ({ timedOut: true as const })),
     ]);
 
-    if (!raceResult.timedOut) return { code: raceResult.r[2], stdout: raceResult.r[0], stderr: raceResult.r[1] };
+    if (!raceResult.timedOut) return withSignal({ code: raceResult.r[2], stdout: raceResult.r[0], stderr: raceResult.r[1] });
 
     try {
       proc.kill("SIGTERM");
@@ -304,6 +310,16 @@ export function createRealProbes(): Probes {
 
     mkdirp(path, mode) {
       mkdirSync(path, { recursive: true, ...(mode !== undefined ? { mode } : {}) });
+    },
+
+    mkdirExclusive(path) {
+      try {
+        mkdirSync(path);
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+        throw err;
+      }
     },
 
     async fetch(url, init) {

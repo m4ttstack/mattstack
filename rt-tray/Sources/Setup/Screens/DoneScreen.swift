@@ -9,6 +9,8 @@ struct DoneScreen: View {
     /// A solo install turns board off, so the screen points at console.
     let solo: Bool
     let onInvite: () -> Void
+    /// Resumes Install from a partial step; the flow goes back to the Install screen to show the rerun.
+    let onRetry: (String) -> Void
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
 
@@ -33,7 +35,7 @@ struct DoneScreen: View {
                 }
                 .font(.system(size: 36))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.headline).font(.title3.weight(.semibold))
+                    Text(headline).font(.title3.weight(.semibold))
                     Text(verifySummary).foregroundStyle(.secondary)
                 }
             }
@@ -51,6 +53,31 @@ struct DoneScreen: View {
                 .padding(.horizontal, 20).padding(.top, 12)
             }
             Form {
+                if !install.partialSteps.isEmpty {
+                    Section("Needs another try") {
+                        ForEach(install.partialSteps) { step in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 10) {
+                                    StatusBadge(status: .missing, id: AXID.donePartialStepStatus(step.id))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(step.info.title)
+                                        if let d = step.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.orange) }
+                                    }
+                                    Spacer()
+                                    Button("Retry from here") { onRetry(step.id) }
+                                        .controlSize(.small)
+                                        .disabled(install.isRunning)
+                                        .accessibilityIdentifier(AXID.donePartialStepRetry(step.id))
+                                }
+                                if let r = step.remedy {
+                                    Text(r).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.leading, 30)
+                                }
+                            }
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier(AXID.donePartialStep(step.id))
+                        }
+                    }
+                }
                 Section("Where things live") {
                     LabeledContent("Menu bar") { Text("the m icon, top right") }
                     LabeledContent("Terminal") { Text("run rt in a new terminal window") }
@@ -124,12 +151,17 @@ struct DoneScreen: View {
     }
 
     private var isBlocked: Bool { !model.blockedRows.isEmpty }
+    private var allDone: Bool { model.stillToDoRows.isEmpty && install.partialSteps.isEmpty }
+    private var headline: String {
+        guard model.hasConfirmedRows, !isBlocked, !install.partialSteps.isEmpty else { return model.headline }
+        return FinishGate.retryHeadline(partial: install.partialSteps.count)
+    }
     private var headlineSymbol: String {
-        FinishGate.headlineSymbol(blocked: isBlocked, allDone: model.stillToDoRows.isEmpty)
+        FinishGate.headlineSymbol(blocked: isBlocked, allDone: allDone)
     }
     /// Only read when `!isBlocked`: the blocked case renders as multicolor instead.
     private var headlineTint: Color {
-        model.stillToDoRows.isEmpty ? .green : .accentColor
+        allDone ? .green : .accentColor
     }
 
     private func show(_ row: PlanRow) {
@@ -149,8 +181,10 @@ struct DoneScreen: View {
 
     private var verifySummary: String {
         let verify = install.steps.first { $0.id == "verify" }
-        let n = install.steps.filter { $0.state == .done }.count
-        return verify?.detail.map { "\($0) · \(n) steps done" } ?? "\(n) steps done"
+        let n = install.steps.filter { $0.state == .done || $0.state == .needsYou }.count
+        let partial = install.partialSteps.count
+        let steps = partial == 0 ? "\(n) steps done" : "\(n) steps done, \(partial) need\(partial == 1 ? "s" : "") another try"
+        return verify?.detail.map { "\($0) · \(steps)" } ?? steps
     }
 
     private var homeApp: (title: String, host: String, url: URL) {
