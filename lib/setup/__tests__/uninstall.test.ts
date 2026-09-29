@@ -644,7 +644,7 @@ describe("rt uninstall", () => {
       return { p, execCalls };
     }
 
-    test("uninstalls exactly what setup-state recorded — 'claude plugin uninstall mattstack@mattstack'", async () => {
+    test("uninstalls exactly what setup-state recorded: 'claude plugin uninstall mattstack@mattstack'", async () => {
       const { p, execCalls } = marketplaceProbes(LISTED);
       updateSetupState(p, (s) => ({ ...s, plugins: ["mattstack@mattstack"], marketplaces: ["https://github.com/m4ttstack/mattstack-marketplace.git"] }));
       const { ctx } = makeCtx(p);

@@ -297,7 +297,7 @@ describe("runApplyWith — skipped is non-fatal", () => {
   });
 });
 
-describe("runApplyWith — needs-you is non-fatal", () => {
+describe("runApplyWith: needs-you is non-fatal", () => {
   test("a needs-you step is streamed as such and the run still ends ok", async () => {
     const { ctx, events } = testCtx();
     const steps: StepDef[] = [
