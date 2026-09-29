@@ -71,7 +71,13 @@
     "zod": "catalog:"
   },
   "peerDependenciesMeta": {
+    "@mantine/charts": {
+      "optional": true
+    },
     "@testing-library/react": {
+      "optional": true
+    },
+    "recharts": {
       "optional": true
     },
     "vitest": {
