@@ -39,7 +39,7 @@ import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
-import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, buildSlackManifest } from "../lib/setup/slack-app.ts";
+import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, slackRedirectFix, slackRedirectUri } from "../lib/setup/slack-app.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
@@ -817,7 +817,7 @@ export function realOAuthListen(port: number, expectedState: string): Promise<st
       setTimeout(fn, 0);
     };
     const timer = setTimeout(() => {
-      settle(() => reject(new Error("timed out waiting for the Slack OAuth callback")));
+      settle(() => reject(new SlackCallbackTimeoutError()));
       try {
         server?.stop();
       } catch {
@@ -1263,7 +1263,8 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   if (!clientId) throw new UserActionableError("slack-app-missing", "your team has no Slack app yet — its owner needs to create one first");
 
   const callbackPort = snapshot.integrations.slack?.callbackPort ?? DEFAULT_CALLBACK_PORT;
-  const redirectUri = `http://localhost:${callbackPort}/callback`;
+  const redirectUri = slackRedirectUri(callbackPort);
+  const redirectFix = slackRedirectFix(callbackPort, snapshot.integrations.slack?.appId);
   const state = deps.randomState();
   const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&user_scope=${encodeURIComponent(DEFAULT_SCOPE_NEEDS.user.join(","))}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
 
@@ -1273,6 +1274,9 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   try {
     code = await deps.listen(callbackPort, state);
   } catch (err) {
+    if (err instanceof SlackCallbackTimeoutError) {
+      throw new UserActionableError("slack-oauth-failed", `${err.message}. If Slack said redirect_uri did not match, ${redirectFix}, then connect again`);
+    }
     throw new UserActionableError("slack-oauth-failed", err instanceof Error ? err.message : String(err));
   }
 
@@ -1306,7 +1310,12 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
     printIntegrationResult(deps, json, {
       integration: "slack",
       status: "invalid",
-      detail: data.error ? `slack error: ${data.error}` : "slack oauth.v2.access returned no user token",
+      detail:
+        data.error === "bad_redirect_uri"
+          ? `slack error: bad_redirect_uri: ${redirectFix}, then connect again`
+          : data.error
+            ? `slack error: ${data.error}`
+            : "slack oauth.v2.access returned no user token",
       scopesSeen: [],
     });
     return;
