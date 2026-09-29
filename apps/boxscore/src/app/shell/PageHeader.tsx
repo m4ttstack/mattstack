@@ -85,6 +85,7 @@ function RangeControl({
       opened={open}
       onChange={setOpen}
       position="bottom-end"
+      transitionProps={{ transition: 'pop-top-right' }}
       shadow="md"
       trapFocus
     >

@@ -27,41 +27,42 @@ function renderAt(path: string) {
 }
 
 describe('kit shell', () => {
-  it('mounts MattstackShell with the boxscore mark, rail entries and scheme control', () => {
+  it('mounts the rail-less MattstackShell with the boxscore mark and a top-bar cluster', () => {
     const { container } = renderAt('/');
     expect(container.querySelector('header img')).toHaveAttribute(
       'src',
       '/favicon.svg'
     );
-    const board = screen.getByRole('link', { name: 'Leaderboard' });
-    expect(board).toHaveAttribute('href', '/');
-    expect(board).toHaveAttribute('aria-current', 'page');
     expect(
-      screen.getByRole('button', { name: 'Color scheme' })
-    ).toBeInTheDocument();
+      screen.queryByRole('navigation', { name: 'App sections' })
+    ).not.toBeInTheDocument();
     const banner = screen.getByRole('banner');
     expect(banner).toHaveTextContent('boxscore/Leaderboard');
     expect(
-      within(banner).getByRole('button', { name: /refresh/i })
-    ).toBeInTheDocument();
-    expect(
       within(banner).queryByRole('button', { name: 'Apps' })
     ).not.toBeInTheDocument();
+    const controls = Array.from(banner.querySelectorAll('button, a')).map(
+      el => el.getAttribute('aria-label') ?? el.textContent
+    );
+    expect(controls).toEqual(['Refresh', 'Settings', 'Color scheme']);
   });
 
   it('links settings out to the console boxscore section in a new tab', () => {
     renderAt('/');
-    const link = screen.getByRole('link', { name: 'Settings' });
+    const link = within(screen.getByRole('banner')).getByRole('link', {
+      name: 'Settings',
+    });
     expect(link.getAttribute('href')).toMatch(/\/settings#boxscore$/);
     expect(link).toHaveAttribute('target', '_blank');
   });
 
-  it('keeps the leaderboard entry active on a person page', () => {
+  it('keeps the same top bar on a person page', () => {
     renderAt('/user/srivera');
-    expect(screen.getByRole('link', { name: 'Leaderboard' })).toHaveAttribute(
-      'aria-current',
-      'page'
-    );
+    const banner = within(screen.getByRole('banner'));
+    expect(banner.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(
+      banner.getByRole('button', { name: 'Color scheme' })
+    ).toBeInTheDocument();
   });
 });
 

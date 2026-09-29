@@ -9,7 +9,6 @@ import { useLocation } from 'wouter';
 import { MattstackShell, NotFoundPage } from '@mattstack/app-kit/app';
 import { Alert, PageShell, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import { RailLink } from '@mattstack/app-kit/router';
 import type {
   ColdCacheResponse,
   LeaderboardResponse,
@@ -36,7 +35,7 @@ import { RefreshStatus } from './refresh/RefreshStatus';
 import { SkeletonStandings } from './refresh/SkeletonStandings';
 import { useAppRoute } from './routes';
 import { PageHeader, type RangeState, type ViewMode } from './shell/PageHeader';
-import { SettingsRailEntry } from './shell/SettingsRailEntry';
+import { SettingsLink } from './shell/SettingsLink';
 import classes from './shell/shell.module.css';
 import {
   syncedLabel,
@@ -311,6 +310,7 @@ function AppShell() {
   return (
     <MattstackShell
       name="boxscore"
+      rail={false}
       mark={
         <img
           src="/favicon.svg"
@@ -323,31 +323,23 @@ function AppShell() {
     >
       <MattstackShell.Header
         actions={
-          <TopbarActions
-            scope={shownScope ? scopeLabel(shownScope) : null}
-            freshness={freshness}
-            action={refreshJob.refreshing ? 'cancel' : 'refresh'}
-            onAction={
-              refreshJob.refreshing
-                ? cancelRefresh
-                : () => void refreshJob.start(selection)
-            }
-          />
+          <>
+            <TopbarActions
+              scope={shownScope ? scopeLabel(shownScope) : null}
+              freshness={freshness}
+              action={refreshJob.refreshing ? 'cancel' : 'refresh'}
+              onAction={
+                refreshJob.refreshing
+                  ? cancelRefresh
+                  : () => void refreshJob.start(selection)
+              }
+            />
+            <SettingsLink />
+          </>
         }
       >
         <TopbarCrumbs crumbs={crumbs} />
       </MattstackShell.Header>
-      <MattstackShell.Rail>
-        <RailLink
-          icon="trophy"
-          label="Leaderboard"
-          href="/"
-          active={route.name === 'leaderboard' || isPerson}
-        />
-      </MattstackShell.Rail>
-      <MattstackShell.RailBottom>
-        <SettingsRailEntry />
-      </MattstackShell.RailBottom>
       <PageShell>
         <PageShell.Main>
           <PageShell.Content bg="var(--tk-panel)" contentContainer={false}>
