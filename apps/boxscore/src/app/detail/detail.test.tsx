@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
@@ -44,6 +44,12 @@ function renderAt(path: string) {
 
 const layer = (root: ParentNode, name: string) =>
   root.querySelector<HTMLElement>(`[data-parity="${name}"]`);
+
+async function issuesPanel(container: HTMLElement) {
+  const panel = layer(container, 'Panel · Issues done')!;
+  await waitFor(() => expect(within(panel).queryByText('Loading…')).toBeNull());
+  return panel;
+}
 
 describe('person page', () => {
   it('switches between people in leaderboard order, keeping the stat', async () => {
@@ -95,7 +101,7 @@ describe('person page', () => {
   it('shows the Issues done panel with its counts and the first nine issues', async () => {
     const user = userEvent.setup();
     const { container } = renderAt('/user/srivera/issuesCompleted');
-    const panel = layer(container, 'Panel · Issues done')!;
+    const panel = await issuesPanel(container);
     const chips = [...panel.querySelectorAll('[data-parity^="Chip "]')].map(
       c => c.textContent
     );
@@ -128,7 +134,7 @@ describe('person page', () => {
   it('filters the evidence rows by any cell', async () => {
     const user = userEvent.setup();
     const { container } = renderAt('/user/srivera/issuesCompleted');
-    const panel = layer(container, 'Panel · Issues done')!;
+    const panel = await issuesPanel(container);
     await user.type(
       within(panel).getByRole('textbox', { name: 'Filter 48 issues' }),
       'trailer'
@@ -145,7 +151,7 @@ describe('person page', () => {
   it('says so when the filter matches no issue', async () => {
     const user = userEvent.setup();
     const { container } = renderAt('/user/srivera/issuesCompleted');
-    const panel = layer(container, 'Panel · Issues done')!;
+    const panel = await issuesPanel(container);
     await user.type(
       within(panel).getByRole('textbox', { name: 'Filter 48 issues' }),
       'zzzz'

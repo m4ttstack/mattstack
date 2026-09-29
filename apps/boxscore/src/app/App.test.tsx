@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -197,7 +197,7 @@ describe('App: cold-cache orchestration', () => {
 });
 
 describe('App: refresh on the person page', () => {
-  it('refetches the evidence for the regenerated standings once a refresh finishes', () => {
+  it('refetches the evidence for the regenerated standings once a refresh finishes', async () => {
     useAppRoute.mockReturnValue({
       name: 'stat',
       username: 'srivera',
@@ -237,7 +237,7 @@ describe('App: refresh on the person page', () => {
       container.querySelectorAll(
         '[data-parity="Panel · Issues done"] [data-parity^="Ev Row "]'
       );
-    expect(rows()).toHaveLength(9);
+    await waitFor(() => expect(rows()).toHaveLength(9));
 
     const { onDone } = useRefreshJob.mock.calls.at(-1)![0];
     act(() => onDone(after, { range: '30d', trend: false }));

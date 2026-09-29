@@ -1,4 +1,4 @@
-import { within } from '@testing-library/react';
+import { waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
@@ -50,16 +50,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function panelAt(stat: string, label: string) {
+async function panelAt(stat: string, label: string) {
   const location = memoryLocation({ path: `/user/srivera/${stat}` });
   const { container } = renderWithProviders(
     <Router hook={location.hook}>
       <App />
     </Router>
   );
-  return container.querySelector<HTMLElement>(
+  const panel = container.querySelector<HTMLElement>(
     `[data-parity="Panel · ${label}"]`
   )!;
+  await waitFor(() => expect(within(panel).queryByText('Loading…')).toBeNull());
+  return panel;
 }
 
 const layers = (root: ParentNode, name: string) => [
@@ -68,8 +70,8 @@ const layers = (root: ParentNode, name: string) => [
 const layer = (root: ParentNode, name: string) => layers(root, name)[0];
 
 describe('Wait for review panel', () => {
-  it('draws seven bins with the p50 bin highlighted', () => {
-    const panel = panelAt('reviewLatencyHours', 'Wait for review');
+  it('draws seven bins with the p50 bin highlighted', async () => {
+    const panel = await panelAt('reviewLatencyHours', 'Wait for review');
     const bars = layers(panel, 'bar');
     expect(bars).toHaveLength(7);
     expect(bars[1]).toHaveStyle({ background: 'var(--tk-fill-accent)' });
@@ -98,7 +100,7 @@ describe('Wait for review panel', () => {
 
   it('lists the six slowest waits, longest first, warning past a day', async () => {
     const user = userEvent.setup();
-    const panel = panelAt('reviewLatencyHours', 'Wait for review');
+    const panel = await panelAt('reviewLatencyHours', 'Wait for review');
     const rows = () => [
       ...panel.querySelectorAll('[data-parity^="Wait Row "]'),
     ];
@@ -125,8 +127,8 @@ describe('Wait for review panel', () => {
 });
 
 describe('Coding days panel', () => {
-  it('prints the busiest day on the calendar and in the facts', () => {
-    const panel = panelAt('codingDays', 'Coding days');
+  it('prints the busiest day on the calendar and in the facts', async () => {
+    const panel = await panelAt('codingDays', 'Coding days');
     expect(layer(layer(panel, 'Day 9-17')!, 'n')).toHaveTextContent('28');
     expect(layers(panel, 'fv').map(n => n.textContent)).toEqual([
       'Thu Sep 17 · 28 pushes',
@@ -139,8 +141,8 @@ describe('Coding days panel', () => {
 });
 
 describe('Pipelines panel', () => {
-  it('reads outcome counts and shares, then the last seven days', () => {
-    const panel = panelAt('pipelines', 'Pipelines');
+  it('reads outcome counts and shares, then the last seven days', async () => {
+    const panel = await panelAt('pipelines', 'Pipelines');
     const legend = within(panel).getAllByRole('listitem');
     expect(legend[0]).toHaveTextContent('Success13865%');
     expect(legend[1]).toHaveTextContent('Failed6531%');
@@ -164,7 +166,7 @@ describe('Pipelines panel', () => {
 describe('Reciprocity panel', () => {
   it('weighs reviews given against reviewers received', async () => {
     const user = userEvent.setup();
-    const panel = panelAt('reciprocity', 'Reciprocity');
+    const panel = await panelAt('reciprocity', 'Reciprocity');
     const balance = (name: string) =>
       layer(within(panel).getByRole('group', { name }), 'n');
     expect(balance('Given')).toHaveTextContent('74');
@@ -191,16 +193,16 @@ function withEvidence(
 }
 
 describe('empty evidence', () => {
-  it('says so when a person pushed nothing in the window', () => {
+  it('says so when a person pushed nothing in the window', async () => {
     withEvidence('codingDays', ev => (ev.rows = []));
-    const panel = panelAt('codingDays', 'Coding days');
+    const panel = await panelAt('codingDays', 'Coding days');
     expect(within(panel).getByText('Nothing in this window')).toBeVisible();
     expect(layer(panel, 'fv')).toBeUndefined();
   });
 
-  it('keeps give and take when nobody reviewed your MRs', () => {
+  it('keeps give and take when nobody reviewed your MRs', async () => {
     withEvidence('reciprocity', ev => (ev.rows = []));
-    const panel = panelAt('reciprocity', 'Reciprocity');
+    const panel = await panelAt('reciprocity', 'Reciprocity');
     expect(within(panel).getByRole('group', { name: 'Given' })).toBeVisible();
     expect(within(panel).getByText('Nothing in this window')).toBeVisible();
     expect(panel.querySelector('[data-parity="Ev Footer"]')).toBeNull();

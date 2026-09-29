@@ -1,3 +1,5 @@
+import { lazy, Suspense } from 'react';
+
 import { metricRank, metricValue } from '../../shared/metrics';
 import type {
   MetricEvidence,
@@ -11,7 +13,6 @@ import { GroupTag } from '../ui/GroupTag';
 import { LeaderMark } from '../ui/LeaderMark';
 import { TeamStrip } from '../ui/TeamStrip';
 import classes from './detail.module.css';
-import { EVIDENCE } from './evidence';
 import { EmptyEvidence } from './evidence/parts';
 import {
   definitionOf,
@@ -21,6 +22,8 @@ import {
   subOf,
 } from './panelCopy';
 import { displayName } from './ProfileHeader';
+
+const EvidencePanel = lazy(() => import('./evidence/EvidencePanel'));
 
 export type EvidenceState =
   | { status: 'loading' }
@@ -92,7 +95,6 @@ export function StatPanel({
   const max = Math.max(0, ...points.map(p => p.value));
   const ev = evidence.status === 'ready' ? evidence.ev : undefined;
   const chips = ev?.facts && copy.chips ? copy.chips(ev.facts, person) : [];
-  const Evidence = EVIDENCE[stat];
 
   return (
     <section className={classes.panel} data-parity={`Panel · ${d.label}`}>
@@ -191,14 +193,16 @@ export function StatPanel({
       )}
       {evidence.status === 'ready' &&
         (ev ? (
-          <Evidence
-            key={`${person.username}/${stat}`}
-            ev={ev}
-            users={users}
-            username={person.username}
-            statKey={stat}
-            window={window}
-          />
+          <Suspense fallback={<EmptyEvidence message="Loading…" />}>
+            <EvidencePanel
+              key={`${person.username}/${stat}`}
+              ev={ev}
+              users={users}
+              username={person.username}
+              statKey={stat}
+              window={window}
+            />
+          </Suspense>
         ) : (
           <EmptyEvidence />
         ))}

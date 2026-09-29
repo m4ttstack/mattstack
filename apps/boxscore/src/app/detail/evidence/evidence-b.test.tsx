@@ -1,4 +1,4 @@
-import { within } from '@testing-library/react';
+import { waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
@@ -50,14 +50,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function panelAt(stat: string) {
+async function panelAt(stat: string) {
   const location = memoryLocation({ path: `/user/srivera/${stat}` });
   const { container } = renderWithProviders(
     <Router hook={location.hook}>
       <App />
     </Router>
   );
-  return container.querySelector<HTMLElement>('[data-parity^="Panel · "]')!;
+  const panel = container.querySelector<HTMLElement>(
+    '[data-parity^="Panel · "]'
+  )!;
+  await waitFor(() => expect(within(panel).queryByText('Loading…')).toBeNull());
+  return panel;
 }
 
 function withEvidence(stat: MetricKey, edit: (ev: MetricEvidence) => void) {
@@ -80,8 +84,8 @@ const rowsOf = (root: ParentNode, prefix: string) => [
 const texts = (nodes: HTMLElement[]) => nodes.map(n => n.textContent);
 
 describe('MRs merged panel', () => {
-  it('lists the newest six with a diff bar and a footer', () => {
-    const panel = panelAt('mrsMerged');
+  it('lists the newest six with a diff bar and a footer', async () => {
+    const panel = await panelAt('mrsMerged');
     expect(panel).toHaveAttribute('data-parity', 'Panel · MRs merged');
     expect(layer(panel, 'Sort Newest')).toHaveStyle({
       background: 'var(--tk-raised)',
@@ -106,8 +110,8 @@ describe('MRs merged panel', () => {
     expect(layer(panel, 'c')).toHaveTextContent('Showing 6 of 47');
   });
 
-  it('opens with Most added active from the additions stat', () => {
-    const panel = panelAt('additions');
+  it('opens with Most added active from the additions stat', async () => {
+    const panel = await panelAt('additions');
     expect(layer(panel, 'Sort Most added')).toHaveStyle({
       background: 'var(--tk-raised)',
     });
@@ -117,7 +121,7 @@ describe('MRs merged panel', () => {
 
   it('opens with Most deleted active from the deletions stat', async () => {
     const user = userEvent.setup();
-    const panel = panelAt('deletions');
+    const panel = await panelAt('deletions');
     expect(
       within(panel).getByRole('tab', { name: 'Most deleted' })
     ).toHaveAttribute('aria-selected', 'true');
@@ -128,8 +132,8 @@ describe('MRs merged panel', () => {
 });
 
 describe('Size health panel', () => {
-  it('bins the merged MRs and colours the healthy band', () => {
-    const panel = panelAt('sizeHealthPct');
+  it('bins the merged MRs and colours the healthy band', async () => {
+    const panel = await panelAt('sizeHealthPct');
     expect(texts(layers(panel, 'cnt'))).toEqual([
       '0',
       '3',
@@ -176,8 +180,8 @@ describe('Size health panel', () => {
 });
 
 describe('Revert rate panel', () => {
-  it('shows the zero state and a dimmed example row', () => {
-    const panel = panelAt('revertRate');
+  it('shows the zero state and a dimmed example row', async () => {
+    const panel = await panelAt('revertRate');
     expect(layer(panel, 'zt')).toHaveTextContent(
       'No reverts across 47 merged MRs'
     );
@@ -185,14 +189,14 @@ describe('Revert rate panel', () => {
     expect(layer(panel, 'c')).toHaveTextContent('47 merged MRs checked');
   });
 
-  it('lists reverted MRs with who reverted them and when', () => {
+  it('lists reverted MRs with who reverted them and when', async () => {
     withEvidence('revertRate', ev => {
       ev.facts = { ...ev.facts, reverted: 1 };
       const row = ev.rows[3]!;
       row.cells = [...row.cells.slice(0, 3), '!16200', '2d'];
       row.muted = false;
     });
-    const panel = panelAt('revertRate');
+    const panel = await panelAt('revertRate');
     expect(layer(panel, 'Zero State')).toBeUndefined();
     expect(layer(panel, 'Revert Example')).toBeUndefined();
     const rows = rowsOf(panel, 'Revert');
@@ -207,8 +211,8 @@ describe('Revert rate panel', () => {
 });
 
 describe('MRs reviewed panel', () => {
-  it('splits reviews by author and lists the newest five', () => {
-    const panel = panelAt('mrsReviewed');
+  it('splits reviews by author and lists the newest five', async () => {
+    const panel = await panelAt('mrsReviewed');
     const authors = [...panel.querySelectorAll<HTMLElement>('[data-author]')];
     expect(authors.map(a => a.dataset.author)).toEqual([
       'nvance',
@@ -243,8 +247,8 @@ describe('MRs reviewed panel', () => {
 });
 
 describe('Review depth panel', () => {
-  it('bins comments per MR and lists the deepest reviews', () => {
-    const panel = panelAt('reviewDepth');
+  it('bins comments per MR and lists the deepest reviews', async () => {
+    const panel = await panelAt('reviewDepth');
     expect(texts(layers(panel, 'cnt'))).toEqual(['30', '13', '10', '16', '5']);
     const bars = layers(panel, 'bar');
     expect(bars[0]).toHaveStyle({ background: 'var(--tk-muted)' });
@@ -264,8 +268,8 @@ describe('Review depth panel', () => {
 });
 
 describe('Merge streak panel', () => {
-  it('marks the longest run gold and the current streak accent', () => {
-    const panel = panelAt('longestStreak');
+  it('marks the longest run gold and the current streak accent', async () => {
+    const panel = await panelAt('longestStreak');
     const bars = layers(panel, 'bar');
     expect(bars).toHaveLength(30);
     const days = [...panel.querySelectorAll<HTMLElement>('[data-day]')].map(
@@ -298,9 +302,9 @@ describe('empty evidence', () => {
     ['mrsReviewed'],
     ['reviewDepth'],
     ['longestStreak'],
-  ] as [MetricKey][])('%s says nothing is in the window', stat => {
+  ] as [MetricKey][])('%s says nothing is in the window', async stat => {
     withEvidence(stat, ev => (ev.rows = []));
-    const panel = panelAt(stat);
+    const panel = await panelAt(stat);
     expect(within(panel).getByText('Nothing in this window')).toBeVisible();
     expect(panel.querySelector('[data-parity="Ev Footer"]')).toBeNull();
   });

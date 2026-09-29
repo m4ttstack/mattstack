@@ -28,13 +28,11 @@ describe('useUserDetail', () => {
 
   it('refetches the evidence when the standings are regenerated, keeping the old rows until then', async () => {
     let release!: () => void;
-    detailGet
-      .mockResolvedValueOnce(respond('first'))
-      .mockReturnValueOnce(
-        new Promise(resolve => {
-          release = () => resolve(respond('second'));
-        })
-      );
+    detailGet.mockResolvedValueOnce(respond('first')).mockReturnValueOnce(
+      new Promise(resolve => {
+        release = () => resolve(respond('second'));
+      })
+    );
 
     const { result, rerender } = renderHook(
       ({ at }: { at: string }) => useUserDetail('srivera', selection, at),
@@ -47,12 +45,10 @@ describe('useUserDetail', () => {
     expect(result.current.data).toEqual({ tag: 'first' });
 
     release();
-    await waitFor(() =>
-      expect(result.current.data).toEqual({ tag: 'second' })
-    );
+    await waitFor(() => expect(result.current.data).toEqual({ tag: 'second' }));
   });
 
-  it('never shows one person the previous person\'s evidence while loading', async () => {
+  it("never shows one person the previous person's evidence while loading", async () => {
     detailGet
       .mockResolvedValueOnce(respond('sam'))
       .mockReturnValueOnce(new Promise(() => {}));
