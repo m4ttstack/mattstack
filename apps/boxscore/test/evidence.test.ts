@@ -5,6 +5,7 @@ import {
   type EvidenceContext,
 } from '../src/server/metrics/evidence.js';
 import { computeSnapshot } from '../src/server/metrics/snapshot.js';
+import { round } from '../src/server/metrics/stats.js';
 import type {
   FetchResult,
   NormLinearIssue,
@@ -260,13 +261,16 @@ describe('evidence facts', () => {
     ]);
   });
 
-  it('reciprocity facts count review events and distinct reviewers', () => {
-    const f = ev.reciprocity!.facts!;
+  it('reciprocity summary, facts and metric share one received count', () => {
+    const r = ev.reciprocity!;
+    const f = r.facts!;
     expect(f.given).toBe(alice.mrsReviewed);
-    expect(f.reviewers).toBe(ev.reciprocity!.rows.length);
-    expect(f.received).toBe(
-      ev.reciprocity!.rows.reduce((s, r) => s + Number(r.cells[1]), 0)
-    );
+    expect(f.reviewers).toBe(r.rows.length);
+    expect(f.received).toBe(r.rows.length);
+    expect(r.summary).toContain(`received from ${f.received} reviewer(s)`);
+    const ratio = f.received === 0 ? f.given : round(f.given! / f.received!, 2);
+    expect(r.summary).toContain(`ratio ${ratio}`);
+    expect(alice.reciprocity).toBe(ratio);
   });
 
   it('pipelines facts partition every pipeline into four buckets', () => {

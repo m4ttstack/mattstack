@@ -232,8 +232,8 @@ export function buildUserEvidence(
     summary: `gave ${given} reviews, received from ${received} reviewer(s) ... ratio ${received === 0 ? given : round(given / received, 2)}`,
     facts: {
       given,
-      received: [...c.reviewersOfMine.values()].reduce((s, n) => s + n, 0),
-      reviewers: c.reviewersOfMine.size,
+      received,
+      reviewers: received,
     },
   };
 

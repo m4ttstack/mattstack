@@ -313,7 +313,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
     summary: `gave ${given} reviews, received from ${REVIEWERS.length} reviewer(s) ... ratio ${round(given / REVIEWERS.length, 2)}`,
     facts: {
       given,
-      received: REVIEWERS.reduce((s, r) => s + r[1], 0),
+      received: REVIEWERS.length,
       reviewers: REVIEWERS.length,
     },
   };
