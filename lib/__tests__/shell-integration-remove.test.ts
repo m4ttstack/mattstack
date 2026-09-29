@@ -6,6 +6,7 @@ import {
   END_MARKER,
   installShellIntegration,
   installZshenvPrecedence,
+  MARKER,
   removeShellIntegration,
   removeZshenvPrecedence,
   ZSHENV_MARKER,
@@ -46,20 +47,20 @@ describe("shell-integration — install/remove round trip", () => {
     const rcPath = join(home, ".zshrc");
     const before = "# mine\n";
     const after = "export AFTER=1\n";
-    writeFileSync(rcPath, `${before}\n# rt — repo tools\nexport PATH="$HOME/.local/bin:$PATH"\n${END_MARKER}\n${after}`);
+    writeFileSync(rcPath, `${before}\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n${END_MARKER}\n${after}`);
 
     const result = installShellIntegration();
     expect(result.written).toBe(true);
     const content = readFileSync(rcPath, "utf8");
     expect(content).toContain("rtcd");
-    expect(content.split("# rt — repo tools").length).toBe(2);
+    expect(content.split(MARKER).length).toBe(2);
     expect(content.startsWith(before)).toBe(true);
     expect(content).toContain(after);
   });
 
   test("installShellIntegration refuses an outdated block with no end marker instead of guessing its extent", () => {
     const rcPath = join(home, ".zshrc");
-    const legacy = "\n# rt — repo tools\nexport PATH=\"$HOME/.local/bin:$PATH\"\n";
+    const legacy = `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n`;
     writeFileSync(rcPath, legacy);
     const result = installShellIntegration();
     expect(result.written).toBe(false);
