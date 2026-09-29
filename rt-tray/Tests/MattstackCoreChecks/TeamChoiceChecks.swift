@@ -251,6 +251,43 @@ let teamChoiceChecks: [Check] = [
         c.expectEqual(rt.calls.filter { $0.args.starts(with: ["team", "join"]) }.count, 2, "Continue still re-checks access")
     },
 
+    Check("a code edited while Continue checks it never slips through unchecked") { c in
+        let rt = ScriptedRt()
+        rt.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"acme","name":"Acme","owner":"matt"},"access":"ok","intent":"written","message":"Joining Acme (owner matt)"}"#)
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join; m.inviteCode = "ABCD-EFGH" }
+        rt.duringNextRun = { await MainActor.run { m.inviteCode = "WXYZ-1234" } }
+        c.expectEqual(await m.validateAndPrepare(), "The invite code changed; press Continue again.")
+    },
+
+    Check("editing a checked code clears its verdict, even before the new code is complete") { c in
+        let rt = ScriptedRt()
+        rt.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"acme","name":"Acme","owner":"matt"},"access":"no-account","intent":"written","message":"Connect your GitLab account on the next screen."}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join; m.inviteCode = completeInviteCode }
+        await m.previewInvite()
+        c.expect(await MainActor.run { m.joinWarning != nil })
+        await MainActor.run { m.inviteCode = "01234-56789" }
+        await m.previewInvite()
+        c.expectEqual(await MainActor.run { m.joinWarning }, nil)
+        await MainActor.run { m.inviteCode = completeInviteCode }
+        await m.previewInvite()
+        c.expectEqual(rt.calls.count, 2, "a code edited away and back is checked again")
+    },
+
+    Check("Continue during an early check owns the result: the early check writes no error and leaves isChecking alone") { c in
+        let rt = ScriptedRt(); rt.answers["team join --dry-run"] = (2, #"{"contract":1,"error":{"code":"invite-unknown","message":""}}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join; m.inviteCode = completeInviteCode }
+        var continued: String?
+        rt.duringNextRun = { continued = await m.validateAndPrepare() }
+        await m.previewInvite()
+        c.expect(continued != nil, "Continue reports the failure itself")
+        c.expectEqual(await MainActor.run { m.joinError }, nil, "one failure, one place")
+        c.expectEqual(await MainActor.run { m.isChecking }, false)
+    },
+
     Check("a second attempt renders only its own verdict") { c in
         let rt = ScriptedRt()
         rt.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"acme","name":"Acme","owner":"matt"},"access":"denied","intent":"written","message":"ask matt or your org admin to grant read access"}"#)

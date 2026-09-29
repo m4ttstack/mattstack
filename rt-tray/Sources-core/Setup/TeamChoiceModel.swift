@@ -68,6 +68,8 @@ public final class TeamChoiceModel: ObservableObject {
     // The code the shown join verdict belongs to, so a re-check of the same
     // code keeps its note on screen while a new code clears the old one.
     private var verdictCode: String?
+    // Bumped by every join check; a check that is no longer the newest writes nothing.
+    private var checkGeneration = 0
 
     public init(rt: RtRunning, pasteboard: PasteboardReading) {
         self.rt = rt
@@ -143,9 +145,14 @@ public final class TeamChoiceModel: ObservableObject {
                 preparedFingerprint = fingerprint
                 return nil
             case .join:
+                checkGeneration += 1
                 joinError = nil
                 let code = normalizedInviteCode
-                if let failure = await checkInvite(code) { return failure }
+                if code != verdictCode { clearVerdict() }
+                let verdict = await joinVerdict(code)
+                guard code == normalizedInviteCode else { return "The invite code changed; press Continue again." }
+                show(verdict, for: code)
+                if let failure = verdict.failure { return failure }
                 return await homeInitCheck()
             case .restore:
                 // The app runs the real restore at Continue (clone + key
@@ -178,26 +185,36 @@ public final class TeamChoiceModel: ObservableObject {
 
     /// Checks a complete code as soon as it is entered, so the verdict (and
     /// any "connect your account" note) is readable on the Join card before
-    /// Continue carries the joiner away from it.
+    /// Continue carries the joiner away from it. Only the newest check, early
+    /// or Continue's, writes the result.
     public func previewInvite() async {
-        guard choice == .join, let code = JoinLink.code(fromText: inviteCode), code != verdictCode else { return }
+        guard choice == .join else { return }
+        if normalizedInviteCode != verdictCode { clearVerdict() }
+        guard let code = JoinLink.code(fromText: inviteCode), code != verdictCode else { return }
+        checkGeneration += 1
+        let generation = checkGeneration
         isChecking = true
-        defer { isChecking = false }
-        joinError = await checkInvite(code)
+        let verdict = await joinVerdict(code)
+        guard generation == checkGeneration else { return }
+        isChecking = false
+        guard code == normalizedInviteCode else { return }
+        show(verdict, for: code)
+        joinError = verdict.failure
     }
 
-    /// Join never latches, so a Back plus a second code re-runs this: the
-    /// previous code's verdict must not outlive its own attempt. Returns the
-    /// failure copy, or nil once a verdict is on screen.
-    private func checkInvite(_ code: String) async -> String? {
-        if code != verdictCode { joinSummary = nil; joinWarning = nil; verdictCode = nil }
-        let verdict = await joinVerdict(code)
-        // A code edited while this ran owns the screen now.
-        guard code == normalizedInviteCode else { return nil }
+    private func clearVerdict() {
+        joinSummary = nil
+        joinWarning = nil
+        joinError = nil
+        verdictCode = nil
+    }
+
+    /// Join never latches, so a Back plus a second code re-runs the check:
+    /// the previous code's verdict must not outlive its own attempt.
+    private func show(_ verdict: (summary: String?, warning: String?, failure: String?), for code: String) {
         joinSummary = verdict.summary
         joinWarning = verdict.warning
         verdictCode = verdict.failure == nil ? code : nil
-        return verdict.failure
     }
 
     private func joinVerdict(_ code: String) async -> (summary: String?, warning: String?, failure: String?) {

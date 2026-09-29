@@ -9,9 +9,12 @@ final class ScriptedRt: RtRunning, @unchecked Sendable {
     var calls: [(args: [String], stdin: String?)] = []
     /// NDJSON lines every `stream` call yields before it finishes.
     var streamLines: [String] = []
+    /// Runs inside `run` before it answers, once: lets a check act while a call is in flight.
+    var duringNextRun: (() async -> Void)?
 
     func run(_ args: [String], stdin: Data?) async throws -> RtResult {
         calls.append((args, stdin.map { String(decoding: $0, as: UTF8.self) }))
+        if let during = duringNextRun { duringNextRun = nil; await during() }
         let key = args.joined(separator: " ")
         // Longest matching prefix wins — deterministic even when two answer
         // keys are both prefixes of the same call (e.g. "restore" and a
