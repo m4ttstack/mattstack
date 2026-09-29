@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { execFileSync } from "child_process";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../../bundle-layout.ts";
 import { getDaemonConfig } from "../../daemon-config.ts";
-import { updateRepoIndex } from "../../repo-index.ts";
+import { updateRepoIndex, updateRepoIndexAsync } from "../../repo-index.ts";
+import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { getDef } from "../../settings/registry.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -949,6 +951,49 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const { ctx } = makeCtx(fakeProbes({ home }), { snapshot: { slug: "acme", integrations: {}, trackingIdentities: [`gitlab.com/acme/${repoName}`], marketplaces: [], plugins: [], remote: null } });
       await boardKeysStep.run(ctx);
       expect(getSetting<Record<string, string>>("board.cwds").value?.review).toBe(join(dirname(repoDir), repoName));
+    });
+
+    test("a tracked repo indexed by identity through a symlink to an existing clone seeds board.cwds and gitq.board", async () => {
+      const identity = "gitlab.com/acme/acme-dev";
+      const clone = join(home, "luke");
+      mkdirSync(clone);
+      execFileSync("git", ["init", "-q", clone]);
+      execFileSync("git", ["-C", clone, "remote", "add", "origin", `https://${identity}.git`]);
+      const root = join(home, "code");
+      mkdirSync(root);
+      symlinkSync(clone, join(root, "acme-dev"));
+      setSetting("rt.repoRoots", [root], "machine");
+      expect((await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: identity }), join(root, "acme-dev"))).ok).toBe(true);
+
+      const { ctx, logs } = makeCtx(fakeProbes({ home }), { snapshot: { slug: "acme", integrations: {}, trackingIdentities: [identity], marketplaces: [], plugins: [], remote: null } });
+      const outcome = await boardKeysStep.run(ctx);
+
+      expect(detailOf(outcome)).toContain("board.cwds");
+      const cwd = getSetting<Record<string, string>>("board.cwds").value?.review;
+      expect(cwd && existsSync(cwd) ? realpathSync(cwd) : cwd).toBe(realpathSync(clone));
+      expect(getSetting("gitq.board").value).toEqual({ repos: ["acme-dev"], port: 11008 });
+      expect(logs.some((l) => l.line.includes("board.cwds"))).toBe(false);
+    });
+
+    test("a tracked repo not registered yet leaves board.cwds and gitq.board unset, so the run after a recovered clone writes both", async () => {
+      const snapshot = { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null };
+      setSetting("rt.repoRoots", [home], "machine");
+
+      const { ctx: before, logs } = makeCtx(fakeProbes({ home }), { snapshot });
+      await boardKeysStep.run(before);
+      expect(getSetting("board.cwds").value).toBeUndefined();
+      expect(getSetting("gitq.board").value).toBeUndefined();
+      expect(logs.some((l) => l.line.includes("gitq.board"))).toBe(true);
+
+      const clone = join(home, "acme-dev");
+      mkdirSync(clone);
+      execFileSync("git", ["init", "-q", clone]);
+      await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: "gitlab.com/acme/acme-dev" }), clone);
+
+      const { ctx: after } = makeCtx(fakeProbes({ home }), { snapshot });
+      const outcome = await boardKeysStep.run(after);
+      expect(detailOf(outcome)).toContain("board.cwds");
+      expect(getSetting("gitq.board").value).toEqual({ repos: ["acme-dev"], port: 11008 });
     });
 
     test("never writes board.rtRepos: the board derives it from board.projects and board.gitlabHost", async () => {

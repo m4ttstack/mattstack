@@ -11,6 +11,7 @@ import { HELPERS_DIR } from "../../bundle-layout.ts";
 import { getKnownRepos } from "../../repo-index.ts";
 import { appBundlePath, bundledToolPath, resolveTool } from "../../deps/resolve.ts";
 import { getDef, isMigrated } from "../../settings/registry.ts";
+import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -98,12 +99,21 @@ export const skillsLinkStep: StepDef = {
 
 // ─── board.keys ──────────────────────────────────────────────────────────────
 
-/** Registered repo names whose real identity is in the team's tracking list — the same basename correspondence `repos.clone` establishes between a tracking identity and the directory it clones into. */
-function trackingRepoNames(ctx: ApplyContext): string[] {
-  const bases = new Set((ctx.snapshot?.trackingIdentities ?? []).map(repoBasename));
-  return getKnownRepos()
-    .filter((r) => r.registered !== false && bases.has(r.repoName))
-    .map((r) => r.repoName);
+/**
+ * Each tracking identity that has a registered repo, named by its basename
+ * (the name `repos.clone` gives its destination) and located where the index
+ * says it lives. Rows are keyed by serialized identity; a legacy row keyed by
+ * that basename still counts.
+ */
+function trackedRepos(ctx: ApplyContext): { name: string; path: string }[] {
+  const known = getKnownRepos().filter((r) => r.registered !== false && r.worktrees[0]);
+  const found: { name: string; path: string }[] = [];
+  for (const identity of ctx.snapshot?.trackingIdentities ?? []) {
+    const name = repoBasename(identity);
+    const row = known.find((r) => r.repoName === serializeIdentity({ kind: "remote", id: identity })) ?? known.find((r) => r.repoName === name);
+    if (row) found.push({ name, path: row.worktrees[0]!.path });
+  }
+  return found;
 }
 
 /** True only when a key is both registered AND write-eligible — a def missing from the registry (or shipped `migrated: false`) is logged and left alone rather than letting `setSetting`'s own refusal crash the step. */
@@ -155,22 +165,27 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
 
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
-  const repoNames = trackingRepoNames(ctx);
+  const repos = trackedRepos(ctx);
   const root = getSetting<string[]>("rt.repoRoots").value?.[0];
 
   if (writable(ctx, "board.cwds") && isUnset("board.cwds")) {
-    if (root && repoNames[0]) {
-      const cwd = join(root, repoNames[0]);
+    const cwd = repos[0]?.path;
+    if (cwd) {
       setSetting("board.cwds", { review: cwd, respond: cwd, doctor: cwd }, "machine");
       written.push("board.cwds");
     } else {
-      ctx.log("board.keys", "board.cwds: no repo root or registered tracked repo yet — left unset");
+      ctx.log("board.keys", "board.cwds: no registered tracked repo yet, left unset; it is written on the next run once repos.clone lands one");
     }
   }
 
   if (writable(ctx, "gitq.board") && isUnset("gitq.board")) {
-    setSetting("gitq.board", { repos: repoNames, port: 11008 }, "machine");
-    written.push("gitq.board");
+    // Written once and never again, so an empty list is only written when the team tracks nothing at all.
+    if (repos.length > 0 || (ctx.snapshot?.trackingIdentities ?? []).length === 0) {
+      setSetting("gitq.board", { repos: repos.map((r) => r.name), port: 11008 }, "machine");
+      written.push("gitq.board");
+    } else {
+      ctx.log("board.keys", "gitq.board: no tracked repo registered yet, left unset; it is written on the next run once repos.clone lands one");
+    }
   }
 
   if (writable(ctx, "gitq.workSlots") && isUnset("gitq.workSlots")) {
