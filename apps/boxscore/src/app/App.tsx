@@ -342,7 +342,10 @@ function AppShell() {
       </MattstackShell.Header>
       <PageShell>
         <PageShell.Main>
-          <PageShell.Content bg="var(--tk-panel)" contentContainer={false}>
+          <PageShell.Content
+            bg="var(--tk-panel)"
+            contentContainerProps={{ maw: 1680, my: 0, p: 0 }}
+          >
             <div className={classes.content}>{page}</div>
           </PageShell.Content>
         </PageShell.Main>
