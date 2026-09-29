@@ -43,6 +43,7 @@ import { probeSocketHolder } from "../lib/daemon/park.ts";
 import { readBreadcrumb, readSupervisionState } from "../lib/daemon/supervision-state.ts";
 import { readHeartbeat } from "../lib/daemon/heartbeat-file.ts";
 import { runCapture } from "../lib/subprocess.ts";
+import { findBundledTool, whichWithWellKnownDirs } from "../lib/bundled-tool.ts";
 import { isGitLabRemote } from "../lib/enrich.ts";
 import type { CacheKind, RepoTrackingEntry } from "../lib/repo-tracking.ts";
 import { loadRepoTracking, loadMachineRepoTracking, loadMachineRepoTrackingRaw, saveRepoTrackingRaw, grants, parseCachesArg, CACHE_KINDS, DEFAULT_PROJECT_MRS_WINDOW_DAYS, teamNamesIdentity } from "../lib/repo-tracking.ts";
@@ -950,6 +951,7 @@ export function nativeStderrDisplay(
  *   rt daemon logs              → open browser-based viewer (logdy)
  *   rt daemon logs --terminal   → live tail piped through pino-pretty
  *   rt daemon logs -t           → same as --terminal
+ *   rt daemon logs --no-open    → start the viewer, leave opening it to the caller
  */
 export async function showLogs(args: string[] = []): Promise<void> {
   const terminal = args.includes("--terminal") || args.includes("-t");
@@ -1010,7 +1012,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
   if (terminal) {
     await runTerminalViewer(logPaths);
   } else {
-    await runWebViewer(logPaths);
+    await runWebViewer(logPaths, { open: !args.includes("--no-open") });
   }
 }
 
@@ -1156,56 +1158,97 @@ export function materializeLogdyConfig(): string {
   return configPath;
 }
 
+export interface WebViewerSeams {
+  findLogdy(): string | null;
+  materializeConfig(): string;
+  spawnLogdy(bin: string, args: string[]): { kill(): void; onExit(cb: (code: number | null) => void): void };
+  waitForPort(port: number, timeoutMs: number): Promise<boolean>;
+  openUrl(url: string): void;
+  onSignal(signal: "SIGINT" | "SIGTERM", cb: () => void): void;
+  exit(code: number): never;
+  log(line: string): void;
+  error(line: string): void;
+}
+
+const REAL_WEB_VIEWER_SEAMS: WebViewerSeams = {
+  findLogdy: () => findBundledTool("logdy", whichWithWellKnownDirs()),
+  materializeConfig: materializeLogdyConfig,
+  spawnLogdy: (bin, args) => {
+    const child = spawn(bin, args, { stdio: ["ignore", "inherit", "inherit"] });
+    return {
+      kill: () => { try { child.kill("SIGTERM"); } catch { /* already gone */ } },
+      onExit: (cb) => { child.on("exit", cb); },
+    };
+  },
+  waitForPort,
+  openUrl: (url) => { spawnSync("open", [url]); },
+  onSignal: (signal, cb) => { process.on(signal, cb); },
+  exit: (code) => process.exit(code),
+  log: (line) => console.log(line),
+  error: (line) => console.error(line),
+};
+
+const LOGDY_PORT = 5544;
+const LOGDY_ANSWER_TIMEOUT_MS = 5000;
+
 /**
- * Spawn logdy follow + open browser. Stays attached so user can Ctrl-C.
+ * Spawn logdy follow and, unless `open` is false, open the browser on it.
+ * Stays attached so the user can Ctrl-C. Every path that leaves no viewer
+ * running exits nonzero with a one-line reason as the first stderr line:
+ * the tray shows that line instead of opening a dead page.
  */
-async function runWebViewer(logPaths: string[]): Promise<void> {
-  const which = spawnSync("which", ["logdy"]);
-  if (which.status !== 0) {
-    console.log(`\n  ${yellow}⚠${reset} logdy not installed.`);
-    console.log(`  ${dim}install: ${bold}brew install logdy${reset}`);
-    console.log(`  ${dim}or use terminal mode: ${bold}rt daemon logs --terminal${reset}\n`);
-    process.exit(1);
+export async function runWebViewer(
+  logPaths: string[],
+  opts: { open: boolean },
+  seams: WebViewerSeams = REAL_WEB_VIEWER_SEAMS,
+): Promise<void> {
+  const bin = seams.findLogdy();
+  if (!bin) {
+    seams.error("logdy not found (checked mattstack.app, PATH, /opt/homebrew/bin, /usr/local/bin, ~/.local/bin)");
+    seams.error(`  ${dim}install: ${bold}brew install logdy${reset}${dim}, or use ${bold}rt daemon logs --terminal${reset}`);
+    return seams.exit(1);
   }
 
-  const configPath = materializeLogdyConfig();
+  const configPath = seams.materializeConfig();
 
-  const port = "5544";
-  const url = `http://localhost:${port}`;
-  console.log(`  ${green}●${reset} starting logdy on ${url}`);
-  console.log(`  ${dim}tailing: ${logPaths.join(", ")}${reset}`);
+  const url = `http://localhost:${LOGDY_PORT}`;
+  seams.log(`  ${green}●${reset} starting logdy on ${url}`);
+  seams.log(`  ${dim}tailing: ${logPaths.join(", ")}${reset}`);
 
-  const logdy = spawn("logdy", [
+  const logdy = seams.spawnLogdy(bin, [
     "follow", ...logPaths,
-    "--port", port,
+    "--port", String(LOGDY_PORT),
     "--ui-pass", "",
     "--no-analytics",
     "--config", configPath,
     // --full-read backfills existing file content; without it logdy only
     // tails lines added after launch. Capped by settings.maxMessages.
     "--full-read",
-  ], { stdio: ["ignore", "inherit", "inherit"] });
+  ]);
 
   const stop = (code: number) => {
-    try { logdy.kill("SIGTERM"); } catch { /* */ }
-    process.exit(code);
+    logdy.kill();
+    return seams.exit(code);
   };
-  process.on("SIGINT", () => stop(0));
-  process.on("SIGTERM", () => stop(0));
-  // Attach before awaiting anything — if logdy exits instantly (e.g. the port
+  seams.onSignal("SIGINT", () => stop(0));
+  seams.onSignal("SIGTERM", () => stop(0));
+  // Attach before awaiting anything: if logdy exits instantly (e.g. the port
   // is already bound by another process), a listener attached after
   // waitForPort would miss the event and we'd hang pointing the browser at
   // whatever service answered on the port.
-  logdy.on("exit", (code) => stop(code ?? 0));
+  logdy.onExit((code) => stop(code ?? 0));
 
-  await waitForPort(Number(port), 2000);
-  spawnSync("open", [url]);
+  if (!(await seams.waitForPort(LOGDY_PORT, LOGDY_ANSWER_TIMEOUT_MS))) {
+    seams.error(`logdy did not answer on :${LOGDY_PORT} within ${LOGDY_ANSWER_TIMEOUT_MS / 1000}s`);
+    return stop(1);
+  }
+  if (opts.open) seams.openUrl(url);
 
-  console.log(`  ${green}✓${reset} viewer running on ${url} — ${dim}Ctrl-C to stop${reset}\n`);
+  seams.log(`  ${green}✓${reset} viewer running on ${url} ... ${dim}Ctrl-C to stop${reset}\n`);
 }
 
 /** Poll TCP connect until the port is accepting connections, up to timeoutMs. */
-async function waitForPort(port: number, timeoutMs: number): Promise<void> {
+async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const ok = await new Promise<boolean>((resolve) => {
@@ -1217,9 +1260,10 @@ async function waitForPort(port: number, timeoutMs: number): Promise<void> {
       sock.once("timeout", () => { sock.destroy(); resolve(false); });
       sock.connect(port, "127.0.0.1");
     });
-    if (ok) return;
+    if (ok) return true;
     await new Promise(r => setTimeout(r, 100));
   }
+  return false;
 }
 
 /** Pure formatter for `daemon:log-level` results, shared by the CLI and its tests. */
