@@ -22,7 +22,7 @@ export function DetailPage({
   stat: MetricKey;
   selection: RangeSelection;
 }) {
-  const detail = useUserDetail(username, selection);
+  const detail = useUserDetail(username, selection, data.generatedAt);
   const people = data.users.filter(u => u.resolved);
   const person = people.find(u => u.username === username);
   if (!person) return <NotFoundPage />;

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 
 import { NotFoundPage } from '@mattstack/app-kit/app';
@@ -99,6 +103,7 @@ function AppShell() {
   const route = useAppRoute();
   const [, navigate] = useLocation();
   const now = useNow(30_000);
+  const client = useQueryClient();
 
   const selection = useMemo<RangeSelection>(
     () => ({
@@ -112,6 +117,7 @@ function AppShell() {
 
   const refreshJob = useRefreshJob({
     onDone: (result, startedFor) => {
+      client.setQueryData(['leaderboard', startedFor], result);
       const matches =
         startedFor.range === rangeState.range &&
         startedFor.start === rangeState.start &&

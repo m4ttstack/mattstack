@@ -24,9 +24,19 @@ export function useLeaderboard(selection: RangeSelection) {
   });
 }
 
-export function useUserDetail(username: string, selection: RangeSelection) {
+/** `generatedAt` keys the evidence to the standings it explains, so a finished refresh refetches it. */
+export function useUserDetail(
+  username: string,
+  selection: RangeSelection,
+  generatedAt: string
+) {
   return useQuery({
-    queryKey: ['detail', username, selection],
+    queryKey: ['detail', username, selection, generatedAt],
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === username &&
+      previousQuery.queryKey[2] === selection
+        ? previous
+        : undefined,
     queryFn: async () => {
       const res = await client.api.detail.$get({
         query: { ...selectionQuery(selection), user: username },

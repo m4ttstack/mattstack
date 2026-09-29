@@ -1,10 +1,12 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import { fixtureDetail, fixtureLeaderboard } from '../server/fixture/index';
 import type { LeaderboardResponse } from '../shared/types';
 import { App } from './App';
+import type { AppRoute } from './routes';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(),
@@ -15,9 +17,11 @@ vi.mock('./hooks/useLeaderboard', () => ({ useLeaderboard, useUserDetail }));
 const { useRefreshJob } = vi.hoisted(() => ({ useRefreshJob: vi.fn() }));
 vi.mock('./hooks/useRefreshJob', () => ({ useRefreshJob }));
 
-vi.mock('./routes', () => ({
-  useAppRoute: () => ({ name: 'leaderboard' as const }),
-}));
+const LEADERBOARD: AppRoute = { name: 'leaderboard' };
+const { useAppRoute } = vi.hoisted(() => ({ useAppRoute: vi.fn() }));
+vi.mock('./routes', () => ({ useAppRoute }));
+useAppRoute.mockReturnValue(LEADERBOARD);
+afterEach(() => useAppRoute.mockReturnValue(LEADERBOARD));
 
 const EMPTY: LeaderboardResponse = {
   scope: { type: 'group', groupPath: 'acme/eng' },
@@ -189,5 +193,60 @@ describe('App: cold-cache orchestration', () => {
     expect(
       container.querySelector('[data-parity="Leaderboard · Refreshing"]')
     ).not.toBeNull();
+  });
+});
+
+describe('App: refresh on the person page', () => {
+  it('refetches the evidence for the regenerated standings once a refresh finishes', () => {
+    useAppRoute.mockReturnValue({
+      name: 'stat',
+      username: 'srivera',
+      stat: 'issuesCompleted',
+    });
+    const before = fixtureLeaderboard(false);
+    const after = { ...before, generatedAt: '2026-08-31T12:05:00.000Z' };
+    useLeaderboard.mockReturnValue({
+      data: before,
+      error: null,
+      isFetching: false,
+    });
+    useUserDetail.mockImplementation(
+      (username: string, _selection: unknown, generatedAt: string) => {
+        const detail = fixtureDetail(username, false)!;
+        if (generatedAt !== after.generatedAt) {
+          return { data: detail, error: null, isLoading: false };
+        }
+        const issues = detail.evidence.issuesCompleted!;
+        return {
+          data: {
+            ...detail,
+            evidence: {
+              ...detail.evidence,
+              issuesCompleted: { ...issues, rows: issues.rows.slice(0, 2) },
+            },
+          },
+          error: null,
+          isLoading: false,
+        };
+      }
+    );
+    useRefreshJob.mockReturnValue(idleRefreshJob());
+
+    const { container } = renderWithProviders(<App />);
+    const rows = () =>
+      container.querySelectorAll(
+        '[data-parity="Panel · Issues done"] [data-parity^="Ev Row "]'
+      );
+    expect(rows()).toHaveLength(9);
+
+    const { onDone } = useRefreshJob.mock.calls.at(-1)![0];
+    act(() => onDone(after, { range: '30d', trend: false }));
+
+    expect(useUserDetail).toHaveBeenLastCalledWith(
+      'srivera',
+      expect.anything(),
+      after.generatedAt
+    );
+    expect(rows()).toHaveLength(2);
   });
 });
