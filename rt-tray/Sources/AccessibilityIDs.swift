@@ -68,6 +68,7 @@ enum AXID {
     static func installStepStatus(_ id: String) -> String { "setup.install.step.\(id).status" }
     static let installRetry = "setup.install.retry"
     static let installRetryStream = "setup.install.retryStream"
+    static func installRetryPartial(_ id: String) -> String { "setup.install.step.\(id).retry" }
     static let installNotes = "setup.install.notes"
     static let logCopy = "setup.install.log.copy"
     static let logDone = "setup.install.log.done"

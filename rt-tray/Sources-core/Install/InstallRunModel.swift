@@ -121,6 +121,12 @@ public final class InstallRunModel: ObservableObject {
         start(from: id)
     }
 
+    /// Re-runs from a step that did not stop the run (a `partial` one), so every step after it sees what the retry lands.
+    public func retry(from id: String) {
+        guard !isRunning else { return }
+        start(from: id)
+    }
+
     deinit { task?.cancel() }
 
     private func handle(_ event: ApplyEvent, gen: Int) async {

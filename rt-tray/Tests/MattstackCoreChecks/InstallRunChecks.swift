@@ -96,6 +96,34 @@ let installRunChecks: [Check] = [
         }
         c.expectEqual(count.froms, [nil, "plugins.install"])
     },
+    Check("a partial step keeps the run going to succeeded; retry(from:) re-streams from that step") { c in
+        final class Count: @unchecked Sendable { var froms: [String?] = [] }
+        let count = Count()
+        let stream: ApplyStreamFactory = { from in
+            count.froms.append(from)
+            if from == nil {
+                return lines([planLine,
+                              #"{"event":"step","id":"services.register","state":"partial","detail":"cloned 0, present 1, failed 1 (big)","remedy":"Retry from here."}"#,
+                              #"{"event":"step","id":"plugins.install","state":"done"}"#,
+                              #"{"event":"done","ok":true}"#])
+            }
+            return lines([#"{"event":"plan","steps":[{"id":"services.register","title":"Register services","kind":"app"}]}"#,
+                          #"{"event":"step","id":"services.register","state":"done","detail":"cloned 1"}"#,
+                          #"{"event":"done","ok":true}"#])
+        }
+        let m = await MainActor.run { InstallRunModel(stream: stream, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged())) }
+        await MainActor.run { m.start() }
+        for _ in 0..<50 { if await MainActor.run(body: { m.phase == .succeeded }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.phase, .succeeded)
+            c.expectEqual(m.steps[1].state, .partial)
+            c.expectEqual(m.steps[1].remedy, "Retry from here.")
+            m.retry(from: "services.register")
+        }
+        for _ in 0..<50 { if await MainActor.run(body: { m.steps[1].state == .done }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run { c.expectEqual(m.steps[1].state, .done) }
+        c.expectEqual(count.froms, [nil, "services.register"])
+    },
     Check("a stream error surfaces as streamError") { c in
         let stream: ApplyStreamFactory = { _ in AsyncThrowingStream { $0.finish(throwing: RtClientError.exited(1, stderr: "boom")) } }
         let m = await MainActor.run { InstallRunModel(stream: stream, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged())) }
