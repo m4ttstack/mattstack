@@ -32,6 +32,9 @@ export type ColorSchemeControlProps =
 export function ColorSchemeControl(props: ColorSchemeControlProps) {
   const { colorScheme, setColorScheme } = useColorScheme();
   const icon = SCHEME_ICON[colorScheme as ColorSchemePreference] ?? 'monitor';
+  const choice =
+    OPTIONS.find(option => option.value === colorScheme)?.label ?? 'System';
+  const accessibleName = `Color scheme: ${choice}`;
   return (
     <HybridMenu
       options={OPTIONS}
@@ -42,7 +45,7 @@ export function ColorSchemeControl(props: ColorSchemeControlProps) {
           <ActionIcon
             variant="subtle"
             size={props.size ?? 'lg'}
-            aria-label="Color scheme"
+            aria-label={accessibleName}
           >
             <Icon name={icon} size={props.iconSize ?? 18} />
           </ActionIcon>
@@ -50,6 +53,7 @@ export function ColorSchemeControl(props: ColorSchemeControlProps) {
           <RailEntry
             icon={icon}
             label="Color scheme"
+            aria-label={accessibleName}
             expanded={props.expanded}
           />
         )

@@ -90,11 +90,11 @@ test('the rail hosts the color-scheme control', () => {
 
   // `ColorSchemeControl` is a System/Light/Dark `HybridMenu`, not chat's own
   // sun/moon toggle: open it from its rail entry and pick each option.
-  fireEvent.click(rail.getByRole('button', { name: 'Color scheme' }));
+  fireEvent.click(rail.getByRole('button', { name: 'Color scheme: System' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Dark' }));
   expect(scheme()).toBe('dark');
 
-  fireEvent.click(rail.getByRole('button', { name: 'Color scheme' }));
+  fireEvent.click(rail.getByRole('button', { name: 'Color scheme: Dark' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Light' }));
   expect(scheme()).toBe('light');
 });

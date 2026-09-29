@@ -46,20 +46,20 @@ test('renders the rail entries inside the navigation', () => {
 
 test('pins a colour-scheme control to the rail', () => {
   renderShell();
-  expect(screen.getByLabelText('Color scheme')).toBeInTheDocument();
+  expect(screen.getByLabelText('Color scheme: System')).toBeInTheDocument();
 });
 
 test.each([
-  ['auto', 'lucide-monitor'],
-  ['light', 'lucide-sun'],
-  ['dark', 'lucide-moon'],
+  ['auto', 'System', 'lucide-monitor'],
+  ['light', 'Light', 'lucide-sun'],
+  ['dark', 'Dark', 'lucide-moon'],
 ])(
-  'the scheme control icon shows the stored %s choice',
-  (stored, iconClass) => {
+  'the scheme control icon and name show the stored %s choice',
+  (stored, choice, iconClass) => {
     window.localStorage.setItem('ui-color-scheme', JSON.stringify(stored));
     try {
       renderShell();
-      const control = screen.getByLabelText('Color scheme');
+      const control = screen.getByLabelText(`Color scheme: ${choice}`);
       expect(control.querySelector(`svg.${iconClass}`)).not.toBeNull();
     } finally {
       window.localStorage.clear();
@@ -71,7 +71,9 @@ test('the button form of the scheme control shows the stored choice outside the 
   window.localStorage.setItem('ui-color-scheme', JSON.stringify('dark'));
   try {
     renderWithProviders(<ColorSchemeControl variant="button" size={44} />);
-    const control = screen.getByRole('button', { name: 'Color scheme' });
+    const control = screen.getByRole('button', {
+      name: 'Color scheme: Dark',
+    });
     expect(control.querySelector('svg.lucide-moon')).not.toBeNull();
     expect(screen.queryByRole('navigation')).toBeNull();
   } finally {
@@ -97,10 +99,10 @@ test('rail={false} drops the rail and puts the scheme control at the end of the 
   const names = within(screen.getByRole('banner'))
     .getAllByRole('button')
     .map(b => b.getAttribute('aria-label') ?? b.textContent);
-  expect(names).toEqual(['Refresh', 'Color scheme']);
+  expect(names).toEqual(['Refresh', 'Color scheme: System']);
   expect(
     screen
-      .getByRole('button', { name: 'Color scheme' })
+      .getByRole('button', { name: 'Color scheme: System' })
       .style.getPropertyValue('--ai-size')
   ).toBe('calc(1.625rem * var(--mantine-scale))');
   expect(screen.getByTestId('page')).toBeInTheDocument();

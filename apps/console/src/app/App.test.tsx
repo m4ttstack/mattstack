@@ -106,7 +106,7 @@ describe('App keyboard contract', () => {
     // The shell renders console's wordmark and its rail scheme control, and
     // no app launcher: the mattstack viewer owns app switching.
     expect(screen.getByText('console')).toBeInTheDocument();
-    expect(screen.getByLabelText('Color scheme')).toBeInTheDocument();
+    expect(screen.getByLabelText('Color scheme: System')).toBeInTheDocument();
     expect(screen.queryByLabelText('Apps')).not.toBeInTheDocument();
 
     Spotlight.open();
