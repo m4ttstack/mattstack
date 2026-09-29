@@ -174,7 +174,10 @@ export function withWellKnownBinFallback(argv: string[], opts: { home: string; p
   const cmd = argv[0];
   if (!cmd || cmd.includes("/")) return argv;
   if (opts.pathDirs.some((dir) => dir.length > 0 && opts.exists(join(dir, cmd)))) return argv;
-  const found = wellKnownBinDirs(opts.home)
+  const local = join(opts.home, ".local", "bin");
+  // rt's own links in ~/.local/bin must beat a Homebrew copy, matching the
+  // child PATH withLocalBinOnPath builds.
+  const found = [local, ...wellKnownBinDirs(opts.home).filter((dir) => dir !== local)]
     .map((dir) => join(dir, cmd))
     .find((path) => opts.exists(path));
   return found ? [found, ...argv.slice(1)] : argv;

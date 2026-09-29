@@ -231,6 +231,10 @@ describe("withWellKnownBinFallback", () => {
     const exists = (path: string) => path === "/opt/homebrew/bin/doppler";
     expect(withWellKnownBinFallback(["doppler", "--version"], { home, pathDirs, exists })).toEqual(["/opt/homebrew/bin/doppler", "--version"]);
   });
+  test("rt's own ~/.local/bin link beats a Homebrew copy of the same command", () => {
+    const exists = (path: string) => path === "/home/x/.local/bin/deck" || path === "/opt/homebrew/bin/deck";
+    expect(withWellKnownBinFallback(["deck"], { home, pathDirs, exists })).toEqual(["/home/x/.local/bin/deck"]);
+  });
   test("a bare command only /usr/local/bin has becomes that absolute path", () => {
     const exists = (path: string) => path === "/usr/local/bin/glab";
     expect(withWellKnownBinFallback(["glab", "--version"], { home, pathDirs, exists })).toEqual(["/usr/local/bin/glab", "--version"]);
