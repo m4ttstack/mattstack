@@ -1,0 +1,460 @@
+/*
+ * Strokes follow the shell's rule: full strokes are inset outlines, one-sided
+ * strokes are borders paid back with a half-pixel negative margin.
+ */
+
+.tileMetric,
+.tileValue,
+.tileUnit,
+.tileInitials,
+.leaderName,
+.youLabel,
+.youValue,
+.youRank,
+.tabLabel,
+.legendLabel,
+.hLabel,
+.pos,
+.initials,
+.name,
+.youBadgeText,
+.handle,
+.value,
+.added,
+.deleted,
+.footnoteText {
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.tileValue,
+.youValue,
+.youRank,
+.pos,
+.value,
+.added,
+.deleted {
+  font-family: var(--mantine-font-family-monospace);
+}
+
+/* Stat leaders */
+
+.strip {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  overflow: hidden;
+  border-radius: 12px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.tile {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-right: -0.5px;
+  padding: 16px 18px;
+  border-right: 1px solid var(--tk-border-soft);
+}
+
+.tileLast {
+  margin-right: 0;
+  border-right: 0;
+}
+
+@media (max-width: 1099px) {
+  .tile {
+    flex: 1 1 33%;
+  }
+}
+
+.tileHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tileMetric {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.valueRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.tileValue {
+  color: var(--tk-text-1);
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -1px;
+}
+
+.unitPad {
+  display: flex;
+  padding-bottom: 7px;
+}
+
+.tileUnit {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.leaderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tileAvatar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+}
+
+.tileInitials {
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.leaderName {
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.youRow {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -0.5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+.youLabel {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.youVal {
+  display: flex;
+  gap: 6px;
+}
+
+.youValue {
+  color: var(--tk-text-2);
+  font-size: 12px;
+}
+
+.youRank {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+/* Standings */
+
+.standings {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.tabsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: 42.5px;
+  margin-bottom: -0.5px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 13px 10px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tabActive {
+  box-sizing: border-box;
+  height: 43px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid var(--tk-fill-accent);
+}
+
+.tabSwatch {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.tabLabel {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendLabel {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.table {
+  display: flex;
+  flex-direction: column;
+  min-width: 1316px;
+}
+
+.headerRow,
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  margin-bottom: -0.5px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--tk-border-soft);
+}
+
+.headerRow {
+  height: 40.5px;
+  background: var(--tk-panel);
+}
+
+.row {
+  height: 56.5px;
+  cursor: pointer;
+}
+
+.rowLast {
+  height: 56px;
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.hNum,
+.hPerson,
+.hStat,
+.hLines {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+}
+
+.hNum,
+.cellNum {
+  flex-shrink: 0;
+  width: 36px;
+}
+
+.hPerson,
+.cellPerson {
+  flex-shrink: 0;
+  width: 236px;
+}
+
+.hStat,
+.hLines {
+  justify-content: flex-end;
+  cursor: pointer;
+}
+
+.hStat,
+.cellStat {
+  flex: 1 1 0;
+}
+
+.hLines,
+.cellLines {
+  flex-shrink: 0;
+  width: 170px;
+}
+
+.hSwatch {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+}
+
+.hLabel {
+  color: var(--tk-text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.cellNum {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.pos {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.cellPerson {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+}
+
+.avatar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+}
+
+.initials {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.nameBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.youBadge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--tk-fill-accent);
+}
+
+.youBadgeText {
+  display: block;
+  color: var(--tk-on-fill-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.handle {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.cellStat,
+.cellLines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  height: 100%;
+}
+
+.valueLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.value {
+  color: var(--tk-text-1);
+  font-size: 13px;
+}
+
+.added {
+  color: var(--tk-text-ok);
+  font-size: 13px;
+}
+
+.deleted {
+  color: var(--tk-text-bad);
+  font-size: 13px;
+}
+
+.barTrack {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  width: 72px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--tk-line-3);
+}
+
+.bar {
+  height: 3px;
+  border-radius: 2px;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 16px;
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+/* Footnote */
+
+.footnote {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.footnoteText {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}

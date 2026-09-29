@@ -1,30 +1,35 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 
-import { MattstackShell, NotFoundPage } from '@mattstack/app-kit/app';
-import { Alert, PageShell, Stack, Text } from '@mattstack/app-kit/core';
+import { NotFoundPage } from '@mattstack/app-kit/app';
+import { Alert, ScrollArea, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import { RailLink } from '@mattstack/app-kit/router';
-import type { LeaderboardResponse } from '../shared/types';
+import type { LeaderboardResponse, MetricKey } from '../shared/types';
 import { isColdCache, type RangeSelection } from './api';
-import { Controls, ControlsMeta, type ViewMode } from './components/Controls';
 import { DetailPage } from './components/DetailPage';
-import { LeaderboardTable } from './components/LeaderboardTable';
-import { MetricCards } from './components/MetricCards';
 import { RefreshProgress as RefreshProgressBar } from './components/RefreshProgress';
 import { useLeaderboard } from './hooks/useLeaderboard';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useRefreshJob } from './hooks/useRefreshJob';
-import { useAppRoute } from './routes';
-import { SettingsPage } from './settings/SettingsPage';
 
-interface RangeState {
-  range: string;
-  start?: string;
-  end?: string;
-}
+import './icons';
+
+import {
+  LeaderboardPage,
+  leaderboardSubtitle,
+} from './leaderboard/LeaderboardPage';
+import { statHref } from './leaderboard/StandingsTable';
+import { scopeLabel } from './model/labels';
+import { useAppRoute, type AppRoute } from './routes';
+import { PageHeader, type RangeState, type ViewMode } from './shell/PageHeader';
+import { Rail } from './shell/Rail';
+import classes from './shell/shell.module.css';
+import { syncedLabel, Topbar, type Freshness } from './shell/Topbar';
 
 const queryClient = new QueryClient();
+
+const DEFAULT_SORT: MetricKey = 'mrsMerged';
 
 export function App() {
   return (
@@ -32,6 +37,26 @@ export function App() {
       <AppShell />
     </QueryClientProvider>
   );
+}
+
+function frameName(route: AppRoute, view: ViewMode, trend: boolean): string {
+  if (route.name === 'leaderboard') {
+    if (view === 'cards') return 'Leaderboard · Cards';
+    return trend ? 'Leaderboard · Trend' : 'Leaderboard · Table';
+  }
+  if (route.name === 'user' || route.name === 'stat') {
+    return 'Person · Stat detail';
+  }
+  return 'Not found';
+}
+
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
 }
 
 function AppShell() {
@@ -43,14 +68,16 @@ function AppShell() {
   // flips true) -- without it the leaderboard render has no signal that data is still coming and
   // falls through to blank once the cache-only probe itself settles.
   const [awaitingRefresh, setAwaitingRefresh] = useState(false);
-  // Persisted across reloads so the last-selected window/toggles stick.
   const [rangeState, setRangeState] = usePersistentState<RangeState>(
     'forge-range',
     { range: '30d' }
   );
   const [trend, setTrend] = usePersistentState<boolean>('forge-trend', false);
   const [view, setView] = usePersistentState<ViewMode>('forge-view', 'table');
+  const [sort, setSort] = useState<MetricKey>(DEFAULT_SORT);
   const route = useAppRoute();
+  const [, navigate] = useLocation();
+  const now = useNow(30_000);
 
   const selection = useMemo<RangeSelection>(
     () => ({
@@ -78,7 +105,6 @@ function AppShell() {
     },
   });
 
-  // Cache-only probe, keyed on the selection: react-query refetches it whenever range/trend change.
   const leaderboardQuery = useLeaderboard(selection);
 
   // Cancels any in-flight job first so a stale refresh doesn't linger in the background once the
@@ -94,7 +120,6 @@ function AppShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection]);
 
-  // Cold cache -> start a refresh job for the current selection. Warm cache -> that's the data.
   useEffect(() => {
     const result = leaderboardQuery.data;
     if (!result) return;
@@ -115,143 +140,137 @@ function AppShell() {
     (leaderboardQuery.error ? leaderboardQuery.error.message : null);
   const loading = !data && (leaderboardQuery.isFetching || awaitingRefresh);
 
-  return (
-    <MattstackShell
-      name="boxscore"
-      appName="boxscore"
-      headerHeight={48}
-      mark={
-        <img
-          src="/favicon.svg"
-          alt=""
-          width={30}
-          height={30}
-          style={{ display: 'block', flex: 'none' }}
-        />
-      }
-    >
-      <MattstackShell.Rail>
-        <RailLink icon="star" label="Leaderboard" href="/" />
-        <RailLink icon="settings" label="Settings" href="/settings" />
-      </MattstackShell.Rail>
+  // cancel() nulls the job without routing through onDone or onError, the only other paths that
+  // clear awaitingRefresh, so a cancelled refresh would otherwise leave Loading with nothing behind it.
+  const cancelRefresh = () => {
+    setAwaitingRefresh(false);
+    refreshJob.cancel();
+  };
 
-      {route.name === 'settings' && <SettingsPage />}
+  const freshness: Freshness | null = refreshJob.refreshing
+    ? { label: 'Refreshing', tone: 'accent' }
+    : data
+      ? { label: syncedLabel(data.generatedAt, now), tone: 'ok' }
+      : null;
 
-      {(route.name === 'user' || route.name === 'stat') && (
-        <DetailPage
-          username={route.username}
-          initialStat={route.name === 'stat' ? route.stat : null}
+  const onRange = (range: string, start?: string, end?: string) =>
+    setRangeState({ range, start, end });
+
+  let page: ReactNode;
+  if (route.name === 'user' || route.name === 'stat') {
+    page = (
+      <DetailPage
+        username={route.username}
+        initialStat={route.name === 'stat' ? route.stat : null}
+        range={rangeState}
+        trend={trend}
+      />
+    );
+  } else if (route.name === 'not-found') {
+    page = <NotFoundPage />;
+  } else {
+    page = (
+      <>
+        <PageHeader
+          title="Leaderboard"
+          subtitle={data ? leaderboardSubtitle(data, sort) : null}
           range={rangeState}
+          onRange={onRange}
           trend={trend}
+          onTrend={setTrend}
+          view={view}
+          onView={setView}
         />
-      )}
+        {refreshJob.refreshing && (
+          <RefreshProgressBar
+            progress={refreshJob.progress}
+            onCancel={cancelRefresh}
+          />
+        )}
+        {error && (
+          <Alert
+            color="red"
+            title="Error"
+            variant="light"
+            icon={<Icon name="warning" size={16} />}
+          >
+            {error}
+          </Alert>
+        )}
+        {!error && loading && (
+          <Text size="sm" c="var(--tk-text-3)">
+            Loading…
+          </Text>
+        )}
+        {data && data.warnings.length > 0 && (
+          <Alert
+            color="warn"
+            variant="light"
+            icon={<Icon name="warning" size={16} />}
+          >
+            <Stack gap={4}>
+              {data.warnings.map((w, i) => (
+                <Text key={i} size="xs">
+                  {w.message}
+                </Text>
+              ))}
+            </Stack>
+          </Alert>
+        )}
+        {data && (
+          <LeaderboardPage
+            data={data}
+            view={view}
+            trend={trend}
+            sort={sort}
+            onSort={setSort}
+            onSelectStat={(username, stat) =>
+              navigate(statHref(username, stat))
+            }
+          />
+        )}
+        {data && Object.keys(data.metricNotes).length > 0 && (
+          <Stack gap={2}>
+            {Object.entries(data.metricNotes).map(([k, v]) => (
+              <Text key={k} size="xs" c="var(--tk-text-3)">
+                {k}: {v}
+              </Text>
+            ))}
+          </Stack>
+        )}
+      </>
+    );
+  }
 
-      {route.name === 'not-found' && (
-        <PageShell>
-          <NotFoundPage />
-        </PageShell>
-      )}
+  const crumbs =
+    route.name === 'user' || route.name === 'stat'
+      ? ['boxscore', 'Leaderboard', route.username]
+      : ['boxscore', route.name === 'not-found' ? 'Not found' : 'Leaderboard'];
 
-      {route.name === 'leaderboard' && (
-        <PageShell>
-          <PageShell.Main>
-            <PageShell.Header
-              actions={
-                <Controls
-                  range={rangeState.range}
-                  start={rangeState.start}
-                  end={rangeState.end}
-                  onRange={(range, start, end) =>
-                    setRangeState({ range, start, end })
-                  }
-                  trend={trend}
-                  onTrend={setTrend}
-                  view={view}
-                  onView={setView}
-                  refreshing={refreshJob.refreshing}
-                  onRefresh={() => void refreshJob.start(selection)}
-                />
-              }
-            >
-              {data && <ControlsMeta data={data} />}
-            </PageShell.Header>
-
-            <PageShell.Content>
-              <Stack gap="md">
-                {refreshJob.refreshing && (
-                  <RefreshProgressBar
-                    progress={refreshJob.progress}
-                    onCancel={() => {
-                      // cancel() nulls the job without routing through onDone or onError, the only
-                      // other paths that clear this, so a cancelled refresh would leave a Loading
-                      // state with nothing running behind it.
-                      setAwaitingRefresh(false);
-                      refreshJob.cancel();
-                    }}
-                  />
-                )}
-
-                {error && (
-                  <Alert
-                    color="red"
-                    title="Error"
-                    variant="light"
-                    icon={<Icon name="warning" size={16} />}
-                  >
-                    {error}
-                  </Alert>
-                )}
-
-                {!error && loading && <Text c="dimmed">Loading…</Text>}
-
-                {data && (
-                  <Stack gap="md">
-                    {data.warnings.length > 0 && (
-                      <Alert
-                        color="warn"
-                        variant="light"
-                        icon={<Icon name="warning" size={16} />}
-                      >
-                        <Stack gap={4}>
-                          {data.warnings.map((w, i) => (
-                            <Text key={i} size="xs">
-                              {w.message}
-                            </Text>
-                          ))}
-                        </Stack>
-                      </Alert>
-                    )}
-
-                    {view === 'table' ? (
-                      <LeaderboardTable data={data} trend={trend} />
-                    ) : (
-                      <MetricCards data={data} trend={trend} />
-                    )}
-
-                    {Object.keys(data.metricNotes).length > 0 && (
-                      <Stack gap={2}>
-                        {Object.entries(data.metricNotes).map(([k, v]) => (
-                          <Text key={k} size="sm" c="dimmed">
-                            <Text
-                              component="span"
-                              size="sm"
-                              fw={500}
-                              c="dimmed"
-                            >
-                              {k}:
-                            </Text>{' '}
-                            {v}
-                          </Text>
-                        ))}
-                      </Stack>
-                    )}
-                  </Stack>
-                )}
-              </Stack>
-            </PageShell.Content>
-          </PageShell.Main>
-        </PageShell>
-      )}
-    </MattstackShell>
+  return (
+    <div className={classes.frame} data-parity={frameName(route, view, trend)}>
+      <Rail active={route.name === 'leaderboard' ? 'leaderboard' : null} />
+      <div className={classes.main}>
+        <Topbar
+          crumbs={crumbs}
+          scope={data ? scopeLabel(data.scope) : null}
+          freshness={freshness}
+          action={refreshJob.refreshing ? 'cancel' : 'refresh'}
+          onAction={
+            refreshJob.refreshing
+              ? cancelRefresh
+              : () => void refreshJob.start(selection)
+          }
+        />
+        <ScrollArea
+          className={classes.scroll}
+          classNames={{ content: classes.scrollContent }}
+          scrollbars="y"
+          type="scroll"
+        >
+          <main className={classes.content}>{page}</main>
+        </ScrollArea>
+      </div>
+    </div>
   );
 }

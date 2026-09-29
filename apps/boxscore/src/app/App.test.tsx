@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -69,7 +69,11 @@ describe('App: cold-cache orchestration', () => {
     renderWithProviders(<App />);
     expect(screen.getByText('Loading…')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /cancel/i }));
+    await user.click(
+      within(screen.getByRole('banner')).getByRole('button', {
+        name: /cancel/i,
+      })
+    );
 
     // cancel() never routes through onDone or onError, so if the handler does not clear the
     // flag itself the indicator stays up forever with nothing running behind it.

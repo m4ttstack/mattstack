@@ -1,0 +1,328 @@
+/*
+ * Canvas strokes take no layout space: a full stroke is an inset outline, and
+ * a one-sided stroke is a border paid back with a half-pixel negative margin,
+ * which is how the board's own export draws them.
+ */
+
+.frame {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--tk-bg);
+}
+
+.main {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.scroll {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* Mantine's table display lets wide content widen the pane; the standings scroll inside their own card instead. */
+.scrollContent {
+  display: block;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  padding: 28px 32px;
+}
+
+.appName,
+.sep,
+.crumb,
+.scope,
+.freshLabel,
+.refreshLabel,
+.subtitle,
+.segmentLabel,
+.tipLabel,
+.tipSub {
+  line-height: normal;
+  white-space: nowrap;
+}
+
+/* Rail */
+
+.rail {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 60.5px;
+  margin-right: -0.5px;
+  padding: 14px 0;
+  border-right: 1px solid var(--tk-border-soft);
+  background: var(--tk-chrome);
+}
+
+/* The canvas mark takes the favicon asset colour, which is the bad fill step in both schemes. */
+.mark {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--tk-fill-bad);
+}
+
+.railGap {
+  flex-shrink: 0;
+  width: 1px;
+  height: 14px;
+}
+
+.railSpacer {
+  flex: 1 1 0;
+  width: 1px;
+}
+
+.navItem {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.navItem:hover {
+  background: var(--tk-raised);
+}
+
+.navAnchor {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.tooltip {
+  position: absolute;
+  top: 2px;
+  left: 52px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  outline: 1px solid var(--tk-border);
+  outline-offset: -0.5px;
+  background: var(--tk-raised);
+  box-shadow: var(--mantine-shadow-md);
+  pointer-events: none;
+}
+
+.tipTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tipLabel {
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tipSub {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+/* Topbar */
+
+.topbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: 52.5px;
+  margin-bottom: -0.5px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--tk-border-soft);
+  background: var(--tk-chrome);
+}
+
+.crumbs,
+.topRight,
+.freshness {
+  display: flex;
+  align-items: center;
+}
+
+.crumbs {
+  gap: 8px;
+}
+
+.topRight {
+  gap: 16px;
+}
+
+.freshness {
+  gap: 6px;
+}
+
+.appName {
+  color: var(--tk-text-1);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sep {
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.crumb {
+  color: var(--tk-text-2);
+  font-size: 13px;
+}
+
+.scopeChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-inset);
+}
+
+.scope {
+  color: var(--tk-text-2);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+}
+
+.freshDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.freshLabel {
+  font-size: 12px;
+}
+
+.refreshButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  outline: 1px solid var(--tk-border);
+  outline-offset: -0.5px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.refreshButton:hover {
+  background: var(--tk-raised);
+}
+
+.refreshLabel {
+  color: var(--tk-text-1);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Page header */
+
+.pageHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The board sets the title in Inter, whose normal line box is 31px at this size; the system sans runs a pixel short. */
+.title {
+  margin: 0;
+  line-height: 31px;
+  white-space: nowrap;
+  color: var(--tk-text-1);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+/* The board spaces the subtitle's separators with two spaces each side. */
+.subtitle {
+  white-space: pre;
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-inset);
+}
+
+.popoverTarget {
+  display: flex;
+}
+
+.segment {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--tk-card);
+  box-shadow: var(--mantine-shadow-xs);
+}
+
+.segmentLabel {
+  font-size: 12px;
+  font-weight: 500;
+}

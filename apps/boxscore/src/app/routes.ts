@@ -7,7 +7,6 @@ export type AppRoute =
   | { name: 'leaderboard' }
   | { name: 'user'; username: string }
   | { name: 'stat'; username: string; stat: MetricKey }
-  | { name: 'settings' }
   | { name: 'not-found' };
 
 /** wouter hands captured params back raw; a segment that is not valid
@@ -37,7 +36,6 @@ export function useAppRoute(): AppRoute {
   const [isLeaderboard] = useRoute('/');
   const [isUser, userParams] = useRoute('/user/:name');
   const [isStat, statParams] = useRoute('/user/:name/:stat');
-  const [isSettings] = useRoute('/settings');
 
   if (isLeaderboard) return { name: 'leaderboard' };
   if (isStat) {
@@ -53,6 +51,5 @@ export function useAppRoute(): AppRoute {
       ? { name: 'user', username }
       : { name: 'not-found' };
   }
-  if (isSettings) return { name: 'settings' };
   return { name: 'not-found' };
 }

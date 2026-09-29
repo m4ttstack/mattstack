@@ -106,6 +106,7 @@
         "@mattstack/settings-kit": "workspace:*",
         "@tanstack/react-query": "catalog:",
         "hono": "catalog:",
+        "lucide-react": "^1.25.0",
         "react": "catalog:",
         "react-dom": "catalog:",
         "wouter": "catalog:",
