@@ -2,7 +2,7 @@ import SwiftUI
 import MattstackCore
 
 /// The one place a dev login's values are typed. `fixedOrigin` is set for a
-/// link or a Replace; the human types the origin only for a fresh Add.
+/// link or an Edit; the human types the origin only for a fresh Add.
 struct DevLoginSheet: View {
     let fixedOrigin: String?
     let isSaved: (String) -> Bool

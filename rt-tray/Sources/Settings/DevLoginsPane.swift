@@ -36,7 +36,7 @@ struct DevLoginsPane: View {
                             .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Replace…") { open(row.origin, email: row.email) }
+                        Button("Edit…") { open(row.origin, email: row.email) }
                             .accessibilityIdentifier(AXID.settingsDevLoginsReplace(row.origin))
                         Button("Delete…", role: .destructive) { actionError = nil; confirmDelete = row.origin }
                             .accessibilityIdentifier(AXID.settingsDevLoginsDelete(row.origin))
@@ -56,7 +56,7 @@ struct DevLoginsPane: View {
             } header: {
                 Text("Saved logins")
             } footer: {
-                Text("Saved encrypted on this Mac. A saved password is never shown again; replace or delete it here.")
+                Text("Saved encrypted on this Mac. A saved password is never shown again; edit or delete it here.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

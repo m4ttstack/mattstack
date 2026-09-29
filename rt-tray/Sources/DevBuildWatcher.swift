@@ -183,11 +183,9 @@ final class DevBuildWatcher {
         proc.executableURL = URL(fileURLWithPath: home + "/.bun/bin/bun")
         proc.arguments = ["scripts/build-dev-app.ts", "--local", "--yes"]
         proc.currentDirectoryURL = URL(fileURLWithPath: tree)
-        // A tray launched by launchd has a bare PATH; the build needs swift,
-        // xcodegen, rsync and bun.
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = "\(home)/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        proc.environment = env
+        proc.environment = DevBuild.rebuildEnvironment(inherited: ProcessInfo.processInfo.environment, home: home,
+                                                       appPath: Bundle.main.bundlePath,
+                                                       isExecutable: { FileManager.default.isExecutableFile(atPath: $0) })
         proc.standardOutput = log
         proc.standardError = log
         proc.terminationHandler = { p in

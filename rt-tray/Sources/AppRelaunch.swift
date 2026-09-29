@@ -9,9 +9,10 @@ enum AppRelaunch {
         let path = Bundle.main.bundlePath
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        // Re-exec with the current arguments + environment so a clean-room
-        // launch (`MATTSTACK_APPCAST_URL` + `--allow-appcast-override`)
-        // survives the relaunch; `open` does not inherit either on its own.
+        // `open` hands its own environment to the app it launches, so it runs
+        // with none: a shell-launched tray must not pass NODE or npm_* on.
+        // The clean-room appcast override travels explicitly via --env.
+        task.environment = [:]
         var args = ["-n", path]
         if let feed = ProcessInfo.processInfo.environment[UpdatePolicy.overrideEnv] { args += ["--env", "\(UpdatePolicy.overrideEnv)=\(feed)"] }
         let passthrough = SetupResume.relaunchArguments(passthrough: Array(CommandLine.arguments.dropFirst()), resumeAt: step)
