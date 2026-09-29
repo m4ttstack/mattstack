@@ -35,9 +35,14 @@ export function hugsWidth(n: PenNode): boolean {
  * Every layer path under the layer named `root`, keyed the way collect.js keys
  * design layers: names joined by `/`, a name that repeats among siblings
  * suffixed `[i]`, disabled layers left out (the export omits them). The root
- * itself is the empty path.
+ * itself is the empty path. `frame` scopes the search to one board, since
+ * content layer names (`Standings`, `Stat Leaders`) repeat across boards.
  */
-export function penPaths(pen: PenNode, root: string): Map<string, PenNode> {
+export function penPaths(
+  pen: PenNode,
+  root: string,
+  frame?: string
+): Map<string, PenNode> {
   const out = new Map<string, PenNode>();
   const walk = (n: PenNode, path: string) => {
     out.set(path, n);
@@ -54,23 +59,33 @@ export function penPaths(pen: PenNode, root: string): Map<string, PenNode> {
       walk(k, path ? `${path}/${own}` : own);
     }
   };
-  const find = (n: PenNode): PenNode | null => {
-    if (n.name === root && n.enabled !== false) return n;
+  const find = (n: PenNode, name: string): PenNode | null => {
+    if (n.name === name && n.enabled !== false) return n;
     for (const k of n.children ?? []) {
-      const r = find(k);
+      const r = find(k, name);
       if (r) return r;
     }
     return null;
   };
-  const top = find(pen);
-  if (!top) throw new Error(`no layer named "${root}" in the pen`);
+  const scope = frame === undefined ? pen : find(pen, frame);
+  if (!scope) throw new Error(`no frame named "${frame}" in the pen`);
+  const top = find(scope, root);
+  if (!top) {
+    throw new Error(
+      `no layer named "${root}" in ${frame ? `"${frame}"` : 'the pen'}`
+    );
+  }
   walk(top, '');
   return out;
 }
 
 /** Paths (relative to `root`) of the layers whose width hugs their content. */
-export function hugWidthPaths(pen: PenNode, root: string): string[] {
-  return [...penPaths(pen, root)]
+export function hugWidthPaths(
+  pen: PenNode,
+  root: string,
+  frame?: string
+): string[] {
+  return [...penPaths(pen, root, frame)]
     .filter(([path, n]) => path !== '' && hugsWidth(n))
     .map(([path]) => path);
 }

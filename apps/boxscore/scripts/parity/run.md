@@ -2,21 +2,44 @@
 
 How to check one boxscore board, in one scheme, against its design. Every
 board task ends with this run for its board in `dark` and `light`, and the
-result must be **0 mismatches**. Paths below are relative to `apps/boxscore`
+result must be **0 mismatches** outside the pending board fixes listed for Matt.
+
+## What is compared
+
+Only page content. The chrome (rail, brand, scheme control, page header with
+its switches, freshness, scope and Refresh) is the kit's `MattstackShell` and
+`PageShell`, which outrank the boards, so it is never compared. Each board
+names its content roots in `boards.ts` (`roots`, or `panels` for board 04):
+
+| Board  | Content roots                                             |
+| ------ | --------------------------------------------------------- |
+| 01, 07 | `Stat Leaders`, `Standings`, `Footnote`                   |
+| 02     | `Metric Grid`                                             |
+| 03     | `Back Link`, `Profile Header`, `Summary`, `Body`          |
+| 04     | each `Panel · <label>`, on its own route                  |
+| 05     | `Refresh Status`, `Stat Leaders`, `Standings`, `Footnote` |
+| 06     | `Refresh Status`, `Skeleton`                              |
+
+Every root is its own target with its own output stem
+(`<slug>.<root>`, e.g. `01-leaderboard-table.standings`), and boxes are
+relative to that root, not the page frame. The kit sets the content width
+(its rail is not the board's), so after the route loads the runner resizes the
+app viewport until the widest root on the route matches its design width, and
+reports the width it used as `appViewportWidth`. Paths below are relative to `apps/boxscore`
 unless they start with `docs/` (repo root) or `~`.
 
 ## What is where
 
-| Thing                                                              | Where                                                        |
-| ------------------------------------------------------------------ | ------------------------------------------------------------ |
-| Board table (slug, route, storage, scenario, root, height, action) | `scripts/parity/boards.ts`                                   |
-| Design exports, one per board and scheme                           | `docs/apps/design/boxscore/parity/<slug>.<dark\|light>.html` |
-| Design renders (what the boards look like)                         | `docs/apps/design/boxscore/renders/<slug>.<scheme>.png`      |
-| Collector (browser function file)                                  | `scripts/parity/collect.js`                                  |
-| One-call runner (browser function file)                            | `scripts/parity/run.js`                                      |
-| Config and upload helper for the runner                            | `scripts/parity/harness.ts`                                  |
-| Diff and CLI                                                       | `scripts/parity/compare.ts`                                  |
-| Every output (JSON, PNG)                                           | `~/.fast-browser/output/parity/`, never the repo             |
+| Thing                                                               | Where                                                        |
+| ------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Board table (slug, route, storage, scenario, roots, height, action) | `scripts/parity/boards.ts`                                   |
+| Design exports, one per board and scheme                            | `docs/apps/design/boxscore/parity/<slug>.<dark\|light>.html` |
+| Design renders (what the boards look like)                          | `docs/apps/design/boxscore/renders/<slug>.<scheme>.png`      |
+| Collector (browser function file)                                   | `scripts/parity/collect.js`                                  |
+| One-call runner (browser function file)                             | `scripts/parity/run.js`                                      |
+| Config and upload helper for the runner                             | `scripts/parity/harness.ts`                                  |
+| Diff and CLI                                                        | `scripts/parity/compare.ts`                                  |
+| Every output (JSON, PNG)                                            | `~/.fast-browser/output/parity/`, never the repo             |
 
 The design exports came from `docs/apps/design/boxscore/boxscore.pen` through
 the Pencil MCP, `Export([frameId], "html-css", path, { includeLayerNames: true })`
@@ -57,7 +80,7 @@ map one to one onto the export's named layers.
 ## How keys work (read before adding `data-parity`)
 
 A node's key is the `/`-joined layer names of its **visible** ancestors plus
-its own, relative to the board root. Visible means: text, an icon (`svg`/`img`),
+its own, relative to the content root. Visible means: text, an icon (`svg`/`img`),
 or a layer with a fill or a stroke. Frames with neither are skipped, and
 their children attach to the nearest visible ancestor. When names repeat under
 the same visible parent, each gets `[i]` (0-based, document order). The root
@@ -82,8 +105,15 @@ To see the design keys for a board, run the design side (step 3 with
 | 5305  | Vite dev client, proxying `/api` and `/ws` to `BOXSCORE_API_PORT` | `vite.config.ts` reads `BOXSCORE_API_PORT` |
 | 11096 | `harness.ts` (config + uploads)                                   | `PARITY_HARNESS_PORT` overrides it         |
 
-Always use `http://localhost:5305`. `.mattstack` URLs do not work in the
+Always use a `http://localhost` origin. `.mattstack` URLs do not work in the
 browser.
+
+If those ports are taken (a test-drive server someone else is using), leave
+them alone and move all three: start the fixture server on another `PORT`,
+Vite on another `--port` with `BOXSCORE_API_PORT` pointing at it, and the
+harness with `PARITY_HARNESS_PORT=<port> PARITY_APP_ORIGIN=http://localhost:<vite port>`;
+then pass `harness: "http://127.0.0.1:<port>"` to `run.js`. Run the parity
+page in its own tab, since the runner navigates the current one.
 
 ## Steps for one board and scheme
 
@@ -149,18 +179,20 @@ been closed`), open one with `browser_tabs` `{ "action": "new", "url":
 ```
 
 It sets a `1440 x height` viewport and the scheme, opens the design export,
-corrects it, collects every target, then for each target: opens the app,
-clears localStorage and sets the board's `storage` plus the scheme, loads the
-route, disables transitions and animations, waits for the root (or, on a
-board with an action, the action's layer: the app names its frame after the
-state it is in, so boards 05 and 06 only carry their root name once the
-action has happened), asserts `data-mantine-color-scheme` is the scheme,
-does the board's action (02 hovers `Nav Settings (console) Icon` and waits
-for `Settings Tooltip`, since the board draws the rail tooltip open; 05
-clicks `Refresh Button` and waits for `Refresh Status`; 06 waits up to 90 s
-for `RS Sub` to contain `still waiting on GitLab`, the copy shown once the
-reading has held past the 30 s request deadline), waits for the root,
-collects, screenshots the root, and composes the side-by-side. It uploads everything to `~/.fast-browser/output/parity/`:
+corrects it, and collects every target root. Then, once per route (the roots
+of one board share a load, since a refresh or a stall cannot be replayed per
+root): it opens the app, clears localStorage and sets the board's `storage`
+plus the scheme, loads the route, disables transitions and animations, waits
+for the first root (or, on a board with an action, the action's layer),
+asserts `data-mantine-color-scheme` is the scheme, does the board's action
+(05 clicks `Refresh Button` in the page header and waits for `Refresh
+Status`, then for `Fresh Label` to show a two-digit elapsed time; 06 waits up
+to 90 s for `RS Sub` to contain `still waiting on GitLab`, the copy shown once
+the reading has held past the 30 s request deadline), waits for every root,
+matches the content width (see "What is compared"), then collects and
+screenshots each root and composes its side-by-side. `Refresh Button` and
+`Fresh Label` are the only `data-parity` names left on the chrome, and only
+for this action. It uploads everything to `~/.fast-browser/output/parity/`:
 
 | File                                     | What                                                  |
 | ---------------------------------------- | ----------------------------------------------------- |
@@ -169,11 +201,12 @@ collects, screenshots the root, and composes the side-by-side. It uploads everyt
 | `<stem>.<scheme>.design.png`, `.app.png` | screenshots of the root                               |
 | `<stem>.<scheme>.side.png`               | design, app, and their difference (black = identical) |
 
-`<stem>` is the slug, except board 04, which compares ten panels, each on its
-own route with root `Panel · <label>`; its stems are
-`04-stat-evidence-variants.<panel>` (e.g. `.coding-days`).
+`<stem>` is `<slug>.<root>` (e.g. `05-refreshing.refresh-status`); board 04
+compares ten panels, each on its own route with root `Panel · <label>`, so its
+stems are `04-stat-evidence-variants.<panel>` (e.g. `.coding-days`).
 
-It returns `{ targets: [{ stem, design, app }] }` (node counts) on success, or
+It returns `{ targets: [{ stem, design, app }], appViewportWidth }` (node
+counts, and the app width used per route) on success, or
 the same plus `failedStep`, `error` and `url`. A timeout at `app: load <route>`
 means the root `data-parity` element never appeared.
 

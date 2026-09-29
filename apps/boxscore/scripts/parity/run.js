@@ -182,6 +182,7 @@ async (
     result.unfrozen = unfrozen;
 
     const designShots = {};
+    const designWidths = {};
     for (const [i, t] of cfg.targets.entries()) {
       step = `design: collect ${t.root}`;
       const root = sel(cfg.designAttr, t.root);
@@ -191,13 +192,21 @@ async (
       });
       result.targets[i].design = nodes.length;
       await put(`${t.stem}.${scheme}.design.json`, JSON.stringify(nodes));
+      designWidths[t.stem] = (await page.locator(root).boundingBox()).width;
       designShots[t.stem] = await shot(root);
       await put(`${t.stem}.${scheme}.design.png`, designShots[t.stem]);
     }
     if (designOnly) return result;
 
+    // Targets on one route share a load (and its action): a refresh or a stall is not repeatable per root.
+    const byRoute = new Map();
     for (const [i, t] of cfg.targets.entries()) {
-      step = `app: storage for ${t.route}`;
+      if (!byRoute.has(t.route)) byRoute.set(t.route, []);
+      byRoute.get(t.route).push([i, t]);
+    }
+    for (const [route, group] of byRoute) {
+      await page.setViewportSize({ width: cfg.width, height: cfg.height });
+      step = `app: storage for ${route}`;
       await page.goto(`${cfg.appOrigin}/`);
       await page.evaluate(
         ({ storage, scheme }) => {
@@ -210,18 +219,21 @@ async (
         { storage: cfg.storage, scheme }
       );
 
-      step = `app: load ${t.route}`;
-      await page.goto(`${cfg.appOrigin}${t.route}`);
+      step = `app: load ${route}`;
+      await page.goto(`${cfg.appOrigin}${route}`);
       await page.addStyleTag({
         content:
           '*,*::before,*::after{transition:none!important;animation-play-state:paused!important;caret-color:transparent!important}',
       });
-      const root = sel(cfg.appAttr, t.root);
       const action = cfg.action;
-      await page.waitForSelector(action ? sel(cfg.appAttr, action.layer) : root, {
-        state: 'visible',
-        timeout: 30_000,
-      });
+      const first = sel(cfg.appAttr, group[0][1].root);
+      await page.waitForSelector(
+        action ? sel(cfg.appAttr, action.layer) : first,
+        {
+          state: 'visible',
+          timeout: 30_000,
+        }
+      );
       const applied = await page.evaluate(() =>
         document.documentElement.getAttribute('data-mantine-color-scheme')
       );
@@ -256,60 +268,87 @@ async (
           { timeout: u.timeoutMs }
         );
       }
-      step = `app: root ${t.root}`;
-      await page.waitForSelector(root, { state: 'visible', timeout: 30_000 });
-      step = `app: evidence panel loaded in ${t.root}`;
-      await page.waitForFunction(
-        s =>
-          ![...(document.querySelector(s)?.querySelectorAll('p') ?? [])].some(
-            p => p.textContent?.trim() === 'Loading…'
-          ),
-        root,
-        { timeout: 30_000 }
+      for (const [, t] of group) {
+        step = `app: root ${t.root}`;
+        const root = sel(cfg.appAttr, t.root);
+        await page.waitForSelector(root, { state: 'visible', timeout: 30_000 });
+        step = `app: evidence panel loaded in ${t.root}`;
+        await page.waitForFunction(
+          s =>
+            ![...(document.querySelector(s)?.querySelectorAll('p') ?? [])].some(
+              p => p.textContent?.trim() === 'Loading…'
+            ),
+          root,
+          { timeout: 30_000 }
+        );
+      }
+
+      // The kit chrome (rail, content column) sets the content width, not the board.
+      // Widen or narrow the viewport so the widest root lands at its design width.
+      step = `app: match content width on ${route}`;
+      const [, widest] = group.reduce((a, b) =>
+        designWidths[b[1].stem] > designWidths[a[1].stem] ? b : a
       );
+      const appWidth = async () =>
+        (await page.locator(sel(cfg.appAttr, widest.root)).boundingBox()).width;
+      const delta = designWidths[widest.stem] - (await appWidth());
+      if (Math.abs(delta) > 0.25) {
+        await page.setViewportSize({
+          width: Math.round(cfg.width + delta),
+          height: cfg.height,
+        });
+        await page.waitForTimeout(300);
+      }
+      result.appViewportWidth = {
+        ...(result.appViewportWidth ?? {}),
+        [route]: page.viewportSize().width,
+      };
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(300);
 
-      step = `app: collect ${t.root}`;
-      const nodes = await collect(page, {
-        rootSelector: root,
-        nameAttr: cfg.appAttr,
-      });
-      result.targets[i].app = nodes.length;
-      await put(`${t.stem}.${scheme}.app.json`, JSON.stringify(nodes));
-      const appShot = await shot(root);
-      await put(`${t.stem}.${scheme}.app.png`, appShot);
+      for (const [i, t] of group) {
+        const root = sel(cfg.appAttr, t.root);
+        step = `app: collect ${t.root}`;
+        const nodes = await collect(page, {
+          rootSelector: root,
+          nameAttr: cfg.appAttr,
+        });
+        result.targets[i].app = nodes.length;
+        await put(`${t.stem}.${scheme}.app.json`, JSON.stringify(nodes));
+        const appShot = await shot(root);
+        await put(`${t.stem}.${scheme}.app.png`, appShot);
 
-      step = `app: side-by-side ${t.stem}`;
-      const side = await page.evaluate(
-        async ({ d, a }) => {
-          const load = src =>
-            new Promise((ok, fail) => {
-              const img = new Image();
-              img.onload = () => ok(img);
-              img.onerror = fail;
-              img.src = `data:image/png;base64,${src}`;
-            });
-          const [di, ai] = await Promise.all([load(d), load(a)]);
-          const gap = 16;
-          const w = Math.max(di.width, ai.width);
-          const h = Math.max(di.height, ai.height);
-          const c = document.createElement('canvas');
-          c.width = w * 3 + gap * 2;
-          c.height = h;
-          const g = c.getContext('2d');
-          g.fillStyle = '#ff00ff';
-          g.fillRect(0, 0, c.width, c.height);
-          g.drawImage(di, 0, 0);
-          g.drawImage(ai, w + gap, 0);
-          g.drawImage(di, (w + gap) * 2, 0);
-          g.globalCompositeOperation = 'difference';
-          g.drawImage(ai, (w + gap) * 2, 0);
-          return c.toDataURL('image/png').split(',')[1];
-        },
-        { d: designShots[t.stem], a: appShot }
-      );
-      await put(`${t.stem}.${scheme}.side.png`, side);
+        step = `app: side-by-side ${t.stem}`;
+        const side = await page.evaluate(
+          async ({ d, a }) => {
+            const load = src =>
+              new Promise((ok, fail) => {
+                const img = new Image();
+                img.onload = () => ok(img);
+                img.onerror = fail;
+                img.src = `data:image/png;base64,${src}`;
+              });
+            const [di, ai] = await Promise.all([load(d), load(a)]);
+            const gap = 16;
+            const w = Math.max(di.width, ai.width);
+            const h = Math.max(di.height, ai.height);
+            const c = document.createElement('canvas');
+            c.width = w * 3 + gap * 2;
+            c.height = h;
+            const g = c.getContext('2d');
+            g.fillStyle = '#ff00ff';
+            g.fillRect(0, 0, c.width, c.height);
+            g.drawImage(di, 0, 0);
+            g.drawImage(ai, w + gap, 0);
+            g.drawImage(di, (w + gap) * 2, 0);
+            g.globalCompositeOperation = 'difference';
+            g.drawImage(ai, (w + gap) * 2, 0);
+            return c.toDataURL('image/png').split(',')[1];
+          },
+          { d: designShots[t.stem], a: appShot }
+        );
+        await put(`${t.stem}.${scheme}.side.png`, side);
+      }
     }
     return result;
   } catch (err) {

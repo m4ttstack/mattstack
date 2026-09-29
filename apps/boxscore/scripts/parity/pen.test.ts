@@ -40,6 +40,19 @@ describe('pen layer paths', () => {
   });
 });
 
+describe('content roots', () => {
+  const pen = readPen();
+
+  it('finds a content layer inside the named board, keyed from that layer', () => {
+    const status = penPaths(pen, 'Refresh Status', 'Leaderboard · Refreshing');
+    expect(status.has('')).toBe(true);
+    expect(status.has('RS Head')).toBe(true);
+    expect(() =>
+      penPaths(pen, 'Refresh Status', 'Leaderboard · Table')
+    ).toThrow(/no layer named "Refresh Status" in "Leaderboard · Table"/);
+  });
+});
+
 describe('hugsWidth', () => {
   it('treats a frame with no width or a fit_content width as hugging', () => {
     expect(hugsWidth({ type: 'frame' })).toBe(true);

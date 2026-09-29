@@ -51,13 +51,17 @@ export interface Board {
   /** localStorage entries (raw stored strings) set before the route loads. */
   storage: Record<string, string>;
   scenario: Scenario;
-  /** `data-parity` (app) and `data-pencil-name` (design) value of the compared root. */
-  root: string;
-  /** Viewport height in CSS px; the width is always 1440. */
+  /**
+   * Content layers compared on `route`, each by its `data-parity` (app) and
+   * `data-pencil-name` (design) value. The chrome around them is the kit's, so
+   * only content is compared, with boxes relative to each content root.
+   */
+  roots: string[];
+  /** Viewport height in CSS px. The design side is 1440 wide; the app side is sized so each root matches its design width. */
   height: number;
   dynamicText: string[];
   action?: BoardAction;
-  /** Boards drawn as several panels compare each panel on its own route. */
+  /** Boards drawn as several panels compare each panel on its own route, instead of `roots`. */
   panels?: { label: string; route: string; root: string }[];
 }
 
@@ -92,8 +96,8 @@ export const BOARDS: Board[] = [
       'forge-range': '{"range":"30d"}',
     },
     scenario: 'warm',
-    root: 'Leaderboard · Table',
-    height: 880,
+    roots: ['Stat Leaders', 'Standings', 'Footnote'],
+    height: 1000,
     dynamicText: DYNAMIC_TEXT,
   },
   {
@@ -103,14 +107,9 @@ export const BOARDS: Board[] = [
     route: '/',
     storage: { 'forge-view': '"cards"' },
     scenario: 'warm',
-    root: 'Leaderboard · Cards',
-    height: 1320,
+    roots: ['Metric Grid'],
+    height: 1400,
     dynamicText: DYNAMIC_TEXT,
-    action: {
-      kind: 'hover',
-      layer: 'Nav Settings (console) Icon',
-      waitFor: 'Settings Tooltip',
-    },
   },
   {
     slug: '03-person-stat-detail',
@@ -119,8 +118,8 @@ export const BOARDS: Board[] = [
     route: '/user/srivera/issuesCompleted',
     storage: {},
     scenario: 'warm',
-    root: 'Person · Stat detail',
-    height: 1180,
+    roots: ['Back Link', 'Profile Header', 'Summary', 'Body'],
+    height: 1300,
     dynamicText: DYNAMIC_TEXT,
   },
   {
@@ -130,8 +129,8 @@ export const BOARDS: Board[] = [
     route: '/user/srivera/reviewLatencyHours',
     storage: {},
     scenario: 'warm',
-    root: 'Stat detail · evidence variants',
-    height: 1180,
+    roots: [],
+    height: 1300,
     dynamicText: DYNAMIC_TEXT,
     panels: PANEL_STATS.map(([label, stat]) => ({
       label,
@@ -146,8 +145,8 @@ export const BOARDS: Board[] = [
     route: '/',
     storage: { 'forge-view': '"table"' },
     scenario: 'refreshing',
-    root: 'Leaderboard · Refreshing',
-    height: 960,
+    roots: ['Refresh Status', 'Stat Leaders', 'Standings', 'Footnote'],
+    height: 1100,
     dynamicText: DYNAMIC_TEXT,
     action: {
       kind: 'click',
@@ -163,8 +162,8 @@ export const BOARDS: Board[] = [
     route: '/',
     storage: {},
     scenario: 'cold-stalled',
-    root: 'Leaderboard · First load, stalled',
-    height: 960,
+    roots: ['Refresh Status', 'Skeleton'],
+    height: 1000,
     dynamicText: DYNAMIC_TEXT,
     action: {
       kind: 'waitText',
@@ -183,8 +182,8 @@ export const BOARDS: Board[] = [
     route: '/',
     storage: { 'forge-trend': 'true' },
     scenario: 'warm',
-    root: 'Leaderboard · Trend',
-    height: 880,
+    roots: ['Stat Leaders', 'Standings', 'Footnote'],
+    height: 1000,
     dynamicText: DYNAMIC_TEXT,
   },
 ];
@@ -199,21 +198,31 @@ export function boardBySlug(slug: string): Board {
   return board;
 }
 
-/** One compared root: the whole board, or one panel of a panelled board. */
+/** One compared content root. */
 export interface ParityTarget {
-  /** Output file stem, e.g. `01-leaderboard-table` or `04-stat-evidence-variants.coding-days`. */
+  /** Output file stem, e.g. `01-leaderboard-table.standings` or `04-stat-evidence-variants.coding-days`. */
   stem: string;
   root: string;
   route: string;
 }
 
+const stemPart = (label: string) =>
+  label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
 export function targetsOf(board: Board): ParityTarget[] {
-  if (!board.panels) {
-    return [{ stem: board.slug, root: board.root, route: board.route }];
+  if (board.panels) {
+    return board.panels.map(p => ({
+      stem: `${board.slug}.${stemPart(p.label)}`,
+      root: p.root,
+      route: p.route,
+    }));
   }
-  return board.panels.map(p => ({
-    stem: `${board.slug}.${p.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-    root: p.root,
-    route: p.route,
+  return board.roots.map(root => ({
+    stem: `${board.slug}.${stemPart(root)}`,
+    root,
+    route: board.route,
   }));
 }

@@ -46,7 +46,7 @@ function config(slug: string, scheme: string) {
     appOrigin: APP_ORIGIN,
     targets: targetsOf(board).map(t => ({
       ...t,
-      hugWidths: hugWidthPaths(pen, t.root),
+      hugWidths: hugWidthPaths(pen, t.root, board.frame),
     })),
     collectSource: readFileSync(COLLECT_PATH, 'utf8'),
     outDir: OUTPUT_DIR,
