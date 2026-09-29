@@ -10,10 +10,28 @@
  * - .railLabel stays mounted in both states and transitions opacity and
  *   offset, so labels fade in on expand and fade out on collapse with the
  *   same curve (a mount-only keyframe would pop in and hard-vanish out).
+ * - An expanded entry takes the slim icon's hover surface across the whole
+ *   row, so the icon's own hover is cleared there or the two would stack.
+ *   The flag is data-rail-expanded because a Menu target's data-expanded
+ *   tracks the menu, not the rail.
  */
 .railEntry {
   width: 100%;
   border-radius: var(--mantine-radius-md);
+}
+
+@media (hover: hover) {
+  .railEntry[data-rail-expanded]:hover {
+    background-color: var(--mantine-primary-color-light-hover);
+  }
+}
+
+.railEntry[data-rail-expanded]:focus-visible {
+  background-color: var(--mantine-primary-color-light-hover);
+}
+
+.railEntry[data-rail-expanded]:not([aria-current]) .railEntryIcon {
+  background-color: transparent;
 }
 
 .railEntryRow {

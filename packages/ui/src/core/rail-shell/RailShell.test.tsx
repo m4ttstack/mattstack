@@ -199,6 +199,17 @@ test('entries keep the fixed icon column and the transitioned label classes', ()
   expect(screen.getByText('Inventory').className).toContain('railLabel');
 });
 
+test('only an expanded entry flags itself for the whole-row hover surface', () => {
+  renderWithProviders(<ComposedHarness />);
+
+  const entry = () => screen.getByRole('button', { name: 'Inventory' });
+  expect(entry().hasAttribute('data-rail-expanded')).toBe(false);
+  expect(entry().querySelector('[class*="railEntryIcon"]')).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Expand navigation' }));
+  expect(entry().hasAttribute('data-rail-expanded')).toBe(true);
+});
+
 test('on mobile the rail opens expanded (useRailState expand-then-open)', () => {
   setViewportWidth(390);
   const { container } = renderWithProviders(<ComposedHarness />);
