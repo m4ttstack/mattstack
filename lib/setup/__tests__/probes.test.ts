@@ -57,6 +57,12 @@ describe("createRealProbes().exec", () => {
     expect(result).toEqual({ code: 0, stdout: "hi\n", stderr: "" });
   });
 
+  test.each([undefined, 5000])("a child ended by a signal reports it (timeoutMs %p)", async (timeoutMs) => {
+    const probes = createRealProbes();
+    const result = await probes.exec(["sh", "-c", "kill -TERM $$"], timeoutMs ? { timeoutMs } : undefined);
+    expect(result.signal).toBe("SIGTERM");
+  });
+
   test("a command exceeding timeoutMs is killed and reports code 124", async () => {
     const probes = createRealProbes();
     const result = await probes.exec(["sh", "-c", "sleep 5"], { timeoutMs: 100 });

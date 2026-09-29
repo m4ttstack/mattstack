@@ -85,7 +85,7 @@ struct InstallScreen: View {
                 }
                 Spacer()
                 if !model.logLines(for: step.id).isEmpty {
-                    if step.state == .failed {
+                    if step.state == .failed || step.state == .partial {
                         Button("Show log") { logFor = step }.controlSize(.small).accessibilityIdentifier(AXID.installStepLog(step.id))
                     } else {
                         Button { logFor = step } label: { Label("Show log", systemImage: "doc.text").labelStyle(.iconOnly) }
@@ -106,6 +106,17 @@ struct InstallScreen: View {
                 .padding(.leading, 30)
                 .padding(.top, 2)
             }
+            if step.state == .partial, !model.isRunning {
+                HStack(alignment: .top) {
+                    if let r = step.remedy { Text(r).font(.callout).fixedSize(horizontal: false, vertical: true) }
+                    Spacer()
+                    Button("Retry from here") { model.retry(from: step.id) }
+                        .controlSize(.small)
+                        .accessibilityIdentifier(AXID.installRetryPartial(step.id))
+                }
+                .padding(.leading, 30)
+                .padding(.top, 2)
+            }
         }
         // .contain: without it, AppKit collapses the row into one element and
         // every child (status badge, "Show log", "Retry from here") reports
@@ -120,6 +131,7 @@ struct InstallScreen: View {
         case .pending: return .skipped
         case .running: return step.waitingOnYou ? .needsYou : .checking
         case .done: return .ready
+        case .partial: return .missing
         case .failed: return .error
         case .skipped: return .skipped
         case .needsYou: return .needsYou
@@ -130,7 +142,7 @@ struct InstallScreen: View {
     private func detailStyle(_ state: StepState) -> Color {
         switch state {
         case .failed: return .red
-        case .needsYou: return .orange
+        case .needsYou, .partial: return .orange
         default: return .secondary
         }
     }

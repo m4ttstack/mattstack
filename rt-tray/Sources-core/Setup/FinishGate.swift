@@ -14,6 +14,11 @@ public enum FinishGate {
         blocked == 1 ? "One step left before you finish" : "\(blocked) steps left before you finish"
     }
 
+    /// Install finished, but a step came back partial; a finish blocker's headline still wins over this one.
+    public static func retryHeadline(partial: Int) -> String {
+        partial == 1 ? "Installed, with one step to retry" : "Installed, with \(partial) steps to retry"
+    }
+
     /// A blocker always wins the symbol; the multicolor warning triangle
     /// matches StatusGlyph's own needsYou/missing rendering.
     public static func headlineSymbol(blocked: Bool, allDone: Bool) -> String {

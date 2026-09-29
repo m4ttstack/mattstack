@@ -1,34 +1,45 @@
 /**
- * `repos.clone` — clones every repo the team snapshot declares as tracked
- * (`mattstack.tracking`) into the first configured `rt.repoRoots` entry.
- * Individual clone failures (auth, network) are logged and counted, never
- * fatal to the step — `repos.clone` still reports `done` with the tally, so
- * the run reaches `verify` and the operator can retry the ones that failed.
+ * `repos.clone`: clones every repo the team snapshot declares as tracked
+ * (`mattstack.tracking`) into the first configured `rt.repoRoots` entry,
+ * unless a clone of it already exists: at the destination, at the path the
+ * repo index holds for it (`rt repos register`), or directly under any repo
+ * root. Individual failures (auth, network, timeout) are logged with a reason
+ * and never stop the run; the step then reports `partial`, naming them.
  */
 
 import { join } from "path";
+import { resolveIndexPathForIdentity, updateRepoIndexAsync } from "../../repo-index.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { updateRepoIndexAsync } from "../../repo-index.ts";
-import { normalizeRemote, serializeIdentity } from "../../settings/identity.ts";
+import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../../settings/identity.ts";
 import { gitWithToken } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
+import type { ExecResult } from "../probes.ts";
 import { expandHome, promoteStagedRepoRoot } from "../repo-root.ts";
 import { trustedForgeTokenFor } from "./forge-token.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 /** Mirrors lib/team/join.ts's own clone env — never prompt for credentials in an unattended run, and never let a global gitconfig credential helper substitute one in behind the operator's back. */
 const CLONE_ENV = { GIT_TERMINAL_PROMPT: "0", GIT_PROTOCOL_FROM_USER: "0" };
-/** Generous but bounded: a stalled clone must surface as a failed/counted identity, never hang the whole Install button with no progress. */
-const CLONE_TIMEOUT_MS = 120_000;
+/**
+ * A large monorepo takes tens of minutes on an ordinary connection, so the
+ * hard budget is only a backstop. A stalled transfer is caught sooner by git
+ * itself through `CLONE_STALL_ARGS`, which leaves a slow-but-moving clone alone.
+ */
+const CLONE_TIMEOUT_MS = 60 * 60_000;
+/** Git aborts an HTTP transfer that stays under 1 KB/s for five minutes, with its own error on stderr. */
+export const CLONE_STALL_ARGS = ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=300"];
+/** execWithTimeout's code for a child it killed at the deadline. */
+const TIMED_OUT = 124;
 
 /** The identity's last path segment (`github.com/acme/repo` -> `repo`) — the clone destination's directory name. Exported: `steps/skills.ts`'s `board.keys` derives the same registered-repo-name set from tracking identities and must agree with this step on what a repo is called. */
 export function repoBasename(identity: string): string {
   return identity.split("/").pop() || identity;
 }
 
-function skippedIdentities(env: Record<string, string | undefined>): Set<string> {
+/** `RT_SKIP_REPOS`: identities or basenames the operator told Install to leave uncloned. Exported: `board.keys` must not wait on a repo this step will never land. */
+export function skippedIdentities(env: Record<string, string | undefined>): Set<string> {
   return new Set(
     (env.RT_SKIP_REPOS ?? "")
       .split(",")
@@ -60,6 +71,41 @@ function isCloneOf(p: ApplyContext["p"], dest: string, identity: string): boolea
     if (normalizeRemote(match[1]!) === identity) return true;
   }
   return false;
+}
+
+/** Never empty: git killed without a word still says how it ended. */
+function cloneFailureReason(result: ExecResult): string {
+  const output = withoutUrls(`${result.stdout}\n${result.stderr}`.trim());
+  if (result.code === TIMED_OUT && !output) return `timed out after ${CLONE_TIMEOUT_MS / 60_000} minutes`;
+  if (result.signal) return `${output ? `${output} ` : ""}git was killed by ${result.signal} (exit ${result.code})`.trim();
+  return output ? `${output} (git exited ${result.code})` : `git exited ${result.code} with no output`;
+}
+
+/**
+ * `isCloneOf` is only a prefilter: any `url =` line matches it, so a fork
+ * whose `upstream` is the tracked repo, or a superproject carrying it as a
+ * submodule, would pass. The repo's own derived identity (origin) decides.
+ */
+async function isReusableCloneOf(p: ApplyContext["p"], path: string, identity: string): Promise<boolean> {
+  if (!isCloneOf(p, path, identity)) return false;
+  try {
+    return serializeIdentity(await deriveRepoIdentity(path)) === serializeIdentity({ kind: "remote", id: identity });
+  } catch {
+    return false;
+  }
+}
+
+/** An existing clone of `identity` somewhere other than `dest`: the index's own row first, then any direct child of a repo root. */
+async function findExistingClone(p: ApplyContext["p"], identity: string, dest: string, rootPaths: string[]): Promise<{ path: string; indexed: boolean } | null> {
+  const indexed = await resolveIndexPathForIdentity(serializeIdentity({ kind: "remote", id: identity }));
+  if (indexed && indexed !== dest && (await isReusableCloneOf(p, indexed, identity))) return { path: indexed, indexed: true };
+  for (const rootPath of rootPaths) {
+    for (const child of p.readDir(rootPath)) {
+      const candidate = join(rootPath, child);
+      if (candidate !== dest && (await isReusableCloneOf(p, candidate, identity))) return { path: candidate, indexed: false };
+    }
+  }
+  return null;
 }
 
 async function reposCloneRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -105,10 +151,11 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   // through the same expansion, so the clone must expand too or the two
   // disagree about the identical stored string.
   const rootPath = expandHome(p, root);
+  const rootPaths = (getSetting<string[]>("rt.repoRoots").value ?? []).map((r) => expandHome(p, r));
 
   let cloned = 0;
   let present = 0;
-  let failed = 0;
+  const failed: string[] = [];
 
   for (const identity of identities) {
     const base = repoBasename(identity);
@@ -116,29 +163,52 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
 
     if (p.exists(dest)) {
       if (!isCloneOf(p, dest, identity)) {
-        failed++;
+        failed.push(base);
         ctx.log("repos.clone", `${base}: ${dest} exists but isn't a clone of ${identity} (basename collision or unrelated folder) — resolve by hand`);
         continue;
       }
       if (await indexDest(ctx, identity, base, dest)) present++;
-      else failed++;
+      else failed.push(base);
+      continue;
+    }
+
+    const existing = await findExistingClone(p, identity, dest, rootPaths);
+    if (existing) {
+      ctx.log("repos.clone", `${base}: using the existing clone at ${existing.path}`);
+      if (existing.indexed || (await indexDest(ctx, identity, base, existing.path))) present++;
+      else failed.push(base);
+      continue;
+    }
+
+    // Claiming `dest` with an exclusive mkdir makes "this run created it" a fact rather than an earlier observation, so the cleanup below can never remove a folder something else made meanwhile.
+    p.mkdirp(rootPath);
+    if (!p.mkdirExclusive(dest)) {
+      failed.push(base);
+      ctx.log("repos.clone", `${base}: ${dest} appeared while this step was running; left alone, rerun the step to check it`);
       continue;
     }
 
     const remote = `https://${identity}.git`;
-    const git = gitWithToken(["clone", remote, dest], await trustedForgeTokenFor(ctx, remote), CLONE_ENV);
+    const git = gitWithToken([...CLONE_STALL_ARGS, "clone", remote, dest], await trustedForgeTokenFor(ctx, remote), CLONE_ENV);
     const result = await p.exec(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS });
     if (result.code !== 0) {
-      failed++;
-      ctx.log("repos.clone", `${base}: clone failed — ${withoutUrls(`${result.stdout}\n${result.stderr}`.trim())}`);
+      failed.push(base);
+      ctx.log("repos.clone", `${base}: clone failed: ${cloneFailureReason(result)}`);
+      p.removeDir(dest);
       continue;
     }
 
     if (await indexDest(ctx, identity, base, dest)) cloned++;
-    else failed++;
+    else failed.push(base);
   }
 
-  return { state: "done", detail: `cloned ${cloned}, present ${present}, failed ${failed}` };
+  const tally = `cloned ${cloned}, present ${present}, failed ${failed.length}`;
+  if (failed.length === 0) return { state: "done", detail: tally };
+  return {
+    state: "partial",
+    detail: `${tally} (${failed.join(", ")})`,
+    remedy: "The step log says why. Retry this step once that is fixed (rt setup apply --from repos.clone). If you already have a clone, run rt repos register <path> first and rt uses it instead of cloning again.",
+  };
 }
 
 export const reposCloneStep: StepDef = {

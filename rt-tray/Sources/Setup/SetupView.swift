@@ -23,7 +23,7 @@ struct SetupView: View {
                 case .team: TeamScreen(model: team, showsSolo: flow.entry == .firstRun).transition(pushTransition)
                 case .checklist: ChecklistScreen(model: readiness, permissions: permissions, rt: env.rt, needs: env.needs).transition(pushTransition)
                 case .install: InstallScreen(model: install).transition(pushTransition)
-                case .done: DoneScreen(model: done, install: install, readiness: readiness, isOwner: DoneRole.owner(planTeam: readiness.team, choice: team.choice), solo: DoneRole.solo(planTeam: readiness.team, choice: team.choice), onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) }).transition(pushTransition)
+                case .done: DoneScreen(model: done, install: install, readiness: readiness, isOwner: DoneRole.owner(planTeam: readiness.team, choice: team.choice), solo: DoneRole.solo(planTeam: readiness.team, choice: team.choice), onInvite: { NotificationCenter.default.post(name: .rtShowSettingsTeam, object: nil) }, onRetry: { id in install.retry(from: id); flow.jump(to: .install) }).transition(pushTransition)
                 }
             }
             .animation(.easeInOut(duration: 0.22), value: flow.step)
@@ -53,11 +53,12 @@ struct SetupView: View {
                 flow.readinessIsVisible = false
                 readiness.becameHidden()
             }
-            if flow.step == .install, flow.mayStartInstall { flow.isInstalling = true; install.start() }
+            // A retry started from the Done screen is already running; entering Install must not restart the whole run over it.
+            if flow.step == .install, flow.mayStartInstall, !install.isRunning { flow.isInstalling = true; install.start() }
         }
         .onChange(of: install.phase) { _, phase in
             flow.isInstalling = (phase == .running)
-            if flow.step == .install, phase == .succeeded { flow.next() }
+            if flow.step == .install, install.advancesOnSuccess { flow.next() }
         }
         // The window controller observes only the flow, so the gate is
         // mirrored there for the titlebar's close and minimize buttons.

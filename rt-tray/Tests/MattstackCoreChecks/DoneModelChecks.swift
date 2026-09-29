@@ -67,6 +67,10 @@ func waitUntil(_ cond: @escaping @MainActor () -> Bool, tries: Int = 200) async 
 }
 
 let doneModelChecks: [Check] = [
+    Check("a partial Install step names the retry in the Done headline, one or many") { c in
+        c.expectEqual(FinishGate.retryHeadline(partial: 1), "Installed, with one step to retry")
+        c.expectEqual(FinishGate.retryHeadline(partial: 2), "Installed, with 2 steps to retry")
+    },
     Check("a post-install check that never answers fails open once the watchdog fires, with the timeout shown") { c in
         let held = HeldPlans()
         let readiness = await MainActor.run { ReadinessModel(plans: held, permissions: FakePermissions(), ticker: FakeTicker()) }

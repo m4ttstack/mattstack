@@ -101,13 +101,18 @@ The app sends the token as JSON on stdin (no `--config-token-stdin` flag).
 { "event": "step",  "id": "home.init", "state": "done", "detail": "pushed main" }
 { "event": "need",  "id": "services.register", "request": { "type": "app-register-services", "plists": ["com.mattstack.daemon.plist","com.mattstack.deck.plist"] } }   // rt asks the app to do a native thing; app replies via tray.sock and rt continues
 { "event": "need",  "id": "proxy.install", "request": { "type": "app-privileged", "op": "proxy-install" } }
+{ "event": "step",  "id": "repos.clone", "state": "partial", "detail": "cloned 0, present 1, failed 1 (big-repo)", "remedy": "..." }   // finished, but some of its work did not land; the run goes on
 { "event": "step",  "id": "pack.install", "state": "failed", "detail": "claude plugin install exited 1", "remedy": "Open Claude Code once so it finishes first-run, then Retry." }
 { "event": "done",  "ok": false, "failedStep": "pack.install" }
 ```
 
-A step's `state` is `running`, `done`, `skipped`, `needs-you` or `failed`.
-Only `failed` stops the run. `needs-you` means the step did its part and left
-something only the member can do (verify's `"to connect: Slack, team Doppler"`).
+A step's `state` is `running`, `done`, `partial`, `skipped`, `needs-you` or
+`failed`. Only `failed` stops the run. `needs-you` means the step did its part
+and left something only the member can do (verify's `"to connect: Slack, team
+Doppler"`). `partial` means the step finished but some of its work did not
+land: its `detail` names what, its `remedy` says how to retry, and the app
+shows it with a warning badge and a Retry that resumes with `--from` that
+step, so every later step sees what the retry lands.
 
 `kind: "app"` and `"privileged"` steps are executed by the app when the `need`
 event arrives (ServicesRegistrar / PrivilegedInstaller). The app records the

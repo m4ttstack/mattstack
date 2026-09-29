@@ -11,6 +11,7 @@ import { HELPERS_DIR } from "../../bundle-layout.ts";
 import { getKnownRepos } from "../../repo-index.ts";
 import { appBundlePath, bundledToolPath, resolveTool } from "../../deps/resolve.ts";
 import { getDef, isMigrated } from "../../settings/registry.ts";
+import { serializeIdentity } from "../../settings/identity.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -21,7 +22,7 @@ import { materializeSkills } from "../skills-materialize.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
-import { repoBasename } from "./repos.ts";
+import { repoBasename, skippedIdentities } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
 
 // ─── skills.materialize ──────────────────────────────────────────────────────
@@ -30,11 +31,12 @@ async function skillsMaterializeRun(ctx: ApplyContext): Promise<StepOutcome> {
   const result = await materializeSkills(ctx.p, {});
   if (result.skipped) return { state: "skipped", detail: result.reason };
 
-  const failed = result.repos.filter((r) => !r.ok);
-  for (const r of failed) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
+  for (const r of result.repos.filter((r) => !r.ok)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
 
-  const ok = result.repos.length - failed.length;
-  return { state: "done", detail: `materialized ${ok}, failed ${failed.length}` };
+  const ok = result.repos.filter((r) => r.ok).length;
+  const undeclared = result.repos.filter((r) => r.noManifest).length;
+  const failed = result.repos.length - ok - undeclared;
+  return { state: "done", detail: `materialized ${ok}, failed ${failed}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}` };
 }
 
 async function skillsMaterializeRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
@@ -97,12 +99,26 @@ export const skillsLinkStep: StepDef = {
 
 // ─── board.keys ──────────────────────────────────────────────────────────────
 
-/** Registered repo names whose real identity is in the team's tracking list — the same basename correspondence `repos.clone` establishes between a tracking identity and the directory it clones into. */
-function trackingRepoNames(ctx: ApplyContext): string[] {
-  const bases = new Set((ctx.snapshot?.trackingIdentities ?? []).map(repoBasename));
-  return getKnownRepos()
-    .filter((r) => r.registered !== false && bases.has(r.repoName))
-    .map((r) => r.repoName);
+/**
+ * The tracking identities (less any `RT_SKIP_REPOS` entry), split into the
+ * ones with a registered repo, named by basename (what `repos.clone` calls
+ * its destination) and located where the index says it lives, and the ones
+ * still missing. Rows are keyed by serialized identity; a legacy row keyed by
+ * that basename still counts.
+ */
+function trackedRepos(ctx: ApplyContext): { found: { name: string; path: string }[]; missing: string[] } {
+  const skip = skippedIdentities(ctx.p.env);
+  const identities = (ctx.snapshot?.trackingIdentities ?? []).filter((id) => !skip.has(id) && !skip.has(repoBasename(id)));
+  const known = getKnownRepos().filter((r) => r.registered !== false && r.worktrees[0]);
+  const found: { name: string; path: string }[] = [];
+  const missing: string[] = [];
+  for (const identity of identities) {
+    const name = repoBasename(identity);
+    const row = known.find((r) => r.repoName === serializeIdentity({ kind: "remote", id: identity })) ?? known.find((r) => r.repoName === name);
+    if (row) found.push({ name, path: row.worktrees[0]!.path });
+    else missing.push(name);
+  }
+  return { found, missing };
 }
 
 /** True only when a key is both registered AND write-eligible — a def missing from the registry (or shipped `migrated: false`) is logged and left alone rather than letting `setSetting`'s own refusal crash the step. */
@@ -154,22 +170,27 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
 
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
-  const repoNames = trackingRepoNames(ctx);
+  const { found, missing } = trackedRepos(ctx);
   const root = getSetting<string[]>("rt.repoRoots").value?.[0];
+  // Both keys are written once and never topped up, so they wait until every tracked repo is registered.
+  const waiting = missing.length > 0 ? `waiting on ${missing.join(", ")} (not registered yet), left unset; written on the next run once repos.clone lands them` : null;
 
   if (writable(ctx, "board.cwds") && isUnset("board.cwds")) {
-    if (root && repoNames[0]) {
-      const cwd = join(root, repoNames[0]);
+    const cwd = found[0]?.path;
+    if (waiting) ctx.log("board.keys", `board.cwds: ${waiting}`);
+    else if (!cwd) ctx.log("board.keys", "board.cwds: the team tracks no repos, left unset");
+    else {
       setSetting("board.cwds", { review: cwd, respond: cwd, doctor: cwd }, "machine");
       written.push("board.cwds");
-    } else {
-      ctx.log("board.keys", "board.cwds: no repo root or registered tracked repo yet — left unset");
     }
   }
 
   if (writable(ctx, "gitq.board") && isUnset("gitq.board")) {
-    setSetting("gitq.board", { repos: repoNames, port: 11008 }, "machine");
-    written.push("gitq.board");
+    if (waiting) ctx.log("board.keys", `gitq.board: ${waiting}`);
+    else {
+      setSetting("gitq.board", { repos: found.map((r) => r.name), port: 11008 }, "machine");
+      written.push("gitq.board");
+    }
   }
 
   if (writable(ctx, "gitq.workSlots") && isUnset("gitq.workSlots")) {

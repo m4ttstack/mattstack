@@ -18,7 +18,7 @@ public enum StepKind: String, Equatable, Sendable, Codable {
     }
 }
 public enum StepState: String, Equatable, Sendable, Codable {
-    case pending, running, done, failed, skipped, unknown
+    case pending, running, done, partial, failed, skipped, unknown
     case needsYou = "needs-you"
     public init(from decoder: Decoder) throws {
         self = StepState(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown

@@ -53,6 +53,9 @@ public final class InstallRunModel: ObservableObject {
     }
 
     public var isRunning: Bool { phase == .running }
+    public var partialSteps: [InstallStep] { steps.filter { $0.state == .partial } }
+    /// Install hands over to Done by itself only when nothing needs a look: a partial step's remedy and Retry live on the Install screen.
+    public var advancesOnSuccess: Bool { phase == .succeeded && partialSteps.isEmpty }
     public var failedStepId: String? { if case .failed(let id, _) = phase { return id }; return nil }
     /// The step to resume from: the failed step, or — if the stream itself
     /// died — whichever step was still running when it did.
@@ -118,6 +121,12 @@ public final class InstallRunModel: ObservableObject {
 
     public func retryFromFailure() {
         guard let id = resumableStepId else { return }
+        start(from: id)
+    }
+
+    /// Re-runs from a step that did not stop the run (a `partial` one), so every step after it sees what the retry lands.
+    public func retry(from id: String) {
+        guard !isRunning else { return }
         start(from: id)
     }
 

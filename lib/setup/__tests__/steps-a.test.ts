@@ -8,7 +8,7 @@ import { HELPERS_DIR, RT_BUNDLE_PATH, __test__ as bundleLayoutTest } from "../..
 import { rtDir, teamSettingsPath } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { setSetting } from "../../settings/write.ts";
-import { closeStateDb, setKvValue } from "../../state/index.ts";
+import { closeStateDb, getKvValue, setKvValue } from "../../state/index.ts";
 import { serializeIdentity } from "../../settings/identity.ts";
 import { linkPath } from "../../deps/links.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
@@ -30,7 +30,7 @@ import { teamCreateStep, teamJoinStep } from "../steps/team.ts";
 import { secretsWriteStep } from "../steps/secrets.ts";
 import { pathLinkStep } from "../steps/path.ts";
 import { settingsSeedStep } from "../steps/settings.ts";
-import { reposCloneStep } from "../steps/repos.ts";
+import { CLONE_STALL_ARGS, reposCloneStep } from "../steps/repos.ts";
 import { interceptsInstallStep } from "../steps/index.ts";
 
 // ─── shared fakes ────────────────────────────────────────────────────────────
@@ -868,7 +868,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
-    expect(p.calls.exec).toEqual([["git", "clone", "https://gitlab.com/acme/acme-dev.git", dest]]);
+    expect(p.calls.exec).toEqual([["git", ...CLONE_STALL_ARGS, "clone", "https://gitlab.com/acme/acme-dev.git", dest]]);
   });
 
   test("repos.clone: a private tracked repo is cloned with the forge token rt holds (staged before secrets.write), through the env", async () => {
@@ -986,7 +986,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "cloned 0, present 0, failed 1" });
+    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1 (acme-dev)" });
     expect(logs.some((l) => l.line.includes("isn't a clone of"))).toBe(true);
   });
 
@@ -998,7 +998,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "cloned 0, present 0, failed 1" });
+    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1 (acme-dev)" });
     expect(p.calls.exec).toEqual([]); // never blindly clones into an occupied path
     expect(logs.some((l) => l.line.includes("isn't a clone of"))).toBe(true);
   });
@@ -1016,8 +1016,162 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx, logs } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
-    expect(outcome).toEqual({ state: "done", detail: "cloned 0, present 0, failed 1" });
+    expect(outcome).toMatchObject({ state: "partial", detail: "cloned 0, present 0, failed 1 (acme-dev)" });
     expect(logs.some((l) => l.line.includes("could not be moved"))).toBe(true);
+  });
+
+  const ACME_DEV = { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null };
+  const ACME_DEV_CONFIG = '[remote "origin"]\n\turl = https://gitlab.com/acme/acme-dev.git\n';
+
+  test("repos.clone: a big repo gets a budget in tens of minutes, and git aborts a stalled transfer itself", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    let budget: number | undefined;
+    const p = fakeProbes({
+      home,
+      exec: async (_argv, opts) => {
+        budget = opts?.timeoutMs;
+        return ok();
+      },
+    });
+    const { ctx } = makeCtx(p, { snapshot: ACME_DEV });
+
+    await reposCloneStep.run(ctx);
+    expect(budget).toBeGreaterThanOrEqual(30 * 60_000);
+    expect(p.calls.exec[0]).toEqual(expect.arrayContaining(["http.lowSpeedLimit=1000", "http.lowSpeedTime=300"]));
+  });
+
+  test("repos.clone: a clone killed at the budget says it timed out, in minutes, and the step is partial naming the repo", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const p = fakeProbes({ home, exec: async () => ({ code: 124, stdout: "", stderr: "" }) });
+    const { ctx, logs } = makeCtx(p, { snapshot: ACME_DEV });
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome.state).toBe("partial");
+    expect((outcome as { detail: string }).detail).toBe("cloned 0, present 0, failed 1 (acme-dev)");
+    expect((outcome as { remedy?: string }).remedy).toContain("rt setup apply --from repos.clone");
+    expect((outcome as { remedy?: string }).remedy).toContain("rt repos register");
+    expect(logs.map((l) => l.line)).toContain("acme-dev: clone failed: timed out after 60 minutes");
+  });
+
+  test.each([
+    [{ code: 143, stdout: "", stderr: "", signal: "SIGTERM" }, "acme-dev: clone failed: git was killed by SIGTERM (exit 143)"],
+    [{ code: 128, stdout: "", stderr: "" }, "acme-dev: clone failed: git exited 128 with no output"],
+    [{ code: 128, stdout: "", stderr: "fatal: repository not found\n" }, "acme-dev: clone failed: fatal: repository not found (git exited 128)"],
+  ])("repos.clone: a failed clone's log line always carries a reason (%p)", async (result, line) => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const p = fakeProbes({ home, exec: async () => result });
+    const { ctx, logs } = makeCtx(p, { snapshot: ACME_DEV });
+
+    await reposCloneStep.run(ctx);
+    expect(logs.map((l) => l.line)).toContain(line);
+  });
+
+  test("repos.clone: a failed clone's half-made destination is removed", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const dest = join(home, "code", "acme-dev");
+    const p = fakeProbes({
+      home,
+      exec: async () => {
+        p.writeFile(join(dest, ".git", "HEAD"), "ref: refs/heads/main");
+        return { code: 124, stdout: "", stderr: "" };
+      },
+    });
+    const { ctx } = makeCtx(p, { snapshot: ACME_DEV });
+
+    await reposCloneStep.run(ctx);
+    expect(p.calls.removed).toContain(dest);
+    expect(p.exists(dest)).toBe(false);
+  });
+
+  test("repos.clone: a path that already existed is never removed, even when it is not a clone", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const dest = join(home, "code", "acme-dev");
+    const p = fakeProbes({ home, dirs: { [dest]: ["notes.txt"] }, exec: async () => ({ code: 124, stdout: "", stderr: "" }) });
+    const { ctx } = makeCtx(p, { snapshot: ACME_DEV });
+
+    await reposCloneStep.run(ctx);
+    expect(p.calls.removed).toEqual([]);
+    expect(p.exists(dest)).toBe(true);
+  });
+
+  /** A real repo on disk (reuse is confirmed with git itself), seen through real fs probes and a fake exec that records any clone attempt. */
+  function gitRepo(path: string, remotes: Record<string, string>, extraConfig: [string, string][] = []): void {
+    mkdirSync(path, { recursive: true });
+    execSync(`git init -q ${JSON.stringify(path)}`);
+    for (const [name, url] of Object.entries(remotes)) execSync(`git -C ${JSON.stringify(path)} remote add ${name} ${url}`);
+    for (const [key, value] of extraConfig) execSync(`git -C ${JSON.stringify(path)} config ${key} ${value}`);
+  }
+
+  function realFsProbes(): Probes & { clones: string[][] } {
+    const clones: string[][] = [];
+    return { ...createRealProbes(), home, clones, exec: async (argv) => (clones.push(argv), ok()) };
+  }
+
+  test("repos.clone: an existing clone under another repo root is registered in place of a second clone", async () => {
+    const code = join(home, "code");
+    const work = join(home, "work");
+    mkdirSync(code, { recursive: true });
+    mkdirSync(join(work, "other"), { recursive: true });
+    setSetting("rt.repoRoots", [code, work], "machine");
+    const existing = join(work, "luke");
+    gitRepo(existing, { origin: "https://gitlab.com/acme/acme-dev.git" });
+    const p = realFsProbes();
+    const { ctx, logs } = makeCtx(p, { snapshot: ACME_DEV });
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome).toEqual({ state: "done", detail: "cloned 0, present 1, failed 0" });
+    expect(p.clones).toEqual([]);
+    expect(getKvValue<string | null>("repo-index", serializeIdentity({ kind: "remote", id: "gitlab.com/acme/acme-dev" }), null)).toBe(existing);
+    expect(logs.some((l) => l.line.includes(`using the existing clone at ${existing}`))).toBe(true);
+  });
+
+  test("repos.clone: a clone the user registered anywhere (rt repos register) is used, never cloned again", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    mkdirSync(join(home, "code"), { recursive: true });
+    const elsewhere = join(home, "src", "acme");
+    gitRepo(elsewhere, { origin: "git@gitlab.com:acme/acme-dev.git" });
+    setKvValue("repo-index", serializeIdentity({ kind: "remote", id: "gitlab.com/acme/acme-dev" }), elsewhere);
+    const p = realFsProbes();
+    const { ctx } = makeCtx(p, { snapshot: ACME_DEV });
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome).toEqual({ state: "done", detail: "cloned 0, present 1, failed 0" });
+    expect(p.clones).toEqual([]);
+  });
+
+  test.each([
+    ["a fork whose upstream is the tracked repo", { origin: "https://gitlab.com/me/acme-dev.git", upstream: "https://gitlab.com/acme/acme-dev.git" }, []],
+    ["a superproject with the tracked repo as a submodule", { origin: "https://gitlab.com/acme/super.git" }, [["submodule.acme-dev.url", "https://gitlab.com/acme/acme-dev.git"]]],
+  ] as [string, Record<string, string>, [string, string][]][])("repos.clone: %s is never reused as the tracked repo", async (_label, remotes, extra) => {
+    const code = join(home, "code");
+    mkdirSync(code, { recursive: true });
+    setSetting("rt.repoRoots", [code], "machine");
+    gitRepo(join(code, "lookalike"), remotes, extra);
+    const p = realFsProbes();
+    const { ctx } = makeCtx(p, { snapshot: ACME_DEV });
+
+    await reposCloneStep.run(ctx);
+    expect(p.clones).toHaveLength(1);
+    expect(getKvValue<string | null>("repo-index", serializeIdentity({ kind: "remote", id: "gitlab.com/acme/acme-dev" }), null)).not.toBe(join(code, "lookalike"));
+  });
+
+  test("repos.clone: a destination that appears between the check and the clone is left alone, never cloned into or removed", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    const dest = join(home, "code", "acme-dev");
+    const p = fakeProbes({ home, exec: async () => ({ code: 124, stdout: "", stderr: "" }) });
+    const exclusive = p.mkdirExclusive;
+    p.mkdirExclusive = (path) => {
+      p.writeFile(join(path, "theirs.txt"), "someone else's");
+      return exclusive(path);
+    };
+    const { ctx, logs } = makeCtx(p, { snapshot: ACME_DEV });
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome.state).toBe("partial");
+    expect(p.calls.exec).toEqual([]);
+    expect(p.calls.removed).toEqual([]);
+    expect(p.readFile(join(dest, "theirs.txt"))).toBe("someone else's");
+    expect(logs.some((l) => l.line.includes("appeared"))).toBe(true);
   });
 
   test("repos.clone: zero identities to clone -> skipped, never a hard failure", async () => {

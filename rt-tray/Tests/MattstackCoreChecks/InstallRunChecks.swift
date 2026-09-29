@@ -14,6 +14,8 @@ let installRunChecks: [Check] = [
                       .need(id: "proxy.install", request: NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install")))
         c.expectEqual(try ApplyEvent.decode(#"{"event":"done","ok":false,"failedStep":"plugins.install"}"#), .done(ok: false, failedStep: "plugins.install"))
         c.expectEqual(try ApplyEvent.decode(#"{"event":"spark","x":1}"#), .unknown("spark"))
+        c.expectEqual(try ApplyEvent.decode(#"{"event":"step","id":"repos.clone","state":"partial","detail":"d","remedy":"r"}"#), .step(id: "repos.clone", state: .partial, detail: "d", remedy: "r"))
+        c.expectEqual(try ApplyEvent.decode(#"{"event":"step","id":"verify","state":"needs-you","detail":"d"}"#), .step(id: "verify", state: .needsYou, detail: "d", remedy: nil))
         guard case .plan(let steps) = try ApplyEvent.decode(planLine) else { c.fail("plan"); return }
         try c.requireEqual(steps.count, 3)
         c.expectEqual(steps[1].kind, .app)
@@ -95,6 +97,40 @@ let installRunChecks: [Check] = [
             c.expectEqual(m.steps[2].state, .done)
         }
         c.expectEqual(count.froms, [nil, "plugins.install"])
+    },
+    Check("a partial step keeps the run going to succeeded; retry(from:) re-streams from that step") { c in
+        final class Count: @unchecked Sendable { var froms: [String?] = [] }
+        let count = Count()
+        let stream: ApplyStreamFactory = { from in
+            count.froms.append(from)
+            if from == nil {
+                return lines([planLine,
+                              #"{"event":"step","id":"services.register","state":"partial","detail":"cloned 0, present 1, failed 1 (big)","remedy":"Retry from here."}"#,
+                              #"{"event":"step","id":"plugins.install","state":"done"}"#,
+                              #"{"event":"done","ok":true}"#])
+            }
+            return lines([#"{"event":"plan","steps":[{"id":"services.register","title":"Register services","kind":"app"}]}"#,
+                          #"{"event":"step","id":"services.register","state":"done","detail":"cloned 1"}"#,
+                          #"{"event":"done","ok":true}"#])
+        }
+        let m = await MainActor.run { InstallRunModel(stream: stream, needs: NeedBroker(services: FakeServices(), privileged: FakePrivileged())) }
+        await MainActor.run { m.start() }
+        for _ in 0..<50 { if await MainActor.run(body: { m.phase == .succeeded }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.phase, .succeeded)
+            c.expectEqual(m.steps[1].state, .partial)
+            c.expectEqual(m.steps[1].remedy, "Retry from here.")
+            c.expectEqual(m.partialSteps.map(\.id), ["services.register"])
+            c.expect(!m.advancesOnSuccess, "a partial step keeps Install on screen so its remedy and Retry are seen")
+            m.retry(from: "services.register")
+        }
+        for _ in 0..<50 { if await MainActor.run(body: { m.steps[1].state == .done }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        for _ in 0..<50 { if await MainActor.run(body: { m.phase == .succeeded }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        await MainActor.run {
+            c.expectEqual(m.steps[1].state, .done)
+            c.expect(m.advancesOnSuccess, "once the retry clears it, Install moves on by itself again")
+        }
+        c.expectEqual(count.froms, [nil, "services.register"])
     },
     Check("a stream error surfaces as streamError") { c in
         let stream: ApplyStreamFactory = { _ in AsyncThrowingStream { $0.finish(throwing: RtClientError.exited(1, stderr: "boom")) } }
