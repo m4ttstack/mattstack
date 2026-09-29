@@ -744,6 +744,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     const row = await homeBackupRow(dir);
     expect(row.status).toBe("needs-you");
     expect(row.detail).toBe("no home repo found yet — nothing to back up");
+    expect(row.action).toEqual({ type: "run", label: "Create home repo", verb: ["setup", "apply", "--only", "home.init"] });
   });
 
   test("rev-list check fails (timeout/corrupt store): needs-you, could-not-determine — never falls through to ready on evidence that never arrived", async () => {
