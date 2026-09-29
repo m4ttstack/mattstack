@@ -16,6 +16,8 @@ case "$1 $2" in
     security add-generic-password -a mattstack -s mattstack-age-key -w AGE-SECRET-KEY-1STUB
     security find-generic-password -a mattstack -s mattstack-age-key -w > "$HOME/rt-found"
     security list-keychains >/dev/null 2>&1 && : > "$HOME/rt-keychain-leak"
+    security find-generic-password -a mattstack -s github-token -w > /dev/null 2>&1; echo $? > "$HOME/rt-other-find"
+    security add-generic-password -a mattstack -s github-token -w ghp_other > /dev/null 2>&1; echo $? > "$HOME/rt-other-add"
     printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill > "$HOME/rt-cred" 2>&1
     echo '{"contract":1,"slug":"vmtest","created":true}';;
   "team publish") echo '{"contract":1,"pushed":true}';;
@@ -90,6 +92,13 @@ describe("mint-invite.sh", () => {
     expect(read(join(m.home, "rt-found"))).toBe("AGE-SECRET-KEY-1STUB");
     expect(statSync(join(m.home, ".vm-keychain", "mattstack-age-key")).mode & 0o777).toBe(0o600);
     expect(existsSync(join(m.home, "rt-keychain-leak"))).toBe(false);
+  });
+
+  test("the stand-in keychain answers only for the age key's service", () => {
+    const m = mint();
+    expect(read(join(m.home, "rt-other-find")).trim()).toBe("44");
+    expect(read(join(m.home, "rt-other-add")).trim()).not.toBe("0");
+    expect(read(join(m.home, ".vm-keychain", "mattstack-age-key"))).toBe("AGE-SECRET-KEY-1STUB");
   });
 
   test("git gets the token from a credential helper, not from argv", () => {

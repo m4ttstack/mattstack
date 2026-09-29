@@ -53,6 +53,14 @@ t "walkthrough join without a code file or --fresh-team-repo fails preflight" ba
   '! env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --dry-run >/dev/null 2>&1'
 t "walkthrough hands --join <slug> to the join assert" bash -c \
   'grep -qF "MODE_ARG=\"--join '"'"'\$SLUG'"'"'\"" run/walkthrough.sh && grep -q -- "--join) " run/guest/assert-installed.sh'
+t "walkthrough refuses to mint with a dev-flavor --app" bash -c '
+  rm -rf /tmp/vmcheck-devapp /tmp/vmcheck-art-dev; mkdir -p /tmp/vmcheck-devapp/mattstack-dev.app/Contents/Helpers
+  : > /tmp/vmcheck-devapp/mattstack-dev.app/Contents/Helpers/deck-pinned
+  src=$(sed -n "/^mint_resolve_rt()/,/^}/p" run/walkthrough.sh)
+  out=$(APP=/tmp/vmcheck-devapp/mattstack-dev.app MINT_RT= bash -c "$src""; mint_resolve_rt || { echo \"\$MINT_REFUSAL\"; exit 1; }" 2>&1); rc=$?
+  with=$(APP=/tmp/vmcheck-devapp/mattstack-dev.app MINT_RT=/x/rt bash -c "$src""; mint_resolve_rt && echo \"\$RT_FOR_MINT\"" 2>&1)
+  rm -rf /tmp/vmcheck-devapp
+  [ "$rc" -ne 0 ] && printf "%s" "$out" | grep -q "dev-flavor bundle" && [ "$with" = /x/rt ]'
 t "mint-invite.sh usage (missing args)" bash -c \
   'out=$(bash run/host/mint-invite.sh 2>&1); rc=$?; [ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "Usage: mint-invite.sh"'
 t "xcuitest.sh usage (missing args)" bash -c \

@@ -42,15 +42,18 @@ mkdir -p "$MINT_HOME/bin"
 cat > "$MINT_HOME/bin/security" <<'SHIM'
 #!/bin/bash
 store="$HOME/.vm-keychain/mattstack-age-key"
-case "$1" in
+verb="$1"; shift
+service=""; key=""
+while [ $# -gt 0 ]; do case "$1" in -s) service="${2:-}"; shift 2;; -w) key="${2:-}"; [ $# -ge 2 ] && shift 2 || shift;; *) shift;; esac; done
+[ "$service" = mattstack-age-key ] || { echo "vm-mint security shim: refusing $verb for service '${service:-none}'" >&2; exit 44; }
+case "$verb" in
   find-generic-password)
     [ -f "$store" ] || { echo "security: The specified item could not be found in the keychain." >&2; exit 44; }
     cat "$store";;
   add-generic-password)
-    key=""; while [ $# -gt 0 ]; do [ "$1" = -w ] && { key="$2"; shift; }; shift; done
     [ -n "$key" ] || exit 1
     mkdir -p "$(dirname "$store")"; (umask 077; printf '%s' "$key" > "$store");;
-  *) echo "vm-mint security shim: refusing '$1'" >&2; exit 1;;
+  *) echo "vm-mint security shim: refusing '$verb'" >&2; exit 1;;
 esac
 SHIM
 chmod +x "$MINT_HOME/bin/security"

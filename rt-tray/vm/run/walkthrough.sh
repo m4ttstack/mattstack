@@ -107,12 +107,20 @@ drop_mint_home() {
 
 # The rt that mints: --mint-rt, else the bundle under test (read from the
 # DMG, which stays attached until mint_detach).
-MINT_MOUNT=""; RT_FOR_MINT=""
+MINT_MOUNT=""; RT_FOR_MINT=""; MINT_REFUSAL=""
 mint_resolve_rt() {
   if [ -n "$MINT_RT" ]; then RT_FOR_MINT="$MINT_RT"; return 0; fi
-  if [ -n "$APP" ]; then RT_FOR_MINT="$APP/Contents/MacOS/rt"; return 0; fi
+  if [ -n "$APP" ]; then
+    # A dev bundle's rt runs the dev flavor, which is not what ships.
+    if [ -e "$APP/Contents/Helpers/deck-pinned" ] \
+      || [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null)" = com.mattstack.app.dev ]; then
+      MINT_REFUSAL="$APP is a dev-flavor bundle; pass --mint-rt to mint with it"; return 1
+    fi
+    RT_FOR_MINT="$APP/Contents/MacOS/rt"; return 0
+  fi
   MINT_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/vm-mint-dmg.XXXXXX")
-  hdiutil attach "$DMG" -nobrowse -quiet -readonly -mountpoint "$MINT_MOUNT" >/dev/null 2>&1 || { rmdir "$MINT_MOUNT"; MINT_MOUNT=""; return 1; }
+  hdiutil attach "$DMG" -nobrowse -quiet -readonly -mountpoint "$MINT_MOUNT" >/dev/null 2>&1 \
+    || { rmdir "$MINT_MOUNT"; MINT_MOUNT=""; MINT_REFUSAL="could not attach $DMG to read its rt; pass --mint-rt"; return 1; }
   RT_FOR_MINT="$MINT_MOUNT/mattstack.app/Contents/MacOS/rt"
 }
 mint_detach() {
@@ -245,7 +253,7 @@ if [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ]; then
     CODE_FILE="$VM_RUN_DIR/mint/invite-code.txt"
     MINT_HOME=$(mktemp -d "${TMPDIR:-/tmp}/vm-mint.XXXXXX")
     if ! mint_resolve_rt; then
-      vm_phase_end invite fail "could not attach $DMG to read its rt; pass --mint-rt"; exit 1
+      vm_phase_end invite fail "$MINT_REFUSAL"; exit 1
     fi
     VM_MINT_TOKEN="${!PAT_ENV:-}" vm_guest_cmd bash "$VM_ROOT/run/host/mint-invite.sh" --rt "$RT_FOR_MINT" --home "$MINT_HOME" \
       --remote "$TEAM_REMOTE" --out "$CODE_FILE" --slug "$SLUG" ${FORGE:+--forge "$FORGE"} >>"$VM_RUN_DIR/logs/mint.log" 2>&1
