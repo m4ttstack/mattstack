@@ -484,6 +484,17 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(r.required).toBe(false);
   });
 
+  // doctor warns when macOS privacy keeps it out of Chrome's profile; its
+  // wording addresses a terminal, and here the reader is the app.
+  test("extension-installed warns (profile unreadable) -> mattstack's own detail, never doctor's terminal text", async () => {
+    const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-installed", "warn")));
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("mattstack can't read Chrome's profile; grant Full Disk Access to mattstack.app, or skip if Fast Browser shows in chrome://extensions");
+    expect(r.action?.type).toBe("steps");
+    expect((r.action as { steps: string[] }).steps.join(" ")).not.toContain("terminal");
+  });
+
   test("extension-loaded check fails -> needs-you with steps that end in pairing", async () => {
     const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-loaded", "fail")));
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");

@@ -306,6 +306,15 @@ const FAST_BROWSER_LOAD_STEPS: Action = {
   steps: [`Install Fast Browser from the [Chrome Web Store](${FAST_BROWSER_WEB_STORE_URL})`, ...PAIRING_STEPS],
 };
 const FAST_BROWSER_PAIR_STEPS: Action = { type: "steps", label: "Show steps…", steps: PAIRING_STEPS };
+/** doctor warns extension-installed when macOS privacy keeps it out of Chrome's profile; its remedy names a terminal, so the app says it in its own words. */
+const FAST_BROWSER_PROFILE_ACCESS_STEPS: Action = {
+  type: "steps",
+  label: "Show steps…",
+  steps: [
+    "Grant Full Disk Access to mattstack.app in System Settings > Privacy & Security, then Re-check",
+    "Or skip this row if Fast Browser already shows in chrome://extensions",
+  ],
+};
 /** A doctor report this build cannot read blocks Finish like any other non-ready state, so the row carries its own way out rather than leaving Skip for now as the only affordance. */
 const FAST_BROWSER_RECHECK: Action = { type: "run", label: "Re-check", verb: ["setup", "status"] };
 const DOCTOR_CHECK_MISSING_REMEDY = "update Fast Browser, then Re-check";
@@ -351,6 +360,7 @@ function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe, solo: boole
   // doctor tells a missing extension from a store copy on another version;
   // a store copy keeps doctor's own remedy, and a missing one gets the Web
   // Store install rather than an unpacked load that never auto-updates.
+  if (installed.status === "warn") return row({ ...base, status: "needs-you", detail: "mattstack can't read Chrome's profile; grant Full Disk Access to mattstack.app, or skip if Fast Browser shows in chrome://extensions", action: FAST_BROWSER_PROFILE_ACCESS_STEPS });
   if (installed.status !== "pass") return row({ ...base, status: "needs-you", detail: doctorText(installed.message) ?? "not installed in Chrome", action: doctorRemedy(installed) });
 
   const extension = checkState(probe.doctor, "extension-loaded");
