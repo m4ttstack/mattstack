@@ -139,6 +139,7 @@ targets:
     dependencies:
       - target: MattstackCore
       - target: DeckShimLogic
+        link: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mattstack.core.checks

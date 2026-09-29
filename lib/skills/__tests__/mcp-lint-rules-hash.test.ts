@@ -7,7 +7,7 @@ import { deriveRules, KEPT_ON_BASH } from "../mcp-lint.ts";
 // The in-tree plugins/mattstack pack and any other pack with
 // "strictLint": true are checked against this rule set, so a change here
 // can newly fail their strict lint.
-const RULES_SHA256 = "625839fa3b8b5d174c4acde5f99823ea64abddad3796c22a7d9cabecd608001b";
+const RULES_SHA256 = "6d392095e42d9014070a2090d076d88000e36cac4c6d0cf5a0f5f3d485cba837";
 
 function rulesHash(): string {
   const leaves = listAgentSafe(TREE).map((l) => ({ path: l.path, deniedFlags: l.node.agentDeniedFlags, noCwd: l.node.agentNoCwd }));

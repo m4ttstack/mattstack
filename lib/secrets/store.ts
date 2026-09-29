@@ -86,8 +86,8 @@ export interface SecretsSeams {
  * `<mattstackHome>/user`) and the team store (`team-store.ts`'s
  * `teams/<slug>/mattstack/secrets/<domain>.json`, cwd the team clone root)
  * share the same encrypt/decrypt machinery below instead of two divergent
- * copies of it. `filenameOverride` is cwd-relative on purpose — see
- * `encryptAtLocation`'s doc for why it can't be `filePath` itself.
+ * copies of it. `filenameOverride` is cwd-relative on purpose; see
+ * `encryptVerifiedAtLocation`'s doc for why it can't be `filePath` itself.
  */
 export interface SecretsLocation {
   filePath: string;
@@ -98,7 +98,7 @@ export interface SecretsLocation {
 /** Thrown when the keychain provably holds no age key yet (readAgeKey's `{absent:true}`). */
 export class NoAgeKeyError extends Error {
   constructor() {
-    super("no age key in the keychain — run `rt home init` first");
+    super("no age key in the keychain; run `rt home init` first");
   }
 }
 
@@ -274,19 +274,31 @@ export async function listSecretNames(domain: string, seams: SecretsSeams): Prom
   return secrets === null ? [] : Object.keys(secrets);
 }
 
+export async function encryptAtLocation(
+  location: SecretsLocation,
+  stagingKey: string,
+  payload: Record<string, string>,
+  key: string,
+  value: string,
+  env: Record<string, string>,
+  execSeam: SecretsExecSeam,
+): Promise<void> {
+  await encryptVerifiedAtLocation(location, stagingKey, payload, (rt) => rt?.[key] === value, `round-trip "${key}"`, env, execSeam);
+}
+
 /**
- * Stage → encrypt-to-tmp → decrypt-readback → fsync+rename. The readback
- * decrypts the tmp output (before it ever replaces the target) and checks
- * that `key` round-trips to `value` — catching a wrong-recipient encrypt
+ * Stage, encrypt to a tmp file, decrypt that tmp output, then fsync+rename it
+ * over the target only if the caller's `verify` accepts the decrypted
+ * read-back. Verifying before the rename catches a wrong-recipient encrypt
  * (a `.sops.yaml` shadowed from $HOME, a stale recipient after rotation)
- * that a plaintext/heuristic check on the ciphertext shape could never see.
- * Every path this touches outside the real target is removed in `finally`,
- * so a thrown error never needs to name a file for the user to clean up —
- * there isn't one, and the target is untouched on every failure.
+ * that a check on the ciphertext shape could never see. Every path this
+ * touches outside the real target is removed in `finally`, so a thrown error
+ * never names a file for the user to clean up, and the target is untouched
+ * on every failure.
  *
  * `location.filenameOverride` (not `location.filePath`) is what sops matches
- * against its `.sops.yaml` `path_regex`, cwd-relative — the real staged
- * input lives under `rt/tmp`, which would never match.
+ * against its `.sops.yaml` `path_regex`, cwd-relative: the real staged input
+ * lives under `rt/tmp`, which would never match.
  *
  * Atomic for readers, deliberately not crash-durable: no fsync of the temp
  * file or its directory, so power loss in the instant around the rename can
@@ -296,12 +308,12 @@ export async function listSecretNames(domain: string, seams: SecretsSeams): Prom
  * guarantee than its neighbours would be indistinguishable from an accident.
  * Strengthen all of them together or none.
  */
-export async function encryptAtLocation(
+export async function encryptVerifiedAtLocation(
   location: SecretsLocation,
   stagingKey: string,
   payload: Record<string, string>,
-  key: string,
-  value: string,
+  verify: (roundTripped: Record<string, string> | undefined) => boolean,
+  expectation: string,
   env: Record<string, string>,
   execSeam: SecretsExecSeam,
 ): Promise<void> {
@@ -321,7 +333,7 @@ export async function encryptAtLocation(
     );
     if (result.code !== 0) {
       throw new Error(
-        `sops -e ${stagingKey}: encryption failed — ${result.stderr}\n` +
+        `sops -e ${stagingKey}: encryption failed: ${result.stderr}\n` +
           "no plaintext was left on disk (staging files are always cleaned up)",
       );
     }
@@ -344,9 +356,9 @@ export async function encryptAtLocation(
         roundTripped = undefined;
       }
     }
-    if (roundTripped?.[key] !== value) {
+    if (!verify(roundTripped)) {
       throw new Error(
-        `sops -e ${stagingKey}: post-encrypt read-back of ${outputTmpPath} does not round-trip "${key}" — ` +
+        `sops -e ${stagingKey}: post-encrypt read-back of ${outputTmpPath} does not ${expectation}; ` +
           `refusing to declare success (${location.filePath} was left untouched)`,
       );
     }
@@ -421,6 +433,19 @@ export async function writeSecret(domain: string, key: string, value: string, se
   validateKey(key);
   const location = personalLocation(domain);
   await writeAtLocation(location, domain, key, value, seams, domain);
+}
+
+export async function removeSecret(domain: string, key: string, seams: SecretsSeams): Promise<boolean> {
+  validateKey(key);
+  const location = personalLocation(domain);
+  if (!seams.execSeam.fileExists(location.filePath)) return false;
+  const env = await sopsAgeKeyEnv(seams.ageKeySeam);
+  const existing = freshMemoEntry(domain, location.filePath, seams) ?? (await sopsDecrypt(location.filePath, env, seams.execSeam));
+  if (!Object.hasOwn(existing, key)) return false;
+  domainMemo.delete(domain);
+  const { [key]: _removed, ...rest } = existing;
+  await encryptVerifiedAtLocation(location, domain, rest, (rt) => rt !== undefined && !Object.hasOwn(rt, key), `drop "${key}"`, env, seams.execSeam);
+  return true;
 }
 
 /**

@@ -2088,6 +2088,50 @@ export const TREE: Record<string, CommandNode> = {
     },
   },
 
+  logins: {
+    description: "Save dev-server logins that browser runs can use on a login page",
+    subcommands: {
+      list: {
+        description: "Show your saved dev logins, never the passwords",
+        module: "./commands/logins.ts",
+        fn: "loginsList",
+        agentSafe: true,
+        args: [{ name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Output as JSON" }],
+      },
+      add: {
+        description: "Save or replace the dev login for a site",
+        module: "./commands/logins.ts",
+        fn: "loginsAdd",
+        omitBehavior: "prompt",
+        args: [
+          { name: "Origin", type: "text", placeholder: "https://login.example.com", hint: "The login page's origin" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Read {email, password} as JSON from stdin; answer in JSON" },
+        ],
+      },
+      "open-add": {
+        description: "Open mattstack to save a dev login for a site",
+        module: "./commands/logins.ts",
+        fn: "loginsOpenAdd",
+        agentSafe: true,
+        omitBehavior: "prompt",
+        args: [
+          { name: "Origin", type: "text", placeholder: "https://login.example.com", hint: "The login page's origin" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Output as JSON" },
+        ],
+      },
+      remove: {
+        description: "Delete a saved dev login",
+        module: "./commands/logins.ts",
+        fn: "loginsRemove",
+        omitBehavior: "picker",
+        args: [
+          { name: "Origin", type: "text", placeholder: "https://login.example.com", hint: "The login page's origin" },
+          { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Output as JSON" },
+        ],
+      },
+    },
+  },
+
   pane: {
     description: "herdr panes as rt sees them: list with chat presence, peek, spawn claude, cswap accounts, directory suggestions",
     subcommands: {

@@ -107,6 +107,21 @@ enum AXID {
     static let settingsFastBrowserSkipped = "settings.fastBrowser.skipped"
     static let settingsFastBrowserUnskip = "settings.fastBrowser.unskip"
     static let settingsFastBrowserError = "settings.fastBrowser.error"
+    static let settingsDevLoginsAdd = "settings.devLogins.add"
+    static let settingsDevLoginsEmpty = "settings.devLogins.empty"
+    static let settingsDevLoginsError = "settings.devLogins.error"
+    static func settingsDevLoginsRow(_ origin: String) -> String { "settings.devLogins.row.\(origin)" }
+    static func settingsDevLoginsReplace(_ origin: String) -> String { "settings.devLogins.replace.\(origin)" }
+    static func settingsDevLoginsDelete(_ origin: String) -> String { "settings.devLogins.delete.\(origin)" }
+    static let devLoginSheetOrigin = "devLogin.sheet.origin"
+    static let devLoginSheetEmail = "devLogin.sheet.email"
+    static let devLoginSheetPassword = "devLogin.sheet.password"
+    static let devLoginSheetConfirmHost = "devLogin.sheet.confirmHost"
+    static let devLoginSheetSave = "devLogin.sheet.save"
+    static let devLoginSheetCancel = "devLogin.sheet.cancel"
+    static let devLoginSheetWarning = "devLogin.sheet.warning"
+    static let devLoginSheetInvalid = "devLogin.sheet.invalid"
+    static let devLoginSheetReplaceCaption = "devLogin.sheet.replaceCaption"
     static func settingsAppToggle(_ name: String) -> String { "settings.apps.toggle.\(name)" }
     static let settingsWritingStyleRow = "settings.writingStyle.row"
     static let settingsWritingStyleRowAction = "settings.writingStyle.row.action"

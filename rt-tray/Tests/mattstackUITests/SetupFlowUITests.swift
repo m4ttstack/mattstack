@@ -204,6 +204,46 @@ final class SetupFlowUITests: XCTestCase {
         }
     }
 
+    func testDevLoginsPaneLightAndDark() {
+        for scheme in ["Light", "Dark"] {
+            prepare("solo")
+            app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
+            app.launch()
+            waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
+            waitFor("setup.team.screen"); el("setup.team.card.solo").click()
+            el("setup.team.continue").click(); waitFor("setup.checklist.screen")
+            el("setup.checklist.continue").click(); waitFor("setup.done.screen", 60)
+            app.typeKey(",", modifierFlags: .command)
+            let tab = app.toolbars.buttons["Dev logins"]
+            XCTAssertTrue(tab.waitForExistence(timeout: 20), "missing the Dev logins tab")
+            tab.click()
+            waitFor("settings.devLogins.empty"); shoot("devlogins-empty-\(scheme)")
+
+            el("settings.devLogins.add").click(); waitFor("devLogin.sheet.origin")
+            el("devLogin.sheet.origin").click(); el("devLogin.sheet.origin").typeText("https://login.example.com")
+            el("devLogin.sheet.email").click(); el("devLogin.sheet.email").typeText("dev@example.com")
+            el("devLogin.sheet.password").click(); el("devLogin.sheet.password").typeText("pw")
+            XCTAssertFalse(el("devLogin.sheet.save").isEnabled, "a first-time origin needs the typed host")
+            shoot("devlogins-sheet-first-time-\(scheme)")
+            el("devLogin.sheet.confirmHost").click(); el("devLogin.sheet.confirmHost").typeText("login.example.com")
+            waitUntilEnabled("devLogin.sheet.save"); el("devLogin.sheet.save").click()
+
+            waitFor("settings.devLogins.row.https://login.example.com"); shoot("devlogins-list-\(scheme)")
+            el("settings.devLogins.replace.https://login.example.com").click(); waitFor("devLogin.sheet.email")
+            XCTAssertFalse(el("devLogin.sheet.confirmHost").exists, "replacing a saved site skips the typed host")
+            XCTAssertEqual(el("devLogin.sheet.email").value as? String, "dev@example.com", "Replace starts from the saved email")
+            shoot("devlogins-sheet-replace-\(scheme)")
+            el("devLogin.sheet.cancel").click()
+
+            el("settings.devLogins.add").click(); waitFor("devLogin.sheet.origin")
+            el("devLogin.sheet.origin").click(); el("devLogin.sheet.origin").typeText("https://login.example.com")
+            waitFor("devLogin.sheet.replaceCaption")
+            shoot("devlogins-sheet-typed-replace-\(scheme)")
+            el("devLogin.sheet.cancel").click()
+            app.terminate()
+        }
+    }
+
     /// A denial rt actually checked warns instead of blocking, so the warning
     /// is only readable back on the team screen: Continue has already carried
     /// the joiner to the checklist by the time it renders.
