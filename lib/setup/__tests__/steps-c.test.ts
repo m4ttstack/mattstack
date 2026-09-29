@@ -34,6 +34,7 @@ import {
   snapshotPushStep,
 } from "../steps/tools.ts";
 import { outcomeFromChecks, settleChecks, verifyStep } from "../steps/verify.ts";
+import { accountRows } from "../validators/accounts.ts";
 import { teamSyncRow } from "../validators/rt-health.ts";
 import type { Row } from "../contract.ts";
 
@@ -1538,6 +1539,17 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           detail: "1 check failed: tool.app · to connect: Slack · to install: doppler",
           remedy: "Run `rt verify` for details",
         });
+      });
+
+      test("a member's stored gitlab token short of api is left to connect, not failed", async () => {
+        const fetch: Probes["fetch"] = async (url) =>
+          url.includes("personal_access_tokens/self") ? { status: 200, body: JSON.stringify({ scopes: ["read_api", "read_user"] }), headers: {} } : { status: 200, body: "{}", headers: {} };
+        const p = fakeProbes({ fetch, files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }) } });
+        const team: TeamSnapshot = { slug: "acme", integrations: { forge: { host: "gitlab.com", provider: "gitlab" } }, trackingIdentities: [], marketplaces: [], plugins: [], remote: null };
+        const secrets = { has: async (domain: string, key: string) => (`${domain}.${key}` === "rt.gitlabToken" ? "tok" : null) };
+        const rows = await accountRows(p, team, [], secrets, null, { forgeHost: "gitlab.com" });
+        expect(rows.find((r) => r.id === "account.gitlab")?.status).toBe("needs-you");
+        expect(outcomeFromChecks([fail("account.gitlab")], rows)).toEqual({ state: "needs-you", detail: "to connect: GitLab" });
       });
 
       test("a connected account whose credential is now invalid is a genuine failure", () => {

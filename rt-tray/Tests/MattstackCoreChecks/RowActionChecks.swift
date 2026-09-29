@@ -7,8 +7,8 @@ let rowActionChecks: [Check] = [
         c.expectEqual(RowActionDispatcher.dispatch(RowAction(type: .requestPermission, label: "Allow", which: "notifications"), fieldValues: nil, alternative: nil), .requestPermission(which: "notifications"))
     },
     Check("connect: collect first, then rt setup <integration> connect with JSON on stdin; use-gh alternative") { c in
-        let fields = [ActionField(name: "token", label: "Token", secret: true, hint: "read_api")]
-        let create = ActionLink(label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?scopes=read_api")
+        let fields = [ActionField(name: "token", label: "Token", secret: true, hint: "api")]
+        let create = ActionLink(label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?scopes=api")
         let a = RowAction(type: .connect, label: "Connect", integration: "gitlab", fields: fields, alternatives: [ActionAlternative(id: "use-gh", label: "Use gh login")], create: create)
         c.expectEqual(RowActionDispatcher.dispatch(a, fieldValues: nil, alternative: nil), .collectFields(fields, integration: "gitlab", alternatives: a.alternatives!, create: create))
         // The sheet hands the link straight to the browser, so only https ever reaches it.

@@ -1,9 +1,9 @@
 import { describe, test, expect } from "bun:test";
-import { forgeRole, forgeScopes, missingScopes, tokenCreateLink, tokenField } from "../token-create.ts";
+import { forgeRole, forgeScopes, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField } from "../token-create.ts";
 
 describe("forgeScopes", () => {
-  test("gitlab member: read_api already carries git clone, read_user the profile", () => {
-    expect(forgeScopes("gitlab", "member")).toEqual(["read_api", "read_user"]);
+  test("gitlab member: api, because the board posts review comments and replies as the member", () => {
+    expect(forgeScopes("gitlab", "member")).toEqual(["api"]);
   });
 
   test("gitlab owner: api alone covers the push, the members API and everything a member needs", () => {
@@ -43,7 +43,7 @@ describe("tokenCreateLink", () => {
   test("gitlab: the new-token page on the given host with name and scopes prefilled", () => {
     expect(tokenCreateLink("gitlab", "member", "gitlab.example.com")).toEqual({
       label: "Create a token on GitLab…",
-      url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=read_api%2Cread_user",
+      url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api",
     });
   });
 
@@ -62,16 +62,29 @@ describe("tokenCreateLink", () => {
 describe("missingScopes", () => {
   test("names each required scope the token lacks", () => {
     expect(missingScopes("gitlab", "owner", ["read_api", "read_user"])).toEqual(["api"]);
-    expect(missingScopes("gitlab", "member", ["read_user"])).toEqual(["read_api"]);
+    expect(missingScopes("gitlab", "member", ["read_api", "read_user"])).toEqual(["api"]);
   });
 
   test("a broader scope satisfies the narrower one it contains", () => {
     expect(missingScopes("gitlab", "member", ["api"])).toEqual([]);
-    expect(missingScopes("gitlab", "member", ["read_api"])).toEqual([]);
     expect(missingScopes("github", "member", ["repo", "admin:org"])).toEqual([]);
   });
 
   test("no scopes reported (a fine-grained GitHub token) is not a shortfall", () => {
     expect(missingScopes("github", "member", [])).toEqual([]);
+  });
+});
+
+describe("scopeShortfallDetail", () => {
+  test("a member's gitlab token short of api says the board needs it to post reviews", () => {
+    expect(scopeShortfallDetail("gitlab", "member", ["api"])).toBe("token is missing: api (needs api to post board review comments)");
+  });
+
+  test("an owner's gitlab token short of api names the owner's own needs", () => {
+    expect(scopeShortfallDetail("gitlab", "owner", ["api"])).toBe("token is missing: api (needs api for the home-repo push and members sync)");
+  });
+
+  test("scopes with no recorded reason are just named", () => {
+    expect(scopeShortfallDetail("github", "member", ["read:org"])).toBe("token is missing: read:org");
   });
 });

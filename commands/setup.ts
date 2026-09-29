@@ -33,7 +33,7 @@ import { realWaiverStore, unwaiveRow, waiveRow, type WaiverChange, type WaiverSt
 import { isValidHostname, isValidHttpsUrl } from "../lib/setup/host-validate.ts";
 import { integrationDef, type ValidateCtx } from "../lib/setup/integrations.ts";
 import { clearIntent, readIntent, teamRefFromIntent, writeIntent } from "../lib/setup/intent.ts";
-import { forgeRole, missingScopes } from "../lib/setup/token-create.ts";
+import { forgeRole, missingScopes, scopeShortfallDetail } from "../lib/setup/token-create.ts";
 import { readTeamLocal } from "../lib/team/team-local.ts";
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
@@ -1209,7 +1209,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     const missing = missingScopes(id, role, result.scopesSeen);
     if (missing.length > 0) {
       const how = sourceDetail === "via gh" ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
-      printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: `token is missing: ${missing.join(", ")}${how}`, scopesSeen: result.scopesSeen });
+      printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: `${scopeShortfallDetail(id, role, missing)}${how}`, scopesSeen: result.scopesSeen });
       return;
     }
   }

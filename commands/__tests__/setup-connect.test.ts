@@ -239,16 +239,16 @@ describe("integrationConnect: forge token scopes", () => {
   };
   const CREATE_INTENT = JSON.stringify({ v: 1, at: "2026-09-24T00:00:00.000Z", mode: "create", team: { slug: "acme", name: "Acme", remote: "https://gitlab.com/acme/mattstack.git", others: false } });
 
-  test("a gitlab token that validates but lacks read_api is refused before storage, naming the scope", async () => {
-    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_user"]) });
+  test("a member's gitlab token that validates but lacks api is refused before storage, naming the scope and why", async () => {
+    const probes = fakeProbes({ fetch: gitlabWithScopes(["read_api", "read_user"]) });
     const deps = baseDeps({ probes, stdin: async () => ({ token: "glpat-x" }), writer: { storeReady: async () => false, write: neverCalled("writer.write") } });
 
     await integrationConnect("gitlab", ["--json"], deps);
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string; scopesSeen: string[] };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: read_api");
-    expect(body.scopesSeen).toEqual(["read_user"]);
+    expect(body.detail).toBe("token is missing: api (needs api to post board review comments)");
+    expect(body.scopesSeen).toEqual(["read_api", "read_user"]);
     expect(Object.keys(probes.calls.writes).some((k) => k.includes("setup-staging"))).toBe(false);
   });
 
@@ -260,7 +260,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api");
+    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
   });
 
   test("no intent (after Install): the owner of a team rt did not join is held to the owner's scopes", async () => {
@@ -276,7 +276,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api");
+    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
   });
 
   test("a gh session token short of a scope is refused with the gh command that widens it", async () => {
