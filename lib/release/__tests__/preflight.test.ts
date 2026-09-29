@@ -7,6 +7,7 @@ import {
   checkGitState,
   checkGate,
   movedServedApps,
+  appPaths,
   keepsFastPath,
   checkStandaloneRows,
   checkToolRows,
@@ -230,10 +231,33 @@ describe("checkGate by path", () => {
   test("a served app plus the release notes is fast", async () => {
     expect((await gate(["apps/board/x.ts", "RELEASE_NOTES.md"])).path).toBe("fast");
   });
+  test("a served-only kit alone is fast and names every app built from it", async () => {
+    const g = await gate(["packages/ui/src/Button.tsx"]);
+    expect(g.path).toBe("fast");
+    expect(g.reason).toContain("boxscore, chat, console");
+  });
+  test("a kit rt or deck also builds from is full", async () => {
+    for (const f of ["packages/rt-client/src/index.ts", "packages/server/src/serve.ts", "packages/tui-kit/src/a.ts", "packages/glance/src/a.ts"]) {
+      const g = await gate(["apps/board/src/a.ts", f]);
+      expect(g.path).toBe("full");
+      expect(g.reason).toContain(f);
+    }
+  });
 });
 
 test("movedServedApps names each served app directory in the diff once", () => {
   expect(movedServedApps(["apps/chat/a.ts", "apps/chat/b.ts", "apps/gitq/x.ts", "apps/deck/y.ts", "lib/z.ts"])).toEqual(["chat", "gitq"]);
+});
+
+test("movedServedApps counts a served-only kit as moving every app built from it", () => {
+  expect(movedServedApps(["packages/gate-kit/src/a.ts", "apps/chat/b.ts"])).toEqual(["board", "chat", "console"]);
+});
+
+test("appPaths names the app's own directory plus each moved kit it builds from", () => {
+  const files = ["packages/ui/src/a.ts", "packages/gate-kit/src/b.ts", "apps/chat/c.ts"];
+  expect(appPaths("console", files)).toEqual(["apps/console/", "packages/gate-kit/", "packages/ui/"]);
+  expect(appPaths("chat", files)).toEqual(["apps/chat/", "packages/ui/"]);
+  expect(appPaths("board", ["apps/board/a.ts"])).toEqual(["apps/board/"]);
 });
 
 describe("checkStandaloneRows", () => {
