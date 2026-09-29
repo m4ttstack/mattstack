@@ -19,13 +19,21 @@ afterEach(() => {
 describe("rt git credential", () => {
   test("the helper value an rt-made clone carries makes git call rt with the operation and take its answer", () => {
     const repo = join(root, "repo");
-    const rt = join(root, "bin dir", "rt");
+    const rt = join(root, "bin dir", "it's $rt");
     const argsLog = join(root, "args");
     execFileSync("mkdir", ["-p", join(root, "bin dir")]);
     writeFileSync(rt, `#!/bin/sh\necho "$@" > '${argsLog}'\necho username=x-access-token\necho password=tok_rt\n`);
     chmodSync(rt, 0o755);
-    const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
+    // A logging global helper stands in for Apple git's system osxkeychain.
+    const helperLog = join(root, "helper.log");
+    const logger = join(root, "logger.sh");
+    writeFileSync(logger, `#!/bin/sh\necho "$1 $(cat | tr '\\n' ' ')" >> '${helperLog}'\n`);
+    chmodSync(logger, 0o755);
+    const globalConfig = join(root, "global.gitconfig");
+    writeFileSync(globalConfig, `[credential]\n\thelper = ${logger}\n`);
+    const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
     execFileSync("git", ["init", "-q", repo], { env });
+    execFileSync("git", ["-C", repo, "config", "--add", "credential.https://github.com.helper", ""], { env });
     execFileSync("git", ["-C", repo, "config", "--add", "credential.https://github.com.helper", rtCredentialHelper(rt)], { env });
 
     const fill = (host: string) =>
@@ -36,6 +44,17 @@ describe("rt git credential", () => {
     rmSync(argsLog);
     fill("gitlab.com");
     expect(() => readFileSync(argsLog)).toThrow();
+
+    spawnSync("git", ["credential", "approve"], { cwd: repo, env, input: "protocol=https\nhost=github.com\nusername=x-access-token\npassword=tok_rt\n\n", encoding: "utf8" });
+    const logged = (() => {
+      try {
+        return readFileSync(helperLog, "utf8");
+      } catch {
+        return "";
+      }
+    })();
+    expect(logged).not.toContain("tok_rt");
+    expect(logged).not.toContain("github.com");
   });
 
   test("the verb answers only a host rt may send its token to", async () => {

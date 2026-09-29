@@ -113,7 +113,7 @@ async function findExistingClone(p: ApplyContext["p"], identity: string, dest: s
 
 /** The value of a `credential.<url>.helper` that asks rt for its forge token; git appends the operation. */
 export function rtCredentialHelper(rtPath: string): string {
-  return `!${JSON.stringify(rtPath)} git credential`;
+  return `!'${rtPath.replace(/'/g, "'\\''")}' git credential`;
 }
 
 /**
@@ -149,8 +149,16 @@ async function cloneInto(ctx: ApplyContext, identity: string, dest: string): Pro
   const result = await p.exec(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS });
   const rt = linkPath(p.home, "rt");
   if (result.code === 0 && token && p.exists(rt)) {
-    const helper = await p.exec(["git", "-C", dest, "config", "--add", `credential.https://${host}.helper`, rtCredentialHelper(rt)], { env: CLONE_ENV });
-    if (helper.code !== 0) ctx.log("repos.clone", `${repoBasename(identity)}: cloned, but rt could not be set as its credential helper: ${withoutUrls(helper.stderr.trim())}`);
+    // The empty entry clears every helper before it for this host, so git's
+    // `store` after a successful auth cannot hand rt's token to a keychain.
+    const key = `credential.https://${host}.helper`;
+    for (const value of ["", rtCredentialHelper(rt)]) {
+      const helper = await p.exec(["git", "-C", dest, "config", "--add", key, value], { env: CLONE_ENV });
+      if (helper.code !== 0) {
+        ctx.log("repos.clone", `${repoBasename(identity)}: cloned, but rt could not be set as its credential helper: ${withoutUrls(helper.stderr.trim())}`);
+        break;
+      }
+    }
   }
   return result;
 }

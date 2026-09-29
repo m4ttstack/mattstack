@@ -16,19 +16,34 @@ export interface GitWithToken {
 }
 
 /**
- * `git <args>` with `token` offered for the remote; `env` merges over the
- * caller's own. By default rt's helper replaces every other one, so a global
- * helper cannot substitute a credential behind the operator's back. With
- * `keepUserHelpers` it is appended instead: the checkout's own helpers answer
- * first and rt's token only fills in when they have nothing, which is what a
- * checkout the user also drives by hand needs.
+ * Answers only `get` for https on `$RT_GIT_HOST`, so a submodule, a redirect
+ * or a push URL on another host never receives the token, and git's `store`
+ * after a successful auth is a no-op.
  */
-export function gitWithToken(args: string[], token: string | null, env: Record<string, string> = {}, opts: { keepUserHelpers?: boolean } = {}): GitWithToken {
+const HOST_HELPER =
+  '!f() { test "$1" = get || return 0; p=; h=; while IFS= read -r l && test -n "$l"; do case "$l" in protocol=*) p=${l#protocol=};; host=*) h=${l#host=};; esac; done; test "$p" = https && test "$h" = "$RT_GIT_HOST" || return 0; echo username=$RT_GIT_USER; echo password=$RT_GIT_TOKEN; }; f';
+
+/**
+ * `git <args>` with `token` offered for the remote; `env` merges over the
+ * caller's own. rt's helper replaces every other one, so no other helper can
+ * substitute a credential or be handed rt's token by git's `store` (Apple
+ * git's system osxkeychain would keep it). With `host`, the reset and the
+ * helper are scoped to that one https host, leaving the user's helpers in
+ * place for every other host.
+ */
+export function gitWithToken(args: string[], token: string | null, env: Record<string, string> = {}, opts: { host?: string } = {}): GitWithToken {
   if (!token) return { argv: ["git", ...args], env };
-  const reset = opts.keepUserHelpers ? [] : ["-c", "credential.helper="];
+  const identity = { RT_GIT_USER: "x-access-token", RT_GIT_TOKEN: token };
+  if (opts.host) {
+    const key = `credential.https://${opts.host}.helper`;
+    return {
+      argv: ["git", "-c", `${key}=`, "-c", `${key}=${HOST_HELPER}`, ...args],
+      env: { ...env, ...identity, RT_GIT_HOST: opts.host },
+    };
+  }
   return {
-    argv: ["git", ...reset, "-c", `credential.helper=${HELPER}`, ...args],
-    env: { ...env, RT_GIT_USER: "x-access-token", RT_GIT_TOKEN: token },
+    argv: ["git", "-c", "credential.helper=", "-c", `credential.helper=${HELPER}`, ...args],
+    env: { ...env, ...identity },
   };
 }
 

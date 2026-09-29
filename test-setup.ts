@@ -26,6 +26,10 @@ guardTestDaemonEnv();
 // the GitHub token fallback (lib/github-token.ts) needs its own off switch.
 process.env.RT_GH_TOKEN_FALLBACK = "off";
 
+// The worktree pool's auth retry (lib/worktree/fetch-auth.ts) reads the real
+// settings, sops store and keychain by default; suites inject their own seams.
+process.env.RT_POOL_FORGE_TOKEN = "off";
+
 // A pane spawned under a live daemon inherits its launchd MATTSTACK_FLAVOR,
 // and a source run is dev by build; pin the prod app's flavor, the one every
 // test assumes unless it sets its own.

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync, chmodSync } from "fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { credentialHelperReply, gitWithToken } from "../git-credential.ts";
@@ -48,26 +48,61 @@ describe("gitWithToken", () => {
     expect(credentialFill(git.argv, git.env)).toContain("password=tok_rt");
   });
 
-  test("keepUserHelpers: a helper the repo already has answers first", () => {
-    const helper = join(home, "user-helper.sh");
-    writeFileSync(helper, "#!/bin/sh\necho username=me\necho password=user_secret\n");
-    chmodSync(helper, 0o755);
-    execFileSync("git", ["-C", repo, "config", "credential.helper", helper], { env: isolatedEnv() });
+  describe("scoped to one host", () => {
+    let log: string;
+    let globalConfig: string;
 
-    const kept = gitWithToken([], "tok_rt", {}, { keepUserHelpers: true });
-    expect(credentialFill(kept.argv, kept.env)).toContain("password=user_secret");
+    beforeEach(() => {
+      log = join(home, "helper.log");
+      globalConfig = join(home, "global.gitconfig");
+      const logger = join(home, "logger.sh");
+      writeFileSync(logger, `#!/bin/sh\necho "$1 $(cat | tr '\\n' ' ')" >> '${log}'\n`);
+      chmodSync(logger, 0o755);
+      writeFileSync(globalConfig, `[credential]\n\thelper = ${logger}\n`);
+    });
 
-    const replaced = gitWithToken([], "tok_rt", {});
-    expect(credentialFill(replaced.argv, replaced.env)).toContain("password=tok_rt");
-  });
+    function run(argv: string[], env: Record<string, string>, sub: "fill" | "approve", input: string): string {
+      const [cmd, ...rest] = argv;
+      return spawnSync(cmd!, [...rest, "credential", sub], {
+        cwd: repo,
+        env: { ...isolatedEnv(env), GIT_CONFIG_GLOBAL: globalConfig },
+        input,
+        encoding: "utf8",
+      }).stdout;
+    }
+    const readLog = () => {
+      try {
+        return readFileSync(log, "utf8");
+      } catch {
+        return "";
+      }
+    };
 
-  test("keepUserHelpers: rt's token fills in when the user's helpers have nothing", () => {
-    const git = gitWithToken([], "tok_rt", {}, { keepUserHelpers: true });
-    expect(credentialFill(git.argv, git.env)).toContain("password=tok_rt");
+    test("the checked host gets rt's token and no other helper is consulted", () => {
+      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      expect(run(git.argv, git.env, "fill", "protocol=https\nhost=github.com\n\n")).toContain("password=tok_rt");
+      expect(readLog()).toBe("");
+    });
+
+    test("a successful auth's store never hands the token to the user's helpers (a keychain would keep it)", () => {
+      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      run(git.argv, git.env, "approve", "protocol=https\nhost=github.com\nusername=x-access-token\npassword=tok_rt\n\n");
+      expect(readLog()).not.toContain("tok_rt");
+    });
+
+    test("any other host (a submodule, a redirect) never gets the token", () => {
+      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      expect(run(git.argv, git.env, "fill", "protocol=https\nhost=gitlab.com\n\n")).not.toContain("tok_rt");
+    });
+
+    test("cleartext http on the same host never gets the token", () => {
+      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      expect(run(git.argv, git.env, "fill", "protocol=http\nhost=github.com\n\n")).not.toContain("tok_rt");
+    });
   });
 
   test("no token: plain git, nothing added", () => {
-    expect(gitWithToken(["fetch"], null, { A: "1" }, { keepUserHelpers: true })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
+    expect(gitWithToken(["fetch"], null, { A: "1" }, { host: "github.com" })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
   });
 });
 

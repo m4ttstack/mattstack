@@ -916,9 +916,12 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
-    const config = p.calls.exec.find((argv) => argv.includes("config"));
-    expect(config).toEqual(["git", "-C", dest, "config", "--add", "credential.https://gitlab.com.helper", rtCredentialHelper(rt)]);
-    expect(config!.join(" ")).not.toContain("glpat_staged");
+    const config = p.calls.exec.filter((argv) => argv.includes("config"));
+    expect(config).toEqual([
+      ["git", "-C", dest, "config", "--add", "credential.https://gitlab.com.helper", ""],
+      ["git", "-C", dest, "config", "--add", "credential.https://gitlab.com.helper", rtCredentialHelper(rt)],
+    ]);
+    expect(config.flat().join(" ")).not.toContain("glpat_staged");
   });
 
   test("repos.clone: a tokenless https clone gets no helper", async () => {
