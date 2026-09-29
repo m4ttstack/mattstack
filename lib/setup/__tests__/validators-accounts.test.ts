@@ -358,6 +358,22 @@ describe("accountRows — account.slack + account.slack-app", () => {
     expect(r.detail).toBe("no Slack account connected. If Slack rejects the redirect, add http://localhost:11234/callback in the app's OAuth settings");
   });
 
+  test("account.slack: token accepted but missing user scopes the board reads with -> needs-you naming them, oauth action", async () => {
+    const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
+    const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: true, team: "Acme" }), headers: { "x-oauth-scopes": "reactions:write,chat:write" } });
+    const r = await pickRow(accountRows(fakeProbes({ fetch }), team, SLACK_REQS, fakeSecrets({ "board.slackToken": "tok" }), null), "account.slack");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("reconnect Slack to grant: channels:read, groups:read, channels:history, groups:history, reactions:read");
+    expect(r.action).toEqual({ type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] });
+  });
+
+  test("account.slack: token granted every user scope -> ready", async () => {
+    const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
+    const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: true, team: "Acme" }), headers: { "x-oauth-scopes": "channels:read,groups:read,channels:history,groups:history,reactions:read,reactions:write,chat:write" } });
+    const r = await pickRow(accountRows(fakeProbes({ fetch }), team, SLACK_REQS, fakeSecrets({ "board.slackToken": "tok" }), null), "account.slack");
+    expect(r.status).toBe("ready");
+  });
+
   test("account.slack: app exists, token invalid -> invalid, oauth action still present (H2)", async () => {
     const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
     const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: false, error: "invalid_auth" }), headers: {} });

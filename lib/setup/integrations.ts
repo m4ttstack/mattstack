@@ -265,7 +265,7 @@ export const INTEGRATIONS: Record<Integration, IntegrationDef> = {
         return { status: "error", detail: "slack auth.test returned unparsable JSON", scopesSeen: [] };
       }
 
-      if (data.ok === true) return { status: "ready", detail: `connected as ${data.team ?? "unknown team"}`, scopesSeen: [] };
+      if (data.ok === true) return { status: "ready", detail: `connected as ${data.team ?? "unknown team"}`, scopesSeen: parseHeaderList(res.headers["x-oauth-scopes"]) };
       if (res.status !== 200) return { status: "error", detail: `slack auth.test failed (status ${res.status})`, scopesSeen: [] };
       return { status: "invalid", detail: data.error ? `slack error: ${data.error}` : "slack auth.test returned ok:false", scopesSeen: [] };
     },

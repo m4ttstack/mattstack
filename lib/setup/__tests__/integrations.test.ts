@@ -297,6 +297,12 @@ describe("slack validate", () => {
     expect(result.detail).toContain("Mattstack");
   });
 
+  test("auth.test reports the token's granted scopes from x-oauth-scopes", async () => {
+    const p = fakeProbes({ fetch: async () => ({ status: 200, body: JSON.stringify({ ok: true, team: "Mattstack" }), headers: { "x-oauth-scopes": "chat:write, reactions:write" } }) });
+    const result = await INTEGRATIONS.slack.validate(p, "xoxp-token", noHost);
+    expect(result.scopesSeen).toEqual(["chat:write", "reactions:write"]);
+  });
+
   test("auth.test ok:false → invalid", async () => {
     const p = fakeProbes({ fetch: async () => ({ status: 200, body: JSON.stringify({ ok: false, error: "invalid_auth" }), headers: {} }) });
     const result = await INTEGRATIONS.slack.validate(p, "xoxp-token", noHost);

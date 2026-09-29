@@ -39,7 +39,7 @@ import { NO_MANIFEST_DETAIL, setupPackFlow } from "../lib/setup/pack.ts";
 import { composePlan, enrichSnapshotForge, realSecretPresence } from "../lib/setup/plan.ts";
 import { createRealProbes, type Probes } from "../lib/setup/probes.ts";
 import { checkRepoRoot, stageRepoRoot } from "../lib/setup/repo-root.ts";
-import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, slackRedirectFix, slackRedirectUri } from "../lib/setup/slack-app.ts";
+import { DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError, buildSlackManifest, missingSlackUserScopes, slackRedirectFix, slackRedirectUri, slackUserScopeFix } from "../lib/setup/slack-app.ts";
 import { STEPS } from "../lib/setup/steps/index.ts";
 import { homeGitDir } from "../lib/setup/steps/home.ts";
 import { readStagedSecret, stageSecret } from "../lib/setup/staging.ts";
@@ -1264,7 +1264,8 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
 
   const callbackPort = snapshot.integrations.slack?.callbackPort ?? DEFAULT_CALLBACK_PORT;
   const redirectUri = slackRedirectUri(callbackPort);
-  const redirectFix = slackRedirectFix(callbackPort, snapshot.integrations.slack?.appId);
+  const appId = snapshot.integrations.slack?.appId;
+  const redirectFix = slackRedirectFix(callbackPort, appId);
   const state = deps.randomState();
   const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(clientId)}&user_scope=${encodeURIComponent(DEFAULT_SCOPE_NEEDS.user.join(","))}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
 
@@ -1275,7 +1276,10 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
     code = await deps.listen(callbackPort, state);
   } catch (err) {
     if (err instanceof SlackCallbackTimeoutError) {
-      throw new UserActionableError("slack-oauth-failed", `${err.message}. If Slack said redirect_uri did not match, ${redirectFix}, then connect again`);
+      throw new UserActionableError(
+        "slack-oauth-failed",
+        `${err.message}. If Slack said redirect_uri did not match, ${redirectFix}, then connect again. If Slack said invalid permissions requested, ${slackUserScopeFix(appId, DEFAULT_SCOPE_NEEDS.user)}, then connect again`,
+      );
     }
     throw new UserActionableError("slack-oauth-failed", err instanceof Error ? err.message : String(err));
   }
@@ -1299,7 +1303,7 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
   });
   if (tokenRes.status === 0) throw new UserActionableError("unreachable", "couldn't reach slack.com — check your network or proxy");
 
-  let data: { ok?: boolean; error?: string; authed_user?: { access_token?: string } };
+  let data: { ok?: boolean; error?: string; authed_user?: { access_token?: string; scope?: string } };
   try {
     data = JSON.parse(tokenRes.body);
   } catch {
@@ -1321,12 +1325,24 @@ async function connectSlack(args: string[], deps: ConnectDeps): Promise<void> {
     return;
   }
 
+  const granted = (data.authed_user?.scope ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const missing = granted.length ? missingSlackUserScopes(granted) : [];
+  if (missing.length) {
+    printIntegrationResult(deps, json, {
+      integration: "slack",
+      status: "invalid",
+      detail: `Slack granted fewer scopes than the board reads with because the team's Slack app does not declare them: ${slackUserScopeFix(appId, missing)}, then connect again`,
+      scopesSeen: granted,
+    });
+    return;
+  }
+
   const { staged } = await storeCredential(deps, "board", "slackToken", accessToken);
   printIntegrationResult(deps, json, {
     integration: "slack",
     status: "ready",
     detail: staged ? "staged until Install creates your key" : "slack connected",
-    scopesSeen: [],
+    scopesSeen: granted,
   });
 }
 

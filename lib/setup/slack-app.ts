@@ -14,8 +14,22 @@ export interface SlackScopeNeeds {
 
 export const DEFAULT_SCOPE_NEEDS: SlackScopeNeeds = {
   bot: ["chat:write", "reactions:write", "channels:read", "users:read"],
-  user: ["reactions:write", "chat:write"],
+  user: ["channels:read", "groups:read", "channels:history", "groups:history", "reactions:read", "reactions:write", "chat:write"],
 };
+
+export function missingSlackUserScopes(granted: string[]): string[] {
+  const have = new Set(granted);
+  return DEFAULT_SCOPE_NEEDS.user.filter((s) => !have.has(s));
+}
+
+function slackOAuthPage(appId: string | undefined): string {
+  return appId ? `https://api.slack.com/apps/${appId}/oauth` : "https://api.slack.com/apps (your app's OAuth & Permissions page)";
+}
+
+/** Slack grants a user token only the scopes the app itself declares, so a team app made before rt asked for these has to gain them on its OAuth page before any reconnect can help. */
+export function slackUserScopeFix(appId: string | undefined, missing: string[]): string {
+  return `add ${missing.join(", ")} under User Token Scopes at ${slackOAuthPage(appId)}`;
+}
 
 export const DEFAULT_CALLBACK_PORT = 11234;
 
@@ -30,8 +44,7 @@ export function slackRedirectUri(callbackPort: number): string {
  * named on failure rather than checked for up front.
  */
 export function slackRedirectFix(callbackPort: number, appId: string | undefined): string {
-  const page = appId ? `https://api.slack.com/apps/${appId}/oauth` : "https://api.slack.com/apps (your app's OAuth & Permissions page)";
-  return `add ${slackRedirectUri(callbackPort)} to the Slack app's Redirect URLs at ${page}`;
+  return `add ${slackRedirectUri(callbackPort)} to the Slack app's Redirect URLs at ${slackOAuthPage(appId)}`;
 }
 
 export function slackRedirectHint(callbackPort: number): string {

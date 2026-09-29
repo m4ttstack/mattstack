@@ -21,6 +21,23 @@ then **From an app manifest**, and paste
 event subscription, just user-token OAuth scopes for reading the channel,
 reacting, and posting.
 
+The user token scopes, and the calls that need them:
+
+| Scope | Board calls |
+| --- | --- |
+| `channels:read`, `groups:read` | `conversations.list` (finding the channel by name) |
+| `channels:history`, `groups:history` | `conversations.history`, `conversations.replies` |
+| `reactions:read` | `reactions.get` |
+| `reactions:write` | `reactions.add`, `reactions.remove` |
+| `chat:write` | `chat.postMessage` |
+
+`rt setup slack create-app` declares the same set, and `rt setup slack connect`
+asks for it. A team app created before rt asked for all of them grants a token
+that fails with `missing_scope`: the Slack row in setup then says
+`reconnect Slack to grant: <scopes>`, and if the reconnect still falls short,
+the app's owner adds the named scopes under **User Token Scopes** at
+`https://api.slack.com/apps/<appId>/oauth` first.
+
 While the app is unlisted, add each teammate under **Settings > Collaborators**
 so they can complete the OAuth flow, then share the app's client id and secret
 with the team.

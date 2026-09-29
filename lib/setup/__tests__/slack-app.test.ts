@@ -1,5 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { buildSlackManifest, DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS } from "../slack-app.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildSlackManifest, DEFAULT_CALLBACK_PORT, DEFAULT_SCOPE_NEEDS, missingSlackUserScopes, slackUserScopeFix } from "../slack-app.ts";
 import { setupSlackCreateApp, type ConnectDeps, type SecretWriter, type TeamSecrets } from "../../../commands/setup.ts";
 import { fakeProbes } from "./fakes.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
@@ -14,6 +16,66 @@ describe("buildSlackManifest", () => {
     expect(manifest.oauth_config.redirect_urls).toEqual(["http://localhost:22222/callback"]);
     expect(manifest.oauth_config.scopes.bot).toEqual(DEFAULT_SCOPE_NEEDS.bot);
     expect(manifest.oauth_config.scopes.user).toEqual(DEFAULT_SCOPE_NEEDS.user);
+  });
+});
+
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
+
+// Every Slack Web API method the board calls with the member's user token,
+// and the user scopes Slack requires for it with the conversation types the
+// board asks for (public and private channels, never DMs).
+const BOARD_METHOD_SCOPES: Record<string, string[]> = {
+  "auth.test": [],
+  "conversations.list": ["channels:read", "groups:read"],
+  "conversations.history": ["channels:history", "groups:history"],
+  "conversations.replies": ["channels:history", "groups:history"],
+  "reactions.get": ["reactions:read"],
+  "reactions.add": ["reactions:write"],
+  "reactions.remove": ["reactions:write"],
+  "chat.postMessage": ["chat:write"],
+};
+
+function boardSlackMethods(): string[] {
+  const src = readFileSync(join(REPO_ROOT, "apps/board/src/slack.ts"), "utf8");
+  return [...new Set([...src.matchAll(/\bcall\(\s*['"]([a-z]+\.[A-Za-z.]+)['"]/g)].map((m) => m[1]!))];
+}
+
+describe("DEFAULT_SCOPE_NEEDS.user covers the board's Slack calls", () => {
+  test("every method the board calls has a scope entry here", () => {
+    const methods = boardSlackMethods();
+    expect(methods.length).toBeGreaterThan(0);
+    expect(methods.filter((m) => !(m in BOARD_METHOD_SCOPES))).toEqual([]);
+  });
+
+  test("every scope a board method needs is requested", () => {
+    const missing = boardSlackMethods().flatMap((m) => (BOARD_METHOD_SCOPES[m] ?? []).filter((s) => !DEFAULT_SCOPE_NEEDS.user.includes(s)).map((s) => `${m} needs ${s}`));
+    expect(missing).toEqual([]);
+  });
+
+  test("nothing is requested that no board method needs", () => {
+    const needed = new Set(boardSlackMethods().flatMap((m) => BOARD_METHOD_SCOPES[m] ?? []));
+    expect([...DEFAULT_SCOPE_NEEDS.user].sort()).toEqual([...needed].sort());
+  });
+});
+
+describe("missingSlackUserScopes", () => {
+  test("names the requested user scopes a grant lacks, in request order", () => {
+    const granted = DEFAULT_SCOPE_NEEDS.user.filter((s) => s !== "groups:history" && s !== "reactions:read");
+    expect(missingSlackUserScopes(granted)).toEqual(DEFAULT_SCOPE_NEEDS.user.filter((s) => s === "groups:history" || s === "reactions:read"));
+  });
+
+  test("a full grant lacks nothing", () => {
+    expect(missingSlackUserScopes([...DEFAULT_SCOPE_NEEDS.user, "identify"])).toEqual([]);
+  });
+});
+
+describe("slackUserScopeFix", () => {
+  test("names the scopes and the app's own OAuth page", () => {
+    expect(slackUserScopeFix("A0TEAM", ["groups:read", "reactions:read"])).toBe("add groups:read, reactions:read under User Token Scopes at https://api.slack.com/apps/A0TEAM/oauth");
+  });
+
+  test("without an appId it points at the apps list", () => {
+    expect(slackUserScopeFix(undefined, ["groups:read"])).toBe("add groups:read under User Token Scopes at https://api.slack.com/apps (your app's OAuth & Permissions page)");
   });
 });
 
