@@ -10,7 +10,7 @@
  * credential.
  */
 
-import { DEFAULT_CALLBACK_PORT, slackRedirectHint } from "../slack-app.ts";
+import { DEFAULT_CALLBACK_PORT, missingSlackUserScopes, slackRedirectHint } from "../slack-app.ts";
 import type { Action, Integration, Row } from "../contract.ts";
 import { row } from "../contract.ts";
 import { readCredentialHealth, type CredentialHealthRow } from "../../credential-health/db.ts";
@@ -190,6 +190,9 @@ async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action
     return row({ ...base, status: "missing", detail: `no Slack account connected. ${hint}`, action: SLACK_OAUTH_ACTION });
   }
   const result = await def.validate(p, stored, ctx);
+  // An empty list means auth.test sent no x-oauth-scopes header, so the grant is unknown rather than empty.
+  const missing = result.status === "ready" && result.scopesSeen.length > 0 ? missingSlackUserScopes(result.scopesSeen) : [];
+  if (missing.length) return row({ ...base, status: "needs-you", detail: `reconnect Slack to grant: ${missing.join(", ")}`, action: SLACK_OAUTH_ACTION });
   if (result.status === "ready") return row({ ...base, status: "ready", detail: result.detail });
   return row({ ...base, status: result.status, detail: result.detail, action: SLACK_OAUTH_ACTION });
 }
