@@ -96,7 +96,7 @@ async function forgeRow(p: Probes, team: TeamSnapshot, intent: SetupIntent | nul
   return row({ ...base, status: "error", detail: `couldn't reach ${confirmedHost} — check your network or proxy`, action: RECHECK_ACTION });
 }
 
-async function repoRow(p: Probes, identity: string): Promise<Row> {
+async function repoRow(p: Probes, identity: string, overrides: UserIntegrationOverrides, secrets: SecretPresence | undefined): Promise<Row> {
   const base = {
     id: `access.repo.${repoIdentitySlug(identity)}`,
     kind: "access" as const,
@@ -107,14 +107,8 @@ async function repoRow(p: Probes, identity: string): Promise<Row> {
   };
   const remote = `https://${identity}.git`;
   const provider = forgeFromRemote(remote)?.provider ?? "github";
-  const probed = await probeTeamRepoAccess(p, remote, { kind: "absent" });
-  // A tracked repo is never probed with rt's token, so git having no
-  // credential says nothing about whether the user connected an account:
-  // offering a Connect action here would change nothing on the next probe.
-  const verdict: RepoAccessVerdict =
-    probed.kind === "no-account"
-      ? { kind: "indeterminate", detail: "couldn't determine access: this row probes without rt's token, so git had nothing to send" }
-      : probed;
+  const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets), remote, overrides.forgeHost);
+  const verdict = await probeTeamRepoAccess(p, remote, lookup);
   return row({ ...base, ...rowFromVerdict(verdict, { grantedBy: "that repo's admin", provider }) });
 }
 
@@ -149,7 +143,7 @@ export async function accessRows(p: Probes, team: TeamSnapshot, intent: SetupInt
     teamRepoRow(p, team, intent, overrides, secrets),
     forgeRow(p, team, intent, overrides),
     switchboardRow(p, team, overrides),
-    ...team.trackingIdentities.map((identity) => repoRow(p, identity)),
+    ...team.trackingIdentities.map((identity) => repoRow(p, identity, overrides, secrets)),
   ]);
 
   const rows: Row[] = [teamRepo!, forge!, ...repos];
