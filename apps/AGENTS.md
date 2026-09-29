@@ -765,6 +765,23 @@ Light / Dark). `Rail` and `RailBottom` are compound statics attached with
 </MattstackShell>
 ```
 
+A one-page app passes `rail={false}`: the kit renders no rail, the
+page takes the full width, and the colour-scheme control moves to the
+right end of the app bar. The page context goes in the app bar through
+`MattstackShell.Header` (`children` for the breadcrumb, `actions` for
+the rest), written as a direct child of `MattstackShell`. Rail and
+RailBottom children are dropped under `rail={false}` (a development
+build warns). `docs/apps/ui-authoring.md` says when each mode applies.
+
+```tsx
+<MattstackShell name="boxscore" mark={<AppMark size={30} />} rail={false}>
+  <MattstackShell.Header actions={<RefreshButton />}>
+    <Crumbs />
+  </MattstackShell.Header>
+  {children}
+</MattstackShell>
+```
+
 `DaemonBanner` is a presentational component; `useDaemonHealth(seed?:
 boolean)` polls `/api/daemon` (the route `@mattstack/app-server` mounts,
 see below) and returns `{ reachable, downSince, probeCount,

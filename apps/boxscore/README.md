@@ -32,7 +32,8 @@ The token stays **server-side only** ... the browser never sees it.
   metric math, GitLab fetch/store layer, and CLI live under it (`metrics/`, `store/`,
   `refresh/`, `linear/`, `cli.ts`); see "Notes & limitations" below for how that part works.
 - **`src/app`** is a [`@mattstack/app-kit`](https://github.com/m4ttstack/mattstack/tree/main/packages/ui) app
-  with its own rail and topbar (`src/app/shell/`), [wouter](https://github.com/molefrog/wouter) for
+  on the kit shell with no rail (`MattstackShell rail={false}`; the page context and actions
+  sit in the app bar, `src/app/shell/`), [wouter](https://github.com/molefrog/wouter) for
   routing (`src/app/routes.ts` maps `/`, `/user/:name` and `/user/:name/:stat` to a small
   `AppRoute` union; anything else is the not-found page), and
   [`@tanstack/react-query`](https://tanstack.com/query) for data fetching
@@ -42,7 +43,7 @@ The token stays **server-side only** ... the browser never sees it.
 - **`src/shared`** holds the wire types (`types.ts`) and metric metadata (`metrics.ts`)
   both sides import ... the one place a metric's key, label, and formatting are defined.
 - **Settings** are not a committed config file: they live in the rt settings store and are
-  edited in console (`/settings#boxscore`); the rail's settings entry opens it in a new tab.
+  edited in console (`/settings#boxscore`); the app bar's settings link opens it in a new tab.
   `rt settings list` still works for a read-only check from the terminal; see "Setup" below.
 
 ## UI
