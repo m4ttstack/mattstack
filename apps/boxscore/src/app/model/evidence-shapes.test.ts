@@ -115,8 +115,8 @@ describe('calendarWeeks', () => {
   it('lays a Sunday-start 30 day window out as five Sun to Sat rows', () => {
     const weeks = calendarWeeks(
       pushes,
-      '2026-05-31T12:00:00.000Z',
-      '2026-06-30T12:00:00.000Z'
+      '2026-05-31T00:00:00.000Z',
+      '2026-06-30T00:00:00.000Z'
     );
     expect(weeks).toHaveLength(5);
     for (const w of weeks) expect(w).toHaveLength(7);
@@ -195,8 +195,8 @@ describe('mergeDays', () => {
     };
     const days = mergeDays(
       merges,
-      '2026-05-31T12:00:00.000Z',
-      '2026-06-14T12:00:00.000Z'
+      '2026-05-31T00:00:00.000Z',
+      '2026-06-14T00:00:00.000Z'
     );
     expect(days).toHaveLength(14);
     expect(days[0]).toEqual({ date: '2026-05-31', count: 0, run: 'none' });
@@ -240,6 +240,59 @@ describe('mergeDays', () => {
       'longest',
       'longest',
     ]);
+  });
+});
+
+describe('a live window ending mid-day', () => {
+  const start = '2026-06-01T15:30:00.000Z';
+  const end = '2026-06-08T15:30:00.000Z';
+
+  it('keeps the day containing the end in the calendar', () => {
+    const pushes: MetricEvidence = {
+      columns: ['Date', 'Pushes'],
+      rows: rows([
+        ['2026-06-08', '4'],
+        ['2026-06-01', '2'],
+      ]),
+    };
+    const inWindow = calendarWeeks(pushes, start, end)
+      .flat()
+      .filter(d => d.inWindow);
+    expect(inWindow[0]).toMatchObject({ date: '2026-06-01', count: 2 });
+    expect(inWindow.at(-1)).toMatchObject({ date: '2026-06-08', count: 4 });
+    expect(inWindow).toHaveLength(8);
+  });
+
+  it('lets the current run include the end day', () => {
+    const merges: MetricEvidence = {
+      columns: ['Date', 'MRs merged'],
+      rows: rows([
+        ['2026-06-08', '1'],
+        ['2026-06-07', '2'],
+        ['2026-06-03', '1'],
+        ['2026-06-02', '1'],
+        ['2026-06-01', '1'],
+      ]),
+    };
+    const days = mergeDays(merges, start, end);
+    expect(days.at(-1)).toEqual({
+      date: '2026-06-08',
+      count: 1,
+      run: 'current',
+    });
+    expect(days.filter(d => d.run === 'current').map(d => d.date)).toEqual([
+      '2026-06-07',
+      '2026-06-08',
+    ]);
+  });
+
+  it('stops before a day the window only touches at midnight', () => {
+    const days = mergeDays(
+      { columns: ['Date', 'MRs merged'], rows: [] },
+      '2026-06-01T00:00:00.000Z',
+      '2026-06-08T00:00:00.000Z'
+    );
+    expect(days.at(-1)?.date).toBe('2026-06-07');
   });
 });
 
@@ -341,8 +394,8 @@ describe('the design fixture reproduces the drawn panels', () => {
     const days = weeks.flat();
     expect(weeks).toHaveLength(5);
     expect(weeks[0]![0]!.date).toBe('2026-08-30');
-    expect(days.filter(d => d.inWindow)).toHaveLength(30);
-    expect(days.filter(d => d.inWindow).at(-1)?.date).toBe('2026-09-28');
+    expect(days.filter(d => d.inWindow)).toHaveLength(31);
+    expect(days.filter(d => d.inWindow).at(-1)?.date).toBe('2026-09-29');
     expect(Math.max(...days.map(d => d.count))).toBe(28);
     expect(days.find(d => d.count === 28)?.date).toBe('2026-09-17');
     expect(days.filter(d => d.count > 0)).toHaveLength(21);
@@ -350,7 +403,7 @@ describe('the design fixture reproduces the drawn panels', () => {
 
   it('merge days', () => {
     const days = mergeDays(ev.longestStreak!, start, end);
-    expect(days).toHaveLength(30);
+    expect(days).toHaveLength(31);
     expect(days.filter(d => d.run === 'longest').map(d => d.date)).toEqual([
       '2026-09-21',
       '2026-09-22',

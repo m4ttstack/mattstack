@@ -122,16 +122,15 @@ const dateOf = (n: number): string =>
   new Date(n * DAY_MS).toISOString().slice(0, 10);
 
 /**
- * The window's days run from the start's UTC day for as many whole days as
- * the window spans, so a 30 day window is 30 cells even when both ends fall
- * mid-day.
+ * Every UTC day that overlaps [start, end). The server buckets records up to
+ * end, so a live window ending mid-day must keep today in the grid.
  */
 function windowDays(windowStart: string, windowEnd: string): number[] {
   const first = dayNum(windowStart);
-  const span = Math.round(
-    (Date.parse(windowEnd) - Date.parse(windowStart)) / DAY_MS
-  );
-  return Array.from({ length: Math.max(span, 0) }, (_, i) => first + i);
+  const lastMs = Date.parse(windowEnd) - 1;
+  if (!(lastMs >= Date.parse(windowStart))) return [];
+  const last = dayNum(new Date(lastMs).toISOString());
+  return Array.from({ length: last - first + 1 }, (_, i) => first + i);
 }
 
 /** Date-keyed evidence: the first column is the day, the second its count. */
