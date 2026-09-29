@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
+import { deckAppUrl } from '@mattstack/app-server/event-bridge';
 import {
   isLocalRequest,
   type LocalServer,
@@ -8,6 +9,13 @@ import {
 import { settingsHandler } from '@mattstack/settings-kit/server';
 import type { CacheStatsResponse } from '../shared/types.js';
 import { ConfigError, readSettings } from './config/index.js';
+import {
+  fixtureDetail,
+  fixtureLeaderboard,
+  fixtureMode,
+  fixtureRefresh,
+  fixtureScenario,
+} from './fixture/index.js';
 import {
   getLeaderboard,
   getUserDetail,
@@ -43,6 +51,10 @@ function windowFromQuery(c: Context) {
 
 const leaderboard = new Hono()
   .get('/api/leaderboard', async c => {
+    if (fixtureMode())
+      return fixtureScenario() === 'cold-stalled'
+        ? c.json({ cached: false as const }, 200)
+        : c.json(fixtureLeaderboard(boolQuery(c, 'trend')));
     const window = windowFromQuery(c);
     if (window instanceof Response) return window;
 
@@ -70,6 +82,12 @@ const leaderboard = new Hono()
   .get('/api/detail', async c => {
     const user = c.req.query('user');
     if (!user) return c.json({ error: 'user query param is required' }, 400);
+    if (fixtureMode()) {
+      const detail = fixtureDetail(user, boolQuery(c, 'trend'));
+      return detail
+        ? c.json(detail)
+        : c.json({ error: `unknown user: ${user}` }, 404);
+    }
 
     const window = windowFromQuery(c);
     if (window instanceof Response) return window;
@@ -88,10 +106,15 @@ const leaderboard = new Hono()
       console.error('[detail] failed:', err);
       return c.json({ error: (err as Error).message ?? 'Internal error' }, 500);
     }
+  })
+  .get('/api/links', async c => {
+    const url = fixtureMode() ? null : await deckAppUrl('console');
+    return c.json({ console: url ?? 'https://console.mattstack' });
   });
 
 const jobs = new Hono()
   .post('/api/refresh', c => {
+    if (fixtureMode()) return c.json(fixtureRefresh());
     const window = windowFromQuery(c);
     if (window instanceof Response) return window;
     const trend = boolQuery(c, 'trend');
@@ -108,11 +131,14 @@ const jobs = new Hono()
     return c.json(toStatusResponse(job));
   })
   .get('/api/refresh/:id', async c => {
+    if (fixtureMode()) return c.json(fixtureRefresh());
     const job = getRefresh(c.req.param('id'));
     if (!job) return c.json({ error: 'unknown job' }, 404);
     return c.json(toStatusResponse(job));
   })
   .post('/api/refresh/:id/cancel', c => {
+    if (fixtureMode())
+      return c.json({ ...fixtureRefresh(), status: 'cancelled' as const });
     const job = cancelRefresh(c.req.param('id'));
     if (!job) return c.json({ error: 'unknown job' }, 404);
     return c.json(toStatusResponse(job));
