@@ -30,7 +30,7 @@ import { updateSetupState } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
-export const MATTSTACK_MARKETPLACE_SOURCE = "https://github.com/m4ttstack/mattstack-marketplace";
+export const MATTSTACK_MARKETPLACE_SOURCE = "https://github.com/m4ttstack/mattstack-marketplace.git";
 /** The source plugins.install adds the mattstack marketplace from on this machine. */
 export function mattstackMarketplaceSource(env: Record<string, string | undefined>): string {
   return env.RT_MATTSTACK_MARKETPLACE || MATTSTACK_MARKETPLACE_SOURCE;
@@ -52,17 +52,57 @@ function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-/** Registered marketplace names, or null when this claude cannot list them as JSON (the caller then falls back to the add's own reply). */
-async function listMarketplaceNames(run: (args: string[]) => Promise<ExecResult>): Promise<Set<string> | null> {
+interface RegisteredMarketplace {
+  name: string;
+  /** The `repo`, `url` or `path` Claude Code recorded, whichever its `source` kind carries. */
+  source: string | null;
+}
+
+/** Registered marketplaces, or null when this claude cannot list them as JSON (the caller then falls back to the add's own reply). */
+async function listMarketplaces(run: (args: string[]) => Promise<ExecResult>): Promise<RegisteredMarketplace[] | null> {
   const res = await run(["plugin", "marketplace", "list", "--json"]);
   if (res.code !== 0) return null;
   try {
     const parsed: unknown = JSON.parse(res.stdout);
     if (!Array.isArray(parsed)) return null;
-    return new Set(parsed.map((m) => (m as { name?: unknown })?.name).filter((n): n is string => typeof n === "string"));
+    const out: RegisteredMarketplace[] = [];
+    for (const m of parsed as { name?: unknown; repo?: unknown; url?: unknown; path?: unknown }[]) {
+      if (typeof m?.name !== "string") continue;
+      const source = [m.repo, m.url, m.path].find((v): v is string => typeof v === "string" && v.length > 0) ?? null;
+      out.push({ name: m.name, source });
+    }
+    return out;
   } catch {
     return null;
   }
+}
+
+const GITHUB_SHORTHAND = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+/**
+ * One key for every spelling of the same repo: `owner/repo`, https with or
+ * without `.git` or a trailing slash, `git@host:` and `ssh://`. Claude Code
+ * records either https spelling as the `.git` url and the shorthand as a
+ * github `repo`, and a re-add under a different kind fails rather than
+ * reporting the marketplace already on disk.
+ */
+function marketplaceSourceKey(source: string): string {
+  const s = source.trim().replace(/\/+$/, "").replace(/\.git$/i, "");
+  if (GITHUB_SHORTHAND.test(s)) return `github.com/${s}`.toLowerCase();
+  const scp = /^[^@/\s]+@([^:/\s]+):(.+)$/.exec(s);
+  if (scp) return `${scp[1]}/${scp[2]}`.toLowerCase();
+  const url = /^(?:https?|ssh|git):\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/.exec(s);
+  if (url) return `${url[1]}/${url[2]}`.toLowerCase();
+  return s;
+}
+
+/** Claude's own first line of output, so a failed row says what claude said rather than just its exit code. */
+function claudeMessage(res: ExecResult, fallback: string): string {
+  const line = `${res.stderr}\n${res.stdout}`
+    .split("\n")
+    .map((l) => l.replace(/^[\s✘✖×]+/, "").trim())
+    .find((l) => l.length > 0);
+  return line ?? fallback;
 }
 
 /** A repeat add exits 0 and says so on stdout; a same-name clash from a different source fails with "already added" on stderr. */
@@ -188,6 +228,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
 
   const teamMarketplace = ctx.team.slug ? readTeamMarketplace(ctx, ctx.team.slug) : null;
   const marketplaces = computeMarketplaces(ctx);
+  const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
   const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins } = computePlugins(ctx, teamMarketplace);
   const allPlugins = dedupe([...trustedPlugins, ...teamAuthoredPlugins]);
   const configDirs = claudeConfigDirs(ctx.p, []);
@@ -213,14 +254,26 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     const runIn = (args: string[]) => ctx.p.exec([...claude.exec!, ...args], { env, timeoutMs: PACK_EXEC_TIMEOUT_MS });
     // A name appearing in the listing is the only wording-independent proof
     // that this add created the marketplace rather than finding it there.
-    let known = await listMarketplaceNames(runIn);
+    let known = await listMarketplaces(runIn);
     for (const src of marketplaces) {
+      const key = marketplaceSourceKey(src);
+      if (known?.some((m) => m.source !== null && marketplaceSourceKey(m.source) === key)) continue;
+      if (src === mattstackSource) {
+        const squatter = known?.find((m) => m.name === "mattstack");
+        if (squatter) {
+          return {
+            state: "failed",
+            detail: `a mattstack marketplace from ${squatter.source ?? "another source"} is already registered`,
+            remedy: "Run `claude plugin marketplace remove mattstack`, then Retry.",
+          };
+        }
+      }
       const res = await runIn(["plugin", "marketplace", "add", src]);
       if (res.code !== 0 && !isAlready(res)) {
-        return { state: "failed", detail: `claude plugin marketplace add exited ${res.code}`, remedy: RETRY_REMEDY };
+        return { state: "failed", detail: claudeMessage(res, `claude plugin marketplace add exited ${res.code}`), remedy: RETRY_REMEDY };
       }
-      const after = known ? await listMarketplaceNames(runIn) : null;
-      const created = known && after ? [...after].some((name) => !known!.has(name)) : !addFoundExisting(res);
+      const after = known ? await listMarketplaces(runIn) : null;
+      const created = known && after ? after.some((m) => !known!.some((k) => k.name === m.name)) : !addFoundExisting(res);
       if (created) addedMarketplaces.push(src);
       known = after;
     }
