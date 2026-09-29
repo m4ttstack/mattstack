@@ -65,42 +65,39 @@ body {
   background: var(--chrome);
 }
 
-/* Cross-app switcher, plus the theme picker pulled out of the controls row
-   (it's a personal display preference, not a board filter, and was the
-   heaviest single item competing for that row's width): both pinned to the
-   header card's top-right corner via absolute positioning, since
-   `.tui-header` wraps (`flex-wrap: wrap`) -- on the real board the controls
-   row wraps below the title, so a flex sibling would land after the
-   controls rather than in the corner. The header's extra right padding
-   above reserves room so the title/controls never run under this corner. */
-.tui-app-launcher {
+/* The scheme control, pinned to the header card's top-right corner via
+   absolute positioning, since `.tui-header` wraps (`flex-wrap: wrap`): on the
+   real board the controls row wraps below the title, so a flex sibling would
+   land after the controls rather than in the corner. `.tui-header-title`
+   reserves room so the title never runs under this corner. */
+.tui-header-corner {
   position: absolute;
   top: 0.5rem;
   right: 0.7rem;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
 }
-/* The corner is chrome, not a control the eye should land on: the theme
-   picker drops the segmented recipe's frame and its saturated active fill
-   for muted glyphs and a soft neutral pick, so it sits quieter than the
-   filters in the row below and does not compete with the app mark. */
-.tui-app-launcher [data-part='segmented'] {
+/* Mirrors the app-kit rail's subtle icon button: a quiet glyph at rest, the
+   soft accent surface on hover, focus and while its menu is open. */
+.tui-theme-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
-  border-color: transparent;
+  color: var(--text-accent);
+  cursor: pointer;
 }
-.tui-app-launcher [data-part='segmented-option'] {
-  color: color-mix(in srgb, var(--text-4) 70%, transparent);
-  background: transparent;
-  padding-inline: 0.3rem;
-}
-.tui-app-launcher [data-part='segmented-option']:hover {
-  color: var(--text-3);
-}
-.tui-app-launcher [data-part='segmented-option'][data-active] {
-  color: var(--text-2);
-  background: color-mix(in srgb, var(--fg) 8%, transparent);
+.tui-theme-control:hover,
+.tui-theme-control:focus-visible,
+.tui-theme-control[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--fill-accent) 12%, transparent);
 }
 .tui-header h1 {
   display: flex;
@@ -1621,12 +1618,12 @@ body {
   border-color: var(--fill-accent);
 }
 /* Only the title shares a band with the absolutely-positioned corner
-   (theme picker + app launcher), so the clearance belongs here rather than
+   (the scheme control), so the clearance belongs here rather than
    on `.tui-header`'s padding -- padding there would also indent the
    controls row, which wraps below the corner and had to scroll for it. */
 .tui-header-title {
   min-width: 0;
-  padding-right: 10rem;
+  padding-right: 3rem;
 }
 /* The left drawer IS the burger menu, which only exists below 720px (see the
    media query below for the unhide). That is a BOARD LAYOUT decision, not a
