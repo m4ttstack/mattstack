@@ -52,6 +52,15 @@ interface RealDoctor {
 /** Real `fast-browser doctor --json` shape from a fully healthy machine: all 21 checks report "pass". */
 const REAL_DOCTOR: RealDoctor = JSON.parse(readFileSync(join(FIXTURE_DIR, "doctor.json"), "utf8"));
 
+/**
+ * Real `fast-browser doctor --checks … --json` from bundled fast-browser 0.1.8
+ * under a HOME holding only the pinned runtime: a setup that installed the
+ * runtime, then stopped before writing ~/.fast-browser/config.json.
+ */
+const SETUP_INCOMPLETE_DOCTOR: RealDoctor = JSON.parse(readFileSync(join(FIXTURE_DIR, "doctor-setup-incomplete.json"), "utf8"));
+
+const WEB_STORE_URL = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm";
+
 function withCheckStatus(doctor: RealDoctor, id: string, status: string): RealDoctor {
   return { ...doctor, checks: doctor.checks.map((c) => (c.id === id ? { ...c, status } : c)) };
 }
@@ -306,7 +315,7 @@ describe("toolRows — tool.fast-browser", () => {
   test("real fully healthy envelope -> ready, and doctor ran through the resolved exec (C2)", async () => {
     const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
-    expect(p.calls.exec).toContainEqual(["node", "fast-browser.mjs", "doctor", "--checks", "runtime-checksum,extension-installed,extension-loaded,pairing", "--json"]);
+    expect(p.calls.exec).toContainEqual(["node", "fast-browser.mjs", "doctor", "--checks", "runtime-checksum,extension-installed,extension-loaded,pairing,data-permissions", "--json"]);
     expect(r.status).toBe("ready");
   });
 
@@ -333,6 +342,26 @@ describe("toolRows — tool.fast-browser", () => {
     expect(r.required).toBe(false);
     expect(r.optionalNote).toBe("Installed by Install (fastbrowser.setup).");
     expect(r.action).toEqual({ type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] });
+  });
+
+  // The runtime lands before setup registers the host plugin, so a setup that
+  // refuses there leaves a passing runtime and no config.json; data-permissions
+  // is the check that reads that file.
+  test("runtime installed but setup never finished (no config.json) -> needs-you with Run setup, not ready", async () => {
+    const p = fakeProbes({ exec: doctorExec(SETUP_INCOMPLETE_DOCTOR, 1) });
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("runtime ok, but setup has not finished");
+    expect(r.required).toBe(false);
+    expect(r.action).toEqual({ type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] });
+  });
+
+  test("data-permissions check absent from the report -> error, not a guessed ready", async () => {
+    const p = fakeProbes({ exec: doctorExec(withoutCheck(REAL_DOCTOR, "data-permissions")) });
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    expect(r.status).toBe("error");
+    expect(r.detail).toContain("data-permissions");
+    expect(r.required).toBe(false);
   });
 
   test("solo: a pending (needs-you) branch carries the solo note too, not just the not-resolvable branch", async () => {
@@ -439,7 +468,19 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(r.required).toBe(false);
     expect(r.action?.type).toBe("steps");
     const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toContain("chrome://extensions");
+    expect(steps[0]).toContain(WEB_STORE_URL);
+    expect(steps.join(" ")).toContain("reconnect token");
+  });
+
+  // The extension ships on the Chrome Web Store; doctor's remedy for a missing
+  // one still walks a fresh user through Developer mode and Load unpacked.
+  test("not installed (real doctor report) -> Web Store install steps, never Developer mode or Load unpacked", async () => {
+    const r = await pickRow(toolRows(withChrome(doctorExec(SETUP_INCOMPLETE_DOCTOR)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("The pinned Chrome extension is not installed.");
+    const steps = (r.action as { steps: string[] }).steps;
+    expect(steps[0]).toBe(`Install Fast Browser from the Chrome Web Store: ${WEB_STORE_URL}`);
+    expect(steps.join(" ")).not.toMatch(/Developer mode|Load unpacked/);
     expect(steps.join(" ")).toContain("reconnect token");
   });
 
@@ -453,7 +494,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     expect(r.status).toBe("needs-you");
     expect(r.detail).toBe("The pinned Chrome extension is not installed.");
     const steps = (r.action as { steps: string[] }).steps;
-    expect(steps[0]).toContain("chrome://extensions");
+    expect(steps[0]).toContain(WEB_STORE_URL);
   });
 
   // doctor distinguishes a missing extension from a store copy on another
@@ -474,7 +515,7 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const r = await pickRow(toolRows(withChrome(doctorExec(report)), [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("needs-you");
     expect(typeof r.detail).toBe("string");
-    expect((r.action as { steps: string[] }).steps[0]).toContain("chrome://extensions");
+    expect((r.action as { steps: string[] }).steps[0]).toContain(WEB_STORE_URL);
   });
 
   // A stale unpacked load needs Chrome's reload arrow; loading unpacked again

@@ -230,7 +230,7 @@ interface FastBrowserProbe {
 }
 
 /** The checks the two rows read. The full doctor adds a live Codex agent smoke that costs most of its runtime. */
-const DOCTOR_CHECKS = ["runtime-checksum", "extension-installed", "extension-loaded", "pairing"];
+const DOCTOR_CHECKS = ["runtime-checksum", "extension-installed", "extension-loaded", "pairing", "data-permissions"];
 
 /** One `doctor` run feeds both rows: they read different fields of the same report, and a second spawn would double the bounded wait on every plan. */
 async function probeFastBrowser(p: Probes, seams: ToolsSeams): Promise<FastBrowserProbe> {
@@ -274,9 +274,16 @@ function fastBrowserRow(probe: FastBrowserProbe, solo: boolean): Row {
   if (probe.failure) return row({ ...base, ...pending, status: "error", detail: probe.failure });
 
   const runtime = checkState(probe.doctor, "runtime-checksum");
-  if (runtime === "pass") return row({ ...base, status: "ready", detail: "runtime ok" });
   if (runtime === "absent") return row({ ...base, ...pending, status: "error", detail: "fast-browser doctor report has no runtime-checksum check" });
-  return row({ ...base, ...pending, status: "needs-you", detail: "runtime not ready", action: FAST_BROWSER_SETUP_ACTION });
+  if (runtime === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "runtime not ready", action: FAST_BROWSER_SETUP_ACTION });
+
+  // setup installs the runtime before it registers the host plugin and writes
+  // config.json, so a setup refused in between leaves a passing runtime and a
+  // CLI that cannot run; data-permissions is the check that reads config.json.
+  const config = checkState(probe.doctor, "data-permissions");
+  if (config === "absent") return row({ ...base, ...pending, status: "error", detail: "fast-browser doctor report has no data-permissions check" });
+  if (config === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "runtime ok, but setup has not finished", action: FAST_BROWSER_SETUP_ACTION });
+  return row({ ...base, status: "ready", detail: "runtime ok" });
 }
 
 const PAIRING_STEPS = [
@@ -284,10 +291,12 @@ const PAIRING_STEPS = [
   "Run: fast-browser configure --connection auto, then paste the token into the Keychain prompt",
   "Run: fast-browser doctor",
 ];
+/** The id fast-browser's runtime-lock.json pins; doctor passes a Web Store install as extension-installed. */
+const FAST_BROWSER_WEB_STORE_URL = "https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm";
 const FAST_BROWSER_LOAD_STEPS: Action = {
   type: "steps",
   label: "Show steps…",
-  steps: ["Open chrome://extensions", "Turn on Developer mode", "Load unpacked → ~/.fast-browser/extension/current/unpacked", ...PAIRING_STEPS],
+  steps: [`Install Fast Browser from the Chrome Web Store: ${FAST_BROWSER_WEB_STORE_URL}`, ...PAIRING_STEPS],
 };
 const FAST_BROWSER_PAIR_STEPS: Action = { type: "steps", label: "Show steps…", steps: PAIRING_STEPS };
 /** A doctor report this build cannot read blocks Finish like any other non-ready state, so the row carries its own way out rather than leaving Skip for now as the only affordance. */
@@ -299,13 +308,16 @@ function doctorText(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
+/** doctor's remedy for a missing extension is the unpacked load; rt offers the Web Store install in its place. */
+const UNPACKED_LOAD_REMEDY = /Load unpacked/i;
+
 function doctorRemedy(check: FastBrowserCheck | undefined): Action {
   const remedy = doctorText(check?.remediation);
-  return remedy ? { type: "steps", label: "Show steps…", steps: [remedy] } : FAST_BROWSER_LOAD_STEPS;
+  return remedy && !UNPACKED_LOAD_REMEDY.test(remedy) ? { type: "steps", label: "Show steps…", steps: [remedy] } : FAST_BROWSER_LOAD_STEPS;
 }
 
 /**
- * Never gates Install in any Chrome state: loading an unpacked extension is a
+ * Never gates Install in any Chrome state: installing the extension is a
  * Chrome step rt cannot perform, and nothing on the checklist can create the
  * extension directory before Install does. It gates Finish instead
  * (`finishGated`), unless the user waives it on this Mac.
@@ -330,8 +342,8 @@ function fastBrowserExtensionRow(p: Probes, probe: FastBrowserProbe, solo: boole
   const installed = probe.doctor.checks?.find((c) => c.id === "extension-installed");
   if (!installed) return row({ ...base, status: "error", detail: `fast-browser doctor report has no extension-installed check; ${DOCTOR_CHECK_MISSING_REMEDY}`, action: FAST_BROWSER_RECHECK });
   // doctor tells a missing extension from a store copy on another version;
-  // only its own remedy fits each, and the load steps would trade a store
-  // copy for one that never auto-updates.
+  // a store copy keeps doctor's own remedy, and a missing one gets the Web
+  // Store install rather than an unpacked load that never auto-updates.
   if (installed.status !== "pass") return row({ ...base, status: "needs-you", detail: doctorText(installed.message) ?? "not installed in Chrome", action: doctorRemedy(installed) });
 
   const extension = checkState(probe.doctor, "extension-loaded");
