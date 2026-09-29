@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
@@ -44,24 +45,43 @@ describe('kit shell', () => {
     const controls = Array.from(banner.querySelectorAll('button, a')).map(
       el => el.getAttribute('aria-label') ?? el.textContent
     );
-    expect(controls).toEqual(['Refresh', 'Settings', 'Color scheme']);
+    expect(controls).toEqual([
+      'Refresh',
+      'Settings, opens console in a new tab',
+      'Color scheme: System',
+    ]);
   });
 
   it('links settings out to the console boxscore section in a new tab', () => {
     renderAt('/');
     const link = within(screen.getByRole('banner')).getByRole('link', {
-      name: 'Settings',
+      name: 'Settings, opens console in a new tab',
     });
     expect(link.getAttribute('href')).toMatch(/\/settings#boxscore$/);
     expect(link).toHaveAttribute('target', '_blank');
   });
 
+  it('names the console destination in the settings tooltip', async () => {
+    const user = userEvent.setup();
+    renderAt('/');
+    await user.hover(
+      within(screen.getByRole('banner')).getByRole('link', {
+        name: 'Settings, opens console in a new tab',
+      })
+    );
+    expect(
+      await screen.findByText('Opens console › boxscore', {}, { timeout: 2000 })
+    ).toBeInTheDocument();
+  });
+
   it('keeps the same top bar on a person page', () => {
     renderAt('/user/srivera');
     const banner = within(screen.getByRole('banner'));
-    expect(banner.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
     expect(
-      banner.getByRole('button', { name: 'Color scheme' })
+      banner.getByRole('link', { name: 'Settings, opens console in a new tab' })
+    ).toBeInTheDocument();
+    expect(
+      banner.getByRole('button', { name: 'Color scheme: System' })
     ).toBeInTheDocument();
   });
 });

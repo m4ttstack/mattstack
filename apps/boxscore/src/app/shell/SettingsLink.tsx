@@ -24,7 +24,7 @@ export function SettingsLink() {
         rel="noreferrer"
         variant="subtle"
         size={MATTSTACK_HEADER_ICON_SIZE}
-        aria-label="Settings"
+        aria-label="Settings, opens console in a new tab"
       >
         <Icon name="settings" size={16} />
       </ActionIcon>
