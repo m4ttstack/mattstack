@@ -58,11 +58,17 @@ function connectAction(def: IntegrationDef, includeAlternatives: boolean, forge?
   };
 }
 
-/** A token the forge accepts can still lack what git or the members API will need later, so the shortfall is named on the row rather than at the clone. */
+/**
+ * A token the forge accepts can still lack what git, the members API or the
+ * board's review posting will need later, so the shortfall is named on the
+ * row rather than at the clone. It reads `needs-you`, not `invalid`: the
+ * token works, so Install's verify leaves it for the member to reconnect
+ * instead of failing an update for every member whose role's scopes grew.
+ */
 function scopeShortfall(forge: ForgeConnect | undefined, result: { status: string; scopesSeen: string[] }): string | null {
   if (!forge || result.status !== "ready") return null;
   const missing = missingScopes(forge.provider, forge.role, result.scopesSeen);
-  return missing.length ? scopeShortfallDetail(forge.provider, missing) : null;
+  return missing.length ? scopeShortfallDetail(forge.provider, forge.role, missing) : null;
 }
 
 function secretSpec(def: IntegrationDef): { domain: string; key: string } {
@@ -169,7 +175,7 @@ async function githubRow(p: Probes, base: Omit<Row, "status" | "detail" | "actio
   // A stored token that's now invalid/unreachable still needs a replaceable action — check whether a healthy
   // gh session sits right there before deciding whether "use gh instead" is an affordance that can actually work.
   const ghStatus = await p.exec(["gh", "auth", "status"]);
-  return row({ ...base, status: short ? "invalid" : result.status, detail: short ?? result.detail, action: connectAction(def, ghStatus.code === 0, forge) });
+  return row({ ...base, status: short ? "needs-you" : result.status, detail: short ?? result.detail, action: connectAction(def, ghStatus.code === 0, forge) });
 }
 
 /** The oauth Connect action only makes sense once the team's own Slack app exists (`clientId` set) — before that, this row explains the dependency on account.slack-app instead of offering a flow that would run against an app that doesn't exist yet. */
@@ -232,7 +238,7 @@ async function genericRow(p: Probes, base: Omit<Row, "status" | "detail" | "acti
   const result = await def.validate(p, stored, ctx);
   const short = scopeShortfall(forge, result);
   if (result.status === "ready" && !short) return row({ ...base, status: "ready", detail: result.detail });
-  return row({ ...base, status: short ? "invalid" : result.status, detail: short ?? result.detail, action: connectAction(def, true, forge) });
+  return row({ ...base, status: short ? "needs-you" : result.status, detail: short ?? result.detail, action: connectAction(def, true, forge) });
 }
 
 function forgeConnectFor(p: Probes, id: Integration, ctx: ValidateCtx, intent: SetupIntent | null, team: TeamSnapshot): ForgeConnect | undefined {

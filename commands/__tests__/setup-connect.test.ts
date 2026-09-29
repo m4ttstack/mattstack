@@ -260,7 +260,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api to post board review comments)");
+    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
   });
 
   test("no intent (after Install): the owner of a team rt did not join is held to the owner's scopes", async () => {
@@ -276,7 +276,7 @@ describe("integrationConnect: forge token scopes", () => {
 
     const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
     expect(body.status).toBe("invalid");
-    expect(body.detail).toBe("token is missing: api (needs api to post board review comments)");
+    expect(body.detail).toBe("token is missing: api (needs api for the home-repo push and members sync)");
   });
 
   test("a gh session token short of a scope is refused with the gh command that widens it", async () => {

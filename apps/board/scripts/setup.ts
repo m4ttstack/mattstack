@@ -227,7 +227,7 @@ async function main() {
   const existingConfig = loadExistingConfig();
 
   const gitlabToken = ask(
-    'GitLab personal access token (read_api scope)',
+    'GitLab personal access token (api scope)',
     env.GITLAB_TOKEN
   );
   if (!gitlabToken) {

@@ -76,11 +76,15 @@ describe("missingScopes", () => {
 });
 
 describe("scopeShortfallDetail", () => {
-  test("a gitlab token short of api says the board needs it to post reviews", () => {
-    expect(scopeShortfallDetail("gitlab", ["api"])).toBe("token is missing: api (needs api to post board review comments)");
+  test("a member's gitlab token short of api says the board needs it to post reviews", () => {
+    expect(scopeShortfallDetail("gitlab", "member", ["api"])).toBe("token is missing: api (needs api to post board review comments)");
+  });
+
+  test("an owner's gitlab token short of api names the owner's own needs", () => {
+    expect(scopeShortfallDetail("gitlab", "owner", ["api"])).toBe("token is missing: api (needs api for the home-repo push and members sync)");
   });
 
   test("scopes with no recorded reason are just named", () => {
-    expect(scopeShortfallDetail("github", ["read:org"])).toBe("token is missing: read:org");
+    expect(scopeShortfallDetail("github", "member", ["read:org"])).toBe("token is missing: read:org");
   });
 });

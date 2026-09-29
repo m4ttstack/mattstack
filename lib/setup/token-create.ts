@@ -29,8 +29,11 @@ const IMPLIES: Record<string, readonly string[]> = {
   "write:org": ["read:org"],
 };
 
-const REASONS: Partial<Record<ForgeProvider, Record<string, string>>> = {
-  gitlab: { api: "needs api to post board review comments" },
+const REASONS: Partial<Record<ForgeProvider, Record<ForgeRole, Record<string, string>>>> = {
+  gitlab: {
+    owner: { api: "needs api for the home-repo push and members sync" },
+    member: { api: "needs api to post board review comments" },
+  },
 };
 
 const TITLES: Record<ForgeProvider, string> = { github: "GitHub", gitlab: "GitLab" };
@@ -75,8 +78,8 @@ export function missingScopes(provider: ForgeProvider, role: ForgeRole, scopesSe
   return forgeScopes(provider, role).filter((scope) => !held.has(scope));
 }
 
-export function scopeShortfallDetail(provider: ForgeProvider, missing: readonly string[]): string {
-  const reasons = missing.map((scope) => REASONS[provider]?.[scope]).filter((reason): reason is string => reason !== undefined);
+export function scopeShortfallDetail(provider: ForgeProvider, role: ForgeRole, missing: readonly string[]): string {
+  const reasons = missing.map((scope) => REASONS[provider]?.[role][scope]).filter((reason): reason is string => reason !== undefined);
   const why = reasons.length ? ` (${reasons.join("; ")})` : "";
   return `token is missing: ${missing.join(", ")}${why}`;
 }

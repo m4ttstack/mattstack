@@ -1209,7 +1209,7 @@ async function connectCredential(id: Integration, args: string[], deps: ConnectD
     const missing = missingScopes(id, role, result.scopesSeen);
     if (missing.length > 0) {
       const how = sourceDetail === "via gh" ? ` (run: gh auth refresh -s ${missing.join(",")})` : "";
-      printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: `${scopeShortfallDetail(id, missing)}${how}`, scopesSeen: result.scopesSeen });
+      printIntegrationResult(deps, args.includes("--json"), { integration: id, status: "invalid", detail: `${scopeShortfallDetail(id, role, missing)}${how}`, scopesSeen: result.scopesSeen });
       return;
     }
   }

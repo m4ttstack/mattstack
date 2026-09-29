@@ -17,7 +17,7 @@ let samplePlanJSON = """
       { "id": "account.gitlab", "kind": "account", "title": "GitLab", "why": "MRs live on gitlab.example.com.",
         "required": true, "optionalNote": null, "status": "missing", "detail": null,
         "action": { "type": "connect", "label": "Connect", "integration": "gitlab",
-                    "fields": [ { "name": "token", "label": "Personal access token", "secret": true, "hint": "scopes: read_api, read_user" } ],
+                    "fields": [ { "name": "token", "label": "Personal access token", "secret": true, "hint": "scopes: api" } ],
                     "alternatives": [ { "id": "use-gh", "label": "Use gh login" } ] },
         "recheck": "on-change" },
       { "id": "tool.chrome", "kind": "tool", "title": "Google Chrome", "why": "Evidence capture.",
@@ -43,9 +43,9 @@ let planModelsChecks: [Check] = [
         c.expectEqual(plan.canInstall, false)
     },
     Check("a connect action carries its create-token link, and reads nil when rt sends none") { c in
-        let json = Data(#"{"type":"connect","label":"Connect","integration":"gitlab","fields":[],"create":{"label":"Create a token on GitLab…","url":"https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=read_api"}}"#.utf8)
+        let json = Data(#"{"type":"connect","label":"Connect","integration":"gitlab","fields":[],"create":{"label":"Create a token on GitLab…","url":"https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api"}}"#.utf8)
         let action = try JSONDecoder().decode(RowAction.self, from: json)
-        c.expectEqual(action.create, ActionLink(label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=read_api"))
+        c.expectEqual(action.create, ActionLink(label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api"))
         let bare = try JSONDecoder().decode(RowAction.self, from: Data(#"{"type":"connect","label":"Connect","integration":"gitlab","fields":[]}"#.utf8))
         c.expectEqual(bare.create, nil)
     },
@@ -92,10 +92,10 @@ let planModelsChecks: [Check] = [
         c.expectEqual(again, decoded)
     },
     Check("an ActionField with no `secret` key decodes as not-secret instead of failing the whole plan") { c in
-        let json = Data(#"{"name":"token","label":"Personal access token","hint":"scopes: read_api"}"#.utf8)
+        let json = Data(#"{"name":"token","label":"Personal access token","hint":"scopes: api"}"#.utf8)
         let field = try JSONDecoder().decode(ActionField.self, from: json)
         c.expectEqual(field.secret, false)
-        c.expectEqual(field.hint, "scopes: read_api")
+        c.expectEqual(field.hint, "scopes: api")
         let bare = try JSONDecoder().decode(ActionField.self, from: Data(#"{"name":"handle","label":"Handle"}"#.utf8))
         c.expectEqual(bare.secret, false)
         c.expectEqual(bare.hint, nil)
