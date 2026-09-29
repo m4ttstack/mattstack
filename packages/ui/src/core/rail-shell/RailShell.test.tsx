@@ -106,13 +106,13 @@ test('desktop renders neither the mobile toggle nor the overlay', () => {
   expect(navbar(container).style.width).toContain('3.5rem');
 });
 
-test('a null rail renders no navbar and no mobile toggle', () => {
+test.each([null, false])('a %s rail renders no navbar and no mobile toggle', noRail => {
   setViewportWidth(400);
   const { container } = renderWithProviders(
     <RailShell
       headerHeight={48}
       header={<span>Header content</span>}
-      rail={null}
+      rail={noRail}
       railExpanded={false}
       railOpened={false}
       onToggleRail={() => {}}

@@ -37,7 +37,7 @@ export interface RailShellProps {
   /** Header content, rendered after the mobile rail toggle. */
   header: React.ReactNode;
   /** Rail content riding the navbar slot (typically a `Rail` of
-   * `RailEntry`s). `null` renders no rail: the page takes the full width
+   * `RailEntry`s). `null` or `false` renders no rail: the page takes the full width
    * and the mobile rail toggle is dropped. */
   rail: React.ReactNode;
   /** Whether the rail shows its labeled, expanded width. Pass
@@ -97,7 +97,7 @@ export function RailShell({
   children,
 }: RailShellProps) {
   const isMobile = useIsMobile();
-  const hasRail = rail != null;
+  const hasRail = rail != null && rail !== false;
   const railOverlayActive = hasRail && isMobile && railOpened;
   const headerZIndex = railOverlayActive ? 1000 : undefined;
   const navbarZIndex = railOverlayActive ? 1000 : 5;

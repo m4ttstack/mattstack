@@ -1,5 +1,5 @@
 import { screen, within } from '@testing-library/react';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 
@@ -106,6 +106,27 @@ test('rail={false} drops the rail and puts the scheme control at the end of the 
       .style.getPropertyValue('--ai-size')
   ).toBe('calc(1.625rem * var(--mantine-scale))');
   expect(screen.getByTestId('page')).toBeInTheDocument();
+});
+
+test('rail={false} warns in development when it is given rail children', () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const { hook } = memoryLocation({ path: '/' });
+    renderWithProviders(
+      <Router hook={hook}>
+        <MattstackShell name="probe" rail={false}>
+          <MattstackShell.Rail>
+            <RailLink icon="users" label="People" href="/" />
+          </MattstackShell.Rail>
+          <main>page</main>
+        </MattstackShell>
+      </Router>
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('rail={false}');
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 test('mounts the app launcher when appName is passed', () => {

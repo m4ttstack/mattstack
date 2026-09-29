@@ -1,6 +1,7 @@
 import {
   Children,
   isValidElement,
+  useEffect,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -39,7 +40,9 @@ export interface MattstackShellHeaderProps {
   actions?: ReactNode;
 }
 
-/** Read by `partition`; renders nothing where it is written. */
+/** Read by `partition`, which only sees direct children: `MattstackShell.Header`
+ *  must be written directly inside `MattstackShell`, never in a fragment or a
+ *  wrapper component. Renders nothing where it is written. */
 const HeaderSlot: (props: MattstackShellHeaderProps) => null = () => null;
 
 export interface MattstackShellProps {
@@ -105,6 +108,13 @@ function Shell({
   const headerProps = useHeaderProps();
   const { rail: railSlot, railBottom, header, page } = partition(children);
   const expanded = withRail && rail.effectiveExpanded;
+  const strayRailChildren = !withRail && (railSlot != null || railBottom != null);
+  useEffect(() => {
+    if (import.meta.env.DEV && strayRailChildren)
+      console.warn(
+        `MattstackShell "${name}": rail={false} renders no rail, so its MattstackShell.Rail and MattstackShell.RailBottom children are dropped.`
+      );
+  }, [name, strayRailChildren]);
   return (
     <ShellRailContext.Provider value={{ expanded, close: rail.close }}>
       <RailShell
