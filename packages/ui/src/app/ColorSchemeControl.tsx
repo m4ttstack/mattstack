@@ -1,6 +1,7 @@
-import { HybridMenu, RailEntry } from '@mattstack/app-kit/core';
+import { ActionIcon, HybridMenu, RailEntry } from '@mattstack/app-kit/core';
+import type { ActionIconProps } from '@mattstack/app-kit/core';
 import { useColorScheme } from '@mattstack/app-kit/hooks';
-import type { IconName } from '@mattstack/app-kit/icons';
+import { Icon, type IconName } from '@mattstack/app-kit/icons';
 
 type ColorSchemePreference = 'auto' | 'light' | 'dark';
 
@@ -17,19 +18,35 @@ const SCHEME_ICON: Record<ColorSchemePreference, IconName> = {
   dark: 'moon',
 };
 
-export function ColorSchemeControl({ expanded }: { expanded: boolean }) {
+export type ColorSchemeControlProps =
+  | { variant?: 'rail'; expanded: boolean }
+  | {
+      /** A bare icon button, for chrome outside the shell rail (a phone drawer, say). */
+      variant: 'button';
+      size?: ActionIconProps['size'];
+    };
+
+/** The one colour-scheme switcher: System, Light or Dark, its icon showing the stored choice. */
+export function ColorSchemeControl(props: ColorSchemeControlProps) {
   const { colorScheme, setColorScheme } = useColorScheme();
+  const icon = SCHEME_ICON[colorScheme as ColorSchemePreference] ?? 'monitor';
   return (
     <HybridMenu
       options={OPTIONS}
       value={colorScheme}
       onChange={value => setColorScheme(value as ColorSchemePreference)}
       target={
-        <RailEntry
-          icon={SCHEME_ICON[colorScheme as ColorSchemePreference] ?? 'monitor'}
-          label="Color scheme"
-          expanded={expanded}
-        />
+        props.variant === 'button' ? (
+          <ActionIcon
+            variant="subtle"
+            size={props.size ?? 'lg'}
+            aria-label="Color scheme"
+          >
+            <Icon name={icon} size={18} />
+          </ActionIcon>
+        ) : (
+          <RailEntry icon={icon} label="Color scheme" expanded={props.expanded} />
+        )
       }
     />
   );

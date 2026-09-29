@@ -5,6 +5,8 @@ export type {
   MattstackShellHeaderProps,
   MattstackShellProps,
 } from './MattstackShell';
+export { ColorSchemeControl } from './ColorSchemeControl';
+export type { ColorSchemeControlProps } from './ColorSchemeControl';
 export { AppLauncher } from './AppLauncher';
 export type { AppLauncherProps } from './AppLauncher';
 export { MattstackMark } from './MattstackMark';

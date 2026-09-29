@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 
-import { useShellRail } from '@mattstack/app-kit/app';
+import { ColorSchemeControl, useShellRail } from '@mattstack/app-kit/app';
 import { RailLink } from '@mattstack/app-kit/router';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { MattstackShell } from './MattstackShell';
@@ -66,6 +66,18 @@ test.each([
     }
   }
 );
+
+test('the button form of the scheme control shows the stored choice outside the rail', () => {
+  window.localStorage.setItem('ui-color-scheme', JSON.stringify('dark'));
+  try {
+    renderWithProviders(<ColorSchemeControl variant="button" size={44} />);
+    const control = screen.getByRole('button', { name: 'Color scheme' });
+    expect(control.querySelector('svg.lucide-moon')).not.toBeNull();
+    expect(screen.queryByRole('navigation')).toBeNull();
+  } finally {
+    window.localStorage.clear();
+  }
+});
 
 test('mounts the app launcher when appName is passed', () => {
   const { hook } = memoryLocation({ path: '/' });
