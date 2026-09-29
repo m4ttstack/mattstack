@@ -387,6 +387,31 @@ describe("accessRows — access.repo.<slug>", () => {
     expect(r.detail).not.toContain("probes without rt's token");
   });
 
+  test("a refusal with rt's token is retried once bare, and git's own credential can still clear the row", async () => {
+    const team = baseTeam({ trackingIdentities: ["gitlab.com/acme/repo"] });
+    const attempts: (string | undefined)[] = [];
+    const exec = gitAnswers((_argv, opts) => {
+      attempts.push(opts?.env?.RT_GIT_TOKEN);
+      return opts?.env?.RT_GIT_TOKEN ? { code: 128, stdout: "", stderr: "remote: HTTP Basic: Access denied. 403" } : ok();
+    });
+    const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, { has: async () => "glpat_narrow" }), "access.repo.gitlab.com-acme-repo");
+    expect(attempts).toEqual(["glpat_narrow", undefined]);
+    expect(r.status).toBe("ready");
+  });
+
+  test("a refusal both with and without rt's token stays denied", async () => {
+    const team = baseTeam({ trackingIdentities: ["gitlab.com/acme/repo"] });
+    let calls = 0;
+    const exec = gitAnswers(() => {
+      calls++;
+      return { code: 128, stdout: "", stderr: "remote: Permission denied" };
+    });
+    const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, { has: async () => "glpat_x" }), "access.repo.gitlab.com-acme-repo");
+    expect(calls).toBe(2);
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toContain("cannot see this repo");
+  });
+
   test("a tracked repo on an unconfirmed self-hosted forge never receives the token", async () => {
     const team = baseTeam({ trackingIdentities: ["gitlab.example.com/acme/repo"] });
     let seen: { argv: string[]; env?: Record<string, string> } | undefined;

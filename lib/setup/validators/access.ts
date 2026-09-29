@@ -108,7 +108,10 @@ async function repoRow(p: Probes, identity: string, overrides: UserIntegrationOv
   const remote = `https://${identity}.git`;
   const provider = forgeFromRemote(remote)?.provider ?? "github";
   const lookup = withholdFromUntrustedHost(await forgeTokenLookupFromPresence(remote, secrets), remote, overrides.forgeHost);
-  const verdict = await probeTeamRepoAccess(p, remote, lookup);
+  const withToken = await probeTeamRepoAccess(p, remote, lookup);
+  // rt's token can be scoped narrower than git's own credential helper, so a
+  // refusal is only final once the bare probe is refused too.
+  const verdict = withToken.kind === "denied" && lookup.kind === "token" ? await probeTeamRepoAccess(p, remote, { kind: "absent" }).then((bare) => (bare.kind === "ok" ? bare : withToken)) : withToken;
   return row({ ...base, ...rowFromVerdict(verdict, { grantedBy: "that repo's admin", provider }) });
 }
 
