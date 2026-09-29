@@ -743,7 +743,7 @@ describe("rtHealthRows — home.backup (real git)", () => {
     createdRoots.push(dir);
     const row = await homeBackupRow(dir);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("no home repo found yet — nothing to back up");
+    expect(row.detail).toBe("no home repo found yet... nothing to back up");
     expect(row.action).toEqual({ type: "run", label: "Create home repo", verb: ["setup", "apply", "--only", "home.init"] });
   });
 

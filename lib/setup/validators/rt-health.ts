@@ -421,7 +421,6 @@ function homePushDelaySec(): number {
   return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : HOME_PUSH_DELAY_FALLBACK_SEC;
 }
 
-/** Once `home.init` has made the repo, the backup states below offer their own remote and push actions. */
 const CREATE_HOME_REPO_ACTION: Action = { type: "run", label: "Create home repo", verb: ["setup", "apply", "--only", "home.init"] };
 
 /**
@@ -453,7 +452,7 @@ export async function homeBackupRow(
   };
 
   if (!(await isGitRepo(exec, repoDir))) {
-    return row({ ...base, status: "needs-you", detail: "no home repo found yet — nothing to back up", action: CREATE_HOME_REPO_ACTION });
+    return row({ ...base, status: "needs-you", detail: "no home repo found yet... nothing to back up", action: CREATE_HOME_REPO_ACTION });
   }
 
   // Ahead of the remote check: an unborn repo is not "versioned on this

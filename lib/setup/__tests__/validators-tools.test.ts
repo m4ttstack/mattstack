@@ -1334,7 +1334,7 @@ describe("toolRows: tool.linear-mcp", () => {
   test("never required, so it can neither block Install nor fail verify", async () => {
     for (const secrets of [NO_SECRETS, HAS_KEY]) {
       const r = await rowFor(conf({}), secrets);
-      expect([r.required, r.optionalNote]).toEqual([false, "Installed by Install (linear.mcp)."]);
+      expect([r.required, r.optionalNote]).toEqual([false, "Works without this; only the skills that read Linear tickets need it."]);
     }
   });
 });

@@ -689,7 +689,6 @@ function stateBackupRow(p: Probes, seams: ToolsSeams): Row {
 // ─── tool.linear-mcp ────────────────────────────────────────────────────────
 
 const CONNECT_LINEAR_ACTION: Action = { type: "connect", label: "Connect Linear", integration: "linear", fields: integrationDef("linear").fields };
-/** Linear connected after Install already skipped `linear.mcp` has no other way in, since nothing reruns Install. */
 const ADD_LINEAR_MCP_ACTION: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
 
 /** Wiring only: the credential itself is `account.linear`'s job, which validates this same secret against api.linear.app. Two probes of one key is one probe too many, and two rows that can disagree. */
@@ -700,7 +699,7 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
     title: "Linear MCP",
     why: "Skills that read and update Linear tickets reach them through this MCP server.",
     required: false,
-    optionalNote: "Installed by Install (linear.mcp).",
+    optionalNote: "Works without this; only the skills that read Linear tickets need it.",
   };
   const path = claudeJsonPath(p);
   const read = readClaudeConfig(p, path);
