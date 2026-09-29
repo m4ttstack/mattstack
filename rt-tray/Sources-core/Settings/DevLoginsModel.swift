@@ -121,6 +121,11 @@ public enum DevLoginSaveOutcome: Equatable, Sendable { case saved, failed(String
 public enum DevLoginSaveRace {
     public static let timeoutMessage = "Still saving. Close this and check the list."
 
+    /// After a timeout the stuck `rt logins add` may still land, and a retry would race it.
+    nonisolated public static func saveEnabled(canSave: Bool, saving: Bool, last: DevLoginSaveOutcome?) -> Bool {
+        canSave && !saving && last != .timedOut
+    }
+
     public static func run(timeout: Duration = .seconds(30), _ save: @escaping () async -> String?) async -> DevLoginSaveOutcome {
         await withCheckedContinuation { (continuation: CheckedContinuation<DevLoginSaveOutcome, Never>) in
             var finished = false

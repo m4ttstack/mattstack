@@ -13,6 +13,7 @@ struct DevLoginSheet: View {
     @State private var typedHost = ""
     @State private var error: String?
     @State private var saving = false
+    @State private var lastOutcome: DevLoginSaveOutcome?
     @Environment(\.dismiss) private var dismiss
 
     init(fixedOrigin: String?, email: String = "", isSaved: @escaping (String) -> Bool,
@@ -99,8 +100,8 @@ struct DevLoginSheet: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving).accessibilityIdentifier(AXID.devLoginSheetCancel)
                 // A disabled default button still paints saturated blue in dark mode.
                 Button(saving ? "Saving…" : "Save") { save() }
-                    .keyboardShortcut(canSave && !saving ? .defaultAction : nil)
-                    .disabled(!canSave || saving)
+                    .keyboardShortcut(saveEnabled ? .defaultAction : nil)
+                    .disabled(!saveEnabled)
                     .accessibilityIdentifier(AXID.devLoginSheetSave)
             }
         }
@@ -120,6 +121,8 @@ struct DevLoginSheet: View {
         return "The login page's address without a path, like https://login.example.com"
     }
 
+    private var saveEnabled: Bool { DevLoginSaveRace.saveEnabled(canSave: canSave, saving: saving, last: lastOutcome) }
+
     private var canSave: Bool {
         guard case .valid(let origin, let host) = validated else { return false }
         return DevLoginConfirm.canSave(host: host, typedHost: typedHost, isFirstTime: !isSaved(origin), email: email, password: password)
@@ -133,6 +136,7 @@ struct DevLoginSheet: View {
         Task {
             let outcome = await DevLoginSaveRace.run { await onSave(origin, email, password) }
             saving = false
+            lastOutcome = outcome
             switch outcome {
             case .saved: self.password = ""; dismiss()
             case .failed(let message): error = message

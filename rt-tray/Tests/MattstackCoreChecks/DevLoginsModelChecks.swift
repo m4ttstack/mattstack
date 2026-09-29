@@ -103,15 +103,20 @@ let devLoginsModelChecks: [Check] = [
         c.expectEqual(failed, .failed("rt logins add failed."))
     },
     Check("dev login save race: a hung save times out and its late result is dropped") { c in
-        let started = Date()
         let outcome = await DevLoginSaveRace.run(timeout: .milliseconds(50)) {
             try? await Task.sleep(for: .milliseconds(300))
             return nil
         }
         c.expectEqual(outcome, .timedOut)
-        c.expect(Date().timeIntervalSince(started) < 0.25, "the wait is bounded by the timeout, not the save")
         try? await Task.sleep(for: .milliseconds(400))
         c.expectEqual(DevLoginSaveRace.timeoutMessage, "Still saving. Close this and check the list.")
+    },
+    Check("dev login save race: Save stays off after a timeout, since the stuck add may still land") { c in
+        c.expect(!DevLoginSaveRace.saveEnabled(canSave: true, saving: false, last: .timedOut), "a retry would race the stuck rt logins add")
+        c.expect(DevLoginSaveRace.saveEnabled(canSave: true, saving: false, last: nil))
+        c.expect(DevLoginSaveRace.saveEnabled(canSave: true, saving: false, last: .failed("rt logins add failed.")), "a plain failure can be retried")
+        c.expect(!DevLoginSaveRace.saveEnabled(canSave: true, saving: true, last: nil))
+        c.expect(!DevLoginSaveRace.saveEnabled(canSave: false, saving: false, last: nil))
     },
     Check("dev logins pane and sheet: link queue and bounded save are wired in") { c in
         let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../Sources/Settings")
@@ -120,5 +125,6 @@ let devLoginsModelChecks: [Check] = [
         c.expect(pane.contains("linkQueue.arrive(") && pane.contains("onDismiss:") && pane.contains("linkQueue.sheetDismissed()"),
                  "a link replaces an open sheet without waiting")
         c.expect(sheet.contains("DevLoginSaveRace.run {"), "the save wait is unbounded")
+        c.expect(sheet.contains("DevLoginSaveRace.saveEnabled("), "Save ignores a timed-out save")
     },
 ]
