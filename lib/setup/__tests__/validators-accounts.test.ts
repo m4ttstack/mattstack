@@ -80,8 +80,8 @@ describe("accountRows — account.gitlab", () => {
       type: "connect",
       label: "Connect",
       integration: "gitlab",
-      fields: [{ name: "token", label: "GitLab token", secret: true, hint: "read_api, read_user" }],
-      create: { label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=read_api%2Cread_user" },
+      fields: [{ name: "token", label: "GitLab token", secret: true, hint: "api" }],
+      create: { label: "Create a token on GitLab…", url: "https://gitlab.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" },
     });
   });
 
@@ -89,7 +89,7 @@ describe("accountRows — account.gitlab", () => {
     const team = baseTeam({ integrations: { forge: { host: "gitlab.com", provider: "gitlab" } } });
     const joined = fakeProbes({ files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }) } });
     const member = await pickRow(accountRows(joined, team, [], fakeSecrets(), null), "account.gitlab");
-    expect((member.action as { fields: { hint?: string }[] }).fields[0]!.hint).toBe("read_api, read_user");
+    expect((member.action as { fields: { hint?: string }[] }).fields[0]!.hint).toBe("api");
     const owner = await pickRow(accountRows(fakeProbes(), team, [], fakeSecrets(), null), "account.gitlab");
     expect((owner.action as { fields: { hint?: string }[] }).fields[0]!.hint).toBe("api");
   });
@@ -124,15 +124,28 @@ describe("accountRows — account.gitlab", () => {
       "account.gitlab",
     );
     expect(r.status).toBe("invalid");
-    expect(r.detail).toBe("token is missing: api");
+    expect(r.detail).toBe("token is missing: api (needs api to post board review comments)");
     expect((r.action as { create?: { url: string } }).create?.url).toStartWith("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
+  });
+
+  test("a member's stored read_api token reads invalid: the board cannot post reviews with it", async () => {
+    const team = baseTeam({ integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } } });
+    const fetch = async (url: string) => {
+      if (url.includes("personal_access_tokens/self")) return { status: 200, body: JSON.stringify({ scopes: ["read_api", "read_user"] }), headers: {} };
+      return { status: 200, body: "{}", headers: {} };
+    };
+    const joined = fakeProbes({ fetch, files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }) } });
+    const r = await pickRow(accountRows(joined, team, [], fakeSecrets({ "rt.gitlabToken": "tok123" }), null, { forgeHost: "gitlab.example.com" }), "account.gitlab");
+    expect(r.status).toBe("invalid");
+    expect(r.detail).toBe("token is missing: api (needs api to post board review comments)");
+    expect((r.action as { create?: { url: string } }).create?.url).toBe("https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api");
   });
 
   test("secret present, host user-confirmed, validate 200s -> ready", async () => {
     const team = baseTeam({ integrations: { forge: { host: "gitlab.example.com", provider: "gitlab" } } });
     const fetch = async (url: string) => {
       if (url.includes("/api/v4/user")) return { status: 200, body: "{}", headers: {} };
-      if (url.includes("personal_access_tokens/self")) return { status: 200, body: JSON.stringify({ scopes: ["read_api"] }), headers: {} };
+      if (url.includes("personal_access_tokens/self")) return { status: 200, body: JSON.stringify({ scopes: ["api"] }), headers: {} };
       return { status: 200, body: "{}", headers: {} };
     };
     const joined = fakeProbes({ fetch, files: { "/fake-home/.mattstack/rt/teams/acme.json": JSON.stringify({ joinedByRt: true }) } });

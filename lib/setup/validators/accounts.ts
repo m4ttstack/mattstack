@@ -22,7 +22,7 @@ import type { SetupIntent } from "../intent.ts";
 import type { Probes } from "../probes.ts";
 import type { PackRequirements } from "../requirements.ts";
 import type { TeamSnapshot, UserIntegrationOverrides } from "../team-settings.ts";
-import { forgeRole, missingScopes, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
+import { forgeRole, missingScopes, scopeShortfallDetail, tokenCreateLink, tokenField, type ForgeProvider, type ForgeRole } from "../token-create.ts";
 import { readTeamLocal } from "../../team/team-local.ts";
 
 /** Reads user-scope secrets: the real implementation goes through lib/secrets/store.readSecret (null on NoAgeKeyError) plus staged values (staging.ts) — that wiring is a later task's job; validators only depend on this narrow shape. */
@@ -62,7 +62,7 @@ function connectAction(def: IntegrationDef, includeAlternatives: boolean, forge?
 function scopeShortfall(forge: ForgeConnect | undefined, result: { status: string; scopesSeen: string[] }): string | null {
   if (!forge || result.status !== "ready") return null;
   const missing = missingScopes(forge.provider, forge.role, result.scopesSeen);
-  return missing.length ? `token is missing: ${missing.join(", ")}` : null;
+  return missing.length ? scopeShortfallDetail(forge.provider, missing) : null;
 }
 
 function secretSpec(def: IntegrationDef): { domain: string; key: string } {
