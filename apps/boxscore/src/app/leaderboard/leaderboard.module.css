@@ -311,6 +311,17 @@
   width: 170px;
 }
 
+.hButton {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+
 .hSwatch {
   flex-shrink: 0;
   width: 6px;
@@ -367,6 +378,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.nameLink {
+  display: flex;
+  text-decoration: none;
 }
 
 .name {

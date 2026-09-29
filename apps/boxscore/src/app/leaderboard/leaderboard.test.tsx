@@ -1,6 +1,8 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { Router, useLocation } from 'wouter';
+import { memoryLocation } from 'wouter/memory-location';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fixtureLeaderboard } from '../../server/fixture/index';
@@ -109,5 +111,59 @@ describe('LeaderboardPage (table)', () => {
     expect(leaderboardSubtitle(fixtureLeaderboard(false), 'mrsMerged')).toBe(
       'Aug 30 – Sep 29  ·  7 people  ·  sorted by MRs merged'
     );
+  });
+});
+
+function Where() {
+  const [location] = useLocation();
+  return <output aria-label="location">{location}</output>;
+}
+
+describe('StandingsTable keyboard access', () => {
+  it('opens a person from the keyboard: their name links to the sorted stat', async () => {
+    const user = userEvent.setup();
+    const { hook } = memoryLocation({ path: '/' });
+    renderWithProviders(
+      <Router hook={hook}>
+        <LeaderboardPage
+          data={fixtureLeaderboard(false)}
+          view="table"
+          trend={false}
+          sort="mrsMerged"
+          onSort={vi.fn()}
+          onSelectStat={vi.fn()}
+        />
+        <Where />
+      </Router>
+    );
+    const link = screen.getByRole('link', { name: 'Sam Rivera' });
+    link.focus();
+    expect(link).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByLabelText('location')).toHaveTextContent(
+      '/user/srivera/mrsMerged'
+    );
+  });
+
+  it('sorts from a real button inside each stat header', async () => {
+    const user = userEvent.setup();
+    const onSort = vi.fn();
+    renderWithProviders(
+      <LeaderboardPage
+        data={fixtureLeaderboard(false)}
+        view="table"
+        trend={false}
+        sort="mrsMerged"
+        onSort={onSort}
+        onSelectStat={vi.fn()}
+      />
+    );
+    const header = screen
+      .getAllByRole('columnheader')
+      .find(h => h.textContent === 'Issues done')!;
+    const button = within(header).getByRole('button', { name: 'Issues done' });
+    button.focus();
+    await user.keyboard('{Enter}');
+    expect(onSort).toHaveBeenCalledWith('issuesCompleted');
   });
 });

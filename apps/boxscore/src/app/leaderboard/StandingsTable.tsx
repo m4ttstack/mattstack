@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { Tooltip } from '@mattstack/app-kit/core';
+import { Link } from '@mattstack/app-kit/router';
 import {
   GROUP_ORDER,
   GROUPS,
@@ -138,28 +139,33 @@ function HeaderRow({
               className={c === 'lines' ? classes.hLines : classes.hStat}
               role="columnheader"
               aria-sort={sorted ? 'descending' : undefined}
-              onClick={() => onSort(statOf(c))}
             >
-              <span
-                className={classes.hSwatch}
-                data-parity="Swatch"
-                style={{ background: hueVar(groupOf(c), 'swatch') }}
-              />
-              <span
-                className={classes.hLabel}
-                data-parity="H Label"
-                style={sorted ? { color: 'var(--tk-text-1)' } : undefined}
+              <button
+                type="button"
+                className={classes.hButton}
+                onClick={() => onSort(statOf(c))}
               >
-                {labelOf(c)}
-              </span>
-              {sorted && (
-                <Glyph
-                  name="arrowDown"
-                  size={12}
-                  color="var(--tk-text-1)"
-                  parity="Sort"
+                <span
+                  className={classes.hSwatch}
+                  data-parity="Swatch"
+                  style={{ background: hueVar(groupOf(c), 'swatch') }}
                 />
-              )}
+                <span
+                  className={classes.hLabel}
+                  data-parity="H Label"
+                  style={sorted ? { color: 'var(--tk-text-1)' } : undefined}
+                >
+                  {labelOf(c)}
+                </span>
+                {sorted && (
+                  <Glyph
+                    name="arrowDown"
+                    size={12}
+                    color="var(--tk-text-1)"
+                    parity="Sort"
+                  />
+                )}
+              </button>
             </div>
           </Tooltip>
         );
@@ -315,15 +321,21 @@ function PersonRow({
         </span>
         <span className={classes.nameBlock}>
           <span className={classes.nameLine}>
-            <span
-              className={classes.name}
-              data-parity="Name"
-              style={{
-                color: isYou ? 'var(--tk-text-accent)' : 'var(--tk-text-1)',
-              }}
+            <Link
+              href={statHref(user.username, sort)}
+              className={classes.nameLink}
+              onClick={e => e.stopPropagation()}
             >
-              {name}
-            </span>
+              <span
+                className={classes.name}
+                data-parity="Name"
+                style={{
+                  color: isYou ? 'var(--tk-text-accent)' : 'var(--tk-text-1)',
+                }}
+              >
+                {name}
+              </span>
+            </Link>
             {isYou && (
               <span className={classes.youBadge} data-parity="You Badge">
                 <span className={classes.youBadgeText} data-parity="You">
