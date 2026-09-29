@@ -1,6 +1,7 @@
-# UI authoring: colour and type
+# UI authoring: kit, colour and type
 
-How to write UI code in this repo without improvising. Every colour and
+How to write UI code in this repo without improvising. The kit decides
+chrome and components (next section); every colour and
 type decision below is already made; new UI picks tokens by ROLE and
 inherits the system. If a situation genuinely is not covered here, the
 authority of record is radix-ui/themes (how Radix's own components use
@@ -12,6 +13,72 @@ Radix Colors 12-step scales and emits them through
 Mantine theme colours. Apps consume tokens only; `local/token-namespaces`
 (eslint) fails anything else, and the tui-kit ramps matrix test enforces
 the contrast bars below on every emitted pair.
+
+## Kit first: boards guide page content
+
+**The rule: never alter the app-kit rail, and every page renders inside
+`PageShell`.** The rail is `MattstackShell.Rail` with `RailLink`
+entries; an app adds entries through that API and never replaces, wraps
+or restyles the rail. A page is `PageShell`: `PageShell.Header` for the
+title and actions, `PageShell.Content` for the body.
+
+| Excuse | Reality |
+|---|---|
+| "The board's rail looks different" | The board is wrong there. List the difference as a pending board fix. |
+| "Parity needs exact geometry" | Parity covers page content. A mismatch on kit chrome goes on the board-fix list. |
+| "The kit is fixed and I shouldn't change `packages/ui` for one app" | Right, so the app keeps the kit piece as it ships. |
+| "The board specifies a two-state toggle" | The scheme control is the kit's System / Light / Dark control. |
+
+Kit chrome and kit components outrank a design board. A board decides
+what a page shows and how its content is laid out. Each job below is
+built from the kit piece named, whatever the board draws:
+
+| job | build it from |
+|---|---|
+| app frame, rail, rail entries and their tooltips | `MattstackShell` with `RailLink` (`apps/AGENTS.md` §8) |
+| app mark | the app's own brand mark, passed as `mark` |
+| colour-scheme control | the System / Light / Dark control `MattstackShell` pins to the rail |
+| page header and page body | `PageShell.Header` and `PageShell.Content` |
+| switch, tooltip, table, input, select, badge, chip, menu | the Mantine component from `@mattstack/app-kit/core` |
+| icons | `Icon` with a Lucide icon; a new one is registered in the app's `icons.ts` |
+
+When the board and the kit differ, build the kit piece and list the
+difference for Matt as a pending board fix. A parity mismatch on a kit
+piece is an entry on that list, not work for the app.
+
+### Styling a component: the ladder
+
+Before building, read the component's API and Styles API: the Mantine
+MCP server (`@mantine/mcp-server@9.5.2`: `get_item_doc`,
+`get_item_props`, `search_docs`) when the session has it, otherwise its
+page in `https://mantine.dev/llms.txt` (for example
+`https://mantine.dev/llms/core-segmented-control.md`; all pages in one
+file: `https://mantine.dev/llms-full.txt`). Then take the first rung
+that meets the need:
+
+1. **The component as it ships**, set by props: `size` (the default
+   `sm` or larger; an `xs` already in the file goes up to `sm`),
+   `variant`, and `color` as a theme hue name. A board's numbers for a
+   control's height, padding, border, font size and indicator are not
+   targets.
+2. **The Styles API**: a CSS module whose classes go in through
+   `classNames` (`classNames={{ root: classes.root }}`), for layout and
+   spacing only (width, gaps, alignment). Never an inline `style` or
+   `styles` object, and never a global `.mantine-*` selector.
+3. **Stop and raise a kit question with Matt**, leaving the component
+   at rung 1.
+
+Colour comes from the theme, so every app looks alike: on a kit
+component, colour is chosen only through the `color` and `variant`
+props, never set as a value (`style`, `styles`, `classNames`, `--tk-*`
+or `--mantine-*`).
+
+When a kit control reads wrong (it blends into the page, or its contrast
+is low), check where it sits. Kit controls are drawn for `PageShell`
+surfaces: a `SegmentedControl` track is `--tk-inset`, the same step as
+`--tk-bg`, so it vanishes on the bare page and reads on
+`PageShell.Content` (`--tk-card`). Move the control into `PageShell`.
+If it still reads wrong there, that is rung 3.
 
 ## The step model (Radix)
 
