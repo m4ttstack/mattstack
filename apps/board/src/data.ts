@@ -122,6 +122,10 @@ function scrubAvatarUrls(value: unknown): void {
   }
 }
 
+/** Parity with rt's DEFAULT_PROJECT_MRS_WINDOW_DAYS (lib/repo-tracking.ts):
+    the stale window an unset board uses when no read reported rt's window. */
+export const RT_DEFAULT_SYNC_WINDOW_DAYS = 30;
+
 /**
  * Shape raw MRs into a flat board list: authored by a configured member (or
  * tagged into a configured codeowners tab's section), open, not draft, in a
@@ -131,16 +135,18 @@ function scrubAvatarUrls(value: unknown): void {
  * unsorted. `tags` (keyed by pr.id) is the per-MR codeowner sections a daemon
  * read reported; omitted entirely for callers that never declare
  * codeownerSections demand (e.g. the single-member fetch).
+ * `syncWindows` is rt's sync window per project path, each project's stale
+ * cutoff whenever the config leaves staleAfterDays unset.
  */
 export function buildBoard(
   prs: PullRequest[],
   config: BoardConfig,
   now: number = Date.now(),
-  tags?: Map<string, string[]>
+  tags?: Map<string, string[]>,
+  syncWindows: ReadonlyMap<string, number> = new Map()
 ): BoardMR[] {
   const members = new Set(config.members.map(m => m.username));
   const projects = new Set(config.projects);
-  const staleCutoff = now - config.staleAfterDays * 86_400_000;
   const prefixes = new Set(config.ticketPrefixes);
   const tabSections = new Set(
     config.tabs.flatMap(t =>
@@ -162,8 +168,6 @@ export function buildBoard(
     // your own show up with a DRAFT chip and a "mark ready" action. With
     // defaultMember "all" there's no single "you", so no drafts are shown.
     if (pr.draft && pr.author.username !== config.defaultMember) continue;
-    // Drop MRs gone quiet: no activity (last update) within the stale window.
-    if (pr.updatedAt && Date.parse(pr.updatedAt) < staleCutoff) continue;
     // Team filter: keep only MRs whose Linear ticket prefix is configured.
     // No prefixes configured → keep everything. Untagged MRs are dropped.
     // Ticket-prefix filtering is a roster-board concept; a row kept by its
@@ -177,6 +181,13 @@ export function buildBoard(
       ? projectPathFromWebUrl(pr.webUrl, config.gitlabHost)
       : null;
     if (!path || !projects.has(path)) continue;
+    // Drop MRs gone quiet: no activity (last update) within the stale window.
+    const staleDays =
+      config.staleAfterDays ??
+      syncWindows.get(path) ??
+      RT_DEFAULT_SYNC_WINDOW_DAYS;
+    if (pr.updatedAt && Date.parse(pr.updatedAt) < now - staleDays * 86_400_000)
+      continue;
     const props = getMRDashboardProps(pr);
     // Mutates the freshly-parsed daemon read, never a cached board: each fetch
     // JSON-parses its own objects, and the snapshot cache holds this output.

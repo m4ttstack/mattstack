@@ -178,3 +178,46 @@ test('re-rendering while stale does not stack the tab mark', async () => {
     container.remove();
   }
 });
+
+const windowBanner = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLElement>('.tui-banner')].find(el =>
+    el.textContent?.includes('rt syncs')
+  ) ?? null;
+
+test('an unset board window follows rt: no window-mismatch banner', async () => {
+  servedData = {
+    ...BOARD_DATA,
+    dataSyncedAt: NOW - 60_000,
+    scopeWindowDays: 30,
+    staleAfterDays: null,
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    expect(windowBanner(container)).toBeNull();
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+test('an explicit board window wider than rt syncs: the mismatch banner', async () => {
+  servedData = {
+    ...BOARD_DATA,
+    dataSyncedAt: NOW - 60_000,
+    scopeWindowDays: 30,
+    staleAfterDays: 90,
+  };
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = await renderBoard(container);
+  try {
+    expect(windowBanner(container)?.textContent).toContain(
+      'board shows 90 days but rt syncs 30 days'
+    );
+  } finally {
+    await React.act(async () => root.unmount());
+    container.remove();
+  }
+});

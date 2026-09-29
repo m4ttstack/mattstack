@@ -125,8 +125,11 @@ try {
   // state, the in-flight dedup always sees what the board sees (no duplicate
   // panes), and the concurrency cap never undercounts.
   const fetchOwnMrs = async (): Promise<OwnMrFacts[]> => {
-    const { prs, tags } = await collectProjectPRs(boardConfig, readProjectMRs);
-    return buildBoard(prs, boardConfig, undefined, tags)
+    const { prs, tags, windows } = await collectProjectPRs(
+      boardConfig,
+      readProjectMRs
+    );
+    return buildBoard(prs, boardConfig, undefined, tags, windows)
       .filter(m => m.author.username === username && m.webUrl)
       .map(m => ({
         mrUrl: m.webUrl!,
@@ -157,8 +160,11 @@ try {
       const tomb = pruned.get(url);
       return tomb?.status === 'done' && tomb.outcome === 'comment';
     };
-    const { prs, tags } = await collectProjectPRs(boardConfig, readProjectMRs);
-    return buildBoard(prs, boardConfig, undefined, tags)
+    const { prs, tags, windows } = await collectProjectPRs(
+      boardConfig,
+      readProjectMRs
+    );
+    return buildBoard(prs, boardConfig, undefined, tags, windows)
       .filter(m => inScope(m.webUrl))
       .map(m => ({
         mrUrl: m.webUrl!,
