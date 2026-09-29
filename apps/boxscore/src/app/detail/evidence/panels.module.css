@@ -1,0 +1,259 @@
+/* Wait for review */
+
+.waitRow {
+  height: 36.5px;
+}
+
+.waitId {
+  flex-shrink: 0;
+  width: 64px;
+}
+
+.waitTitle {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tk-text-1);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+.waitTrack {
+  position: relative;
+  flex-shrink: 0;
+  width: 160px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--tk-line-3);
+}
+
+.waitBar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.waitValue {
+  flex-shrink: 0;
+  width: 56px;
+  font-size: 12px;
+  text-align: right;
+}
+
+/* Coding days */
+
+.calendar {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+}
+
+.calFacts {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding-top: 24px;
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.factLabel {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.factValue {
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendWord {
+  color: var(--tk-text-3);
+  font-size: 11px;
+}
+
+.legendSwatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+/* Pipelines */
+
+.status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.stacked {
+  width: 100%;
+  gap: 2px;
+  overflow: visible;
+  background: transparent;
+}
+
+.seg {
+  border-radius: 3px;
+}
+
+.statusLegend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 28px;
+}
+
+.lg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.lgLabel {
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.lgCount,
+.lgShare {
+  font-size: 12px;
+}
+
+.lgCount {
+  color: var(--tk-text-1);
+}
+
+.lgShare {
+  color: var(--tk-text-3);
+}
+
+.dayRow {
+  height: 34.5px;
+}
+
+.dayLabel {
+  flex-shrink: 0;
+  width: 64px;
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.mini {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  height: 8px;
+}
+
+.miniSeg {
+  flex-shrink: 0;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.dayTotal {
+  flex-shrink: 0;
+  width: 120px;
+  font-size: 12px;
+  text-align: right;
+}
+
+/* Reciprocity */
+
+.balance {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bal {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.balLabel {
+  flex-shrink: 0;
+  width: 72px;
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.track {
+  flex: 1 1 0;
+  min-width: 0;
+  background-color: var(--tk-line-3);
+}
+
+.balValue {
+  flex-shrink: 0;
+  width: 40px;
+  color: var(--tk-text-1);
+  font-size: 13px;
+  text-align: right;
+}
+
+.revRow {
+  height: 40.5px;
+}
+
+.avatar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--tk-raised);
+}
+
+.initials {
+  color: var(--tk-text-3);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.handle {
+  flex-shrink: 0;
+  width: 180px;
+  overflow: hidden;
+  color: var(--tk-text-1);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+.revValue {
+  flex-shrink: 0;
+  width: 64px;
+  color: var(--tk-text-3);
+  font-size: 12px;
+  text-align: right;
+}

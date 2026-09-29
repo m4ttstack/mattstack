@@ -193,3 +193,43 @@
   color: var(--tk-text-3);
   font-size: 13px;
 }
+
+.evHead,
+.evFooter,
+.band {
+  display: flex;
+  box-sizing: border-box;
+  margin-top: -0.5px;
+  padding: 0 24px;
+  border-top: 1px solid var(--tk-border-soft);
+}
+
+.evHead {
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 41.5px;
+}
+
+.evRight {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.evFooter {
+  align-items: flex-start;
+  justify-content: space-between;
+  height: 39.5px;
+  padding-top: 12px;
+  background: var(--tk-panel);
+}
+
+.band {
+  align-items: center;
+  gap: 16px;
+}
+
+.block {
+  box-sizing: border-box;
+  padding: 16px 24px 20px;
+}

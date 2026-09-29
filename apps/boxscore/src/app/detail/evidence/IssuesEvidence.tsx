@@ -137,31 +137,37 @@ export function IssuesEvidence({ ev }: EvidenceProps) {
         query={query}
         onQuery={setQuery}
       />
-      <div role="table" aria-label="Issues">
-        <HeaderRow>
-          {COLUMNS.map(c => (
-            <span
-              key={c.label}
-              className={`${classes.cell} ${c.width === undefined ? classes.grow : ''}`}
-              style={cellStyle(c.width)}
-              role="columnheader"
-            >
-              <span className={`${classes.t} ${classes.h}`} data-parity="h">
-                {c.label}
-              </span>
-            </span>
-          ))}
-        </HeaderRow>
-        {shown.map(row => (
-          <IssueRow key={row.cells[0]} row={row} />
-        ))}
-      </div>
-      <EvidenceFooter
-        shown={shown.length}
-        total={filtered.length}
-        all={all}
-        onToggle={() => setAll(!all)}
-      />
+      {filtered.length === 0 ? (
+        <EmptyEvidence message={`No issues match "${query.trim()}"`} />
+      ) : (
+        <>
+          <div role="table" aria-label="Issues">
+            <HeaderRow>
+              {COLUMNS.map(c => (
+                <span
+                  key={c.label}
+                  className={`${classes.cell} ${c.width === undefined ? classes.grow : ''}`}
+                  style={cellStyle(c.width)}
+                  role="columnheader"
+                >
+                  <span className={`${classes.t} ${classes.h}`} data-parity="h">
+                    {c.label}
+                  </span>
+                </span>
+              ))}
+            </HeaderRow>
+            {shown.map(row => (
+              <IssueRow key={row.cells[0]} row={row} />
+            ))}
+          </div>
+          <EvidenceFooter
+            shown={shown.length}
+            total={filtered.length}
+            all={all}
+            onToggle={() => setAll(!all)}
+          />
+        </>
+      )}
     </>
   );
 }

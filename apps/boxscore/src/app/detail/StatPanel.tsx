@@ -13,7 +13,13 @@ import { TeamStrip } from '../ui/TeamStrip';
 import classes from './detail.module.css';
 import { EVIDENCE } from './evidence';
 import { EmptyEvidence } from './evidence/parts';
-import { definitionOf, PANEL_COPY, panelValue, scaleLabel } from './panelCopy';
+import {
+  definitionOf,
+  PANEL_COPY,
+  panelValue,
+  scaleLabel,
+  subOf,
+} from './panelCopy';
 import { displayName } from './ProfileHeader';
 
 export type EvidenceState =
@@ -73,7 +79,9 @@ export function StatPanel({
   const value = metricValue(person.metrics, d);
   const rank = metricRank(person.metrics, d);
   const ranked = rankedFor(users, stat);
-  const points = ranked
+  // Dots stack in roster order, as the canvas draws them, so a leader can sit over you.
+  const points = [...ranked]
+    .sort((a, b) => users.indexOf(a.user) - users.indexOf(b.user))
     .filter(r => r.value !== null)
     .map(r => ({
       username: r.user.username,
@@ -83,7 +91,7 @@ export function StatPanel({
     }));
   const max = Math.max(0, ...points.map(p => p.value));
   const ev = evidence.status === 'ready' ? evidence.ev : undefined;
-  const chips = ev?.facts && copy.chips ? copy.chips(ev.facts) : [];
+  const chips = ev?.facts && copy.chips ? copy.chips(ev.facts, person) : [];
   const Evidence = EVIDENCE[stat];
 
   return (
@@ -115,7 +123,7 @@ export function StatPanel({
               className={`${classes.t} ${classes.bigSub}`}
               data-parity="Big Sub"
             >
-              {copy.sub}
+              {subOf(stat, window)}
             </span>
           </div>
           <div className={classes.block} data-parity="Rank Block">
@@ -161,7 +169,7 @@ export function StatPanel({
           </div>
         </div>
         <p className={classes.definition} data-parity="Definition">
-          {definitionOf(stat)}
+          {definitionOf(stat, ev?.facts)}
         </p>
         {chips.length > 0 && (
           <div className={classes.counts}>

@@ -7,8 +7,12 @@ import type {
   TimeWindow,
   UserRow,
 } from '../../../shared/types';
+import { CodingDaysEvidence } from './CodingDaysEvidence';
 import { IssuesEvidence } from './IssuesEvidence';
+import { LatencyEvidence } from './LatencyEvidence';
 import { EmptyEvidence } from './parts';
+import { PipelinesEvidence } from './PipelinesEvidence';
+import { ReciprocityEvidence } from './ReciprocityEvidence';
 
 export interface EvidenceProps {
   ev: MetricEvidence;
@@ -23,6 +27,11 @@ const Unmapped: ComponentType<EvidenceProps> = () =>
 
 const PANELS: Partial<Record<MetricKey, ComponentType<EvidenceProps>>> = {
   issuesCompleted: IssuesEvidence,
+  reviewLatencyHours: LatencyEvidence,
+  responseLatencyHours: LatencyEvidence,
+  codingDays: CodingDaysEvidence,
+  pipelines: PipelinesEvidence,
+  reciprocity: ReciprocityEvidence,
 };
 
 export const EVIDENCE: Record<

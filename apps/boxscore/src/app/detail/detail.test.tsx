@@ -82,6 +82,7 @@ describe('person page', () => {
     const { container } = renderAt('/user/srivera/issuesCompleted');
     const leads = layer(container, 'Sum Leads')!;
     expect(layer(leads, 'V')).toHaveTextContent('1');
+    expect(layer(leads, 'U')).toHaveTextContent(/^stat$/);
     expect(layer(leads, 'Sum Sub')).toHaveTextContent('MRs reviewed');
     const top3 = layer(container, 'Sum Top 3')!;
     expect(top3).toHaveTextContent('13of 16');
@@ -139,6 +140,18 @@ describe('person page', () => {
     expect(ids.length).toBeLessThan(9);
     for (const row of panel.querySelectorAll('[data-parity^="Ev Row "]'))
       expect(row.textContent?.toLowerCase()).toContain('trailer');
+  });
+
+  it('says so when the filter matches no issue', async () => {
+    const user = userEvent.setup();
+    const { container } = renderAt('/user/srivera/issuesCompleted');
+    const panel = layer(container, 'Panel · Issues done')!;
+    await user.type(
+      within(panel).getByRole('textbox', { name: 'Filter 48 issues' }),
+      'zzzz'
+    );
+    expect(within(panel).queryByRole('table')).not.toBeInTheDocument();
+    expect(within(panel).getByText('No issues match "zzzz"')).toBeVisible();
   });
 
   it('opens the stat rail rows as links to that stat', () => {

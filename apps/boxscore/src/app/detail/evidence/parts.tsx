@@ -103,6 +103,57 @@ export function EvidenceFooter({
   );
 }
 
+/** A section head inside a panel: title left, context right. */
+export function EvHead({ title, right }: { title: string; right: string }) {
+  return (
+    <div className={classes.evHead} data-parity="Ev Head">
+      <span
+        className={`${classes.t} ${classes.barTitle}`}
+        data-parity="Ev Title"
+      >
+        {title}
+      </span>
+      <span
+        className={`${classes.t} ${classes.evRight}`}
+        data-parity="Ev Right"
+      >
+        {right}
+      </span>
+    </div>
+  );
+}
+
+/** A list footer: the count, then a toggle when the list is longer than its first page. */
+export function EvFooter({
+  count,
+  total,
+  all,
+  onToggle,
+}: {
+  count: string;
+  total: number;
+  all: boolean;
+  onToggle?: () => void;
+}) {
+  return (
+    <div className={classes.evFooter} data-parity="Ev Footer">
+      <span className={`${classes.t} ${classes.count}`} data-parity="c">
+        {count}
+      </span>
+      {onToggle && (
+        <button type="button" className={classes.showAll} onClick={onToggle}>
+          <span
+            className={`${classes.t} ${classes.showAllLabel}`}
+            data-parity="sa"
+          >
+            {all ? 'Show fewer' : `Show all ${total}`}
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function HeaderRow({ children }: { children: ReactNode }) {
   return (
     <div className={classes.header} data-parity="Ev Header" role="row">

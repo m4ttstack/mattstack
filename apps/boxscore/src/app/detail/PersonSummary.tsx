@@ -2,14 +2,7 @@ import type { TimeWindow, UserRow } from '../../shared/types';
 import { descriptor } from '../model/standings';
 import { personSummary } from '../model/summary';
 import classes from './detail.module.css';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-export function windowDays(window: TimeWindow): number {
-  return Math.round(
-    (Date.parse(window.end) - Date.parse(window.start)) / DAY_MS
-  );
-}
+import { windowDays } from './panelCopy';
 
 function Cell({
   parity,
@@ -77,7 +70,7 @@ export function PersonSummary({
         parity="Sum Leads"
         label="Leads"
         value={String(s.leads.length)}
-        unit="stats"
+        unit={s.leads.length === 1 ? 'stat' : 'stats'}
         sub={
           s.leads.length > 0
             ? s.leads.map(k => descriptor(k).label).join(', ')

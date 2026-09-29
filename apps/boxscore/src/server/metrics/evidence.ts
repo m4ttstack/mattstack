@@ -38,7 +38,7 @@ export function buildUserEvidence(
   const corpus = buildCorpus(fetched, ctx);
   const c = buildUserCohorts(corpus, u, ctx);
   const lines = corpus.filters.lineCounts;
-  const mrUrl = (m: NormMr) =>
+  const mrUrl = (m: Pick<NormMr, 'projectPath' | 'iid'>) =>
     `${baseUrl}/${m.projectPath}/-/merge_requests/${m.iid}`;
 
   const out: Partial<Record<MetricKey, MetricEvidence>> = {};
@@ -306,9 +306,7 @@ export function buildUserEvidence(
           mrs.map(m => `!${m.iid}`).join(', ') || '—',
         ],
         href: i.url,
-        mrHrefs: mrs.map(
-          m => `${baseUrl}/${m.projectPath}/-/merge_requests/${m.iid}`
-        ),
+        mrHrefs: mrs.map(mrUrl),
       };
     }),
     summary: parts.join(' · '),

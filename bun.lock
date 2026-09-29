@@ -98,6 +98,7 @@
       "name": "boxscore",
       "version": "0.1.0",
       "dependencies": {
+        "@mantine/charts": "catalog:",
         "@mattstack/app-kit": "workspace:*",
         "@mattstack/app-server": "workspace:*",
         "@mattstack/glance": "workspace:*",
@@ -109,6 +110,7 @@
         "lucide-react": "^1.25.0",
         "react": "catalog:",
         "react-dom": "catalog:",
+        "recharts": "catalog:",
         "wouter": "catalog:",
       },
       "devDependencies": {

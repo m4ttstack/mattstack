@@ -21,6 +21,7 @@
     "serve-check": "bash scripts/binary-gate.sh"
   },
   "dependencies": {
+    "@mantine/charts": "catalog:",
     "@mattstack/app-kit": "workspace:*",
     "@mattstack/app-server": "workspace:*",
     "@mattstack/glance": "workspace:*",
@@ -32,6 +33,7 @@
     "lucide-react": "^1.25.0",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "recharts": "catalog:",
     "wouter": "catalog:"
   },
   "devDependencies": {

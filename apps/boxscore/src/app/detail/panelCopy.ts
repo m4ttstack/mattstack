@@ -1,26 +1,64 @@
 import { formatNumber } from '../../shared/metrics';
-import type { MetricKey } from '../../shared/types';
+import type { MetricKey, TimeWindow, UserRow } from '../../shared/types';
 import { cellText } from '../leaderboard/format';
 import { descriptor } from '../model/standings';
 import type { ChipTone } from '../ui/CountChip';
 
 export interface PanelChip {
   name: string;
-  count: string;
+  count?: string;
   label: string;
   tone: ChipTone;
 }
 
+type Facts = Record<string, number>;
+
 interface PanelCopy {
   source: string;
-  sub: string;
+  sub: string | ((window: TimeWindow) => string);
   /** The board's wording where it differs from the metric's own description. */
-  definition?: string;
-  chips?: (facts: Record<string, number>) => PanelChip[];
+  definition?: string | ((facts: Facts | undefined) => string);
+  chips?: (facts: Facts, person: UserRow) => PanelChip[];
 }
 
-const fact = (facts: Record<string, number>, key: string): string =>
+const fact = (facts: Facts, key: string): string =>
   formatNumber(facts[key] ?? 0);
+
+/** A chip named after its own text, as the evidence variants board names them. */
+const chip = (label: string, tone: ChipTone): PanelChip => ({
+  name: `Chip ${label}`,
+  label,
+  tone,
+});
+
+const hours = (n: number | undefined): string => `${(n ?? 0).toFixed(2)}h`;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function windowDays(window: TimeWindow): number {
+  return Math.round(
+    (Date.parse(window.end) - Date.parse(window.start)) / DAY_MS
+  );
+}
+
+function latency(
+  what: string,
+  subject: string
+): Pick<PanelCopy, 'definition' | 'chips'> {
+  return {
+    definition: facts => {
+      const base = `${what}, reported as the p50. Lower is better.`;
+      return facts?.count
+        ? `${base} p90 is ${hours(facts.p90)} over ${formatNumber(facts.count)} ${subject}.`
+        : base;
+    },
+    chips: facts => [
+      chip(`p50 ${hours(facts.p50)}`, 'accent'),
+      chip(`p90 ${hours(facts.p90)}`, 'neutral'),
+      chip(`${formatNumber(facts.count ?? 0)} ${subject}`, 'neutral'),
+    ],
+  };
+}
 
 export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   issuesCompleted: {
@@ -62,6 +100,13 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   pipelines: {
     source: 'Source: GitLab pipelines you triggered',
     sub: 'pipelines triggered',
+    definition: 'Pipelines you triggered in the window, across every status.',
+    chips: facts => [
+      chip(`${fact(facts, 'success')} success`, 'ok'),
+      chip(`${fact(facts, 'failed')} failed`, 'bad'),
+      chip(`${fact(facts, 'canceled')} canceled`, 'neutral'),
+      chip(`${fact(facts, 'running')} running`, 'accent'),
+    ],
   },
   reviewDepth: {
     source: 'Source: GitLab inline diff comments',
@@ -70,10 +115,15 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   reviewLatencyHours: {
     source: 'Source: GitLab, first review on your MRs',
     sub: 'median wait for a first review',
+    ...latency('Hours your own MRs wait for their first review', 'MRs'),
   },
   responseLatencyHours: {
     source: 'Source: GitLab, your first response on MRs you review',
     sub: 'median time to a first response',
+    ...latency(
+      "Hours until your first response on teammates' MRs you review",
+      'MRs'
+    ),
   },
   revertRate: {
     source: 'Source: GitLab, detected revert MRs',
@@ -89,7 +139,17 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   },
   codingDays: {
     source: 'Source: GitLab pushes to tracked projects',
-    sub: 'distinct days with a push',
+    sub: window => `distinct days with a push, of ${windowDays(window)}`,
+    definition:
+      'Number of distinct days you pushed at least one commit to a tracked project during the window.',
+    chips: (facts, person) => [
+      chip(
+        `${fact(facts, 'days')} of ${fact(facts, 'windowDays')} days`,
+        'gold'
+      ),
+      chip(`current streak ${person.metrics.currentStreak.value}d`, 'neutral'),
+      chip(`longest ${person.metrics.longestStreak.value}d`, 'neutral'),
+    ],
   },
   currentStreak: {
     source: 'Source: GitLab merge dates, MRs you authored',
@@ -102,6 +162,15 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   reciprocity: {
     source: 'Source: GitLab reviews given and received',
     sub: 'reviews given per review received',
+    definition:
+      'Reviews given divided by reviews received. Around 1 means you are pulling your weight; well above 1 means you review far more than you are reviewed.',
+    chips: facts => [
+      chip(`gave ${fact(facts, 'given')} reviews`, 'purple'),
+      chip(
+        `${fact(facts, 'reviewers')} ${facts.reviewers === 1 ? 'reviewer' : 'reviewers'} on your MRs`,
+        'neutral'
+      ),
+    ],
   },
 };
 
@@ -121,6 +190,13 @@ export function scaleLabel(key: MetricKey, value: number): string {
   return formatNumber(value) + (DAY_UNIT.has(key) ? 'd' : '');
 }
 
-export function definitionOf(key: MetricKey): string {
-  return PANEL_COPY[key].definition ?? descriptor(key).description;
+export function definitionOf(key: MetricKey, facts?: Facts): string {
+  const d = PANEL_COPY[key].definition;
+  if (d === undefined) return descriptor(key).description;
+  return typeof d === 'string' ? d : d(facts);
+}
+
+export function subOf(key: MetricKey, window: TimeWindow): string {
+  const sub = PANEL_COPY[key].sub;
+  return typeof sub === 'string' ? sub : sub(window);
 }

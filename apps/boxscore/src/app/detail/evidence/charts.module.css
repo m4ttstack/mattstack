@@ -1,0 +1,53 @@
+.histogram {
+  box-sizing: border-box;
+  height: 180px;
+  padding: 16px 24px 20px;
+}
+
+/* Recharts insets each band by half the bin gap, so the chart bleeds that half past the padding. */
+.bleed {
+  height: 144px;
+  margin: 0 -5px;
+}
+
+.bleed :global(.recharts-surface),
+.bleed :global(.recharts-wrapper) {
+  overflow: visible;
+}
+
+.fo {
+  overflow: visible;
+}
+
+.bar {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px 4px 0 0;
+}
+
+.countBox,
+.labelBox {
+  display: flex;
+  justify-content: center;
+  height: 100%;
+}
+
+.countBox {
+  align-items: flex-end;
+}
+
+.labelBox {
+  align-items: flex-start;
+}
+
+.count,
+.binLabel {
+  font-size: 11px;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.count {
+  color: var(--tk-text-3);
+  font-family: var(--mantine-font-family-monospace);
+}
