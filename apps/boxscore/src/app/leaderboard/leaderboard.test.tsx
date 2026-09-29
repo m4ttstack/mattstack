@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Router, useLocation } from 'wouter';
@@ -73,6 +73,23 @@ describe('LeaderboardPage (table)', () => {
     renderPage();
     const row = screen.getByRole('row', { name: /Sam Rivera/ });
     expect(within(row).getByText('you')).toBeInTheDocument();
+  });
+
+  it('marks a standings row on hover and on keyboard focus of its name', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const row = screen.getByRole('row', { name: /Nora Vance/ });
+    expect(row).not.toHaveAttribute('data-hover');
+    await user.hover(row);
+    expect(row).toHaveAttribute('data-hover');
+    await user.unhover(row);
+    expect(row).not.toHaveAttribute('data-hover');
+    const link = within(row).getByRole('link', { name: 'Nora Vance' });
+    act(() => link.focus());
+    expect(row).toHaveAttribute('data-hover');
+    expect(screen.getByRole('row', { name: /Sam Rivera/ })).toHaveAttribute(
+      'data-you'
+    );
   });
 
   it('opens the stat a clicked cell belongs to', async () => {

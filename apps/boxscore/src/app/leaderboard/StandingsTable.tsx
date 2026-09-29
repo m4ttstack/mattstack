@@ -26,6 +26,7 @@ import {
 import { DeltaMark } from '../ui/DeltaMark';
 import { Glyph } from '../ui/Glyph';
 import { LeaderMark } from '../ui/LeaderMark';
+import { useRowHover } from '../ui/useRowHover';
 import { cellText, signed } from './format';
 import classes from './leaderboard.module.css';
 
@@ -341,14 +342,13 @@ function PersonRow({
   const { user, isYou } = ranked;
   const name = user.name ?? user.username;
   const open = (stat: MetricKey) => onSelectStat(user.username, stat);
+  const { className: hoverClass, ...hover } = useRowHover(isYou);
   return (
     <div
-      className={`${classes.row} ${last ? classes.rowLast : ''}`}
+      {...hover}
+      className={`${classes.row} ${last ? classes.rowLast : ''} ${hoverClass}`}
       data-parity={last ? undefined : `Row ${name}`}
       role="row"
-      style={
-        isYou ? { background: 'var(--mantine-color-accent-light)' } : undefined
-      }
       onClick={() => open(sort)}
     >
       <div className={classes.cellNum} role="cell">

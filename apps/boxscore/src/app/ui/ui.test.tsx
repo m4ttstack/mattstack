@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { renderWithProviders as render } from '@mattstack/app-kit/test-utils';
@@ -107,6 +107,46 @@ describe('RankRow', () => {
     const delta = screen.getByText('▼1');
     expect(parityOf(delta)).toBe('Delta');
     expect(delta).toHaveStyle({ color: 'var(--tk-text-bad)' });
+  });
+  it('marks the whole row while hovered or while focus is inside it', () => {
+    render(
+      <RankRow
+        rank={2}
+        name="Sam R."
+        value="48"
+        fraction={0.6}
+        href="/user/srivera/mrsMerged"
+        parity="Row"
+      />
+    );
+    const row = screen.getByText('Sam R.').closest('[data-parity="Row"]')!;
+    expect(row).not.toHaveAttribute('data-hover');
+    fireEvent.mouseEnter(row);
+    expect(row).toHaveAttribute('data-hover');
+    fireEvent.mouseLeave(row);
+    expect(row).not.toHaveAttribute('data-hover');
+    const link = screen.getByRole('link', { name: 'Sam R.' });
+    fireEvent.focus(link);
+    expect(row).toHaveAttribute('data-hover');
+    fireEvent.blur(link);
+    expect(row).not.toHaveAttribute('data-hover');
+  });
+
+  it('keeps your row marked as yours while hovered', () => {
+    render(
+      <RankRow
+        rank={2}
+        name="Sam R."
+        value="48"
+        fraction={0.6}
+        you
+        parity="Row"
+      />
+    );
+    const row = screen.getByText('Sam R.').closest('[data-parity="Row"]')!;
+    fireEvent.mouseEnter(row);
+    expect(row).toHaveAttribute('data-you');
+    expect(row).toHaveAttribute('data-hover');
   });
 });
 

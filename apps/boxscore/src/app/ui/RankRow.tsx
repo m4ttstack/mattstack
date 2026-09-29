@@ -4,6 +4,7 @@ import type { DeltaTone } from '../model/delta';
 import { DeltaMark } from './DeltaMark';
 import { LeaderMark } from './LeaderMark';
 import classes from './ui.module.css';
+import { useRowHover } from './useRowHover';
 
 export function RankRow({
   rank,
@@ -36,6 +37,7 @@ export function RankRow({
       ? 'var(--tk-fill-gold)'
       : 'var(--tk-muted)';
   const percent = Math.max(0, Math.min(1, fraction)) * 100;
+  const { className: hoverClass, ...hover } = useRowHover(you);
   const who = (
     <span
       className={`${classes.text} ${classes.who}`}
@@ -50,11 +52,9 @@ export function RankRow({
   );
   return (
     <div
-      className={classes.rankRow}
+      {...hover}
+      className={`${classes.rankRow} ${hoverClass}`}
       data-parity={parity}
-      style={
-        you ? { background: 'var(--mantine-color-accent-light)' } : undefined
-      }
     >
       <span className={classes.rankSlot}>
         {leader && rank !== null ? (
