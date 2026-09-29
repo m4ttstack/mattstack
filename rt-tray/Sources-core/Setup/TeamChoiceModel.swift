@@ -45,6 +45,8 @@ public final class TeamChoiceModel: ObservableObject {
     @Published public var restoreAgeKey = ""
     @Published public private(set) var joinSummary: String?
     @Published public private(set) var joinWarning: String?
+    /// An early check's failure, shown on the Join card; Continue moves it to the screen's error line.
+    @Published public private(set) var joinError: String?
     @Published public private(set) var isChecking = false
 
     private let rt: RtRunning
@@ -63,6 +65,9 @@ public final class TeamChoiceModel: ObservableObject {
     // without this latch Back→Continue is dead (canContinue wants a key) and
     // re-pasting one re-runs the whole restore.
     private var restoredRepo: String?
+    // The code the shown join verdict belongs to, so a re-check of the same
+    // code keeps its note on screen while a new code clears the old one.
+    private var verdictCode: String?
 
     public init(rt: RtRunning, pasteboard: PasteboardReading) {
         self.rt = rt
@@ -138,28 +143,9 @@ public final class TeamChoiceModel: ObservableObject {
                 preparedFingerprint = fingerprint
                 return nil
             case .join:
-                // Join never latches, so a Back plus a second code re-runs this:
-                // the previous code's verdict must not outlive its own attempt.
-                joinSummary = nil
-                joinWarning = nil
-                let stdin = try JSONEncoder().encode(["code": normalizedInviteCode])
-                let r = try await rt.run(["team", "join", "--dry-run", "--json"], stdin: stdin)
-                if let e = r.userError(redactStderr: true) { return Self.joinFailureCopy(e, owner: nil, team: nil) }
-                guard r.exitCode == 0, let j = try? r.decode(TeamJoinResult.self) else { return r.failureCopy(verb: "team join", redactStderr: true) }
-                // Dev mode runs an app and a CLI built separately, so a CLI too
-                // old to send `intent` must not wave a joiner past a denial it
-                // did check.
-                let wrote = j.intent.map { $0 == "written" } ?? (j.access == "ok")
-                guard wrote else {
-                    return Self.joinFailureCopy(RtUserError(code: j.access == "denied" ? "no-access" : "unreachable", message: j.message ?? ""), owner: j.team?.owner, team: j.team?.name)
-                }
-                // Exactly one of the two renders, so a non-ok verdict never
-                // reaches the screen under the summary's green checkmark.
-                if j.access == "ok" {
-                    joinSummary = j.message ?? "Joining \(j.team?.name ?? "") (owner \(j.team?.owner ?? ""))"
-                } else {
-                    joinWarning = j.message ?? "rt could not confirm access to the team repo; the checklist re-checks it."
-                }
+                joinError = nil
+                let code = normalizedInviteCode
+                if let failure = await checkInvite(code) { return failure }
                 return await homeInitCheck()
             case .restore:
                 // The app runs the real restore at Continue (clone + key
@@ -187,6 +173,52 @@ public final class TeamChoiceModel: ObservableObject {
             }
         } catch {
             return "Could not run rt: \(error)"
+        }
+    }
+
+    /// Checks a complete code as soon as it is entered, so the verdict (and
+    /// any "connect your account" note) is readable on the Join card before
+    /// Continue carries the joiner away from it.
+    public func previewInvite() async {
+        guard choice == .join, let code = JoinLink.code(fromText: inviteCode), code != verdictCode else { return }
+        isChecking = true
+        defer { isChecking = false }
+        joinError = await checkInvite(code)
+    }
+
+    /// Join never latches, so a Back plus a second code re-runs this: the
+    /// previous code's verdict must not outlive its own attempt. Returns the
+    /// failure copy, or nil once a verdict is on screen.
+    private func checkInvite(_ code: String) async -> String? {
+        if code != verdictCode { joinSummary = nil; joinWarning = nil; verdictCode = nil }
+        let verdict = await joinVerdict(code)
+        // A code edited while this ran owns the screen now.
+        guard code == normalizedInviteCode else { return nil }
+        joinSummary = verdict.summary
+        joinWarning = verdict.warning
+        verdictCode = verdict.failure == nil ? code : nil
+        return verdict.failure
+    }
+
+    private func joinVerdict(_ code: String) async -> (summary: String?, warning: String?, failure: String?) {
+        do {
+            let stdin = try JSONEncoder().encode(["code": code])
+            let r = try await rt.run(["team", "join", "--dry-run", "--json"], stdin: stdin)
+            if let e = r.userError(redactStderr: true) { return (nil, nil, Self.joinFailureCopy(e, owner: nil, team: nil)) }
+            guard r.exitCode == 0, let j = try? r.decode(TeamJoinResult.self) else { return (nil, nil, r.failureCopy(verb: "team join", redactStderr: true)) }
+            // Dev mode runs an app and a CLI built separately, so a CLI too
+            // old to send `intent` must not wave a joiner past a denial it
+            // did check.
+            let wrote = j.intent.map { $0 == "written" } ?? (j.access == "ok")
+            guard wrote else {
+                return (nil, nil, Self.joinFailureCopy(RtUserError(code: j.access == "denied" ? "no-access" : "unreachable", message: j.message ?? ""), owner: j.team?.owner, team: j.team?.name))
+            }
+            // Exactly one of the two renders, so a non-ok verdict never
+            // reaches the screen under the summary's green checkmark.
+            if j.access == "ok" { return (j.message ?? "Joining \(j.team?.name ?? "") (owner \(j.team?.owner ?? ""))", nil, nil) }
+            return (nil, j.message ?? "rt could not confirm access to the team repo; the checklist re-checks it.", nil)
+        } catch {
+            return (nil, nil, "Could not run rt: \(error)")
         }
     }
 

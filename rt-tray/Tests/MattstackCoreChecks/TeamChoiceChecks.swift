@@ -8,6 +8,8 @@ final class FakePasteboard: PasteboardReading, @unchecked Sendable {
     func inviteText() -> String? { reads += 1; return value }
 }
 
+let completeInviteCode = "01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC"
+
 let teamChoiceChecks: [Check] = [
     Check("Paste invite fills the field from a copied deep link") { c in
         let pb = FakePasteboard("mattstack://join/01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC")
@@ -204,6 +206,49 @@ let teamChoiceChecks: [Check] = [
         c.expectEqual(err, nil)
         c.expect(await MainActor.run { m.joinWarning?.contains("ask matt") == true })
         c.expectEqual(await MainActor.run { m.joinSummary }, nil, "a denial must never also render as the green summary")
+    },
+
+    Check("a complete code is checked before Continue, so the join note is readable on the card") { c in
+        let rt = ScriptedRt()
+        rt.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"acme","name":"Acme","owner":"matt"},"access":"no-account","intent":"written","message":"Joining Acme (owner matt). Connect your GitLab account on the next screen so rt can reach gitlab.com/acme/team."}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join; m.inviteCode = completeInviteCode }
+        await m.previewInvite()
+        c.expectEqual(await MainActor.run { m.joinWarning }, "Joining Acme (owner matt). Connect your GitLab account on the next screen so rt can reach gitlab.com/acme/team.")
+        c.expectEqual(rt.calls.map(\.args), [["team", "join", "--dry-run", "--json"]], "the preview is the dry run alone; home init waits for Continue")
+        await m.previewInvite()
+        c.expectEqual(rt.calls.count, 1, "an unchanged code is not checked again")
+    },
+
+    Check("a partial code is never checked early") { c in
+        let rt = ScriptedRt()
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join; m.inviteCode = "ABCD-EFGH" }
+        await m.previewInvite()
+        c.expectEqual(rt.calls.count, 0)
+        c.expectEqual(await MainActor.run { m.joinWarning }, nil)
+    },
+
+    Check("an early check that fails says so on the card, and Continue moves it to the screen error") { c in
+        let rt = ScriptedRt(); rt.answers["team join --dry-run"] = (2, #"{"contract":1,"error":{"code":"invite-unknown","message":""}}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join; m.inviteCode = completeInviteCode }
+        await m.previewInvite()
+        c.expectEqual(await MainActor.run { m.joinError }, "Invite not recognized or expired: ask the team owner for a new one.")
+        c.expect(await m.validateAndPrepare() != nil)
+        c.expectEqual(await MainActor.run { m.joinError }, nil, "one failure, one place")
+    },
+
+    Check("Continue after an early check keeps the note up while it re-checks") { c in
+        let rt = ScriptedRt()
+        rt.answers["team join --dry-run --json"] = (0, #"{"contract":1,"team":{"slug":"acme","name":"Acme","owner":"matt"},"access":"no-account","intent":"written","message":"Connect your GitLab account on the next screen."}"#)
+        rt.answers["home init --dry-run"] = (0, #"{"contract":1,"ok":true}"#)
+        let m = await MainActor.run { TeamChoiceModel(rt: rt, pasteboard: FakePasteboard(nil)) }
+        await MainActor.run { m.choice = .join; m.inviteCode = completeInviteCode }
+        await m.previewInvite()
+        c.expectEqual(await m.validateAndPrepare(), nil)
+        c.expectEqual(await MainActor.run { m.joinWarning }, "Connect your GitLab account on the next screen.")
+        c.expectEqual(rt.calls.filter { $0.args.starts(with: ["team", "join"]) }.count, 2, "Continue still re-checks access")
     },
 
     Check("a second attempt renders only its own verdict") { c in
