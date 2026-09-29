@@ -24,6 +24,7 @@ import type {
 } from "../../packages/rt-client/src/commands.ts";
 import { resolveLivePane, type LivePane, type PaneHints } from "./pane-resolve-live.ts";
 import type { EscapeInjector } from "./gate-escape.ts";
+import { hasQuestionForm } from "./question-form.ts";
 import { computeView, gateAgentId } from "./reconciler-view.ts";
 import { deleteKvValue, listKvValues, setKvValue } from "../state/kv-blob.ts";
 
@@ -309,6 +310,18 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
     return outcome;
   }
 
+  /** herdr's status goes stale on a form that sat through a sleep/wake, so a
+      pane herdr reads live is still holding the gate's form while the form
+      is on screen. An unreadable screen proves nothing and counts as no form. */
+  async function formOnScreen(pane: LivePane): Promise<boolean> {
+    try {
+      return hasQuestionForm(await deps.peek(pane));
+    } catch (err) {
+      log.warn({ err, paneRef: pane.paneRef }, "reconciler: peek failed, trusting herdr status for delivery");
+      return false;
+    }
+  }
+
   /** Checks each pending expectation against `panes` and resolves, retries,
       or drops it. `panes === null` (herdr unreachable) is a no-op for the
       whole queue: an unknown read proves nothing about pane state, so a
@@ -323,7 +336,7 @@ export function createReconciler(deps: ReconcilerDeps): Reconciler {
       const paneLive = pane !== null && pane.agentStatus !== "blocked";
 
       if (pe.expect === "leave-blocked") {
-        if (paneLive) {
+        if (paneLive && !(await formOnScreen(pane))) {
           deps.store.markDelivery(pe.gateId, "confirmed");
           deps.emit("reconciler.delivery", { gateId: pe.gateId, outcome: "confirmed" });
           continue;
