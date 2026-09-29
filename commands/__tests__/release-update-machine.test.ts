@@ -40,7 +40,7 @@ function fakeSeams(overrides: Partial<UpdateMachineSeams> = {}): UpdateMachineSe
         devPid = "";
         return ok("");
       }
-      if (cmd.startsWith("open")) {
+      if (cmd === "/usr/bin/env -i /usr/bin/open /Applications/mattstack-dev.app") {
         devPid = "222";
         return ok("");
       }
