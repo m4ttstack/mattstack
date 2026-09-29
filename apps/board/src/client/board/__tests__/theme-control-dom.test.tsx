@@ -1,5 +1,12 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
-import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from 'bun:test';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  expect,
+  test,
+} from 'bun:test';
 
 GlobalRegistrator.register({ url: 'http://localhost/' });
 
@@ -44,8 +51,9 @@ async function render(theme: ThemeMode, picked: ThemeMode[]) {
 
 const trigger = () =>
   document.querySelector<HTMLButtonElement>('[aria-label="Color scheme"]')!;
-const items = () =>
-  [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+const items = () => [
+  ...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
+];
 
 test('one icon trigger opens System, Light and Dark with the stored choice checked', async () => {
   await render('system', []);
