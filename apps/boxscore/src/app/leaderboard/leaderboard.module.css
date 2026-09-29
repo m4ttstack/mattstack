@@ -497,7 +497,7 @@
   }
 }
 
-@container (max-width: 975.98px) {
+@container (max-width: 1035.98px) {
   .cardsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
