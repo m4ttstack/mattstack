@@ -6,6 +6,7 @@ struct ChecklistScreen: View {
     let permissions: PermissionsService
     let rt: RtRunning
     let needs: NeedBroker
+    var scope: ReadinessModel.Scope = .all
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
@@ -16,15 +17,17 @@ struct ChecklistScreen: View {
         VStack(spacing: 0) {
             if model.lastError != nil {
                 // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
-                Label(model.groups.isEmpty ? "Couldn't load the checklist, so Install can't start yet. Re-check to try again."
-                                           : "Couldn't refresh the checklist. Re-check to try again.",
+                Label(model.groups.isEmpty ? (scope == .all ? "Couldn't load the checklist, so Install can't start yet. Re-check to try again."
+                                                            : "Couldn't load your accounts. Re-check to try again.")
+                                           : (scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
+                                                            : "Couldn't refresh your accounts. Re-check to try again."),
                       systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20).padding(.top, 12)
             }
             Form {
-                ForEach(model.groups) { group in
+                ForEach(model.groups(for: scope)) { group in
                     Section(group.title) {
                         ForEach(group.rows) { row in
                             RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
@@ -47,7 +50,7 @@ struct ChecklistScreen: View {
             HStack {
                 Text(footerText).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Re-check") { actionError = nil; Task { await model.recheckAll() } }.controlSize(.small).accessibilityIdentifier(AXID.checklistRecheck)
+                Button("Re-check") { actionError = nil; Task { await model.recheckAll() } }.controlSize(.small).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
             }
             .padding(.horizontal, 20).padding(.vertical, 6)
         }
@@ -74,11 +77,12 @@ struct ChecklistScreen: View {
         // (Re-check) reports THIS screen-level identifier instead of its own
         // -- same fix as InstallScreen's stepRow.
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(AXID.checklistScreen)
+        .accessibilityIdentifier(scope == .all ? AXID.checklistScreen : AXID.settingsAccountsScreen)
     }
 
     private var footerText: String {
-        if model.groups.isEmpty { return model.lastError == nil ? "Checking…" : "" }
+        if model.groups(for: scope).isEmpty { return model.lastError == nil ? "Checking…" : "" }
+        guard scope == .all else { return "" }
         return ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
                                     owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows))
     }
