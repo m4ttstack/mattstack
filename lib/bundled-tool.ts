@@ -13,6 +13,8 @@
  * that just need an argv[0].
  */
 
+import { homedir } from "os";
+import { join } from "path";
 import { bundledHelperPath } from "./bundle-layout.ts";
 
 export type Which = (bin: string) => string | null;
@@ -47,4 +49,15 @@ export function findBundledTool(name: string, which: Which = defaultWhich): stri
 
 export function resolveBundledTool(name: string, which: Which = defaultWhich): string {
   return findBundledTool(name, which) ?? name;
+}
+
+/** Where a user-installed tool lives when launchd's minimal PATH cannot see it. */
+export function wellKnownBinDirs(home: string = homedir()): string[] {
+  return ["/opt/homebrew/bin", "/usr/local/bin", join(home, ".local", "bin")];
+}
+
+/** A `Which` over PATH first, then `wellKnownBinDirs`. */
+export function whichWithWellKnownDirs(home: string = homedir(), pathEnv: string = process.env.PATH ?? ""): Which {
+  const search = [...pathEnv.split(":").filter((d) => d.length > 0), ...wellKnownBinDirs(home)].join(":");
+  return (b) => Bun.which(b, { PATH: search });
 }
