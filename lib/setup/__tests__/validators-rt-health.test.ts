@@ -399,6 +399,13 @@ describe("rtHealthRows — tool.daemon", () => {
   const launchdOk: ExecScript = (argv) => (argv[0] === "launchctl" ? ok("PID\tStatus\tLabel\n1\t0\tcom.mattstack.daemon\n") : ok());
   const launchdMissing: ExecScript = (argv) => (argv[0] === "launchctl" ? { code: 0, stdout: "Could not find service", stderr: "" } : ok());
 
+  test("no marker but the daemon answers (the app registered it at launch) -> ready, not missing", async () => {
+    rmSync(DAEMON_CONFIG_PATH, { force: true });
+    const r = await pickRow(rtHealthRows(fakeProbes({ daemon: readyDaemon, exec: launchdOk }), { ci: false }), "tool.daemon");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toContain("registered with launchd");
+  });
+
   test("installed, ping unreachable, ci:false -> needs-you, the SAME Login Items action permissions.ts uses (finding #10)", async () => {
     markInstalled();
     const r = await pickRow(rtHealthRows(fakeProbes({ daemon: async () => null }), { ci: false }), "tool.daemon");

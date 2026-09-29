@@ -298,10 +298,12 @@ async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
     recheck: "on-activate" as const,
   };
 
-  if (!isDaemonInstalled()) return row({ ...base, status: "missing", detail: "run Install (registers the daemon)" });
-
+  // The marker is written only by services.register, but the app also
+  // registers the daemon at launch; one that answers is installed either way.
   const ping = await p.daemon("ping");
-  if (!ping || !ping.ok) {
+  const answers = ping?.ok === true;
+  if (!answers && !isDaemonInstalled()) return row({ ...base, status: "missing", detail: "run Install (registers the daemon)" });
+  if (!answers) {
     if (opts.ci) return row({ ...base, status: "needs-you", detail: "not booted (expected in CI)" });
     return row({ ...base, status: "needs-you", detail: "installed but not responding — approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
   }
