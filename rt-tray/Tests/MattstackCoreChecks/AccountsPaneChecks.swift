@@ -8,7 +8,7 @@ private func planWithSlack(_ slack: RowStatus) -> Plan {
                            recheck: .onChange)
     let github = PlanRow(id: "account.github", kind: .account, title: "GitHub", why: "w", required: true, status: .ready, recheck: .onChange)
     let tool = PlanRow(id: "tool.herdr", kind: .tool, title: "herdr", why: "w", required: false, status: .missing, recheck: .onChange)
-    return Plan(at: "t", team: TeamInfo(slug: "claimview", name: "claimview", mode: .join),
+    return Plan(at: "t", team: TeamInfo(slug: "acme", name: "Acme", mode: .join),
                 groups: [PlanGroup(id: "accounts", title: "Accounts", rows: [github, slackRow]),
                          PlanGroup(id: "tools", title: "Tools", rows: [tool])],
                 canInstall: slack == .ready, requiredMissing: slack == .ready ? [] : ["account.slack"], finishBlockedBy: [])
@@ -28,9 +28,7 @@ let accountsPaneChecks: [Check] = [
                           .rtVerb(args: ["setup", "slack", "connect", "--json"], stdin: nil))
         }
     },
-    Check("the full checklist scope keeps every group") { c in
-        let m = await MainActor.run { ReadinessModel(plans: FakePlans([planWithSlack(.ready)]), permissions: FakePermissions(), ticker: FakeTicker()) }
-        await m.load()
-        await MainActor.run { c.expectEqual(m.groups(for: .all).map(\.id), ["accounts", "tools"]) }
+    Check("only Permissions runs the 1 s readiness tick; Accounts refreshes on appear and after each action") { c in
+        c.expectEqual(SettingsPane.allCases.filter(\.watchesReadiness), [.permissions])
     },
 ]

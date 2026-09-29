@@ -3,39 +3,6 @@ import SwiftUI
 import Combine
 import MattstackCore
 
-enum SettingsPane: String, CaseIterable {
-    case general, permissions, accounts, fastBrowser, devLogins, apps, team, uninstall
-
-    var title: String {
-        switch self {
-        case .general: return "General"
-        case .permissions: return "Permissions"
-        case .accounts: return "Accounts"
-        case .fastBrowser: return "Fast Browser"
-        case .devLogins: return "Dev logins"
-        case .apps: return "Apps"
-        case .team: return "Team"
-        case .uninstall: return "Uninstall"
-        }
-    }
-
-    /// Panes that show checklist rows re-check them while visible.
-    var watchesReadiness: Bool { self == .permissions || self == .accounts }
-
-    var symbol: String {
-        switch self {
-        case .general: return "gearshape"
-        case .permissions: return "lock.shield"
-        case .accounts: return "person.crop.circle"
-        case .fastBrowser: return "globe"
-        case .devLogins: return "key"
-        case .apps: return "square.grid.2x2"
-        case .team: return "person.3"
-        case .uninstall: return "trash"
-        }
-    }
-}
-
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let paneKey = "MSSettingsPane"
     let pane = PaneSelection()

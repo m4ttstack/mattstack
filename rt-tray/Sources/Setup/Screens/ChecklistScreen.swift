@@ -19,7 +19,8 @@ struct ChecklistScreen: View {
                 // A failed refresh keeps the last loaded plan on screen, and Install may still be enabled under it.
                 Label(model.groups.isEmpty ? (scope == .all ? "Couldn't load the checklist, so Install can't start yet. Re-check to try again."
                                                             : "Couldn't load your accounts. Re-check to try again.")
-                                           : "Couldn't refresh the checklist. Re-check to try again.",
+                                           : (scope == .all ? "Couldn't refresh the checklist. Re-check to try again."
+                                                            : "Couldn't refresh your accounts. Re-check to try again."),
                       systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -47,9 +48,9 @@ struct ChecklistScreen: View {
             }
             .formStyle(.grouped)
             HStack {
-                if scope == .all { Text(footerText).font(.caption).foregroundStyle(.secondary) }
+                Text(footerText).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Re-check") { actionError = nil; Task { await model.recheckAll() } }.controlSize(.small).accessibilityIdentifier(AXID.checklistRecheck)
+                Button("Re-check") { actionError = nil; Task { await model.recheckAll() } }.controlSize(.small).accessibilityIdentifier(scope == .all ? AXID.checklistRecheck : AXID.settingsAccountsRecheck)
             }
             .padding(.horizontal, 20).padding(.vertical, 6)
         }
@@ -76,11 +77,12 @@ struct ChecklistScreen: View {
         // (Re-check) reports THIS screen-level identifier instead of its own
         // -- same fix as InstallScreen's stepRow.
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(AXID.checklistScreen)
+        .accessibilityIdentifier(scope == .all ? AXID.checklistScreen : AXID.settingsAccountsScreen)
     }
 
     private var footerText: String {
-        if model.groups.isEmpty { return model.lastError == nil ? "Checking…" : "" }
+        if model.groups(for: scope).isEmpty { return model.lastError == nil ? "Checking…" : "" }
+        guard scope == .all else { return "" }
         return ChecklistFooter.text(canInstall: model.canInstall, requiredMissingCount: model.requiredMissing.count,
                                     owedBeforeFinish: ChecklistFooter.owedBeforeFinish(model.allRows))
     }
