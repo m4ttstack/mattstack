@@ -24,7 +24,11 @@ export interface RangeState {
 
 const PRESETS = ['7d', '30d', '90d'];
 
-const SEGMENTED_SIZE = 'sm';
+// The kit track is --tk-inset, the page's own step, so on the bare page it needs the chrome step to read.
+const SEGMENTED = {
+  size: 'sm',
+  styles: { root: { background: 'var(--tk-chrome)' } },
+} as const;
 
 const ICON_LAYERS: Partial<Record<IconName, string>> = {
   table2: 'table-2',
@@ -41,10 +45,12 @@ function textLabel(text: string, parity = text) {
 
 function iconLabel(icon: IconName, name: string) {
   return (
-    <Center data-parity={`icon:${iconLayer(icon)}`}>
-      <Icon name={icon} size={16} strokeWidth={1.75} />
+    <>
+      <Center data-parity={`icon:${iconLayer(icon)}`}>
+        <Icon name={icon} size={16} strokeWidth={1.75} />
+      </Center>
       <VisuallyHidden>{name}</VisuallyHidden>
-    </Center>
+    </>
   );
 }
 
@@ -88,7 +94,7 @@ function RangeControl({
     >
       <Popover.Target>
         <SegmentedControl
-          size={SEGMENTED_SIZE}
+          {...SEGMENTED}
           aria-label="Range"
           data-parity="Range"
           value={open ? 'custom' : range.range}
@@ -181,7 +187,7 @@ export function PageHeader({
       <div className={classes.controls}>
         <RangeControl range={range} onRange={onRange} />
         <SegmentedControl
-          size={SEGMENTED_SIZE}
+          {...SEGMENTED}
           aria-label="Mode"
           data-parity="Mode"
           value={trend ? 'trend' : 'values'}
@@ -193,7 +199,7 @@ export function PageHeader({
         />
         {view !== undefined && onView !== undefined && (
           <SegmentedControl
-            size={SEGMENTED_SIZE}
+            {...SEGMENTED}
             aria-label="View"
             data-parity="View"
             value={view}
