@@ -140,7 +140,7 @@ describe('person page', () => {
     const panel = await issuesPanel(container);
     await user.type(
       within(panel).getByRole('textbox', { name: 'Filter 48 issues' }),
-      'trailer'
+      'summary'
     );
     const ids = [...panel.querySelectorAll('[data-parity="id"]')].map(
       n => n.textContent
@@ -148,7 +148,7 @@ describe('person page', () => {
     expect(ids.length).toBeGreaterThan(0);
     expect(ids.length).toBeLessThan(9);
     for (const row of panel.querySelectorAll('[data-parity^="Ev Row "]'))
-      expect(row.textContent?.toLowerCase()).toContain('trailer');
+      expect(row.textContent?.toLowerCase()).toContain('summary');
   });
 
   it('says so when the filter matches no issue', async () => {
