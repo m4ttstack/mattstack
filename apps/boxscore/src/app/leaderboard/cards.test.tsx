@@ -61,11 +61,15 @@ describe('CardsGrid', () => {
     }
   });
 
-  it('lists people with no value last, with a dash', () => {
+  it('lists people with no value last, an en dash for rank and an em dash for value, as the board draws them', () => {
     const { container } = renderCards();
     const c = card(container, 'responseLatencyHours');
     expect(whoNames(c).slice(-2)).toEqual(['Lena O.', 'Ruth A.']);
     expect(vals(c).slice(-2)).toEqual(['—', '—']);
+    const ranks = [...c.querySelectorAll('[data-parity="n"]')].map(
+      n => n.textContent
+    );
+    expect(ranks.slice(-2)).toEqual(['–', '–']);
     expect(vals(c)[0]).toBe('0.66h');
   });
 

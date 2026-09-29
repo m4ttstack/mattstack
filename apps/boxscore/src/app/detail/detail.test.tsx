@@ -174,6 +174,13 @@ describe('person page', () => {
     ).toHaveAttribute('aria-current', 'page');
   });
 
+  it('marks an unranked stat in the rail with an en dash, as the board draws a rank', () => {
+    renderAt('/user/lortiz/issuesCompleted');
+    const rail = screen.getByRole('navigation', { name: 'Stats' });
+    const row = within(rail).getByRole('link', { name: /Response time/ });
+    expect(row.querySelector('[data-parity="n"]')).toHaveTextContent(/^–$/);
+  });
+
   it('opens Issues done when the route names no stat', () => {
     const { container } = renderAt('/user/srivera');
     expect(layer(container, 'Panel · Issues done')).not.toBeNull();
