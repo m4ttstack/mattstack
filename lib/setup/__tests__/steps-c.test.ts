@@ -326,21 +326,100 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(detailOf(outcome)).toContain("materialized 1, failed 0");
     });
 
-    test("marketplace add exits non-zero (not 'already') -> failed with the contract remedy, install never reached", async () => {
+    test("marketplace add exits non-zero (not 'already') -> failed with claude's own first line and the contract remedy, install never reached", async () => {
       const p = fakeProbes({
         home,
         env: { PATH: "/usr/local/bin" },
         files: { "/usr/local/bin/claude": "bin" },
-        exec: async (argv) => (argv.includes("marketplace") && argv.includes("add") ? { code: 1, stdout: "", stderr: "boom" } : ok("")),
+        exec: async (argv) => (argv.includes("marketplace") && argv.includes("add") ? { code: 1, stdout: "Adding marketplace…\n", stderr: "\n✘ Failed to add marketplace: boom\nsecond line" } : ok("")),
       });
       const { ctx } = makeCtx(p);
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome).toEqual({
         state: "failed",
-        detail: "claude plugin marketplace add exited 1",
+        detail: "Failed to add marketplace: boom",
         remedy: "Open Claude Code once so it finishes first-run, then Retry.",
       });
+      expect(p.calls.exec.some((a) => a.includes("install"))).toBe(false);
+    });
+
+    test("marketplace add exits non-zero with no output -> failed naming the exit code", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => (argv.includes("marketplace") && argv.includes("add") ? { code: 1, stdout: "", stderr: "" } : ok("")),
+      });
+      const { ctx } = makeCtx(p);
+
+      expect(detailOf(await pluginsInstallStep.run(ctx))).toBe("claude plugin marketplace add exited 1");
+    });
+
+    test("rt's own add is the .git https form Claude Code records, so fast-browser's --source matches it exactly", () => {
+      expect(MATTSTACK_MARKETPLACE_SOURCE).toBe("https://github.com/m4ttstack/mattstack-marketplace.git");
+    });
+
+    // Captured from claude 2.1.284: re-adding a name registered from a source
+    // of another kind fails on stderr instead of reporting it already on disk.
+    const SOURCE_CLASH = "✘ Failed to add marketplace: Cannot add marketplace \"mattstack\": its network source differs from the one declared for it in settings";
+
+    /** A claude whose `mattstack` marketplace is already registered as `entry`, refusing any add of that name. */
+    function memberWithMattstack(entry: Record<string, string>) {
+      return fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          const [, , verb, sub, target] = argv;
+          if (verb === "list") return ok("[]");
+          if (verb === "marketplace" && sub === "list") return ok(JSON.stringify([{ name: "mattstack", ...entry, installLocation: "/x" }]));
+          if (verb === "marketplace" && sub === "add" && target === MATTSTACK_MARKETPLACE_SOURCE) return { code: 1, stdout: "Adding marketplace…", stderr: SOURCE_CLASH };
+          return ok("");
+        },
+      });
+    }
+
+    const SAME_REPO_ENTRIES: Record<string, string>[] = [
+      { source: "git", url: "https://github.com/m4ttstack/mattstack-marketplace.git" },
+      { source: "git", url: "https://github.com/m4ttstack/mattstack-marketplace" },
+      { source: "git", url: "https://github.com/m4ttstack/mattstack-marketplace/" },
+      { source: "git", url: "git@github.com:m4ttstack/mattstack-marketplace.git" },
+      { source: "git", url: "ssh://git@github.com/M4ttstack/mattstack-marketplace.git" },
+      { source: "github", repo: "m4ttstack/mattstack-marketplace" },
+    ];
+    for (const entry of SAME_REPO_ENTRIES) {
+      test(`a mattstack marketplace already registered from the same repo (${entry.url ?? entry.repo}) counts as present: no add, plugins still install`, async () => {
+        const p = memberWithMattstack(entry);
+        const { ctx } = makeCtx(p);
+
+        const outcome = await pluginsInstallStep.run(ctx);
+        expect(outcome.state).toBe("done");
+        expect(p.calls.exec.some((a) => a.includes("add") && a.at(-1) === MATTSTACK_MARKETPLACE_SOURCE)).toBe(false);
+        expect(p.calls.exec.some((a) => a[2] === "install" && a.at(-1) === "mattstack@mattstack")).toBe(true);
+        expect(readSetupState(p).marketplaces).not.toContain(MATTSTACK_MARKETPLACE_SOURCE);
+      });
+    }
+
+    test("a local directory mattstack marketplace (a dev overlay) counts as present: no add, plugins still install", async () => {
+      const p = memberWithMattstack({ source: "directory", path: "/x/mattstack-marketplace" });
+      const { ctx } = makeCtx(p);
+
+      const outcome = await pluginsInstallStep.run(ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.exec.some((a) => a.includes("add") && a.at(-1) === MATTSTACK_MARKETPLACE_SOURCE)).toBe(false);
+      expect(p.calls.exec.some((a) => a[2] === "install" && a.at(-1) === "mattstack@mattstack")).toBe(true);
+    });
+
+    test("a mattstack marketplace registered from a different repo is a named failure, and rt never adds over it", async () => {
+      const p = memberWithMattstack({ source: "github", repo: "someone-else/mattstack-marketplace" });
+      const { ctx } = makeCtx(p);
+
+      const outcome = await pluginsInstallStep.run(ctx);
+      expect(outcome.state).toBe("failed");
+      expect(detailOf(outcome)).toBe("a mattstack marketplace from someone-else/mattstack-marketplace is already registered");
+      expect(remedyOf(outcome)).toContain("claude plugin marketplace remove mattstack");
+      expect(p.calls.exec.some((a) => a.includes("add") && a.at(-1) === MATTSTACK_MARKETPLACE_SOURCE)).toBe(false);
       expect(p.calls.exec.some((a) => a.includes("install"))).toBe(false);
     });
 
