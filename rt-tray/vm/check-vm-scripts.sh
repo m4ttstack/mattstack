@@ -14,6 +14,8 @@ t "catalog.test.ts"              bun test run/helpers/__tests__/catalog.test.ts
 t "served-verdict.test.ts"       bun test run/helpers/__tests__/served-verdict.test.ts
 t "served-apps-sh.test.ts"       bun test run/helpers/__tests__/served-apps-sh.test.ts
 t "walkthrough-teardown.test.ts" bun test run/helpers/__tests__/walkthrough-teardown.test.ts
+t "mint-invite.test.ts"          bun test run/helpers/__tests__/mint-invite.test.ts
+t "join-rows.test.ts"            bun test run/helpers/__tests__/join-rows.test.ts
 t "build-golden --dry-run"       bash golden/build-golden.sh 26 --dry-run
 # A pause nobody can answer used to exit mute under set -e, killing the VM
 # through the EXIT trap after 15 minutes of provisioning, with the failure
@@ -38,8 +40,21 @@ t "walkthrough --dry-run ledgers teardown once" bash -c \
 t "walkthrough usage"            bash -c '! bash run/walkthrough.sh >/dev/null 2>&1'
 t "walkthrough --fresh-team-repo --dry-run creates nothing" bash -c \
   'out=$(env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --fresh-team-repo --dry-run 2>&1) && ! printf "%s" "$out" | grep -q "unknown arg"'
-t "walkthrough --fresh-team-repo refuses join" bash -c \
-  '! env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --dry-run >/dev/null 2>&1'
+t "walkthrough --fresh-team-repo --dry-run takes join with no code file" bash -c \
+  'env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --dry-run >/dev/null 2>&1'
+t "walkthrough --fresh-team-repo join ledgers the invite phase" bash -c \
+  'rm -rf /tmp/vmcheck-art-inv; env VM_ARTIFACTS=/tmp/vmcheck-art-inv bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --dry-run >/dev/null 2>&1 \
+   && grep -q "\"phase\":\"invite\",\"status\":\"skip\"" /tmp/vmcheck-art-inv/*/phases.jsonl; rc=$?; rm -rf /tmp/vmcheck-art-inv; exit $rc'
+t "walkthrough --fresh-team-repo refuses solo" bash -c \
+  '! env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario solo --fresh-team-repo --dry-run >/dev/null 2>&1'
+t "walkthrough join refuses both a code file and --fresh-team-repo" bash -c \
+  'touch /tmp/vmcheck-code.txt; ! env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --fresh-team-repo --invite-code-file /tmp/vmcheck-code.txt --dry-run >/dev/null 2>&1; rc=$?; rm -f /tmp/vmcheck-code.txt; exit $rc'
+t "walkthrough join without a code file or --fresh-team-repo fails preflight" bash -c \
+  '! env VM_ARTIFACTS=/tmp/vmcheck-art bash run/walkthrough.sh --ver 26 --app ../mattstack.app --scenario join --dry-run >/dev/null 2>&1'
+t "walkthrough hands --join <slug> to the join assert" bash -c \
+  'grep -qF "MODE_ARG=\"--join '"'"'\$SLUG'"'"'\"" run/walkthrough.sh && grep -q -- "--join) " run/guest/assert-installed.sh'
+t "mint-invite.sh usage (missing args)" bash -c \
+  'out=$(bash run/host/mint-invite.sh 2>&1); rc=$?; [ "$rc" -eq 2 ] && printf "%s" "$out" | grep -q "Usage: mint-invite.sh"'
 t "xcuitest.sh usage (missing args)" bash -c \
   'out=$(bash run/xcuitest.sh 2>&1); rc=$?; [ "$rc" -ne 0 ] && printf "%s" "$out" | grep -q "usage: xcuitest.sh"'
 # --ver 99 keeps this deterministic: no ghcr image maps to 99, so no real -xcode golden can
@@ -135,23 +150,23 @@ t "ax_shot skips instantly under --no-graphics"   env GUEST_RUN=/tmp/vmcheck-ax 
 t "ax_admin_auth_once returns fast with no SecurityAgent" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c 'source run/guest/ax.sh; s=$SECONDS; ax_admin_auth_once; rc=$?; [ "$rc" -eq 1 ] && [ $((SECONDS-s)) -le 10 ]'
 t "ax_set_field escapes an embedded quote/backslash" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh; ( ax_set_field setup.team.create.name "weird\"value\\here" ) 2>/dev/null; [ $? -eq 1 ] && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
 t "ax finish-gate helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_enabled ax_wait_enabled ax_wait_text ax_click_sheet_button ax_find_sheet_id ax_click_sheet_id >/dev/null && ! ax_enabled x >/dev/null 2>&1 && ! ax_wait_enabled x 1 && ! ax_wait_text "Skip the Fast Browser extension?" 1 && ! ax_click_sheet_button "Skip for now" && ! ax_find_sheet_id x >/dev/null 2>&1 && ! ax_click_sheet_id x >/dev/null 2>&1 && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
-t "drive-setup.sh drives Skip for now by its wording"   bash -c 'grep -q "ax_click_sheet_button \"Skip for now\"" run/guest/drive-setup.sh && grep -q "Skip the Fast Browser extension?" run/guest/drive-setup.sh'
-t "drive-setup.sh probes the Still to do row by its .status id, not the bare row id" bash -c \
-  'grep -q "setup.done.stillToDo.tool.fast-browser-extension.status" run/guest/drive-setup.sh'
-t "drive-setup.sh records the finish-gate outcome"      bash -c 'grep -q "finish-gate.txt" run/guest/drive-setup.sh && grep -q "finish-gate.txt" run/guest/assert-installed.sh'
-t "drive-setup.sh waits for the Done gate to settle before branching" bash -c 'grep -q "ax_wait_done_gate 60" run/guest/drive-setup.sh && grep -q "^ax_wait_done_gate()" run/guest/ax.sh'
+t "screens.sh drives Skip for now by its wording"   bash -c 'grep -q "ax_click_sheet_button \"Skip for now\"" run/guest/screens.sh && grep -q "Skip the Fast Browser extension?" run/guest/screens.sh'
+t "screens.sh probes the Still to do row by its .status id, not the bare row id" bash -c \
+  'grep -q "setup.done.stillToDo.tool.fast-browser-extension.status" run/guest/screens.sh'
+t "screens.sh records the finish-gate outcome"      bash -c 'grep -q "finish-gate.txt" run/guest/screens.sh && grep -q "finish-gate.txt" run/guest/assert-installed.sh'
+t "screens.sh waits for the Done gate to settle before branching" bash -c 'grep -q "ax_wait_done_gate 60" run/guest/screens.sh && grep -q "^ax_wait_done_gate()" run/guest/ax.sh'
 # Every finish-gated row is probed and handled by its own .action id; neither
 # row may be inferred from the other or from the section merely showing --
 # a VM guest with only the writing-style row (no Chrome) must not fail on a
 # missing Fast Browser row the way the old unconditional ax_fail did.
-t "drive-setup.sh probes each finish-gated row by its own .action id" bash -c \
-  'grep -q "setup.done.beforeYouFinish.tool.fast-browser-extension.action" run/guest/drive-setup.sh \
-   && grep -q "setup.done.beforeYouFinish.skills.writing-style.action" run/guest/drive-setup.sh'
-t "drive-setup.sh never requires the Fast Browser row just because the section shows" bash -c \
-  '! grep -q "Before you finish is shown without the extension row" run/guest/drive-setup.sh'
-t "drive-setup.sh takes the writing-style row through the choose sheet by option id" bash -c \
-  'grep -q "ax_click_sheet_id \"setup.choose.option.\$style\"" run/guest/drive-setup.sh \
-   && grep -q "ax_click_sheet_id setup.choose.submit" run/guest/drive-setup.sh'
+t "screens.sh probes each finish-gated row by its own .action id" bash -c \
+  'grep -q "setup.done.beforeYouFinish.tool.fast-browser-extension.action" run/guest/screens.sh \
+   && grep -q "setup.done.beforeYouFinish.skills.writing-style.action" run/guest/screens.sh'
+t "screens.sh never requires the Fast Browser row just because the section shows" bash -c \
+  '! grep -q "Before you finish is shown without the extension row" run/guest/screens.sh'
+t "screens.sh takes the writing-style row through the choose sheet by option id" bash -c \
+  'grep -q "ax_click_sheet_id \"setup.choose.option.\$style\"" run/guest/screens.sh \
+   && grep -q "ax_click_sheet_id setup.choose.submit" run/guest/screens.sh'
 t "ax.sh gained sheet-scoped AXIdentifier helpers alongside ax_click_sheet_button" bash -c \
   'grep -q "^ax_find_sheet_id()" run/guest/ax.sh && grep -q "^ax_click_sheet_id()" run/guest/ax.sh'
 t "ax_wait_done_gate also settles on a finish-gated row's own .action id, not just the section or Finish" bash -c \
@@ -161,10 +176,10 @@ t "ax.sh gained a bounded sheet-content wait, not a one-shot check" bash -c \
   'grep -q "^ax_wait_sheet_id()" run/guest/ax.sh'
 t "ax.sh gained sheet-scoped enabled helpers so a driver can wait before clicking a sheet button" bash -c \
   'grep -q "^ax_enabled_sheet()" run/guest/ax.sh && grep -q "^ax_wait_sheet_enabled()" run/guest/ax.sh'
-t "drive-setup.sh waits for the sheet with a bounded poll before looking for the option" bash -c \
-  'grep -q "ax_wait_sheet_id \"setup.choose.option.\$style\"" run/guest/drive-setup.sh'
-t "drive-setup.sh waits for Use this style to enable before clicking it" bash -c \
-  'grep -q "ax_wait_sheet_enabled setup.choose.submit" run/guest/drive-setup.sh'
+t "screens.sh waits for the sheet with a bounded poll before looking for the option" bash -c \
+  'grep -q "ax_wait_sheet_id \"setup.choose.option.\$style\"" run/guest/screens.sh'
+t "screens.sh waits for Use this style to enable before clicking it" bash -c \
+  'grep -q "ax_wait_sheet_enabled setup.choose.submit" run/guest/screens.sh'
 t "assert-installed.sh parses finish-gate.txt's per-row line format, not just skipped/open" bash -c \
   'grep -q "fast-browser-extension=skipped" run/guest/assert-installed.sh \
    && grep -q "writing-style=" run/guest/assert-installed.sh \
@@ -201,8 +216,32 @@ t "walkthrough --decline-trust refuses headless"  bash -c \
 # timing note as the no-SecurityAgent check above applies here too.
 t "ax_admin_auth_once returns fast when declining" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x AX_TRUST_DECLINE=1 bash -c 'source run/guest/ax.sh; s=$SECONDS; ax_admin_auth_once; rc=$?; [ "$rc" -eq 1 ] && [ $((SECONDS-s)) -le 10 ]'
 t "assert-installed.sh takes --expect-untrusted"  bash -c 'grep -q -- "--expect-untrusted" run/guest/assert-installed.sh'
-t "drive-setup.sh answers repos.root before Continue" bash -c 'grep -q "setup repo-root set" run/guest/drive-setup.sh'
-t "drive-setup.sh rechecks after setting the root"    bash -c 'grep -q "setup.checklist.recheck" run/guest/drive-setup.sh'
+t "ax proxy/join helpers source + fail clean against no app" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=definitely-not-running bash -c 'source run/guest/ax.sh && declare -F ax_value ax_wait_join_note ax_admin_dialog_up ax_wait_admin_dialog ax_admin_cancel_once ax_security_agent_windows >/dev/null && ! ax_value x >/dev/null 2>&1 && [ "$(ax_wait_join_note 1 >/dev/null 2>&1; echo $?)" = 1 ] && ! ax_admin_dialog_up && ! ax_wait_admin_dialog 1 && ! ax_admin_cancel_once && ! grep -qi "script error\|Expected \|syntax error" "$AX_LOG"'
+# ax_admin_cancel_once only reaches its osascript with a dialog up, which a
+# host never has, so its script is compiled from a printing ax_osa instead.
+t "ax_admin_cancel_once AppleScript compiles" env GUEST_RUN=/tmp/vmcheck-ax AX_APP=x bash -c '
+  source run/guest/ax.sh
+  ax_security_agent_windows() { printf "0,2"; }
+  ax_osa() { printf "%s" "$1" > /tmp/vmcheck-ax/cancel.applescript; }
+  ax_admin_cancel_once && osacompile -o /tmp/vmcheck-ax/cancel.scpt /tmp/vmcheck-ax/cancel.applescript'
+t "screens.sh drives the proxy row button, Cancel first, before Continue" bash -c '
+  grep -q "^screen_proxy_row()" run/guest/screens.sh \
+  && grep -q "ax_click setup.checklist.row.tool.proxy.action" run/guest/screens.sh \
+  && grep -q "ax_admin_cancel_once" run/guest/screens.sh \
+  && grep -q "setup.checklist.row.tool.proxy.error" run/guest/screens.sh \
+  && call=$(grep -n "^  screen_proxy_row$" run/guest/screens.sh | head -1 | cut -d: -f1) \
+  && cont=$(grep -n "ax_click setup.checklist.continue" run/guest/screens.sh | head -1 | cut -d: -f1) \
+  && [ -n "$call" ] && [ -n "$cont" ] && [ "$call" -lt "$cont" ]'
+t "screens.sh proxy row: Cancel is asserted before the credentialed try" bash -c '
+  cancel=$(grep -n "ax_admin_cancel_once ||" run/guest/screens.sh | head -1 | cut -d: -f1)
+  auth=$(grep -n "ax_admin_auth ||" run/guest/screens.sh | head -1 | cut -d: -f1)
+  [ -n "$cancel" ] && [ -n "$auth" ] && [ "$cancel" -lt "$auth" ]'
+t "screens.sh asserts the join note before Continue" bash -c '
+  note=$(grep -n "ax_wait_join_note" run/guest/screens.sh | head -1 | cut -d: -f1)
+  cont=$(grep -n "ax_click setup.team.continue" run/guest/screens.sh | head -1 | cut -d: -f1)
+  [ -n "$note" ] && [ -n "$cont" ] && [ "$note" -lt "$cont" ]'
+t "screens.sh answers repos.root before Continue" bash -c 'grep -q "setup repo-root set" run/guest/screens.sh'
+t "screens.sh rechecks after setting the root"    bash -c 'grep -q "setup.checklist.recheck" run/guest/screens.sh'
 t "assert-installed.sh handles repos.root absent"     bash -c 'grep -q "repos.root" run/guest/assert-installed.sh'
 t "assert-installed.sh checks every .mattstack route, not the first" bash -c \
   '! grep -qE "endswith\(\"\.mattstack\"\)\).*head -1" run/guest/assert-installed.sh \

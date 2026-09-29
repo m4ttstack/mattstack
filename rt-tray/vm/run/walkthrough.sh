@@ -7,8 +7,11 @@ usage() { sed -n '2p' "$0"; cat <<'EOF'
 usage: walkthrough.sh --ver <14|15|26> (--dmg <path> | --app <mattstack.app>)
          [--scenario create|join|headless|solo] [--team-slug vmtest] [--pat-env MATTSTACK_VMTEST_PAT]
          [--invite-code-file <p>] [--team-remote <url> (solo scenario: runs the team-upgrade phase)] [--forge github|gitlab] [--update-dir <dir>] [--update-version <v>]
-         [--fresh-team-repo] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
+         [--fresh-team-repo] [--mint-rt <rt>] [--decline-trust] [--no-quarantine] [--no-graphics] [--keep] [--dry-run] [--verify-golden]
          [--golden <name>]
+--fresh-team-repo mints an empty team repo; with --scenario join the host also
+scaffolds the team there and mints the invite (under a throwaway HOME, with the
+bundle's rt or --mint-rt), so no --invite-code-file is needed.
 EOF
 exit 2; }
 
@@ -16,22 +19,23 @@ VER=""; DMG=""; APP=""; SCENARIO=create; SLUG=vmtest; PAT_ENV=MATTSTACK_VMTEST_P
 # The create card's pasted-URL path (a fresh guest has no gh identity yet): the throwaway
 # org's team repo, same naming as run/team-setup.sh.
 TEAM_REMOTE="${TEAM_REMOTE:-https://github.com/${MATTSTACK_VMTEST_ORG:-mattstack-vmtest}/${MATTSTACK_VMTEST_TEAM_REPO:-mattstack-vmtest-team}.git}"
-UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""
+UPD=""; UPDV=""; QUAR=1; GRAPHICS=1; KEEP=0; DRY=0; VERIFY_GOLDEN=0; FRESH_REPO=0; DECLINE_TRUST=0; GOLDEN_OVERRIDE=""; MINT_RT=""
 while [ $# -gt 0 ]; do case "$1" in
   --ver) VER="$2"; shift 2;; --dmg) DMG="$2"; shift 2;; --app) APP="$2"; shift 2;;
   --scenario) SCENARIO="$2"; shift 2;; --team-slug) SLUG="$2"; shift 2;; --pat-env) PAT_ENV="$2"; shift 2;;
   --invite-code-file) CODE_FILE="$2"; shift 2;; --team-remote) TEAM_REMOTE="$2"; shift 2;; --forge) FORGE="$2"; shift 2;;
   --update-dir) UPD="$2"; shift 2;; --update-version) UPDV="$2"; shift 2;;
   --golden) GOLDEN_OVERRIDE="$2"; shift 2;;
-  --fresh-team-repo) FRESH_REPO=1; shift;;
+  --fresh-team-repo) FRESH_REPO=1; shift;; --mint-rt) MINT_RT="$2"; shift 2;;
   --decline-trust) DECLINE_TRUST=1; shift;;
   --no-quarantine) QUAR=0; shift;; --no-graphics) GRAPHICS=0; shift;; --keep) KEEP=1; shift;; --dry-run) DRY=1; shift;;
   --verify-golden) VERIFY_GOLDEN=1; shift;; -h|--help) usage;; *) vm_warn "unknown arg $1"; usage;; esac; done
 [ -n "$VER" ] || usage
 [ -n "$DMG" ] || [ -n "$APP" ] || usage
-# `rt team create` refuses a remote with commits, so only the create scenario
-# can consume a freshly minted repo; a joiner's remote already has the team.
-[ "$FRESH_REPO" = 1 ] && [ "$SCENARIO" != create ] && { vm_warn "--fresh-team-repo only applies to --scenario create"; usage; }
+# `rt team create` refuses a remote with commits, so a freshly minted repo is
+# consumed by exactly one creator: the guest (create) or the host's mint (join).
+case "$SCENARIO" in create|join) ;; *) [ "$FRESH_REPO" = 1 ] && { vm_warn "--fresh-team-repo only applies to --scenario create or join"; usage; };; esac
+[ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ] && [ -n "$CODE_FILE" ] && { vm_warn "--invite-code-file and --fresh-team-repo both name the invite; pass one"; usage; }
 # Declining is answered in the SecurityAgent dialog the wizard raises, and the
 # headless recipe drives no dialogs at all.
 [ "$DECLINE_TRUST" = 1 ] && [ "$SCENARIO" = headless ] && { vm_warn "--decline-trust needs a driven scenario, not headless"; usage; }
@@ -43,7 +47,7 @@ vm_log "golden: $GOLDEN"
 RUN_VM="mattstack-run-$VER-$(date +%H%M%S)-$$"
 GUEST_RUN="/Volumes/My Shared Files/run"
 GUEST_BIN="/Users/$VM_TESTER_USER/vmrun"
-TART_PID=""; SHOT_PID=""; CLONED=0
+TART_PID=""; SHOT_PID=""; CLONED=0; MINT_HOME=""
 APP_VERSION=""
 FRESH_SLUG=""
 # The longest passing screens phase on record ran 3353s, 23 minutes of it a
@@ -53,11 +57,13 @@ FRESH_SLUG=""
 : "${VM_PHASE_LIMIT_TEAM_UPGRADE:=3600}"
 : "${VM_PHASE_LIMIT_UPDATE:=1800}"
 : "${VM_PHASE_LIMIT_TEARDOWN:=600}"
+: "${VM_PHASE_LIMIT_INVITE:=600}"
 
 cleanup() {
   trap 'vm_warn "teardown in progress; signal ignored"' INT TERM HUP
   vm_say_or_log "  ── cleanup"
   [ -n "$SHOT_PID" ] && kill "$SHOT_PID" 2>/dev/null
+  mint_detach; drop_mint_home
   vm_phase_abandon "walkthrough exited mid-phase"
   if [ "$DRY" = 0 ]; then teardown; fi
   vm_render_report
@@ -91,6 +97,29 @@ teardown() {
     fi
   fi
   vm_phase_end teardown "$status" "$notes"
+}
+
+# The mint's HOME holds the throwaway team's age key; it never outlives the run.
+drop_mint_home() {
+  case "$MINT_HOME" in */vm-mint.*) rm -rf "$MINT_HOME";; esac
+  MINT_HOME=""
+}
+
+# The rt that mints: --mint-rt, else the bundle under test (read from the
+# DMG, which stays attached until mint_detach).
+MINT_MOUNT=""; RT_FOR_MINT=""
+mint_resolve_rt() {
+  if [ -n "$MINT_RT" ]; then RT_FOR_MINT="$MINT_RT"; return 0; fi
+  if [ -n "$APP" ]; then RT_FOR_MINT="$APP/Contents/MacOS/rt"; return 0; fi
+  MINT_MOUNT=$(mktemp -d "${TMPDIR:-/tmp}/vm-mint-dmg.XXXXXX")
+  hdiutil attach "$DMG" -nobrowse -quiet -readonly -mountpoint "$MINT_MOUNT" >/dev/null 2>&1 || { rmdir "$MINT_MOUNT"; MINT_MOUNT=""; return 1; }
+  RT_FOR_MINT="$MINT_MOUNT/mattstack.app/Contents/MacOS/rt"
+}
+mint_detach() {
+  [ -n "$MINT_MOUNT" ] || return 0
+  hdiutil detach "$MINT_MOUNT" -quiet >/dev/null 2>&1 || true
+  rmdir "$MINT_MOUNT" 2>/dev/null || true
+  MINT_MOUNT=""
 }
 
 # Deleting needs a token with delete rights, which the vmtest PAT may lack;
@@ -163,7 +192,7 @@ if [ -n "$UPD" ]; then
     bun build --compile "$VM_ROOT/run/helpers/appcast-server.ts" --outfile "$VM_RUN_DIR/in/update/appcast-server" >/dev/null 2>&1 || { vm_phase_end preflight fail "bun build --compile appcast-server failed"; exit 1; }
   fi
 fi
-[ "$SCENARIO" = join ] && [ ! -f "${CODE_FILE:-/nonexistent}" ] && { vm_phase_end preflight fail "join needs --invite-code-file"; exit 1; }
+[ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 0 ] && [ ! -f "${CODE_FILE:-/nonexistent}" ] && { vm_phase_end preflight fail "join needs --invite-code-file or --fresh-team-repo"; exit 1; }
 if [ "$FRESH_REPO" = 1 ] && [ "$DRY" = 0 ]; then
   [ -n "${!PAT_ENV:-}" ] || { vm_phase_end preflight fail "--fresh-team-repo needs \$$PAT_ENV set — an empty token can fall back to the operator's own stored forge credentials"; exit 1; }
   FRESH_NAME="mattstack-vmtest-team-$(date +%Y%m%d-%H%M%S)-$$"
@@ -208,6 +237,24 @@ fi
 printf '{"ver":"%s","scenario":"%s","dmg":"%s","appVersion":"%s","updateVersion":"%s","quarantine":%s,"graphics":%s}\n' \
   "$VER" "$SCENARIO" "$DMG" "$APP_VERSION" "$UPDV" "$QUAR" "$GRAPHICS" > "$VM_RUN_DIR/in/params.json"
 vm_phase_end preflight pass
+
+# ── invite (join --fresh-team-repo) ─────────────────────────────────────────
+if [ "$SCENARIO" = join ] && [ "$FRESH_REPO" = 1 ]; then
+  vm_phase_begin invite
+  if ! skip_if_dry invite; then
+    CODE_FILE="$VM_RUN_DIR/mint/invite-code.txt"
+    MINT_HOME=$(mktemp -d "${TMPDIR:-/tmp}/vm-mint.XXXXXX")
+    if ! mint_resolve_rt; then
+      vm_phase_end invite fail "could not attach $DMG to read its rt; pass --mint-rt"; exit 1
+    fi
+    VM_MINT_TOKEN="${!PAT_ENV:-}" vm_guest_cmd bash "$VM_ROOT/run/host/mint-invite.sh" --rt "$RT_FOR_MINT" --home "$MINT_HOME" \
+      --remote "$TEAM_REMOTE" --out "$CODE_FILE" --slug "$SLUG" ${FORGE:+--forge "$FORGE"} >>"$VM_RUN_DIR/logs/mint.log" 2>&1
+    rc=$?
+    mint_detach; drop_mint_home
+    if [ "$rc" -eq 0 ] && [ -s "$CODE_FILE" ]; then vm_phase_end invite pass "team $SLUG scaffolded on $TEAM_REMOTE; invite minted on the host"
+    else vm_phase_end invite fail "$(vm_fail_reason "$rc" "$VM_RUN_DIR/logs/mint.log" "host mint failed: $(tail -1 "$VM_RUN_DIR/logs/mint.log" 2>/dev/null || echo 'see logs/mint.log')")"; exit 1; fi
+  fi
+fi
 if [ "$DRY" = 1 ]; then
   vm_log "[dry-run] would: tart clone $GOLDEN $RUN_VM; tart run $RUN_VM --dir=run:$VM_RUN_DIR $([ $GRAPHICS = 0 ] && echo --no-graphics); wait ssh; stage; install; $([ $SCENARIO = headless ] && echo e2e-cleanroom || echo 'five screens'); assert; $([ -n "$UPD" ] && echo update || echo 'update(skip)'); teardown"
   for p in clone boot stage install launch screens assert update teardown; do vm_phase_begin $p; skip_if_dry $p; done
@@ -314,8 +361,9 @@ EXPECT_ARG=""; [ -n "$APP_VERSION" ] && EXPECT_ARG="--expect-version '$APP_VERSI
 # The declined run asserts the untrusted state and then drives the trust verb's
 # own dialogs, so this phase needs the admin credentials too.
 UNTRUSTED_ARG=""; [ "$DECLINE_TRUST" = 1 ] && UNTRUSTED_ARG=--expect-untrusted
-SOLO_ARG=""; [ "$SCENARIO" = solo ] && SOLO_ARG="--solo"
-vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $SOLO_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
+MODE_ARG=""; [ "$SCENARIO" = solo ] && MODE_ARG="--solo"
+[ "$SCENARIO" = join ] && MODE_ARG="--join '$SLUG'"
+vm_ssh_try "$VM_TESTER_USER" "$RUN_VM" "security unlock-keychain -p '$VM_TESTER_PASS' ~/Library/Keychains/login.keychain-db && GUEST_RUN='$GUEST_RUN' VM_ADMIN_USER='$VM_ADMIN_USER' VM_ADMIN_PASS='$VM_ADMIN_PASS' bash $GUEST_BIN/assert-installed.sh $EXPECT_ARG $HFLAG $UNTRUSTED_ARG $MODE_ARG" >"$VM_RUN_DIR/logs/assert.log" 2>&1
 rc=$?
 if [ "$rc" -eq 0 ]; then
   vm_phase_end assert pass
