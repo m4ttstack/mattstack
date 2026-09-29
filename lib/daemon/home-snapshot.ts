@@ -162,6 +162,8 @@ export interface SnapshotSpec {
   pullOnly?: boolean;
   /** The forge token rt holds for origin; absent = git's own credentials. */
   tokenFor?: () => Promise<string | null>;
+  /** The remote `tokenFor` reads for; the token is offered to its https host only. */
+  originUrl?: string;
   /** The retired pre-kv state file to import once; home only. */
   legacyStatePath?: string;
 }
@@ -380,6 +382,7 @@ export function teamSnapshotSpec(
     pull: { intervalSec: opts.pullIntervalSec, onPulled: opts.onPulled },
     pullOnly: opts.pullOnly === true,
     tokenFor: () => readToken(opts.probes, opts.originUrl),
+    originUrl: opts.originUrl,
   };
 }
 
@@ -533,7 +536,7 @@ export function startSnapshot(spec: SnapshotSpec, rawDeps: SnapshotDeps): Snapsh
       }
     }
     lastLoggedTokenError = null;
-    const cmd = gitWithToken(args, cachedToken.value, { ...(process.env as Record<string, string>), GIT_TERMINAL_PROMPT: "0" });
+    const cmd = gitWithToken(args, cachedToken.value, { ...(process.env as Record<string, string>), GIT_TERMINAL_PROMPT: "0" }, { remote: spec.originUrl ?? null });
     return deps.exec(cmd.argv as [string, ...string[]], { cwd: deps.repoDir, timeoutMs, stderr: "pipe", env: cmd.env });
   }
 

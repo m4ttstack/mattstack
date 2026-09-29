@@ -746,6 +746,16 @@ export const TREE: Record<string, CommandNode> = {
         requiresTTY: true,
         args: [],
       },
+      credential: {
+        description: "Git credential helper an rt-made https clone names in its config; answers with rt's forge token, never call directly",
+        module: "./commands/git/credential.ts",
+        fn: "gitCredentialCommand",
+        hidden: true,
+        omitBehavior: { exempt: "driven by git over stdin; the operation is git's own get/store/erase" },
+        args: [
+          { name: "Operation", type: "text", placeholder: "get", hint: "The credential operation git passes (get, store, erase)" },
+        ],
+      },
       pull: {
         description: "Pull from origin",
         module: "./commands/git/pull.ts",

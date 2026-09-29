@@ -172,7 +172,7 @@ describe("accessRows — access.team-repo", () => {
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, secrets), "access.team-repo");
     expect(r.status).toBe("ready");
     expect(seen!.argv.join(" ")).not.toContain("ghp_secret");
-    expect(seen!.argv.join(" ")).toContain("credential.helper=");
+    expect(seen!.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
     expect(seen!.env?.RT_GIT_TOKEN).toBe("ghp_secret");
     expect(seen!.env?.GIT_TERMINAL_PROMPT).toBe("0");
   });
@@ -373,7 +373,7 @@ describe("accessRows — access.repo.<slug>", () => {
     const r = await pickRow(accessRows(fakeProbes({ exec }), team, null, {}, secrets), "access.repo.gitlab.com-acme-repo");
     expect(r.status).toBe("ready");
     expect(seen!.argv.join(" ")).not.toContain("glpat_secret");
-    expect(seen!.argv.join(" ")).toContain("credential.helper=");
+    expect(seen!.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
     expect(seen!.env?.RT_GIT_TOKEN).toBe("glpat_secret");
     expect(r.detail).not.toContain("glpat_secret");
   });

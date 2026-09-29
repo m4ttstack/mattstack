@@ -46,7 +46,8 @@ async function currentOrigin(p: Probes, dir: string): Promise<string | null> {
   return raw !== null ? parseOriginUrl(raw) : null;
 }
 
-export async function publishTeam(p: Probes, slug: string, remote: string | null, opts: { token?: string | null } = {}): Promise<PublishTeamResult> {
+/** `opts.tokenRemote` is the remote `opts.token` was looked up for; the token is offered to its https host only. */
+export async function publishTeam(p: Probes, slug: string, remote: string | null, opts: { token?: string | null; tokenRemote?: string | null } = {}): Promise<PublishTeamResult> {
   try {
     validateSlug(slug);
   } catch (err) {
@@ -73,7 +74,7 @@ export async function publishTeam(p: Probes, slug: string, remote: string | null
   }
 
   const activeRemote = remote ?? (await currentOrigin(p, dir)) ?? "";
-  const cmd = gitWithToken(["push", "-u", "origin", "main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" });
+  const cmd = gitWithToken(["push", "-u", "origin", "main"], opts.token ?? null, { GIT_TERMINAL_PROMPT: "0" }, { remote: opts.tokenRemote ?? activeRemote });
   const push = await p.exec(cmd.argv, { cwd: dir, env: cmd.env });
 
   if (push.code !== 0) throw classifyPushFailure(push);

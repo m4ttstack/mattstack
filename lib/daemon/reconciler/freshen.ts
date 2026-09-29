@@ -20,6 +20,7 @@ import {
   runGit,
   stashChangesAsync,
 } from "../../worktree/git-async.ts";
+import { runGitOrigin } from "../../worktree/fetch-auth.ts";
 import { withTreeLock } from "../../worktree/locks.ts";
 import { classifyDirtyAsync } from "../../worktree/dispose.ts";
 import { changedSince, stepsToRun, runReadySteps } from "../../worktree/ready.ts";
@@ -109,7 +110,7 @@ async function freshenOne(deps: FreshenDeps, rec: TreeRecord): Promise<boolean> 
   const defaultRef = await remoteDefaultRef(rec.path);
   const defaultBranchName = defaultRef.replace(/^origin\//, "");
 
-  const fetchResult = await runGit(rec.path, ["fetch", "origin", defaultBranchName], {
+  const fetchResult = await runGitOrigin(rec.path, ["fetch", "origin", defaultBranchName], {
     timeoutMs: FRESHEN_FETCH_TIMEOUT_MS,
   });
   if (fetchResult.exitCode !== 0) {

@@ -59,6 +59,7 @@ import {
   remoteRefExists,
   runGit,
 } from "../../worktree/git-async.ts";
+import { runGitOrigin } from "../../worktree/fetch-auth.ts";
 import {
   loadWorktreeAppConfig,
   loadWorktreeRepoConfig,
@@ -412,7 +413,7 @@ export function createWorktreeHandlers(
         });
 
         // ── 4. Branch resolution matrix, against a fresh targeted fetch.
-        const fetch = await runGit(tree.path, ["fetch", "origin", branch], {
+        const fetch = await runGitOrigin(tree.path, ["fetch", "origin", branch], {
           timeoutMs: PROVISION_FETCH_TIMEOUT_MS,
         });
         let remoteHasBranch = true;
@@ -463,7 +464,7 @@ export function createWorktreeHandlers(
           // Best-effort: a failed refresh falls back to the ref already on
           // disk rather than failing the whole provision over a network blip.
           const staleDefaultRef = await remoteDefaultRef(tree.path);
-          await runGit(tree.path, ["fetch", "origin", staleDefaultRef.replace(/^origin\//, "")], {
+          await runGitOrigin(tree.path, ["fetch", "origin", staleDefaultRef.replace(/^origin\//, "")], {
             timeoutMs: PROVISION_FETCH_TIMEOUT_MS,
           });
           const defaultRef = await remoteDefaultRef(tree.path);

@@ -30,7 +30,7 @@ import { teamCreateStep, teamJoinStep } from "../steps/team.ts";
 import { secretsWriteStep } from "../steps/secrets.ts";
 import { pathLinkStep } from "../steps/path.ts";
 import { settingsSeedStep } from "../steps/settings.ts";
-import { CLONE_STALL_ARGS, reposCloneStep } from "../steps/repos.ts";
+import { CLONE_STALL_ARGS, reposCloneStep, rtCredentialHelper } from "../steps/repos.ts";
 import { interceptsInstallStep } from "../steps/index.ts";
 
 // ─── shared fakes ────────────────────────────────────────────────────────────
@@ -390,7 +390,7 @@ describe("team.create", () => {
     const outcome = await teamCreateStep.run(ctx);
     expect(outcome.state).toBe("done");
     const push = seen.find((c) => c.argv.includes("push"))!;
-    expect(push.argv.join(" ")).toContain("credential.helper=");
+    expect(push.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
     expect(push.argv.join(" ")).not.toContain("ghp_staged");
     expect(push.env?.RT_GIT_TOKEN).toBe("ghp_staged");
   });
@@ -858,22 +858,30 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(readStagedRepoRoot(p)).toBeNull();
   });
 
-  test("repos.clone: clones a missing identity with the expected argv, skips an existing dir", async () => {
+  const SSH_REFUSED: ExecResult = { code: 128, stdout: "", stderr: "git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository." };
+  /** Every git call succeeds except the SSH reachability probe, so the step falls back to https. */
+  const sshRefused = (argv: string[]): ExecResult => (argv.includes("ls-remote") ? SSH_REFUSED : ok());
+
+  test("repos.clone: with no SSH access, clones a missing identity over https with the expected argv", async () => {
     setSetting("rt.repoRoots", [join(home, "code")], "machine");
     mkdirSync(join(home, "code"), { recursive: true });
     const dest = join(home, "code", "acme-dev");
 
-    const p = fakeProbes({ home, exec: async () => ok() });
+    const p = fakeProbes({ home, exec: async (argv) => sshRefused(argv) });
     const { ctx } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
-    expect(p.calls.exec).toEqual([["git", ...CLONE_STALL_ARGS, "clone", "https://gitlab.com/acme/acme-dev.git", dest]]);
+    expect(p.calls.exec).toEqual([
+      ["git", "ls-remote", "--exit-code", "git@gitlab.com:acme/acme-dev.git", "HEAD"],
+      ["git", ...CLONE_STALL_ARGS, "clone", "https://gitlab.com/acme/acme-dev.git", dest],
+    ]);
   });
 
-  test("repos.clone: a private tracked repo is cloned with the forge token rt holds (staged before secrets.write), through the env", async () => {
+  test("repos.clone: when the user's SSH key already reaches the forge, the clone's origin is SSH, so later fetches use the user's own key", async () => {
     setSetting("rt.repoRoots", [join(home, "code")], "machine");
     mkdirSync(join(home, "code"), { recursive: true });
+    const dest = join(home, "code", "acme-dev");
     const seen: { argv: string[]; env?: Record<string, string> }[] = [];
     const p = fakeProbes({
       home,
@@ -886,9 +894,73 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const { ctx } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
 
     const outcome = await reposCloneStep.run(ctx);
+    expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
+    expect(seen.map((c) => c.argv)).toEqual([
+      ["git", "ls-remote", "--exit-code", "git@gitlab.com:acme/acme-dev.git", "HEAD"],
+      ["git", ...CLONE_STALL_ARGS, "clone", "git@gitlab.com:acme/acme-dev.git", dest],
+    ]);
+    for (const call of seen) {
+      expect(call.env?.GIT_SSH_COMMAND).toContain("BatchMode=yes");
+      expect(call.env?.RT_GIT_TOKEN).toBeUndefined();
+    }
+  });
+
+  test("repos.clone: an https clone made with rt's token names rt as that host's credential helper, so the user's own pulls work", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    mkdirSync(join(home, "code"), { recursive: true });
+    const dest = join(home, "code", "acme-dev");
+    const rt = join(home, ".local", "bin", "rt");
+    const p = fakeProbes({ home, files: { [rt]: "#!/bin/sh\n" }, exec: async (argv) => sshRefused(argv) });
+    stageSecret(p, "rt", "gitlabToken", "glpat_staged");
+    const { ctx } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
+
+    const outcome = await reposCloneStep.run(ctx);
+    expect(outcome).toEqual({ state: "done", detail: "cloned 1, present 0, failed 0" });
+    const config = p.calls.exec.filter((argv) => argv.includes("config"));
+    expect(config).toEqual([
+      ["git", "-C", dest, "config", "--add", "credential.https://gitlab.com.helper", ""],
+      ["git", "-C", dest, "config", "--add", "credential.https://gitlab.com.helper", rtCredentialHelper(rt)],
+    ]);
+    expect(config.flat().join(" ")).not.toContain("glpat_staged");
+  });
+
+  test("repos.clone: a tokenless https clone gets no helper", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    mkdirSync(join(home, "code"), { recursive: true });
+    const p = fakeProbes({ home, files: { [join(home, ".local", "bin", "rt")]: "#!/bin/sh\n" }, exec: async (argv) => sshRefused(argv) });
+    await reposCloneStep.run(makeCtx(p, { snapshot: ACME_DEV }).ctx);
+    expect(p.calls.exec.some((argv) => argv.includes("clone"))).toBe(true);
+    expect(p.calls.exec.some((argv) => argv.includes("config"))).toBe(false);
+  });
+
+  test("repos.clone: an https clone with no rt link on disk gets no helper, since git would warn on every call", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    mkdirSync(join(home, "code"), { recursive: true });
+    const p = fakeProbes({ home, exec: async (argv) => sshRefused(argv) });
+    stageSecret(p, "rt", "gitlabToken", "glpat_staged");
+    await reposCloneStep.run(makeCtx(p, { snapshot: ACME_DEV }).ctx);
+    expect(p.calls.exec.some((argv) => argv.includes("clone"))).toBe(true);
+    expect(p.calls.exec.some((argv) => argv.includes("config"))).toBe(false);
+  });
+
+  test("repos.clone: a private tracked repo is cloned with the forge token rt holds (staged before secrets.write), through the env", async () => {
+    setSetting("rt.repoRoots", [join(home, "code")], "machine");
+    mkdirSync(join(home, "code"), { recursive: true });
+    const seen: { argv: string[]; env?: Record<string, string> }[] = [];
+    const p = fakeProbes({
+      home,
+      exec: async (argv, opts) => {
+        seen.push({ argv, env: opts?.env });
+        return sshRefused(argv);
+      },
+    });
+    stageSecret(p, "rt", "gitlabToken", "glpat_staged");
+    const { ctx } = makeCtx(p, { snapshot: { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/acme-dev"], marketplaces: [], plugins: [], remote: null } });
+
+    const outcome = await reposCloneStep.run(ctx);
     expect(outcome.state).toBe("done");
     const clone = seen.find((c) => c.argv.includes("clone"))!;
-    expect(clone.argv).toContain("credential.helper=");
+    expect(clone.argv).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
     expect(clone.argv.join(" ")).not.toContain("glpat_staged");
     expect(clone.env?.RT_GIT_TOKEN).toBe("glpat_staged");
     expect(clone.env?.GIT_TERMINAL_PROMPT).toBe("0");
@@ -902,7 +974,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
       home,
       exec: async (argv, opts) => {
         seen.push({ argv, env: opts?.env });
-        return ok();
+        return sshRefused(argv);
       },
     });
     stageSecret(p, "rt", "gitlabToken", "glpat_staged");
@@ -923,7 +995,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
       home,
       exec: async (argv, opts) => {
         seen.push({ argv, env: opts?.env });
-        return ok();
+        return sshRefused(argv);
       },
     });
     stageSecret(p, "rt", "gitlabToken", "glpat_staged");
@@ -1037,7 +1109,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
     await reposCloneStep.run(ctx);
     expect(budget).toBeGreaterThanOrEqual(30 * 60_000);
-    expect(p.calls.exec[0]).toEqual(expect.arrayContaining(["http.lowSpeedLimit=1000", "http.lowSpeedTime=300"]));
+    expect(p.calls.exec.find((argv) => argv.includes("clone"))).toEqual(expect.arrayContaining(["http.lowSpeedLimit=1000", "http.lowSpeedTime=300"]));
   });
 
   test("repos.clone: a clone killed at the budget says it timed out, in minutes, and the step is partial naming the repo", async () => {
@@ -1104,7 +1176,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
 
   function realFsProbes(): Probes & { clones: string[][] } {
     const clones: string[][] = [];
-    return { ...createRealProbes(), home, clones, exec: async (argv) => (clones.push(argv), ok()) };
+    return { ...createRealProbes(), home, clones, exec: async (argv) => (argv.includes("clone") && clones.push(argv), ok()) };
   }
 
   test("repos.clone: an existing clone under another repo root is registered in place of a second clone", async () => {
