@@ -74,7 +74,7 @@ see the layout yourself without wiring up a real GitLab project, copy
   grant. This is where MR data comes from: the board reads one socket call per
   project, and makes no forge traffic of its own. See
   [rt](https://github.com/m4ttstack/mattstack).
-- Optionally a GitLab personal access token (`read_api`) for member display
+- Optionally a GitLab personal access token (`api`) for member display
   names and MR notes, a Slack user token for the Slack actions, and
   [herdr](https://herdr.dev) for the agent actions.
 
@@ -102,7 +102,7 @@ everyone at a shared mattstack team settings store instead.
 `bun run setup` only handles what is yours, and is idempotent: re-run it any
 time to rotate a token or change your default view. It prompts for:
 
-- **A GitLab personal access token** (`read_api` scope), created at
+- **A GitLab personal access token** (`api` scope, so reviews can post MR comments), created at
   `<your-gitlab>/-/user_settings/personal_access_tokens`.
 - **Your GitLab username**, used as the board's default view.
 - **A path to your local repo checkout** (optional), which enables the

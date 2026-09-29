@@ -129,7 +129,7 @@ install.
 
 | name | purpose |
 |---|---|
-| `GITLAB_TOKEN` | optional. `read_api` scope; the board never writes to GitLab with it. Used for member display-name lookups and for posting MR notes. Daemon fallback: `gitlabToken` in the `rt` domain (`rt secrets set rt gitlabToken`) |
+| `GITLAB_TOKEN` | optional. `api` scope, since posting MR notes and review discussions is a write. Also used for member display-name lookups. Daemon fallback: `gitlabToken` in the `rt` domain (`rt secrets set rt gitlabToken`) |
 | `SLACK_TOKEN` | optional user token (`xoxp-...`) for the Slack integration. Minted by `bun run setup`'s OAuth flow. Daemon fallback: `slackToken` in the `board` domain (`rt secrets set board slackToken`) |
 | `SLACK_CLIENT_ID` | public OAuth app identifier, used by setup. Falls back to the `mattstack.integrations` team setting (`slack.clientId`) |
 | `SLACK_CLIENT_SECRET` | the Slack app's client secret, used by setup only. Never a team setting |

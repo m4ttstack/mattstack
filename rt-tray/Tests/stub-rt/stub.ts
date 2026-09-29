@@ -176,9 +176,9 @@ function plan(): unknown {
     row("account.gitlab", "account", "GitLab", "The team's merge requests live on gitlab.example.com.", true,
         stateGet("gitlab-connected") ? "ready" : "missing", stateGet("gitlab-connected") ? "token can see group acme" : null,
         { type: "connect", label: "Connect", integration: "gitlab",
-          fields: [{ name: "token", label: "Personal access token", secret: true, hint: "read_api, read_user, read_repository" }],
+          fields: [{ name: "token", label: "Personal access token", secret: true, hint: "api" }],
           alternatives: [],
-          create: { label: "Create a token on GitLab…", url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=read_api%2Cread_user%2Cread_repository" } }),
+          create: { label: "Create a token on GitLab…", url: "https://gitlab.example.com/-/user_settings/personal_access_tokens?name=mattstack&scopes=api" } }),
   ];
   if (scenario === "solo") {
     accounts[0] = row("account.github", "account", "GitHub", "Opens pull requests from rt.", false, "missing", null,
@@ -324,7 +324,7 @@ else if (a0 === "setup" && a2 === "connect") {
   const body = await readStdinJSON();
   if (!body.token && !body.useGh) fail("no-token", "Paste a token or use gh.");
   stateBump(`${a1}-connected`);
-  emit({ integration: a1, status: "ready", detail: "token can see group acme", scopesSeen: ["read_api"] });
+  emit({ integration: a1, status: "ready", detail: "token can see group acme", scopesSeen: ["api"] });
 }
 else if (a0 === "team" && a1 === "create") emit({ slug: "my-team", name: args[2] ?? "My team", remote: "https://github.com/matt/mattstack-team-my-team.git", created: true });
 else if (a0 === "team" && a1 === "join") {
