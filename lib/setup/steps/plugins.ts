@@ -52,7 +52,7 @@ function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-interface RegisteredMarketplace {
+export interface RegisteredMarketplace {
   name: string;
   kind: string | null;
   /** The `repo`, `url` or `path` Claude Code recorded, whichever its `source` kind carries. */
@@ -62,9 +62,12 @@ interface RegisteredMarketplace {
 /** Registered marketplaces, or null when this claude cannot list them as JSON (the caller then falls back to the add's own reply). */
 async function listMarketplaces(run: (args: string[]) => Promise<ExecResult>): Promise<RegisteredMarketplace[] | null> {
   const res = await run(["plugin", "marketplace", "list", "--json"]);
-  if (res.code !== 0) return null;
+  return res.code === 0 ? parseMarketplaceList(res.stdout) : null;
+}
+
+export function parseMarketplaceList(stdout: string): RegisteredMarketplace[] | null {
   try {
-    const parsed: unknown = JSON.parse(res.stdout);
+    const parsed: unknown = JSON.parse(stdout);
     if (!Array.isArray(parsed)) return null;
     const out: RegisteredMarketplace[] = [];
     for (const m of parsed as { name?: unknown; source?: unknown; repo?: unknown; url?: unknown; path?: unknown }[]) {
@@ -87,7 +90,7 @@ const GITHUB_SHORTHAND = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
  * github `repo`, and a re-add under a different kind fails rather than
  * reporting the marketplace already on disk.
  */
-function marketplaceSourceKey(source: string): string {
+export function marketplaceSourceKey(source: string): string {
   const s = source.trim().replace(/\/+$/, "").replace(/\.git$/i, "");
   if (GITHUB_SHORTHAND.test(s)) return `github.com/${s}`.toLowerCase();
   const scp = /^[^@/\s]+@([^:/\s]+):(.+)$/.exec(s);
@@ -98,7 +101,7 @@ function marketplaceSourceKey(source: string): string {
 }
 
 /** Claude's own first line of output, so a failed row says what claude said rather than just its exit code. */
-function claudeMessage(res: ExecResult, fallback: string): string {
+export function claudeMessage(res: ExecResult, fallback: string): string {
   const line = `${res.stderr}\n${res.stdout}`
     .split("\n")
     .map((l) => l.replace(/^[\s✘✖×]+/, "").trim())
