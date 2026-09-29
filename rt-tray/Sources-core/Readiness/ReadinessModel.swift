@@ -52,6 +52,22 @@ public final class ReadinessModel: ObservableObject {
     }
 
     public var allRows: [PlanRow] { groups.flatMap(\.rows) }
+
+    /// Which part of the checklist a screen shows.
+    public enum Scope: Sendable {
+        case all
+        /// Settings > Accounts: an account row can fail verify long after
+        /// Setup has closed (a team adds its Slack app later), so it needs a
+        /// home outside the wizard.
+        case accounts
+    }
+
+    public func groups(for scope: Scope) -> [PlanGroup] {
+        switch scope {
+        case .all: return groups
+        case .accounts: return groups.filter { $0.id == "accounts" }
+        }
+    }
     public func row(_ id: String) -> PlanRow? { allRows.first { $0.id == id } }
 
     /// True exactly when the refresh that most recently completed (`load`,

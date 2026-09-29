@@ -104,6 +104,8 @@ enum AXID {
     static let settingsPermissionsReset = "settings.permissions.reset"
     static let settingsPermissionsRelaunch = "settings.permissions.relaunch"
     static let settingsFastBrowserRow = "settings.fastBrowser.row"
+    static let settingsAccountsScreen = "settings.accounts.screen"
+    static let settingsAccountsRecheck = "settings.accounts.recheck"
     static let settingsFastBrowserRowStatus = "settings.fastBrowser.row.status"
     static let settingsFastBrowserRowAction = "settings.fastBrowser.row.action"
     static let settingsFastBrowserSkipped = "settings.fastBrowser.skipped"

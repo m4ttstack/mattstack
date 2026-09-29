@@ -3,34 +3,6 @@ import SwiftUI
 import Combine
 import MattstackCore
 
-enum SettingsPane: String, CaseIterable {
-    case general, permissions, fastBrowser, devLogins, apps, team, uninstall
-
-    var title: String {
-        switch self {
-        case .general: return "General"
-        case .permissions: return "Permissions"
-        case .fastBrowser: return "Fast Browser"
-        case .devLogins: return "Dev logins"
-        case .apps: return "Apps"
-        case .team: return "Team"
-        case .uninstall: return "Uninstall"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .general: return "gearshape"
-        case .permissions: return "lock.shield"
-        case .fastBrowser: return "globe"
-        case .devLogins: return "key"
-        case .apps: return "square.grid.2x2"
-        case .team: return "person.3"
-        case .uninstall: return "trash"
-        }
-    }
-}
-
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let paneKey = "MSSettingsPane"
     let pane = PaneSelection()
@@ -101,7 +73,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             self.selectTab(p)
             UserDefaults.standard.set(p.rawValue, forKey: Self.paneKey)
             guard self.windowIsVisible else { return }
-            self.setReadinessVisible(p == .permissions)
+            self.setReadinessVisible(p.watchesReadiness)
         }
     }
     required init?(coder: NSCoder) { fatalError("not supported") }
@@ -123,7 +95,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         // (and was suppressed above while the window was still hidden), so
         // this is the only path that resumes the poller when reopening
         // straight onto the Permissions tab.
-        setReadinessVisible(pane.current == .permissions)
+        setReadinessVisible(pane.current.watchesReadiness)
     }
 
     private func setReadinessVisible(_ visible: Bool) {
@@ -146,6 +118,7 @@ private extension Array {
 
 struct SettingsEnvironment {
     let rt: RtRunning
+    let needs: NeedBroker
     let permissions: PermissionsService
     let readiness: ReadinessModel
     let updater: UpdaterController
