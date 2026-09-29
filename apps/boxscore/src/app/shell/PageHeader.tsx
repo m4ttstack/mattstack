@@ -19,6 +19,8 @@ interface Option<T extends string> {
   icon?: IconName;
   /** Accessible name when the option shows only an icon. */
   aria?: string;
+  /** Keeps the card fill while inactive, without the active shadow. */
+  raised?: boolean;
 }
 
 function Segmented<T extends string>({
@@ -46,8 +48,8 @@ function Segmented<T extends string>({
             type="button"
             aria-pressed={active}
             aria-label={o.aria}
-            className={`${classes.segment} ${active ? classes.segmentActive : ''}`}
-            data-parity={active ? layer : undefined}
+            className={`${classes.segment} ${active ? classes.segmentActive : o.raised ? classes.segmentRaised : ''}`}
+            data-parity={active || o.raised ? layer : undefined}
             onClick={() => onChange(o.value)}
           >
             {o.label !== undefined ? (
@@ -207,7 +209,7 @@ export function PageHeader({
           name="Mode"
           value={trend ? 'trend' : 'values'}
           options={[
-            { value: 'values', label: 'Values' },
+            { value: 'values', label: 'Values', raised: true },
             { value: 'trend', label: 'Trend' },
           ]}
           onChange={v => onTrend(v === 'trend')}

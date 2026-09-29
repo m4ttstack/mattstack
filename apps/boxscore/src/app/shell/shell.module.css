@@ -316,6 +316,10 @@
   cursor: pointer;
 }
 
+.segmentRaised {
+  background: var(--tk-card);
+}
+
 .segmentActive {
   background: var(--tk-card);
   box-shadow: var(--mantine-shadow-xs);

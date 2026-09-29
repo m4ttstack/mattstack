@@ -6,9 +6,11 @@ import {
   type MetricGroup,
 } from '../../shared/metrics';
 import type { LeaderboardResponse } from '../../shared/types';
+import { userDelta } from '../model/delta';
 import { HEADLINE, hueVar } from '../model/groups';
 import { initials } from '../model/labels';
 import { descriptor, leaderOf, you } from '../model/standings';
+import { DeltaMark } from '../ui/DeltaMark';
 import { GroupTag } from '../ui/GroupTag';
 import { cellText, tileValue } from './format';
 import classes from './leaderboard.module.css';
@@ -23,10 +25,12 @@ function avatarFill(group: MetricGroup): string {
 function LeaderTile({
   group,
   data,
+  trend,
   last,
 }: {
   group: MetricGroup;
   data: LeaderboardResponse;
+  trend: boolean;
   last: boolean;
 }) {
   const key = HEADLINE[group];
@@ -40,6 +44,7 @@ function LeaderTile({
   const leaderName = leader ? (leader.name ?? leader.username) : null;
   const myRank = me ? metricRank(me.metrics, d) : null;
   const tag = initials(leaderName ?? '');
+  const myDelta = trend && me ? userDelta(me.metrics, key) : null;
 
   return (
     <div
@@ -102,13 +107,22 @@ function LeaderTile({
           <span className={classes.youRank} data-parity="You Rank">
             {myRank !== null ? `#${myRank}` : '—'}
           </span>
+          {myDelta && (
+            <DeltaMark text={myDelta.text} tone={myDelta.tone} parity="Delta" />
+          )}
         </span>
       </div>
     </div>
   );
 }
 
-export function LeadersStrip({ data }: { data: LeaderboardResponse }) {
+export function LeadersStrip({
+  data,
+  trend,
+}: {
+  data: LeaderboardResponse;
+  trend: boolean;
+}) {
   return (
     <section
       className={classes.strip}
@@ -120,6 +134,7 @@ export function LeadersStrip({ data }: { data: LeaderboardResponse }) {
           key={g}
           group={g}
           data={data}
+          trend={trend}
           last={i === GROUP_ORDER.length - 1}
         />
       ))}

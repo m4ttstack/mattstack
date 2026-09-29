@@ -151,6 +151,7 @@
 
 .youVal {
   display: flex;
+  align-items: flex-start;
   gap: 6px;
 }
 
@@ -226,7 +227,20 @@
 .legend {
   display: flex;
   align-items: center;
+  gap: 14px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
   gap: 6px;
+}
+
+.legendArrows {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 11px;
+  line-height: normal;
+  white-space: nowrap;
 }
 
 .legendLabel {

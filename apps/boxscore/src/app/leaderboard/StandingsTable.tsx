@@ -11,11 +11,14 @@ import {
 import type {
   LeaderboardResponse,
   MetricKey,
+  TimeWindow,
   UserRow,
 } from '../../shared/types';
+import { userDelta } from '../model/delta';
 import { hueVar, OVERVIEW, statsInGroup } from '../model/groups';
-import { initials } from '../model/labels';
+import { initials, priorWindowLabel } from '../model/labels';
 import { descriptor, rankedFor, type Ranked } from '../model/standings';
+import { DeltaMark } from '../ui/DeltaMark';
 import { Glyph } from '../ui/Glyph';
 import { LeaderMark } from '../ui/LeaderMark';
 import { cellText, signed } from './format';
@@ -56,7 +59,15 @@ function columnsFor(tab: Tab): Column[] {
   return tab === 'overview' ? OVERVIEW : statsInGroup(tab);
 }
 
-function Tabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
+function Tabs({
+  tab,
+  onTab,
+  prior,
+}: {
+  tab: Tab;
+  onTab: (t: Tab) => void;
+  prior: TimeWindow | null;
+}) {
   const tabs: Tab[] = ['overview', ...GROUP_ORDER];
   return (
     <div className={classes.tabsRow} data-parity="Tabs Row">
@@ -95,10 +106,36 @@ function Tabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
         })}
       </div>
       <div className={classes.legend}>
-        <LeaderMark parity="Pill" />
-        <span className={classes.legendLabel} data-parity="Legend Label">
-          Leads this stat
+        <span className={classes.legendItem}>
+          <LeaderMark parity="Pill" />
+          <span className={classes.legendLabel} data-parity="Legend Label">
+            Leads this stat
+          </span>
         </span>
+        {prior && (
+          <span className={classes.legendItem}>
+            <span
+              className={classes.legendArrows}
+              data-parity="g"
+              style={{ color: 'var(--tk-text-ok)' }}
+            >
+              ▲▼
+            </span>
+            <span className={classes.legendLabel} data-parity="gl">
+              better
+            </span>
+            <span
+              className={classes.legendArrows}
+              data-parity="b"
+              style={{ color: 'var(--tk-text-bad)' }}
+            >
+              ▲▼
+            </span>
+            <span className={classes.legendLabel} data-parity="bl">
+              worse than {priorWindowLabel(prior)}
+            </span>
+          </span>
+        )}
       </div>
     </div>
   );
@@ -218,16 +255,20 @@ function StatCell({
   column,
   user,
   facts,
+  trend,
   onOpen,
 }: {
   column: Column;
   user: UserRow;
   facts: ColumnFacts;
+  trend: boolean;
   onOpen: (stat: MetricKey) => void;
 }) {
   const stat = statOf(column);
   const value = metricValue(user.metrics, descriptor(stat));
   const leader = facts.leaders.has(user.username);
+  const delta =
+    trend && column !== 'lines' ? userDelta(user.metrics, stat) : null;
   return (
     <div
       className={column === 'lines' ? classes.cellLines : classes.cellStat}
@@ -258,6 +299,9 @@ function StatCell({
             {cellText(stat, value)}
           </span>
         )}
+        {delta && (
+          <DeltaMark text={delta.text} tone={delta.tone} parity="Delta" />
+        )}
       </span>
       {BARRED.has(column) && (
         <Bar value={value ?? 0} max={facts.max} isYou={user.isCurrentUser} />
@@ -272,6 +316,7 @@ function PersonRow({
   last,
   columns,
   facts,
+  trend,
   sort,
   onSelectStat,
 }: {
@@ -280,6 +325,7 @@ function PersonRow({
   last: boolean;
   columns: Column[];
   facts: Map<Column, ColumnFacts>;
+  trend: boolean;
   sort: MetricKey;
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
@@ -355,6 +401,7 @@ function PersonRow({
           column={c}
           user={user}
           facts={facts.get(c)!}
+          trend={trend}
           onOpen={open}
         />
       ))}
@@ -364,11 +411,14 @@ function PersonRow({
 
 export function StandingsTable({
   data,
+  prior,
   sort,
   onSort,
   onSelectStat,
 }: {
   data: LeaderboardResponse;
+  /** The window deltas compare against; null shows values only. */
+  prior: TimeWindow | null;
   sort: MetricKey;
   onSort: (k: MetricKey) => void;
   onSelectStat: (username: string, stat: MetricKey) => void;
@@ -384,7 +434,7 @@ export function StandingsTable({
       data-parity="Standings"
       aria-label="Standings"
     >
-      <Tabs tab={tab} onTab={setTab} />
+      <Tabs tab={tab} onTab={setTab} prior={prior} />
       {rows.length === 0 ? (
         <p className={classes.empty}>
           No users configured, or none resolved on the instance.
@@ -401,6 +451,7 @@ export function StandingsTable({
                 last={i === rows.length - 1}
                 columns={columns}
                 facts={facts}
+                trend={prior !== null}
                 sort={sort}
                 onSelectStat={onSelectStat}
               />

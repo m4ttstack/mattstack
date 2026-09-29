@@ -25,6 +25,18 @@ export function windowLabel(window: TimeWindow): string {
   return `${dayLabel(window.start)} – ${dayLabel(window.end)}`;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The prior window ends where the current one starts, so its label stops on the
+ * UTC day before that end; the two ranges never share a day.
+ */
+export function priorWindowLabel(window: TimeWindow): string {
+  const endDay = Date.parse(window.end.slice(0, 10));
+  const lastDay = new Date(endDay - DAY_MS).toISOString();
+  return `${dayLabel(window.start)} – ${dayLabel(lastDay)}`;
+}
+
 export function scopeLabel(scope: Scope): string {
   if (scope.type === 'group') return scope.groupPath ?? 'group';
   const paths = scope.projectPaths ?? [];

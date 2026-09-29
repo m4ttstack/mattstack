@@ -122,6 +122,12 @@ describe('deltas', () => {
     expect(deltaTone('mrsMerged', 0)).toBe('none');
     expect(deltaTone('mrsMerged', null)).toBe('none');
   });
+  it('treats a delta that rounds to zero as no change', () => {
+    expect(deltaTone('reviewLatencyHours', 0.04)).toBe('none');
+    expect(deltaTone('sizeHealthPct', -0.004)).toBe('none');
+    expect(deltaTone('reviewLatencyHours', 0.05)).toBe('worse');
+    expect(formatDelta('reviewLatencyHours', 0.05)).toBe('▲0.1h');
+  });
   it('formats like the board', () => {
     expect(formatDelta('mrsMerged', 7)).toBe('▲7');
     expect(formatDelta('reviewLatencyHours', -0.24)).toBe('▼0.2h');

@@ -1,6 +1,10 @@
-import type { LeaderboardResponse, MetricKey } from '../../shared/types';
+import type {
+  LeaderboardResponse,
+  MetricKey,
+  TimeWindow,
+} from '../../shared/types';
 import { MetricCards } from '../components/MetricCards';
-import { windowLabel } from '../model/labels';
+import { priorWindowLabel, windowLabel } from '../model/labels';
 import { descriptor } from '../model/standings';
 import type { ViewMode } from '../shell/PageHeader';
 import { Glyph } from '../ui/Glyph';
@@ -8,13 +12,26 @@ import classes from './leaderboard.module.css';
 import { LeadersStrip } from './LeadersStrip';
 import { StandingsTable } from './StandingsTable';
 
+/** The prior window to compare against, or null when trend is off or there is no prior. */
+export function trendWindow(
+  data: LeaderboardResponse,
+  trend: boolean
+): TimeWindow | null {
+  return trend && data.hasTrend ? data.priorWindow : null;
+}
+
 export function leaderboardSubtitle(
   data: LeaderboardResponse,
-  sort: MetricKey
+  sort: MetricKey,
+  trend: boolean
 ): string {
   const people = data.users.filter(u => u.resolved).length;
+  const prior = trendWindow(data, trend);
+  const range = prior
+    ? `${windowLabel(data.window)} vs ${priorWindowLabel(prior)}`
+    : windowLabel(data.window);
   return [
-    windowLabel(data.window),
+    range,
     `${people} ${people === 1 ? 'person' : 'people'}`,
     `sorted by ${descriptor(sort).label}`,
   ].join('  ·  ');
@@ -36,11 +53,13 @@ export function LeaderboardPage({
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
   if (view === 'cards') return <MetricCards data={data} trend={trend} />;
+  const prior = trendWindow(data, trend);
   return (
     <>
-      <LeadersStrip data={data} />
+      <LeadersStrip data={data} trend={prior !== null} />
       <StandingsTable
         data={data}
+        prior={prior}
         sort={sort}
         onSort={onSort}
         onSelectStat={onSelectStat}

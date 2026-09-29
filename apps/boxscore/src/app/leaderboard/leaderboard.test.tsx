@@ -108,8 +108,79 @@ describe('LeaderboardPage (table)', () => {
   });
 
   it('reads the window from UTC dates in the subtitle', () => {
-    expect(leaderboardSubtitle(fixtureLeaderboard(false), 'mrsMerged')).toBe(
-      'Aug 30 – Sep 29  ·  7 people  ·  sorted by MRs merged'
+    expect(
+      leaderboardSubtitle(fixtureLeaderboard(false), 'mrsMerged', false)
+    ).toBe('Aug 30 – Sep 29  ·  7 people  ·  sorted by MRs merged');
+  });
+});
+
+describe('LeaderboardPage (trend)', () => {
+  function renderTrend() {
+    return renderWithProviders(
+      <LeaderboardPage
+        data={fixtureLeaderboard(true)}
+        view="table"
+        trend
+        sort="mrsMerged"
+        onSort={vi.fn()}
+        onSelectStat={vi.fn()}
+      />
+    );
+  }
+
+  const deltaIn = (username: string, stat: string) => {
+    const row = screen.getByRole('row', { name: new RegExp(`@${username}`) });
+    const cell = row.querySelector(`[data-stat="${stat}"]`)!;
+    return cell.querySelector<HTMLElement>('[data-parity="Delta"]');
+  };
+
+  it('appends a toned delta after each value and none for a zero delta', () => {
+    renderTrend();
+    const issues = deltaIn('srivera', 'issuesCompleted')!;
+    expect(issues).toHaveTextContent('▲4');
+    expect(issues.style.color).toBe('var(--tk-text-ok)');
+    const wait = deltaIn('nvance', 'reviewLatencyHours')!;
+    expect(wait).toHaveTextContent('▲0.2h');
+    expect(wait.style.color).toBe('var(--tk-text-bad)');
+    expect(deltaIn('srivera', 'reviewDepth')).toBeNull();
+  });
+
+  it('shows no delta marks in values mode', () => {
+    renderWithProviders(
+      <LeaderboardPage
+        data={fixtureLeaderboard(true)}
+        view="table"
+        trend={false}
+        sort="mrsMerged"
+        onSort={vi.fn()}
+        onSelectStat={vi.fn()}
+      />
+    );
+    expect(document.querySelector('[data-parity="Delta"]')).toBeNull();
+  });
+
+  it("appends the current user's delta to each leader tile's You row", () => {
+    const { container } = renderTrend();
+    const youDelta = (group: string) =>
+      container
+        .querySelector(`[data-leader-group="${group}"]`)!
+        .querySelector('[data-parity="Delta"]');
+    expect(youDelta('delivery')).toHaveTextContent('▲4');
+    expect(youDelta('collaboration')).toHaveTextContent('▼1.1');
+    expect(youDelta('consistency')).toBeNull();
+  });
+
+  it('adds the better and worse legend naming the prior window', () => {
+    renderTrend();
+    expect(screen.getByText('better')).toBeInTheDocument();
+    expect(screen.getByText('worse than Jul 31 – Aug 29')).toBeInTheDocument();
+  });
+
+  it('names the prior window in the subtitle, ending the day before the current window starts', () => {
+    expect(
+      leaderboardSubtitle(fixtureLeaderboard(true), 'mrsMerged', true)
+    ).toBe(
+      'Aug 30 – Sep 29 vs Jul 31 – Aug 29  ·  7 people  ·  sorted by MRs merged'
     );
   });
 });
