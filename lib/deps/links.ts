@@ -11,9 +11,9 @@ import { dirname, join } from "path";
 import { installRtBinary, isDevModeWrapperContent } from "../dev-mode.ts";
 import type { Probes } from "../setup/probes.ts";
 import { readSetupState, updateSetupState } from "../setup/state.ts";
-import { bundledToolExec, isOurLink, LINK_TAG, linkPath, userCopyOnPath } from "./resolve.ts";
+import { bundledToolExec, isBrokenLauncher, isOurLink, LINK_TAG, linkPath, userCopyOnPath } from "./resolve.ts";
 
-export { isOurLink, LINK_TAG, linkPath };
+export { isBrokenLauncher, isOurLink, LINK_TAG, linkPath };
 
 /** The tools rt exposes on PATH by default (deps.lock's exposeByDefault still gates whether each is actually bundled). */
 export const DEFAULT_EXPOSED = ["rt", "fast-browser", "gitq", "deck"] as const;
@@ -76,9 +76,10 @@ function clearForced(p: Probes, tool: string): void {
  * already occupying the link path) unless `force` — a forced link is
  * remembered (SetupState.forcedLinks) so a later `reconcile()` never
  * auto-removes it just because a user copy exists; that's exactly the case
- * force was for. An our-link whose target has gone stale (dangling symlink)
- * is repaired unconditionally, force or not — it was never a genuine
- * occupant. "rt" always installs through installRtBinary (atomic
+ * force was for. A broken launcher (see isBrokenLauncher: our dangling
+ * link or moved wrapper, or fast-browser setup's shim into a deleted
+ * checkout) is replaced unconditionally, force or not, since it was never a
+ * genuine occupant. "rt" always installs through installRtBinary (atomic
  * link-then-rename) rather than a bare symlink; the pre-existing entry is
  * left in place for the rename to replace atomically, never pre-removed.
  * "rt" is refused outright while the dev app's wrapper owns the link path;
@@ -96,14 +97,14 @@ export function link(p: Probes, tool: string, opts: { force?: boolean } = {}, se
 
   const present = isPresent(p, path);
   const ours = present && isOurLink(p, tool);
-  const healthy = ours && p.exists(path); // exists() is false for our own link when its target has gone stale
+  const broken = present && isBrokenLauncher(p, tool);
 
-  if (healthy) {
+  if (ours && !broken) {
     if (opts.force) markForced(p, tool);
     return { ok: true, path, state: "already" };
   }
 
-  if (!ours && !opts.force) {
+  if (!ours && !broken && !opts.force) {
     // A foreign file at the slot itself is "occupied" below, not a user copy elsewhere.
     const elsewhere = userCopyOnPath(p, tool);
     if (elsewhere && elsewhere !== path) return { ok: false, reason: "user-copy", detail: `${tool} is already on PATH at ${elsewhere}; pass --force to shadow it with the bundled copy` };

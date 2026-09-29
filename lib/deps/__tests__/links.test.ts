@@ -7,7 +7,12 @@ import { setSetting } from "../../settings/write.ts";
 import { fakeProbes, type FakeProbesOpts } from "../../setup/__tests__/fakes.ts";
 import { createRealProbes } from "../../setup/probes.ts";
 import { readSetupState } from "../../setup/state.ts";
-import { DEFAULT_EXPOSED, LINK_TAG, isOurLink, link, linkPath, reconcile, unlink, type LinkSeams } from "../links.ts";
+import { DEFAULT_EXPOSED, LINK_TAG, isBrokenLauncher, isOurLink, link, linkPath, reconcile, unlink, type LinkSeams } from "../links.ts";
+
+/** The launcher `fast-browser setup` writes when it runs from a checkout (fast-browser's lib/core/launcher.mjs). */
+function fastBrowserShim(entry: string): string {
+  return `#!/bin/sh\n# Managed by fast-browser setup; rewritten on every setup run. Do not edit.\nexec /usr/bin/env node "${entry}" "$@"\n`;
+}
 
 const LOCK = {
   schema: 1,
@@ -240,6 +245,51 @@ describe("tagged PATH links", () => {
     expect(repaired).toEqual({ ok: true, path: linkPath(home, "gh"), state: "linked" });
     expect(p.calls.symlinks[linkPath(home, "gh")]).toBe(ghPath); // repointed at the current, valid bundle path
     expect(p.exists(linkPath(home, "gh"))).toBe(true);
+  });
+
+  test("link(fast-browser) rewrites our wrapper once the bundle it execs has moved", () => {
+    const path = linkPath(home, "fast-browser");
+    const moved = `#!/bin/sh\n${LINK_TAG} fast-browser\nexec '/Old/mattstack.app/Contents/Helpers/node/bin/node' '/Old/mattstack.app/Contents/Helpers/fast-browser/bin/fast-browser.mjs' "$@"\n`;
+    const p = bundleProbe({ files: { [path]: moved } });
+
+    expect(isBrokenLauncher(p, "fast-browser")).toBe(true);
+    expect(link(p, "fast-browser")).toEqual({ ok: true, path, state: "linked" });
+    expect(p.calls.writes[path]!.split("\n")[2]).toBe(`exec '${nodePath}' '${fbPath}' "$@"`);
+    expect(isBrokenLauncher(p, "fast-browser")).toBe(false);
+  });
+
+  test("link(fast-browser) replaces fast-browser setup's own shim once its checkout is gone, without --force", () => {
+    const path = linkPath(home, "fast-browser");
+    const p = bundleProbe({ files: { [path]: fastBrowserShim("/worktrees/disposed/bin/fast-browser.mjs") } });
+
+    expect(isBrokenLauncher(p, "fast-browser")).toBe(true);
+    expect(link(p, "fast-browser")).toEqual({ ok: true, path, state: "linked" });
+    expect(p.calls.writes[path]!.split("\n")[1]).toBe(`${LINK_TAG} fast-browser`);
+  });
+
+  test("link(fast-browser) leaves fast-browser setup's shim alone while its checkout still exists", () => {
+    const path = linkPath(home, "fast-browser");
+    const entry = "/src/fast-browser/bin/fast-browser.mjs";
+    const shim = fastBrowserShim(entry);
+    const p = bundleProbe({ files: { [path]: shim, [entry]: "#!/usr/bin/env node\n" } });
+
+    expect(isBrokenLauncher(p, "fast-browser")).toBe(false);
+    expect(link(p, "fast-browser")).toEqual({ ok: false, reason: "occupied", detail: expect.any(String) });
+    expect(p.readFile(path)).toBe(shim);
+  });
+
+  test("isBrokenLauncher is false for an empty slot, a healthy link, and an unrelated file", () => {
+    const p = bundleProbe();
+    expect(isBrokenLauncher(p, "fast-browser")).toBe(false);
+    link(p, "fast-browser");
+    link(p, "gh");
+    expect(isBrokenLauncher(p, "fast-browser")).toBe(false);
+    expect(isBrokenLauncher(p, "gh")).toBe(false);
+    p.writeFile(linkPath(home, "deck"), "#!/bin/sh\necho not ours\n");
+    expect(isBrokenLauncher(p, "deck")).toBe(false);
+
+    p.symlink(join(appRoot, HELPERS_DIR, "gh-old-location"), linkPath(home, "gh"));
+    expect(isBrokenLauncher(p, "gh")).toBe(true);
   });
 
   test("unlink removes a dangling our-link outright", () => {
