@@ -97,7 +97,6 @@ export function App() {
       <ConsolePalette />
       <MattstackShell
         name="console"
-        appName="console"
         headerHeight={SHELL_HEADER_HEIGHT}
         mark={
           <img
