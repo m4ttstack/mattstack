@@ -489,3 +489,93 @@
   color: var(--tk-text-3);
   font-size: 12px;
 }
+
+/* Cards */
+
+.cardsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 258px;
+  gap: 16px;
+}
+
+@media (max-width: 1439.98px) {
+  .cardsGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1099.98px) {
+  .cardsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border-radius: 12px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.cardHead {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cardName {
+  color: var(--tk-text-1);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rankHit {
+  cursor: pointer;
+}
+
+.tiedState {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.tiedValue,
+.tiedNote {
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.tiedValue {
+  color: var(--tk-text-1);
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.tiedNote {
+  color: var(--tk-text-2);
+  font-size: 12px;
+}

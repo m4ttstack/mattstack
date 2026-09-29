@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useColorScheme } from '@mattstack/app-kit/hooks';
 import { Link } from '@mattstack/app-kit/router';
@@ -9,11 +10,25 @@ import { useLinks } from './useLinks';
 export function Rail({ active }: { active: 'leaderboard' | null }) {
   const { console: consoleUrl } = useLinks();
   const { toggle } = useColorScheme();
-  const [tipOpen, setTipOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+  const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
+  const tipOpen = tip !== null;
+  const openTip = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setTip({ top: r.top + 2, left: r.left + 52 });
+  };
+  const closeTip = () => setTip(null);
+  // The tooltip floats over the page, so it mounts beside the rail, not inside its painted box.
+  const tipHost = navRef.current?.parentElement ?? null;
   const isLeaderboard = active === 'leaderboard';
 
   return (
-    <nav className={classes.rail} data-parity="Rail" aria-label="boxscore">
+    <nav
+      ref={navRef}
+      className={classes.rail}
+      data-parity="Rail"
+      aria-label="boxscore"
+    >
       <span className={classes.mark} data-parity="Mark">
         <Glyph
           name="chartNoAxesColumn"
@@ -50,10 +65,11 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
           rel="noreferrer"
           aria-label="Settings (opens console)"
           className={classes.navItem}
-          onMouseEnter={() => setTipOpen(true)}
-          onMouseLeave={() => setTipOpen(false)}
-          onFocus={() => setTipOpen(true)}
-          onBlur={() => setTipOpen(false)}
+          data-parity={tipOpen ? 'Nav Settings (console)' : undefined}
+          onMouseEnter={e => openTip(e.currentTarget)}
+          onMouseLeave={closeTip}
+          onFocus={e => openTip(e.currentTarget)}
+          onBlur={closeTip}
         >
           <Glyph
             name="settings"
@@ -62,28 +78,32 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
             parity="Nav Settings (console) Icon"
           />
         </a>
-        {tipOpen && (
-          <span
-            className={classes.tooltip}
-            data-parity="Settings Tooltip"
-            role="tooltip"
-          >
-            <span className={classes.tipTitle}>
-              <span className={classes.tipLabel} data-parity="Tip Label">
-                Settings
+        {tip &&
+          tipHost &&
+          createPortal(
+            <span
+              className={classes.tooltip}
+              style={{ top: tip.top, left: tip.left }}
+              data-parity="Settings Tooltip"
+              role="tooltip"
+            >
+              <span className={classes.tipTitle}>
+                <span className={classes.tipLabel} data-parity="Tip Label">
+                  Settings
+                </span>
+                <Glyph
+                  name="arrowUpRight"
+                  size={13}
+                  color="var(--tk-text-2)"
+                  parity="External"
+                />
               </span>
-              <Glyph
-                name="arrowUpRight"
-                size={13}
-                color="var(--tk-text-2)"
-                parity="External"
-              />
-            </span>
-            <span className={classes.tipSub} data-parity="Tip Sub">
-              Opens console › boxscore
-            </span>
-          </span>
-        )}
+              <span className={classes.tipSub} data-parity="Tip Sub">
+                Opens console › boxscore
+              </span>
+            </span>,
+            tipHost
+          )}
       </span>
       <button
         type="button"

@@ -232,6 +232,13 @@ async (
           state: 'visible',
           timeout: 30_000,
         });
+      } else if (action?.kind === 'hover') {
+        step = `app: hover ${action.layer}`;
+        await page.locator(sel(cfg.appAttr, action.layer)).hover();
+        await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
+          state: 'visible',
+          timeout: 30_000,
+        });
       } else if (action?.kind === 'waitText') {
         step = `app: wait for ${action.layer} to read "${action.prefix}..."`;
         await page.waitForFunction(

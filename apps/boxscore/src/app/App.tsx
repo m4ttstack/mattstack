@@ -173,7 +173,7 @@ function AppShell() {
       <>
         <PageHeader
           title="Leaderboard"
-          subtitle={data ? leaderboardSubtitle(data, sort, trend) : null}
+          subtitle={data ? leaderboardSubtitle(data, sort, trend, view) : null}
           range={rangeState}
           onRange={onRange}
           trend={trend}

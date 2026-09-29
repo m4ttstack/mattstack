@@ -30,6 +30,20 @@ export function tileValue(
   return { value: formatNumber(value), unit: TILE_UNIT[key] ?? null };
 }
 
+const CARD_UNIT: Partial<Record<MetricKey, string>> = {
+  currentStreak: 'd',
+  longestStreak: 'd',
+};
+
+/** A card's ranking value: the cell text plus any per-stat unit. */
+export function cardValue(key: MetricKey, value: number | null): string {
+  if (value === null) return '—';
+  const d = descriptor(key);
+  const text = cellText(key, value);
+  if (d.kind === 'dist' || d.percent) return text;
+  return text + (CARD_UNIT[key] ?? d.unit ?? '');
+}
+
 export function signed(value: number, sign: '+' | '−'): string {
   return `${sign}${formatNumber(value)}`;
 }

@@ -70,6 +70,30 @@ describe('RankRow', () => {
     });
   });
 
+  it('draws an unranked row with a dash rank, no bar and a dimmed value', () => {
+    const { container } = render(
+      <RankRow rank={null} name="Lena O." value="—" fraction={0} dim />
+    );
+    expect(parityOf(screen.getByText('–'))).toBe('n');
+    expect(container.querySelector('[data-parity="Bar"]')).toBeNull();
+    expect(screen.getByText('—')).toHaveStyle({ color: 'var(--tk-text-3)' });
+  });
+
+  it('makes the name a link when given an href', () => {
+    render(
+      <RankRow
+        rank={2}
+        name="Sam R."
+        value="47"
+        fraction={0.6}
+        href="/user/srivera/mrsMerged"
+      />
+    );
+    const link = screen.getByRole('link', { name: 'Sam R.' });
+    expect(link).toHaveAttribute('href', '/user/srivera/mrsMerged');
+    expect(link.getAttribute('data-parity')).toBeNull();
+  });
+
   it('appends a delta after the value', () => {
     render(
       <RankRow

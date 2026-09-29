@@ -53,6 +53,12 @@
   text-overflow: ellipsis;
 }
 
+.whoLink {
+  display: flex;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
 .rankRow .track {
   flex: 1;
   min-width: 0;

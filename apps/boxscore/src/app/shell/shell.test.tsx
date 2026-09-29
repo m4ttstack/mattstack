@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
@@ -29,6 +30,25 @@ describe('Rail', () => {
     const link = screen.getByRole('link', { name: /settings/i });
     expect(link.getAttribute('href')).toMatch(/\/settings#boxscore$/);
     expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('opens the settings tooltip on hover, beside the rail rather than inside it', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <QueryClientProvider client={new QueryClient()}>
+        <div data-testid="frame">
+          <Rail active="leaderboard" />
+        </div>
+      </QueryClientProvider>
+    );
+    const link = screen.getByRole('link', { name: /settings/i });
+    await user.hover(link);
+    const tip = screen.getByRole('tooltip');
+    expect(tip).toHaveTextContent('Opens console › boxscore');
+    expect(tip.parentElement).toBe(screen.getByTestId('frame'));
+    expect(link).toHaveAttribute('data-parity', 'Nav Settings (console)');
+    await user.unhover(link);
+    expect(screen.queryByRole('tooltip')).toBeNull();
   });
 });
 

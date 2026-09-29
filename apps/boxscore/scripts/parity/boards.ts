@@ -31,6 +31,7 @@ export type Scenario = 'warm' | 'refreshing' | 'cold-stalled';
 /** What the runner does after the route loads, before collecting. */
 export type BoardAction =
   | { kind: 'click'; layer: string; waitFor: string }
+  | { kind: 'hover'; layer: string; waitFor: string }
   | { kind: 'waitText'; layer: string; prefix: string; timeoutMs: number };
 
 export interface Board {
@@ -98,6 +99,11 @@ export const BOARDS: Board[] = [
     root: 'Leaderboard · Cards',
     height: 1320,
     dynamicText: DYNAMIC_TEXT,
+    action: {
+      kind: 'hover',
+      layer: 'Nav Settings (console) Icon',
+      waitFor: 'Settings Tooltip',
+    },
   },
   {
     slug: '03-person-stat-detail',

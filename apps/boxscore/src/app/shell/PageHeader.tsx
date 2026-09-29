@@ -219,7 +219,12 @@ export function PageHeader({
             name="View"
             value={view}
             options={[
-              { value: 'table', icon: 'table2', aria: 'Table view' },
+              {
+                value: 'table',
+                icon: 'table2',
+                aria: 'Table view',
+                raised: true,
+              },
               { value: 'cards', icon: 'layoutGrid', aria: 'Cards view' },
             ]}
             onChange={onView}

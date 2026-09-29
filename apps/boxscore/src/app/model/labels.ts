@@ -43,6 +43,13 @@ export function scopeLabel(scope: Scope): string {
   return paths.length === 1 ? paths[0]! : `${paths.length} projects`;
 }
 
+/** "Nora Vance" reads "Nora V."; a single name or a bare handle stays as it is. */
+export function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return parts[0] ?? '';
+  return `${parts[0]} ${parts[parts.length - 1]![0]}.`;
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   const first = parts[0]?.[0] ?? '';

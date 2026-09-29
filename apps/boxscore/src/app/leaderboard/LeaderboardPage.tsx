@@ -3,11 +3,11 @@ import type {
   MetricKey,
   TimeWindow,
 } from '../../shared/types';
-import { MetricCards } from '../components/MetricCards';
 import { priorWindowLabel, windowLabel } from '../model/labels';
 import { descriptor } from '../model/standings';
 import type { ViewMode } from '../shell/PageHeader';
 import { Glyph } from '../ui/Glyph';
+import { CardsGrid } from './CardsGrid';
 import classes from './leaderboard.module.css';
 import { LeadersStrip } from './LeadersStrip';
 import { StandingsTable } from './StandingsTable';
@@ -23,7 +23,8 @@ export function trendWindow(
 export function leaderboardSubtitle(
   data: LeaderboardResponse,
   sort: MetricKey,
-  trend: boolean
+  trend: boolean,
+  view: ViewMode = 'table'
 ): string {
   const people = data.users.filter(u => u.resolved).length;
   const prior = trendWindow(data, trend);
@@ -33,7 +34,9 @@ export function leaderboardSubtitle(
   return [
     range,
     `${people} ${people === 1 ? 'person' : 'people'}`,
-    `sorted by ${descriptor(sort).label}`,
+    view === 'cards'
+      ? 'every stat, ranked'
+      : `sorted by ${descriptor(sort).label}`,
   ].join('  ·  ');
 }
 
@@ -52,8 +55,10 @@ export function LeaderboardPage({
   onSort: (k: MetricKey) => void;
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
-  if (view === 'cards') return <MetricCards data={data} trend={trend} />;
   const prior = trendWindow(data, trend);
+  if (view === 'cards') {
+    return <CardsGrid data={data} prior={prior} onSelectStat={onSelectStat} />;
+  }
   return (
     <>
       <LeadersStrip data={data} trend={prior !== null} />
