@@ -80,7 +80,7 @@ struct InstallScreen: View {
                         Text(step.info.kind == .privileged ? "Waiting for you — an administrator prompt is open." : "Waiting for you — approve mattstack in Login Items if asked.")
                             .font(.caption).foregroundStyle(.orange)
                     } else if let d = step.detail, !d.isEmpty {
-                        Text(d).font(.caption).foregroundStyle(step.state == .failed ? .red : .secondary)
+                        Text(d).font(.caption).foregroundStyle(detailStyle(step.state))
                     }
                 }
                 Spacer()
@@ -122,7 +122,16 @@ struct InstallScreen: View {
         case .done: return .ready
         case .failed: return .error
         case .skipped: return .skipped
+        case .needsYou: return .needsYou
         case .unknown: return .error
+        }
+    }
+
+    private func detailStyle(_ state: StepState) -> Color {
+        switch state {
+        case .failed: return .red
+        case .needsYou: return .orange
+        default: return .secondary
         }
     }
 }
