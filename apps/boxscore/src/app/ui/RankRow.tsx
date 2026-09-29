@@ -3,8 +3,8 @@ import { Link } from '@mattstack/app-kit/router';
 import type { DeltaTone } from '../model/delta';
 import { DeltaMark } from './DeltaMark';
 import { LeaderMark } from './LeaderMark';
+import rowHover from './row-hover.module.css';
 import classes from './ui.module.css';
-import { useRowHover } from './useRowHover';
 
 export function RankRow({
   rank,
@@ -37,7 +37,6 @@ export function RankRow({
       ? 'var(--tk-fill-gold)'
       : 'var(--tk-muted)';
   const percent = Math.max(0, Math.min(1, fraction)) * 100;
-  const { className: hoverClass, ...hover } = useRowHover(you);
   const who = (
     <span
       className={`${classes.text} ${classes.who}`}
@@ -52,8 +51,8 @@ export function RankRow({
   );
   return (
     <div
-      {...hover}
-      className={`${classes.rankRow} ${hoverClass}`}
+      className={`${classes.rankRow} ${rowHover.row}`}
+      data-you={you ? '' : undefined}
       data-parity={parity}
     >
       <span className={classes.rankSlot}>

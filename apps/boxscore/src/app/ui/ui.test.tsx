@@ -1,4 +1,5 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { renderWithProviders as render } from '@mattstack/app-kit/test-utils';
@@ -8,6 +9,7 @@ import { GroupTag } from './GroupTag';
 import { LeaderMark } from './LeaderMark';
 import { PushCalendar } from './PushCalendar';
 import { RankRow } from './RankRow';
+import rowHover from './row-hover.module.css';
 import { TeamStrip } from './TeamStrip';
 
 const parityOf = (el: Element | null) => el?.getAttribute('data-parity');
@@ -108,7 +110,7 @@ describe('RankRow', () => {
     expect(parityOf(delta)).toBe('Delta');
     expect(delta).toHaveStyle({ color: 'var(--tk-text-bad)' });
   });
-  it('marks the whole row while hovered or while focus is inside it', () => {
+  it('highlights the whole row from CSS on hover and on focus inside it', () => {
     render(
       <RankRow
         rank={2}
@@ -120,19 +122,17 @@ describe('RankRow', () => {
       />
     );
     const row = screen.getByText('Sam R.').closest('[data-parity="Row"]')!;
-    expect(row).not.toHaveAttribute('data-hover');
-    fireEvent.mouseEnter(row);
-    expect(row).toHaveAttribute('data-hover');
-    fireEvent.mouseLeave(row);
-    expect(row).not.toHaveAttribute('data-hover');
-    const link = screen.getByRole('link', { name: 'Sam R.' });
-    fireEvent.focus(link);
-    expect(row).toHaveAttribute('data-hover');
-    fireEvent.blur(link);
-    expect(row).not.toHaveAttribute('data-hover');
+    expect(row).toHaveClass(rowHover.row!);
+    expect(row).not.toHaveAttribute('data-you');
+    const css = readFileSync('src/app/ui/row-hover.module.css', 'utf8');
+    expect(css).toMatch(/\.row:hover,\s*\.row:focus-within\s*\{/);
+    expect(css).toMatch(
+      /\.row\[data-you\]:hover,\s*\.row\[data-you\]:focus-within\s*\{/
+    );
+    expect(css).not.toMatch(/transition/);
   });
 
-  it('keeps your row marked as yours while hovered', () => {
+  it('marks your row so its accent tint survives the hover', () => {
     render(
       <RankRow
         rank={2}
@@ -144,9 +144,8 @@ describe('RankRow', () => {
       />
     );
     const row = screen.getByText('Sam R.').closest('[data-parity="Row"]')!;
-    fireEvent.mouseEnter(row);
+    expect(row).toHaveClass(rowHover.row!);
     expect(row).toHaveAttribute('data-you');
-    expect(row).toHaveAttribute('data-hover');
   });
 });
 

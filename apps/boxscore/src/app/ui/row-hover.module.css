@@ -7,11 +7,8 @@
   --row-hover-bg: var(--mantine-color-dark-5);
 }
 
-.row {
-  transition: background-color 120ms ease;
-}
-
-.row[data-hover] {
+.row:hover,
+.row:focus-within {
   background-color: var(--row-hover-bg);
 }
 
@@ -19,6 +16,7 @@
   background-color: var(--mantine-color-accent-light);
 }
 
-.row[data-you][data-hover] {
+.row[data-you]:hover,
+.row[data-you]:focus-within {
   background-color: var(--mantine-color-accent-light-hover);
 }
