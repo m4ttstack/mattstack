@@ -157,5 +157,11 @@ describe('deleted routes', () => {
   it('the settings API is gone', async () => {
     expect((await app.request('/api/settings')).status).toBe(404);
     expect((await app.request('/api/settings/linear-states')).status).toBe(404);
+    const write = await app.request('/api/settings/set', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: 'boxscore.defaultRange', value: '7d' }),
+    });
+    expect(write.status).toBe(404);
   });
 });

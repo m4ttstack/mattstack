@@ -27,7 +27,6 @@
     "@mattstack/glance": "workspace:*",
     "@mattstack/mantine-tokyo": "workspace:*",
     "@mattstack/rt-client": "workspace:*",
-    "@mattstack/settings-kit": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "hono": "catalog:",
     "lucide-react": "^1.25.0",

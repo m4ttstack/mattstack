@@ -2,11 +2,6 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import { deckAppUrl } from '@mattstack/app-server/event-bridge';
-import {
-  isLocalRequest,
-  type LocalServer,
-} from '@mattstack/app-server/local-request';
-import { settingsHandler } from '@mattstack/settings-kit/server';
 import type { CacheStatsResponse, ColdCacheResponse } from '../shared/types.js';
 import { ConfigError, readSettings } from './config/index.js';
 import {
@@ -168,23 +163,10 @@ const cache = new Hono()
     return c.json({ cleared: true });
   });
 
-// `settingsHandler` answers its own routes and returns null for anything else,
-// so a miss here must fall through to the frame's 404 rather than short-circuit.
-// Under Bun.serve, Hono's `c.env` is the Bun server, which is what lets the
-// locality gate check the socket peer.
-const settings = new Hono().all('/api/settings/*', async c => {
-  const res = await settingsHandler(c.req.raw, {
-    allowComposite: true,
-    allowWrite: req => isLocalRequest(req, c.env as LocalServer | undefined),
-  });
-  return res ?? c.notFound();
-});
-
 // Routes are CHAINED and handlers INLINE, both load-bearing for Hono's RPC inference:
 // a handler lifted into a named function loses path-param typing, and an unchained
 // app.get(...) never reaches `typeof routes`.
 export const routes = leaderboard
   .route('/', jobs)
-  .route('/', cache)
-  .route('/', settings);
+  .route('/', cache);
 export type AppType = typeof routes;
