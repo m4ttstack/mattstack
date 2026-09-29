@@ -14,6 +14,8 @@ let installRunChecks: [Check] = [
                       .need(id: "proxy.install", request: NeedRequest(type: "app-privileged", plists: nil, op: "proxy-install")))
         c.expectEqual(try ApplyEvent.decode(#"{"event":"done","ok":false,"failedStep":"plugins.install"}"#), .done(ok: false, failedStep: "plugins.install"))
         c.expectEqual(try ApplyEvent.decode(#"{"event":"spark","x":1}"#), .unknown("spark"))
+        c.expectEqual(try ApplyEvent.decode(#"{"event":"step","id":"repos.clone","state":"partial","detail":"d","remedy":"r"}"#), .step(id: "repos.clone", state: .partial, detail: "d", remedy: "r"))
+        c.expectEqual(try ApplyEvent.decode(#"{"event":"step","id":"verify","state":"needs-you","detail":"d"}"#), .step(id: "verify", state: .needsYou, detail: "d", remedy: nil))
         guard case .plan(let steps) = try ApplyEvent.decode(planLine) else { c.fail("plan"); return }
         try c.requireEqual(steps.count, 3)
         c.expectEqual(steps[1].kind, .app)

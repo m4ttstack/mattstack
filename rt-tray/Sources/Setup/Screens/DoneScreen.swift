@@ -181,7 +181,7 @@ struct DoneScreen: View {
 
     private var verifySummary: String {
         let verify = install.steps.first { $0.id == "verify" }
-        let n = install.steps.filter { $0.state == .done }.count
+        let n = install.steps.filter { $0.state == .done || $0.state == .needsYou }.count
         let partial = install.partialSteps.count
         let steps = partial == 0 ? "\(n) steps done" : "\(n) steps done, \(partial) need\(partial == 1 ? "s" : "") another try"
         return verify?.detail.map { "\($0) · \(steps)" } ?? steps
