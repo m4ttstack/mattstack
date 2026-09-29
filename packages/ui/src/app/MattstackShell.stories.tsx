@@ -39,6 +39,27 @@ export const Default: Story = {
   ),
 };
 
+export const WithoutRail: Story = {
+  render: () => (
+    <Frame>
+      <MattstackShell name="demo" mark={<Mark />} rail={false}>
+        <MattstackShell.Header
+          actions={
+            <Button variant="default" size="xs">
+              Refresh
+            </Button>
+          }
+        >
+          <Text fw={700}>demo</Text>
+        </MattstackShell.Header>
+        <Text p="xl">
+          A single-page app: no rail, the scheme control sits in the top bar.
+        </Text>
+      </MattstackShell>
+    </Frame>
+  ),
+};
+
 export const WithHeader: Story = {
   render: () => (
     <Frame>

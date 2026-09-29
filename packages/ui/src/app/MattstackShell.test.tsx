@@ -79,6 +79,28 @@ test('the button form of the scheme control shows the stored choice outside the 
   }
 });
 
+test('rail={false} drops the rail and puts the scheme control at the end of the top bar', () => {
+  const { hook } = memoryLocation({ path: '/' });
+  const { container } = renderWithProviders(
+    <Router hook={hook}>
+      <MattstackShell name="probe" rail={false}>
+        <MattstackShell.Header actions={<button type="button">Refresh</button>}>
+          <span>probe</span>
+        </MattstackShell.Header>
+        <main data-testid="page">page</main>
+      </MattstackShell>
+    </Router>
+  );
+  expect(screen.queryByRole('navigation', { name: 'App sections' })).toBeNull();
+  expect(container.querySelector('.mantine-AppShell-navbar')).toBeNull();
+  expect(screen.queryByLabelText('Toggle navigation')).toBeNull();
+  const names = within(screen.getByRole('banner'))
+    .getAllByRole('button')
+    .map(b => b.getAttribute('aria-label') ?? b.textContent);
+  expect(names).toEqual(['Refresh', 'Color scheme']);
+  expect(screen.getByTestId('page')).toBeInTheDocument();
+});
+
 test('mounts the app launcher when appName is passed', () => {
   const { hook } = memoryLocation({ path: '/' });
   renderWithProviders(

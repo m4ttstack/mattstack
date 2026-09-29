@@ -41,6 +41,10 @@ export interface MattstackShellProps {
   /** 30px works with the wordmark recipe; the app owns the artwork. */
   mark?: ReactNode;
   headerHeight?: number;
+  /** `false` drops the rail for a single-page app: the page takes the full
+   *  width and the colour-scheme control moves to the top bar's right end.
+   *  @default true */
+  rail?: boolean;
   railLabel?: string;
   /** This app's deck registry name. When set, the header shows the shared
    *  app launcher marking this app as current. */
@@ -85,6 +89,7 @@ function Shell({
   name,
   mark,
   headerHeight = MATTSTACK_HEADER_HEIGHT,
+  rail: withRail = true,
   railLabel = 'App sections',
   appName,
   deckBase,
@@ -93,7 +98,7 @@ function Shell({
   const rail = useRailState();
   const headerProps = useHeaderProps();
   const { rail: railSlot, railBottom, header, page } = partition(children);
-  const expanded = rail.effectiveExpanded;
+  const expanded = withRail && rail.effectiveExpanded;
   return (
     <ShellRailContext.Provider value={{ expanded, close: rail.close }}>
       <RailShell
@@ -111,6 +116,7 @@ function Shell({
             </Group>
             <Group gap="md" wrap="nowrap">
               {header?.actions}
+              {!withRail && <ColorSchemeControl variant="button" />}
               {appName && (
                 <AppLauncher currentApp={appName} deckBase={deckBase} />
               )}
@@ -118,19 +124,21 @@ function Shell({
           </Group>
         }
         rail={
-          <Rail
-            label={railLabel}
-            expanded={expanded}
-            onToggleExpanded={rail.toggleExpanded}
-            pinBottom={
-              <>
-                {railBottom}
-                <ColorSchemeControl expanded={expanded} />
-              </>
-            }
-          >
-            {railSlot}
-          </Rail>
+          withRail ? (
+            <Rail
+              label={railLabel}
+              expanded={expanded}
+              onToggleExpanded={rail.toggleExpanded}
+              pinBottom={
+                <>
+                  {railBottom}
+                  <ColorSchemeControl expanded={expanded} />
+                </>
+              }
+            >
+              {railSlot}
+            </Rail>
+          ) : null
         }
         railExpanded={expanded}
         railOpened={rail.opened}

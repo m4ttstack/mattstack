@@ -106,6 +106,26 @@ test('desktop renders neither the mobile toggle nor the overlay', () => {
   expect(navbar(container).style.width).toContain('3.5rem');
 });
 
+test('a null rail renders no navbar and no mobile toggle', () => {
+  setViewportWidth(400);
+  const { container } = renderWithProviders(
+    <RailShell
+      headerHeight={48}
+      header={<span>Header content</span>}
+      rail={null}
+      railExpanded={false}
+      railOpened={false}
+      onToggleRail={() => {}}
+      onCloseRail={() => {}}
+    >
+      <div>page body</div>
+    </RailShell>
+  );
+  expect(navbar(container)).toBeNull();
+  expect(screen.queryByLabelText('Toggle navigation')).toBeNull();
+  expect(screen.getByText('page body')).toBeTruthy();
+});
+
 test('railWidth overrides replace the default 56px geometry', () => {
   const { container } = renderWithProviders(
     <ShellHarness railWidth={80} railWidthExpanded={300} />
