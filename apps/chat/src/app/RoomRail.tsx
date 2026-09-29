@@ -295,7 +295,12 @@ export function FleetDrawer({
           <Text size="xs" style={{ color: PHONE_MUTED_META }}>
             {daemonReachable ? 'rt daemon answering' : 'rt daemon unreachable'}
           </Text>
-          <ColorSchemeControl variant="button" size={PHONE_TAP} />
+          <ColorSchemeControl
+            variant="button"
+            size={PHONE_TAP}
+            iconSize={20}
+            muted
+          />
         </Group>
       </Stack>
     </Drawer>

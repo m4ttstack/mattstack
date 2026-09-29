@@ -81,6 +81,13 @@ test('the button form of the scheme control shows the stored choice outside the 
   }
 });
 
+test('the muted button form carries the muted class and keeps its name', () => {
+  renderWithProviders(<ColorSchemeControl variant="button" muted />);
+  expect(
+    screen.getByRole('button', { name: 'Color scheme: System' }).className
+  ).toMatch(/muted/);
+});
+
 test('rail={false} drops the rail and puts the scheme control at the end of the top bar', () => {
   const { hook } = memoryLocation({ path: '/' });
   const { container } = renderWithProviders(

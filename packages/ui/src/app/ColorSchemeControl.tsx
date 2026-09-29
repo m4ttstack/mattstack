@@ -2,6 +2,7 @@ import { ActionIcon, HybridMenu, RailEntry } from '@mattstack/app-kit/core';
 import type { ActionIconProps } from '@mattstack/app-kit/core';
 import { useColorScheme } from '@mattstack/app-kit/hooks';
 import { Icon, type IconName } from '@mattstack/app-kit/icons';
+import classes from './ColorSchemeControl.module.css';
 
 type ColorSchemePreference = 'auto' | 'light' | 'dark';
 
@@ -24,6 +25,8 @@ export type ColorSchemeControlProps =
       /** A bare icon button, for chrome outside the shell rail (a phone drawer, say). */
       variant: 'button';
       size?: ActionIconProps['size'];
+      /** Rests in the muted text colour, for chrome whose neighbouring icons are muted. */
+      muted?: boolean;
       /** @default 18 */
       iconSize?: number;
     };
@@ -44,6 +47,7 @@ export function ColorSchemeControl(props: ColorSchemeControlProps) {
         props.variant === 'button' ? (
           <ActionIcon
             variant="subtle"
+            className={props.muted ? classes.muted : undefined}
             size={props.size ?? 'lg'}
             aria-label={accessibleName}
           >
