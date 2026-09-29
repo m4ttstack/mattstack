@@ -10,6 +10,13 @@ boxscore is the **Forge Leaderboard**. Its contract lives in `README.md`
 `gitlab-leaderboard-spec.md` (exact per-metric definitions). Read those first;
 this file only adds what bites when picking up an edit or a bug fix.
 
+## UI design and parity
+
+The boards in `docs/apps/design/boxscore/` (repo root: `boxscore.pen`, `renders/`,
+`README.md`) are the source of truth for the UI. Any UI change ends with the parity run
+in `scripts/parity/run.md` for the boards it touches, dark and light. A mismatch the
+board itself gets wrong is listed for Matt as a pending board fix, never faked in the app.
+
 ## Verifying a number
 
 The board is a query over a local sqlite store
@@ -41,7 +48,8 @@ than trusting the store... the store can lag GitLab.
   mismatch) or delete the sqlite file; a plain `--refresh` will not re-fetch a
   settled merged MR.
 - **Settings live in the rt store, not a config file** (`rt settings get
-boxscore.*`, `rt settings get mattstack.roster`), edited in-app at `/settings`.
+boxscore.*`, `rt settings get mattstack.roster`), edited in console at
+  `/settings#boxscore`. boxscore has no settings page.
 - **GitLab transport is `@mattstack/glance`, not this repo.** Field-name or
   pagination bugs get fixed there; boxscore surfaces the failure in the response
   `warnings`.

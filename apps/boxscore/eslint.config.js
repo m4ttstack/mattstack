@@ -6,9 +6,7 @@ import { importWall, mattstackEslint } from '@mattstack/app-kit/eslint';
 // fixture; every other wall still applies to them.
 const testImportWall = {
   ...importWall,
-  patterns: importWall.patterns.filter(
-    p => !p.group.includes('**/server/**')
-  ),
+  patterns: importWall.patterns.filter(p => !p.group.includes('**/server/**')),
 };
 
 export default tseslint.config(...mattstackEslint(), {

@@ -19,10 +19,6 @@ export type RefreshResult = InferResponseType<
   typeof client.api.refresh.$post,
   200
 >;
-export type CacheStats = InferResponseType<
-  typeof client.api.cache.stats.$get,
-  200
->;
 
 export function isColdCache(
   res: LeaderboardResult

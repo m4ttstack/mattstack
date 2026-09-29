@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
+import type { LeaderboardResponse } from '../shared/types';
 import { App } from './App';
-import { buildResponse } from './components/fixtures';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(),
@@ -18,6 +18,25 @@ vi.mock('./hooks/useRefreshJob', () => ({ useRefreshJob }));
 vi.mock('./routes', () => ({
   useAppRoute: () => ({ name: 'leaderboard' as const }),
 }));
+
+const EMPTY: LeaderboardResponse = {
+  scope: { type: 'group', groupPath: 'acme/eng' },
+  window: {
+    start: '2026-08-01T00:00:00.000Z',
+    end: '2026-08-31T00:00:00.000Z',
+    key: '30d',
+  },
+  priorWindow: null,
+  hasTrend: false,
+  baseUrl: 'https://gitlab.example.com',
+  currentUser: '',
+  generatedAt: '2026-08-31T12:00:00.000Z',
+  fromCache: true,
+  metricNotes: {},
+  leaders: {},
+  users: [],
+  warnings: [],
+};
 
 const COLD = {
   cached: false as const,
@@ -118,7 +137,7 @@ describe('App: cold-cache orchestration', () => {
 
   it('renders the leaderboard, with no loading text, once warm-cache data is available', () => {
     useLeaderboard.mockReturnValue({
-      data: { ...buildResponse([]), cached: true },
+      data: { ...EMPTY, cached: true },
       error: null,
       isFetching: false,
     });
@@ -147,7 +166,7 @@ describe('App: cold-cache orchestration', () => {
 
   it('keeps the last good numbers on screen, dimmed, under a warm refresh', () => {
     useLeaderboard.mockReturnValue({
-      data: { ...buildResponse([]), cached: true },
+      data: { ...EMPTY, cached: true },
       error: null,
       isFetching: false,
     });
