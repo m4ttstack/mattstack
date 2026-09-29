@@ -29,8 +29,14 @@ public enum RowVerbRun {
     /// steps can touch the same files (path.link from PATH and shell rows).
     public static func apply(_ args: [String], rt: RtRunning, needs: NeedBroker,
                              waiting: @escaping @Sendable (String?) async -> Void) async -> String? {
-        await queue.run { await applyNow(args, rt: rt, needs: needs, waiting: waiting) }
+        if await queue.isBusy { await waiting(queuedCopy) }
+        return await queue.run {
+            await waiting(nil)
+            return await applyNow(args, rt: rt, needs: needs, waiting: waiting)
+        }
     }
+
+    public static let queuedCopy = "Waiting for another setup step to finish…"
 
     private static func onlyStep(_ args: [String]) -> String? {
         guard let i = args.firstIndex(of: "--only"), i + 1 < args.count else { return nil }
@@ -91,14 +97,20 @@ public enum RowVerbRun {
 /// Runs async bodies one at a time, in arrival order.
 actor SerialQueue {
     private var tail: Task<Void, Never>?
+    private var pending = 0
+
+    var isBusy: Bool { pending > 0 }
 
     func run<T: Sendable>(_ body: @escaping @Sendable () async -> T) async -> T {
         let previous = tail
+        pending += 1
         let task = Task<T, Never> {
             await previous?.value
             return await body()
         }
         tail = Task { _ = await task.value }
-        return await task.value
+        let result = await task.value
+        pending -= 1
+        return result
     }
 }

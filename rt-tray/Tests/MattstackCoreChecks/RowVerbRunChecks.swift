@@ -150,11 +150,16 @@ let rowVerbRunScopeChecks: [Check] = [
     Check("two rows' apply runs never overlap") { c in
         let rt = OverlapRt()
         let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
-        async let a = RowVerbRun.apply(["setup", "apply", "--only", "path.link", "--json"], rt: rt, needs: broker) { _ in }
-        async let b = RowVerbRun.apply(["setup", "apply", "--only", "linear.mcp", "--json"], rt: rt, needs: broker) { _ in }
-        _ = await (a, b)
+        let first = WaitingLog(), second = WaitingLog()
+        let a = Task { await RowVerbRun.apply(["setup", "apply", "--only", "path.link", "--json"], rt: rt, needs: broker) { first.append($0) } }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let b = Task { await RowVerbRun.apply(["setup", "apply", "--only", "linear.mcp", "--json"], rt: rt, needs: broker) { second.append($0) } }
+        _ = await (a.value, b.value)
         let log = rt.log
         try c.requireEqual(log.count, 4)
         c.expect(log[0].hasPrefix("start") && log[1].hasPrefix("end") && log[2].hasPrefix("start"), "runs overlapped: \(log)")
+        c.expect(second.all.contains(RowVerbRun.queuedCopy), "the queued row must say what it is waiting for; got \(second.all)")
+        c.expect(!first.all.contains(RowVerbRun.queuedCopy), "a run that starts at once is not queued")
+        c.expectEqual(second.all.last, .some(nil))
     },
 ]
