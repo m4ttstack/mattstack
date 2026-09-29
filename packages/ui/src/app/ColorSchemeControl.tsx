@@ -45,7 +45,11 @@ export function ColorSchemeControl(props: ColorSchemeControlProps) {
             <Icon name={icon} size={18} />
           </ActionIcon>
         ) : (
-          <RailEntry icon={icon} label="Color scheme" expanded={props.expanded} />
+          <RailEntry
+            icon={icon}
+            label="Color scheme"
+            expanded={props.expanded}
+          />
         )
       }
     />
