@@ -356,6 +356,29 @@ describe("toolRows — tool.fast-browser", () => {
     expect(r.action).toEqual({ type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] });
   });
 
+  // `fast-browser setup` run from an rt worktree once left the launcher
+  // execing a checkout that was later disposed: the bare command is broken
+  // while the bundled copy rt runs is fine.
+  test("launcher into a deleted checkout -> needs-you with a relink, not ready", async () => {
+    const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
+    p.writeFile(
+      `${p.home}/.local/bin/fast-browser`,
+      '#!/bin/sh\n# Managed by fast-browser setup; rewritten on every setup run. Do not edit.\nexec /usr/bin/env node "/worktrees/gone/bin/fast-browser.mjs" "$@"\n',
+    );
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("the fast-browser command runs a copy that no longer exists");
+    expect(r.required).toBe(false);
+    expect(r.action).toEqual({ type: "link-bundled", label: "Relink", tool: "fast-browser" });
+  });
+
+  test("launcher that still runs -> ready, whoever wrote it", async () => {
+    const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
+    p.writeFile(`${p.home}/.local/bin/fast-browser`, "#!/bin/sh\necho someone else\n");
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    expect(r.status).toBe("ready");
+  });
+
   test("data-permissions check absent from the report -> error, not a guessed ready", async () => {
     const p = fakeProbes({ exec: doctorExec(withoutCheck(REAL_DOCTOR, "data-permissions")) });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");

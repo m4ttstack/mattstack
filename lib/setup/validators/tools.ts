@@ -16,7 +16,7 @@
  * never collide with this file's own built-in row ids.
  */
 
-import { resolveTool } from "../../deps/resolve.ts";
+import { isBrokenLauncher, resolveTool } from "../../deps/resolve.ts";
 import { detectEditors } from "../../editors.ts";
 import { BACKUP_TOOLS as BACKUP_TOOL_NAMES } from "../../state/backup-tools.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
@@ -224,6 +224,8 @@ function checkState(doctor: FastBrowserDoctor | null, id: string): CheckState {
 
 interface FastBrowserProbe {
   resolvable: boolean;
+  /** The bundled copy is in use and ~/.local/bin/fast-browser can no longer run (see isBrokenLauncher). */
+  launcherBroken: boolean;
   doctor: FastBrowserDoctor | null;
   /** Set only when fast-browser resolved but its report could not be read. */
   failure: string | null;
@@ -235,25 +237,28 @@ const DOCTOR_CHECKS = ["runtime-checksum", "extension-installed", "extension-loa
 /** One `doctor` run feeds both rows: they read different fields of the same report, and a second spawn would double the bounded wait on every plan. */
 async function probeFastBrowser(p: Probes, seams: ToolsSeams): Promise<FastBrowserProbe> {
   const resolved = seams.resolveTool(p, "fast-browser");
-  if (!resolved.exec) return { resolvable: false, doctor: null, failure: null };
+  if (!resolved.exec) return { resolvable: false, launcherBroken: false, doctor: null, failure: null };
+  const launcherBroken = resolved.bundled !== null && isBrokenLauncher(p, "fast-browser");
 
   let res = await exec(p, [...resolved.exec, "doctor", "--checks", DOCTOR_CHECKS.join(","), "--json"], DOCTOR_TIMEOUT_MS);
   // fast-browser before 0.1.4 has no --checks and refuses it as a usage error.
   if (res.code === 2 && res.stdout.trim() === "") res = await exec(p, [...resolved.exec, "doctor", "--json"], DOCTOR_TIMEOUT_MS);
-  if (res.code === 124) return { resolvable: true, doctor: null, failure: "fast-browser doctor timed out" };
+  if (res.code === 124) return { resolvable: true, launcherBroken, doctor: null, failure: "fast-browser doctor timed out" };
 
   // `doctor` is a health check: it commonly exits non-zero BECAUSE it found a
   // problem, while still printing its JSON report, so a parseable, well-shaped
   // payload is honored regardless of exit code.
   if (res.stdout.trim() !== "") {
     const doctor = parseFastBrowserDoctor(res.stdout);
-    if (doctor) return { resolvable: true, doctor, failure: null };
+    if (doctor) return { resolvable: true, launcherBroken, doctor, failure: null };
   }
   const head = res.stderr.trim().split("\n")[0] || `exit ${res.code}`;
-  return { resolvable: true, doctor: null, failure: `fast-browser doctor failed: ${head}` };
+  return { resolvable: true, launcherBroken, doctor: null, failure: `fast-browser doctor failed: ${head}` };
 }
 
 const FAST_BROWSER_SETUP_ACTION: Action = { type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] };
+/** rt owns ~/.local/bin/fast-browser while the bundled copy is in use, so a launcher that can no longer run is relinked to it. */
+const FAST_BROWSER_RELINK: Action = { type: "link-bundled", label: "Relink", tool: "fast-browser" };
 
 /**
  * Everything past the binary is created by the `fastbrowser.setup` Install
@@ -283,6 +288,7 @@ function fastBrowserRow(probe: FastBrowserProbe, solo: boolean): Row {
   const config = checkState(probe.doctor, "data-permissions");
   if (config === "absent") return row({ ...base, ...pending, status: "error", detail: "fast-browser doctor report has no data-permissions check" });
   if (config === "fail") return row({ ...base, ...pending, status: "needs-you", detail: "runtime ok, but setup needs to run again", action: FAST_BROWSER_SETUP_ACTION });
+  if (probe.launcherBroken) return row({ ...base, ...pending, status: "needs-you", detail: "the fast-browser command runs a copy that no longer exists", action: FAST_BROWSER_RELINK });
   return row({ ...base, status: "ready", detail: "runtime ok" });
 }
 
