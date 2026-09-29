@@ -5,7 +5,7 @@ import { memoryLocation } from 'wouter/memory-location';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { App } from '../App';
-import { syncedLabel } from './HeaderStatus';
+import { syncedLabel } from './Topbar';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(() => ({

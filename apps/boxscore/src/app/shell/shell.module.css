@@ -1,0 +1,117 @@
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  padding: 28px 32px;
+}
+
+.appName,
+.sep,
+.crumb,
+.scope,
+.freshLabel,
+.subtitle {
+  line-height: normal;
+  white-space: nowrap;
+}
+
+/* Topbar */
+
+.topbar {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.crumbs,
+.topRight,
+.freshness {
+  display: flex;
+  align-items: center;
+}
+
+.crumbs {
+  gap: 8px;
+}
+
+.topRight {
+  gap: 16px;
+}
+
+.freshness {
+  gap: 6px;
+}
+
+.appName {
+  color: var(--tk-text-1);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sep {
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.crumb {
+  color: var(--tk-text-2);
+  font-size: 13px;
+}
+
+.scope {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 12px;
+}
+
+.freshDot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.freshLabel {
+  font-size: 12px;
+}
+
+/* Page header */
+
+.pageHeader {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  margin: 0;
+  line-height: normal;
+  white-space: nowrap;
+  color: var(--tk-text-1);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+/* The board spaces the subtitle's separators with two spaces each side. */
+.subtitle {
+  white-space: pre;
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

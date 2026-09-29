@@ -5,7 +5,7 @@ import type {
 } from '../../shared/types';
 import { priorWindowLabel, windowLabel } from '../model/labels';
 import { descriptor } from '../model/standings';
-import type { ViewMode } from '../shell/HeaderControls';
+import type { ViewMode } from '../shell/PageHeader';
 import { Glyph } from '../ui/Glyph';
 import { CardsGrid } from './CardsGrid';
 import classes from './leaderboard.module.css';

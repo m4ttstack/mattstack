@@ -7,7 +7,7 @@ import {
 import { useLocation } from 'wouter';
 
 import { MattstackShell, NotFoundPage } from '@mattstack/app-kit/app';
-import { Alert, PageShell, Stack, Text, Title } from '@mattstack/app-kit/core';
+import { Alert, PageShell, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { RailLink } from '@mattstack/app-kit/router';
 import type {
@@ -35,17 +35,10 @@ import { descriptor } from './model/standings';
 import { RefreshStatus } from './refresh/RefreshStatus';
 import { SkeletonStandings } from './refresh/SkeletonStandings';
 import { useAppRoute } from './routes';
-import {
-  HeaderControls,
-  type RangeState,
-  type ViewMode,
-} from './shell/HeaderControls';
-import {
-  HeaderStatus,
-  syncedLabel,
-  type Freshness,
-} from './shell/HeaderStatus';
+import { PageHeader, type RangeState, type ViewMode } from './shell/PageHeader';
 import { SettingsRailEntry } from './shell/SettingsRailEntry';
+import classes from './shell/shell.module.css';
+import { syncedLabel, Topbar, type Freshness } from './shell/Topbar';
 
 const queryClient = new QueryClient();
 
@@ -228,116 +221,87 @@ function AppShell() {
   const isPerson = route.name === 'user' || route.name === 'stat';
   const stat = route.name === 'stat' ? route.stat : FIRST_STAT;
 
-  const headerStatus = (
-    <HeaderStatus
-      scope={shownScope ? scopeLabel(shownScope) : null}
-      freshness={freshness}
-      action={refreshJob.refreshing ? 'cancel' : 'refresh'}
-      onAction={
-        refreshJob.refreshing
-          ? cancelRefresh
-          : () => void refreshJob.start(selection)
-      }
-    />
-  );
-
   let page: ReactNode;
   if (isPerson) {
-    const personName =
-      data?.users.find(u => u.username === route.username)?.name ??
-      route.username;
     page = (
-      <PageShell.Main>
-        <PageShell.Header actions={headerStatus}>
-          <HeaderTitle title={personName} subtitle={descriptor(stat).label} />
-        </PageShell.Header>
-        <PageShell.Content contentContainer={false}>
-          <Stack gap={24} px={32} py={28}>
-            {status}
-            {!error && loading && (
-              <Text size="sm" c="dimmed">
-                Loading…
-              </Text>
-            )}
-            {data && (
-              <DetailPage
-                data={data}
-                username={route.username}
-                stat={stat}
-                selection={selection}
-              />
-            )}
-          </Stack>
-        </PageShell.Content>
-      </PageShell.Main>
+      <>
+        {status}
+        {!error && loading && (
+          <Text size="sm" c="var(--tk-text-3)">
+            Loading…
+          </Text>
+        )}
+        {data && (
+          <DetailPage
+            data={data}
+            username={route.username}
+            stat={stat}
+            selection={selection}
+          />
+        )}
+      </>
     );
   } else if (route.name === 'not-found') {
     page = <NotFoundPage />;
   } else {
     page = (
-      <PageShell.Main>
-        <PageShell.Header
-          actions={
-            <>
-              <HeaderControls
-                range={rangeState}
-                onRange={onRange}
-                trend={trend}
-                onTrend={setTrend}
-                view={view}
-                onView={setView}
-              />
-              {headerStatus}
-            </>
+      <>
+        <PageHeader
+          title="Leaderboard"
+          subtitle={
+            data
+              ? leaderboardSubtitle(data, sort, trend, view)
+              : cold
+                ? `${windowLabel(cold.window)}  ·  first refresh for this window`
+                : null
           }
-        >
-          <HeaderTitle
-            title="Leaderboard"
-            subtitle={
-              data
-                ? leaderboardSubtitle(data, sort, trend, view)
-                : cold
-                  ? `${windowLabel(cold.window)}  ·  first refresh for this window`
-                  : null
+          range={rangeState}
+          onRange={onRange}
+          trend={trend}
+          onTrend={setTrend}
+          view={view}
+          onView={setView}
+        />
+        {status}
+        {!data && !error && loading && <SkeletonStandings />}
+        {firstLoad && !error && !loading && (
+          <Text size="sm" c="var(--tk-text-3)">
+            Nothing is stored for this window yet. Refresh to build it.
+          </Text>
+        )}
+        {data && (
+          <LeaderboardPage
+            data={data}
+            view={view}
+            trend={trend}
+            dimmed={refreshJob.refreshing}
+            sort={sort}
+            onSort={setSort}
+            onSelectStat={(username, stat) =>
+              navigate(statHref(username, stat))
             }
           />
-        </PageShell.Header>
-        <PageShell.Content contentContainer={false}>
-          <Stack gap={24} px={32} py={28}>
-            {status}
-            {!data && !error && loading && <SkeletonStandings />}
-            {firstLoad && !error && !loading && (
-              <Text size="sm" c="dimmed">
-                Nothing is stored for this window yet. Refresh to build it.
+        )}
+        {data && Object.keys(data.metricNotes).length > 0 && (
+          <Stack gap={2}>
+            {Object.entries(data.metricNotes).map(([k, v]) => (
+              <Text key={k} size="xs" c="var(--tk-text-3)">
+                {k}: {v}
               </Text>
-            )}
-            {data && (
-              <LeaderboardPage
-                data={data}
-                view={view}
-                trend={trend}
-                dimmed={refreshJob.refreshing}
-                sort={sort}
-                onSort={setSort}
-                onSelectStat={(username, stat) =>
-                  navigate(statHref(username, stat))
-                }
-              />
-            )}
-            {data && Object.keys(data.metricNotes).length > 0 && (
-              <Stack gap={2}>
-                {Object.entries(data.metricNotes).map(([k, v]) => (
-                  <Text key={k} size="xs" c="dimmed">
-                    {k}: {v}
-                  </Text>
-                ))}
-              </Stack>
-            )}
+            ))}
           </Stack>
-        </PageShell.Content>
-      </PageShell.Main>
+        )}
+      </>
     );
   }
+
+  const personName = isPerson
+    ? (data?.users.find(u => u.username === route.username)?.name ??
+      route.username)
+    : null;
+  const crumbs = isPerson
+    ? ['boxscore', personName!, descriptor(stat).label]
+    : ['boxscore', route.name === 'not-found' ? 'Not found' : 'Leaderboard'];
 
   return (
     <MattstackShell
@@ -364,26 +328,26 @@ function AppShell() {
       <MattstackShell.RailBottom>
         <SettingsRailEntry />
       </MattstackShell.RailBottom>
-      <PageShell headerHeight={72}>{page}</PageShell>
+      <PageShell headerHeight={52}>
+        <PageShell.Main>
+          <PageShell.Header px={32}>
+            <Topbar
+              crumbs={crumbs}
+              scope={shownScope ? scopeLabel(shownScope) : null}
+              freshness={freshness}
+              action={refreshJob.refreshing ? 'cancel' : 'refresh'}
+              onAction={
+                refreshJob.refreshing
+                  ? cancelRefresh
+                  : () => void refreshJob.start(selection)
+              }
+            />
+          </PageShell.Header>
+          <PageShell.Content bg="var(--tk-bg)" contentContainer={false}>
+            <main className={classes.content}>{page}</main>
+          </PageShell.Content>
+        </PageShell.Main>
+      </PageShell>
     </MattstackShell>
-  );
-}
-
-function HeaderTitle({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string | null;
-}) {
-  return (
-    <Stack gap={2} miw={0}>
-      <Title order={2}>{title}</Title>
-      {subtitle !== null && (
-        <Text size="sm" c="dimmed" truncate>
-          {subtitle}
-        </Text>
-      )}
-    </Stack>
   );
 }
