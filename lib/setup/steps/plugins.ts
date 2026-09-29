@@ -52,7 +52,7 @@ function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-interface RegisteredMarketplace {
+export interface RegisteredMarketplace {
   name: string;
   kind: string | null;
   /** The `repo`, `url` or `path` Claude Code recorded, whichever its `source` kind carries. */
@@ -62,9 +62,12 @@ interface RegisteredMarketplace {
 /** Registered marketplaces, or null when this claude cannot list them as JSON (the caller then falls back to the add's own reply). */
 async function listMarketplaces(run: (args: string[]) => Promise<ExecResult>): Promise<RegisteredMarketplace[] | null> {
   const res = await run(["plugin", "marketplace", "list", "--json"]);
-  if (res.code !== 0) return null;
+  return res.code === 0 ? parseMarketplaceList(res.stdout) : null;
+}
+
+export function parseMarketplaceList(stdout: string): RegisteredMarketplace[] | null {
   try {
-    const parsed: unknown = JSON.parse(res.stdout);
+    const parsed: unknown = JSON.parse(stdout);
     if (!Array.isArray(parsed)) return null;
     const out: RegisteredMarketplace[] = [];
     for (const m of parsed as { name?: unknown; source?: unknown; repo?: unknown; url?: unknown; path?: unknown }[]) {
@@ -87,7 +90,7 @@ const GITHUB_SHORTHAND = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
  * github `repo`, and a re-add under a different kind fails rather than
  * reporting the marketplace already on disk.
  */
-function marketplaceSourceKey(source: string): string {
+export function marketplaceSourceKey(source: string): string {
   const s = source.trim().replace(/\/+$/, "").replace(/\.git$/i, "");
   if (GITHUB_SHORTHAND.test(s)) return `github.com/${s}`.toLowerCase();
   const scp = /^[^@/\s]+@([^:/\s]+):(.+)$/.exec(s);
@@ -98,7 +101,7 @@ function marketplaceSourceKey(source: string): string {
 }
 
 /** Claude's own first line of output, so a failed row says what claude said rather than just its exit code. */
-function claudeMessage(res: ExecResult, fallback: string): string {
+export function claudeMessage(res: ExecResult, fallback: string): string {
   const line = `${res.stderr}\n${res.stdout}`
     .split("\n")
     .map((l) => l.replace(/^[\s✘✖×]+/, "").trim())
@@ -109,6 +112,11 @@ function claudeMessage(res: ExecResult, fallback: string): string {
 /** A repeat add exits 0 and says so on stdout; a same-name clash from a different source fails with "already added" on stderr. */
 function addFoundExisting(res: ExecResult): boolean {
   return isAlready(res) || /already on disk/i.test(res.stdout);
+}
+
+/** Enabling a plugin that is already on exits 1 with "is already enabled" on stderr (claude 2.1.284). */
+function isAlreadyEnabled(res: ExecResult): boolean {
+  return /already enabled/i.test(res.stderr);
 }
 
 function isUnknownSubcommand(res: { stdout: string; stderr: string }): boolean {
@@ -237,8 +245,8 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   /** The single site every trusted enable goes through. Best-effort, and logged: an older claude without the subcommand must never fail an otherwise-good install, but a silent failure would leave a disabled baseline plugin with no signal anywhere. */
   async function enableTrusted(runner: ClaudeRunner, plugin: string, dir: string): Promise<void> {
     const enable = await runner.run(["plugin", "enable", plugin], PACK_EXEC_TIMEOUT_MS);
-    if (enable.code !== 0 && !isAlready(enable) && !isUnknownSubcommand(enable)) {
-      ctx.log("plugins.install", `claude plugin enable ${plugin} (${dir}) exited ${enable.code} ... ignored`);
+    if (enable.code !== 0 && !isAlready(enable) && !isAlreadyEnabled(enable) && !isUnknownSubcommand(enable)) {
+      ctx.log("plugins.install", `claude plugin enable ${plugin} (${dir}): ${claudeMessage(enable, `exited ${enable.code}`)} ... ignored`);
     }
   }
 
@@ -310,7 +318,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
           // `tool.plugins` needs-you row's action is `rt setup pack`, which
           // lands here: without this, the one command offered for an
           // installed-but-disabled baseline plugin does nothing.
-          if (!teamAuthored) await enableTrusted(runner, plugin, dir);
+          if (!teamAuthored && !byId.get(plugin)!.enabled) await enableTrusted(runner, plugin, dir);
           settled.push(plugin);
           continue;
         }

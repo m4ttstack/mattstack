@@ -112,6 +112,8 @@ let installRunChecks: [Check] = [
         c.expectEqual(steps[0].kind, .rt)
         c.expectEqual(steps[1].kind, .unknown)
         c.expectEqual(try ApplyEvent.decode(#"{"event":"step","id":"a","state":"retrying"}"#), .step(id: "a", state: .unknown, detail: nil, remedy: nil))
+        c.expectEqual(try ApplyEvent.decode(#"{"event":"step","id":"verify","state":"needs-you","detail":"to connect: Slack"}"#),
+                      .step(id: "verify", state: .needsYou, detail: "to connect: Slack", remedy: nil))
     },
     Check("plan merge on a known id preserves state, clears remedy/detail/waitingOnYou; unknown ids append pending") { c in
         var steps: [InstallStep] = []

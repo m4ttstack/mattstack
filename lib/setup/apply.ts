@@ -22,7 +22,11 @@ import { updateSetupState } from "./state.ts";
 import { discoverTeams, readTeamSnapshot, type TeamSnapshot } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
-export type StepOutcome = { state: "done"; detail?: string } | { state: "skipped"; detail: string } | { state: "failed"; detail: string; remedy?: string };
+export type StepOutcome =
+  | { state: "done"; detail?: string }
+  | { state: "skipped"; detail: string }
+  | { state: "needs-you"; detail: string }
+  | { state: "failed"; detail: string; remedy?: string };
 
 export interface ApplyContext {
   p: Probes;

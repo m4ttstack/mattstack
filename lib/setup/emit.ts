@@ -8,7 +8,7 @@ export function createNdjsonEmitter(write: (line: string) => void = (l) => proce
 
 /** TTY rendering of the same stream: one line per step transition, log lines dimmed. */
 export function createHumanEmitter(print: (s: string) => void = console.log): Emit {
-  const glyph: Record<StepState, string> = { pending: "·", running: "…", done: "✓", failed: "✗", skipped: "–" };
+  const glyph: Record<StepState, string> = { pending: "·", running: "…", done: "✓", failed: "✗", skipped: "–", "needs-you": "!" };
   return (ev) => {
     if (ev.event === "plan") print(`  ${ev.steps.length} steps`);
     else if (ev.event === "step") print(`  ${glyph[ev.state]} ${ev.id}${ev.detail ? `  ${ev.detail}` : ""}${ev.remedy ? `\n      → ${ev.remedy}` : ""}`);

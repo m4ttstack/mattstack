@@ -25,6 +25,7 @@ import { needOutcome, toFailedOutcome } from "./steps/step-utils.ts";
 import { deckIsHealthy, readDeckApiPort } from "./steps/deck.ts";
 import { servicePlists } from "./need.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "./steps/services.ts";
+import { claudeMessage, marketplaceSourceKey, parseMarketplaceList } from "./steps/plugins.ts";
 import { claudeConfigDirs } from "./tools-install.ts";
 import type { Probes } from "./probes.ts";
 import { readSetupState, updateSetupState } from "./state.ts";
@@ -267,6 +268,7 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
 
   const configDirs = claudeConfigDirs(ctx.p, []);
   const notes: string[] = [];
+  const unresolved: string[] = [];
 
   for (const dir of configDirs) {
     const env = { CLAUDE_CONFIG_DIR: dir };
@@ -274,13 +276,31 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
       const res = await ctx.p.exec([...claude.exec, "plugin", "uninstall", plugin], { env });
       if (res.code !== 0 && !isAlreadyGone(res)) notes.push(`${dir}: uninstall ${plugin} exited ${res.code}`);
     }
-    for (const marketplace of state.marketplaces) {
-      const res = await ctx.p.exec([...claude.exec, "plugin", "marketplace", "remove", marketplace], { env });
-      if (res.code !== 0 && !isAlreadyGone(res)) notes.push(`${dir}: marketplace remove ${marketplace} exited ${res.code}`);
+    if (state.marketplaces.length === 0) continue;
+    // `marketplace remove` takes the registered name, and setup-state records
+    // the source rt added, so the listing is the only map between the two.
+    // A recorded source it no longer lists is already gone.
+    const run = (args: string[]) => ctx.p.exec([...claude.exec!, ...args], { env });
+    const listing = await run(["plugin", "marketplace", "list", "--json"]);
+    const listed = listing.code === 0 ? parseMarketplaceList(listing.stdout) : null;
+    if (listed === null) {
+      notes.push(`${dir}: could not list marketplaces (${claudeMessage(listing, `exited ${listing.code}`)})`);
+      unresolved.push(...state.marketplaces);
+      continue;
+    }
+    for (const recorded of state.marketplaces) {
+      const key = marketplaceSourceKey(recorded);
+      const match = listed.find((m) => m.source !== null && marketplaceSourceKey(m.source) === key);
+      if (!match) continue;
+      const res = await run(["plugin", "marketplace", "remove", match.name]);
+      if (res.code !== 0 && !isAlreadyGone(res)) {
+        notes.push(`${dir}: marketplace remove ${match.name}: ${claudeMessage(res, `exited ${res.code}`)}`);
+        unresolved.push(recorded);
+      }
     }
   }
 
-  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [] }));
+  updateSetupState(ctx.p, (s) => ({ ...s, plugins: [], marketplaces: [...new Set(unresolved)] }));
 
   if (notes.length > 0) return { outcome: { state: "failed", detail: notes.join("; "), remedy: "Retry" } };
   return { outcome: { state: "done", detail: `removed ${state.plugins.length} plugin(s), ${state.marketplaces.length} marketplace(s) across ${configDirs.length} config dir(s)` } };
