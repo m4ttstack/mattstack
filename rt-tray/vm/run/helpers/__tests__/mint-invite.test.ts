@@ -1,7 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+
+// Each test spawns the script, git and several stubs; a CI runner can take
+// well past bun's 5s default for that.
+setDefaultTimeout(30_000);
 
 const MINT = join(import.meta.dir, "..", "..", "host", "mint-invite.sh");
 const CODE = "SECRET-CODE-4242";
