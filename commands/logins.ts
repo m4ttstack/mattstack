@@ -1,6 +1,6 @@
 /**
  * rt logins: dev-server logins that browser runs fill on a matching page.
- * Values never travel in argv: a terminal prompts for the email and a hidden password, and
+ * Values never travel in argv: a terminal prompts for the email and a masked password, and
  * --json reads {email, password} from stdin.
  */
 
@@ -11,7 +11,7 @@ import { InvalidOriginError, normalizeOrigin } from "../lib/logins/origin.ts";
 import {
   CorruptLoginError, InvalidLoginError, listLogins, removeLogin, saveLogin, secretsBackend, type LoginsBackend,
 } from "../lib/logins/store.ts";
-import { promptSecret } from "../lib/prompt-secret.ts";
+import { promptSecret, type PromptSecretOptions } from "../lib/prompt-secret.ts";
 import { InvalidSecretsSegmentError, NoAgeKeyError, createRealSecretsExecSeam } from "../lib/secrets/store.ts";
 import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
 import { readStdinJson } from "../lib/setup/probes.ts";
@@ -19,7 +19,7 @@ import { readStdinJson } from "../lib/setup/probes.ts";
 export interface LoginsDeps {
   backend: () => LoginsBackend;
   readStdin: () => Promise<unknown>;
-  promptSecret: (message: string) => Promise<string>;
+  promptSecret: (message: string, opts?: PromptSecretOptions) => Promise<string>;
   promptText: (message: string) => Promise<string>;
   openUrl: (url: string) => boolean;
   print: (s: string) => void;
@@ -30,7 +30,7 @@ function realDeps(): LoginsDeps {
   return {
     backend: () => secretsBackend({ ageKeySeam: createRealAgeKeySeam(), execSeam: createRealSecretsExecSeam() }),
     readStdin: () => readStdinJson(),
-    promptSecret: (m) => promptSecret(m),
+    promptSecret: (m, opts) => promptSecret(m, undefined, opts),
     promptText: async (m) => {
       const { textInput } = await import("../lib/rt-render.ts");
       return (await textInput({ message: m, stderr: true })).trim();
@@ -102,7 +102,7 @@ export async function loginsAdd(args: string[], _ctx: CommandContext = {}, over?
       password = body.password;
     } else if (d.isTTY) {
       email = await d.promptText(`Email for ${origin}`);
-      password = await d.promptSecret(`Password for ${origin}`);
+      password = await d.promptSecret(`Password for ${origin}`, { mask: "*" });
     } else {
       throw new UserActionableError("needs-tty", "no terminal to prompt in; pass --json and pipe {email, password} on stdin");
     }

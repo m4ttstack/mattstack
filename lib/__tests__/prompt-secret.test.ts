@@ -51,6 +51,30 @@ describe("promptSecret", () => {
     expect(stdin.rawModeCalls).toEqual([true, false]);
   });
 
+  test("mask echoes one mask character per keystroke, erases it on backspace, and never echoes the value", async () => {
+    const stdin = new FakeStdin();
+    const { io, written } = fakeIO(stdin);
+
+    const pending = promptSecret("Value", io, { mask: "*" });
+    stdin.emit("data", Buffer.from("abc"));
+    stdin.emit("data", Buffer.from(DEL));
+    stdin.emit("data", Buffer.from("d\n"));
+
+    await expect(pending).resolves.toBe("abd");
+    expect(written.join("")).toBe("Value: ***\b \b*\n");
+  });
+
+  test("mask: backspace on an empty value writes nothing", async () => {
+    const stdin = new FakeStdin();
+    const { io, written } = fakeIO(stdin);
+
+    const pending = promptSecret("Value", io, { mask: "*" });
+    stdin.emit("data", Buffer.from(DEL + "\n"));
+
+    await expect(pending).resolves.toBe("");
+    expect(written.join("")).toBe("Value: \n");
+  });
+
   test("carriage return (\\r) also terminates, same as \\n", async () => {
     const stdin = new FakeStdin();
     const { io } = fakeIO(stdin);
