@@ -16,6 +16,8 @@ export interface ExecResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** The signal that ended the child (e.g. "SIGTERM"), when one did. */
+  signal?: string;
 }
 
 export interface Probes {
@@ -120,9 +122,11 @@ export async function execWithTimeout(argv: string[], opts?: { cwd?: string; tim
     const stderrP = opts?.inherit ? Promise.resolve("") : new Response(proc.stderr as ReadableStream).text();
     const collected = Promise.all([stdoutP, stderrP, proc.exited]);
 
+    const withSignal = (r: ExecResult): ExecResult => (proc.signalCode ? { ...r, signal: proc.signalCode } : r);
+
     if (!opts?.timeoutMs) {
       const [stdout, stderr, code] = await collected;
-      return { code, stdout, stderr };
+      return withSignal({ code, stdout, stderr });
     }
 
     // A backgrounded grandchild can hold the stdout/stderr pipe open even
@@ -137,7 +141,7 @@ export async function execWithTimeout(argv: string[], opts?: { cwd?: string; tim
       timedOut.then(() => ({ timedOut: true as const })),
     ]);
 
-    if (!raceResult.timedOut) return { code: raceResult.r[2], stdout: raceResult.r[0], stderr: raceResult.r[1] };
+    if (!raceResult.timedOut) return withSignal({ code: raceResult.r[2], stdout: raceResult.r[0], stderr: raceResult.r[1] });
 
     try {
       proc.kill("SIGTERM");

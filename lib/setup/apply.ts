@@ -24,6 +24,7 @@ import type { SecretPresence } from "./validators/accounts.ts";
 
 export type StepOutcome =
   | { state: "done"; detail?: string }
+  | { state: "partial"; detail: string; remedy?: string }
   | { state: "skipped"; detail: string }
   | { state: "needs-you"; detail: string }
   | { state: "failed"; detail: string; remedy?: string };
@@ -107,7 +108,7 @@ export interface StepDef {
 export { outcomeFromNeed } from "./need.ts";
 
 function stepEventFields(outcome: StepOutcome): { detail?: string; remedy?: string } {
-  if (outcome.state === "failed") return { detail: outcome.detail, ...(outcome.remedy !== undefined ? { remedy: outcome.remedy } : {}) };
+  if (outcome.state === "failed" || outcome.state === "partial") return { detail: outcome.detail, ...(outcome.remedy !== undefined ? { remedy: outcome.remedy } : {}) };
   return outcome.detail !== undefined ? { detail: outcome.detail } : {};
 }
 
@@ -228,9 +229,9 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
         break;
       }
       if (step.reloadsTeam && outcome.state === "done") ctx.reloadTeam?.();
-      // "skipped" is non-fatal by contract (a fresh machine skips
-      // skills.materialize honestly before plugins.install runs it for real)
-      // — only "failed" stops the run.
+      // "skipped" and "partial" are non-fatal by contract (a fresh machine
+      // skips skills.materialize honestly before plugins.install runs it for
+      // real) — only "failed" stops the run.
     }
   } finally {
     // `lastApplyAt` is written on every terminal outcome, success or

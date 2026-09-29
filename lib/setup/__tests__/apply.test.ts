@@ -312,6 +312,23 @@ describe("runApplyWith: needs-you is non-fatal", () => {
   });
 });
 
+describe("runApplyWith: partial is non-fatal and carries its remedy", () => {
+  test("a partial step emits its detail and remedy, and the run goes on to finish ok", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [
+      fakeStep("repos.clone", { state: "partial", detail: "cloned 0, present 1, failed 1 (big)", remedy: "retry it" }),
+      fakeStep("skills.materialize", { state: "done", detail: "materialized 1, failed 0" }),
+    ];
+
+    const result = await runApplyWith(steps, ctx, {});
+
+    expect(result).toEqual({ ok: true });
+    expect(events).toContainEqual({ event: "step", id: "repos.clone", state: "partial", detail: "cloned 0, present 1, failed 1 (big)", remedy: "retry it" });
+    expect(events).toContainEqual({ event: "step", id: "skills.materialize", state: "done", detail: "materialized 1, failed 0" });
+    expect(events.at(-1)).toEqual({ event: "done", ok: true });
+  });
+});
+
 describe("runApplyWith — --from resume", () => {
   test("resumes at the named step; earlier steps get NO step event and never run", async () => {
     const { ctx, events } = testCtx();
