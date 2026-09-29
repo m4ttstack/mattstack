@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import {
   CHECK_ICON,
@@ -214,7 +214,19 @@ function ThemeControl({
   theme: ThemeMode;
   pickTheme: (m: ThemeMode) => void;
 }) {
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  // `right` is the trigger's right edge; `x` becomes right minus the menu's
+  // measured width, so the menu hangs bottom-end under the icon.
+  const [at, setAt] = useState<{ right: number; x: number; y: number } | null>(
+    null
+  );
+  const menuRef = useRef<HTMLDivElement>(null);
+  const alignRight = () => {
+    const width = menuRef.current?.offsetWidth;
+    if (!width) return;
+    setAt(a =>
+      a && a.x !== a.right - width ? { ...a, x: a.right - width } : a
+    );
+  };
   return (
     <>
       <button
@@ -232,17 +244,20 @@ function ThemeControl({
         onClick={e => {
           if (at) return setAt(null);
           const r = e.currentTarget.getBoundingClientRect();
-          setAt({ x: r.right, y: r.bottom + 4 });
+          setAt({ right: r.right, x: r.right, y: r.bottom + 4 });
         }}
       >
         {ICONS[theme]}
       </button>
       {at && (
         <ContextMenu
+          ref={menuRef}
           x={at.x}
           y={at.y}
           ariaLabel="color scheme"
           onClose={() => setAt(null)}
+          onPositioned={alignRight}
+          style={{ transformOrigin: 'top right' }}
         >
           {THEME_OPTIONS.map(o => (
             <ContextMenu.Item
