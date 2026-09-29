@@ -893,11 +893,30 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const p = fakeProbes({
         home,
         env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async () => ({ code: 2, stdout: "", stderr: "not a git remote" }),
+        exec: async () => ({ code: 1, stdout: "", stderr: "merge-manifests: fragment is not valid JSONC: x" }),
       });
       const { ctx, logs } = makeCtx(p);
       expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0, failed 1" });
-      expect(logs.some((l) => l.line.includes("not a git remote"))).toBe(true);
+      expect(logs.some((l) => l.line.includes("not valid JSONC"))).toBe(true);
+    });
+
+    test("a tracked repo the team declares no skills for is nothing to do, never a failure", async () => {
+      const declared = mkdtempSync(join(home, "repo-"));
+      const undeclared = mkdtempSync(join(home, "repo-"));
+      updateRepoIndex(basename(declared), declared);
+      updateRepoIndex(basename(undeclared), undeclared);
+
+      const p = fakeProbes({
+        home,
+        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
+        exec: async (argv) =>
+          argv.includes(undeclared)
+            ? { code: 2, stdout: "", stderr: "merge-manifests: no team declares gitlab.com/acme/tools -- no per-repo manifest" }
+            : ok("materialized"),
+      });
+      const { ctx, logs } = makeCtx(p);
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0, no skills declared 1" });
+      expect(logs.some((l) => l.line.includes("no team declares"))).toBe(true);
     });
 
     test("idempotent re-run: same script, same repo, done again", async () => {

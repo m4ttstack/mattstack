@@ -64,8 +64,13 @@ export interface MaterializeRepoResult {
   name: string;
   path: string;
   ok: boolean;
+  /** The script found nothing to materialize for this repo (no remote, or no team declares it): not a merge error. */
+  noManifest?: true;
   detail: string;
 }
+
+/** merge-manifests.sh's exit code for "no per-repo manifest" (no git remote, or no team declares the repo). */
+const NO_MANIFEST_EXIT = 2;
 
 export type MaterializeSkillsResult =
   | { skipped: true; reason: string; repos: [] }
@@ -115,8 +120,14 @@ export async function materializeSkills(p: Probes, opts: { repo?: string }): Pro
     repos.push(
       res.code === 0
         ? { name: target.name, path: target.path, ok: true, detail: res.stdout.trim() || "materialized" }
-        // A non-git-remote repo (exit 2) or any other script failure is reported per-repo, not fatal to the batch.
-        : { name: target.name, path: target.path, ok: false, detail: res.stderr.trim() || `merge-manifests.sh exited ${res.code}` },
+        // Any script failure is reported per-repo, not fatal to the batch.
+        : {
+            name: target.name,
+            path: target.path,
+            ok: false,
+            ...(res.code === NO_MANIFEST_EXIT ? { noManifest: true as const } : {}),
+            detail: res.stderr.trim() || `merge-manifests.sh exited ${res.code}`,
+          },
     );
   }
 

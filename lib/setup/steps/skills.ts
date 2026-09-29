@@ -30,11 +30,12 @@ async function skillsMaterializeRun(ctx: ApplyContext): Promise<StepOutcome> {
   const result = await materializeSkills(ctx.p, {});
   if (result.skipped) return { state: "skipped", detail: result.reason };
 
-  const failed = result.repos.filter((r) => !r.ok);
-  for (const r of failed) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
+  for (const r of result.repos.filter((r) => !r.ok)) ctx.log("skills.materialize", `${r.name}: ${r.detail}`);
 
-  const ok = result.repos.length - failed.length;
-  return { state: "done", detail: `materialized ${ok}, failed ${failed.length}` };
+  const ok = result.repos.filter((r) => r.ok).length;
+  const undeclared = result.repos.filter((r) => r.noManifest).length;
+  const failed = result.repos.length - ok - undeclared;
+  return { state: "done", detail: `materialized ${ok}, failed ${failed}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}` };
 }
 
 async function skillsMaterializeRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

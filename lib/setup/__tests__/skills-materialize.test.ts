@@ -113,7 +113,7 @@ describe("materializeSkills", () => {
     expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, detail: "merge-manifests.sh exited 124" }] });
   });
 
-  test("exit 2 (no git remote) is reported per-repo, not thrown", async () => {
+  test("exit 2 (no git remote) is reported per-repo, not thrown, and marked as no manifest", async () => {
     seedRepo();
     const p = fakeProbes({
       home: "/fake-home",
@@ -123,7 +123,7 @@ describe("materializeSkills", () => {
 
     const result = await materializeSkills(p, { repo: repoName });
 
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, detail: "no git remote" }] });
+    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, detail: "no git remote" }] });
   });
 
   test("skips honestly (never throws) when the script can't be found — the ordinary fresh-machine case", async () => {
