@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { formatNumber } from '../../../shared/metrics';
 import { mergeDays, type MergeDay } from '../../model/evidence-shapes';
 import { dayLabel } from '../../model/labels';
+import { useGrow } from '../../ui/useGrow';
 import { BandChart } from './BandChart';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
@@ -54,6 +55,7 @@ export function StreakEvidence({ ev, window }: EvidenceProps) {
     () => mergeDays(ev, window.start, window.end),
     [ev, window.start, window.end]
   );
+  const grow = useGrow();
   if (ev.rows.length === 0 || days.length === 0) return <EmptyEvidence />;
   const max = Math.max(1, ...days.map(d => d.count));
   const px = Math.min(PX_PER_MERGE, STRIP_H / max);
@@ -82,13 +84,15 @@ export function StreakEvidence({ ev, window }: EvidenceProps) {
           gap={DAY_GAP}
           renderBand={i => {
             const d = days[i]!;
+            const g = grow('y', i);
             return (
               <div className={panels.day} data-day={dayKey(d.date)}>
                 <span
-                  className={panels.dayBar}
+                  className={`${panels.dayBar} ${g.className}`}
                   data-parity="bar"
                   title={`${dayLabel(d.date)} · ${d.count} merged`}
                   style={{
+                    ...g.style,
                     height:
                       d.count > 0
                         ? Math.max(EMPTY_BAR, Math.round(d.count * px))

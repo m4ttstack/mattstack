@@ -1,4 +1,5 @@
 import classes from './ui.module.css';
+import { useGrow } from './useGrow';
 
 const AXIS = 360;
 const DOT = 10;
@@ -31,11 +32,12 @@ export function TeamStrip({
   maxLabel: string;
   parity?: string;
 }) {
+  const grow = useGrow();
   return (
     <div className={classes.strip} data-parity={parity}>
       <div className={classes.axis}>
         <div className={classes.axisLine} data-parity="Axis Line" />
-        {points.map(p => {
+        {points.map((p, i) => {
           const size = p.you ? YOU_DOT : DOT;
           const { left, top } = dotBox(p.value, max, size);
           const background = p.you
@@ -44,12 +46,20 @@ export function TeamStrip({
               ? 'var(--tk-fill-gold)'
               : 'var(--tk-muted)';
           const initials = p.initials ?? p.username.slice(0, 2).toUpperCase();
+          const g = grow('fade', i);
           return (
             <div
               key={p.username}
-              className={classes.dot}
+              className={`${classes.dot} ${g.className}`}
               data-parity={`Dot ${initials}`}
-              style={{ width: size, height: size, left, top, background }}
+              style={{
+                ...g.style,
+                width: size,
+                height: size,
+                left,
+                top,
+                background,
+              }}
             />
           );
         })}

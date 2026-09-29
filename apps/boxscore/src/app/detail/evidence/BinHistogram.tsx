@@ -1,3 +1,4 @@
+import { useGrow } from '../../ui/useGrow';
 import { BandChart } from './BandChart';
 import classes from './charts.module.css';
 
@@ -27,6 +28,7 @@ export function BinHistogram({
   inset?: number;
 }) {
   const max = Math.max(1, ...bins.map(b => b.count));
+  const grow = useGrow();
   return (
     <div className={classes.binBlock}>
       <BandChart
@@ -36,6 +38,7 @@ export function BinHistogram({
         renderBand={i => {
           const b = bins[i]!;
           const h = Math.max(MIN_BAR, Math.round((b.count / max) * maxBar));
+          const g = grow('y', i);
           return (
             <div
               className={classes.bin}
@@ -49,9 +52,9 @@ export function BinHistogram({
                 {b.count}
               </span>
               <span
-                className={classes.bar}
+                className={`${classes.bar} ${g.className}`}
                 data-parity="bar"
-                style={{ height: h, background: b.bar }}
+                style={{ ...g.style, height: h, background: b.bar }}
               />
               <span
                 className={classes.binLabel}

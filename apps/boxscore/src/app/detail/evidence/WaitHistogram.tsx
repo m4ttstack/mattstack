@@ -1,5 +1,6 @@
 import { BarChart } from '@mattstack/app-kit/charts';
 import type { Bin } from '../../model/evidence-shapes';
+import { useGrow } from '../../ui/useGrow';
 import classes from './charts.module.css';
 
 const CHART_H = 144;
@@ -33,6 +34,7 @@ function barBox({ x, y, width, height }: Box): Box {
 export function WaitHistogram({ bins }: { bins: Bin[] }) {
   const max = Math.max(1, ...bins.map(b => b.count));
   const data = bins.map(b => ({ label: b.label, count: b.count }));
+  const grow = useGrow();
   return (
     <div className={classes.histogram}>
       <div className={classes.bleed}>
@@ -94,14 +96,17 @@ export function WaitHistogram({ bins }: { bins: Bin[] }) {
             barCategoryGap: BAND_INSET,
           }}
           barProps={{
+            isAnimationActive: false,
             shape: (props: Box & { index: number }) => {
               const b = barBox(props);
+              const g = grow('y', props.index);
               return (
                 <foreignObject {...b} className={classes.fo}>
                   <div
-                    className={classes.bar}
+                    className={`${classes.bar} ${g.className}`}
                     data-parity="bar"
                     style={{
+                      ...g.style,
                       background: bins[props.index]?.highlight
                         ? 'var(--tk-fill-accent)'
                         : 'var(--tk-muted)',

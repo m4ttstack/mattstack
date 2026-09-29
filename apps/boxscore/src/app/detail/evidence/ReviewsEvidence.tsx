@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { formatNumber } from '../../../shared/metrics';
 import type { EvidenceRow } from '../../../shared/types';
 import { reviewsByAuthor } from '../../model/evidence-shapes';
+import { useGrow } from '../../ui/useGrow';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';
@@ -62,6 +63,7 @@ function ReviewRow({ row }: { row: EvidenceRow }) {
 export function ReviewsEvidence({ ev }: EvidenceProps) {
   const [all, setAll] = useState(false);
   const authors = useMemo(() => reviewsByAuthor(ev), [ev]);
+  const grow = useGrow();
   if (ev.rows.length === 0) return <EmptyEvidence />;
   const total = ev.rows.length;
   const shown = all ? ev.rows : ev.rows.slice(0, FIRST_ROWS);
@@ -69,11 +71,12 @@ export function ReviewsEvidence({ ev }: EvidenceProps) {
     <>
       <EvHead title="By author" right="whose MRs you reviewed" />
       <div className={panels.authors}>
-        {authors.map(a => {
+        {authors.map((a, i) => {
           const named = a.count / total >= NAMED_SHARE;
           const label = named
             ? `@${a.author} · ${formatNumber(a.count)}`
             : formatNumber(a.count);
+          const bar = grow('x', i);
           return (
             <div
               key={a.author}
@@ -82,7 +85,11 @@ export function ReviewsEvidence({ ev }: EvidenceProps) {
               style={{ flexGrow: a.count }}
               title={`@${a.author} · ${formatNumber(a.count)}`}
             >
-              <span className={panels.authorBar} data-parity="bar" />
+              <span
+                className={`${panels.authorBar} ${bar.className}`}
+                style={bar.style}
+                data-parity="bar"
+              />
               <span
                 className={`${classes.t} ${panels.authorLabel}`}
                 data-parity="l"

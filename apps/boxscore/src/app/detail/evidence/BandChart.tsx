@@ -48,6 +48,7 @@ export function BandChart({
           barCategoryGap: gap / 2,
         }}
         barProps={{
+          isAnimationActive: false,
           shape: ({ x, y, width, height: h, index }: Box) => (
             <foreignObject
               x={x}

@@ -4,6 +4,7 @@ import { Progress } from '@mattstack/app-kit/core';
 import { formatNumber } from '../../../shared/metrics';
 import { pipelinesByDay, type DayStatus } from '../../model/evidence-shapes';
 import { dayLabel } from '../../model/labels';
+import { useGrow, type Grow } from '../../ui/useGrow';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';
@@ -30,7 +31,15 @@ const segWidth = (fraction: number, segments: number): string =>
 const totalOf = (d: DayStatus): number =>
   d.success + d.failed + d.canceled + d.running;
 
-function DayRow({ day, max }: { day: DayStatus; max: number }) {
+function DayRow({
+  day,
+  max,
+  grow,
+}: {
+  day: DayStatus;
+  max: number;
+  grow: Grow;
+}) {
   const segs = STATUSES.filter(s => day[s.key] > 0);
   const total = totalOf(day);
   const label = dayLabel(day.date);
@@ -45,7 +54,7 @@ function DayRow({ day, max }: { day: DayStatus; max: number }) {
       >
         {label}
       </span>
-      <div className={panels.mini}>
+      <div className={`${panels.mini} ${grow.className}`} style={grow.style}>
         {segs.map(s => (
           <span
             key={s.key}
@@ -75,6 +84,7 @@ function DayRow({ day, max }: { day: DayStatus; max: number }) {
 
 export function PipelinesEvidence({ ev }: EvidenceProps) {
   const days = useMemo(() => pipelinesByDay(ev, DAYS), [ev]);
+  const grow = useGrow();
   if (ev.rows.length === 0) return <EmptyEvidence />;
   const counts = Object.fromEntries(
     STATUSES.map(s => [s.key, ev.facts?.[s.key] ?? 0])
@@ -82,6 +92,7 @@ export function PipelinesEvidence({ ev }: EvidenceProps) {
   const total = STATUSES.reduce((sum, s) => sum + counts[s.key], 0);
   const segs = STATUSES.filter(s => counts[s.key] > 0);
   const max = Math.max(1, ...days.map(totalOf));
+  const outcomes = grow('x');
   return (
     <>
       <EvHead
@@ -89,7 +100,12 @@ export function PipelinesEvidence({ ev }: EvidenceProps) {
         right={`${share(counts.success, total)}% succeeded`}
       />
       <div className={`${classes.block} ${panels.status}`}>
-        <Progress.Root size={12} radius={3} className={panels.stacked}>
+        <Progress.Root
+          size={12}
+          radius={3}
+          className={`${panels.stacked} ${outcomes.className}`}
+          style={outcomes.style}
+        >
           {segs.map(s => (
             <Progress.Section
               key={s.key}
@@ -134,8 +150,8 @@ export function PipelinesEvidence({ ev }: EvidenceProps) {
         </div>
       </div>
       <EvHead title="By day" right={`last ${DAYS} days with pipelines`} />
-      {days.map(d => (
-        <DayRow key={d.date} day={d} max={max} />
+      {days.map((d, i) => (
+        <DayRow key={d.date} day={d} max={max} grow={grow('x', i + 1)} />
       ))}
     </>
   );

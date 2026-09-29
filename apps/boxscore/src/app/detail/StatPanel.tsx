@@ -164,6 +164,7 @@ export function StatPanel({
               Where the team sits
             </span>
             <TeamStrip
+              key={`${person.username}/${stat}`}
               points={points}
               max={max}
               maxLabel={scaleLabel(stat, max)}

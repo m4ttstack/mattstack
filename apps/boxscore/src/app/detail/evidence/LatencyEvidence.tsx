@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { formatNumber } from '../../../shared/metrics';
 import type { EvidenceRow } from '../../../shared/types';
 import { waitBins } from '../../model/evidence-shapes';
+import { useGrow, type Grow } from '../../ui/useGrow';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';
@@ -20,7 +21,15 @@ const hoursOf = (row: EvidenceRow): number =>
 const logWidth = (h: number, max: number): number =>
   max > 0 ? (TRACK_W * Math.log10(h + 1)) / Math.log10(max + 1) : 0;
 
-function WaitRow({ row, max }: { row: EvidenceRow; max: number }) {
+function WaitRow({
+  row,
+  max,
+  grow,
+}: {
+  row: EvidenceRow;
+  max: number;
+  grow: Grow;
+}) {
   const [id, title, value] = row.cells;
   const h = hoursOf(row);
   const slow = h > SLOW_HOURS;
@@ -52,9 +61,10 @@ function WaitRow({ row, max }: { row: EvidenceRow; max: number }) {
       </span>
       <span className={panels.waitTrack} data-parity="Track">
         <span
-          className={panels.waitBar}
+          className={`${panels.waitBar} ${grow.className}`}
           data-parity="Bar"
           style={{
+            ...grow.style,
             width: logWidth(h, max),
             background: slow ? 'var(--tk-dot-warn)' : 'var(--tk-muted)',
           }}
@@ -75,6 +85,7 @@ export function LatencyEvidence({ ev, statKey }: EvidenceProps) {
   const [all, setAll] = useState(false);
   const response = statKey === 'responseLatencyHours';
   const bins = useMemo(() => waitBins(ev), [ev]);
+  const grow = useGrow();
   const slowest = useMemo(
     () => [...ev.rows].sort((a, b) => hoursOf(b) - hoursOf(a)),
     [ev.rows]
@@ -103,8 +114,8 @@ export function LatencyEvidence({ ev, statKey }: EvidenceProps) {
             : 'sorted by wait, longest first'
         }
       />
-      {shown.map(row => (
-        <WaitRow key={row.cells[0]} row={row} max={max} />
+      {shown.map((row, i) => (
+        <WaitRow key={row.cells[0]} row={row} max={max} grow={grow('x', i)} />
       ))}
       <EvFooter
         count={`Showing ${shown.length} of ${total} · bars on a log scale`}
