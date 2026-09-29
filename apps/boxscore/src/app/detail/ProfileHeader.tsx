@@ -1,4 +1,4 @@
-import { Menu } from '@mattstack/app-kit/core';
+import { ActionIcon, Avatar, Menu } from '@mattstack/app-kit/core';
 import { Link } from '@mattstack/app-kit/router';
 import type { MetricKey, UserRow } from '../../shared/types';
 import { statHref } from '../leaderboard/StandingsTable';
@@ -23,35 +23,32 @@ function Step({
 }) {
   const parity = `Step ${glyphParity}`;
   const glyph = (
-    <Glyph
-      name={icon}
-      size={15}
-      color="var(--tk-text-2)"
-      parity={glyphParity}
-    />
+    <Glyph name={icon} size={15} color="currentColor" parity={glyphParity} />
   );
   if (!to) {
     return (
-      <button
-        type="button"
-        className={classes.step}
+      <ActionIcon
+        variant="default"
+        size={32}
         data-parity={parity}
         aria-label={label}
         disabled
       >
         {glyph}
-      </button>
+      </ActionIcon>
     );
   }
   return (
-    <Link
+    <ActionIcon
+      component={Link}
       href={statHref(to.username, stat)}
-      className={classes.step}
+      variant="default"
+      size={32}
       data-parity={parity}
       aria-label={label}
     >
       {glyph}
-    </Link>
+    </ActionIcon>
   );
 }
 
@@ -87,23 +84,14 @@ export function ProfileHeader({
       </Link>
       <div className={classes.profileHeader} data-parity="Profile Header">
         <div className={classes.profile}>
-          <span
-            className={classes.avatar}
+          <Avatar
+            size={56}
+            color={you ? 'accent' : undefined}
+            variant={you ? 'filled' : 'default'}
             data-parity="Avatar"
-            style={{
-              background: you ? 'var(--tk-fill-accent)' : 'var(--tk-raised)',
-            }}
           >
-            <span
-              className={`${classes.t} ${classes.initials}`}
-              data-parity="Initials"
-              style={{
-                color: you ? 'var(--tk-on-fill-accent)' : 'var(--tk-text-2)',
-              }}
-            >
-              {initials(name)}
-            </span>
-          </span>
+            <span data-parity="Initials">{initials(name)}</span>
+          </Avatar>
           <div className={classes.profileText}>
             <div className={classes.nameLine}>
               <h1 className={`${classes.t} ${classes.name}`} data-parity="Name">
