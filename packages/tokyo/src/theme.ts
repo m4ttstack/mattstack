@@ -39,6 +39,8 @@ export const tokyoTheme = /* @__PURE__ */ createTheme({
     purpleNight: ramp('purpleNight'),
     cyanDay: ramp('cyanDay'),
     cyanNight: ramp('cyanNight'),
+    goldDay: ramp('goldDay'),
+    goldNight: ramp('goldNight'),
 
     accent: virtual('accent', 'accent'),
     ok: virtual('ok', 'ok'),
@@ -46,6 +48,7 @@ export const tokyoTheme = /* @__PURE__ */ createTheme({
     bad: virtual('bad', 'bad'),
     purple: virtual('purple', 'purple'),
     cyan: virtual('cyan', 'cyan'),
+    gold: virtual('gold', 'gold'),
     // Mantine reads `gray` only in light and `dark` only in dark, so neither
     // needs a virtual pair.
     gray: ramp('grayDay'),
