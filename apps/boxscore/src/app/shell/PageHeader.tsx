@@ -1,8 +1,17 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 
-import { Button, Group, Popover, TextInput } from '@mattstack/app-kit/core';
-import type { IconName } from '@mattstack/app-kit/icons';
-import { Glyph } from '../ui/Glyph';
+import {
+  Button,
+  Center,
+  DatePicker,
+  Group,
+  Popover,
+  SegmentedControl,
+  Stack,
+  VisuallyHidden,
+  type DatesRangeValue,
+} from '@mattstack/app-kit/core';
+import { Icon, type IconName } from '@mattstack/app-kit/icons';
 import classes from './shell.module.css';
 
 export type ViewMode = 'table' | 'cards';
@@ -13,63 +22,16 @@ export interface RangeState {
   end?: string;
 }
 
-interface Option<T extends string> {
-  value: T;
-  label?: string;
-  icon?: IconName;
-  /** Accessible name when the option shows only an icon. */
-  aria?: string;
-  /** Keeps the card fill while inactive, without the active shadow. */
-  raised?: boolean;
-}
+const PRESETS = ['7d', '30d', '90d'];
 
-function Segmented<T extends string>({
-  name,
-  value,
-  options,
-  onChange,
-  render,
-}: {
-  name: string;
-  value: T;
-  options: Option<T>[];
-  onChange: (v: T) => void;
-  render?: (o: Option<T>, button: ReactNode) => ReactNode;
-}) {
-  return (
-    <div className={classes.segmented} data-parity={name} role="group">
-      {options.map(o => {
-        const active = o.value === value;
-        const layer = o.label ?? `icon:${iconLayer(o.icon!)}`;
-        const colour = active ? 'var(--tk-text-1)' : 'var(--tk-text-3)';
-        const button = (
-          <button
-            key={o.value}
-            type="button"
-            aria-pressed={active}
-            aria-label={o.aria}
-            className={`${classes.segment} ${active ? classes.segmentActive : o.raised ? classes.segmentRaised : ''}`}
-            data-parity={active || o.raised ? layer : undefined}
-            onClick={() => onChange(o.value)}
-          >
-            {o.label !== undefined ? (
-              <span
-                className={classes.segmentLabel}
-                data-parity={layer}
-                style={{ color: colour }}
-              >
-                {o.label}
-              </span>
-            ) : (
-              <Glyph name={o.icon!} size={15} color={colour} parity={layer} />
-            )}
-          </button>
-        );
-        return render ? render(o, button) : button;
-      })}
-    </div>
-  );
-}
+const SEGMENTED = {
+  size: 'sm',
+  withItemsBorders: false,
+  classNames: {
+    root: classes.segmentedTrack,
+    indicator: classes.segmentedIndicator,
+  },
+} as const;
 
 const ICON_LAYERS: Partial<Record<IconName, string>> = {
   table2: 'table-2',
@@ -80,69 +42,113 @@ function iconLayer(icon: IconName): string {
   return ICON_LAYERS[icon] ?? icon;
 }
 
-const toDateInput = (iso: string | undefined): string =>
-  iso ? iso.slice(0, 10) : '';
+function textLabel(text: string, parity = text) {
+  return <span data-parity={parity}>{text}</span>;
+}
 
-function CustomRange({
+function iconLabel(icon: IconName, name: string) {
+  return (
+    <Center h="1lh" data-parity={`icon:${iconLayer(icon)}`}>
+      <Icon name={icon} size={16} strokeWidth={1.75} />
+      <VisuallyHidden>{name}</VisuallyHidden>
+    </Center>
+  );
+}
+
+const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+export function customRangeLabel(range: RangeState): string {
+  if (range.range !== 'custom' || !range.start || !range.end) return 'Custom';
+  const from = DAY_FORMAT.format(new Date(range.start));
+  const to = DAY_FORMAT.format(new Date(range.end));
+  return `${from} \u2013 ${to}`;
+}
+
+const toDay = (iso: string | undefined): string | null =>
+  iso ? iso.slice(0, 10) : null;
+
+function RangeControl({
   range,
   onRange,
-  button,
 }: {
   range: RangeState;
   onRange: (range: string, start?: string, end?: string) => void;
-  button: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [start, setStart] = useState(() => toDateInput(range.start));
-  const [end, setEnd] = useState(() => toDateInput(range.end));
+  const [draft, setDraft] = useState<DatesRangeValue<string>>([null, null]);
+  const openCustom = () => {
+    setDraft([toDay(range.start), toDay(range.end)]);
+    setOpen(true);
+  };
+  const [from, to] = draft;
   return (
     <Popover
       opened={open}
       onChange={setOpen}
       position="bottom-end"
-      withArrow
       shadow="md"
       trapFocus
     >
       <Popover.Target>
-        <span
-          className={classes.popoverTarget}
-          onClick={() => setOpen(o => !o)}
-        >
-          {button}
-        </span>
+        <SegmentedControl
+          {...SEGMENTED}
+          aria-label="Range"
+          data-parity="Range"
+          value={open ? 'custom' : range.range}
+          onChange={v => {
+            if (v === 'custom') openCustom();
+            else onRange(v);
+          }}
+          data={[
+            ...PRESETS.map(p => ({ value: p, label: textLabel(p) })),
+            {
+              value: 'custom',
+              label: (
+                <span
+                  onClick={() => {
+                    if (range.range === 'custom' && !open) openCustom();
+                  }}
+                >
+                  {textLabel(customRangeLabel(range), 'Custom')}
+                </span>
+              ),
+            },
+          ]}
+        />
       </Popover.Target>
       <Popover.Dropdown>
-        <Group gap="sm" align="flex-end" wrap="nowrap">
-          <TextInput
-            label="Start"
-            type="date"
-            size="xs"
-            value={start}
-            onTextChange={setStart}
+        <Stack gap="sm">
+          <DatePicker
+            type="range"
+            value={draft}
+            onChange={setDraft}
+            defaultDate={from ?? undefined}
+            maxDate={new Date()}
           />
-          <TextInput
-            label="End"
-            type="date"
-            size="xs"
-            value={end}
-            onTextChange={setEnd}
-          />
-          <Button
-            size="xs"
-            disabled={!start || !end}
-            onClick={() => {
-              onRange(
-                'custom',
-                new Date(start).toISOString(),
-                new Date(end).toISOString()
-              );
-              setOpen(false);
-            }}
-          >
-            Apply
-          </Button>
-        </Group>
+          <Group gap="xs" justify="flex-end">
+            <Button size="xs" variant="default" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="xs"
+              disabled={!from || !to}
+              onClick={() => {
+                onRange(
+                  'custom',
+                  new Date(from!).toISOString(),
+                  new Date(to!).toISOString()
+                );
+                setOpen(false);
+              }}
+            >
+              Apply
+            </Button>
+          </Group>
+        </Stack>
       </Popover.Dropdown>
     </Popover>
   );
@@ -180,54 +186,29 @@ export function PageHeader({
         )}
       </div>
       <div className={classes.controls}>
-        <Segmented
-          name="Range"
-          value={range.range}
-          options={[
-            { value: '7d', label: '7d' },
-            { value: '30d', label: '30d' },
-            { value: '90d', label: '90d' },
-            { value: 'custom', label: 'Custom' },
-          ]}
-          onChange={v => {
-            if (v !== 'custom') onRange(v);
-          }}
-          render={(o, button) =>
-            o.value === 'custom' ? (
-              <CustomRange
-                key="custom"
-                range={range}
-                onRange={onRange}
-                button={button}
-              />
-            ) : (
-              button
-            )
-          }
-        />
-        <Segmented
-          name="Mode"
+        <RangeControl range={range} onRange={onRange} />
+        <SegmentedControl
+          {...SEGMENTED}
+          aria-label="Mode"
+          data-parity="Mode"
           value={trend ? 'trend' : 'values'}
-          options={[
-            { value: 'values', label: 'Values', raised: true },
-            { value: 'trend', label: 'Trend' },
-          ]}
           onChange={v => onTrend(v === 'trend')}
+          data={[
+            { value: 'values', label: textLabel('Values') },
+            { value: 'trend', label: textLabel('Trend') },
+          ]}
         />
         {view !== undefined && onView !== undefined && (
-          <Segmented
-            name="View"
+          <SegmentedControl
+            {...SEGMENTED}
+            aria-label="View"
+            data-parity="View"
             value={view}
-            options={[
-              {
-                value: 'table',
-                icon: 'table2',
-                aria: 'Table view',
-                raised: true,
-              },
-              { value: 'cards', icon: 'layoutGrid', aria: 'Cards view' },
+            onChange={v => onView(v as ViewMode)}
+            data={[
+              { value: 'table', label: iconLabel('table2', 'Table view') },
+              { value: 'cards', label: iconLabel('layoutGrid', 'Cards view') },
             ]}
-            onChange={onView}
           />
         )}
       </div>

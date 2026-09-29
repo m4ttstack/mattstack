@@ -1,7 +1,13 @@
-import { useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 
-import { HybridMenu } from '@mattstack/app-kit/core';
+import {
+  ActionIcon,
+  Group,
+  HybridMenu,
+  Stack,
+  Text,
+  Tooltip,
+} from '@mattstack/app-kit/core';
 import { useColorScheme } from '@mattstack/app-kit/hooks';
 import { Link } from '@mattstack/app-kit/router';
 import { Glyph } from '../ui/Glyph';
@@ -14,20 +20,16 @@ const SCHEME_OPTIONS = [
   { label: 'Dark', value: 'dark' },
 ];
 
+const NAV_SIZE = 40;
+const NAV_RADIUS = 10;
+
 export function Rail({ active }: { active: 'leaderboard' | null }) {
   const { console: consoleUrl } = useLinks();
-  const { colorScheme, computedColorScheme, setColorScheme } =
-    useColorScheme();
+  const { colorScheme, computedColorScheme, setColorScheme } = useColorScheme();
   const navRef = useRef<HTMLElement>(null);
-  const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
-  const tipOpen = tip !== null;
-  const openTip = (el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    setTip({ top: r.top + 2, left: r.left + 52 });
-  };
-  const closeTip = () => setTip(null);
-  // The tooltip floats over the page, so it mounts beside the rail, not inside its painted box.
-  const tipHost = navRef.current?.parentElement ?? null;
+  const [hovered, setHovered] = useState(false);
+  const [frame, setFrame] = useState<HTMLElement | null>(null);
+  useEffect(() => setFrame(navRef.current?.parentElement ?? null), []);
   const isLeaderboard = active === 'leaderboard';
 
   return (
@@ -41,17 +43,16 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
         <img src="/favicon.svg" alt="" width={32} height={32} />
       </span>
       <span className={classes.railGap} />
-      <Link
+      <ActionIcon
+        component={Link}
         href="/"
+        size={NAV_SIZE}
+        radius={NAV_RADIUS}
+        variant={isLeaderboard ? 'light' : 'subtle'}
+        color={isLeaderboard ? 'accent' : 'gray'}
         aria-label="Leaderboard"
         aria-current={isLeaderboard ? 'page' : undefined}
-        className={classes.navItem}
         data-parity={isLeaderboard ? 'Nav Leaderboard' : undefined}
-        style={
-          isLeaderboard
-            ? { background: 'var(--mantine-color-accent-light)' }
-            : undefined
-        }
       >
         <Glyph
           name="trophy"
@@ -59,20 +60,47 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
           color={isLeaderboard ? 'var(--tk-text-accent)' : 'var(--tk-text-3)'}
           parity="Nav Leaderboard Icon"
         />
-      </Link>
+      </ActionIcon>
       <span className={classes.railSpacer} />
-      <span className={classes.navAnchor}>
-        <a
+      {/* Portalled into the page frame rather than body so it sits inside the parity root. */}
+      <Tooltip
+        position="right"
+        offset={16}
+        transitionProps={{ transition: 'fade', duration: 200 }}
+        portalProps={{ target: frame ?? undefined }}
+        data-parity="Settings Tooltip"
+        label={
+          <Stack gap={2}>
+            <Group gap={6}>
+              <Text size="sm" fw={500} data-parity="Tip Label">
+                Settings
+              </Text>
+              <Glyph
+                name="arrowUpRight"
+                size={13}
+                color="currentColor"
+                parity="External"
+              />
+            </Group>
+            <Text size="xs" opacity={0.75} data-parity="Tip Sub">
+              Opens console › boxscore
+            </Text>
+          </Stack>
+        }
+      >
+        <ActionIcon
+          component="a"
           href={`${consoleUrl}/settings#boxscore`}
           target="_blank"
           rel="noreferrer"
+          size={NAV_SIZE}
+          radius={NAV_RADIUS}
+          variant="subtle"
+          color="gray"
           aria-label="Settings (opens console)"
-          className={classes.navItem}
-          data-parity={tipOpen ? 'Nav Settings (console)' : undefined}
-          onMouseEnter={e => openTip(e.currentTarget)}
-          onMouseLeave={closeTip}
-          onFocus={e => openTip(e.currentTarget)}
-          onBlur={closeTip}
+          data-parity={hovered ? 'Nav Settings (console)' : undefined}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
         >
           <Glyph
             name="settings"
@@ -80,42 +108,18 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
             color="var(--tk-text-3)"
             parity="Nav Settings (console) Icon"
           />
-        </a>
-        {tip &&
-          tipHost &&
-          createPortal(
-            <span
-              className={classes.tooltip}
-              style={{ top: tip.top, left: tip.left }}
-              data-parity="Settings Tooltip"
-              role="tooltip"
-            >
-              <span className={classes.tipTitle}>
-                <span className={classes.tipLabel} data-parity="Tip Label">
-                  Settings
-                </span>
-                <Glyph
-                  name="arrowUpRight"
-                  size={13}
-                  color="var(--tk-text-2)"
-                  parity="External"
-                />
-              </span>
-              <span className={classes.tipSub} data-parity="Tip Sub">
-                Opens console › boxscore
-              </span>
-            </span>,
-            tipHost
-          )}
-      </span>
+        </ActionIcon>
+      </Tooltip>
       <HybridMenu
         options={SCHEME_OPTIONS}
         value={colorScheme}
         onChange={value => setColorScheme(value as typeof colorScheme)}
         target={
-          <button
-            type="button"
-            className={classes.navItem}
+          <ActionIcon
+            size={NAV_SIZE}
+            radius={NAV_RADIUS}
+            variant="subtle"
+            color="gray"
             aria-label="Color scheme"
           >
             <Glyph
@@ -124,7 +128,7 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
               color="var(--tk-text-3)"
               parity="Nav Scheme Icon"
             />
-          </button>
+          </ActionIcon>
         }
       />
     </nav>

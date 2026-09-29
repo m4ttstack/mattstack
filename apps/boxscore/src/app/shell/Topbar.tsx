@@ -1,5 +1,6 @@
 import { Fragment } from 'react';
 
+import { Badge, Button } from '@mattstack/app-kit/core';
 import { Glyph } from '../ui/Glyph';
 import classes from './shell.module.css';
 
@@ -67,17 +68,25 @@ export function Topbar({
       </div>
       <div className={classes.topRight}>
         {scope !== null && (
-          <span className={classes.scopeChip} data-parity="Scope Chip">
-            <Glyph
-              name="gitBranch"
-              size={13}
-              color="var(--tk-text-3)"
-              parity="Repo Icon"
-            />
+          <Badge
+            variant="default"
+            size="lg"
+            radius="sm"
+            tt="none"
+            data-parity="Scope Chip"
+            leftSection={
+              <Glyph
+                name="gitBranch"
+                size={13}
+                color="var(--tk-text-3)"
+                parity="Repo Icon"
+              />
+            }
+          >
             <span className={classes.scope} data-parity="Scope">
               {scope}
             </span>
-          </span>
+          </Badge>
         )}
         {freshness !== null && (
           <span className={classes.freshness}>
@@ -95,22 +104,24 @@ export function Topbar({
             </span>
           </span>
         )}
-        <button
-          type="button"
-          className={classes.refreshButton}
+        <Button
+          variant="default"
+          size="xs"
           data-parity="Refresh Button"
           onClick={onAction}
+          leftSection={
+            <Glyph
+              name={action === 'refresh' ? 'refresh' : 'close'}
+              size={14}
+              color="currentColor"
+              parity="Refresh Icon"
+            />
+          }
         >
-          <Glyph
-            name={action === 'refresh' ? 'refresh' : 'close'}
-            size={14}
-            color="var(--tk-text-2)"
-            parity="Refresh Icon"
-          />
-          <span className={classes.refreshLabel} data-parity="Refresh Label">
+          <span data-parity="Refresh Label">
             {action === 'refresh' ? 'Refresh' : 'Cancel'}
           </span>
-        </button>
+        </Button>
       </div>
     </header>
   );

@@ -2,7 +2,6 @@
 // eslint-disable-next-line no-restricted-imports
 import {
   ArrowUpRight,
-  ChartNoAxesColumn,
   CircleCheck,
   GitBranch,
   Hourglass,
@@ -17,7 +16,6 @@ import { lucideWrapperFn, registerIcons } from '@mattstack/app-kit/icons';
 
 registerIcons({
   arrowUpRight: lucideWrapperFn(ArrowUpRight),
-  chartNoAxesColumn: lucideWrapperFn(ChartNoAxesColumn),
   circleCheck: lucideWrapperFn(CircleCheck),
   gitBranch: lucideWrapperFn(GitBranch),
   hourglass: lucideWrapperFn(Hourglass),

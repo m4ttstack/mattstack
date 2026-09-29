@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, screen } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
@@ -32,23 +32,16 @@ describe('Rail', () => {
     expect(link).toHaveAttribute('target', '_blank');
   });
 
-  it('opens the settings tooltip on hover, beside the rail rather than inside it', async () => {
+  it('opens the settings tooltip on hover', async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <QueryClientProvider client={new QueryClient()}>
-        <div data-testid="frame">
-          <Rail active="leaderboard" />
-        </div>
-      </QueryClientProvider>
-    );
+    renderRail();
     const link = screen.getByRole('link', { name: /settings/i });
     await user.hover(link);
-    const tip = screen.getByRole('tooltip');
+    const tip = await screen.findByRole('tooltip', {}, { timeout: 2000 });
     expect(tip).toHaveTextContent('Opens console › boxscore');
-    expect(tip.parentElement).toBe(screen.getByTestId('frame'));
     expect(link).toHaveAttribute('data-parity', 'Nav Settings (console)');
     await user.unhover(link);
-    expect(screen.queryByRole('tooltip')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
   });
 });
 

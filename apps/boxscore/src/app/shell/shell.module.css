@@ -41,11 +41,7 @@
 .crumb,
 .scope,
 .freshLabel,
-.refreshLabel,
-.subtitle,
-.segmentLabel,
-.tipLabel,
-.tipSub {
+.subtitle {
   line-height: normal;
   white-space: nowrap;
 }
@@ -88,63 +84,6 @@
 .railSpacer {
   flex: 1 1 0;
   width: 1px;
-}
-
-.navItem {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.navItem:hover,
-.navItem:focus-visible {
-  background: var(--tk-raised);
-}
-
-.navAnchor {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
-}
-
-.tooltip {
-  position: fixed;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  outline: 1px solid var(--tk-border);
-  outline-offset: -0.5px;
-  background: var(--tk-raised);
-  box-shadow: var(--mantine-shadow-md);
-  pointer-events: none;
-}
-
-.tipTitle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.tipLabel {
-  color: var(--tk-text-1);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.tipSub {
-  color: var(--tk-text-3);
-  font-size: 12px;
 }
 
 /* Topbar */
@@ -197,19 +136,7 @@
   font-size: 13px;
 }
 
-.scopeChip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  outline: 1px solid var(--tk-border-soft);
-  outline-offset: -0.5px;
-  background: var(--tk-inset);
-}
-
 .scope {
-  color: var(--tk-text-2);
   font-family: var(--mantine-font-family-monospace);
   font-size: 12px;
 }
@@ -223,30 +150,6 @@
 
 .freshLabel {
   font-size: 12px;
-}
-
-.refreshButton {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 6px;
-  outline: 1px solid var(--tk-border);
-  outline-offset: -0.5px;
-  background: transparent;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.refreshButton:hover {
-  background: var(--tk-raised);
-}
-
-.refreshLabel {
-  color: var(--tk-text-1);
-  font-size: 12px;
-  font-weight: 500;
 }
 
 /* Page header */
@@ -288,42 +191,14 @@
   gap: 10px;
 }
 
-.segmented {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 8px;
+/* Mantine's stock track and indicator read the gray and dark tuples, which do not track the Tokyo surfaces; the track takes the card step off the page and the indicator the level-4 active step. */
+.segmentedTrack {
   outline: 1px solid var(--tk-border-soft);
   outline-offset: -0.5px;
-  background: var(--tk-inset);
-}
-
-.popoverTarget {
-  display: flex;
-}
-
-.segment {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.segmentRaised {
   background: var(--tk-card);
 }
 
-.segmentActive {
-  background: var(--tk-card);
+.segmentedIndicator {
+  background: var(--tk-raised);
   box-shadow: var(--mantine-shadow-xs);
-}
-
-.segmentLabel {
-  font-size: 12px;
-  font-weight: 500;
 }
