@@ -156,7 +156,10 @@ public enum DevBuild {
                 "fi",
             ]
         }
-        lines.append("\(shellQuote(openPath)) \(app)")
+        // open hands its own environment to the app it launches, so without
+        // env -i a tray opened from a shell passes that shell's vars on to
+        // every build it restarts into.
+        lines.append("/usr/bin/env -i \(shellQuote(openPath)) \(app)")
         if let deckLabel {
             let deck = shellQuote(deckCLIPath ?? appPath + "/Contents/Helpers/deck")
             lines += [
@@ -280,6 +283,23 @@ public enum DevBuild {
                 + "case $t in ''|*[!0-9]*) t=0 ;; esac; echo \"$t $d\"; done | sort -rn | tail -n +\(cacheKeep + 1) | "
                 + "while read -r t d; do case \"$d\" in \(inside)) rm -rf \"$d\"; echo \"evicted $d\" ;; esac; done")
         return lines
+    }
+
+    /// The tray's own environment is whatever launched it, and a tray opened
+    /// from a shell carries that shell's NODE and npm_* vars: bun then skips
+    /// its node fallback and node-pty's install script dies with exit 127.
+    /// So the rebuild passes only these keys, and puts the bundle's own node
+    /// first on PATH.
+    public static func rebuildEnvironment(inherited: [String: String], home: String, appPath: String,
+                                          isExecutable: (String) -> Bool) -> [String: String] {
+        let passed: Set<String> = ["USER", "LOGNAME", "TMPDIR", "LANG", "SHELL"]
+        var env = inherited.filter { passed.contains($0.key) || $0.key.hasPrefix("LC_") }
+        env["HOME"] = home
+        let nodeBin = "\(appPath)/Contents/Helpers/node/bin"
+        var path = ["\(home)/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        if isExecutable("\(nodeBin)/node") { path.insert(nodeBin, at: 0) }
+        env["PATH"] = path.joined(separator: ":")
+        return env
     }
 
     static func shellQuote(_ s: String) -> String {

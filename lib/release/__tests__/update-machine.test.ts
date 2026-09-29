@@ -13,6 +13,9 @@ const TAG = "v2.11.0";
 const START = new Date("2026-09-18T12:00:00.000Z");
 const DEV_DECK = "/Applications/mattstack-dev.app/Contents/Helpers/deck";
 const PROD_DECK = "/Applications/mattstack.app/Contents/Helpers/deck";
+// open hands its own environment to the app, so the relaunch clears it first.
+const OPEN_DEV_APP = "/usr/bin/env -i /usr/bin/open /Applications/mattstack-dev.app";
+const isOpen = (c: string) => c.startsWith("open") || c.startsWith("/usr/bin/env -i /usr/bin/open");
 
 /** deck's own row format (apps/deck/src/cli/commands.ts): name, port, health, owner. */
 function deckListTable(rtApps: string[]): string {
@@ -182,7 +185,7 @@ function fakeSeams(opts: Options = {}): { seams: UpdateMachineSeams & { calls: s
         devPids = devPids.filter((p) => p !== pid);
         return ok("");
       }
-      if (cmd.startsWith("open")) {
+      if (isOpen(cmd)) {
         if (opts.openExit) return fail("open failed", opts.openExit);
         devPids = devPidsAfter;
         return ok("");
@@ -285,6 +288,7 @@ describe("rt release update-machine", () => {
     for (const prefix of ["ditto", "download", "git clone", "kill", "open", "mv", "hdiutil"]) {
       expect(calls.some((c) => c.startsWith(prefix))).toBe(false);
     }
+    expect(calls.some(isOpen)).toBe(false);
     expect(calls.some((c) => c === "rt daemon restart")).toBe(false);
     expect(calls.some((c) => c === `${DEV_DECK} restart --managed`)).toBe(false);
   });
@@ -475,7 +479,7 @@ describe("rt release update-machine", () => {
       expect(leg.status).toBe("error");
       const restore = calls.indexOf("mv /Applications/mattstack-dev.app.update-machine-old /Applications/mattstack-dev.app");
       expect(restore).toBeGreaterThan(-1);
-      expect(calls.indexOf("open /Applications/mattstack-dev.app")).toBeGreaterThan(restore);
+      expect(calls.indexOf(OPEN_DEV_APP)).toBeGreaterThan(restore);
       expect(leg.detail).toContain("reopened the previous app (pid 222)");
     });
 
@@ -484,7 +488,7 @@ describe("rt release update-machine", () => {
       const report = await runUpdateMachine(seams, { yes: true });
       const leg = report.legs.find((l) => l.id === "dev-bundle")!;
       expect(leg.status).toBe("error");
-      expect(calls.some((c) => c.startsWith("open"))).toBe(false);
+      expect(calls.some(isOpen)).toBe(false);
       expect(leg.detail).toContain("not reopened");
     });
 
@@ -496,7 +500,7 @@ describe("rt release update-machine", () => {
       const report = await runUpdateMachine(seams, { yes: true });
       const leg = report.legs.find((l) => l.id === "dev-bundle")!;
       expect(leg.status).toBe("error");
-      expect(calls).toContain("open /Applications/mattstack-dev.app");
+      expect(calls).toContain(OPEN_DEV_APP);
       expect(leg.detail).toContain("opened the new app");
     });
 
@@ -520,7 +524,7 @@ describe("rt release update-machine", () => {
   test("prod app: never launches either copy of mattstack.app", async () => {
     const { seams, calls } = fakeSeams();
     await runUpdateMachine(seams, { yes: true });
-    expect(calls.some((c) => c.startsWith("open") && c.includes("mattstack.app") && !c.includes("mattstack-dev.app"))).toBe(false);
+    expect(calls.some((c) => isOpen(c) && c.includes("mattstack.app") && !c.includes("mattstack-dev.app"))).toBe(false);
   });
 
   describe("dev app process handling", () => {
@@ -532,6 +536,12 @@ describe("rt release update-machine", () => {
       expect(calls).toContain("kill 111");
       expect(calls).toContain("kill 222");
       expect(leg.detail).toContain("pid 333");
+    });
+
+    test("relaunches through open with an empty environment, so this shell's vars never reach the app", async () => {
+      const { seams, calls } = fakeSeams();
+      await runUpdateMachine(seams, { yes: true });
+      expect(calls.filter((c) => isOpen(c) && c.includes("mattstack-dev.app"))).toEqual([OPEN_DEV_APP]);
     });
 
     test("a kill that fails to land fails the leg rather than proceeding to ditto over a live process", async () => {
@@ -550,7 +560,7 @@ describe("rt release update-machine", () => {
       expect(leg.status).toBe("ok");
       expect(leg.detail).toContain("not running");
       expect(calls).toContain("ditto /work/rt-dev-bundle/rt-tray/mattstack-dev.app /Applications/mattstack-dev.app");
-      expect(calls.some((c) => c.startsWith("open") && c.includes("mattstack-dev.app"))).toBe(false);
+      expect(calls.some((c) => isOpen(c) && c.includes("mattstack-dev.app"))).toBe(false);
     });
 
     test("a dev app that was not running: the dev daemon leg and the dev pid and source rev checks are skipped with the reason", async () => {
@@ -573,7 +583,7 @@ describe("rt release update-machine", () => {
       const report = await runUpdateMachine(seams, { yes: true });
       const leg = report.legs.find((l) => l.id === "dev-bundle")!;
       expect(leg.status).toBe("error");
-      expect(calls.some((c) => c.startsWith("open") && c.includes("mattstack-dev.app"))).toBe(false);
+      expect(calls.some((c) => isOpen(c) && c.includes("mattstack-dev.app"))).toBe(false);
     });
 
     test("a kill that races the process's own exit (ESRCH) is tolerated, not an error", async () => {
@@ -589,7 +599,7 @@ describe("rt release update-machine", () => {
     const report = await runUpdateMachine(seams, { yes: true });
     const leg = report.legs.find((l) => l.id === "dev-bundle")!;
     expect(leg.status).toBe("error");
-    expect(calls.some((c) => c.startsWith("open") && c.includes("mattstack-dev.app"))).toBe(false);
+    expect(calls.some((c) => isOpen(c) && c.includes("mattstack-dev.app"))).toBe(false);
   });
 
   describe("dev-bundle: workspace build", () => {
@@ -1028,7 +1038,7 @@ describe("runDevAppRebuild", () => {
     const { seams, calls } = fakeSeams();
     const { result } = await runDevAppRebuild(seams, "main");
     const kick = calls.indexOf("launchctl kickstart -k gui/501/com.mattstack.deck.dev");
-    expect(kick).toBeGreaterThan(calls.findIndex((c) => c.startsWith("open /Applications/mattstack-dev.app")));
+    expect(kick).toBeGreaterThan(calls.indexOf(OPEN_DEV_APP));
     expect(result.detail).toContain("deck helper and managed apps restarted");
   });
 

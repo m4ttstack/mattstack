@@ -577,7 +577,7 @@ if [ "$MODE" = "install" ]; then
     rm -rf "$INSTALL_DIR/$APP_NAME.app"
     ditto "$APP_BUNDLE" "$INSTALL_DIR/$APP_NAME.app"
     echo "  ✓ Installed to $INSTALL_DIR/$APP_NAME.app"
-    open "$INSTALL_DIR/$APP_NAME.app"
+    /usr/bin/env -i /usr/bin/open "$INSTALL_DIR/$APP_NAME.app"
 fi
 echo ""
 echo "  Done."

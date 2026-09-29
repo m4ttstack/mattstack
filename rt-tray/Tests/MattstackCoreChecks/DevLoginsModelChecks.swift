@@ -73,11 +73,20 @@ let devLoginsModelChecks: [Check] = [
     Check("dev login sheet: a saved site reads as Replace whether it was typed, linked or picked") { c in
         let saved: (String) -> Bool = { $0 == "https://login.example.com" }
         c.expect(DevLoginSheetCopy.replacing(fixedOrigin: nil, typedOrigin: "https://Login.example.com/", isSaved: saved), "typed Add of a saved site")
-        c.expect(DevLoginSheetCopy.replacing(fixedOrigin: "https://login.example.com", typedOrigin: "", isSaved: saved), "link or Replace of a saved site")
+        c.expect(DevLoginSheetCopy.replacing(fixedOrigin: "https://login.example.com", typedOrigin: "", isSaved: saved), "link or Edit of a saved site")
         c.expect(!DevLoginSheetCopy.replacing(fixedOrigin: nil, typedOrigin: "https://other.example.com", isSaved: saved), "typed Add of a new site")
         c.expect(!DevLoginSheetCopy.replacing(fixedOrigin: nil, typedOrigin: "login.example.com", isSaved: saved), "an invalid typed origin")
         c.expectEqual(DevLoginSheetCopy.title(replacing: true), "Replace dev login")
         c.expectEqual(DevLoginSheetCopy.title(replacing: false), "Save a dev login")
+    },
+    Check("dev logins pane: a saved row offers Edit, while the sheet it opens still says Replace") { c in
+        let pane = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Sources/Settings/DevLoginsPane.swift").standardized
+        let text = try String(contentsOf: pane, encoding: .utf8)
+        c.expect(text.contains("Button(\"Edit…\")"), "the row button reads Edit…")
+        c.expect(!text.contains("Replace…"), "no row button reads Replace…")
+        c.expect(text.contains("edit or delete it here"), "the footer names Edit")
+        c.expectEqual(DevLoginSheetCopy.title(replacing: true), "Replace dev login")
     },
     Check("dev login sheet: nothing dismisses it while a save is in flight") { c in
         let sheet = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

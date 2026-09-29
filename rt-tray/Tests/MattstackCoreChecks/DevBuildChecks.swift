@@ -212,6 +212,29 @@ let devBuildChecks: [Check] = [
         c.expectEqual(marker(rig.staged), "new", "the staged build stays for the next try")
         c.expectEqual(read(rig.calls), "fake-open \(rig.app.path)\n")
     },
+    Check("the handoff opens the app with an empty environment, since open forwards its own to the app") { c in
+        let rig = Rig()
+        makeBundle(rig.app, marker: "old")
+        makeBundle(rig.staged, marker: "new")
+        let seen = rig.dir.appendingPathComponent("open-env.txt")
+        let opener = rig.dir.appendingPathComponent("env-open").path
+        try "#!/bin/sh\nenv > '\(seen.path)'\n".write(toFile: opener, atomically: true, encoding: .utf8)
+        chmod(opener, 0o755)
+        let script = DevBuild.handoffScript(pid: deadPid(), appPath: rig.app.path, stagedPath: rig.staged.path,
+                                            deckLabel: nil, uid: 501, logPath: rig.restartLog.path, openPath: opener)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script]
+        p.environment = ["PATH": "/usr/bin:/bin", "NODE": "/mise/shims/node", "npm_node_execpath": "/mise/shims/node",
+                         "CLAUDECODE": "1", "HERDR_PANE_ID": "p1"]
+        try p.run()
+        p.waitUntilExit()
+        c.expectEqual(p.terminationStatus, 0)
+        let keys = read(seen).split(separator: "\n").compactMap { $0.split(separator: "=").first.map(String.init) }
+        c.expectEqual(keys.filter { ["NODE", "npm_node_execpath", "CLAUDECODE", "HERDR_PANE_ID", "PATH"].contains($0) }, [],
+                      "the opener saw the handoff's environment")
+        c.expectEqual(marker(rig.app), "new")
+    },
     Check("a plain relaunch reopens the same app without swapping or restarting anything") { c in
         let rig = Rig()
         makeBundle(rig.app, marker: "old")
@@ -504,5 +527,37 @@ let devBuildChecks: [Check] = [
             c.expect(!FileManager.default.fileExists(atPath: rig.staged.path), "cached=\(cached): staged build remains")
             if cached { c.expect(read(rig.restartLog).contains("could not cache the staged build"), "the failure is logged") }
         }
+    },
+    Check("the rebuild environment passes only the allowlisted keys, never a launching shell's node or session vars") { c in
+        let inherited = [
+            "HOME": "/Users/someone", "USER": "someone", "LOGNAME": "someone", "TMPDIR": "/var/tmp/x/",
+            "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "LC_CTYPE": "UTF-8", "SHELL": "/bin/zsh",
+            "NODE": "/Users/someone/.local/share/mise/shims/node",
+            "npm_node_execpath": "/Users/someone/.local/share/mise/shims/node", "npm_config_user_agent": "bun/1.3",
+            "CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli", "HERDR_PANE_ID": "p1", "HERDR_SOCKET": "/tmp/h.sock",
+            "SSH_AUTH_SOCK": "/tmp/agent", "PATH": "/Users/someone/.local/share/mise/shims:/usr/bin",
+            "BUN_INSTALL": "/Users/someone/.bun", "RT_DEPS_ROOT": "/elsewhere",
+        ]
+        let env = DevBuild.rebuildEnvironment(inherited: inherited, home: "/Users/someone",
+                                              appPath: "/Applications/mattstack-dev.app", isExecutable: { _ in true })
+        c.expectEqual(Set(env.keys), ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "SHELL", "PATH"])
+        for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "SHELL"] {
+            c.expectEqual(env[key], inherited[key], key)
+        }
+    },
+    Check("the rebuild PATH leads with the running bundle's own node, then bun and the system dirs") { c in
+        var probed: [String] = []
+        let env = DevBuild.rebuildEnvironment(inherited: ["PATH": "/mise/shims"], home: "/Users/someone",
+                                              appPath: "/Applications/mattstack-dev.app",
+                                              isExecutable: { probed.append($0); return true })
+        c.expectEqual(probed, ["/Applications/mattstack-dev.app/Contents/Helpers/node/bin/node"])
+        c.expectEqual(env["PATH"], "/Applications/mattstack-dev.app/Contents/Helpers/node/bin:/Users/someone/.bun/bin:"
+            + "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+        c.expectEqual(env["HOME"], "/Users/someone", "HOME is set even when the launcher gave none")
+    },
+    Check("a bundle without its own node falls back to the plain rebuild PATH") { c in
+        let env = DevBuild.rebuildEnvironment(inherited: [:], home: "/Users/someone",
+                                              appPath: "/tmp/x.app", isExecutable: { _ in false })
+        c.expectEqual(env["PATH"], "/Users/someone/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
     },
 ]

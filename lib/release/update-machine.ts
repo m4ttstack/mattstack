@@ -63,6 +63,9 @@ export const RELEASE_REPO = "m4ttstack/mattstack";
 export const CHAT_ROOM = "rt";
 const PROD_APP_PATH = "/Applications/mattstack.app";
 const DEV_APP_PATH = "/Applications/mattstack-dev.app";
+// open hands its caller's environment to the app it launches; a dev app
+// opened from an agent shell would carry NODE, npm_* and session vars.
+const OPEN_DEV_APP: [string, ...string[]] = ["/usr/bin/env", "-i", "/usr/bin/open", DEV_APP_PATH];
 /** Anchored to the executable inside the bundle so pgrep never catches an unrelated
  *  process that merely mentions the bundle path (a `tail -f` on its log, an editor). */
 const DEV_APP_ANCHOR = `${DEV_APP_PATH}/Contents/MacOS/`;
@@ -498,7 +501,7 @@ async function runDevBundleLeg(seams: UpdateMachineSeams, ctx: ReleaseContext, o
     }
     if (!wasRunning) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `${failure.error}; not reopened, it was not running`);
     const which = failure.atDest === "previous" ? "reopened the previous app" : "opened the new app";
-    const reopen = await seams.exec(["open", DEV_APP_PATH]);
+    const reopen = await seams.exec(OPEN_DEV_APP);
     const pids = reopen.exitCode === 0 ? await pollForPids(seams, DEV_APP_ANCHOR, 5, 500) : [];
     const tail = pids.length > 0 ? `${which} (pid ${pids[0]})` : `opening ${DEV_APP_PATH} did not bring up a process${reopen.exitCode === 0 ? "" : `: ${execTail(reopen)}`}`;
     return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `${failure.error}; ${tail}`);
@@ -508,7 +511,7 @@ async function runDevBundleLeg(seams: UpdateMachineSeams, ctx: ReleaseContext, o
     return okLeg("dev-bundle", DEV_BUNDLE_LABEL, `${DEV_APP_PATH} rebuilt at ${ctx.sha.slice(0, 12)}; not relaunched, it was not running`);
   }
 
-  const open = await seams.exec(["open", DEV_APP_PATH]);
+  const open = await seams.exec(OPEN_DEV_APP);
   if (open.exitCode !== 0) return errorLeg("dev-bundle", DEV_BUNDLE_LABEL, `open failed: ${execTail(open)}`);
 
   const pids = await pollForPids(seams, DEV_APP_ANCHOR, 5, 500);
