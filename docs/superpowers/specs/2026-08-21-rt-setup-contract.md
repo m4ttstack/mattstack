@@ -105,6 +105,10 @@ The app sends the token as JSON on stdin (no `--config-token-stdin` flag).
 { "event": "done",  "ok": false, "failedStep": "pack.install" }
 ```
 
+A step's `state` is `running`, `done`, `skipped`, `needs-you` or `failed`.
+Only `failed` stops the run. `needs-you` means the step did its part and left
+something only the member can do (verify's `"to connect: Slack, team Doppler"`).
+
 `kind: "app"` and `"privileged"` steps are executed by the app when the `need`
 event arrives (ServicesRegistrar / PrivilegedInstaller). The app records the
 outcome and serves it at `GET /setup/need/<id>` on tray.sock as

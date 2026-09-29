@@ -35,6 +35,7 @@ import {
 } from "../steps/tools.ts";
 import { outcomeFromChecks, settleChecks, verifyStep } from "../steps/verify.ts";
 import { teamSyncRow } from "../validators/rt-health.ts";
+import type { Row } from "../contract.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -1499,6 +1500,32 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           detail: "1 check failed: tool.app",
           remedy: "Run `rt verify` for details",
         });
+      });
+
+      const fail = (name: string) => ({ name, status: "fail" as const, detail: "", severity: "critical" as const });
+      const rowOf = (id: string, kind: Row["kind"], title: string, status: Row["status"]): Row =>
+        ({ id, kind, title, why: "", required: true, status, detail: "", action: null, recheck: "manual" }) as Row;
+
+      test("accounts and team tools the member has not set up yet read as needs-you, named by title", () => {
+        const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
+        expect(outcomeFromChecks([fail("account.slack"), fail("tool.team.doppler")], rows)).toEqual({
+          state: "needs-you",
+          detail: "to connect: Slack, team Doppler",
+        });
+      });
+
+      test("a genuine failure stays failed and still names what is left to connect", () => {
+        const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error")];
+        expect(outcomeFromChecks([fail("account.slack"), fail("tool.app")], rows)).toEqual({
+          state: "failed",
+          detail: "1 check failed: tool.app · to connect: Slack",
+          remedy: "Run `rt verify` for details",
+        });
+      });
+
+      test("a connected account whose credential is now invalid is a genuine failure", () => {
+        const rows = [rowOf("account.github", "account", "GitHub", "invalid")];
+        expect(outcomeFromChecks([fail("account.github")], rows).state).toBe("failed");
       });
 
       test("a warning-severity fail never counts against canInstall's check", () => {

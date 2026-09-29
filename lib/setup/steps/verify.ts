@@ -8,21 +8,45 @@
 import { composePlan } from "../plan.ts";
 import { isTeamSyncFirstPullPending } from "../validators/rt-health.ts";
 import { rowsToChecks } from "../../../commands/verify.ts";
+import type { Row } from "../contract.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 type CheckResult = ReturnType<typeof rowsToChecks>[number];
 
-export function outcomeFromChecks(checks: CheckResult[]): StepOutcome {
-  const failures = checks.filter((c) => c.status === "fail" && c.severity === "critical");
+/**
+ * Install never connects an account or installs a team-declared tool: both
+ * wait on the member. So a required row of either kind that is simply not
+ * set up yet is left for them, not an install failure; one that is set up
+ * but broken (`invalid`, `error`) still is.
+ */
+function toConnectLabel(row: Row | undefined): string | null {
+  if (!row || (row.status !== "missing" && row.status !== "needs-you")) return null;
+  if (row.kind === "account") return row.title;
+  if (row.id.startsWith("tool.team.")) return `team ${row.title.charAt(0).toUpperCase()}${row.title.slice(1)}`;
+  return null;
+}
+
+export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): StepOutcome {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const toConnect: string[] = [];
+  const failures: CheckResult[] = [];
+  for (const c of checks) {
+    if (c.status !== "fail" || c.severity !== "critical") continue;
+    const label = toConnectLabel(byId.get(c.name));
+    if (label) toConnect.push(label);
+    else failures.push(c);
+  }
+  const connectNote = toConnect.length > 0 ? `to connect: ${toConnect.join(", ")}` : "";
   if (failures.length > 0) {
     return {
       state: "failed",
-      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => f.name).join(", ")}`,
+      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => f.name).join(", ")}${connectNote ? ` · ${connectNote}` : ""}`,
       remedy: "Run `rt verify` for details",
     };
   }
+  if (connectNote) return { state: "needs-you", detail: connectNote };
   const passed = checks.filter((c) => c.status === "pass").length;
   return { state: "done", detail: `${passed} check${passed === 1 ? "" : "s"} passed` };
 }
@@ -59,6 +83,7 @@ export async function settleChecks(
 }
 
 async function verifyRun(ctx: ApplyContext): Promise<StepOutcome> {
+  let rows: Row[] = [];
   const read = async () => {
     const plan = await composePlan({
       p: ctx.p,
@@ -67,10 +92,12 @@ async function verifyRun(ctx: ApplyContext): Promise<StepOutcome> {
       mode: "status",
       teams: ctx.team.slug ? [ctx.team.slug] : [],
     });
+    rows = plan.groups.flatMap((g) => g.rows);
     return rowsToChecks(plan, { ci: ctx.ci });
   };
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  return outcomeFromChecks(await settleChecks(read, { attempts: SETTLE_ATTEMPTS, intervalMs: SETTLE_INTERVAL_MS, sleep }));
+  const checks = await settleChecks(read, { attempts: SETTLE_ATTEMPTS, intervalMs: SETTLE_INTERVAL_MS, sleep });
+  return outcomeFromChecks(checks, rows);
 }
 
 async function verifyRunSafe(ctx: ApplyContext): Promise<StepOutcome> {

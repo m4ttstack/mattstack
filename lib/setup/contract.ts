@@ -112,7 +112,8 @@ export const WAIVABLE_ROW_IDS: readonly string[] = ["tool.fast-browser-extension
 export const DONE_ACTION_TYPES = ["open-url", "steps", "run", "choose"] as const;
 
 export type StepKind = "rt" | "app" | "privileged";
-export type StepState = "pending" | "running" | "done" | "failed" | "skipped";
+/** `needs-you`: the step ran and did its part, but something is left that only the member can do; the run carries on. */
+export type StepState = "pending" | "running" | "done" | "failed" | "skipped" | "needs-you";
 
 export const STEP_IDS = [
   "home.init",
