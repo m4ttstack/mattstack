@@ -202,7 +202,7 @@ function plan(): unknown {
   // Scenarios other than perm-denied-then-granted are installable out of the box so
   // flows can reach Install without connecting anything; perm-denied-then-granted
   // gates only on perm.fda so the second plan() call can flip canInstall to true.
-  const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style"].includes(scenario);
+  const installableScenario = ["join-happy", "create-happy", "apply-fail-retry", "clone-partial", "restore", "uninstall", "perm-denied-then-granted", "finish-gate", "writing-style"].includes(scenario);
   // accounts[0] and tools[1] are the fixed literal elements built above — non-null
   // is safe, not a runtime guess.
   if (installableScenario) { accounts[0]!.status = "ready"; accounts[0]!.detail = "token can see group acme"; tools[1]!.status = "ready"; tools[1]!.detail = "extension loaded"; }
@@ -279,6 +279,13 @@ async function apply() {
              remedy: "Open Claude Code once so it finishes first-run, then Retry." });
       line({ event: "done", ok: false, failedStep: id });
       return;
+    }
+    // clone-partial: the first repos.clone leaves one repo uncloned; the retry lands it.
+    if (scenario === "clone-partial" && id === "repos.clone" && stateBump("clone-attempts") === 1) {
+      line({ event: "log", id, line: "acme-dev: clone failed: timed out after 60 minutes" });
+      line({ event: "step", id, state: "partial", detail: "cloned 1, present 0, failed 1 (acme-dev)",
+             remedy: "The step log says why. Retry this step once that is fixed (rt setup apply --from repos.clone). If you already have a clone, run rt repos register <path> first and rt uses it instead of cloning again." });
+      continue;
     }
     line({ event: "step", id, state: "done", detail: kind === "rt" ? "ok" : "done by the app" });
   }

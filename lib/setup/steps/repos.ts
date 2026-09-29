@@ -207,7 +207,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
   return {
     state: "partial",
     detail: `${tally} (${failed.join(", ")})`,
-    remedy: "The step log says why. Retry with: rt setup apply --from repos.clone. If you already have a clone, run rt repos register <path> first so rt uses it instead of cloning again.",
+    remedy: "The step log says why. Retry this step once that is fixed (rt setup apply --from repos.clone). If you already have a clone, run rt repos register <path> first and rt uses it instead of cloning again.",
   };
 }
 

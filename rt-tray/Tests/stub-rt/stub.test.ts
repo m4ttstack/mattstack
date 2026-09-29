@@ -394,3 +394,12 @@ test("logins: add, list and remove keep state and list prints a bare array witho
   await run("solo", ["logins", "remove", "https://login.example.com", "--json"], "", state);
   expect(JSON.parse((await run("solo", ["logins", "list", "--json"], "", state)).out)).toEqual([]);
 });
+
+test("clone-partial scenario: the first apply reports repos.clone partial and finishes ok; a --from retry lands it", async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), "stub-"));
+  const first = (await run("clone-partial", ["setup", "apply", "--json"], "", stateDir)).lines;
+  expect(first).toContainEqual(expect.objectContaining({ event: "step", id: "repos.clone", state: "partial" }));
+  expect(first.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
+  const retry = (await run("clone-partial", ["setup", "apply", "--from", "repos.clone", "--json"], "", stateDir)).lines;
+  expect(retry).toContainEqual(expect.objectContaining({ event: "step", id: "repos.clone", state: "done" }));
+});

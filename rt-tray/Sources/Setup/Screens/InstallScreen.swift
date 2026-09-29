@@ -111,6 +111,7 @@ struct InstallScreen: View {
                     if let r = step.remedy { Text(r).font(.callout).fixedSize(horizontal: false, vertical: true) }
                     Spacer()
                     Button("Retry from here") { model.retry(from: step.id) }
+                        .controlSize(.small)
                         .accessibilityIdentifier(AXID.installRetryPartial(step.id))
                 }
                 .padding(.leading, 30)

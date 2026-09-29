@@ -35,7 +35,7 @@ struct DoneScreen: View {
                 }
                 .font(.system(size: 36))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.headline).font(.title3.weight(.semibold))
+                    Text(headline).font(.title3.weight(.semibold))
                     Text(verifySummary).foregroundStyle(.secondary)
                 }
             }
@@ -53,31 +53,6 @@ struct DoneScreen: View {
                 .padding(.horizontal, 20).padding(.top, 12)
             }
             Form {
-                Section("Where things live") {
-                    LabeledContent("Menu bar") { Text("the m icon, top right") }
-                    LabeledContent("Terminal") { Text("run rt in a new terminal window") }
-                    LabeledContent(homeApp.title) { Link(homeApp.host, destination: homeApp.url) }
-                }
-                if !model.blockedRows.isEmpty {
-                    Section(FinishGate.beforeYouFinishTitle) {
-                        ForEach(model.blockedRows) { row in
-                            VStack(alignment: .leading, spacing: 6) {
-                                RowView(row: row, isChecking: false, rowID: AXID.doneBeforeYouFinishRow(row.id),
-                                        actionID: AXID.doneBeforeYouFinishRowAction(row.id), statusID: AXID.doneBeforeYouFinishRowStatus(row.id)) { show(row) }
-                                if row.waivable {
-                                    HStack {
-                                        Spacer()
-                                        Button(FinishGate.skipSheetConfirm) { model.requestSkip(row) }
-                                            .controlSize(.small)
-                                            .accessibilityIdentifier(AXID.doneSkipRow(row.id))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(AXID.doneBeforeYouFinish)
-                }
                 if !install.partialSteps.isEmpty {
                     Section("Needs another try") {
                         ForEach(install.partialSteps) { step in
@@ -102,6 +77,31 @@ struct DoneScreen: View {
                             .accessibilityIdentifier(AXID.donePartialStep(step.id))
                         }
                     }
+                }
+                Section("Where things live") {
+                    LabeledContent("Menu bar") { Text("the m icon, top right") }
+                    LabeledContent("Terminal") { Text("run rt in a new terminal window") }
+                    LabeledContent(homeApp.title) { Link(homeApp.host, destination: homeApp.url) }
+                }
+                if !model.blockedRows.isEmpty {
+                    Section(FinishGate.beforeYouFinishTitle) {
+                        ForEach(model.blockedRows) { row in
+                            VStack(alignment: .leading, spacing: 6) {
+                                RowView(row: row, isChecking: false, rowID: AXID.doneBeforeYouFinishRow(row.id),
+                                        actionID: AXID.doneBeforeYouFinishRowAction(row.id), statusID: AXID.doneBeforeYouFinishRowStatus(row.id)) { show(row) }
+                                if row.waivable {
+                                    HStack {
+                                        Spacer()
+                                        Button(FinishGate.skipSheetConfirm) { model.requestSkip(row) }
+                                            .controlSize(.small)
+                                            .accessibilityIdentifier(AXID.doneSkipRow(row.id))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(AXID.doneBeforeYouFinish)
                 }
                 if !model.stillToDoRows.isEmpty {
                     Section("Still to do") {
@@ -151,12 +151,17 @@ struct DoneScreen: View {
     }
 
     private var isBlocked: Bool { !model.blockedRows.isEmpty }
+    private var allDone: Bool { model.stillToDoRows.isEmpty && install.partialSteps.isEmpty }
+    private var headline: String {
+        guard model.hasConfirmedRows, !isBlocked, !install.partialSteps.isEmpty else { return model.headline }
+        return FinishGate.retryHeadline(partial: install.partialSteps.count)
+    }
     private var headlineSymbol: String {
-        FinishGate.headlineSymbol(blocked: isBlocked, allDone: model.stillToDoRows.isEmpty)
+        FinishGate.headlineSymbol(blocked: isBlocked, allDone: allDone)
     }
     /// Only read when `!isBlocked`: the blocked case renders as multicolor instead.
     private var headlineTint: Color {
-        model.stillToDoRows.isEmpty ? .green : .accentColor
+        allDone ? .green : .accentColor
     }
 
     private func show(_ row: PlanRow) {
