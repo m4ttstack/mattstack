@@ -339,6 +339,65 @@ describe('buildBoard', () => {
     expect(mrs.map(m => m.iid)).toEqual([1]);
   });
 
+  test("an unset stale window follows rt's sync window", () => {
+    const now = Date.parse('2026-07-13T00:00:00Z');
+    const prs = [
+      pr({ iid: 1, updatedAt: '2026-07-01T00:00:00Z' }), // 12 days ago
+      pr({ iid: 2, updatedAt: '2026-06-23T00:00:00Z' }), // 20 days ago
+      pr({ iid: 3, updatedAt: '2026-05-29T00:00:00Z' }), // 45 days ago
+    ];
+    const unset = { ...config, staleAfterDays: null };
+    const iids = (days: number) =>
+      buildBoard(
+        prs,
+        unset,
+        now,
+        undefined,
+        new Map([['org/repo-a', days]])
+      ).map(m => m.iid);
+    expect(iids(14)).toEqual([1]);
+    expect(iids(60)).toEqual([1, 2, 3]);
+    expect(buildBoard(prs, unset, now).map(m => m.iid)).toEqual([1, 2]);
+  });
+
+  test('an unset stale window cuts each project at its own sync window', () => {
+    const now = Date.parse('2026-07-13T00:00:00Z');
+    const at = (iid: number, project: string, updatedAt: string) =>
+      pr({
+        id: `gitlab:${iid}`,
+        iid,
+        updatedAt,
+        webUrl: `https://gitlab.com/org/${project}/-/merge_requests/${iid}`,
+      });
+    const mrs = buildBoard(
+      [
+        at(1, 'repo-a', '2026-06-23T00:00:00Z'), // 20 days, a syncs 14
+        at(2, 'repo-a', '2026-07-10T00:00:00Z'), // 3 days
+        at(3, 'repo-b', '2026-05-29T00:00:00Z'), // 45 days, b syncs 60
+      ],
+      { ...config, staleAfterDays: null },
+      now,
+      undefined,
+      new Map([
+        ['org/repo-a', 14],
+        ['org/repo-b', 60],
+      ])
+    );
+    expect(mrs.map(m => m.iid)).toEqual([2, 3]);
+  });
+
+  test("an explicit stale window wins over rt's sync window", () => {
+    const now = Date.parse('2026-07-13T00:00:00Z');
+    const mrs = buildBoard(
+      [pr({ iid: 1, updatedAt: '2026-05-29T00:00:00Z' })],
+      config,
+      now,
+      undefined,
+      new Map([['org/repo-a', 14]])
+    );
+    expect(mrs.map(m => m.iid)).toEqual([1]);
+  });
+
   test('ticketPrefixes filter: keeps only matching prefixes, drops other teams and untagged', () => {
     const withPrefix = { ...config, ticketPrefixes: ['ACME'] };
     const mrs = buildBoard(

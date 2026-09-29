@@ -195,9 +195,10 @@ export interface BoardData {
   scopeKnownSections: string[] | null;
   /** Narrowest sync window (days) among the daemon reads; null when none carried one. */
   scopeWindowDays: number | null;
-  /** The board's own configured stale cutoff (days), for comparing against
-      `scopeWindowDays` -- a board asking for more history than rt syncs. */
-  staleAfterDays: number;
+  /** The board's explicitly configured stale cutoff (days), for comparing
+      against `scopeWindowDays` -- a board asking for more history than rt
+      syncs. null when unset: the board then follows rt's window. */
+  staleAfterDays: number | null;
   /** Whether this board can hand out peer-board invites: local request, and the
       board holds both a switchboard url and the credential that authorizes it. */
   canInvite: boolean;
