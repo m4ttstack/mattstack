@@ -1,4 +1,6 @@
 import {
+  ActionIcon,
+  Button,
   createTheme,
   MantineProvider,
   MantineThemeProvider,
@@ -8,6 +10,8 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { appTheme, baseTheme, theme } from '@mattstack/app-kit/design-system';
+
+import classes from './component-styles.module.css';
 
 describe('base/app theme split', () => {
   it('keeps the kit defaults reachable on baseTheme after branding', () => {
@@ -56,5 +60,24 @@ describe('primaryShade shape', () => {
     });
 
     expect(screen.getAllByText('nested')).toHaveLength(shapes.length);
+  });
+});
+
+describe('disabled default-variant controls', () => {
+  it('carry the kit class that keeps the default surface, dimmed', () => {
+    render(
+      <MantineProvider theme={theme}>
+        <ActionIcon variant="default" aria-label="Step" disabled />
+        <Button variant="default" disabled>
+          Go
+        </Button>
+      </MantineProvider>
+    );
+    const icon = screen.getByRole('button', { name: 'Step' });
+    const button = screen.getByRole('button', { name: 'Go' });
+    expect(icon).toHaveClass(classes.actionIconRoot!);
+    expect(icon).toHaveAttribute('data-variant', 'default');
+    expect(button).toHaveClass(classes.buttonRoot!);
+    expect(button).toHaveAttribute('data-variant', 'default');
   });
 });

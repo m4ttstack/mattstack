@@ -94,7 +94,11 @@ export const baseTheme = /* @__PURE__ */ createTheme({
   components: themeComponents({
     Paper: { defaultProps: flatSurfaceProps },
     Card: { defaultProps: flatSurfaceProps },
-    Button: { defaultProps: { fw: 500 } },
+    Button: {
+      defaultProps: { fw: 500 },
+      classNames: { root: classes.buttonRoot },
+    },
+    ActionIcon: { classNames: { root: classes.actionIconRoot } },
     Code: { defaultProps: { fz: 'sm' } },
     Modal: { defaultProps: { centered: true, padding: 'lg' } },
     // Tight, single-line-by-default groups: the common case is a row of
