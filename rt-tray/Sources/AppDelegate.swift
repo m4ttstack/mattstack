@@ -1250,6 +1250,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     @objc private func viewDaemonLogs() {
         let url = LogViewerLaunch.url
         Task { @MainActor in
+            // A second click mid-poll would spawn a rival rt, and its failure
+            // would forget the first launch's spawn record.
+            guard !self.logViewerLaunching else { return }
+            self.logViewerLaunching = true
+            defer { self.logViewerLaunching = false }
             let up = await self.isLogdyUp()
             if up && !self.isLogdyStale() {
                 NSWorkspace.shared.open(url)
@@ -1271,9 +1276,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 output: { captured.text },
                 sleep: { try? await Task.sleep(nanoseconds: 200_000_000) }
             )
-            // rt gives logdy 5s before exiting with its own reason; 8s of
-            // polling lets that reason arrive rather than a bare timeout.
-            switch await LogViewerLaunch.awaitViewer(deps, attempts: 40) {
+            // rt gives logdy 5s before exiting with its own reason; 11s of
+            // polling covers a cold dev-wrapper rt so that reason arrives
+            // rather than a bare timeout.
+            switch await LogViewerLaunch.awaitViewer(deps, attempts: 55) {
             case .open:
                 NSWorkspace.shared.open(url)
             case .failed(let reason):
@@ -1607,6 +1613,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// When this tray last spawned `rt daemon logs`, and the calendar day it
     /// did so on -- nil whenever logdy wasn't spawned by this tray instance
     /// (see `isLogdyStale`, S080).
+    @MainActor private var logViewerLaunching = false
     private var logdySpawnedAt: Date?
     private var logdySpawnedDay: String?
 
