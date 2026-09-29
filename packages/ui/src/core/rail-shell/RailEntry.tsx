@@ -48,6 +48,7 @@ const RailEntryInner = /* @__PURE__ */ forwardRef<
         aria-label={label}
         aria-disabled={disabled || undefined}
         aria-current={active ? 'page' : undefined}
+        data-rail-expanded={expanded || undefined}
         onClick={disabled ? undefined : onClick}
         className={clsx(classes.railEntry, className)}
         {...others}
@@ -59,6 +60,7 @@ const RailEntryInner = /* @__PURE__ */ forwardRef<
         <Group gap="sm" wrap="nowrap" className={classes.railEntryRow}>
           <ActionIcon
             component="div"
+            className={classes.railEntryIcon}
             variant={active ? 'filled' : 'subtle'}
             size="lg"
             c={disabled && !active ? 'dimmed' : undefined}

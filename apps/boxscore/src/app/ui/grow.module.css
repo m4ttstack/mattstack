@@ -1,0 +1,48 @@
+@keyframes grow-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes grow-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.y,
+.x,
+.fade {
+  animation-duration: 400ms;
+  animation-timing-function: ease-out;
+  animation-delay: calc(var(--grow-i, 0) * 25ms);
+  animation-fill-mode: both;
+}
+
+.y {
+  transform-origin: bottom;
+  animation-name: grow-y;
+}
+
+.x {
+  transform-origin: left;
+  animation-name: grow-x;
+}
+
+.fade {
+  animation-name: fade-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .y,
+  .x,
+  .fade {
+    animation: none;
+  }
+}

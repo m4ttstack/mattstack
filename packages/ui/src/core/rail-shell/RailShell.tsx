@@ -37,7 +37,8 @@ export interface RailShellProps {
   /** Header content, rendered after the mobile rail toggle. */
   header: React.ReactNode;
   /** Rail content riding the navbar slot (typically a `Rail` of
-   * `RailEntry`s). */
+   * `RailEntry`s). `null` or `false` renders no rail: the page takes the full width
+   * and the mobile rail toggle is dropped. */
   rail: React.ReactNode;
   /** Whether the rail shows its labeled, expanded width. Pass
    * `useRailState`'s `effectiveExpanded` so the mobile-open rail is the
@@ -96,7 +97,8 @@ export function RailShell({
   children,
 }: RailShellProps) {
   const isMobile = useIsMobile();
-  const railOverlayActive = isMobile && railOpened;
+  const hasRail = rail != null && rail !== false;
+  const railOverlayActive = hasRail && isMobile && railOpened;
   const headerZIndex = railOverlayActive ? 1000 : undefined;
   const navbarZIndex = railOverlayActive ? 1000 : 5;
   const currentRailWidth = railExpanded ? railWidthExpanded : railWidth;
@@ -120,7 +122,7 @@ export function RailShell({
         headerProps={{ ...headerProps, zIndex: headerZIndex }}
         header={
           <Group h="100%" px={headerPx} w="100%" wrap="nowrap">
-            {isMobile && (
+            {hasRail && isMobile && (
               <ActionIcon
                 variant="subtle"
                 size="lg"
@@ -133,7 +135,7 @@ export function RailShell({
             {header}
           </Group>
         }
-        navbar={rail}
+        navbar={hasRail ? rail : undefined}
         navbarWidth={currentRailWidth}
         navbarCollapsed={{ mobile: !railOpened }}
         navbarProps={{

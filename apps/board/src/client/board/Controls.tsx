@@ -1,4 +1,13 @@
-import { CopyButton, ICONS, LabeledSeg, Segmented } from '@mattstack/tui-kit';
+import { useId, useRef, useState } from 'react';
+
+import {
+  CHECK_ICON,
+  ContextMenu,
+  CopyButton,
+  Icon,
+  ICONS,
+  LabeledSeg,
+} from '@mattstack/tui-kit';
 import { GROUP_KEYS, SORT_KEYS } from '../../view.ts';
 import type { GroupKey, ViewState } from '../../view.ts';
 import type { ThemeMode } from '../types.ts';
@@ -63,14 +72,6 @@ function Controls({
       onChange={s => update({ sort: s })}
     />
   );
-  const themeSeg = (
-    <Segmented
-      options={['light', 'dark', 'system'] as const}
-      value={theme}
-      onChange={pickTheme}
-      label="theme"
-    />
-  );
   const slackFilterLabel = slackFilter?.active
     ? 'showing only MRs posted in slack'
     : 'only MRs posted in slack';
@@ -92,7 +93,7 @@ function Controls({
         </div>
         <div className="tui-ctl-row">
           <span className="tui-ctl-label">theme</span>
-          {themeSeg}
+          <ThemeControl theme={theme} pickTheme={pickTheme} />
         </div>
         <button
           className="tui-drawer-action"
@@ -197,26 +198,96 @@ function Controls({
   );
 }
 
-/** The theme picker, split out of the header's control row: it was the
-    single heaviest item competing for that row's width, and unlike the
-    row's other controls it's a personal display preference rather than a
-    board filter. Rendered next to the app launcher instead, in its own
-    reserved corner. */
-function ThemeToggle({
+const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
+
+/** The suite's one scheme switcher, in board's own kit: the app-kit
+    ColorSchemeControl's System/Light/Dark menu behind an icon that shows the
+    stored choice. */
+function ThemeControl({
   theme,
   pickTheme,
 }: {
   theme: ThemeMode;
   pickTheme: (m: ThemeMode) => void;
 }) {
+  // `right` is the trigger's right edge; `x` becomes right minus the menu's
+  // measured width, so the menu hangs bottom-end under the icon.
+  const [at, setAt] = useState<{ right: number; x: number; y: number } | null>(
+    null
+  );
+  const menuId = useId();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const checkedRef = useRef<HTMLButtonElement>(null);
+  const close = () => {
+    setAt(null);
+    triggerRef.current?.focus();
+  };
+  const alignRight = () => {
+    const width = menuRef.current?.offsetWidth;
+    if (!width) return;
+    setAt(a =>
+      a && a.x !== a.right - width ? { ...a, x: a.right - width } : a
+    );
+  };
   return (
-    <Segmented
-      options={['light', 'dark', 'system'] as const}
-      value={theme}
-      onChange={pickTheme}
-      label="theme"
-    />
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="tui-theme-control"
+        aria-label="Color scheme"
+        aria-haspopup="menu"
+        aria-expanded={at !== null}
+        aria-controls={at ? menuId : undefined}
+        title="color scheme"
+        // The open menu closes on any outside mousedown, which would reopen it
+        // on this same click; swallowing it here makes the trigger a toggle.
+        onMouseDown={e => {
+          if (at) e.nativeEvent.stopImmediatePropagation();
+        }}
+        onClick={e => {
+          if (at) return setAt(null);
+          const r = e.currentTarget.getBoundingClientRect();
+          setAt({ right: r.right, x: r.right, y: r.bottom + 4 });
+        }}
+      >
+        {ICONS[theme]}
+      </button>
+      {at && (
+        <ContextMenu
+          ref={menuRef}
+          id={menuId}
+          x={at.x}
+          y={at.y}
+          ariaLabel="color scheme"
+          onClose={close}
+          initialFocusRef={checkedRef}
+          onPositioned={alignRight}
+          style={{ transformOrigin: 'top right' }}
+        >
+          {THEME_OPTIONS.map(o => (
+            <ContextMenu.Item
+              key={o.value}
+              ref={theme === o.value ? checkedRef : undefined}
+              role="menuitemradio"
+              aria-checked={theme === o.value}
+              label={o.label}
+              trailing={theme === o.value ? <Icon d={CHECK_ICON} /> : null}
+              onClick={() => {
+                pickTheme(o.value);
+                close();
+              }}
+            />
+          ))}
+        </ContextMenu>
+      )}
+    </>
   );
 }
 
-export { Controls, ThemeToggle };
+export { Controls, ThemeControl };

@@ -15,6 +15,7 @@ import {
   buildUserCohorts,
   type CohortOptions,
 } from './cohorts.js';
+import { normalizeTitle, revertTarget } from './reverts.js';
 import { mean, percentile, round, streaks } from './stats.js';
 
 export interface EvidenceContext extends CohortOptions {
@@ -27,6 +28,15 @@ const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : '—');
 const hrs = (n: number): string => `${round(n, 1)}h`;
 const byIidDesc = (a: { mr: NormMr }, b: { mr: NormMr }): number =>
   b.mr.iid - a.mr.iid;
+const firstAt = (m: NormMr): string => m.mergedAt ?? m.createdAt;
+
+/** Whole days from merge to revert, or hours when it lived under a day. */
+function lived(mergedAt: string | null, revertedAt: string): string {
+  if (!mergedAt) return '—';
+  const hours =
+    Math.max(0, Date.parse(revertedAt) - Date.parse(mergedAt)) / 3_600_000;
+  return hours < 24 ? `${Math.round(hours)}h` : `${Math.floor(hours / 24)}d`;
+}
 
 /** Build every metric's evidence for one user. Metrics with no records are omitted. */
 export function buildUserEvidence(
@@ -38,7 +48,7 @@ export function buildUserEvidence(
   const corpus = buildCorpus(fetched, ctx);
   const c = buildUserCohorts(corpus, u, ctx);
   const lines = corpus.filters.lineCounts;
-  const mrUrl = (m: NormMr) =>
+  const mrUrl = (m: Pick<NormMr, 'projectPath' | 'iid'>) =>
     `${baseUrl}/${m.projectPath}/-/merge_requests/${m.iid}`;
 
   const out: Partial<Record<MetricKey, MetricEvidence>> = {};
@@ -63,22 +73,34 @@ export function buildUserEvidence(
   const mergedCols = ['MR', 'Title', 'Added', 'Deleted', 'Merged'];
   const totalAdd = merged.reduce((s, m) => s + lines(m).additions, 0);
   const totalDel = merged.reduce((s, m) => s + lines(m).deletions, 0);
+  const mergedFacts = {
+    merged: merged.length,
+    added: totalAdd,
+    deleted: totalDel,
+  };
   out.additions = {
     columns: mergedCols,
     rows: mergedRows,
     summary: `${totalAdd} lines added across ${merged.length} merged MRs`,
+    facts: mergedFacts,
   };
   out.deletions = {
     columns: mergedCols,
     rows: mergedRows,
     summary: `${totalDel} lines deleted across ${merged.length} merged MRs`,
+    facts: mergedFacts,
   };
   out.mrsMerged = {
     columns: mergedCols,
     rows: mergedRows,
     summary: `${merged.length} MRs merged`,
+    facts: mergedFacts,
   };
 
+  const changed = (m: NormMr): number => {
+    const f = lines(m);
+    return f.additions + f.deletions;
+  };
   out.sizeHealthPct = {
     columns: ['MR', 'Title', 'Changed', 'In band?'],
     rows: merged.map(m => {
@@ -95,22 +117,43 @@ export function buildUserEvidence(
       };
     }),
     summary: `${merged.filter(c.inBand).length} of ${merged.length} MRs in the ${sizeBand.tooSmall}–${sizeBand.tooLarge} line band`,
+    facts: {
+      inBand: merged.filter(c.inBand).length,
+      overBand: merged.filter(m => changed(m) > sizeBand.tooLarge).length,
+      underBand: merged.filter(m => changed(m) < sizeBand.tooSmall).length,
+      bandLow: sizeBand.tooSmall,
+      bandHigh: sizeBand.tooLarge,
+    },
   };
 
   const reverted = new Set(c.reverted);
+  const reverters = new Map<string, NormMr>();
+  for (const r of corpus.mrs) {
+    const target = revertTarget(r);
+    const seen = target ? reverters.get(target) : undefined;
+    if (target && (!seen || firstAt(r) < firstAt(seen)))
+      reverters.set(target, r);
+  }
   const revertEvidence: MetricEvidence = {
-    columns: ['MR', 'Title', 'Merged', 'Reverted?'],
-    rows: merged.map(m => ({
-      cells: [
-        `!${m.iid}`,
-        m.title,
-        day(m.mergedAt),
-        reverted.has(m) ? 'reverted' : '—',
-      ],
-      href: mrUrl(m),
-      muted: !reverted.has(m),
-    })),
+    columns: ['MR', 'Title', 'Merged', 'Reverted by', 'Lived'],
+    rows: merged.map(m => {
+      const by = reverted.has(m)
+        ? reverters.get(normalizeTitle(m.title))
+        : undefined;
+      return {
+        cells: [
+          `!${m.iid}`,
+          m.title,
+          day(m.mergedAt),
+          by ? `!${by.iid}` : '—',
+          by ? lived(m.mergedAt, firstAt(by)) : '—',
+        ],
+        href: mrUrl(m),
+        muted: !reverted.has(m),
+      };
+    }),
     summary: `${c.reverted.length} of ${merged.length} merged MRs later reverted`,
+    facts: { reverted: c.reverted.length, checked: merged.length },
   };
   out.revertRate = revertEvidence;
   out.revertedCount = revertEvidence;
@@ -130,6 +173,10 @@ export function buildUserEvidence(
       href: mrUrl(r.mr),
     })),
     summary: `${reviewed.length} teammates' MRs reviewed`,
+    facts: {
+      reviewed: reviewed.length,
+      authors: new Set(reviewed.map(r => r.mr.authorUsername)).size,
+    },
   };
   out.reviewDepth = {
     columns: ['MR', 'Title', 'Inline comments'],
@@ -138,6 +185,10 @@ export function buildUserEvidence(
       href: mrUrl(r.mr),
     })),
     summary: `mean ${round(mean(reviewed.map(r => r.inlineCount)), 2)} inline comments per reviewed MR`,
+    facts: {
+      reviewed: reviewed.length,
+      inlineComments: reviewed.reduce((s, r) => s + r.inlineCount, 0),
+    },
   };
   const responded = reviewed.flatMap(r =>
     r.responseHours === null ? [] : [{ mr: r.mr, hours: r.responseHours }]
@@ -152,6 +203,7 @@ export function buildUserEvidence(
       responded.map(r => r.hours),
       'first response'
     ),
+    facts: distFacts(responded.map(r => r.hours)),
   };
 
   // --- Author-side review latency: how long the user's own MRs waited ---
@@ -166,6 +218,7 @@ export function buildUserEvidence(
       waited.map(w => w.waitHours),
       'first review'
     ),
+    facts: distFacts(waited.map(w => w.waitHours)),
   };
 
   // --- Reciprocity: who reviewed this user's merged MRs (received side) ---
@@ -177,6 +230,11 @@ export function buildUserEvidence(
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([name, n]) => ({ cells: [name, String(n)] })),
     summary: `gave ${given} reviews, received from ${received} reviewer(s) ... ratio ${received === 0 ? given : round(given / received, 2)}`,
+    facts: {
+      given,
+      received,
+      reviewers: received,
+    },
   };
 
   // --- Pipelines triggered ---
@@ -196,6 +254,16 @@ export function buildUserEvidence(
       Object.entries(statusCount)
         .map(([s, n]) => `${n} ${s}`)
         .join(' · ') || 'no pipelines',
+    facts: {
+      success: statusCount.success ?? 0,
+      failed: statusCount.failed ?? 0,
+      canceled: statusCount.canceled ?? 0,
+      running:
+        c.pipelines.length -
+        (statusCount.success ?? 0) -
+        (statusCount.failed ?? 0) -
+        (statusCount.canceled ?? 0),
+    },
   };
 
   // --- Coding days: distinct days the user pushed to the tracked project ---
@@ -209,6 +277,12 @@ export function buildUserEvidence(
       .reverse()
       .map(([d, n]) => ({ cells: [d, String(n)] })),
     summary: `${pushDays.size} distinct days with a push`,
+    facts: {
+      days: pushDays.size,
+      windowDays: Math.round(
+        (Date.parse(ctx.window.end) - Date.parse(ctx.window.start)) / 86_400_000
+      ),
+    },
   };
 
   // --- Merge streak: days the user merged at least one MR ---
@@ -223,6 +297,11 @@ export function buildUserEvidence(
       .reverse()
       .map(([d, n]) => ({ cells: [d, String(n)] })),
     summary: `longest run ${ms.longest} day(s), current ${ms.current}, across ${mergeByDay.size} merge day(s)`,
+    facts: {
+      current: ms.current,
+      longest: ms.longest,
+      mergeDays: mergeByDay.size,
+    },
   };
   out.longestStreak = mergeDayEvidence;
   out.currentStreak = mergeDayEvidence;
@@ -239,20 +318,26 @@ export function buildUserEvidence(
     parts.push(`${c.issues.windowExcluded} outside window`);
   out.issuesCompleted = {
     columns: ['Issue', 'Title', 'State', 'Closed', 'MR(s)'],
-    rows: counted.map(i => ({
-      cells: [
-        i.identifier,
-        i.title,
-        i.stateName ?? i.stateType ?? '—',
-        day(i.closedAt),
-        i.linkedMrs
-          .filter(m => m.via !== 'mention')
-          .map(m => `!${m.iid}`)
-          .join(', ') || '—',
-      ],
-      href: i.url,
-    })),
+    rows: counted.map(i => {
+      const mrs = i.linkedMrs.filter(m => m.via !== 'mention');
+      return {
+        cells: [
+          i.identifier,
+          i.title,
+          i.stateName ?? i.stateType ?? '—',
+          day(i.closedAt),
+          mrs.map(m => `!${m.iid}`).join(', ') || '—',
+        ],
+        href: i.url,
+        mrHrefs: mrs.map(mrUrl),
+      };
+    }),
     summary: parts.join(' · '),
+    facts: {
+      counted: counted.length,
+      excludedByState: c.issues.stateExcluded,
+      outsideWindow: c.issues.windowExcluded,
+    },
   };
 
   // Bound any pathologically large evidence list so a response stays sane.
@@ -267,6 +352,14 @@ export function buildUserEvidence(
   }
 
   return out;
+}
+
+function distFacts(samples: number[]): Record<string, number> {
+  return {
+    p50: round(percentile(samples, 0.5) ?? 0, 2),
+    p90: round(percentile(samples, 0.9) ?? 0, 2),
+    count: samples.length,
+  };
 }
 
 function distSummary(samples: number[], label: string): string {

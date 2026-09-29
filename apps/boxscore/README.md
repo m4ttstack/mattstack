@@ -31,21 +31,41 @@ The token stays **server-side only** ... the browser never sees it.
   client's typed RPC) served through `serveMattstackApp` from `src/server/index.ts`. The
   metric math, GitLab fetch/store layer, and CLI live under it (`metrics/`, `store/`,
   `refresh/`, `linear/`, `cli.ts`); see "Notes & limitations" below for how that part works.
-- **`src/app`** is a [`@mattstack/app-kit`](https://github.com/m4ttstack/mattstack/tree/main/packages/ui) app:
-  `MattstackShell` for the frame/rail, [wouter](https://github.com/molefrog/wouter) for
-  routing (`src/app/routes.ts` maps four routes ... `/`, `/user/:name`,
-  `/user/:name/:stat`, `/settings` ... to a small `AppRoute` union), and
+- **`src/app`** is a [`@mattstack/app-kit`](https://github.com/m4ttstack/mattstack/tree/main/packages/ui) app
+  on the kit shell with no rail (`MattstackShell rail={false}`; the page context and actions
+  sit in the app bar, `src/app/shell/`), [wouter](https://github.com/molefrog/wouter) for
+  routing (`src/app/routes.ts` maps `/`, `/user/:name` and `/user/:name/:stat` to a small
+  `AppRoute` union; anything else is the not-found page), and
   [`@tanstack/react-query`](https://tanstack.com/query) for data fetching
   (`src/app/hooks/useLeaderboard.ts`, `useUserDetail`) over a Hono RPC client
   (`src/app/api.ts`, typed against the server's `AppType`) so query params and response
-  shapes stay compiler-checked end to end.
+  shapes stay compiler-checked end to end. Charts come from `@mattstack/app-kit/charts`.
 - **`src/shared`** holds the wire types (`types.ts`) and metric metadata (`metrics.ts`)
   both sides import ... the one place a metric's key, label, and formatting are defined.
 - **Settings** are not a committed config file: they live in the rt settings store and are
-  edited in-app at `/settings` (`src/app/settings/SettingsPage.tsx`), which talks to
-  `@mattstack/settings-kit`'s `useSettingKey`/`useSettingsScope` hooks against
-  `settingsHandler` mounted at `/api/settings` in `src/server/routes.ts`. `rt settings list`
-  still works for a read-only check from the terminal; see "Setup" below.
+  edited in console (`/settings#boxscore`); the app bar's settings link opens it in a new tab.
+  `rt settings list` still works for a read-only check from the terminal; see "Setup" below.
+
+## UI
+
+Every stat belongs to one of five groups: delivery, volume, quality, consistency and
+collaboration.
+
+- **Leaderboard** (`/`): a leaders strip (one leader per group) over the standings table,
+  tabbed Overview plus one tab per group. The page header switches the range (7d, 30d,
+  90d), values or trend (each value beside its change from the prior equal window), and
+  table or cards (one card per stat, every person ranked).
+- **Person** (`/user/:name/:stat`): a profile header, a summary of where the person leads
+  and places, a stat rail grouped by group, and the selected stat's panel: its value, rank
+  and definition, plus evidence drawn for that stat (histograms, a push calendar, merge
+  days, bands, author strips, pipeline status) over the MRs, notes or pipelines behind it.
+  `/user/:name` opens the first stat.
+- **Refresh**: the topbar's Refresh button rescans GitLab. A warm refresh keeps the last
+  numbers on screen, dimmed, under a stepper; a window with nothing stored yet shows a
+  skeleton table and a first-load status that says when it is still waiting on GitLab.
+
+The designs are the boards in `docs/apps/design/boxscore/` (repo root);
+`scripts/parity/run.md` checks the app against them.
 
 ## Setup
 
@@ -55,8 +75,8 @@ Requires [Bun](https://bun.sh) 1.1+.
 bun install
 ```
 
-Configuration lives in rt settings, not in a committed file (edit it at the app's
-`/settings` page, or read it from the terminal). List boxscore's current values with:
+Configuration lives in rt settings, not in a committed file (edit it in console's
+`/settings#boxscore`, or read it from the terminal). List boxscore's current values with:
 
 ```bash
 rt settings list | grep boxscore
@@ -91,8 +111,9 @@ bun run dev:server   # Bun/Hono API server, hot-reloading, on :11005 (or $PORT)
 bun run dev          # Vite dev server on :5173, proxying /api and /ws to it
 ```
 
-Open the Vite URL (`http://localhost:5173`). Use the controls to change the date range,
-toggle the trend view, switch table/cards, and force a refresh ... all without restarting.
+Open the Vite URL (`http://localhost:5173`). The page header changes the range, toggles
+the trend view and switches table/cards; the topbar's Refresh button forces a refresh ...
+all without restarting.
 
 For a production-style run: `bun run build && bun run serve` (the server then serves the
 built app straight out of `dist/`).

@@ -1,6 +1,7 @@
 import {
   Children,
   isValidElement,
+  useEffect,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -19,6 +20,12 @@ import { ShellRailContext } from './shell-context';
 
 export const MATTSTACK_HEADER_HEIGHT = 48;
 
+/** ActionIcon size for top-bar icon buttons: Mantine's `compact-sm` Button
+ *  height, so an icon sits level with the header's text buttons. A number,
+ *  because `--button-height-compact-sm` is scoped to Button and does not
+ *  resolve on an ActionIcon. */
+export const MATTSTACK_HEADER_ICON_SIZE = 26;
+
 function RailSlot({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
@@ -26,11 +33,27 @@ function RailBottomSlot({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+export interface MattstackShellHeaderProps {
+  /** Page context (a breadcrumb, say), shown after the mark in place of the app name. */
+  children?: ReactNode;
+  /** Right-aligned header actions, placed before the app launcher. */
+  actions?: ReactNode;
+}
+
+/** Read by `partition`, which only sees direct children: `MattstackShell.Header`
+ *  must be written directly inside `MattstackShell`, never in a fragment or a
+ *  wrapper component. Renders nothing where it is written. */
+const HeaderSlot: (props: MattstackShellHeaderProps) => null = () => null;
+
 export interface MattstackShellProps {
   name: string;
   /** 30px works with the wordmark recipe; the app owns the artwork. */
   mark?: ReactNode;
   headerHeight?: number;
+  /** `false` drops the rail for a single-page app: the page takes the full
+   *  width and the colour-scheme control moves to the top bar's right end.
+   *  @default true */
+  rail?: boolean;
   railLabel?: string;
   /** This app's deck registry name. When set, the header shows the shared
    *  app launcher marking this app as current. */
@@ -43,14 +66,17 @@ export interface MattstackShellProps {
 function partition(children: ReactNode) {
   let rail: ReactElement | undefined;
   let railBottom: ReactElement | undefined;
+  let header: MattstackShellHeaderProps | undefined;
   const page: ReactNode[] = [];
   Children.forEach(children, child => {
     if (isValidElement(child) && child.type === RailSlot) rail = child;
     else if (isValidElement(child) && child.type === RailBottomSlot)
       railBottom = child;
+    else if (isValidElement(child) && child.type === HeaderSlot)
+      header = child.props as MattstackShellHeaderProps;
     else page.push(child);
   });
-  return { rail, railBottom, page };
+  return { rail, railBottom, header, page };
 }
 
 /**
@@ -72,6 +98,7 @@ function Shell({
   name,
   mark,
   headerHeight = MATTSTACK_HEADER_HEIGHT,
+  rail: withRail = true,
   railLabel = 'App sections',
   appName,
   deckBase,
@@ -79,8 +106,16 @@ function Shell({
 }: MattstackShellProps) {
   const rail = useRailState();
   const headerProps = useHeaderProps();
-  const { rail: railSlot, railBottom, page } = partition(children);
-  const expanded = rail.effectiveExpanded;
+  const { rail: railSlot, railBottom, header, page } = partition(children);
+  const expanded = withRail && rail.effectiveExpanded;
+  const strayRailChildren =
+    !withRail && (railSlot != null || railBottom != null);
+  useEffect(() => {
+    if (import.meta.env.DEV && strayRailChildren)
+      console.warn(
+        `MattstackShell "${name}": rail={false} renders no rail, so its MattstackShell.Rail and MattstackShell.RailBottom children are dropped.`
+      );
+  }, [name, strayRailChildren]);
   return (
     <ShellRailContext.Provider value={{ expanded, close: rail.close }}>
       <RailShell
@@ -88,31 +123,45 @@ function Shell({
         headerProps={headerProps}
         header={
           <Group justify="space-between" w="100%" wrap="nowrap">
-            <Group gap="sm" wrap="nowrap">
+            <Group gap="sm" wrap="nowrap" miw={0}>
               {mark}
-              <Text fw={700} fz={22} lh={1} style={{ whiteSpace: 'nowrap' }}>
-                {name}
-              </Text>
+              {header?.children ?? (
+                <Text fw={700} fz={15} lh={1} style={{ whiteSpace: 'nowrap' }}>
+                  {name}
+                </Text>
+              )}
             </Group>
-            {appName && (
-              <AppLauncher currentApp={appName} deckBase={deckBase} />
-            )}
+            <Group gap="md" wrap="nowrap">
+              {header?.actions}
+              {!withRail && (
+                <ColorSchemeControl
+                  variant="button"
+                  size={MATTSTACK_HEADER_ICON_SIZE}
+                  iconSize={16}
+                />
+              )}
+              {appName && (
+                <AppLauncher currentApp={appName} deckBase={deckBase} />
+              )}
+            </Group>
           </Group>
         }
         rail={
-          <Rail
-            label={railLabel}
-            expanded={expanded}
-            onToggleExpanded={rail.toggleExpanded}
-            pinBottom={
-              <>
-                {railBottom}
-                <ColorSchemeControl expanded={expanded} />
-              </>
-            }
-          >
-            {railSlot}
-          </Rail>
+          withRail ? (
+            <Rail
+              label={railLabel}
+              expanded={expanded}
+              onToggleExpanded={rail.toggleExpanded}
+              pinBottom={
+                <>
+                  {railBottom}
+                  <ColorSchemeControl expanded={expanded} />
+                </>
+              }
+            >
+              {railSlot}
+            </Rail>
+          ) : null
         }
         railExpanded={expanded}
         railOpened={rail.opened}
@@ -128,4 +177,5 @@ function Shell({
 export const MattstackShell = /* @__PURE__ */ Object.assign(Shell, {
   Rail: RailSlot,
   RailBottom: RailBottomSlot,
+  Header: HeaderSlot,
 });

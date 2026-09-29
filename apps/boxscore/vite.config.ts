@@ -2,7 +2,11 @@ import { defineConfig } from 'vite';
 
 import { mattstackVite } from '@mattstack/app-kit/vite';
 
-const base = mattstackVite({ apiPort: 11005 });
+// BOXSCORE_API_PORT points the dev proxy at a second server (the parity harness's fixture
+// server) instead of the installed app, which owns 11005.
+const base = mattstackVite({
+  apiPort: Number(process.env.BOXSCORE_API_PORT ?? 11005),
+});
 
 export default defineConfig({
   ...base,

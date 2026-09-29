@@ -17,11 +17,11 @@ export const STALL_AFTER_MS = 20_000;
  */
 export const REQUEST_DEADLINE_MS = 30_000;
 
-/** What to append to the progress label once it stops moving, or null while it progresses. */
+/** The stall copy once a reading stops moving, or null while it progresses. */
 export function stallNotice(idleMs: number): string | null {
   if (idleMs < STALL_AFTER_MS) return null;
-  const seconds = Math.floor(idleMs / 1000);
+  const s = Math.floor(idleMs / 1000);
   return idleMs >= REQUEST_DEADLINE_MS
-    ? `stalled ${seconds}s · retrying`
-    : `stalled ${seconds}s`;
+    ? `No progress for ${s}s · still waiting on GitLab, cancel to try again later`
+    : `No progress for ${s}s`;
 }

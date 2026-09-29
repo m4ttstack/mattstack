@@ -1,3 +1,4 @@
+import { ColorSchemeControl } from '@mattstack/app-kit/app';
 import {
   Box,
   Drawer,
@@ -6,7 +7,7 @@ import {
   Text,
   UnstyledButton,
 } from '@mattstack/app-kit/core';
-import { useColorScheme, useHover } from '@mattstack/app-kit/hooks';
+import { useHover } from '@mattstack/app-kit/hooks';
 import { Icon } from '@mattstack/app-kit/icons';
 
 import { FleetTree, type FleetRoom } from './FleetTree';
@@ -219,9 +220,6 @@ export function FleetDrawer({
   onCloseRoom,
   onMarkRead,
 }: FleetDrawerProps) {
-  const { computedColorScheme, setColorScheme } = useColorScheme();
-  const isDark = computedColorScheme === 'dark';
-
   function selectBuddy(handle: string) {
     onOpenDm(handle);
     onClose();
@@ -297,13 +295,12 @@ export function FleetDrawer({
           <Text size="xs" style={{ color: PHONE_MUTED_META }}>
             {daemonReachable ? 'rt daemon answering' : 'rt daemon unreachable'}
           </Text>
-          <UnstyledButton
-            aria-label="Color scheme"
-            onClick={() => setColorScheme(isDark ? 'light' : 'dark')}
-            style={tapButtonStyle(PHONE_TAP)}
-          >
-            <Icon name={isDark ? 'sun' : 'moon'} size={20} />
-          </UnstyledButton>
+          <ColorSchemeControl
+            variant="button"
+            size={PHONE_TAP}
+            iconSize={20}
+            muted
+          />
         </Group>
       </Stack>
     </Drawer>

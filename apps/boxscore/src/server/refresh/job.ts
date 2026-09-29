@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   LeaderboardResponse,
   RefreshJobStatus,
+  RefreshPhase,
   RefreshProgress,
   RefreshStatusResponse,
   TimeWindow,
@@ -66,13 +67,16 @@ export function startRefresh(
   };
   currentJob = job;
 
+  let totals: Partial<Record<RefreshPhase, number>> = {};
   void run({
     window: req.window,
     refresh: true,
     trend: req.trend,
     signal: controller.signal,
     onProgress: p => {
-      job.progress = p;
+      if (job.progress && job.progress.window !== p.window) totals = {};
+      totals = { ...totals, [p.phase]: p.total };
+      job.progress = { ...p, totals };
     },
   })
     .then(

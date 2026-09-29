@@ -1,5 +1,8 @@
-import { HybridMenu, RailEntry } from '@mattstack/app-kit/core';
+import { ActionIcon, HybridMenu, RailEntry } from '@mattstack/app-kit/core';
+import type { ActionIconProps } from '@mattstack/app-kit/core';
 import { useColorScheme } from '@mattstack/app-kit/hooks';
+import { Icon, type IconName } from '@mattstack/app-kit/icons';
+import classes from './ColorSchemeControl.module.css';
 
 type ColorSchemePreference = 'auto' | 'light' | 'dark';
 
@@ -9,20 +12,55 @@ const OPTIONS: { label: string; value: ColorSchemePreference }[] = [
   { label: 'Dark', value: 'dark' },
 ];
 
-export function ColorSchemeControl({ expanded }: { expanded: boolean }) {
-  const { colorScheme, computedColorScheme, setColorScheme } = useColorScheme();
-  const isDark = computedColorScheme === 'dark';
+/** The icon shows the stored choice, so System reads as system rather than as the scheme it resolved to. */
+const SCHEME_ICON: Record<ColorSchemePreference, IconName> = {
+  auto: 'monitor',
+  light: 'sun',
+  dark: 'moon',
+};
+
+export type ColorSchemeControlProps =
+  | { variant?: 'rail'; expanded: boolean }
+  | {
+      /** A bare icon button, for chrome outside the shell rail (a phone drawer, say). */
+      variant: 'button';
+      size?: ActionIconProps['size'];
+      /** Rests in the muted text colour, for chrome whose neighbouring icons are muted. */
+      muted?: boolean;
+      /** @default 18 */
+      iconSize?: number;
+    };
+
+/** The one colour-scheme switcher: System, Light or Dark, its icon showing the stored choice. */
+export function ColorSchemeControl(props: ColorSchemeControlProps) {
+  const { colorScheme, setColorScheme } = useColorScheme();
+  const icon = SCHEME_ICON[colorScheme as ColorSchemePreference] ?? 'monitor';
+  const choice =
+    OPTIONS.find(option => option.value === colorScheme)?.label ?? 'System';
+  const accessibleName = `Color scheme: ${choice}`;
   return (
     <HybridMenu
       options={OPTIONS}
       value={colorScheme}
       onChange={value => setColorScheme(value as ColorSchemePreference)}
       target={
-        <RailEntry
-          icon={isDark ? 'sun' : 'moon'}
-          label="Color scheme"
-          expanded={expanded}
-        />
+        props.variant === 'button' ? (
+          <ActionIcon
+            variant="subtle"
+            className={props.muted ? classes.muted : undefined}
+            size={props.size ?? 'lg'}
+            aria-label={accessibleName}
+          >
+            <Icon name={icon} size={props.iconSize ?? 18} />
+          </ActionIcon>
+        ) : (
+          <RailEntry
+            icon={icon}
+            label="Color scheme"
+            aria-label={accessibleName}
+            expanded={props.expanded}
+          />
+        )
       }
     />
   );

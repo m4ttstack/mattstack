@@ -106,6 +106,29 @@ test('desktop renders neither the mobile toggle nor the overlay', () => {
   expect(navbar(container).style.width).toContain('3.5rem');
 });
 
+test.each([null, false])(
+  'a %s rail renders no navbar and no mobile toggle',
+  noRail => {
+    setViewportWidth(400);
+    const { container } = renderWithProviders(
+      <RailShell
+        headerHeight={48}
+        header={<span>Header content</span>}
+        rail={noRail}
+        railExpanded={false}
+        railOpened={false}
+        onToggleRail={() => {}}
+        onCloseRail={() => {}}
+      >
+        <div>page body</div>
+      </RailShell>
+    );
+    expect(navbar(container)).toBeNull();
+    expect(screen.queryByLabelText('Toggle navigation')).toBeNull();
+    expect(screen.getByText('page body')).toBeTruthy();
+  }
+);
+
 test('railWidth overrides replace the default 56px geometry', () => {
   const { container } = renderWithProviders(
     <ShellHarness railWidth={80} railWidthExpanded={300} />
@@ -197,6 +220,17 @@ test('entries keep the fixed icon column and the transitioned label classes', ()
   // opacity/offset transition (railLabel).
   expect(entry.querySelector('[class*="railEntryRow"]')).toBeTruthy();
   expect(screen.getByText('Inventory').className).toContain('railLabel');
+});
+
+test('only an expanded entry flags itself for the whole-row hover surface', () => {
+  renderWithProviders(<ComposedHarness />);
+
+  const entry = () => screen.getByRole('button', { name: 'Inventory' });
+  expect(entry().hasAttribute('data-rail-expanded')).toBe(false);
+  expect(entry().querySelector('[class*="railEntryIcon"]')).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Expand navigation' }));
+  expect(entry().hasAttribute('data-rail-expanded')).toBe(true);
 });
 
 test('on mobile the rail opens expanded (useRailState expand-then-open)', () => {

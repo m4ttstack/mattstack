@@ -1,0 +1,408 @@
+/*
+ * Strokes follow the shell's model: a full stroke is an inset outline, a
+ * one-sided stroke is a border paid back with a half-pixel negative margin.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.t {
+  line-height: normal;
+  white-space: nowrap;
+}
+
+.num {
+  font-family: var(--mantine-font-family-monospace);
+}
+
+/* Profile header */
+
+.backLink {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.backLabel {
+  color: var(--tk-text-accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.profileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.profileText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.name {
+  margin: 0;
+  color: var(--tk-text-1);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.meta {
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.switcher {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.personSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 8px;
+  outline: 1px solid var(--tk-border);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.selLabel {
+  color: var(--tk-text-1);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Summary */
+
+.summary {
+  display: flex;
+  border-radius: 12px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.sumCell {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 18px;
+}
+
+.sumCellStroked {
+  margin-right: -0.5px;
+  border-right: 1px solid var(--tk-border-soft);
+}
+
+.sumLabel,
+.sumUnit,
+.sumSub {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.sumSubWrap {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.sumVal {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.sumV {
+  color: var(--tk-text-1);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.sumUnitPad {
+  display: flex;
+  padding-bottom: 4px;
+}
+
+/* Body */
+
+.body {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.statRail {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 2px;
+  width: 300px;
+  padding: 8px;
+  border-radius: 12px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 10px 4px;
+}
+
+.groupHead:first-child {
+  padding-top: 8px;
+}
+
+.swatch {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+}
+
+.groupLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
+.statRow {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 7px;
+  text-decoration: none;
+}
+
+@media (hover: hover) {
+  .statRow:hover {
+    background: var(--tk-raised);
+  }
+}
+
+.statRow:focus-visible {
+  background: var(--tk-raised);
+}
+
+.statRowSelected,
+.statRowSelected:hover,
+.statRowSelected:focus-visible {
+  background: var(--mantine-color-accent-light);
+}
+
+.statName {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.statValue {
+  color: var(--tk-text-1);
+  font-size: 12px;
+}
+
+.rankPill {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 18px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.rankPillPlain {
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  color: var(--tk-text-3);
+}
+
+.rankPillGold {
+  background: var(--tk-fill-gold);
+  color: var(--tk-on-fill-gold);
+  font-weight: 700;
+}
+
+/* Stat panel */
+
+.panel {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  outline: 1px solid var(--tk-border-soft);
+  outline-offset: -0.5px;
+  background: var(--tk-card);
+}
+
+.panelTop {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.headLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.statTitle {
+  margin: 0;
+  color: var(--tk-text-1);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.src {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 32px;
+}
+
+.big {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bigValue {
+  color: var(--tk-text-1);
+  font-size: 48px;
+  font-weight: 500;
+  letter-spacing: -2px;
+}
+
+.bigSub,
+.blockLabel {
+  color: var(--tk-text-3);
+  font-size: 12px;
+}
+
+.block {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: -0.5px;
+  padding-left: 24px;
+  border-left: 1px solid var(--tk-border-soft);
+}
+
+/* The team strip is a fixed 360px axis; below that the field wraps to its own line. */
+.field {
+  flex: 1 1 0;
+  min-width: 385px;
+  gap: 8px;
+}
+
+.rankValue {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.rankR {
+  color: var(--tk-text-1);
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.rankOfPad {
+  display: flex;
+  padding-bottom: 3px;
+}
+
+.leaderValue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.leaderName {
+  color: var(--tk-text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.leaderStat {
+  color: var(--tk-text-3);
+  font-size: 13px;
+}
+
+.definition {
+  width: 920px;
+  max-width: 100%;
+  margin: 0;
+  color: var(--tk-text-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}

@@ -21,16 +21,18 @@
     "serve-check": "bash scripts/binary-gate.sh"
   },
   "dependencies": {
+    "@mantine/charts": "catalog:",
     "@mattstack/app-kit": "workspace:*",
     "@mattstack/app-server": "workspace:*",
     "@mattstack/glance": "workspace:*",
     "@mattstack/mantine-tokyo": "workspace:*",
     "@mattstack/rt-client": "workspace:*",
-    "@mattstack/settings-kit": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "hono": "catalog:",
+    "lucide-react": "^1.25.0",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "recharts": "catalog:",
     "wouter": "catalog:"
   },
   "devDependencies": {

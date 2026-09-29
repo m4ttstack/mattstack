@@ -5,11 +5,12 @@ import {
   type EvidenceContext,
 } from '../src/server/metrics/evidence.js';
 import { computeSnapshot } from '../src/server/metrics/snapshot.js';
+import { round } from '../src/server/metrics/stats.js';
 import type {
   FetchResult,
   NormLinearIssue,
 } from '../src/server/store/model.js';
-import { FETCH, USERS, WINDOW } from './fixtures.js';
+import { FETCH, fetchedWithMergedMrs, USERS, WINDOW } from './fixtures.js';
 
 const SIZE_BAND = { tooSmall: 10, tooLarge: 400 };
 const CTX: EvidenceContext = {
@@ -64,6 +65,20 @@ describe('buildUserEvidence links and flags', () => {
         r.href?.startsWith('https://linear.app/')
       )
     ).toBe(true);
+  });
+
+  it('revert rows name the reverting MR and how long the original lived', () => {
+    expect(ev.revertRate!.columns).toEqual([
+      'MR',
+      'Title',
+      'Merged',
+      'Reverted by',
+      'Lived',
+    ]);
+    const reverted = ev.revertRate!.rows.find(r => r.cells[0] === '!1');
+    expect(reverted?.cells.slice(3)).toEqual(['!4', '15d']);
+    const kept = ev.revertRate!.rows.find(r => r.cells[0] === '!2');
+    expect(kept?.cells.slice(3)).toEqual(['—', '—']);
   });
 
   it('size-health marks out-of-band MRs as muted', () => {
@@ -167,6 +182,8 @@ describe('issuesCompleted shows the closed date and non-mention links only', () 
     expect(row.cells[3]).toBe('2026-05-15');
     expect(row.cells[4]).not.toContain('!200'); // 200 is the mention-only link
     expect(row.cells[4]).toContain('!100');
+    expect(row.mrHrefs).toHaveLength(1);
+    expect(row.mrHrefs![0]).toMatch(/\/-\/merge_requests\/100$/);
   });
 });
 
@@ -188,5 +205,103 @@ describe('evidence row ordering', () => {
       '2026-05-11',
       '2026-05-10',
     ]);
+  });
+});
+
+describe('evidence facts', () => {
+  it('carries typed totals for every stat', () => {
+    expect(ev.mrsMerged?.facts).toEqual({ merged: 2, added: 105, deleted: 22 });
+    expect(ev.additions?.facts).toEqual(ev.mrsMerged?.facts);
+    expect(ev.deletions?.facts).toEqual(ev.mrsMerged?.facts);
+    expect(ev.sizeHealthPct?.facts).toEqual({
+      inBand: 1,
+      overBand: 0,
+      underBand: 1,
+      bandLow: 10,
+      bandHigh: 400,
+    });
+    expect(Object.keys(ev.reciprocity?.facts ?? {}).sort()).toEqual([
+      'given',
+      'received',
+      'reviewers',
+    ]);
+    expect(Object.keys(ev.pipelines?.facts ?? {}).sort()).toEqual([
+      'canceled',
+      'failed',
+      'running',
+      'success',
+    ]);
+    expect(ev.longestStreak?.facts).toEqual(ev.currentStreak?.facts);
+    expect(ev.longestStreak?.facts).toEqual({
+      current: expect.any(Number),
+      longest: 2,
+      mergeDays: 2,
+    });
+    expect(ev.revertRate?.facts).toEqual({ reverted: 1, checked: 2 });
+    expect(ev.revertedCount?.facts).toEqual(ev.revertRate?.facts);
+    expect(ev.codingDays?.facts).toEqual({ days: 4, windowDays: 30 });
+    expect(Object.keys(ev.mrsReviewed?.facts ?? {}).sort()).toEqual([
+      'authors',
+      'reviewed',
+    ]);
+    expect(Object.keys(ev.reviewDepth?.facts ?? {}).sort()).toEqual([
+      'inlineComments',
+      'reviewed',
+    ]);
+    for (const k of ['reviewLatencyHours', 'responseLatencyHours'] as const)
+      expect(Object.keys(ev[k]?.facts ?? {}).sort()).toEqual([
+        'count',
+        'p50',
+        'p90',
+      ]);
+    expect(Object.keys(ev.issuesCompleted?.facts ?? {}).sort()).toEqual([
+      'counted',
+      'excludedByState',
+      'outsideWindow',
+    ]);
+  });
+
+  it('reciprocity summary, facts and metric share one received count', () => {
+    const r = ev.reciprocity!;
+    const f = r.facts!;
+    expect(f.given).toBe(alice.mrsReviewed);
+    expect(f.reviewers).toBe(r.rows.length);
+    expect(f.received).toBe(r.rows.length);
+    expect(r.summary).toContain(`received from ${f.received} reviewer(s)`);
+    const ratio = f.received === 0 ? f.given : round(f.given! / f.received!, 2);
+    expect(r.summary).toContain(`ratio ${ratio}`);
+    expect(alice.reciprocity).toBe(ratio);
+  });
+
+  it('pipelines facts partition every pipeline into four buckets', () => {
+    const f = ev.pipelines!.facts!;
+    expect(f.success! + f.failed! + f.canceled! + f.running!).toBe(
+      alice.pipelines
+    );
+  });
+
+  it('size bands partition merged MRs at the band edges', () => {
+    const edges = fetchedWithMergedMrs('alice', 2);
+    edges.mrs[0] = { ...edges.mrs[0]!, additions: 10, deletions: 0 };
+    edges.mrs[1] = { ...edges.mrs[1]!, additions: 401, deletions: 0 };
+    const f = buildUserEvidence(edges, 'alice', CTX).sizeHealthPct!.facts!;
+    expect(f).toMatchObject({ inBand: 1, underBand: 0, overBand: 1 });
+  });
+
+  it('latency facts are zero with no samples', () => {
+    const none = buildUserEvidence(FETCH, 'nobody', CTX);
+    expect(none.reviewLatencyHours?.facts).toEqual({
+      p50: 0,
+      p90: 0,
+      count: 0,
+    });
+  });
+
+  it('computes facts before rows are truncated', () => {
+    const big = fetchedWithMergedMrs('alice', 320);
+    const evBig = buildUserEvidence(big, 'alice', CTX);
+    expect(evBig.mrsMerged?.rows).toHaveLength(300);
+    expect(evBig.mrsMerged?.facts?.merged).toBe(320);
+    expect(evBig.sizeHealthPct?.facts?.inBand).toBe(320);
   });
 });
