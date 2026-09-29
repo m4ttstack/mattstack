@@ -14,7 +14,7 @@
 import { join } from "path";
 import { createHash } from "crypto";
 import type { RunResult } from "../subprocess.ts";
-import { appPaths, checkGate, compareVersions, movedServedApps } from "./preflight.ts";
+import { SERVE_ONLY_APPS, appPaths, checkGate, compareVersions, movedServedApps } from "./preflight.ts";
 import { runVerify, type VerifyReport, type VerifySeams } from "./verify.ts";
 
 export const RT_REPO = "m4ttstack/mattstack";
@@ -57,6 +57,12 @@ export function renderNotes(o: { sections: NotesSection[]; lastTag: string; next
   }
   lines.push(`**Full Changelog**: https://github.com/${RT_REPO}/compare/${o.lastTag}...${o.nextTag}`, "");
   return lines.join("\n");
+}
+
+/** The served apps a tag's notes say it shipped, read back from renderNotes' `### <app>` sections. */
+export function shippedApps(notes: string): string[] {
+  const headed = new Set([...notes.matchAll(/^### (\S+)$/gm)].map((m) => m[1]!));
+  return SERVE_ONLY_APPS.filter((a) => headed.has(a));
 }
 
 /** What `--yes-notes` binds an approval to: these exact notes, not whatever a later run generates. */
@@ -433,6 +439,7 @@ export async function runReleaseApp(seams: ReleaseAppSeams, rawOpts: ReleaseAppO
     try {
       notes = await git(seams, ["show", `${ctx.lastTag}:RELEASE_NOTES.md`]);
       hash = notesHash(notes);
+      apps = shippedApps(notes);
     } catch {
       // no RELEASE_NOTES.md at this ref; the report simply carries no notes text
     }

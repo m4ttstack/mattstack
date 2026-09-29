@@ -531,6 +531,7 @@ describe("runReleaseApp: resume", () => {
     const before = w.calls.length;
     const second = await runReleaseApp(w.seams(), opts());
     expect(second.nextTag).toBe(NEXT);
+    expect(second.apps).toEqual(["board"]);
     expect(lastStep(second)).toMatchObject({ id: "verify", status: "failed" });
     expect(mutations(w.calls.slice(before))).toEqual([]);
   });
