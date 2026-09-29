@@ -27,6 +27,9 @@ A6=$(printf '%s%s' 'am' 'fam')
 A7=$(printf '%s%s' 'adjus' 'ter')
 A8=$(printf "%s%s" "hog" "warts")
 A9=$(printf "%s%s" "CV" "I")
+# A9 is three letters, so generated ids and hashes contain it by chance; it
+# gets the same word boundaries as A10 below.
+A9B="(^|[^[:alnum:]])$A9([^[:alnum:]]|\$)"
 # A carrier name reached HEAD in a hyphenated form the first scrub missed,
 # because it had only caught the spaced form: a word list is only as good as
 # its variants. Kept fragmented, like the rest, so this file stays clean of the
@@ -46,7 +49,7 @@ P1=$(printf '%s%s' 'launch' 'darkly')
 P2=$(printf '%s%s' 'strong' 'dm')
 P3=$(printf '%s%s' 'parking' '-lot')
 
-PATTERN="$A1|$A2|$A3|$A4|$A5|$A6|$A7|$A8|$A9|$A10B|$A11"
+PATTERN="$A1|$A2|$A3|$A4|$A5|$A6|$A7|$A8|$A9B|$A10B|$A11"
 
 # Lockfiles and PNGs are excluded: base64 integrity hashes and binary bytes
 # collide with the short patterns often enough to be pure noise, and nothing
