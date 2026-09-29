@@ -318,7 +318,8 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("can't write");
-    expect(r.detail).not.toBe("shell integration missing — Install writes it");
+    expect(r.detail).not.toBe("shell integration not added yet");
+    expect(r.action).toBeNull();
     expect(r.optionalNote).not.toBeNull();
   });
 
@@ -336,11 +337,12 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     expect(r.detail).toContain(".zshrc");
   });
 
-  test("known shell, rc file exists but has no rtcd -> needs-you, Install-writes-it detail", async () => {
+  test("known shell, rc file exists but has no rtcd -> needs-you, with a row action that runs path.link (the step that writes it)", async () => {
     const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": "# nothing here\n" } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("shell integration missing — Install writes it");
+    expect(r.detail).toBe("shell integration not added yet");
+    expect(r.action).toEqual({ type: "run", label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"] });
   });
 });
 

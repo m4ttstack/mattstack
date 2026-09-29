@@ -269,6 +269,9 @@ function extensionRow(p: Probes): Row {
   return row({ ...base, status: "skipped", detail: result.detail });
 }
 
+/** `path.link` is the step that writes the rc block; `--only` runs just it (lib/setup/apply.ts). */
+const ADD_TO_SHELL_ACTION: Action = { type: "run", label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"] };
+
 function shellRow(p: Probes): Row {
   const base = {
     id: "tool.shell",
@@ -283,7 +286,7 @@ function shellRow(p: Probes): Row {
   if (rc) {
     const content = p.readFile(rc) ?? "";
     if (content.includes("rtcd")) return row({ ...base, status: "ready", detail: `rtcd alias in ${rc}` });
-    return row({ ...base, status: "needs-you", detail: "shell integration missing — Install writes it" });
+    return row({ ...base, status: "needs-you", detail: "shell integration not added yet", action: ADD_TO_SHELL_ACTION });
   }
   return row({ ...base, status: "needs-you", detail: "unrecognized shell — can't write shell integration automatically; add the rtcd alias yourself" });
 }
