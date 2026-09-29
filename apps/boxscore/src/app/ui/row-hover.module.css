@@ -7,7 +7,12 @@
   --row-hover-bg: var(--mantine-color-dark-5);
 }
 
-.row:hover,
+@media (hover: hover) {
+  .row:hover {
+    background-color: var(--row-hover-bg);
+  }
+}
+
 .row:focus-within {
   background-color: var(--row-hover-bg);
 }
@@ -16,7 +21,12 @@
   background-color: var(--mantine-color-accent-light);
 }
 
-.row[data-you]:hover,
+@media (hover: hover) {
+  .row[data-you]:hover {
+    background-color: var(--mantine-color-accent-light-hover);
+  }
+}
+
 .row[data-you]:focus-within {
   background-color: var(--mantine-color-accent-light-hover);
 }

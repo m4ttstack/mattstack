@@ -215,7 +215,12 @@
   text-decoration: none;
 }
 
-.statRow:hover,
+@media (hover: hover) {
+  .statRow:hover {
+    background: var(--tk-raised);
+  }
+}
+
 .statRow:focus-visible {
   background: var(--tk-raised);
 }

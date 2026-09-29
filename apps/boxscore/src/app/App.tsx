@@ -343,7 +343,7 @@ function AppShell() {
       <PageShell>
         <PageShell.Main>
           <PageShell.Content bg="var(--tk-panel)" contentContainer={false}>
-            <main className={classes.content}>{page}</main>
+            <div className={classes.content}>{page}</div>
           </PageShell.Content>
         </PageShell.Main>
       </PageShell>
