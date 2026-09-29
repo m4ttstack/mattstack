@@ -108,7 +108,8 @@ function Shell({
   const headerProps = useHeaderProps();
   const { rail: railSlot, railBottom, header, page } = partition(children);
   const expanded = withRail && rail.effectiveExpanded;
-  const strayRailChildren = !withRail && (railSlot != null || railBottom != null);
+  const strayRailChildren =
+    !withRail && (railSlot != null || railBottom != null);
   useEffect(() => {
     if (import.meta.env.DEV && strayRailChildren)
       console.warn(

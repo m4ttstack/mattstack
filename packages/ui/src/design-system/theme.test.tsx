@@ -10,7 +10,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { appTheme, baseTheme, theme } from '@mattstack/app-kit/design-system';
-
 import classes from './component-styles.module.css';
 
 describe('base/app theme split', () => {
