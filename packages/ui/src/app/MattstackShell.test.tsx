@@ -98,6 +98,11 @@ test('rail={false} drops the rail and puts the scheme control at the end of the 
     .getAllByRole('button')
     .map(b => b.getAttribute('aria-label') ?? b.textContent);
   expect(names).toEqual(['Refresh', 'Color scheme']);
+  expect(
+    screen
+      .getByRole('button', { name: 'Color scheme' })
+      .style.getPropertyValue('--ai-size')
+  ).toBe('calc(1.625rem * var(--mantine-scale))');
   expect(screen.getByTestId('page')).toBeInTheDocument();
 });
 

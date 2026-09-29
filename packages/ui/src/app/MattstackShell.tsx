@@ -19,6 +19,12 @@ import { ShellRailContext } from './shell-context';
 
 export const MATTSTACK_HEADER_HEIGHT = 48;
 
+/** ActionIcon size for top-bar icon buttons: Mantine's `compact-sm` Button
+ *  height, so an icon sits level with the header's text buttons. A number,
+ *  because `--button-height-compact-sm` is scoped to Button and does not
+ *  resolve on an ActionIcon. */
+export const MATTSTACK_HEADER_ICON_SIZE = 26;
+
 function RailSlot({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
@@ -116,7 +122,13 @@ function Shell({
             </Group>
             <Group gap="md" wrap="nowrap">
               {header?.actions}
-              {!withRail && <ColorSchemeControl variant="button" />}
+              {!withRail && (
+                <ColorSchemeControl
+                  variant="button"
+                  size={MATTSTACK_HEADER_ICON_SIZE}
+                  iconSize={16}
+                />
+              )}
               {appName && (
                 <AppLauncher currentApp={appName} deckBase={deckBase} />
               )}

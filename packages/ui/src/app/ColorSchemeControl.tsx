@@ -24,6 +24,8 @@ export type ColorSchemeControlProps =
       /** A bare icon button, for chrome outside the shell rail (a phone drawer, say). */
       variant: 'button';
       size?: ActionIconProps['size'];
+      /** @default 18 */
+      iconSize?: number;
     };
 
 /** The one colour-scheme switcher: System, Light or Dark, its icon showing the stored choice. */
@@ -42,7 +44,7 @@ export function ColorSchemeControl(props: ColorSchemeControlProps) {
             size={props.size ?? 'lg'}
             aria-label="Color scheme"
           >
-            <Icon name={icon} size={18} />
+            <Icon name={icon} size={props.iconSize ?? 18} />
           </ActionIcon>
         ) : (
           <RailEntry

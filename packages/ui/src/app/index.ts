@@ -1,6 +1,10 @@
 export { mountMattstackApp } from './mount';
 export type { MountOptions } from './mount';
-export { MATTSTACK_HEADER_HEIGHT, MattstackShell } from './MattstackShell';
+export {
+  MATTSTACK_HEADER_HEIGHT,
+  MATTSTACK_HEADER_ICON_SIZE,
+  MattstackShell,
+} from './MattstackShell';
 export type {
   MattstackShellHeaderProps,
   MattstackShellProps,
