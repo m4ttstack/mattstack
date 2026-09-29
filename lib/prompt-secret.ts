@@ -1,8 +1,8 @@
 /**
- * Shared no-echo prompt for `rt secrets set/rotate` and `rt home key import`:
- * raw mode so keystrokes never reach the terminal, and nothing is echoed
- * back (not even asterisks) — the value never touches argv, so this is the
- * only place it's typed. `io` is injectable so tests drive a fake stdin
+ * Shared no-echo prompt for `rt secrets set/rotate`, `rt home key import` and
+ * `rt logins add`: raw mode so keystrokes never reach the terminal. By default
+ * nothing is echoed back; `mask` echoes one mask character per keystroke
+ * instead, never the value. `io` is injectable so tests drive a fake stdin
  * instead of a real TTY.
  */
 
@@ -30,7 +30,11 @@ function defaultPromptIO(): PromptIO {
   };
 }
 
-export function promptSecret(message: string, io: PromptIO = defaultPromptIO()): Promise<string> {
+export interface PromptSecretOptions {
+  mask?: string;
+}
+
+export function promptSecret(message: string, io: PromptIO = defaultPromptIO(), opts: PromptSecretOptions = {}): Promise<string> {
   if (!io.stdin.isTTY) {
     return Promise.reject(new Error(`${message}: not a TTY — pass --stdin to read the value from stdin instead`));
   }
@@ -58,10 +62,12 @@ export function promptSecret(message: string, io: PromptIO = defaultPromptIO()):
           return;
         }
         if (ch === DEL || ch === "\b") {
+          if (value && opts.mask) io.write("\b \b");
           value = value.slice(0, -1);
           continue;
         }
         value += ch;
+        if (opts.mask) io.write(opts.mask);
       }
     };
     stdin.resume();

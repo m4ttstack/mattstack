@@ -95,10 +95,10 @@ describe("rt logins", () => {
     const t = deps({
       isTTY: true,
       promptText: async (m) => { asked.push(`text:${m}`); return answers.shift()!; },
-      promptSecret: async (m) => { asked.push(`secret:${m}`); return answers.shift()!; },
+      promptSecret: async (m, opts) => { asked.push(`secret:${m}:${opts?.mask ?? ""}`); return answers.shift()!; },
     });
     await loginsAdd(["https://login.example.com"], {}, t.d);
-    expect(asked).toEqual(["text:Email for https://login.example.com", "secret:Password for https://login.example.com"]);
+    expect(asked).toEqual(["text:Email for https://login.example.com", "secret:Password for https://login.example.com:*"]);
     expect(JSON.parse(t.data["login.example.com"]!)).toEqual({ origin: "https://login.example.com", email: "dev@example.com", password: CANARY });
     const printed = t.out.join("\n");
     expect(printed).not.toContain(CANARY);
