@@ -125,10 +125,12 @@ describe('RankRow', () => {
     expect(row).toHaveClass(rowHover.row!);
     expect(row).not.toHaveAttribute('data-you');
     const css = readFileSync('src/app/ui/row-hover.module.css', 'utf8');
-    expect(css).toMatch(/\.row:hover,\s*\.row:focus-within\s*\{/);
+    expect(css).toMatch(/@media \(hover: hover\)\s*\{\s*\.row:hover\s*\{/);
     expect(css).toMatch(
-      /\.row\[data-you\]:hover,\s*\.row\[data-you\]:focus-within\s*\{/
+      /@media \(hover: hover\)\s*\{\s*\.row\[data-you\]:hover\s*\{/
     );
+    expect(css).toMatch(/^\.row:focus-within\s*\{/m);
+    expect(css).toMatch(/^\.row\[data-you\]:focus-within\s*\{/m);
     expect(css).not.toMatch(/transition/);
   });
 

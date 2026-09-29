@@ -87,9 +87,7 @@ test('focus lands on the checked choice and returns to the trigger on close', as
   expect(document.activeElement).toBe(items()[1]!);
 
   await React.act(async () => {
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
-    );
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
   });
   expect(items()).toHaveLength(0);
   expect(document.activeElement).toBe(trigger());
