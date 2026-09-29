@@ -86,8 +86,8 @@ describe('design fixture mode', () => {
     const { fixtureLeaderboard } = await import('../src/server/fixture');
     const body = fixtureLeaderboard(false);
     expect(body.window).toEqual({
-      start: '2026-08-30T12:00:00.000Z',
-      end: '2026-09-29T12:00:00.000Z',
+      start: '2026-08-30T00:00:00.000Z',
+      end: '2026-09-29T00:00:00.000Z',
       key: '30d',
     });
     const age = Date.now() - Date.parse(body.generatedAt);

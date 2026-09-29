@@ -9,15 +9,15 @@ export const BASE_URL = 'https://gitlab.example.com';
 export const LINEAR_URL = 'https://linear.example.com/acme/issue';
 export const PROJECT_PATH = 'acme/web-app';
 
-/** Noon UTC keeps the boards' day labels (Aug 30 to Sep 29) in every timezone within 11 hours of UTC. */
+/** Midnight UTC bounds make the day grids exactly Aug 30 to Sep 28; window labels must be formatted from UTC dates (ISO slice) to read Aug 30 to Sep 29. */
 export const WINDOW: TimeWindow = {
-  start: '2026-08-30T12:00:00.000Z',
-  end: '2026-09-29T12:00:00.000Z',
+  start: '2026-08-30T00:00:00.000Z',
+  end: '2026-09-29T00:00:00.000Z',
   key: '30d',
 };
 export const PRIOR_WINDOW: TimeWindow = {
-  start: '2026-07-31T12:00:00.000Z',
-  end: '2026-08-30T12:00:00.000Z',
+  start: '2026-07-31T00:00:00.000Z',
+  end: '2026-08-30T00:00:00.000Z',
   key: '30d',
 };
 

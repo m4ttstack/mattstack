@@ -394,8 +394,9 @@ describe('the design fixture reproduces the drawn panels', () => {
     const days = weeks.flat();
     expect(weeks).toHaveLength(5);
     expect(weeks[0]![0]!.date).toBe('2026-08-30');
-    expect(days.filter(d => d.inWindow)).toHaveLength(31);
-    expect(days.filter(d => d.inWindow).at(-1)?.date).toBe('2026-09-29');
+    expect(days.filter(d => d.inWindow)).toHaveLength(30);
+    expect(days.filter(d => d.inWindow).at(-1)?.date).toBe('2026-09-28');
+    expect(days.find(d => d.date === '2026-09-29')?.inWindow).toBe(false);
     expect(Math.max(...days.map(d => d.count))).toBe(28);
     expect(days.find(d => d.count === 28)?.date).toBe('2026-09-17');
     expect(days.filter(d => d.count > 0)).toHaveLength(21);
@@ -403,7 +404,8 @@ describe('the design fixture reproduces the drawn panels', () => {
 
   it('merge days', () => {
     const days = mergeDays(ev.longestStreak!, start, end);
-    expect(days).toHaveLength(31);
+    expect(days).toHaveLength(30);
+    expect(days.at(-1)?.date).toBe('2026-09-28');
     expect(days.filter(d => d.run === 'longest').map(d => d.date)).toEqual([
       '2026-09-21',
       '2026-09-22',
