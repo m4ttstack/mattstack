@@ -104,7 +104,7 @@ function Shell({
             <Group gap="sm" wrap="nowrap" miw={0}>
               {mark}
               {header?.children ?? (
-                <Text fw={700} fz={22} lh={1} style={{ whiteSpace: 'nowrap' }}>
+                <Text fw={700} fz={15} lh={1} style={{ whiteSpace: 'nowrap' }}>
                   {name}
                 </Text>
               )}
