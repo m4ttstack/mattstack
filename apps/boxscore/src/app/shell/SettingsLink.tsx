@@ -1,3 +1,4 @@
+import { MATTSTACK_HEADER_ICON_SIZE } from '@mattstack/app-kit/app';
 import { ActionIcon, Stack, Text, Tooltip } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import { useLinks } from './useLinks';
@@ -22,10 +23,10 @@ export function SettingsLink() {
         target="_blank"
         rel="noreferrer"
         variant="subtle"
-        size="lg"
+        size={MATTSTACK_HEADER_ICON_SIZE}
         aria-label="Settings"
       >
-        <Icon name="settings" size={18} />
+        <Icon name="settings" size={16} />
       </ActionIcon>
     </Tooltip>
   );
