@@ -290,10 +290,13 @@ async function pluginsUninstallRun(ctx: ApplyContext): Promise<ActionResult> {
     }
     for (const recorded of state.marketplaces) {
       const key = marketplaceSourceKey(recorded);
-      const match = listed.find((m) => m.name === recorded || (m.source !== null && marketplaceSourceKey(m.source) === key));
+      const match = listed.find((m) => m.source !== null && marketplaceSourceKey(m.source) === key);
       if (!match) continue;
       const res = await run(["plugin", "marketplace", "remove", match.name]);
-      if (res.code !== 0 && !isAlreadyGone(res)) notes.push(`${dir}: marketplace remove ${match.name}: ${claudeMessage(res, `exited ${res.code}`)}`);
+      if (res.code !== 0 && !isAlreadyGone(res)) {
+        notes.push(`${dir}: marketplace remove ${match.name}: ${claudeMessage(res, `exited ${res.code}`)}`);
+        unresolved.push(recorded);
+      }
     }
   }
 

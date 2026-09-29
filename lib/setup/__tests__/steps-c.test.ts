@@ -1506,19 +1506,36 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const rowOf = (id: string, kind: Row["kind"], title: string, status: Row["status"]): Row =>
         ({ id, kind, title, why: "", required: true, status, detail: "", action: null, recheck: "manual" }) as Row;
 
-      test("accounts and team tools the member has not set up yet read as needs-you, named by title", () => {
+      test("accounts to connect and team tools to install read as needs-you, each under its own verb", () => {
         const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
         expect(outcomeFromChecks([fail("account.slack"), fail("tool.team.doppler")], rows)).toEqual({
           state: "needs-you",
-          detail: "to connect: Slack, team Doppler",
+          detail: "to connect: Slack · to install: doppler",
         });
       });
 
+      test("settleChecks keeps waiting on tool.daemon while an unconnected account also fails", async () => {
+        const slack = fail("account.slack");
+        const daemonDown = { ...fail("tool.daemon"), detail: "daemon unreachable" };
+        const daemonUp = { name: "tool.daemon", status: "pass" as const, detail: "pid 1", severity: "critical" as const };
+        const reads = [[slack, daemonDown], [slack, daemonUp]];
+        const rows = [rowOf("account.slack", "account", "Slack", "missing")];
+        let readCount = 0;
+        const checks = await settleChecks(async () => { readCount++; return reads.shift()!; }, {
+          attempts: 5,
+          intervalMs: 3000,
+          sleep: async () => {},
+          leftForMember: (name) => name === "account.slack",
+        });
+        expect(readCount).toBe(2);
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "to connect: Slack" });
+      });
+
       test("a genuine failure stays failed and still names what is left to connect", () => {
-        const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error")];
-        expect(outcomeFromChecks([fail("account.slack"), fail("tool.app")], rows)).toEqual({
+        const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
+        expect(outcomeFromChecks([fail("account.slack"), fail("tool.app"), fail("tool.team.doppler")], rows)).toEqual({
           state: "failed",
-          detail: "1 check failed: tool.app · to connect: Slack",
+          detail: "1 check failed: tool.app · to connect: Slack · to install: doppler",
           remedy: "Run `rt verify` for details",
         });
       });

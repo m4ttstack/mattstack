@@ -687,6 +687,26 @@ describe("rt uninstall", () => {
       expect(result.ok).toBe(true);
     });
 
+    test("a real remove failure keeps that marketplace recorded so Retry retries it", async () => {
+      const { p } = marketplaceProbes(LISTED, () => ({ code: 1, stdout: "", stderr: "✘ Failed to remove marketplace: EACCES" }));
+      updateSetupState(p, (s) => ({ ...s, marketplaces: ["https://github.com/m4ttstack/mattstack-marketplace.git", "anthropics/claude-plugins-official"] }));
+      const { ctx } = makeCtx(p);
+
+      const result = await runUninstall(ctx, [{ id: "plugins.uninstall", title: "x", kind: "rt" }]);
+      expect(result.ok).toBe(false);
+      expect(readSetupState(p).marketplaces).toEqual(["https://github.com/m4ttstack/mattstack-marketplace.git", "anthropics/claude-plugins-official"]);
+    });
+
+    test("a same-named marketplace registered from another source is never removed", async () => {
+      const { p, execCalls } = marketplaceProbes(JSON.stringify([{ name: "mattstack", source: "directory", path: "/Users/me/mattstack-marketplace" }]));
+      updateSetupState(p, (s) => ({ ...s, marketplaces: ["mattstack"] }));
+      const { ctx } = makeCtx(p);
+
+      const result = await runUninstall(ctx, [{ id: "plugins.uninstall", title: "x", kind: "rt" }]);
+      expect(result.ok).toBe(true);
+      expect(execCalls.some((a) => a[3] === "remove")).toBe(false);
+    });
+
     test("an unreadable marketplace listing fails with claude's own words rather than guessing a name", async () => {
       const { p, execCalls } = marketplaceProbes(null);
       updateSetupState(p, (s) => ({ ...s, marketplaces: ["https://github.com/m4ttstack/mattstack-marketplace.git"] }));

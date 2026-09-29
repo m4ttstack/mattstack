@@ -15,38 +15,51 @@ import { toFailedOutcome } from "./step-utils.ts";
 
 type CheckResult = ReturnType<typeof rowsToChecks>[number];
 
+type MemberTask = { verb: "connect" | "install"; label: string };
+
 /**
  * Install never connects an account or installs a team-declared tool: both
  * wait on the member. So a required row of either kind that is simply not
  * set up yet is left for them, not an install failure; one that is set up
- * but broken (`invalid`, `error`) still is.
+ * but broken (`invalid`, `error`) still is. A `tool.team.*` row is only
+ * `missing` when its CLI is not installed, hence "install", not "connect".
  */
-function toConnectLabel(row: Row | undefined): string | null {
+function memberTask(row: Row | undefined): MemberTask | null {
   if (!row || (row.status !== "missing" && row.status !== "needs-you")) return null;
-  if (row.kind === "account") return row.title;
-  if (row.id.startsWith("tool.team.")) return `team ${row.title.charAt(0).toUpperCase()}${row.title.slice(1)}`;
+  if (row.kind === "account") return { verb: "connect", label: row.title };
+  if (row.id.startsWith("tool.team.")) return { verb: "install", label: row.title };
   return null;
+}
+
+/** The check names `outcomeFromChecks` would leave for the member rather than fail, for `settleChecks`' `leftForMember`. */
+export function leftForMemberIn(rows: Row[]): (name: string) => boolean {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return (name) => memberTask(byId.get(name)) !== null;
 }
 
 export function outcomeFromChecks(checks: CheckResult[], rows: Row[] = []): StepOutcome {
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const toConnect: string[] = [];
+  const tasks: MemberTask[] = [];
   const failures: CheckResult[] = [];
   for (const c of checks) {
     if (c.status !== "fail" || c.severity !== "critical") continue;
-    const label = toConnectLabel(byId.get(c.name));
-    if (label) toConnect.push(label);
+    const task = memberTask(byId.get(c.name));
+    if (task) tasks.push(task);
     else failures.push(c);
   }
-  const connectNote = toConnect.length > 0 ? `to connect: ${toConnect.join(", ")}` : "";
+  const note = (["connect", "install"] as const)
+    .map((verb) => [verb, tasks.filter((t) => t.verb === verb).map((t) => t.label)] as const)
+    .filter(([, labels]) => labels.length > 0)
+    .map(([verb, labels]) => `to ${verb}: ${labels.join(", ")}`)
+    .join(" · ");
   if (failures.length > 0) {
     return {
       state: "failed",
-      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => f.name).join(", ")}${connectNote ? ` · ${connectNote}` : ""}`,
+      detail: `${failures.length} check${failures.length === 1 ? "" : "s"} failed: ${failures.map((f) => f.name).join(", ")}${note ? ` · ${note}` : ""}`,
       remedy: "Run `rt verify` for details",
     };
   }
-  if (connectNote) return { state: "needs-you", detail: connectNote };
+  if (note) return { state: "needs-you", detail: note };
   const passed = checks.filter((c) => c.status === "pass").length;
   return { state: "done", detail: `${passed} check${passed === 1 ? "" : "s"} passed` };
 }
@@ -65,11 +78,12 @@ const SETTLE_INTERVAL_MS = 3000;
  */
 export async function settleChecks(
   read: () => Promise<CheckResult[]>,
-  opts: { attempts: number; intervalMs: number; sleep: (ms: number) => Promise<void> },
+  opts: { attempts: number; intervalMs: number; sleep: (ms: number) => Promise<void>; leftForMember?: (name: string) => boolean },
 ): Promise<CheckResult[]> {
   let checks = await read();
   for (let attempt = 1; attempt < opts.attempts; attempt++) {
-    const critical = checks.filter((c) => c.status === "fail" && c.severity === "critical");
+    // Rows left for the member never settle on their own, so they neither end the wait nor extend it.
+    const critical = checks.filter((c) => c.status === "fail" && c.severity === "critical" && !opts.leftForMember?.(c.name));
     // A critical failure nothing here can settle is a verdict, not a lag, and
     // must not be made to wait out team.sync's budget alongside it.
     if (critical.some((c) => !SETTLING_ROWS.has(c.name))) break;
@@ -96,7 +110,7 @@ async function verifyRun(ctx: ApplyContext): Promise<StepOutcome> {
     return rowsToChecks(plan, { ci: ctx.ci });
   };
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-  const checks = await settleChecks(read, { attempts: SETTLE_ATTEMPTS, intervalMs: SETTLE_INTERVAL_MS, sleep });
+  const checks = await settleChecks(read, { attempts: SETTLE_ATTEMPTS, intervalMs: SETTLE_INTERVAL_MS, sleep, leftForMember: (name) => leftForMemberIn(rows)(name) });
   return outcomeFromChecks(checks, rows);
 }
 
