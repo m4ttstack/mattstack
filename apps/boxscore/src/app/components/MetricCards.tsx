@@ -6,7 +6,8 @@ import {
   COLUMNS,
   deltaValue,
   formatValue,
-  GROUP_META,
+  groupColor,
+  GROUPS,
   rankValue,
   sortValue,
   type Column,
@@ -39,10 +40,10 @@ export function MetricCards({ data, trend }: Props) {
             <Text
               size="10px"
               tt="uppercase"
-              c={GROUP_META[col.group].accent}
+              c={groupColor(col.group)}
               style={{ letterSpacing: '0.06em' }}
             >
-              {col.group}
+              {GROUPS[col.group].label}
             </Text>
           </Group>
           <Ranking col={col} users={data.users} trend={trend} />

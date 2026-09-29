@@ -7,6 +7,7 @@ import {
   deltaIsGood,
   formatNumber,
   formatValue,
+  GROUPS,
   metricDelta,
   metricRank,
   METRICS,
@@ -24,15 +25,17 @@ export const deltaValue = metricDelta;
 export const rankValue = metricRank;
 export { deltaIsGood, formatNumber, formatValue };
 
-/** Display order + presentation metadata per metric group, shared by table/cards/detail. */
-export const GROUP_ORDER: MetricGroup[] = ['delivery', 'volume', 'quality'];
+export { GROUP_ORDER, GROUPS } from '../shared/metrics';
 
-/** `accent` is a Mantine color name, the one source every view reads for a group's tint. */
-export const GROUP_META: Record<
-  MetricGroup,
-  { label: string; hint?: string; accent: string }
-> = {
-  delivery: { label: 'Delivery', hint: 'Linear', accent: 'green' },
-  volume: { label: 'Volume', hint: 'gameable', accent: 'dimmed' },
-  quality: { label: 'Quality & consistency', accent: 'accent' },
-};
+const HUE_COLOR = {
+  cyan: 'cyan',
+  neutral: 'dimmed',
+  accent: 'accent',
+  gold: 'var(--tk-text-gold-small)',
+  purple: 'purple',
+} as const;
+
+/** A `c` prop value for a group's hue: a Mantine colour name, or a role token where Tokyo has no named colour. */
+export function groupColor(g: MetricGroup): string {
+  return HUE_COLOR[GROUPS[g].hue];
+}

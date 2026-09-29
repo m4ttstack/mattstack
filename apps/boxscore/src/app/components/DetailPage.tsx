@@ -18,8 +18,9 @@ import {
   COLUMNS,
   deltaValue,
   formatValue,
-  GROUP_META,
+  GROUPS as GROUP_INFO,
   GROUP_ORDER,
+  groupColor,
   rankValue,
   sortValue,
   type Column,
@@ -41,14 +42,11 @@ interface Props {
   trend: boolean;
 }
 
-const GROUPS = GROUP_ORDER.map(key => {
-  const meta = GROUP_META[key];
-  return {
-    key,
-    label: meta.hint ? `${meta.label} (${meta.hint})` : meta.label,
-    color: GROUP_META[key].accent,
-  };
-});
+const GROUPS = GROUP_ORDER.map(key => ({
+  key,
+  label: GROUP_INFO[key].label,
+  color: groupColor(key),
+}));
 
 const BORDER = '1px solid var(--mantine-color-default-border)';
 

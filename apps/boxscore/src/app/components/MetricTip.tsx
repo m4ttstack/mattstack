@@ -1,5 +1,5 @@
 import { Stack, Text } from '@mattstack/app-kit/core';
-import type { Column } from '../columns';
+import { GROUPS, type Column } from '../columns';
 
 /** Tooltip body for a metric: name, what it measures, and which direction is better. */
 export function MetricTip({ col }: { col: Column }) {
@@ -17,7 +17,7 @@ export function MetricTip({ col }: { col: Column }) {
         style={{ letterSpacing: '0.06em', opacity: 0.7 }}
       >
         {col.better === 'asc' ? '↓ lower is better' : '↑ higher is better'} ·{' '}
-        {col.group}
+        {GROUPS[col.group].label}
       </Text>
     </Stack>
   );

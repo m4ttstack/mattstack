@@ -9,8 +9,9 @@ import {
   COLUMNS,
   deltaValue,
   formatValue,
-  GROUP_META,
   GROUP_ORDER,
+  groupColor,
+  GROUPS,
   rankValue,
   sortValue,
   type Column,
@@ -76,7 +77,6 @@ export function LeaderboardTable({ data, trend }: Props) {
               {GROUP_ORDER.map(g => {
                 const cols = COLUMNS.filter(c => c.group === g);
                 if (cols.length === 0) return null;
-                const meta = GROUP_META[g];
                 return (
                   <Table.Th
                     key={g}
@@ -89,16 +89,10 @@ export function LeaderboardTable({ data, trend }: Props) {
                       size="xs"
                       fw={600}
                       tt="uppercase"
-                      c={GROUP_META[g].accent}
+                      c={groupColor(g)}
                     >
-                      {meta.label}
+                      {GROUPS[g].label}
                     </Text>
-                    {meta.hint && (
-                      <Text component="span" size="xs">
-                        {' '}
-                        ({meta.hint})
-                      </Text>
-                    )}
                   </Table.Th>
                 );
               })}
