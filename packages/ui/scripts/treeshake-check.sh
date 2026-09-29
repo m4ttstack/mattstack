@@ -30,6 +30,13 @@ const retained = map.sources
   .filter(s => s.includes('/packages/ui/src/'))
   .filter(s => !ALLOW.some(re => re.test(s)));
 
+const charts = map.sources.filter(s => /node_modules\/(recharts|@mantine\/charts)\//.test(s));
+if (charts.length > 0) {
+  console.error('Tree-shaking gate FAILED. Chart code reached a bundle that never imports ./charts:');
+  charts.slice(0, 10).forEach(s => console.error('  ' + s));
+  process.exit(1);
+}
+
 if (retained.length > 0) {
   console.error('Tree-shaking gate FAILED. Unused kit modules retained in a minimal build:');
   retained.forEach(s => console.error('  ' + s.replace(/.*packages\/ui\//, 'packages/ui/')));
