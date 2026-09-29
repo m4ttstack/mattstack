@@ -18,7 +18,8 @@
     "!src/**/*.stories.*"
   ],
   "sideEffects": [
-    "*.css"
+    "*.css",
+    "./src/charts/index.ts"
   ],
   "exports": {
     "./app": "./src/app/index.ts",
@@ -31,6 +32,7 @@
     "./notifications": "./src/notifications/index.ts",
     "./icons": "./src/icons/index.ts",
     "./lazy": "./src/lazy/index.ts",
+    "./charts": "./src/charts/index.ts",
     "./spotlight": "./src/spotlight/index.ts",
     "./router": "./src/router/index.ts",
     "./design-system": "./src/design-system/index.ts",
@@ -50,6 +52,7 @@
     "test:watch": "vitest"
   },
   "peerDependencies": {
+    "@mantine/charts": "catalog:",
     "@mantine/code-highlight": "catalog:",
     "@mantine/core": "catalog:",
     "@mantine/dates": "catalog:",
@@ -62,6 +65,7 @@
     "@testing-library/react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "recharts": "catalog:",
     "vitest": "catalog:",
     "wouter": "catalog:",
     "zod": "catalog:"
@@ -93,6 +97,8 @@
     "react-interval-hook": "^1.1.5"
   },
   "devDependencies": {
-    "@mattstack/mantine-tokyo": "workspace:*"
+    "@mantine/charts": "catalog:",
+    "@mattstack/mantine-tokyo": "workspace:*",
+    "recharts": "catalog:"
   }
 }
