@@ -4,6 +4,7 @@ import type { MetricKey, UserRow } from '../../shared/types';
 import { statHref } from '../leaderboard/StandingsTable';
 import { initials } from '../model/labels';
 import { Glyph } from '../ui/Glyph';
+import { YouBadge } from '../ui/YouBadge';
 import classes from './detail.module.css';
 
 export const displayName = (u: UserRow): string => u.name ?? u.username;
@@ -98,16 +99,7 @@ export function ProfileHeader({
               <h1 className={`${classes.t} ${classes.name}`} data-parity="Name">
                 {name}
               </h1>
-              {you && (
-                <span className={classes.youBadge} data-parity="You Badge">
-                  <span
-                    className={`${classes.t} ${classes.you}`}
-                    data-parity="You"
-                  >
-                    you
-                  </span>
-                </span>
-              )}
+              {you && <YouBadge size="sm" />}
             </div>
             <span className={`${classes.t} ${classes.meta}`} data-parity="Meta">
               {meta}

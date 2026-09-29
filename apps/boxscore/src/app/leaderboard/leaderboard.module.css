@@ -17,7 +17,6 @@
 .pos,
 .initials,
 .name,
-.youBadgeText,
 .handle,
 .value,
 .added,
@@ -402,19 +401,6 @@
 .name {
   font-size: 13px;
   font-weight: 500;
-}
-
-.youBadge {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--tk-fill-accent);
-}
-
-.youBadgeText {
-  display: block;
-  color: var(--tk-on-fill-accent);
-  font-size: 10px;
-  font-weight: 700;
 }
 
 .handle {

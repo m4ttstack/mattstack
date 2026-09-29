@@ -27,6 +27,7 @@ import { DeltaMark } from '../ui/DeltaMark';
 import { Glyph } from '../ui/Glyph';
 import { LeaderMark } from '../ui/LeaderMark';
 import rowHover from '../ui/row-hover.module.css';
+import { YouBadge } from '../ui/YouBadge';
 import { cellText, signed } from './format';
 import classes from './leaderboard.module.css';
 
@@ -390,13 +391,7 @@ function PersonRow({
                 {name}
               </span>
             </Link>
-            {isYou && (
-              <span className={classes.youBadge} data-parity="You Badge">
-                <span className={classes.youBadgeText} data-parity="You">
-                  you
-                </span>
-              </span>
-            )}
+            {isYou && <YouBadge />}
           </span>
           <span className={classes.handle} data-parity="Handle">
             @{user.username}
