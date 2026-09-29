@@ -1,4 +1,5 @@
 import { headSha, isAncestorAsync, remoteDefaultRef, remoteRefExists, runGit } from "./git-async.ts";
+import { runGitOrigin } from "./fetch-auth.ts";
 import { childEnv } from "../subprocess.ts";
 
 export type Containment = "in-default" | "on-remote" | "in-merged-mr" | "patch-identical" | "none";
@@ -8,7 +9,7 @@ const PATCH_ID_TIMEOUT_MS = 30_000;
 const KILL_GRACE_MS = 2_000;
 
 async function fetchSha(treePath: string, sha: string): Promise<boolean> {
-  const r = await runGit(treePath, ["fetch", "--no-tags", "-q", "origin", sha], { timeoutMs: FETCH_TIMEOUT_MS });
+  const r = await runGitOrigin(treePath, ["fetch", "--no-tags", "-q", "origin", sha], { timeoutMs: FETCH_TIMEOUT_MS });
   return r.exitCode === 0;
 }
 
