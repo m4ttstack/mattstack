@@ -20,6 +20,7 @@ import { BREW_FORMULAE, VENDOR_INSTALLERS, claudeConfigDirs, installTool, setupT
 import { bundledToolExec } from "../lib/deps/resolve.ts";
 import { DEFAULT_EXPOSED } from "../lib/deps/links.ts";
 import { listTeams } from "../lib/settings/stores.ts";
+import { fastBrowserMarketplaceSource } from "../lib/setup/steps/plugins.ts";
 
 function tool(args: string[]): string | undefined {
   return args.find((a) => !a.startsWith("--"));
@@ -71,7 +72,10 @@ export async function toolsInstall(args: string[], _ctx: CommandContext = {}, p:
 
   if (json) {
     console.log(JSON.stringify(envelope(result)));
-    if (!result.ok) process.exit(1);
+    if (!result.ok) {
+      console.error(result.detail);
+      process.exit(1);
+    }
     return;
   }
   console.log(`rt tools install: ${t} (${result.via}) — ${result.ok ? "ok" : "failed"}: ${result.detail}`);
@@ -94,7 +98,7 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
 
   let result: Awaited<ReturnType<typeof setupTool>>;
   try {
-    result = await setupTool(p, t, { configDirs });
+    result = await setupTool(p, t, { configDirs, marketplaceSource: fastBrowserMarketplaceSource(p.env) });
   } catch (err) {
     if (err instanceof UserActionableError) exitUserError(err, json, "tools setup");
     throw err;
@@ -102,7 +106,10 @@ export async function toolsSetup(args: string[], _ctx: CommandContext = {}, p: P
 
   if (json) {
     console.log(JSON.stringify(envelope(result)));
-    if (!result.ok) process.exit(1);
+    if (!result.ok) {
+      console.error(result.detail);
+      process.exit(1);
+    }
     return;
   }
   console.log(`rt tools setup: ${t} — ${result.ok ? "ok" : "failed"}: ${result.detail}`);

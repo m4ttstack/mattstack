@@ -1,4 +1,5 @@
 import SwiftUI
+import MattstackCore
 
 struct StepsSheet: View {
     let title: String
@@ -8,7 +9,7 @@ struct StepsSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).font(.headline)
             ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
-                HStack(alignment: .top) { Text("\(i + 1).").monospacedDigit(); Text(s).textSelection(.enabled) }
+                HStack(alignment: .top) { Text("\(i + 1).").monospacedDigit(); Text(StepText.attributed(s)).textSelection(.enabled) }
             }
             HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction).accessibilityIdentifier(AXID.stepsDone) }
         }

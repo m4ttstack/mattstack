@@ -31,6 +31,20 @@ import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 export const MATTSTACK_MARKETPLACE_SOURCE = "https://github.com/m4ttstack/mattstack-marketplace";
+/** The source plugins.install adds the mattstack marketplace from on this machine. */
+export function mattstackMarketplaceSource(env: Record<string, string | undefined>): string {
+  return env.RT_MATTSTACK_MARKETPLACE || MATTSTACK_MARKETPLACE_SOURCE;
+}
+
+/**
+ * The same source as fast-browser's `--source` wants it: Claude Code records a
+ * git marketplace with its .git suffix, and fast-browser compares that string
+ * exactly, refusing a mattstack marketplace registered from any other source.
+ */
+export function fastBrowserMarketplaceSource(env: Record<string, string | undefined>): string {
+  const registered = mattstackMarketplaceSource(env);
+  return registered.endsWith(".git") ? registered : `${registered}.git`;
+}
 export const OFFICIAL_MARKETPLACE_SOURCE = "anthropics/claude-plugins-official";
 const RETRY_REMEDY = "Open Claude Code once so it finishes first-run, then Retry.";
 
@@ -117,7 +131,7 @@ function isTeamAuthored(provenance: { scope: string }[]): boolean {
  */
 function computeMarketplaces(ctx: ApplyContext): string[] {
   const userSet = stringSettingArray(ctx, "claude.marketplaces", getSetting<unknown>("claude.marketplaces").value);
-  const mattstackSource = ctx.p.env.RT_MATTSTACK_MARKETPLACE || MATTSTACK_MARKETPLACE_SOURCE;
+  const mattstackSource = mattstackMarketplaceSource(ctx.p.env);
   const teamSource = ctx.team.slug ? [teamMarketplaceDir(ctx.p, ctx.team.slug)] : [];
   return dedupe([mattstackSource, OFFICIAL_MARKETPLACE_SOURCE, ...teamSource, ...userSet]);
 }

@@ -93,7 +93,8 @@ struct TeamScreen: View {
     }
 
     private var joinFields: some View {
-        Group {
+        // A VStack, not a Group: a Group would hand the .task below to every child.
+        VStack(alignment: .leading, spacing: 14) {
             SetupField(label: "Invite code", note: "Paste the whole code or the mattstack://join link you were sent. macOS may ask to read your clipboard.") {
                 HStack(alignment: .top, spacing: 8) {
                     // .roundedBorder never wraps on macOS, and a full invite code must stay readable whole.
@@ -112,8 +113,10 @@ struct TeamScreen: View {
             }
             if let s = model.joinSummary { Label(s, systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
             if let w = model.joinWarning { Label(w, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityIdentifier(AXID.teamJoinWarning) }
+            if let e = model.joinError { Label(e, systemImage: "xmark.octagon.fill").foregroundStyle(.red).accessibilityIdentifier(AXID.teamJoinError) }
             if model.isChecking { checkingRow }
         }
+        .task(id: model.inviteCode) { await model.previewInvite() }
     }
 
     private var restoreFields: some View {

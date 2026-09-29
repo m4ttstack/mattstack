@@ -90,10 +90,20 @@ final class SetupFlowUITests: XCTestCase {
         add(a)
     }
 
+    /// The setup window alone, so the capture carries nothing else on the screen.
+    private func shootWindow(_ name: String) {
+        let a = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        a.name = name
+        a.lifetime = .keepAlways
+        add(a)
+    }
+
     /// Welcome through Install for a join scenario whose plan is installable
     /// out of the box, leaving the Done screen on screen.
-    private func joinThroughInstall(_ scenario: String) {
-        launch(scenario)
+    private func joinThroughInstall(_ scenario: String, appearance: String? = nil) {
+        prepare(scenario)
+        if let appearance { app.launchEnvironment["RT_STUB_APPEARANCE"] = appearance }
+        app.launch()
         waitFor("setup.welcome.screen")
         el("setup.welcome.continue").click()
         waitFor("setup.team.screen")
@@ -261,6 +271,44 @@ final class SetupFlowUITests: XCTestCase {
         waitFor("setup.team.screen")
         waitFor("setup.team.join.warning")
         XCTAssertTrue(app.staticTexts["Joining Acme. Your GitHub account cannot see acme/team yet: ask matt or your org admin to grant read access."].exists)
+    }
+
+    /// A complete code is checked as it lands, so the join note is readable
+    /// on the Join card before Continue carries the joiner to the checklist.
+    func testJoinNoteReadableBeforeContinueLightAndDark() {
+        for scheme in ["Light", "Dark"] {
+            prepare("join-no-account")
+            app.launchEnvironment["RT_STUB_APPEARANCE"] = scheme.lowercased()
+            app.launch()
+            waitFor("setup.welcome.screen"); el("setup.welcome.continue").click()
+            waitFor("setup.team.screen")
+            el("setup.team.card.join").click()
+            el("setup.team.join.code").click()
+            el("setup.team.join.code").typeText("01234-56789-ABCDE-FGHJK-MNPQR-STVWX-YZ012-34567-89ABC-DEFGH-JKMNP-QRSTV-WXYZ0-12345-6789A-BC")
+            waitFor("setup.team.join.warning")
+            XCTAssertTrue(app.staticTexts["Joining Acme (owner matt). Connect your GitLab account on the next screen so rt can reach gitlab.com/acme/mattstack-team-acme."].exists)
+            XCTAssertTrue(el("setup.team.screen").exists, "the note shows before Continue, on the Team screen")
+            XCTAssertFalse(el("setup.checklist.screen").exists)
+            shootWindow("team-join-note-\(scheme)")
+            app.terminate()
+        }
+    }
+
+    /// The extension's steps start at the Chrome Web Store, never Developer mode.
+    func testFastBrowserExtensionStepsLightAndDark() {
+        for scheme in ["Light", "Dark"] {
+            joinThroughInstall("finish-gate", appearance: scheme.lowercased())
+            waitFor("setup.done.beforeYouFinish.tool.fast-browser-extension.action", 30)
+            el("setup.done.beforeYouFinish.tool.fast-browser-extension.action").click()
+            waitFor("setup.checklist.steps.done")
+            let store = NSPredicate(format: "label CONTAINS[c] 'Chrome Web Store' OR value CONTAINS[c] 'Chrome Web Store'")
+            XCTAssertTrue(app.descendants(matching: .any).matching(store).firstMatch.exists, "the first step installs from the Web Store")
+            let unpacked = NSPredicate(format: "label CONTAINS[c] 'Load unpacked' OR value CONTAINS[c] 'Load unpacked'")
+            XCTAssertFalse(app.descendants(matching: .any).matching(unpacked).firstMatch.exists)
+            shootWindow("fast-browser-extension-steps-\(scheme)")
+            el("setup.checklist.steps.done").click()
+            app.terminate()
+        }
     }
 
     func testPermissionDeniedThenGrantedEnablesInstall() {
