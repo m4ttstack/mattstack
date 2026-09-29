@@ -7,7 +7,7 @@ import { PushCalendar } from '../../ui/PushCalendar';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';
-import { EvHead } from './parts';
+import { EmptyEvidence, EvHead } from './parts';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -66,9 +66,14 @@ export function longestRun(days: CalendarDay[]): string {
   return `${length} ${length === 1 ? 'day' : 'days'}${times} (${ranges(longest)})`;
 }
 
+const QUIET_NAMED = 3;
+
 export function quietWeekdays(days: CalendarDay[]): string {
   const quiet = days.filter(d => d.count === 0 && weekday(d) % 6 !== 0);
-  return quiet.length ? quiet.map(named).join(', ') : 'None';
+  if (quiet.length === 0) return 'None';
+  const shown = quiet.slice(0, QUIET_NAMED).map(named).join(', ');
+  const rest = quiet.length - QUIET_NAMED;
+  return rest > 0 ? `${shown} and ${rest} more` : shown;
 }
 
 const LEGEND: { name: string; background: string; opacity?: number }[] = [
@@ -84,7 +89,7 @@ function Fact({ label, value }: { label: string; value: string }) {
       <span className={`${classes.t} ${panels.factLabel}`} data-parity="fl">
         {label}
       </span>
-      <span className={`${classes.t} ${panels.factValue}`} data-parity="fv">
+      <span className={panels.factValue} data-parity="fv">
         {value}
       </span>
     </div>
@@ -96,6 +101,7 @@ export function CodingDaysEvidence({ ev, window }: EvidenceProps) {
     () => calendarWeeks(ev, window.start, window.end),
     [ev, window.start, window.end]
   );
+  if (ev.rows.length === 0) return <EmptyEvidence />;
   const days = weeks.flat().filter(d => d.inWindow);
   const first = days[0];
   const last = days.at(-1);

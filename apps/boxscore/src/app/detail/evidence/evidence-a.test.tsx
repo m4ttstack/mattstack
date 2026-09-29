@@ -10,6 +10,7 @@ import {
   fixtureLeaderboard,
 } from '../../../server/fixture/index';
 import { App } from '../../App';
+import { quietWeekdays } from './CodingDaysEvidence';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(),
@@ -175,5 +176,49 @@ describe('Reciprocity panel', () => {
     expect(layer(rows()[6]!, 'n')).toHaveTextContent('1 MR');
     await user.click(within(panel).getByRole('button', { name: 'Show all 9' }));
     expect(rows()).toHaveLength(9);
+  });
+});
+
+function withEvidence(
+  stat: 'codingDays' | 'reciprocity',
+  edit: (ev: { rows: unknown[] }) => void
+) {
+  useUserDetail.mockImplementation((username: string) => {
+    const data = fixtureDetail(username, false)!;
+    edit(data.evidence[stat]!);
+    return { data, error: null, isLoading: false };
+  });
+}
+
+describe('empty evidence', () => {
+  it('says so when a person pushed nothing in the window', () => {
+    withEvidence('codingDays', ev => (ev.rows = []));
+    const panel = panelAt('codingDays', 'Coding days');
+    expect(within(panel).getByText('Nothing in this window')).toBeVisible();
+    expect(layer(panel, 'fv')).toBeUndefined();
+  });
+
+  it('keeps give and take when nobody reviewed your MRs', () => {
+    withEvidence('reciprocity', ev => (ev.rows = []));
+    const panel = panelAt('reciprocity', 'Reciprocity');
+    expect(within(panel).getByRole('group', { name: 'Given' })).toBeVisible();
+    expect(within(panel).getByText('Nothing in this window')).toBeVisible();
+    expect(panel.querySelector('[data-parity="Ev Footer"]')).toBeNull();
+  });
+});
+
+describe('quiet weekdays', () => {
+  it('names the first three and counts the rest', () => {
+    const days = [
+      '2026-09-07',
+      '2026-09-08',
+      '2026-09-09',
+      '2026-09-10',
+      '2026-09-11',
+    ].map(date => ({ date, count: 0, inWindow: true, level: 0 as const }));
+    expect(quietWeekdays(days)).toBe(
+      'Mon Sep 7, Tue Sep 8, Wed Sep 9 and 2 more'
+    );
+    expect(quietWeekdays(days.slice(0, 1))).toBe('Mon Sep 7');
   });
 });

@@ -5,7 +5,7 @@ import { formatNumber } from '../../../shared/metrics';
 import classes from './evidence.module.css';
 import type { EvidenceProps } from './index';
 import panels from './panels.module.css';
-import { EvFooter, EvHead } from './parts';
+import { EmptyEvidence, EvFooter, EvHead } from './parts';
 
 const FIRST_ROWS = 7;
 
@@ -104,6 +104,7 @@ export function ReciprocityEvidence({ ev }: EvidenceProps) {
         title="Who reviews your MRs"
         right={`${formatNumber(total)} ${total === 1 ? 'reviewer' : 'reviewers'}`}
       />
+      {total === 0 && <EmptyEvidence />}
       {shown.map(r => (
         <div
           key={r.name}

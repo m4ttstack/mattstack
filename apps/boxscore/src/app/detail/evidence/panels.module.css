@@ -54,6 +54,7 @@
 .calFacts {
   display: flex;
   flex: 1 1 0;
+  min-width: 0;
   flex-direction: column;
   align-items: flex-start;
   gap: 14px;
@@ -73,6 +74,7 @@
 }
 
 .factValue {
+  line-height: normal;
   color: var(--tk-text-1);
   font-size: 13px;
   font-weight: 500;
