@@ -7,6 +7,7 @@ import { memoryLocation } from 'wouter/memory-location';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fixtureDetail, fixtureLeaderboard } from '../../server/fixture/index';
 import { App } from '../App';
+import classes from './detail.module.css';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(),
@@ -80,6 +81,18 @@ describe('person page', () => {
       'href',
       '/user/srivera/issuesCompleted'
     );
+  });
+
+  it("keeps the disabled step on the enabled step's variant, only dimmed", () => {
+    renderAt('/user/nvance/issuesCompleted');
+    const prev = screen.getByRole('button', { name: 'Previous person' });
+    const next = screen.getByRole('link', { name: 'Next person' });
+    expect(prev).toHaveAttribute(
+      'data-variant',
+      next.getAttribute('data-variant')
+    );
+    expect(prev).toHaveClass(classes.stepDisabled!);
+    expect(next).not.toHaveClass(classes.stepDisabled!);
   });
 
   it('disables next on the last person', () => {

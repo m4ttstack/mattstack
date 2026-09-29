@@ -33,6 +33,7 @@ function Step({
         data-parity={parity}
         aria-label={label}
         disabled
+        classNames={{ root: classes.stepDisabled }}
       >
         {glyph}
       </ActionIcon>

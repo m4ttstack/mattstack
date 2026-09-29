@@ -1,3 +1,4 @@
+import { Tooltip } from '@mattstack/app-kit/core';
 import type { TimeWindow, UserRow } from '../../shared/types';
 import { descriptor } from '../model/standings';
 import { personSummary } from '../model/summary';
@@ -10,13 +11,24 @@ function Cell({
   value,
   unit,
   sub,
+  wrap = false,
 }: {
   parity?: string;
   label: string;
   value: string;
   unit: string;
   sub: string;
+  /** Lets a long sub line wrap inside the cell, with the whole line in a tooltip. */
+  wrap?: boolean;
 }) {
+  const subLine = (
+    <span
+      className={`${classes.t} ${classes.sumSub} ${wrap ? classes.sumSubWrap : ''}`}
+      data-parity="Sum Sub"
+    >
+      {sub}
+    </span>
+  );
   return (
     <div
       className={`${classes.sumCell} ${parity ? classes.sumCellStroked : ''}`}
@@ -41,9 +53,13 @@ function Cell({
           </span>
         </span>
       </div>
-      <span className={`${classes.t} ${classes.sumSub}`} data-parity="Sum Sub">
-        {sub}
-      </span>
+      {wrap ? (
+        <Tooltip label={sub} multiline w={260} openDelay={300}>
+          {subLine}
+        </Tooltip>
+      ) : (
+        subLine
+      )}
     </div>
   );
 }
@@ -76,6 +92,7 @@ export function PersonSummary({
             ? s.leads.map(k => descriptor(k).label).join(', ')
             : 'none this window'
         }
+        wrap={s.leads.length > 0}
       />
       <Cell
         parity="Sum Top 3"
