@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { MATTSTACK_TLD } from '../../core/discover.ts';
 import { addRoutes, repointRoutes } from '../../core/routes-writer.ts';
 import { stateDir } from '../api/state.ts';
@@ -49,18 +51,28 @@ export function ensureSelfRoutes(port: number): Promise<string[]> {
 /**
  * The self record `deck setup` writes, for a helper-owned deck that never
  * runs it: without one deck has no row of its own and no name.mattstack
- * route from the TLD reconcile. A pre-rename "local" row counts as present.
+ * route from the TLD reconcile. Label and command follow the running flavor,
+ * since teardown uninstalls the record's label and the dev helper runs the
+ * bundle's shim. Any row named deck, or a pre-rename "local" row, counts as
+ * present.
  */
-export function ensureSelfRecord(port: number, command: string[]): boolean {
+export function ensureSelfRecord(
+  port: number,
+  flavor: { bundleRoot: string; devMode: boolean }
+): boolean {
   reloadRegistry();
-  if (listRecords().some(r => isPlatformManagedBy(r.managedBy))) return false;
+  if (
+    getRecord(PLATFORM_NAME) ||
+    listRecords().some(r => isPlatformManagedBy(r.managedBy))
+  )
+    return false;
   putRecord({
     name: PLATFORM_NAME,
     managedBy: PLATFORM_NAME,
     port,
     kind: 'service',
-    label: PLATFORM_LABEL,
-    command,
+    label: flavor.devMode ? `${PLATFORM_LABEL}.dev` : PLATFORM_LABEL,
+    command: [join(flavor.bundleRoot, 'Contents', 'Helpers', 'deck'), 'serve'],
     workingDirectory: stateDir(),
     createdAt: new Date().toISOString(),
   });

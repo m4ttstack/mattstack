@@ -17,7 +17,6 @@ import { startApi } from './api/server.ts';
 import { claimApiInfo, runModeFromEnv, stateDir } from './api/state.ts';
 import { reconcileMattstackTld } from './api/tld-reconcile.ts';
 import { bootSweepGate, reresolveOnBoot } from './boot-reresolve.ts';
-import { detectExecTarget } from './cli/setup.ts';
 import { resolveCfDns, type CfDns } from './edge/cf-dns.ts';
 import { PortlessCli } from './edge/portless.ts';
 import { CloudflaredCli } from './edge/tunnel.ts';
@@ -174,9 +173,7 @@ export async function serve(): Promise<void> {
 
   if (bundleRoot) {
     try {
-      const { execPath, entry } = detectExecTarget();
-      const command = entry ? [execPath, entry, 'serve'] : [execPath, 'serve'];
-      if (ensureSelfRecord(PORT, command))
+      if (ensureSelfRecord(PORT, { bundleRoot, devMode: isDevMode() }))
         console.log(`[helper] deck serves on ${PORT}: created its self record`);
     } catch (err) {
       console.error('self record ensure failed:', err);

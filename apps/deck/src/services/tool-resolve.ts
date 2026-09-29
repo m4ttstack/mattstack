@@ -15,24 +15,36 @@ export interface ResolveToolOpts {
   path?: string;
 }
 
-/** The bundle's own argv for `name`, only when every entry exists. Parity
-    anchor: rt's lib/deps/resolve.ts bundledToolExec reads the same row. */
-function bundledExec(name: string, bundleRoot: string): string[] | null {
-  let tools: unknown;
+type LockRow = Record<string, unknown> | null;
+
+const lockTools = new Map<string, LockRow[] | null>();
+
+/** A bundle's deps.lock cannot change while its deck runs, so it is read once. */
+function bundleTools(bundleRoot: string): LockRow[] | null {
+  if (lockTools.has(bundleRoot)) return lockTools.get(bundleRoot)!;
+  let tools: LockRow[] | null = null;
   try {
-    tools = JSON.parse(
+    const parsed = JSON.parse(
       readFileSync(
         join(bundleRoot, 'Contents', 'Resources', 'deps.lock'),
         'utf8'
       )
     ).tools;
+    if (Array.isArray(parsed)) tools = parsed;
   } catch {
-    return null;
+    tools = null;
   }
-  if (!Array.isArray(tools)) return null;
+  lockTools.set(bundleRoot, tools);
+  return tools;
+}
+
+/** The bundle's own argv for `name`, only when every entry exists. Parity
+    anchor: rt's lib/deps/resolve.ts bundledToolExec reads the same row. */
+function bundledExec(name: string, bundleRoot: string): string[] | null {
+  const tools = bundleTools(bundleRoot);
+  if (!tools) return null;
   const row = tools.find(
-    (t: Record<string, unknown> | null) =>
-      t?.name === name && t.kind === 'helper' && t.status === 'bundled'
+    t => t?.name === name && t.kind === 'helper' && t.status === 'bundled'
   ) as { exec?: unknown } | undefined;
   if (!Array.isArray(row?.exec) || !row.exec.length) return null;
   const argv = row.exec.map(p => join(bundleRoot, String(p)));
