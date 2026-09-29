@@ -11,6 +11,7 @@ import { join } from "path";
 import { resolveIndexPathForIdentity, updateRepoIndexAsync } from "../../repo-index.ts";
 import { getSetting } from "../../settings/resolve.ts";
 import { deriveRepoIdentity, normalizeRemote, serializeIdentity } from "../../settings/identity.ts";
+import { linkPath } from "../../deps/links.ts";
 import { gitWithToken } from "../../team/git-credential.ts";
 import { withoutUrls } from "../../team/redact.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -30,6 +31,8 @@ const CLONE_ENV = { GIT_TERMINAL_PROMPT: "0", GIT_PROTOCOL_FROM_USER: "0" };
 const CLONE_TIMEOUT_MS = 60 * 60_000;
 /** Git aborts an HTTP transfer that stays under 1 KB/s for five minutes, with its own error on stderr. */
 export const CLONE_STALL_ARGS = ["-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=300"];
+const SSH_CLONE_ENV = { ...CLONE_ENV, GIT_SSH_COMMAND: "ssh -o BatchMode=yes -o ConnectTimeout=15" };
+const SSH_PROBE_TIMEOUT_MS = 30_000;
 /** execWithTimeout's code for a child it killed at the deadline. */
 const TIMED_OUT = 124;
 
@@ -106,6 +109,50 @@ async function findExistingClone(p: ApplyContext["p"], identity: string, dest: s
     }
   }
   return null;
+}
+
+/** The value of a `credential.<url>.helper` that asks rt for its forge token; git appends the operation. */
+export function rtCredentialHelper(rtPath: string): string {
+  return `!${JSON.stringify(rtPath)} git credential`;
+}
+
+/**
+ * Whether the user's own SSH setup already reaches `sshRemote`. BatchMode
+ * makes a missing key, a passphrase prompt or an unknown host key a quick
+ * failure rather than a hang, so a machine that has never used SSH with this
+ * forge falls through to https.
+ */
+async function sshReaches(p: ApplyContext["p"], sshRemote: string): Promise<boolean> {
+  const result = await p.exec(["git", "ls-remote", "--exit-code", sshRemote, "HEAD"], { env: SSH_CLONE_ENV, timeoutMs: SSH_PROBE_TIMEOUT_MS });
+  return result.code === 0 || result.code === 2;
+}
+
+/**
+ * The clone's origin is what every later fetch uses, rt's worktree pool
+ * included. SSH when the user's key already reaches the forge, so it keeps
+ * working with the user's own credentials. Otherwise https with rt's token,
+ * and rt is then named as that host's credential helper in this clone, which
+ * is rt's own to configure; the token itself never lands in the config.
+ */
+async function cloneInto(ctx: ApplyContext, identity: string, dest: string): Promise<ExecResult> {
+  const { p } = ctx;
+  const slash = identity.indexOf("/");
+  const host = identity.slice(0, slash);
+  const sshRemote = `git@${host}:${identity.slice(slash + 1)}.git`;
+  if (slash > 0 && (await sshReaches(p, sshRemote))) {
+    return p.exec(["git", ...CLONE_STALL_ARGS, "clone", sshRemote, dest], { env: SSH_CLONE_ENV, timeoutMs: CLONE_TIMEOUT_MS });
+  }
+
+  const remote = `https://${identity}.git`;
+  const token = await trustedForgeTokenFor(ctx, remote);
+  const git = gitWithToken([...CLONE_STALL_ARGS, "clone", remote, dest], token, CLONE_ENV);
+  const result = await p.exec(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS });
+  const rt = linkPath(p.home, "rt");
+  if (result.code === 0 && token && p.exists(rt)) {
+    const helper = await p.exec(["git", "-C", dest, "config", "--add", `credential.https://${host}.helper`, rtCredentialHelper(rt)], { env: CLONE_ENV });
+    if (helper.code !== 0) ctx.log("repos.clone", `${repoBasename(identity)}: cloned, but rt could not be set as its credential helper: ${withoutUrls(helper.stderr.trim())}`);
+  }
+  return result;
 }
 
 async function reposCloneRun(ctx: ApplyContext): Promise<StepOutcome> {
@@ -188,9 +235,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
       continue;
     }
 
-    const remote = `https://${identity}.git`;
-    const git = gitWithToken([...CLONE_STALL_ARGS, "clone", remote, dest], await trustedForgeTokenFor(ctx, remote), CLONE_ENV);
-    const result = await p.exec(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS });
+    const result = await cloneInto(ctx, identity, dest);
     if (result.code !== 0) {
       failed.push(base);
       ctx.log("repos.clone", `${base}: clone failed: ${cloneFailureReason(result)}`);
