@@ -16,6 +16,7 @@ const buildPane = (over: Partial<LivePane> = {}): LivePane => ({
 let store: GatesStore;
 let emitted: Array<{ topic: string; payload: Record<string, unknown> }>;
 let panesValue: LivePane[] | null;
+let screenValue: string;
 let injectCalls: PaneHints[];
 let injectResult: { ok: true; paneRef: string } | { ok: false; error: string };
 let reconciler: Reconciler;
@@ -32,13 +33,14 @@ beforeEach(() => {
   store = createGatesStore({ dbPath: ":memory:", log });
   emitted = [];
   panesValue = [buildPane()];
+  screenValue = "";
   injectCalls = [];
   injectResult = { ok: true, paneRef: "w1:p1" };
   reconciler = createReconciler({
     store,
     listAgents: () => [],
     snapshot: async () => panesValue,
-    peek: async () => "",
+    peek: async () => screenValue,
     emit: (topic, payload) => { emitted.push({ topic, payload }); },
     injectEscape: async (hints) => { injectCalls.push(hints); return injectResult; },
     resumeAgent: async () => ({ ok: true }),
@@ -61,6 +63,21 @@ describe("reconciler expectations: leave-blocked", () => {
       topic: "reconciler.delivery",
       payload: { gateId: gate.id, outcome: "confirmed" },
     });
+  });
+
+  test("a question form still on screen is not confirmed though herdr reads the pane idle, and the retry Escape follows", async () => {
+    const gate = makeGate();
+    reconciler.expect({ gateId: gate.id, hints: HINTS, expect: "leave-blocked", deadlineSweeps: 1, retriesLeft: 2 });
+    panesValue = [buildPane({ agentStatus: "idle" })];
+    screenValue = "│ Pick one\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n";
+
+    await reconciler.sweep();
+    expect(store.get(gate.id)!.delivery).toBeNull();
+    expect(injectCalls).toEqual([HINTS]);
+
+    screenValue = "❯ \n";
+    await reconciler.sweep();
+    expect(store.get(gate.id)!.delivery).toMatchObject({ outcome: "confirmed" });
   });
 
   test("still blocked past the deadline re-resolves, retries injectEscape, decrements retries, resets the deadline", async () => {

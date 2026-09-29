@@ -1,4 +1,5 @@
 import { herdrRequest } from "../herdr/client.ts";
+import { hasQuestionForm } from "./question-form.ts";
 import { resolveLivePane, snapshotPanes, type LivePane, type PaneHints } from "./pane-resolve-live.ts";
 
 export type EscapeInjector = (
@@ -39,15 +40,39 @@ export function createEscapeInjector(deps: {
 
 export type PaneStatusProbe = (hints: PaneHints) => Promise<{ paneRef: string; status: LivePane["agentStatus"] } | null>;
 
+/** The pane's visible screen text via herdr's pane.read; throws when the
+    read fails. */
+export async function readVisibleScreen(pane: LivePane, herdr: typeof herdrRequest = herdrRequest): Promise<string> {
+  const paneId = pane.paneRef.startsWith("bg:") ? pane.paneRef.slice("bg:".length) : pane.paneRef;
+  const res = await herdr<{ read: { text: string } }>(
+    "pane.read", { pane_id: paneId, source: "visible" }, { sockPath: pane.sockPath },
+  );
+  if (!res.ok) throw new Error(`${res.code}: ${res.message}`);
+  return res.result.read.text;
+}
+
 /** The paneRef and agent status of the pane the hints resolve to, read from
-    a fresh snapshot the same way the injector resolves. Null when no herdr
-    server answers or no pane resolves. */
-export function createPaneStatusProbe(deps: { snapshot?: () => Promise<LivePane[] | null> } = {}): PaneStatusProbe {
+    a fresh snapshot the same way the injector resolves. A question form on
+    screen reads "blocked" whatever herdr reports: herdr's status goes stale
+    on a form that sat through a sleep/wake. An unreadable screen keeps
+    herdr's status. Null when no herdr server answers or no pane resolves. */
+export function createPaneStatusProbe(deps: {
+  snapshot?: () => Promise<LivePane[] | null>;
+  readScreen?: (pane: LivePane) => Promise<string>;
+} = {}): PaneStatusProbe {
   const snapshot = deps.snapshot ?? snapshotPanes;
+  const readScreen = deps.readScreen ?? ((p: LivePane) => readVisibleScreen(p));
   return async (hints) => {
     const panes = await snapshot();
     if (!panes) return null;
     const pane = resolveLivePane(hints, panes);
-    return pane ? { paneRef: pane.paneRef, status: pane.agentStatus } : null;
+    if (!pane) return null;
+    let form = false;
+    try {
+      form = hasQuestionForm(await readScreen(pane));
+    } catch {
+      // Unreadable screen: herdr's status is the only evidence left.
+    }
+    return { paneRef: pane.paneRef, status: form ? "blocked" : pane.agentStatus };
   };
 }

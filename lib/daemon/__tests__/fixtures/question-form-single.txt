@@ -1,0 +1,27 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Probe 2  ✔ Submit  →
+
+│ Probe 2 (tall form). Leave it up ~25s, then pick anything.
+│ [IMPORTANT] line one of padding to make this form tall, standing in for a long review finding that runs across the width of the pane and wraps.
+│ [IMPORTANT] line two of padding to make this form tall, standing in for a long review finding that runs across the width of the pane and wraps.
+│ [MINOR] line three of padding to make this form tall, standing in for a long review finding that runs across the width of the pane and wraps.
+│ [MINOR] line four of padding.
+│ [NIT] line five of padding.
+│ [NIT] line six of padding.
+│ [NIT] line seven of padding.
+│ [NIT] line eight of padding.
+
+❯ 1. [ ] f1
+         Padding finding one with a long description that wraps across the pane width to add height to the form
+  2. [ ] f2
+         Padding finding two with a long description that wraps across the pane width to add height to the form
+  3. [ ] f3
+         Padding finding three
+  4. [ ] f4
+         Padding finding four
+  5. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
