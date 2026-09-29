@@ -43,6 +43,8 @@ public final class InstallRunModel: ObservableObject {
     /// state a newer run owns, however late its stream or its in-flight
     /// needs.perform() resolves.
     private var generation = 0
+    /// A `--from` run's plan still lists the steps before it, whose outcomes must survive.
+    private var resumed = false
     public static let logCapPerStep = 500
 
     public init(stream: @escaping ApplyStreamFactory, needs: NeedBroker) {
@@ -68,6 +70,7 @@ public final class InstallRunModel: ObservableObject {
         generation += 1
         let gen = generation
         phase = .running
+        resumed = from != nil
         if from == nil {
             steps = []
             logs = [:]
@@ -80,11 +83,12 @@ public final class InstallRunModel: ObservableObject {
         let needs = self.needs
         let makeStream = self.stream
         task = Task { [weak self] in
-            // A retry must forget only the failed step's need so earlier
-            // steps' outcomes survive; a fresh run forgets everything. Both
-            // are awaited before the stream factory runs, so rt never races
-            // a poll against a ledger entry this run hasn't cleared yet.
-            if let from { await needs.forget(id: from) } else { await needs.forgetAll() }
+            // A retry forgets only the failed step's need so earlier steps'
+            // outcomes survive. A fresh run forgets its plan's ids when the
+            // plan arrives (handle), never the whole ledger: a checklist row
+            // may be answering a need of its own. Either way the clear lands
+            // before rt can emit a need, so no poll reads a stale entry.
+            if let from { await needs.forget(id: from) }
             guard self?.generation == gen else { return }
             let stream = makeStream(from)
             do {
@@ -121,6 +125,10 @@ public final class InstallRunModel: ObservableObject {
 
     private func handle(_ event: ApplyEvent, gen: Int) async {
         guard generation == gen else { return }
+        if case .plan(let planned) = event, !resumed {
+            await needs.forget(ids: planned.map(\.id))
+            guard generation == gen else { return }
+        }
         Self.apply(event, to: &steps)
         switch event {
         case .log(let id, let line):
