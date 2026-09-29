@@ -190,15 +190,3 @@
   align-items: center;
   gap: 10px;
 }
-
-/* Mantine's stock track and indicator read the gray and dark tuples, which do not track the Tokyo surfaces; the track takes the card step off the page and the indicator the level-4 active step. */
-.segmentedTrack {
-  outline: 1px solid var(--tk-border-soft);
-  outline-offset: -0.5px;
-  background: var(--tk-card);
-}
-
-.segmentedIndicator {
-  background: var(--tk-raised);
-  box-shadow: var(--mantine-shadow-xs);
-}

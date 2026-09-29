@@ -24,14 +24,7 @@ export interface RangeState {
 
 const PRESETS = ['7d', '30d', '90d'];
 
-const SEGMENTED = {
-  size: 'sm',
-  withItemsBorders: false,
-  classNames: {
-    root: classes.segmentedTrack,
-    indicator: classes.segmentedIndicator,
-  },
-} as const;
+const SEGMENTED_SIZE = 'sm';
 
 const ICON_LAYERS: Partial<Record<IconName, string>> = {
   table2: 'table-2',
@@ -48,7 +41,7 @@ function textLabel(text: string, parity = text) {
 
 function iconLabel(icon: IconName, name: string) {
   return (
-    <Center h="1lh" data-parity={`icon:${iconLayer(icon)}`}>
+    <Center data-parity={`icon:${iconLayer(icon)}`}>
       <Icon name={icon} size={16} strokeWidth={1.75} />
       <VisuallyHidden>{name}</VisuallyHidden>
     </Center>
@@ -95,7 +88,7 @@ function RangeControl({
     >
       <Popover.Target>
         <SegmentedControl
-          {...SEGMENTED}
+          size={SEGMENTED_SIZE}
           aria-label="Range"
           data-parity="Range"
           value={open ? 'custom' : range.range}
@@ -188,7 +181,7 @@ export function PageHeader({
       <div className={classes.controls}>
         <RangeControl range={range} onRange={onRange} />
         <SegmentedControl
-          {...SEGMENTED}
+          size={SEGMENTED_SIZE}
           aria-label="Mode"
           data-parity="Mode"
           value={trend ? 'trend' : 'values'}
@@ -200,7 +193,7 @@ export function PageHeader({
         />
         {view !== undefined && onView !== undefined && (
           <SegmentedControl
-            {...SEGMENTED}
+            size={SEGMENTED_SIZE}
             aria-label="View"
             data-parity="View"
             value={view}
