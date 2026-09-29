@@ -258,6 +258,15 @@ async (
       }
       step = `app: root ${t.root}`;
       await page.waitForSelector(root, { state: 'visible', timeout: 30_000 });
+      step = `app: evidence panel loaded in ${t.root}`;
+      await page.waitForFunction(
+        s =>
+          ![...(document.querySelector(s)?.querySelectorAll('p') ?? [])].some(
+            p => p.textContent?.trim() === 'Loading…'
+          ),
+        root,
+        { timeout: 30_000 }
+      );
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(300);
 
