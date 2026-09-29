@@ -68,4 +68,17 @@ describe("runWebViewer", () => {
     expect(calls.killed).toBe(1);
     expect(calls.opened).toEqual([]);
   });
+
+  test("logdy exiting before it answers names its exit code on stderr", async () => {
+    let exitCb: ((code: number | null) => void) | undefined;
+    const { seams, calls } = fakeSeams({
+      spawnLogdy: () => ({ kill: () => {}, onExit: (cb) => { exitCb = cb; } }),
+      waitForPort: async () => {
+        exitCb?.(1);
+        return false;
+      },
+    });
+    await expect(runWebViewer(["/logs/daemon.log"], { open: true }, seams)).rejects.toEqual(new Exited(1));
+    expect(calls.errors[0]).toBe("logdy exited 1 before answering on :5544");
+  });
 });

@@ -957,7 +957,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
   const terminal = args.includes("--terminal") || args.includes("-t");
 
   if (!existsSync(LOG_DIR)) {
-    console.log(`\n  ${dim}no daemon logs yet — start the daemon first${reset}\n`);
+    console.log(`\n  ${dim}no daemon logs yet... start the daemon first${reset}\n`);
     return;
   }
 
@@ -1002,7 +1002,7 @@ export async function showLogs(args: string[] = []): Promise<void> {
     if (!prev || mtime > prev.mtime) newestPerSurface.set(surface, { f, mtime });
   }
   if (newestPerSurface.size === 0) {
-    console.log(`\n  ${dim}no log files in ${LOG_DIR} — start the daemon first${reset}\n`);
+    console.log(`\n  ${dim}no log files in ${LOG_DIR}... start the daemon first${reset}\n`);
     return;
   }
   const logPaths = [...newestPerSurface.values()]
@@ -1236,9 +1236,14 @@ export async function runWebViewer(
   // is already bound by another process), a listener attached after
   // waitForPort would miss the event and we'd hang pointing the browser at
   // whatever service answered on the port.
-  logdy.onExit((code) => stop(code ?? 0));
+  let answered = false;
+  logdy.onExit((code) => {
+    if (!answered) seams.error(`logdy exited ${code ?? "on a signal"} before answering on :${LOGDY_PORT}`);
+    return stop(code ?? 0);
+  });
 
-  if (!(await seams.waitForPort(LOGDY_PORT, LOGDY_ANSWER_TIMEOUT_MS))) {
+  answered = await seams.waitForPort(LOGDY_PORT, LOGDY_ANSWER_TIMEOUT_MS);
+  if (!answered) {
     seams.error(`logdy did not answer on :${LOGDY_PORT} within ${LOGDY_ANSWER_TIMEOUT_MS / 1000}s`);
     return stop(1);
   }
