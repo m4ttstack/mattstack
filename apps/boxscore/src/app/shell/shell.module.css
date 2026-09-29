@@ -68,16 +68,15 @@
   background: var(--tk-chrome);
 }
 
-/* The canvas mark takes the favicon asset colour, which is the bad fill step in both schemes. */
 .mark {
   display: flex;
   flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: var(--tk-fill-bad);
+}
+
+.mark img {
+  display: block;
 }
 
 .railGap {

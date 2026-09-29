@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 
@@ -49,6 +49,110 @@ describe('Rail', () => {
     expect(link).toHaveAttribute('data-parity', 'Nav Settings (console)');
     await user.unhover(link);
     expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+});
+
+function renderRail() {
+  return renderWithProviders(
+    <QueryClientProvider client={new QueryClient()}>
+      <Rail active="leaderboard" />
+    </QueryClientProvider>
+  );
+}
+
+const schemeAttr = () =>
+  document.documentElement.getAttribute('data-mantine-color-scheme');
+
+function mockOsScheme(initial: 'light' | 'dark') {
+  let dark = initial === 'dark';
+  const listeners = new Set<(e: MediaQueryListEvent) => void>();
+  vi.stubGlobal('matchMedia', (query: string) => {
+    const isDarkQuery = query.includes('prefers-color-scheme: dark');
+    return {
+      get matches() {
+        return isDarkQuery ? dark : false;
+      },
+      media: query,
+      onchange: null,
+      addListener: (l: (e: MediaQueryListEvent) => void) => listeners.add(l),
+      removeListener: (l: (e: MediaQueryListEvent) => void) =>
+        listeners.delete(l),
+      addEventListener: (_: string, l: (e: MediaQueryListEvent) => void) =>
+        listeners.add(l),
+      removeEventListener: (_: string, l: (e: MediaQueryListEvent) => void) =>
+        listeners.delete(l),
+      dispatchEvent: () => false,
+    };
+  });
+  return (next: 'light' | 'dark') => {
+    dark = next === 'dark';
+    act(() => {
+      for (const l of listeners)
+        l({
+          matches: dark,
+          media: '(prefers-color-scheme: dark)',
+        } as MediaQueryListEvent);
+    });
+  };
+}
+
+describe('Rail brand and colour scheme', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+  });
+
+  it('shows the boxscore brand icon in the mark slot', () => {
+    const { container } = renderRail();
+    const img = container.querySelector('[data-parity="Mark"] img');
+    expect(img).toHaveAttribute('src', '/favicon.svg');
+  });
+
+  it('offers system, light and dark, and applies and persists each', async () => {
+    const user = userEvent.setup();
+    renderRail();
+    const pick = async (label: string) => {
+      await user.click(screen.getByRole('button', { name: 'Color scheme' }));
+      await user.click(screen.getByRole('menuitem', { name: label }));
+    };
+    const stored = () =>
+      JSON.parse(window.localStorage.getItem('ui-color-scheme') ?? 'null');
+
+    await user.click(screen.getByRole('button', { name: 'Color scheme' }));
+    expect(
+      screen.getAllByRole('menuitem').map(i => i.textContent?.trim())
+    ).toEqual(['System', 'Light', 'Dark']);
+    await user.keyboard('{Escape}');
+
+    await pick('Dark');
+    expect(stored()).toBe('dark');
+    expect(schemeAttr()).toBe('dark');
+
+    await pick('Light');
+    expect(stored()).toBe('light');
+    expect(schemeAttr()).toBe('light');
+
+    await pick('System');
+    expect(stored()).toBe('auto');
+  });
+
+  it('follows the OS scheme live while set to system', () => {
+    const setOs = mockOsScheme('light');
+    window.localStorage.setItem('ui-color-scheme', JSON.stringify('auto'));
+    renderRail();
+    expect(schemeAttr()).toBe('light');
+    setOs('dark');
+    expect(schemeAttr()).toBe('dark');
+    setOs('light');
+    expect(schemeAttr()).toBe('light');
+  });
+
+  it('keeps an explicit choice when the OS scheme changes', () => {
+    const setOs = mockOsScheme('light');
+    window.localStorage.setItem('ui-color-scheme', JSON.stringify('light'));
+    renderRail();
+    setOs('dark');
+    expect(schemeAttr()).toBe('light');
   });
 });
 

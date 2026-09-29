@@ -1,15 +1,23 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { HybridMenu } from '@mattstack/app-kit/core';
 import { useColorScheme } from '@mattstack/app-kit/hooks';
 import { Link } from '@mattstack/app-kit/router';
 import { Glyph } from '../ui/Glyph';
 import classes from './shell.module.css';
 import { useLinks } from './useLinks';
 
+const SCHEME_OPTIONS = [
+  { label: 'System', value: 'auto' },
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+];
+
 export function Rail({ active }: { active: 'leaderboard' | null }) {
   const { console: consoleUrl } = useLinks();
-  const { toggle } = useColorScheme();
+  const { colorScheme, computedColorScheme, setColorScheme } =
+    useColorScheme();
   const navRef = useRef<HTMLElement>(null);
   const [tip, setTip] = useState<{ top: number; left: number } | null>(null);
   const tipOpen = tip !== null;
@@ -30,12 +38,7 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
       aria-label="boxscore"
     >
       <span className={classes.mark} data-parity="Mark">
-        <Glyph
-          name="chartNoAxesColumn"
-          size={18}
-          color="var(--tk-on-fill-bad)"
-          parity="Mark Icon"
-        />
+        <img src="/favicon.svg" alt="" width={32} height={32} />
       </span>
       <span className={classes.railGap} />
       <Link
@@ -105,19 +108,25 @@ export function Rail({ active }: { active: 'leaderboard' | null }) {
             tipHost
           )}
       </span>
-      <button
-        type="button"
-        className={classes.navItem}
-        aria-label="Toggle colour scheme"
-        onClick={toggle}
-      >
-        <Glyph
-          name="moon"
-          size={19}
-          color="var(--tk-text-3)"
-          parity="Nav Scheme Icon"
-        />
-      </button>
+      <HybridMenu
+        options={SCHEME_OPTIONS}
+        value={colorScheme}
+        onChange={value => setColorScheme(value as typeof colorScheme)}
+        target={
+          <button
+            type="button"
+            className={classes.navItem}
+            aria-label="Color scheme"
+          >
+            <Glyph
+              name={computedColorScheme === 'dark' ? 'sun' : 'moon'}
+              size={19}
+              color="var(--tk-text-3)"
+              parity="Nav Scheme Icon"
+            />
+          </button>
+        }
+      />
     </nav>
   );
 }
