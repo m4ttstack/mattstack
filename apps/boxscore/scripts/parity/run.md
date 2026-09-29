@@ -6,19 +6,26 @@ result must be **0 mismatches** outside the pending board fixes listed for Matt.
 
 ## What is compared
 
-Only page content. The chrome (rail, brand, scheme control, page header with
-its switches, freshness, scope and Refresh) is the kit's `MattstackShell` and
-`PageShell`, which outrank the boards, so it is never compared. Each board
-names its content roots in `boards.ts` (`roots`, or `panels` for board 04):
+The board's layout, not the chrome around it. The rail, brand mark and
+scheme control are the kit's `MattstackShell`, and the page frame is the kit's
+`PageShell`, so neither is compared. Inside them, the topbar row (in
+`PageShell.Header`) and the page content are compared by their own layers.
+Each board names these roots in `boards.ts` (`roots`, or `panels` for
+board 04):
 
-| Board  | Content roots                                             |
-| ------ | --------------------------------------------------------- |
-| 01, 07 | `Stat Leaders`, `Standings`, `Footnote`                   |
-| 02     | `Metric Grid`                                             |
-| 03     | `Back Link`, `Profile Header`, `Summary`, `Body`          |
-| 04     | each `Panel · <label>`, on its own route                  |
-| 05     | `Refresh Status`, `Stat Leaders`, `Standings`, `Footnote` |
-| 06     | `Refresh Status`, `Skeleton`                              |
+| Board  | Roots                                                                                           |
+| ------ | ----------------------------------------------------------------------------------------------- |
+| 01, 07 | `Crumbs`, `Top Right`, `Page Header`, `Stat Leaders`, `Standings`, `Footnote`                   |
+| 02     | `Crumbs`, `Top Right`, `Page Header`, `Metric Grid`                                             |
+| 03     | `Crumbs`, `Top Right`, `Back Link`, `Profile Header`, `Summary`, `Body`                         |
+| 04     | each `Panel · <label>`, on its own route                                                        |
+| 05     | `Crumbs`, `Top Right`, `Page Header`, `Refresh Status`, `Stat Leaders`, `Standings`, `Footnote` |
+| 06     | `Crumbs`, `Top Right`, `Page Header`, `Refresh Status`, `Skeleton`                              |
+
+Kit components in these roots (the `Top Right` Badge and Button, the `Page
+Header` SegmentedControls, the profile `Avatar` and arrow `ActionIcon`s) keep
+their kit look, so their fill, stroke, label colour and size differences from
+the canvas are expected and listed for Matt, not fixed in the app.
 
 Every root is its own target with its own output stem
 (`<slug>.<root>`, e.g. `01-leaderboard-table.standings`), and boxes are
@@ -185,14 +192,12 @@ root): it opens the app, clears localStorage and sets the board's `storage`
 plus the scheme, loads the route, disables transitions and animations, waits
 for the first root (or, on a board with an action, the action's layer),
 asserts `data-mantine-color-scheme` is the scheme, does the board's action
-(05 clicks `Refresh Button` in the page header and waits for `Refresh
+(05 clicks `Refresh Button` in the topbar and waits for `Refresh
 Status`, then for `Fresh Label` to show a two-digit elapsed time; 06 waits up
 to 90 s for `RS Sub` to contain `still waiting on GitLab`, the copy shown once
 the reading has held past the 30 s request deadline), waits for every root,
 matches the content width (see "What is compared"), then collects and
-screenshots each root and composes its side-by-side. `Refresh Button` and
-`Fresh Label` are the only `data-parity` names left on the chrome, and only
-for this action. It uploads everything to `~/.fast-browser/output/parity/`:
+screenshots each root and composes its side-by-side. It uploads everything to `~/.fast-browser/output/parity/`:
 
 | File                                     | What                                                  |
 | ---------------------------------------- | ----------------------------------------------------- |
