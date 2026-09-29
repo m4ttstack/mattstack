@@ -115,21 +115,23 @@ export function CardsGrid({
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
   return (
-    <div
-      className={
-        dimmed ? `${classes.cardsGrid} ${classes.dimmed}` : classes.cardsGrid
-      }
-      data-parity="Metric Grid"
-    >
-      {CARD_STATS.map(stat => (
-        <StatCard
-          key={stat}
-          data={data}
-          stat={stat}
-          trend={prior !== null}
-          onSelectStat={onSelectStat}
-        />
-      ))}
+    <div className={classes.cardsFrame}>
+      <div
+        className={
+          dimmed ? `${classes.cardsGrid} ${classes.dimmed}` : classes.cardsGrid
+        }
+        data-parity="Metric Grid"
+      >
+        {CARD_STATS.map(stat => (
+          <StatCard
+            key={stat}
+            data={data}
+            stat={stat}
+            trend={prior !== null}
+            onSelectStat={onSelectStat}
+          />
+        ))}
+      </div>
     </div>
   );
 }

@@ -479,6 +479,7 @@
 
 .footnote {
   display: flex;
+  align-self: flex-start;
   flex-shrink: 0;
   align-items: center;
   gap: 6px;
@@ -492,6 +493,11 @@
 
 /* Cards */
 
+/* The grid steps down by its own width, since the kit shell owns the space around it. */
+.cardsFrame {
+  container-type: inline-size;
+}
+
 .cardsGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -499,7 +505,7 @@
   gap: 16px;
 }
 
-@media (max-width: 1439.98px) {
+@container (max-width: 1315.98px) {
   .cardsGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
