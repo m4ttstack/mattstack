@@ -24,7 +24,11 @@ import { bindGatewayOrExit } from './gateway-boot.ts';
 import { migrateManagedDevShape } from './registry/migrate-dev-shape.ts';
 import { stampSelfOnBoot } from './registry/new-code.ts';
 import { listRecords } from './registry/records.ts';
-import { reconcileSelfPort } from './registry/self-port.ts';
+import {
+  ensureSelfRecord,
+  ensureSelfRoutes,
+  reconcileSelfPort,
+} from './registry/self-port.ts';
 import { bundleRootFromExec } from './services/bundle-layout.ts';
 import {
   liveDeckOwner,
@@ -44,7 +48,8 @@ const CANARY_PORT = Number(process.env.LOCAL_APPS_CANARY_PORT ?? 7942);
 // The canary flips <APP_NAME>.localhost's route to a canary port and back, so
 // this must be the route the platform actually owns. Once bootstrap has run
 // that is the self-record's name ("deck"), not the legacy default "apps".
-const APP_NAME =
+// Read per check: a helper-owned deck writes its self record after import.
+const appName = (): string =>
   process.env.LOCAL_APPS_APP_NAME ??
   listRecords().find(r => isPlatformManagedBy(r.managedBy))?.name ??
   'apps';
@@ -80,7 +85,7 @@ export async function serve(): Promise<void> {
   async function measureFreshness(): Promise<Freshness> {
     try {
       return await checkProxyFreshness({
-        app: APP_NAME,
+        app: appName(),
         mainPort: PORT,
         canaryPort: CANARY_PORT,
       });
@@ -166,6 +171,15 @@ export async function serve(): Promise<void> {
     console.error('registry dev-shape migration failed:', err);
   }
 
+  if (bundleRoot) {
+    try {
+      if (ensureSelfRecord(PORT, { bundleRoot, devMode: isDevMode() }))
+        console.log(`[helper] deck serves on ${PORT}: created its self record`);
+    } catch (err) {
+      console.error('self record ensure failed:', err);
+    }
+  }
+
   try {
     stampSelfOnBoot({
       devMode: isDevMode(),
@@ -186,6 +200,15 @@ export async function serve(): Promise<void> {
       }
     } catch (err) {
       console.error('self port reconcile failed:', err);
+    }
+    try {
+      const added = await ensureSelfRoutes(PORT);
+      if (added.length)
+        console.log(
+          `[helper] deck serves on ${PORT}: added ${added.join(', ')}`
+        );
+    } catch (err) {
+      console.error('self route ensure failed:', err);
     }
   }
 

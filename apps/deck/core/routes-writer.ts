@@ -165,3 +165,26 @@ export async function removeRoutes(
     return removed;
   });
 }
+
+/** Append a static route on `port` for each of `hostnames` that has none,
+    under portless's routes.lock and with the same in-place write as
+    setRoutePort. A missing routes file is created. Returns the hostnames
+    added; nothing is written when none were. */
+export async function addRoutes(
+  hostnames: string[],
+  port: number
+): Promise<string[]> {
+  const path = routesPath();
+  mkdirSync(dirname(path), { recursive: true });
+  return withRoutesLock(() => {
+    const routes: Array<Record<string, unknown>> = existsSync(path)
+      ? JSON.parse(readFileSync(path, 'utf8'))
+      : [];
+    const present = new Set(routes.map(r => String(r.hostname)));
+    const added = hostnames.filter(h => !present.has(h));
+    if (!added.length) return added;
+    for (const hostname of added) routes.push({ hostname, port, pid: 0 });
+    writeFileSync(path, JSON.stringify(routes, null, 2));
+    return added;
+  });
+}

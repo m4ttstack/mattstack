@@ -1,3 +1,5 @@
+import { resolveTool } from '../services/tool-resolve.ts';
+
 export interface RailwayDriver {
   ensureService(
     name: string,
@@ -54,8 +56,10 @@ const realExec: ExecOut = async (argv, opts) => {
   return { code: await proc.exited, stdout };
 };
 
-function bin(): string {
-  return process.env.LOCAL_RAILWAY_BIN ?? 'railway';
+function bin(): string[] {
+  const override = process.env.LOCAL_RAILWAY_BIN;
+  if (override) return [override];
+  return resolveTool('railway') ?? ['railway'];
 }
 
 const GRAPHQL_URL = 'https://backboard.railway.com/graphql/v2';
@@ -136,7 +140,7 @@ export class RailwayCli implements RailwayDriver {
   private async railway(
     args: string[]
   ): Promise<{ code: number; stdout: string }> {
-    return this.exec([bin(), ...args], {
+    return this.exec([...bin(), ...args], {
       cwd: process.cwd(),
       env: { RAILWAY_TOKEN: this.cfg.projectToken },
     });
@@ -202,7 +206,7 @@ export class RailwayCli implements RailwayDriver {
     opts: { cwd: string; token: string }
   ): Promise<{ ok: boolean; log: string }> {
     const { code, stdout } = await this.exec(
-      [bin(), 'up', '--service', serviceId, '--ci'],
+      [...bin(), 'up', '--service', serviceId, '--ci'],
       {
         cwd: opts.cwd,
         env: { RAILWAY_TOKEN: opts.token },
