@@ -112,6 +112,36 @@ describe('PageHeader switches', () => {
       '2026-08-12T00:00:00.000Z'
     );
   });
+
+  it.each(['{Enter}', ' '])(
+    'reopens from the keyboard (%s) while custom is active',
+    async key => {
+      const user = userEvent.setup();
+      renderHeader({
+        range: 'custom',
+        start: '2026-08-03T00:00:00.000Z',
+        end: '2026-08-20T00:00:00.000Z',
+      });
+      const custom = within(group('Range'))
+        .getAllByRole('radio')
+        .find(r => r.getAttribute('value') === 'custom')!;
+      custom.focus();
+      await user.keyboard(key);
+      expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+    }
+  );
+
+  it('reopens from a click on the segment outside its label text', async () => {
+    const user = userEvent.setup();
+    renderHeader({
+      range: 'custom',
+      start: '2026-08-03T00:00:00.000Z',
+      end: '2026-08-20T00:00:00.000Z',
+    });
+    const segment = screen.getByText('Aug 3 \u2013 Aug 20').closest('label')!;
+    await user.click(segment);
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+  });
 });
 
 describe('customRangeLabel', () => {

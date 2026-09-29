@@ -79,6 +79,13 @@ function RangeControl({
     setDraft([toDay(range.start), toDay(range.end)]);
     setOpen(true);
   };
+  const reopenCustom = (target: EventTarget) => {
+    const isCustom =
+      target instanceof HTMLInputElement && target.value === 'custom';
+    if (!isCustom || range.range !== 'custom' || open) return false;
+    openCustom();
+    return true;
+  };
   const [from, to] = draft;
   return (
     <Popover
@@ -95,6 +102,11 @@ function RangeControl({
           aria-label="Range"
           data-parity="Range"
           value={open ? 'custom' : range.range}
+          onClick={e => reopenCustom(e.target)}
+          onKeyDown={e => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            if (reopenCustom(e.target)) e.preventDefault();
+          }}
           onChange={v => {
             if (v === 'custom') openCustom();
             else onRange(v);
@@ -103,15 +115,7 @@ function RangeControl({
             ...PRESETS.map(p => ({ value: p, label: textLabel(p) })),
             {
               value: 'custom',
-              label: (
-                <span
-                  onClick={() => {
-                    if (range.range === 'custom' && !open) openCustom();
-                  }}
-                >
-                  {textLabel(customRangeLabel(range), 'Custom')}
-                </span>
-              ),
+              label: textLabel(customRangeLabel(range), 'Custom'),
             },
           ]}
         />
