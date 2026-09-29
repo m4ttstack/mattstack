@@ -34,7 +34,6 @@ function Step({
         data-parity={parity}
         aria-label={label}
         disabled
-        classNames={{ root: classes.stepDisabled }}
       >
         {glyph}
       </ActionIcon>
@@ -99,7 +98,7 @@ export function ProfileHeader({
               <h1 className={`${classes.t} ${classes.name}`} data-parity="Name">
                 {name}
               </h1>
-              {you && <YouBadge size="sm" />}
+              {you && <YouBadge />}
             </div>
             <span className={`${classes.t} ${classes.meta}`} data-parity="Meta">
               {meta}

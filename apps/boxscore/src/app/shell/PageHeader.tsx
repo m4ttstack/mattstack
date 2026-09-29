@@ -130,11 +130,11 @@ function RangeControl({
             maxDate={new Date()}
           />
           <Group gap="xs" justify="flex-end">
-            <Button size="xs" variant="default" onClick={() => setOpen(false)}>
+            <Button size="sm" variant="default" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button
-              size="xs"
+              size="sm"
               disabled={!from || !to}
               onClick={() => {
                 onRange(

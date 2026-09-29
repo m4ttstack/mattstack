@@ -7,7 +7,6 @@ import { memoryLocation } from 'wouter/memory-location';
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { fixtureDetail, fixtureLeaderboard } from '../../server/fixture/index';
 import { App } from '../App';
-import classes from './detail.module.css';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(),
@@ -91,8 +90,6 @@ describe('person page', () => {
       'data-variant',
       next.getAttribute('data-variant')
     );
-    expect(prev).toHaveClass(classes.stepDisabled!);
-    expect(next).not.toHaveClass(classes.stepDisabled!);
   });
 
   it('disables next on the last person', () => {

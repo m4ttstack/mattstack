@@ -102,14 +102,6 @@
   font-weight: 500;
 }
 
-/* Mantine's disabled rule swaps the grey disabled fill in over any variant; this keeps the variant's own surface, dimmed. */
-.stepDisabled:is(:disabled, [data-disabled]) {
-  border: var(--ai-bd);
-  background: var(--ai-bg);
-  color: var(--ai-color);
-  opacity: 0.5;
-}
-
 /* Summary */
 
 .summary {
