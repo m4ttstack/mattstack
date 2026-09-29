@@ -258,7 +258,9 @@ async function apply() {
   const fromIdx = Math.max(0, args.indexOf("--from"));
   const fromId = fromIdx > 0 ? args[fromIdx + 1] : null;
   const start = fromId ? STEPS.findIndex((s) => s[0] === fromId) : 0;
-  const steps = STEPS.slice(start < 0 ? 0 : start);
+  const onlyIdx = args.indexOf("--only");
+  const onlyId = onlyIdx >= 0 ? args[onlyIdx + 1] : null;
+  const steps = onlyId ? STEPS.filter((s) => s[0] === onlyId) : STEPS.slice(start < 0 ? 0 : start);
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const line = (o: unknown) => process.stdout.write(JSON.stringify(o) + "\n");
   line({ event: "plan", steps: steps.map(([id, title, kind]) => ({ id, title, kind })) });

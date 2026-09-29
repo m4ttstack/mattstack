@@ -182,10 +182,18 @@ export function installShellIntegration(): ShellIntegrationResult {
              error: `Unrecognised shell: ${process.env.SHELL ?? "not set"}. Add ~/.local/bin to your PATH manually.` };
   }
 
-  const existing = existsSync(rcPath) ? readFileSync(rcPath, "utf8") : "";
+  let existing = existsSync(rcPath) ? readFileSync(rcPath, "utf8") : "";
 
+  // `rtcd` is what the tool.shell row checks for; a marked block without it
+  // predates the alias and is replaced, or the row's remedy never lands.
   if (existing.includes(MARKER)) {
-    return { shell, rcPath, alreadyInstalled: true, written: false };
+    if (existing.includes("rtcd")) return { shell, rcPath, alreadyInstalled: true, written: false };
+    const stripped = stripMarkedBlock(existing, MARKER);
+    if (stripped === null) {
+      return { shell, rcPath, alreadyInstalled: false, written: false,
+               error: `an older rt block in ${rcPath} has no end marker; remove it by hand, then retry` };
+    }
+    existing = stripped;
   }
 
   const block = shell === "fish" ? fishBlock() : posixBlock();
@@ -279,11 +287,20 @@ function removeMarkedBlock(path: string, marker: string): RemoveBlockResult {
   if (!existsSync(path)) return { removed: false };
 
   const content = readFileSync(path, "utf8");
-  const markerIdx = content.indexOf(marker);
-  if (markerIdx === -1) return { removed: false };
+  if (!content.includes(marker)) return { removed: false };
 
+  const stripped = stripMarkedBlock(content, marker);
+  if (stripped === null) return { removed: false, manual: true };
+
+  writeFileSync(path, stripped);
+  return { removed: true };
+}
+
+/** `content` without the `marker`..`END_MARKER` block, or null when the block has no END_MARKER to bound it. Callers check the marker is present first. */
+function stripMarkedBlock(content: string, marker: string): string | null {
+  const markerIdx = content.indexOf(marker);
   const endIdx = content.indexOf(END_MARKER, markerIdx);
-  if (endIdx === -1) return { removed: false, manual: true };
+  if (endIdx === -1) return null;
 
   let start = markerIdx;
   if (content[start - 1] === "\n") start -= 1; // the block's own leading blank line
@@ -291,8 +308,7 @@ function removeMarkedBlock(path: string, marker: string): RemoveBlockResult {
   let end = endIdx + END_MARKER.length;
   if (content[end] === "\n") end += 1; // the block's own trailing newline
 
-  writeFileSync(path, content.slice(0, start) + content.slice(end));
-  return { removed: true };
+  return content.slice(0, start) + content.slice(end);
 }
 
 /** The inverse of `installShellIntegration` — removes exactly what it wrote, leaving unrelated rc-file content untouched. A block installed before END_MARKER existed can't be located precisely; that case reports `manual: true` instead of guessing. */

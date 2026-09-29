@@ -55,6 +55,17 @@ let installRunChecks: [Check] = [
         }
         c.expectEqual(services.registered, [["com.mattstack.daemon.plist"]])
     },
+    Check("a fresh Install forgets only its plan's step ids, so a need another run is answering survives") { c in
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        _ = await broker.perform(id: "services.unregister", request: NeedRequest(type: "app-unregister-services", plists: [], op: nil))
+        _ = await broker.perform(id: "plugins.install", request: NeedRequest(type: "stale-need", plists: nil, op: nil))
+        let stream: ApplyStreamFactory = { _ in lines([planLine, #"{"event":"done","ok":true,"failedStep":null}"#]) }
+        let m = await MainActor.run { InstallRunModel(stream: stream, needs: broker) }
+        await MainActor.run { m.start() }
+        for _ in 0..<50 { if await MainActor.run(body: { m.phase == .succeeded }) { break }; try await Task.sleep(nanoseconds: 20_000_000) }
+        c.expectEqual(await broker.outcome(id: "services.unregister").state, "done", "not Install's id, so not Install's to clear")
+        c.expectEqual(await broker.outcome(id: "plugins.install").state, "pending", "a plan id's stale outcome must not answer this run")
+    },
     Check("a failed step stops the run with its remedy; retryFromFailure re-streams with --from and forgets the need") { c in
         final class Count: @unchecked Sendable { var froms: [String?] = [] }
         let count = Count()

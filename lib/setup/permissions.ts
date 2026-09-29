@@ -7,7 +7,7 @@
  */
 
 import type { TrayClient } from "../daemon-client.ts";
-import { row, type Action, type Row } from "./contract.ts";
+import { applyStepAction, row, type Action, type Row } from "./contract.ts";
 
 export interface PermissionsReply {
   fda: { status: "granted" | "denied" | "unknown"; detail?: string };
@@ -71,7 +71,7 @@ function loginItemsRow(reply: PermissionsReply | null): Row {
       return row({ ...base, status: "needs-you", detail: "Approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
     case "notRegistered":
     case "notFound":
-      return row({ ...base, status: "missing", detail: "Not registered yet (Install registers it)", action: null });
+      return row({ ...base, status: "missing", detail: "Not registered yet", action: applyStepAction("Register services", "services.register") });
     default:
       return row({ ...base, status: "error", detail: NOT_RUNNING_DETAIL, action: RECHECK_ACTION });
   }

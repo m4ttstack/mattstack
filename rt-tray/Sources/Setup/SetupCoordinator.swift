@@ -74,7 +74,7 @@ final class SetupCoordinator {
 
     func showSetup(step: SetupStep? = nil, joinCode: String? = nil, entry: SetupEntry = .firstRun, choice: TeamChoice? = nil) {
         if setupWindow == nil {
-            let env = SetupEnvironment(rt: rt, readiness: readiness, install: install, permissions: permissions,
+            let env = SetupEnvironment(rt: rt, needs: needs, readiness: readiness, install: install, permissions: permissions,
                                        isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
                                        bundlePath: Bundle.main.bundlePath)
             let wc = SetupWindowController(environment: env)
@@ -96,7 +96,7 @@ final class SetupCoordinator {
     /// closable since it's diagnostics, not a wizard.
     func openSetupStatus() {
         if statusWindow == nil {
-            let env = SetupEnvironment(rt: rt, readiness: statusReadiness, install: statusInstall, permissions: permissions,
+            let env = SetupEnvironment(rt: rt, needs: needs, readiness: statusReadiness, install: statusInstall, permissions: permissions,
                                        isDevBuild: BundleFlavor.isDevBuild, bundleId: Bundle.main.bundleIdentifier ?? "com.mattstack.app",
                                        bundlePath: Bundle.main.bundlePath, readOnly: true)
             let wc = SetupWindowController(environment: env)

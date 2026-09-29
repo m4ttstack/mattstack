@@ -7,6 +7,8 @@ struct RowView: View {
     var rowID: String? = nil       // Settings → Permissions passes its own ids
     var actionID: String? = nil
     var statusID: String? = nil
+    /// What the row's running action is waiting on the user for.
+    var waiting: String? = nil
     let onAction: () -> Void
 
     var body: some View {
@@ -23,6 +25,7 @@ struct RowView: View {
                 Text(row.why).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let d = row.detail, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary) }
                 if let n = row.optionalNote { Text(n).font(.caption).foregroundStyle(.secondary) }
+                if let waiting { RowWaitingCaption(rowId: row.id, text: waiting).padding(.top, 2) }
             }
             Spacer(minLength: 8)
             if let action = row.action, action.type != .unknown {

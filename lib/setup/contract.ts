@@ -165,6 +165,11 @@ export function envelope<T extends object>(body: T, now: Date = new Date()): T &
   return { contract: CONTRACT_VERSION, at: now.toISOString(), ...body };
 }
 
+/** A row button that runs one apply step; the app answers any `need` the step emits (rt-tray RowVerbRun). */
+export function applyStepAction(label: string, step: StepId): Action {
+  return { type: "run", label, verb: ["setup", "apply", "--only", step] };
+}
+
 export function row(r: Omit<Row, "optionalNote" | "action" | "recheck"> & Partial<Pick<Row, "optionalNote" | "action" | "recheck">>): Row {
   return { optionalNote: null, action: null, recheck: "on-change", ...r };
 }

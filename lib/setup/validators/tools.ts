@@ -20,7 +20,7 @@ import { resolveTool } from "../../deps/resolve.ts";
 import { detectEditors } from "../../editors.ts";
 import { BACKUP_TOOLS as BACKUP_TOOL_NAMES } from "../../state/backup-tools.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
-import { row, type Action, type Row } from "../contract.ts";
+import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { integrationDef } from "../integrations.ts";
 import { callableBySkills, claudeJsonPath, linearServerNames, nameTaken, readClaudeConfig } from "../linear-mcp.ts";
 import { parsePluginList, readServedPacks, type ServedPack } from "../pack-cache.ts";
@@ -539,7 +539,7 @@ function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedP
     // contradicts this row's own detail.
     return row({ ...base, optionalNote: null, status: "skipped", detail: "version unknown; rt does not track this source's version" });
   }
-  if (!entry) return row({ ...base, status: "missing", detail: "installed by Install (plugins.install)" });
+  if (!entry) return row({ ...base, status: "missing", detail: "not installed yet", action: applyStepAction("Install plugins", "plugins.install") });
 
   const installed = entry.version ?? "unknown";
   if (served && served.servedVersion !== null && entry.version !== null && entry.version !== served.servedVersion) {
@@ -689,6 +689,7 @@ function stateBackupRow(p: Probes, seams: ToolsSeams): Row {
 // ─── tool.linear-mcp ────────────────────────────────────────────────────────
 
 const CONNECT_LINEAR_ACTION: Action = { type: "connect", label: "Connect Linear", integration: "linear", fields: integrationDef("linear").fields };
+const ADD_LINEAR_MCP_ACTION: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
 
 /** Wiring only: the credential itself is `account.linear`'s job, which validates this same secret against api.linear.app. Two probes of one key is one probe too many, and two rows that can disagree. */
 async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
@@ -698,7 +699,7 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
     title: "Linear MCP",
     why: "Skills that read and update Linear tickets reach them through this MCP server.",
     required: false,
-    optionalNote: "Installed by Install (linear.mcp).",
+    optionalNote: "Works without this; only the skills that read Linear tickets need it.",
   };
   const path = claudeJsonPath(p);
   const read = readClaudeConfig(p, path);
@@ -725,12 +726,12 @@ async function linearMcpRow(p: Probes, secrets: SecretPresence): Promise<Row> {
   if (others.length > 0) {
     const present = `Linear MCP present as ${others.join(", ")}`;
     return hasKey
-      ? row({ ...base, status: "missing", detail: `${present}; skills call mcp__linear__*` })
+      ? row({ ...base, status: "missing", detail: `${present}; linear is not added yet, and skills call mcp__linear__*`, action: ADD_LINEAR_MCP_ACTION })
       : row({ ...base, status: "needs-you", detail: `${present}; connect Linear so Install can add linear`, action: CONNECT_LINEAR_ACTION });
   }
 
   if (!hasKey) return row({ ...base, status: "needs-you", detail: "no Linear account connected", action: CONNECT_LINEAR_ACTION });
-  return row({ ...base, status: "missing", detail: "installed by Install (linear.mcp)" });
+  return row({ ...base, status: "missing", detail: "Linear is connected but not added to Claude Code yet", action: ADD_LINEAR_MCP_ACTION });
 }
 
 // ─── entry point ────────────────────────────────────────────────────────────

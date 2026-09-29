@@ -1,4 +1,5 @@
 import { afterEach, afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { MARKER } from "../../shell-integration.ts";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -286,10 +287,11 @@ describe("rtHealthRows — tool.intercepts", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("no rules declared -> skipped", async () => {
+  test("no rules declared -> ready and says it is not needed, never a pending-looking skipped", async () => {
     const r = await pickRow(rtHealthRows(fakeProbes({ home }), { ci: false }), "tool.intercepts");
-    expect(r.status).toBe("skipped");
-    expect(r.detail).toBe("no intercepts declared");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("Not needed: your team declares no intercepts");
+    expect(r.action).toBeNull();
     expect(r.required).toBe(false);
     expect(r.optionalNote).not.toBeNull();
   });
@@ -318,7 +320,8 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
     expect(r.detail).toContain("can't write");
-    expect(r.detail).not.toBe("shell integration missing — Install writes it");
+    expect(r.detail).not.toBe("shell integration not added yet");
+    expect(r.action).toBeNull();
     expect(r.optionalNote).not.toBeNull();
   });
 
@@ -336,11 +339,20 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     expect(r.detail).toContain(".zshrc");
   });
 
-  test("known shell, rc file exists but has no rtcd -> needs-you, Install-writes-it detail", async () => {
+  test("an old rt block with no end marker -> needs-you naming the rc file to fix by hand, re-check only (path.link cannot rewrite it)", async () => {
+    const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n` } });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("remove the old rt block from /fake-home/.zshrc by hand, then re-check");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
+  });
+
+  test("known shell, rc file exists but has no rtcd -> needs-you, with a row action that runs path.link (the step that writes it)", async () => {
     const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": "# nothing here\n" } });
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("needs-you");
-    expect(r.detail).toBe("shell integration missing — Install writes it");
+    expect(r.detail).toBe("shell integration not added yet");
+    expect(r.action).toEqual({ type: "run", label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"] });
   });
 });
 
@@ -380,7 +392,8 @@ describe("rtHealthRows — tool.daemon", () => {
     rmSync(DAEMON_CONFIG_PATH, { force: true });
     const r = await pickRow(rtHealthRows(fakeProbes(), { ci: false }), "tool.daemon");
     expect(r.status).toBe("missing");
-    expect(r.detail).toContain("Install");
+    expect(r.detail).toBe("not registered yet");
+    expect(r.action).toEqual({ type: "run", label: "Register services", verb: ["setup", "apply", "--only", "services.register"] });
     expect(r.required).toBe(true);
     expect(r.recheck).toBe("on-activate");
   });
@@ -398,6 +411,13 @@ describe("rtHealthRows — tool.daemon", () => {
   };
   const launchdOk: ExecScript = (argv) => (argv[0] === "launchctl" ? ok("PID\tStatus\tLabel\n1\t0\tcom.mattstack.daemon\n") : ok());
   const launchdMissing: ExecScript = (argv) => (argv[0] === "launchctl" ? { code: 0, stdout: "Could not find service", stderr: "" } : ok());
+
+  test("no marker but the daemon answers (the app registered it at launch) -> ready, not missing", async () => {
+    rmSync(DAEMON_CONFIG_PATH, { force: true });
+    const r = await pickRow(rtHealthRows(fakeProbes({ daemon: readyDaemon, exec: launchdOk }), { ci: false }), "tool.daemon");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toContain("registered with launchd");
+  });
 
   test("installed, ping unreachable, ci:false -> needs-you, the SAME Login Items action permissions.ts uses (finding #10)", async () => {
     markInstalled();
@@ -734,7 +754,8 @@ describe("rtHealthRows — home.backup (real git)", () => {
     createdRoots.push(dir);
     const row = await homeBackupRow(dir);
     expect(row.status).toBe("needs-you");
-    expect(row.detail).toBe("no home repo found yet — nothing to back up");
+    expect(row.detail).toBe("no home repo found yet... nothing to back up");
+    expect(row.action).toEqual({ type: "run", label: "Create home repo", verb: ["setup", "apply", "--only", "home.init"] });
   });
 
   test("rev-list check fails (timeout/corrupt store): needs-you, could-not-determine — never falls through to ready on evidence that never arrived", async () => {
