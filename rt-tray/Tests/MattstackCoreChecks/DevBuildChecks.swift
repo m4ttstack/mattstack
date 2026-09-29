@@ -212,6 +212,29 @@ let devBuildChecks: [Check] = [
         c.expectEqual(marker(rig.staged), "new", "the staged build stays for the next try")
         c.expectEqual(read(rig.calls), "fake-open \(rig.app.path)\n")
     },
+    Check("the handoff opens the app with an empty environment, since open forwards its own to the app") { c in
+        let rig = Rig()
+        makeBundle(rig.app, marker: "old")
+        makeBundle(rig.staged, marker: "new")
+        let seen = rig.dir.appendingPathComponent("open-env.txt")
+        let opener = rig.dir.appendingPathComponent("env-open").path
+        try "#!/bin/sh\nenv > '\(seen.path)'\n".write(toFile: opener, atomically: true, encoding: .utf8)
+        chmod(opener, 0o755)
+        let script = DevBuild.handoffScript(pid: deadPid(), appPath: rig.app.path, stagedPath: rig.staged.path,
+                                            deckLabel: nil, uid: 501, logPath: rig.restartLog.path, openPath: opener)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script]
+        p.environment = ["PATH": "/usr/bin:/bin", "NODE": "/mise/shims/node", "npm_node_execpath": "/mise/shims/node",
+                         "CLAUDECODE": "1", "HERDR_PANE_ID": "p1"]
+        try p.run()
+        p.waitUntilExit()
+        c.expectEqual(p.terminationStatus, 0)
+        let keys = read(seen).split(separator: "\n").compactMap { $0.split(separator: "=").first.map(String.init) }
+        c.expectEqual(keys.filter { ["NODE", "npm_node_execpath", "CLAUDECODE", "HERDR_PANE_ID", "PATH"].contains($0) }, [],
+                      "the opener saw the handoff's environment")
+        c.expectEqual(marker(rig.app), "new")
+    },
     Check("a plain relaunch reopens the same app without swapping or restarting anything") { c in
         let rig = Rig()
         makeBundle(rig.app, marker: "old")

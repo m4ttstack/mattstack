@@ -156,7 +156,10 @@ public enum DevBuild {
                 "fi",
             ]
         }
-        lines.append("\(shellQuote(openPath)) \(app)")
+        // open hands its own environment to the app it launches, so without
+        // env -i a tray opened from a shell passes that shell's vars on to
+        // every build it restarts into.
+        lines.append("/usr/bin/env -i \(shellQuote(openPath)) \(app)")
         if let deckLabel {
             let deck = shellQuote(deckCLIPath ?? appPath + "/Contents/Helpers/deck")
             lines += [
