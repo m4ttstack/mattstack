@@ -17,7 +17,8 @@ function isolate(): void {
 }
 
 isolate();
-const { ensureSelfRoutes, reconcileSelfPort } = await import('./self-port.ts');
+const { ensureSelfRecord, ensureSelfRoutes, reconcileSelfPort } =
+  await import('./self-port.ts');
 const { putRecord, reloadRegistry } = await import('./records.ts');
 
 beforeEach(() => {
@@ -152,4 +153,39 @@ test('deck routes that already exist are left as they are', async () => {
   );
 
   expect(await ensureSelfRoutes(7940)).toEqual([]);
+});
+
+test('a helper-only machine gets the self record `deck setup` would have written', () => {
+  putRecord({ ...selfRecord(11006), name: 'board', managedBy: 'rt' });
+
+  expect(
+    ensureSelfRecord(7940, [
+      '/Applications/m.app/Contents/Helpers/deck',
+      'serve',
+    ])
+  ).toBe(true);
+
+  const deck = JSON.parse(readFileSync(registry, 'utf8')).apps.deck;
+  expect(deck).toMatchObject({
+    name: 'deck',
+    managedBy: 'deck',
+    port: 7940,
+    kind: 'service',
+    label: 'com.mattstack.deck',
+    command: ['/Applications/m.app/Contents/Helpers/deck', 'serve'],
+    workingDirectory: process.env.LOCAL_STATE_DIR,
+  });
+  expect(typeof deck.createdAt).toBe('string');
+});
+
+test('an existing self record, current or pre-rename, is left alone', () => {
+  putRecord(selfRecord(11007));
+  expect(ensureSelfRecord(7940, ['x', 'serve'])).toBe(false);
+  expect(JSON.parse(readFileSync(registry, 'utf8')).apps.deck.port).toBe(11007);
+
+  isolate();
+  reloadRegistry();
+  putRecord({ ...selfRecord(7940), name: 'local', managedBy: 'local' });
+  expect(ensureSelfRecord(7940, ['x', 'serve'])).toBe(false);
+  expect(JSON.parse(readFileSync(registry, 'utf8')).apps.deck).toBeUndefined();
 });

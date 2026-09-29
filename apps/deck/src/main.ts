@@ -17,6 +17,7 @@ import { startApi } from './api/server.ts';
 import { claimApiInfo, runModeFromEnv, stateDir } from './api/state.ts';
 import { reconcileMattstackTld } from './api/tld-reconcile.ts';
 import { bootSweepGate, reresolveOnBoot } from './boot-reresolve.ts';
+import { detectExecTarget } from './cli/setup.ts';
 import { resolveCfDns, type CfDns } from './edge/cf-dns.ts';
 import { PortlessCli } from './edge/portless.ts';
 import { CloudflaredCli } from './edge/tunnel.ts';
@@ -24,7 +25,11 @@ import { bindGatewayOrExit } from './gateway-boot.ts';
 import { migrateManagedDevShape } from './registry/migrate-dev-shape.ts';
 import { stampSelfOnBoot } from './registry/new-code.ts';
 import { listRecords } from './registry/records.ts';
-import { ensureSelfRoutes, reconcileSelfPort } from './registry/self-port.ts';
+import {
+  ensureSelfRecord,
+  ensureSelfRoutes,
+  reconcileSelfPort,
+} from './registry/self-port.ts';
 import { bundleRootFromExec } from './services/bundle-layout.ts';
 import {
   liveDeckOwner,
@@ -44,7 +49,8 @@ const CANARY_PORT = Number(process.env.LOCAL_APPS_CANARY_PORT ?? 7942);
 // The canary flips <APP_NAME>.localhost's route to a canary port and back, so
 // this must be the route the platform actually owns. Once bootstrap has run
 // that is the self-record's name ("deck"), not the legacy default "apps".
-const APP_NAME =
+// Read per check: a helper-owned deck writes its self record after import.
+const appName = (): string =>
   process.env.LOCAL_APPS_APP_NAME ??
   listRecords().find(r => isPlatformManagedBy(r.managedBy))?.name ??
   'apps';
@@ -80,7 +86,7 @@ export async function serve(): Promise<void> {
   async function measureFreshness(): Promise<Freshness> {
     try {
       return await checkProxyFreshness({
-        app: APP_NAME,
+        app: appName(),
         mainPort: PORT,
         canaryPort: CANARY_PORT,
       });
@@ -164,6 +170,17 @@ export async function serve(): Promise<void> {
     }
   } catch (err) {
     console.error('registry dev-shape migration failed:', err);
+  }
+
+  if (bundleRoot) {
+    try {
+      const { execPath, entry } = detectExecTarget();
+      const command = entry ? [execPath, entry, 'serve'] : [execPath, 'serve'];
+      if (ensureSelfRecord(PORT, command))
+        console.log(`[helper] deck serves on ${PORT}: created its self record`);
+    } catch (err) {
+      console.error('self record ensure failed:', err);
+    }
   }
 
   try {

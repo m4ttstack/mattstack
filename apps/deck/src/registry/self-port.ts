@@ -1,7 +1,17 @@
 import { MATTSTACK_TLD } from '../../core/discover.ts';
 import { addRoutes, repointRoutes } from '../../core/routes-writer.ts';
-import { PLATFORM_NAME } from '../services/manager.ts';
-import { getRecord, putRecord, reloadRegistry } from './records.ts';
+import { stateDir } from '../api/state.ts';
+import {
+  isPlatformManagedBy,
+  PLATFORM_LABEL,
+  PLATFORM_NAME,
+} from '../services/manager.ts';
+import {
+  getRecord,
+  listRecords,
+  putRecord,
+  reloadRegistry,
+} from './records.ts';
 
 /**
  * The bundle helper's plist carries no PORT, so the port it serves on can
@@ -34,4 +44,25 @@ export function ensureSelfRoutes(port: number): Promise<string[]> {
     [`${PLATFORM_NAME}.localhost`, `${PLATFORM_NAME}.${MATTSTACK_TLD}`],
     port
   );
+}
+
+/**
+ * The self record `deck setup` writes, for a helper-owned deck that never
+ * runs it: without one deck has no row of its own and no name.mattstack
+ * route from the TLD reconcile. A pre-rename "local" row counts as present.
+ */
+export function ensureSelfRecord(port: number, command: string[]): boolean {
+  reloadRegistry();
+  if (listRecords().some(r => isPlatformManagedBy(r.managedBy))) return false;
+  putRecord({
+    name: PLATFORM_NAME,
+    managedBy: PLATFORM_NAME,
+    port,
+    kind: 'service',
+    label: PLATFORM_LABEL,
+    command,
+    workingDirectory: stateDir(),
+    createdAt: new Date().toISOString(),
+  });
+  return true;
 }
