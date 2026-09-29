@@ -234,9 +234,9 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
   };
 
   const revert: MetricEvidence = {
-    columns: ['MR', 'Title', 'Merged', 'Reverted?'],
+    columns: ['MR', 'Title', 'Merged', 'Reverted by', 'Lived'],
     rows: MERGED_MRS.map(([iid, title, , , day]) => ({
-      cells: [`!${iid}`, title, day, '—'],
+      cells: [`!${iid}`, title, day, '—', '—'],
       href: mrUrl(iid),
       muted: true,
     })),

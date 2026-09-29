@@ -15,6 +15,7 @@ import {
   buildUserCohorts,
   type CohortOptions,
 } from './cohorts.js';
+import { normalizeTitle, revertTarget } from './reverts.js';
 import { mean, percentile, round, streaks } from './stats.js';
 
 export interface EvidenceContext extends CohortOptions {
@@ -27,6 +28,15 @@ const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : '—');
 const hrs = (n: number): string => `${round(n, 1)}h`;
 const byIidDesc = (a: { mr: NormMr }, b: { mr: NormMr }): number =>
   b.mr.iid - a.mr.iid;
+const firstAt = (m: NormMr): string => m.mergedAt ?? m.createdAt;
+
+/** Whole days from merge to revert, or hours when it lived under a day. */
+function lived(mergedAt: string | null, revertedAt: string): string {
+  if (!mergedAt) return '—';
+  const hours =
+    Math.max(0, Date.parse(revertedAt) - Date.parse(mergedAt)) / 3_600_000;
+  return hours < 24 ? `${Math.round(hours)}h` : `${Math.floor(hours / 24)}d`;
+}
 
 /** Build every metric's evidence for one user. Metrics with no records are omitted. */
 export function buildUserEvidence(
@@ -117,18 +127,31 @@ export function buildUserEvidence(
   };
 
   const reverted = new Set(c.reverted);
+  const reverters = new Map<string, NormMr>();
+  for (const r of corpus.mrs) {
+    const target = revertTarget(r);
+    const seen = target ? reverters.get(target) : undefined;
+    if (target && (!seen || firstAt(r) < firstAt(seen)))
+      reverters.set(target, r);
+  }
   const revertEvidence: MetricEvidence = {
-    columns: ['MR', 'Title', 'Merged', 'Reverted?'],
-    rows: merged.map(m => ({
-      cells: [
-        `!${m.iid}`,
-        m.title,
-        day(m.mergedAt),
-        reverted.has(m) ? 'reverted' : '—',
-      ],
-      href: mrUrl(m),
-      muted: !reverted.has(m),
-    })),
+    columns: ['MR', 'Title', 'Merged', 'Reverted by', 'Lived'],
+    rows: merged.map(m => {
+      const by = reverted.has(m)
+        ? reverters.get(normalizeTitle(m.title))
+        : undefined;
+      return {
+        cells: [
+          `!${m.iid}`,
+          m.title,
+          day(m.mergedAt),
+          by ? `!${by.iid}` : '—',
+          by ? lived(m.mergedAt, firstAt(by)) : '—',
+        ],
+        href: mrUrl(m),
+        muted: !reverted.has(m),
+      };
+    }),
     summary: `${c.reverted.length} of ${merged.length} merged MRs later reverted`,
     facts: { reverted: c.reverted.length, checked: merged.length },
   };

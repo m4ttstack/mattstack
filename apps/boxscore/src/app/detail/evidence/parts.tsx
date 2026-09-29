@@ -154,6 +154,26 @@ export function EvFooter({
   );
 }
 
+/** A row's MR id in its fixed 64px column, linked when the row has a link. */
+export function MrId({ id, href }: { id: string; href?: string | null }) {
+  const className = `${classes.t} ${classes.num} ${classes.id} ${classes.idCol}`;
+  return href ? (
+    <a
+      className={className}
+      data-parity="id"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {id}
+    </a>
+  ) : (
+    <span className={className} data-parity="id">
+      {id}
+    </span>
+  );
+}
+
 export function HeaderRow({ children }: { children: ReactNode }) {
   return (
     <div className={classes.header} data-parity="Ev Header" role="row">

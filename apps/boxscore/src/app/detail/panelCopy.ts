@@ -60,6 +60,38 @@ function latency(
   };
 }
 
+function mergedChips(facts: Facts): PanelChip[] {
+  return [
+    chip(`${fact(facts, 'merged')} merged`, 'neutral'),
+    chip(`+${fact(facts, 'added')} added`, 'ok'),
+    chip(`−${fact(facts, 'deleted')} deleted`, 'bad'),
+  ];
+}
+
+function revertChips(facts: Facts): PanelChip[] {
+  return [
+    chip(
+      `${fact(facts, 'reverted')} of ${fact(facts, 'checked')} reverted`,
+      facts.reverted ? 'bad' : 'ok'
+    ),
+    chip('detected reverts only', 'neutral'),
+  ];
+}
+
+function streakChips(facts: Facts): PanelChip[] {
+  return [
+    chip(`longest ${fact(facts, 'longest')}d`, 'gold'),
+    chip(`current ${fact(facts, 'current')}d`, 'neutral'),
+    chip(
+      `${fact(facts, 'mergeDays')} merge ${facts.mergeDays === 1 ? 'day' : 'days'}`,
+      'neutral'
+    ),
+  ];
+}
+
+const STREAK_DEFINITION =
+  'Longest run of consecutive calendar days on which you merged at least one MR, within the window. Current streak opens this same panel: the run ending on your most recent merge day.';
+
 export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   issuesCompleted: {
     source: 'Source: Linear, via merged MRs',
@@ -87,15 +119,35 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
       },
     ],
   },
-  additions: { source: 'Source: GitLab MRs you authored', sub: 'lines added' },
+  additions: {
+    source: 'Source: GitLab MRs you authored',
+    sub: 'lines added',
+    chips: mergedChips,
+  },
   deletions: {
     source: 'Source: GitLab MRs you authored',
     sub: 'lines deleted',
+    chips: mergedChips,
   },
-  mrsMerged: { source: 'Source: GitLab MRs you authored', sub: 'MRs merged' },
+  mrsMerged: {
+    source: 'Source: GitLab MRs you authored',
+    sub: 'MRs merged',
+    definition:
+      'Count of MRs you authored that merged in the window. Added and Deleted open this same list, sorted by their own column.',
+    chips: mergedChips,
+  },
   mrsReviewed: {
     source: 'Source: GitLab notes and approvals',
     sub: "teammates' MRs reviewed",
+    definition:
+      "Distinct teammates' MRs you reviewed, by note or approval, in the window.",
+    chips: facts => [
+      chip(`${fact(facts, 'reviewed')} MRs`, 'neutral'),
+      chip(
+        `${fact(facts, 'authors')} ${facts.authors === 1 ? 'author' : 'authors'}`,
+        'neutral'
+      ),
+    ],
   },
   pipelines: {
     source: 'Source: GitLab pipelines you triggered',
@@ -111,6 +163,12 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   reviewDepth: {
     source: 'Source: GitLab inline diff comments',
     sub: 'inline comments per reviewed MR',
+    definition:
+      'Average inline (diff) comments per MR you reviewed. Higher means more substantive review.',
+    chips: facts => [
+      chip(`${fact(facts, 'reviewed')} MRs reviewed`, 'neutral'),
+      chip(`${fact(facts, 'inlineComments')} inline comments`, 'neutral'),
+    ],
   },
   reviewLatencyHours: {
     source: 'Source: GitLab, first review on your MRs',
@@ -128,14 +186,31 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   revertRate: {
     source: 'Source: GitLab, detected revert MRs',
     sub: 'of merged MRs later reverted',
+    definition:
+      'Share of your merged MRs later reverted. Lower is better. Detected reverts only, so it undercounts fix-forward fixes. Reverted opens this same panel with the count.',
+    chips: revertChips,
   },
   revertedCount: {
     source: 'Source: GitLab, detected revert MRs',
     sub: 'merged MRs later reverted',
+    chips: revertChips,
   },
   sizeHealthPct: {
     source: 'Source: GitLab diff stats, merged MRs',
     sub: 'of merged MRs in the healthy size band',
+    definition: facts =>
+      `Share of your merged MRs in the reviewable size band: more than ${fact(facts ?? {}, 'bandLow')} and at most ${fact(facts ?? {}, 'bandHigh')} changed lines. Higher is better. The band is a team setting.`,
+    chips: facts => [
+      chip(`${fact(facts, 'inBand')} in band`, 'ok'),
+      chip(
+        `${fact(facts, 'overBand')} over ${fact(facts, 'bandHigh')} lines`,
+        facts.overBand ? 'warn' : 'neutral'
+      ),
+      chip(
+        `${fact(facts, 'underBand')} under ${fact(facts, 'bandLow')}`,
+        facts.underBand ? 'warn' : 'neutral'
+      ),
+    ],
   },
   codingDays: {
     source: 'Source: GitLab pushes to tracked projects',
@@ -154,10 +229,14 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
   currentStreak: {
     source: 'Source: GitLab merge dates, MRs you authored',
     sub: 'current run of merge days',
+    definition: STREAK_DEFINITION,
+    chips: streakChips,
   },
   longestStreak: {
     source: 'Source: GitLab merge dates, MRs you authored',
     sub: 'longest run of merge days',
+    definition: STREAK_DEFINITION,
+    chips: streakChips,
   },
   reciprocity: {
     source: 'Source: GitLab reviews given and received',

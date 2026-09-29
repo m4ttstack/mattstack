@@ -66,6 +66,20 @@ describe('buildUserEvidence links and flags', () => {
     ).toBe(true);
   });
 
+  it('revert rows name the reverting MR and how long the original lived', () => {
+    expect(ev.revertRate!.columns).toEqual([
+      'MR',
+      'Title',
+      'Merged',
+      'Reverted by',
+      'Lived',
+    ]);
+    const reverted = ev.revertRate!.rows.find(r => r.cells[0] === '!1');
+    expect(reverted?.cells.slice(3)).toEqual(['!4', '15d']);
+    const kept = ev.revertRate!.rows.find(r => r.cells[0] === '!2');
+    expect(kept?.cells.slice(3)).toEqual(['—', '—']);
+  });
+
   it('size-health marks out-of-band MRs as muted', () => {
     // MR2 is +5/-2 = 7 changed lines, below tooSmall (10) -> out of band -> muted.
     const small = ev.sizeHealthPct!.rows.find(r => r.cells[0] === '!2');

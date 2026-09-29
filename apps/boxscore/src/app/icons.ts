@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   Table2,
   Trophy,
+  Undo2,
 } from 'lucide-react';
 
 import { lucideWrapperFn, registerIcons } from '@mattstack/app-kit/icons';
@@ -18,4 +19,5 @@ registerIcons({
   layoutGrid: lucideWrapperFn(LayoutGrid),
   table2: lucideWrapperFn(Table2),
   trophy: lucideWrapperFn(Trophy),
+  undo2: lucideWrapperFn(Undo2),
 });

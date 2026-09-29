@@ -121,6 +121,11 @@
   text-decoration: none;
 }
 
+.idCol {
+  flex-shrink: 0;
+  width: 64px;
+}
+
 .id:hover,
 .mr a:hover {
   text-decoration: underline;

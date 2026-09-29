@@ -6,6 +6,7 @@ declare module '@mattstack/app-kit/icons' {
     layoutGrid: true;
     table2: true;
     trophy: true;
+    undo2: true;
   }
 }
 export {};

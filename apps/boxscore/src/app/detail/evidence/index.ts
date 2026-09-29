@@ -8,11 +8,17 @@ import type {
   UserRow,
 } from '../../../shared/types';
 import { CodingDaysEvidence } from './CodingDaysEvidence';
+import { DepthEvidence } from './DepthEvidence';
 import { IssuesEvidence } from './IssuesEvidence';
 import { LatencyEvidence } from './LatencyEvidence';
+import { MergedMrsEvidence, type MergedSort } from './MergedMrsEvidence';
 import { EmptyEvidence } from './parts';
 import { PipelinesEvidence } from './PipelinesEvidence';
 import { ReciprocityEvidence } from './ReciprocityEvidence';
+import { RevertEvidence } from './RevertEvidence';
+import { ReviewsEvidence } from './ReviewsEvidence';
+import { SizeEvidence } from './SizeEvidence';
+import { StreakEvidence } from './StreakEvidence';
 
 export interface EvidenceProps {
   ev: MetricEvidence;
@@ -25,6 +31,12 @@ export interface EvidenceProps {
 const Unmapped: ComponentType<EvidenceProps> = () =>
   createElement(EmptyEvidence);
 
+/** Added and Deleted open the merged list sorted by their own column. */
+const sortedBy = (initialSort: MergedSort): ComponentType<EvidenceProps> =>
+  function SortedMergedMrs(props: EvidenceProps) {
+    return createElement(MergedMrsEvidence, { ...props, initialSort });
+  };
+
 const PANELS: Partial<Record<MetricKey, ComponentType<EvidenceProps>>> = {
   issuesCompleted: IssuesEvidence,
   reviewLatencyHours: LatencyEvidence,
@@ -32,6 +44,16 @@ const PANELS: Partial<Record<MetricKey, ComponentType<EvidenceProps>>> = {
   codingDays: CodingDaysEvidence,
   pipelines: PipelinesEvidence,
   reciprocity: ReciprocityEvidence,
+  mrsMerged: sortedBy('newest'),
+  additions: sortedBy('most-added'),
+  deletions: sortedBy('most-deleted'),
+  sizeHealthPct: SizeEvidence,
+  revertRate: RevertEvidence,
+  revertedCount: RevertEvidence,
+  mrsReviewed: ReviewsEvidence,
+  reviewDepth: DepthEvidence,
+  longestStreak: StreakEvidence,
+  currentStreak: StreakEvidence,
 };
 
 export const EVIDENCE: Record<
