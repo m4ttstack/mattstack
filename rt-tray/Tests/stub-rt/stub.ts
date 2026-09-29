@@ -42,13 +42,20 @@ const row = (id: string, kind: string, title: string, why: string, required: boo
 // The finish-gate scenario: the one row that gates Finish, rendered the way
 // rt renders it before and after `setup waive`.
 const EXTENSION_ID = "tool.fast-browser-extension";
+// Mirrors FAST_BROWSER_LOAD_STEPS in lib/setup/validators/tools.ts.
+const FAST_BROWSER_STEPS = [
+  "Install Fast Browser from the [Chrome Web Store](https://chromewebstore.google.com/detail/fnfikoifhimpdedpdepehibjjkcfbacm)",
+  "Click the Fast Browser icon in Chrome and copy its reconnect token",
+  "Run: fast-browser configure --connection auto, then paste the token into the Keychain prompt",
+  "Run: fast-browser doctor",
+];
 const WAIVED_NOTE = "Skipped on this Mac: agents cannot capture screenshots or annotate evidence from your browser. Load it later from Settings.";
 function extensionRow() {
   const waived = stateGet("waived") > 0;
   return {
     ...row(EXTENSION_ID, "tool", "Fast Browser extension", "Fast Browser drives your real Chrome session through this extension.", false,
            "needs-you", "not loaded in Chrome",
-           { type: "steps", label: "Show steps…", steps: ["Open chrome://extensions", "Turn on Developer mode", "Load unpacked → ~/.fast-browser/extension/current/unpacked"] },
+           { type: "steps", label: "Show steps…", steps: FAST_BROWSER_STEPS },
            "on-activate", waived ? WAIVED_NOTE : "You load this into Chrome yourself; Install cannot do it for you."),
     finishGated: true,
     waived,
@@ -184,7 +191,7 @@ function plan(): unknown {
   const tools = [
     row("tool.herdr", "tool", "herdr", "Runs the agents that do the work.", true, "ready", "0.9.2", null),
     row("tool.fast-browser", "tool", "Fast Browser", "Browser automation for evidence.", true, "needs-you", "extension not loaded",
-        { type: "steps", label: "Show steps…", steps: ["Open chrome://extensions", "Turn on Developer mode", "Load unpacked → ~/.fast-browser/extension/current/unpacked"] }),
+        { type: "steps", label: "Show steps…", steps: FAST_BROWSER_STEPS }),
     row("tool.chrome", "tool", "Google Chrome", "Evidence capture.", false, "skipped", null,
         { type: "open-url", label: "Download", url: "https://www.google.com/chrome/" }, "manual", "Works without this."),
   ];
@@ -314,7 +321,8 @@ else if (a0 === "team" && a1 === "create") emit({ slug: "my-team", name: args[2]
 else if (a0 === "team" && a1 === "join") {
   const body = await readStdinJSON();
   if (!body.code) fail("invite-malformed", "Paste an invite code.");
-  if (scenario === "join-no-access") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "denied", peering: "idle", intent: "written", message: "Joining Acme. Your GitHub account cannot see acme/team yet: ask matt or your org admin to grant read access." });
+  if (scenario === "join-no-account") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "no-account", peering: "idle", intent: "written", message: "Joining Acme (owner matt). Connect your GitLab account on the next screen so rt can reach gitlab.com/acme/mattstack-team-acme." });
+  else if (scenario === "join-no-access") emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "denied", peering: "idle", intent: "written", message: "Joining Acme. Your GitHub account cannot see acme/team yet: ask matt or your org admin to grant read access." });
   else emit({ team: { slug: "acme", name: "Acme", owner: "matt" }, access: "ok", peering: "idle", intent: "written", message: "Joining Acme (owner matt)" });
 }
 else if (a0 === "team" && a1 === "status") emit(scenario === "solo" ? { mode: "solo", slug: null, name: null, remote: null, lastPush: null, members: [] } : { slug: "acme", name: "Acme", remote: "git@github.com:acme/mattstack-team-acme.git", lastPush: "2026-08-21T03:00:00Z", members: [{ username: "matt" }, { username: "bob" }] });
