@@ -168,3 +168,18 @@ export const FETCH: FetchResult = {
 };
 
 export const USERS = ['alice', 'bob'] as const;
+
+export const fetchedWithMergedMrs = (user: string, n: number): FetchResult => ({
+  ...FETCH,
+  mrs: Array.from({ length: n }, (_, i) =>
+    mr({
+      iid: 1000 + i,
+      authorUsername: user,
+      title: `Change ${i}`,
+      createdAt: '2026-05-12T08:00:00.000Z',
+      mergedAt: '2026-05-13T00:00:00.000Z',
+      additions: 20,
+      deletions: 5,
+    })
+  ),
+});

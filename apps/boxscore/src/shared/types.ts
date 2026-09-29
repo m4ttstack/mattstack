@@ -135,6 +135,8 @@ export interface MetricEvidence {
   rows: EvidenceRow[];
   /** One-line context, e.g. "p50 19.4h over 5 MRs" or "43 of 47 excluded as stale". */
   summary?: string;
+  /** Typed totals the UI reads instead of parsing summary. Computed before row truncation. */
+  facts?: Record<string, number>;
 }
 
 /** Per-person drill-down: the ranked row (for the rail) plus per-metric evidence. */
