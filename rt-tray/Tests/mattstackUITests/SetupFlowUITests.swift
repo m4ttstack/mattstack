@@ -231,7 +231,7 @@ final class SetupFlowUITests: XCTestCase {
             waitFor("settings.devLogins.row.https://login.example.com"); shoot("devlogins-list-\(scheme)")
             el("settings.devLogins.replace.https://login.example.com").click(); waitFor("devLogin.sheet.email")
             XCTAssertFalse(el("devLogin.sheet.confirmHost").exists, "replacing a saved site skips the typed host")
-            XCTAssertEqual(el("devLogin.sheet.email").value as? String, "dev@example.com", "Replace starts from the saved email")
+            XCTAssertEqual(el("devLogin.sheet.email").value as? String, "dev@example.com", "Edit starts from the saved email")
             shoot("devlogins-sheet-replace-\(scheme)")
             el("devLogin.sheet.cancel").click()
 
