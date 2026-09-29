@@ -11,6 +11,7 @@ enum SettingsPaneContent {
             switch pane {
             case .general: GeneralPane(env: env)
             case .permissions: PermissionsPane(env: env)
+            case .accounts: AccountsPane(env: env)
             case .fastBrowser: FastBrowserPane(env: env)
             case .devLogins: DevLoginsPane(env: env)
             case .apps: AppsPane(env: env)

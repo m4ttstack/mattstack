@@ -111,7 +111,7 @@ final class SetupCoordinator {
 
     func showSettings(pane: SettingsPane? = nil) {
         if settingsWindow == nil {
-            let env = SettingsEnvironment(rt: rt, permissions: permissions, readiness: readiness, updater: updater, apps: appsSettings, team: teamSettings,
+            let env = SettingsEnvironment(rt: rt, needs: needs, permissions: permissions, readiness: readiness, updater: updater, apps: appsSettings, team: teamSettings,
                                           devLogins: devLogins,
                                           waivers: WaiverClient(rt: rt),
                                           isDevBuild: BundleFlavor.isDevBuild,
