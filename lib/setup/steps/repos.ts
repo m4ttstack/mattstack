@@ -145,7 +145,7 @@ async function cloneInto(ctx: ApplyContext, identity: string, dest: string): Pro
 
   const remote = `https://${identity}.git`;
   const token = await trustedForgeTokenFor(ctx, remote);
-  const git = gitWithToken([...CLONE_STALL_ARGS, "clone", remote, dest], token, CLONE_ENV);
+  const git = gitWithToken([...CLONE_STALL_ARGS, "clone", remote, dest], token, CLONE_ENV, { remote });
   const result = await p.exec(git.argv, { env: git.env, timeoutMs: CLONE_TIMEOUT_MS });
   const rt = linkPath(p.home, "rt");
   if (result.code === 0 && token && p.exists(rt)) {

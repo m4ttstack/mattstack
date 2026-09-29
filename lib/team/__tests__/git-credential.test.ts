@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe("gitWithToken", () => {
   test("hands git the token through the inline helper and env, never argv", () => {
-    const git = gitWithToken([], "tok_rt", {});
+    const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
     expect(git.argv.join(" ")).not.toContain("tok_rt");
     expect(credentialFill(git.argv, git.env)).toContain("password=tok_rt");
   });
@@ -79,30 +79,48 @@ describe("gitWithToken", () => {
     };
 
     test("the checked host gets rt's token and no other helper is consulted", () => {
-      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
       expect(run(git.argv, git.env, "fill", "protocol=https\nhost=github.com\n\n")).toContain("password=tok_rt");
       expect(readLog()).toBe("");
     });
 
     test("a successful auth's store never hands the token to the user's helpers (a keychain would keep it)", () => {
-      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
       run(git.argv, git.env, "approve", "protocol=https\nhost=github.com\nusername=x-access-token\npassword=tok_rt\n\n");
       expect(readLog()).not.toContain("tok_rt");
     });
 
     test("any other host (a submodule, a redirect) never gets the token", () => {
-      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
       expect(run(git.argv, git.env, "fill", "protocol=https\nhost=gitlab.com\n\n")).not.toContain("tok_rt");
     });
 
     test("cleartext http on the same host never gets the token", () => {
-      const git = gitWithToken([], "tok_rt", {}, { host: "github.com" });
+      const git = gitWithToken([], "tok_rt", {}, { remote: "https://github.com/acme/app.git" });
       expect(run(git.argv, git.env, "fill", "protocol=http\nhost=github.com\n\n")).not.toContain("tok_rt");
     });
   });
 
+  test.each([
+    ["an scp-style ssh remote", "git@github.com:acme/app.git"],
+    ["cleartext http", "http://github.com/acme/app.git"],
+    ["a local path", "/tmp/acme/app"],
+    ["no remote", null],
+  ])("%s gets no token and no helper", (_label, remote) => {
+    expect(gitWithToken(["fetch"], "tok_rt", { A: "1" }, { remote })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
+  });
+
+  test("no call site offers a token through an unscoped credential.helper", () => {
+    const grep = spawnSync("git", ["grep", "-l", "-F", "credential.helper=", "--", "lib", "commands", ":!*__tests__*"], {
+      cwd: join(import.meta.dir, "..", "..", ".."),
+      encoding: "utf8",
+    });
+    expect(grep.status).toBe(1);
+    expect(grep.stdout).toBe("");
+  });
+
   test("no token: plain git, nothing added", () => {
-    expect(gitWithToken(["fetch"], null, { A: "1" }, { host: "github.com" })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
+    expect(gitWithToken(["fetch"], null, { A: "1" }, { remote: "https://github.com/acme/app.git" })).toEqual({ argv: ["git", "fetch"], env: { A: "1" } });
   });
 });
 

@@ -79,7 +79,7 @@ export async function originFetchAuth(
     return null;
   }
   if (!token) return null;
-  const git = gitWithToken([], token, { GIT_TERMINAL_PROMPT: "0" }, { host });
+  const git = gitWithToken([], token, { GIT_TERMINAL_PROMPT: "0" }, { remote: url });
   return { args: git.argv.slice(1), env: git.env, remote: url };
 }
 

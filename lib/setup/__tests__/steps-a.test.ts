@@ -390,7 +390,7 @@ describe("team.create", () => {
     const outcome = await teamCreateStep.run(ctx);
     expect(outcome.state).toBe("done");
     const push = seen.find((c) => c.argv.includes("push"))!;
-    expect(push.argv.join(" ")).toContain("credential.helper=");
+    expect(push.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
     expect(push.argv.join(" ")).not.toContain("ghp_staged");
     expect(push.env?.RT_GIT_TOKEN).toBe("ghp_staged");
   });
@@ -960,7 +960,7 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     const outcome = await reposCloneStep.run(ctx);
     expect(outcome.state).toBe("done");
     const clone = seen.find((c) => c.argv.includes("clone"))!;
-    expect(clone.argv).toContain("credential.helper=");
+    expect(clone.argv).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
     expect(clone.argv.join(" ")).not.toContain("glpat_staged");
     expect(clone.env?.RT_GIT_TOKEN).toBe("glpat_staged");
     expect(clone.env?.GIT_TERMINAL_PROMPT).toBe("0");

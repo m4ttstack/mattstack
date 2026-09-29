@@ -448,7 +448,7 @@ export async function joinRedeem(
     alreadyCloned = true;
   } else {
     p.mkdirp(join(p.home, ".mattstack", "teams"));
-    const git = gitWithToken(["clone", pointer.remote, dir], token, GIT_ENV);
+    const git = gitWithToken(["clone", pointer.remote, dir], token, GIT_ENV, { remote: pointer.remote });
     const clone = await p.exec(git.argv, { env: git.env });
     if (clone.code !== 0) {
       updateTeamLocal(p, pointer.team, { joinedByRt: priorJoined });

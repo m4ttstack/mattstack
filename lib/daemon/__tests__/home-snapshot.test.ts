@@ -2124,6 +2124,7 @@ function teamSpecFor(tokenValue: string | null = "glpat-team") {
     scope: teamScope,
     pull: { intervalSec: 300 },
     tokenFor: async () => tokenValue,
+    originUrl: "https://gitlab.com/acme/team.git",
   };
 }
 
@@ -2170,7 +2171,7 @@ describe("startSnapshot: pull", () => {
     await handle.ready;
     await handle.pullNow();
     const i = calls.findIndex((c) => gitVerb(c) === "fetch");
-    expect(calls[i]).toContain("credential.helper=");
+    expect(calls[i]).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
     expect(calls[i]!.join(" ")).not.toContain("glpat-team");
     expect((optsLog[i] as { env?: Record<string, string> }).env?.RT_GIT_TOKEN).toBe("glpat-team");
     handle.stop();

@@ -33,7 +33,7 @@ export async function probeTeamRepoAccess(p: Probes, remote: string, lookup: For
     return { kind: "no-clt", detail: "needs Apple's Command Line Tools first" };
   }
 
-  const cmd = gitWithToken(["ls-remote", "--exit-code", remote, "HEAD"], tokenOrNull(lookup), GIT_ENV);
+  const cmd = gitWithToken(["ls-remote", "--exit-code", remote, "HEAD"], tokenOrNull(lookup), GIT_ENV, { remote });
   const res = await p.exec(cmd.argv, { timeoutMs: LS_REMOTE_TIMEOUT_MS, env: cmd.env });
   if (res.code === 0) return { kind: "ok", detail: "reachable" };
   if (res.code === 2) return { kind: "ok", detail: "empty repo (will be initialized)" };

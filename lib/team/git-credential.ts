@@ -6,9 +6,8 @@
  * never the URL (echoed into stderr and .git/config).
  */
 
-import { forgeFromRemote } from "../setup/team-settings.ts";
+import { forgeFromRemote, hostFromRemote } from "../setup/team-settings.ts";
 
-const HELPER = "!f() { echo username=$RT_GIT_USER; echo password=$RT_GIT_TOKEN; }; f";
 
 export interface GitWithToken {
   argv: string[];
@@ -24,26 +23,20 @@ const HOST_HELPER =
   '!f() { test "$1" = get || return 0; p=; h=; while IFS= read -r l && test -n "$l"; do case "$l" in protocol=*) p=${l#protocol=};; host=*) h=${l#host=};; esac; done; test "$p" = https && test "$h" = "$RT_GIT_HOST" || return 0; echo username=$RT_GIT_USER; echo password=$RT_GIT_TOKEN; }; f';
 
 /**
- * `git <args>` with `token` offered for the remote; `env` merges over the
- * caller's own. rt's helper replaces every other one, so no other helper can
- * substitute a credential or be handed rt's token by git's `store` (Apple
- * git's system osxkeychain would keep it). With `host`, the reset and the
- * helper are scoped to that one https host, leaving the user's helpers in
- * place for every other host.
+ * `git <args>` with `token` offered to `remote`'s https host only; `env`
+ * merges over the caller's own. rt's helper is the only one for that host, so
+ * no other helper can substitute a credential or be handed rt's token by
+ * git's `store` (Apple git's system osxkeychain would keep it), and every
+ * other host keeps the user's own helpers. A remote with no https host (ssh,
+ * a local path, cleartext http) gets no token at all.
  */
-export function gitWithToken(args: string[], token: string | null, env: Record<string, string> = {}, opts: { host?: string } = {}): GitWithToken {
-  if (!token) return { argv: ["git", ...args], env };
-  const identity = { RT_GIT_USER: "x-access-token", RT_GIT_TOKEN: token };
-  if (opts.host) {
-    const key = `credential.https://${opts.host}.helper`;
-    return {
-      argv: ["git", "-c", `${key}=`, "-c", `${key}=${HOST_HELPER}`, ...args],
-      env: { ...env, ...identity, RT_GIT_HOST: opts.host },
-    };
-  }
+export function gitWithToken(args: string[], token: string | null, env: Record<string, string>, opts: { remote: string | null }): GitWithToken {
+  const host = opts.remote && /^https:\/\//i.test(opts.remote) ? hostFromRemote(opts.remote) : null;
+  if (!token || !host) return { argv: ["git", ...args], env };
+  const key = `credential.https://${host}.helper`;
   return {
-    argv: ["git", "-c", "credential.helper=", "-c", `credential.helper=${HELPER}`, ...args],
-    env: { ...env, ...identity },
+    argv: ["git", "-c", `${key}=`, "-c", `${key}=${HOST_HELPER}`, ...args],
+    env: { ...env, RT_GIT_USER: "x-access-token", RT_GIT_TOKEN: token, RT_GIT_HOST: host },
   };
 }
 
