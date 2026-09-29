@@ -119,7 +119,7 @@ import { createBgService, type BgService } from "./daemon/bg-service.ts";
 import { createBgClaimsStore, type BgClaimsStore } from "./daemon/bg-claims-store.ts";
 import { createGatePush, type GatePush } from "./daemon/gate-push.ts";
 import { createGateEscalation, type GateEscalation } from "./daemon/gate-escalation.ts";
-import { createEscapeInjector, createPaneStatusProbe } from "./daemon/gate-escape.ts";
+import { createEscapeInjector, createPaneStatusProbe, readVisibleScreen } from "./daemon/gate-escape.ts";
 import { createReconciler, type Reconciler } from "./daemon/reconciler.ts";
 import { createPaneDriveGuard, createRelocationWatcher, type RelocationWatcher } from "./daemon/relocation-announce.ts";
 import { snapshotPanes, type LivePane } from "./daemon/pane-resolve-live.ts";
@@ -741,13 +741,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
           store: gatesStore,
           listAgents: () => listAgents({}, getStateDb("daemon")),
           snapshot: snapshotPanes,
-          peek: async (pane: LivePane) => {
-            const paneId = pane.paneRef.startsWith("bg:") ? pane.paneRef.slice("bg:".length) : pane.paneRef;
-            const res = await herdrRequest<{ read: { text: string } }>(
-              "pane.read", { pane_id: paneId, source: "visible" }, { sockPath: pane.sockPath },
-            );
-            return res.ok ? res.result.read.text : "";
-          },
+          peek: (pane: LivePane) => readVisibleScreen(pane),
           emit: (topic, payload) => {
             const emittedAt = Date.now();
             const eventId = eventsBus.emitAt(topic, payload, emittedAt);

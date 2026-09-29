@@ -95,8 +95,32 @@ describe("createEscapeInjector", () => {
 
 describe("createPaneStatusProbe", () => {
   test("reads the paneRef and agent status of the pane the hints resolve to", async () => {
-    const probe = createPaneStatusProbe({ snapshot: async () => [pane({ paneRef: "wE2:p8", sessionId: "s-1", agentStatus: "idle" })] });
+    const probe = createPaneStatusProbe({
+      snapshot: async () => [pane({ paneRef: "wE2:p8", sessionId: "s-1", agentStatus: "idle" })],
+      readScreen: async () => "",
+    });
     expect(await probe({ paneId: "wE2:p6", sessionId: "s-1" })).toEqual({ paneRef: "wE2:p8", status: "idle" });
+  });
+  test("a question form on screen reads blocked whatever herdr's status says", async () => {
+    const reads: string[] = [];
+    const probe = createPaneStatusProbe({
+      snapshot: async () => [pane({ paneRef: "wE2:p8", agentStatus: "idle" })],
+      readScreen: async (p) => { reads.push(p.paneRef); return "│ Pick one\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n"; },
+    });
+    expect(await probe({ paneId: "wE2:p8" })).toEqual({ paneRef: "wE2:p8", status: "blocked" });
+    expect(reads).toEqual(["wE2:p8"]);
+  });
+  test("no form on screen keeps herdr's status, and an unreadable screen falls back to it", async () => {
+    const idle = createPaneStatusProbe({
+      snapshot: async () => [pane({ agentStatus: "idle" })],
+      readScreen: async () => "❯ \n",
+    });
+    expect(await idle({ paneId: "wE2:p8" })).toEqual({ paneRef: "wE2:p8", status: "idle" });
+    const unreadable = createPaneStatusProbe({
+      snapshot: async () => [pane({ agentStatus: "blocked" })],
+      readScreen: async () => { throw new Error("pane.read failed"); },
+    });
+    expect(await unreadable({ paneId: "wE2:p8" })).toEqual({ paneRef: "wE2:p8", status: "blocked" });
   });
   test("null when no herdr server answers or nothing resolves", async () => {
     expect(await createPaneStatusProbe({ snapshot: async () => null })({ paneId: "wE2:p8" })).toBeNull();
