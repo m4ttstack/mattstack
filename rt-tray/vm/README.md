@@ -55,6 +55,24 @@ daemon pushes straight to it.
 
 Facts a join run depends on:
 
+- `--scenario join --fresh-team-repo` needs no invite code and no owner
+  guest: after preflight mints the empty repo, an `invite` phase runs
+  `run/host/mint-invite.sh` on the host, which does `rt team create`,
+  `rt team publish` and `rt team invite --handle <the PAT's login>` under a
+  throwaway `vm-mint.*` HOME with `env -i`, a stand-in `security` that keeps
+  the age key in that HOME (the host keychain is never read), and a git
+  credential helper fed from the environment. The rt is the bundle under test
+  (read from `--app`, or from the DMG, attached read-only) unless `--mint-rt`
+  names another. The HOME is deleted when the phase ends, the code lands in
+  `mint/invite-code.txt` (0600, redacted from `logs/mint.log`), and teardown
+  deletes the repo as for create. Invitee and owner are the same account, so
+  a `skipped` forge grant still clones.
+- The driven join asserts the Join card's note (the green "Joining ..."
+  summary or `setup.team.join.warning`) is on the Team screen before
+  Continue, and the assert phase runs `assert-installed.sh --join <slug>`:
+  `rt team status` names the team, and `run/guest/jq/join-rows.jq` requires
+  `tool.plugins`, `access.team-repo` and any `team.marketplace` ready, and
+  each `access.repo.*` ready or a clear partial (a detail plus an action).
 - One PAT per run, the joiner's own, through `--pat-env`; `--forge gitlab`
   when the invite is not derivable from a remote. Invite codes come from
   `team-load.sh` (`--out <dir>/code-<handle>.txt`) or, for the bare
@@ -86,6 +104,15 @@ Facts a create run depends on:
   reports the untrusted-certificate `needs-you` row, and a
   `/privileged/proxy-trust` call through the tray clears it
   (`--expect-untrusted` on `assert-installed.sh` asserts all of that).
+- Every driven scenario takes the proxy through the checklist's Local proxy
+  row before Install (`screen_proxy_row` in `run/guest/screens.sh`): its
+  "Install proxy" button must raise the macOS admin dialog within 90s,
+  Cancel on that dialog must leave the row settled with a
+  `setup.checklist.row.tool.proxy.error` message rather than a spinner, and
+  a second click answered with the admin credentials must reach `ready`
+  (`needs-you` under `--decline-trust`). The row is skipped only when it is
+  already ready. Screenshots: `03-proxy-admin-dialog`, `03-proxy-cancelled`,
+  `03-proxy-installed`.
 
 `run/xcuitest.sh` (layer (b) via XCUITest instead of AppleScript) is in the
 tree and runnable today; it self-gates at runtime rather than depending on
@@ -143,6 +170,7 @@ rt-tray/vm/
   run/helpers/appcast-server.ts  Bun static file server (compiled per run, copied into the guest)
   run/make-dmg.sh                host: wrap a built mattstack.app in a DMG (pre-L4 runs)
   run/make-appcast.sh            host: bump CFBundleVersion copy → zip → generate_appcast with a test EdDSA key
+  run/host/mint-invite.sh        host: owner side of join --fresh-team-repo; team create/publish/invite under a throwaway HOME
   run/team-setup.sh              host, ORCHESTRATOR/MATT: reset the throwaway org's repos; mint invite (real or stub)
   run/second-user.sh             host: layer (c) — run e2e-cleanroom as the second macOS user (MATT creates the user)
   run/xcuitest.sh                host: layer (b) XCUITest mode, gated on Xcode + the -xcode golden
@@ -181,9 +209,9 @@ run/second-user.sh run --artifact ~/Downloads/mattstack-2.9.0.zip
 ```
 Today, the first line's `screens` phase and both lines' `update` phase report `fail`/`skip` honestly (see Status above). `--scenario headless` (line 2) is no longer blocked by anything known, but no scenario has yet been run end to end against a golden image, so none is *known* green either. `--dry-run` exercises the whole orchestrator (phase ledger, report) against any golden name without Tart or a real DMG/app.
 
-Phases: preflight · clone · boot · stage · install · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `02-team-*`, `03-readiness-*`, `04-install-*`, `05-done`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
+Phases: preflight · invite (join with `--fresh-team-repo` only) · clone · boot · stage · install · launch · screens · assert · update · teardown. Each is `pass|fail|skip` with a reason in `artifacts/<run>/phases.jsonl`; `report.md` is the human summary; `screenshots/` are numbered per screen (`00-first-launch`, `01-welcome`, `02-team-*`, `03-readiness-*`, `04-install-*`, `05-done`, `06-update-*`); `logs/` holds guest logs (`~/.mattstack/rt/logs`, unified log slice for mattstack/smd/backgroundtaskmanagementd, `launchctl print` grep, sshd's own log, `rt verify --json`, tray `/version`). Exit 1 iff any phase failed; skips are reported, never counted green.
 
-Every host-to-guest ssh sends keepalives (`ServerAliveInterval=10`, `ServerAliveCountMax=3`), so a session whose guest end vanished fails its phase in about 30s as `ssh to the guest failed or dropped after <n>s in <phase> (exit 255)`. Each phase also has a wall-clock limit: 20 minutes by default, 90 for screens, 60 for team-upgrade, 30 for update, 10 for teardown's log collection; `VM_PHASE_LIMIT_<PHASE>=<seconds>` overrides one (dashes become underscores). A phase that reaches it fails as `<phase> timed out after <n>s (limit <n>s)`. Both reasons end with the last lines of the phase's log (`logs/drive.log` for the driven screens). Teardown runs after either, and after SIGINT, SIGTERM or SIGHUP, which ledger the phase they interrupted as failed: it collects guest logs, stops and deletes the guest, deletes the `--fresh-team-repo` repo, and records anything it left behind in its own `teardown` row.
+Every host-to-guest ssh sends keepalives (`ServerAliveInterval=10`, `ServerAliveCountMax=3`), so a session whose guest end vanished fails its phase in about 30s as `ssh to the guest failed or dropped after <n>s in <phase> (exit 255)`. Each phase also has a wall-clock limit: 20 minutes by default, 90 for screens, 60 for team-upgrade, 30 for update, 10 for the invite mint and for teardown's log collection; `VM_PHASE_LIMIT_<PHASE>=<seconds>` overrides one (dashes become underscores). A phase that reaches it fails as `<phase> timed out after <n>s (limit <n>s)`. Both reasons end with the last lines of the phase's log (`logs/drive.log` for the driven screens). Teardown runs after either, and after SIGINT, SIGTERM or SIGHUP, which ledger the phase they interrupted as failed: it collects guest logs, stops and deletes the guest, deletes the `--fresh-team-repo` repo, and records anything it left behind in its own `teardown` row.
 
 ## Served apps
 

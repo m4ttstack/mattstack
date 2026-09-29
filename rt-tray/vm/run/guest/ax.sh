@@ -238,6 +238,47 @@ ax_wait_status_not() {  # <rowId> <status-to-leave> <timeout-s>
   ax_log "row $1 still '${s:-?}'"; return 1
 }
 
+# The text an element shows: its value, else its name, else its description.
+ax_value() {  # <axid>
+  local id; id=$(ax_esc "$1")
+  ax_osa "$AX_WALK_AS
+    tell application \"System Events\" to tell process \"$AX_APP\"
+      set r to my walk(window 1, \"$id\")
+      if r is missing value then error \"axid not found: $id\"
+      set v to \"\"
+      try
+        set v to value of r as text
+      end try
+      if v is \"\" or v is \"missing value\" then
+        try
+          set v to name of r as text
+        end try
+      end if
+      if v is \"\" or v is \"missing value\" then set v to description of r as text
+      return v
+    end tell" 2>/dev/null
+}
+
+# The Join card checks a complete code as it lands and shows its verdict
+# there: a warning (setup.team.join.warning), or a green summary that carries
+# no identifier and is found by its "Joining " wording. A refused code
+# (setup.team.join.error) returns 2 at once.
+ax_wait_join_note() {  # <timeout-s>
+  local deadline=$((SECONDS + ${1:-60})) note
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ax_find setup.team.join.error >/dev/null 2>&1; then
+      ax_log "join refused on the Join card: $(ax_value setup.team.join.error || true)"; return 2
+    fi
+    note=$(ax_texts | grep -m1 '^Joining ' || true)
+    if [ -n "$note" ]; then ax_log "join note: $note"; return 0; fi
+    if ax_find setup.team.join.warning >/dev/null 2>&1; then
+      ax_log "join note (warning): $(ax_value setup.team.join.warning || true)"; return 0
+    fi
+    sleep 1
+  done
+  ax_log "no join note on the Join card within ${1:-60}s"; return 1
+}
+
 ax_enabled() {  # <axid> -> true|false
   local id; id=$(ax_esc "$1")
   ax_osa "$AX_WALK_AS
@@ -450,12 +491,10 @@ ax_wait_sheet_enabled() {  # <axid> <timeout-s>
   ax_log "sheet $1 still '${s:-?}' (wanted enabled)"; return 1
 }
 
-ax_admin_auth_once() {
-  local u p windows trust other; u=$(ax_esc "$VM_ADMIN_USER"); p=$(ax_esc "$VM_ADMIN_PASS")
-  # One probe answers "is a dialog up, and which window is which": the
-  # no-dialog path is polled every couple of seconds by screen_install and is
-  # bounded at 3s by check-vm-scripts.sh, so it can afford no extra round trip.
-  windows=$(ax_osa 'tell application "System Events" to tell process "SecurityAgent"
+# "<trust>,<other>": the index of SecurityAgent's certificate-trust window and
+# of its first other window (an authorization prompt), 0 for none.
+ax_security_agent_windows() {
+  ax_osa 'tell application "System Events" to tell process "SecurityAgent"
     set t to 0
     set e to 0
     repeat with i from 1 to (count of windows)
@@ -468,7 +507,15 @@ ax_admin_auth_once() {
       end try
     end repeat
     return (t as text) & "," & (e as text)
-  end tell' 2>/dev/null | tr -d ' \n')
+  end tell' 2>/dev/null | tr -d ' \n'
+}
+
+ax_admin_auth_once() {
+  local u p windows trust other; u=$(ax_esc "$VM_ADMIN_USER"); p=$(ax_esc "$VM_ADMIN_PASS")
+  # One probe answers "is a dialog up, and which window is which": the
+  # no-dialog path is polled every couple of seconds by screen_install and is
+  # bounded at 3s by check-vm-scripts.sh, so it can afford no extra round trip.
+  windows=$(ax_security_agent_windows)
   trust="${windows%%,*}"; other="${windows##*,}"
   if [ "${trust:-0}" -gt 0 ] 2>/dev/null && [ "${AX_TRUST_DECLINE:-0}" = 1 ]; then
     ax_osa "tell application \"System Events\" to tell process \"SecurityAgent\"
@@ -507,6 +554,37 @@ ax_admin_auth_once() {
     end tell" >/dev/null && { ax_log "admin auth filled (System Settings sheet)"; return 0; }
   fi
   return 1
+}
+
+# An authorization prompt (not the certificate-trust one) is up. The trust
+# prompt is excluded because it only ever follows an accepted install prompt.
+ax_admin_dialog_up() {
+  local windows other
+  windows=$(ax_security_agent_windows)
+  other="${windows##*,}"
+  [ "${other:-0}" -gt 0 ] 2>/dev/null
+}
+
+ax_wait_admin_dialog() {  # <timeout-s>
+  local deadline=$((SECONDS + ${1:-60}))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    ax_admin_dialog_up && { ax_log "admin dialog up (SecurityAgent)"; return 0; }
+    sleep 1
+  done
+  ax_log "no admin dialog within ${1:-60}s"; return 1
+}
+
+# The user saying no: Cancel on the authorization prompt, credentials untouched.
+ax_admin_cancel_once() {
+  local windows other
+  windows=$(ax_security_agent_windows)
+  other="${windows##*,}"
+  [ "${other:-0}" -gt 0 ] 2>/dev/null || return 1
+  ax_osa "tell application \"System Events\" to tell process \"SecurityAgent\"
+    set frontmost to true
+    tell window $other to click (first button whose name is \"Cancel\")
+  end tell" >/dev/null || return 1
+  ax_log "admin auth cancelled (SecurityAgent)"
 }
 
 # After a granted privacy toggle macOS offers to relaunch the app itself

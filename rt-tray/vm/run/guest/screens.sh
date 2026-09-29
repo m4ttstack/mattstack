@@ -38,6 +38,7 @@ screen_welcome() {
 }
 
 screen_team() {
+  local rc
   ax_wait_screen team 10 || ax_fail "setup.team.screen did not appear"
   case "$SCENARIO" in
     create)
@@ -53,6 +54,11 @@ screen_team() {
       [ -n "$CODE_FILE" ] && [ -f "$CODE_FILE" ] || ax_fail "join needs --invite-code-file"
       ax_click setup.team.card.join
       ax_set_field setup.team.join.code "$(tr -d '\n' < "$CODE_FILE")"
+      rc=0; ax_wait_join_note 60 || rc=$?
+      [ "$rc" -eq 2 ] && ax_fail "the Join card refused the invite code"
+      [ "$rc" -eq 0 ] || ax_fail "no join note on the Join card before Continue"
+      ax_find setup.team.screen >/dev/null 2>&1 || ax_fail "the join note did not show on the Team screen"
+      ax_find setup.checklist.screen >/dev/null 2>&1 && ax_fail "the checklist opened before Continue was clicked"
       ax_shot 02-team-join
       ;;
     solo)
@@ -154,6 +160,7 @@ screen_readiness() {
       ax_shot "03-$tool-installed"
     fi
   done
+  screen_proxy_row
   ax_shot 03-readiness-final
   # Every row's status, before Install: the one record that explains a
   # Continue that does not advance.
@@ -173,6 +180,44 @@ screen_readiness() {
   fi
   ax_find setup.checklist.continue >/dev/null || ax_fail "setup.checklist.continue axid missing"
   ax_click setup.checklist.continue
+}
+
+# The Local proxy row's own button, not Install's proxy step: it has to raise
+# macOS's admin dialog, a Cancel there has to end as a row error rather than a
+# spinner, and a second try with credentials has to reach ready (needs-you
+# when the certificate trust is declined, which the proxy survives).
+screen_proxy_row() {
+  local s want waiting deadline
+  s=$(ax_status tool.proxy || true)
+  [ -n "$s" ] || ax_fail "tool.proxy row is not on the checklist"
+  if [ "$s" = ready ]; then ax_log "tool.proxy already ready; the row leg has nothing to install"; return 0; fi
+  ax_log "tool.proxy is $s; driving the row's own button"
+
+  ax_click setup.checklist.row.tool.proxy.action
+  ax_wait_admin_dialog 90 || ax_fail "the Local proxy row's button raised no macOS admin dialog within 90s (row is '$(ax_status tool.proxy || true)')"
+  waiting=$(ax_value setup.checklist.row.tool.proxy.waiting || true)
+  ax_log "tool.proxy waiting copy: ${waiting:-none}"
+  ax_shot 03-proxy-admin-dialog
+  ax_admin_cancel_once || ax_fail "could not click Cancel in the admin dialog"
+  ax_wait_status_not tool.proxy checking 60 || ax_fail "tool.proxy still spinning 60s after Cancel on the admin dialog"
+  ax_find setup.checklist.row.tool.proxy.error >/dev/null 2>&1 || ax_fail "Cancel on the admin dialog left tool.proxy '$(ax_status tool.proxy || true)' with no row error"
+  ax_log "tool.proxy error after Cancel: $(ax_value setup.checklist.row.tool.proxy.error || true)"
+  ax_shot 03-proxy-cancelled
+
+  want=ready; [ "${AX_TRUST_DECLINE:-0}" = 1 ] && want=needs-you
+  ax_click setup.checklist.row.tool.proxy.action
+  ax_admin_auth || ax_fail "the Local proxy row's second try raised no macOS admin dialog within 30s"
+  ax_shot 03-proxy-admin-auth
+  deadline=$((SECONDS + 300))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    ax_admin_auth_once || true
+    s=$(ax_status tool.proxy || true)
+    [ "$s" = "$want" ] && break
+    sleep 2
+  done
+  [ "$s" = "$want" ] || ax_fail "tool.proxy is '${s:-?}' 300s after the row's install, wanted $want$(ax_find setup.checklist.row.tool.proxy.error >/dev/null 2>&1 && printf '; row error: %s' "$(ax_value setup.checklist.row.tool.proxy.error || true)")"
+  ax_log "row tool.proxy = $want through the row's own button"
+  ax_shot 03-proxy-installed
 }
 
 screen_install() {

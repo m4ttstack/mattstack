@@ -28,6 +28,8 @@ function world(opts: {
   forge?: "github" | "gitlab";
   cloneFails?: boolean;
   slowCreate?: boolean;
+  scenario?: "create" | "join";
+  mint?: "ok" | "fails";
   env?: Record<string, string>;
 }): World {
   const root = mkdtempSync(join(tmpdir(), "walkthrough-"));
@@ -35,7 +37,7 @@ function world(opts: {
   const art = join(root, "art");
   const calls = join(root, "calls");
   const marker = String(3000 + Math.floor(Math.random() * 999));
-  for (const d of [bin, art, join(root, "home"), join(root, "tart")]) mkdirSync(d, { recursive: true });
+  for (const d of [bin, art, join(root, "home"), join(root, "tart"), join(root, "tmp")]) mkdirSync(d, { recursive: true });
   writeFileSync(join(root, "key"), "private");
   writeFileSync(join(root, "key.pub"), "ssh-ed25519 AAAA test");
   writeFileSync(join(root, "x.dmg"), "");
@@ -78,16 +80,30 @@ exit 0
 case "$1 $2" in
   "repo create") : > "$ROOT/creating"; [ -e "$ROOT/slow-create" ] && sleep 1.5;;
   "repo delete") [ "$(cat "$ROOT/gh-delete")" = ok ] || { echo "HTTP 403: Must have admin rights to Repository." >&2; exit 1; };;
+  "api user") echo vmtest-joiner;;
 esac
 exit 0
 `);
   stub("glab", `echo "glab $*" >> "$ROOT/calls"\nexit 0\n`);
+  // The host mint's rt runs under env -i, so it finds ROOT only through the
+  // path baked into it here.
+  stub("rt-mint", `echo "rt-mint $* HOME=$HOME" >> "$ROOT/calls"
+case "$1 $2" in
+  "team invite")
+    [ "${opts.mint ?? "ok"}" = fails ] && { echo '{"error":{"code":"relay-down","message":"the invite relay answered 503"}}'; exit 2; }
+    echo '{"contract":1,"code":"VMTEST-CODE","forgeAccess":"skipped"}';;
+  *) echo '{"contract":1}';;
+esac
+`);
   const forge = opts.forge ?? "github";
+  const scenario = opts.scenario ?? "create";
   return {
     root, art, calls, marker,
-    args: ["--ver", "26", "--dmg", join(root, "x.dmg"), "--scenario", "create", "--fresh-team-repo", "--no-graphics", "--forge", forge],
+    args: ["--ver", "26", "--dmg", join(root, "x.dmg"), "--scenario", scenario, "--fresh-team-repo", "--no-graphics", "--forge", forge,
+      ...(scenario === "join" ? ["--mint-rt", join(bin, "rt-mint")] : [])],
     env: {
       HOME: join(root, "home"),
+      TMPDIR: join(root, "tmp"),
       PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
       VM_ARTIFACTS: art,
       VM_SSH_KEY: join(root, "key"),
@@ -274,5 +290,52 @@ describe("walkthrough.sh ends a cut phase and still tears down", () => {
     expect(calls(w)).not.toContain("gh repo delete");
     expect(phase(w, "teardown")?.reason).toContain("--keep");
     Bun.spawnSync(["pkill", "-f", `${w.root}/bin/tart run`]);
+  }, RUN_MS);
+});
+
+describe("walkthrough.sh --scenario join --fresh-team-repo mints the invite on the host", () => {
+  const mintHomes = (w: World) => readdirSync(join(w.root, "tmp")).filter((f) => f.startsWith("vm-mint"));
+
+  test("the invite phase scaffolds, publishes and invites under a throwaway HOME, and the guest gets the code", async () => {
+    const w = world({ screens: "drop", scenario: "join" });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    expect(phase(w, "preflight")?.status).toBe("pass");
+    expect(phase(w, "invite")?.status).toBe("pass");
+    const mintCalls = calls(w).split("\n").filter((l) => l.startsWith("rt-mint "));
+    expect(mintCalls.map((l) => l.replace(/ HOME=.*$/, ""))).toEqual([
+      expect.stringMatching(/^rt-mint team create vmtest --remote https:\/\/github\.com\/mattstack-vmtest\/mattstack-vmtest-team-\S+\.git --others --json$/),
+      "rt-mint team publish --team vmtest --json",
+      "rt-mint team invite --handle vmtest-joiner --team vmtest --json",
+    ]);
+    for (const l of mintCalls) expect(l).toMatch(new RegExp(`HOME=${w.root}/tmp/vm-mint\\.`));
+    expect(mintHomes(w)).toEqual([]);
+    expect(readFileSync(join(runDir(w), "in", "invite-code.txt"), "utf8").trim()).toBe("VMTEST-CODE");
+    const driver = calls(w).split("\n").find((l) => l.includes("drive-setup.sh join"));
+    expect(driver).toContain("--invite-code-file");
+    expect(phase(w, "screens")?.status).toBe("fail");
+    expectTornDown(w);
+    expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-vmtest-team-\S+ --yes/);
+  }, RUN_MS);
+
+  test("a failed mint fails the invite phase before any guest is cloned, and still deletes the repo", async () => {
+    const w = world({ screens: "drop", scenario: "join", mint: "fails" });
+    const { code } = await walk(w);
+    expect(code).toBe(1);
+    const invite = phase(w, "invite");
+    expect(invite?.status).toBe("fail");
+    expect(invite?.reason).toContain("the invite relay answered 503");
+    expect(phase(w, "clone")).toBeUndefined();
+    expect(calls(w)).not.toContain("tart clone");
+    expect(mintHomes(w)).toEqual([]);
+    expect(phase(w, "teardown")?.status).toBe("pass");
+    expect(calls(w)).toMatch(/gh repo delete mattstack-vmtest\/mattstack-vmtest-team-\S+ --yes/);
+  }, RUN_MS);
+
+  test("a mint past its limit is cut and ledgered as a timeout", async () => {
+    const w = world({ screens: "drop", scenario: "join", env: { VM_PHASE_LIMIT_INVITE: "0" } });
+    await walk(w);
+    expect(phase(w, "invite")?.reason).toMatch(/^invite timed out after \d+s \(limit 0s\)/);
+    expect(mintHomes(w)).toEqual([]);
   }, RUN_MS);
 });
