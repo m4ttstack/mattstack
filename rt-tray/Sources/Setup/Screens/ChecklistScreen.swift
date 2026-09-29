@@ -27,11 +27,7 @@ struct ChecklistScreen: View {
                 ForEach(model.groups) { group in
                     Section(group.title) {
                         ForEach(group.rows) { row in
-                            RowView(row: row, isChecking: model.checkingRowIds.contains(row.id)) { perform(row) }
-                            if let waiting = waitingOnYou[row.id] {
-                                Text(waiting).font(.caption).foregroundStyle(.orange)
-                                    .accessibilityIdentifier(AXID.checklistRowWaiting(row.id))
-                            }
+                            RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
                             if let actionError, actionError.rowId == row.id {
                                 Text(actionError.message).font(.caption).foregroundStyle(.red)
                                     .accessibilityIdentifier(AXID.checklistRowError(row.id))
@@ -164,4 +160,18 @@ struct ChecklistScreen: View {
         }
     }
 
+}
+
+struct RowWaitingCaption: View {
+    let rowId: String
+    let text: String
+    var body: some View {
+        Label {
+            Text(text).fontWeight(.medium)
+        } icon: {
+            Image(systemName: "hourglass").foregroundStyle(.orange)
+        }
+        .font(.caption)
+        .accessibilityIdentifier(AXID.checklistRowWaiting(rowId))
+    }
 }
