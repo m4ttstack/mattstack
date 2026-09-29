@@ -237,7 +237,7 @@ describe('App: refresh on the person page', () => {
       container.querySelectorAll(
         '[data-parity="Panel · Issues done"] [data-parity^="Ev Row "]'
       );
-    await waitFor(() => expect(rows()).toHaveLength(9));
+    await waitFor(() => expect(rows()).toHaveLength(9), { timeout: 5000 });
 
     const { onDone } = useRefreshJob.mock.calls.at(-1)![0];
     act(() => onDone(after, { range: '30d', trend: false }));

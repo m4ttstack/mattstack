@@ -199,7 +199,7 @@ export const PANEL_COPY: Record<MetricKey, PanelCopy> = {
     source: 'Source: GitLab diff stats, merged MRs',
     sub: 'of merged MRs in the healthy size band',
     definition: facts =>
-      `Share of your merged MRs in the reviewable size band: more than ${fact(facts ?? {}, 'bandLow')} and at most ${fact(facts ?? {}, 'bandHigh')} changed lines. Higher is better. The band is a team setting.`,
+      `Share of your merged MRs in the reviewable size band: at least ${fact(facts ?? {}, 'bandLow')} and at most ${fact(facts ?? {}, 'bandHigh')} changed lines. Higher is better. The band is a team setting.`,
     chips: facts => [
       chip(`${fact(facts, 'inBand')} in band`, 'ok'),
       chip(

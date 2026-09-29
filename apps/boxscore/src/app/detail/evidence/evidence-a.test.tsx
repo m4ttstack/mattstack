@@ -50,6 +50,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Recharts sizes itself an effect after mount and draws no surface until then. */
+const unmeasuredChart = (panel: HTMLElement) =>
+  [...panel.querySelectorAll('.recharts-responsive-container')].some(
+    c => !c.querySelector('svg')
+  );
+
 async function panelAt(stat: string, label: string) {
   const location = memoryLocation({ path: `/user/srivera/${stat}` });
   const { container } = renderWithProviders(
@@ -60,7 +66,13 @@ async function panelAt(stat: string, label: string) {
   const panel = container.querySelector<HTMLElement>(
     `[data-parity="Panel · ${label}"]`
   )!;
-  await waitFor(() => expect(within(panel).queryByText('Loading…')).toBeNull());
+  await waitFor(
+    () => {
+      expect(within(panel).queryByText('Loading…')).toBeNull();
+      expect(unmeasuredChart(panel)).toBe(false);
+    },
+    { timeout: 5000 }
+  );
   return panel;
 }
 

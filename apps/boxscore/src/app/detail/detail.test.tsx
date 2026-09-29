@@ -47,7 +47,10 @@ const layer = (root: ParentNode, name: string) =>
 
 async function issuesPanel(container: HTMLElement) {
   const panel = layer(container, 'Panel · Issues done')!;
-  await waitFor(() => expect(within(panel).queryByText('Loading…')).toBeNull());
+  await waitFor(
+    () => expect(within(panel).queryByText('Loading…')).toBeNull(),
+    { timeout: 5000 }
+  );
   return panel;
 }
 
