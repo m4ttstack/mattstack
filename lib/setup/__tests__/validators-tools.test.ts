@@ -13,7 +13,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
 import type { DetectedEditor } from "../../editors.ts";
 import type { ExecResult } from "../probes.ts";
-import type { Row } from "../contract.ts";
+import type { Action, Row } from "../contract.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "../steps/services.ts";
 
@@ -1268,7 +1268,7 @@ describe("toolRows: tool.linear-mcp", () => {
     expect(r.detail).toContain("not a Linear MCP");
   });
 
-  const ADD_TO_CLAUDE = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
+  const ADD_TO_CLAUDE: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
 
   test("a Linear MCP under another name -> missing, naming it, with a way to add linear", async () => {
     const r = await rowFor(conf({ mcpServers: { "linear-matt": hosted } }), HAS_KEY);
