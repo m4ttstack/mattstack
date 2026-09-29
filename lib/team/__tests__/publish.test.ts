@@ -34,7 +34,7 @@ describe("publishTeam", () => {
     };
     const result = await publishTeam(p, "acme", "https://github.com/acme/repo.git", { token: "ghp_secret" });
     const push = seen.find((c) => c.argv.includes("push"))!;
-    expect(push.argv.join(" ")).toContain("credential.helper=");
+    expect(push.argv.join(" ")).toMatch(/-c credential\.https:\/\/[^/ ]+\.helper= /);
     expect(push.argv.join(" ")).not.toContain("ghp_secret");
     expect(push.env?.RT_GIT_TOKEN).toBe("ghp_secret");
     expect(result.pushed).toBe(true);

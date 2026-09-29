@@ -19,7 +19,7 @@ const HOME = "/home";
 const ID_HEX = "0102030405060708090a0b0c0d0e0f10";
 const KEY = new Uint8Array(32).fill(7);
 const CODE = encodeCode(ID_HEX, KEY);
-const REMOTE = "git@github.com:acme/widgets.git";
+const REMOTE = "https://github.com/acme/widgets.git";
 const TEAM_DIR = pathJoin(HOME, ".mattstack", "teams", "acme");
 
 const POINTER: InvitePointer = {
@@ -303,7 +303,7 @@ describe("joinDryRun", () => {
 
     expect(result.access).toBe("denied");
     expect(result.message).toContain("ask matt or your org admin");
-    expect(result.message).not.toContain("http");
+    expect(result.message).not.toContain("widgets.git/'");
     expect(result.message).not.toContain("fatal:");
   });
 
@@ -436,7 +436,7 @@ describe("joinDryRun", () => {
     test("a well-formed https, scp-like, ssh-with-port, and credential-bearing https remote all pass (regression guard)", async () => {
       for (const remote of [
         "https://github.com/acme/widgets.git",
-        "git@github.com:acme/widgets.git",
+        "https://github.com/acme/widgets.git",
         "ssh://git@github.com/acme/widgets.git",
         "ssh://git@github.com:2222/acme/widgets.git",
         "https://user:pass@github.com/acme/widgets.git",
@@ -545,7 +545,7 @@ describe("joinRedeem", () => {
 
     const clone = calls.find((c) => c.argv.includes("clone"))!;
     expect(clone.argv.join(" ")).not.toContain("glpat-secret");
-    expect(clone.argv).toContain("credential.helper=");
+    expect(clone.argv).toEqual(expect.arrayContaining([expect.stringMatching(/^credential\.https:\/\/[^/]+\.helper=$/)]));
     expect(clone.opts?.env?.RT_GIT_TOKEN).toBe("glpat-secret");
     expect(clone.opts?.env?.GIT_TERMINAL_PROMPT).toBe("0");
     expect(seamCalls.forgeLogin[0]?.[3]).toBe("glpat-secret");

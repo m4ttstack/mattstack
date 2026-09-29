@@ -28,6 +28,7 @@ import {
   ensureInfoExclude,
   listWorktreesAsync,
 } from "./git-async.ts";
+import { runGitOrigin } from "./fetch-auth.ts";
 import { nextTreeName } from "./names.ts";
 import { loadWorktreeRepoConfig, evaluateReadyGate, type WorktreeRepoConfig } from "./config.ts";
 import { runReadySteps } from "./ready.ts";
@@ -122,7 +123,7 @@ async function runCreate(
   const defaultRef = await remoteDefaultRef(repoPath);
   const defaultBranchName = defaultRef.replace(/^origin\//, "");
 
-  const fetchResult = await runGit(repoPath, ["fetch", "origin", defaultBranchName], {
+  const fetchResult = await runGitOrigin(repoPath, ["fetch", "origin", defaultBranchName], {
     timeoutMs: CREATE_TIMEOUT_MS,
   });
   if (fetchResult.exitCode !== 0) {

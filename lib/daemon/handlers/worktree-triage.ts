@@ -10,6 +10,7 @@ import { disposeTree } from "../../worktree/dispose.ts";
 import { withTreeLock } from "../../worktree/locks.ts";
 import { patchTree } from "../../worktree/patch.ts";
 import { MUTATING_TIMEOUT_MS, runGit } from "../../worktree/git-async.ts";
+import { runGitOrigin } from "../../worktree/fetch-auth.ts";
 import { killWorktreeProcesses } from "../worktree-process-kill.ts";
 import { hasLiveCwdInside, liveProcessCwds } from "../reconciler/stale-claims.ts";
 import { dirAndParentMissing, poolRootsReadable } from "../reconciler/reconcile.ts";
@@ -243,7 +244,7 @@ export function createWorktreeTriageHandlers(
           const c = await runGit(r.rec.path, ["commit", "-q", "-m", msg], { timeoutMs: MUTATING_TIMEOUT_MS });
           if (c.exitCode !== 0) return fail(`commit-failed:${c.stderr.trim()}`);
         }
-        const push = await runGit(r.rec.path, ["push", "-u", "origin", branch], { timeoutMs: MUTATING_TIMEOUT_MS });
+        const push = await runGitOrigin(r.rec.path, ["push", "-u", "origin", branch], { timeoutMs: MUTATING_TIMEOUT_MS, push: true });
         if (push.exitCode !== 0) return fail(`push-failed:${push.stderr.trim()}`);
         return { ok: true as const, data: { row: await freshRow(r.repo, r.repoPath, findTree(r.repo, r.rec.name) ?? r.rec) } };
       });

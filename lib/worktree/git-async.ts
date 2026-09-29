@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync, appendFileSync, mkdirSync } from "fs";
 import { dirname, isAbsolute, join } from "path";
-import { runCapture } from "../subprocess.ts";
+import { childEnv, runCapture } from "../subprocess.ts";
 
 export interface GitResult {
   stdout: string;
@@ -53,7 +53,7 @@ const UNBORN_HEAD_SHA = "0".repeat(40);
 export async function runGit(
   cwd: string,
   args: string[],
-  opts: { timeoutMs?: number; signal?: AbortSignal } = {},
+  opts: { timeoutMs?: number; signal?: AbortSignal; env?: Record<string, string> } = {},
 ): Promise<GitResult> {
   const argv: [string, ...string[]] = ["git", ...NO_HOOKS, ...args];
   const result = await runCapture(argv, {
@@ -61,6 +61,7 @@ export async function runGit(
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     stderr: "pipe",
     signal: opts.signal,
+    env: opts.env ? { ...childEnv(), ...opts.env } : undefined,
   });
   return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
 }

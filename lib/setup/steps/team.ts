@@ -62,7 +62,7 @@ async function teamCreateRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 
   try {
-    const published = await publishTeam(ctx.p, created.slug, null, { token: await forgeTokenFor(ctx, created.remote) });
+    const published = await publishTeam(ctx.p, created.slug, null, { token: await forgeTokenFor(ctx, created.remote), tokenRemote: created.remote });
     return { state: "done", detail: published.detail };
   } catch (err) {
     if (err instanceof UserActionableError) {

@@ -210,7 +210,7 @@ export async function teamPublish(args: string[], _ctx: CommandContext = {}, dep
     const slug = resolveTeamSlug(args);
     const target = remote ?? teamRemote(deps.probes, slug);
     const token = target ? await (deps.forgeToken ?? storedForgeToken)(deps.probes, target) : null;
-    const result = await publishTeam(deps.probes, slug, remote, { token });
+    const result = await publishTeam(deps.probes, slug, remote, { token, tokenRemote: target });
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
       return;
