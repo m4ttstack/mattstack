@@ -20,7 +20,7 @@ import { appBundlePath, linkPath } from "../../deps/resolve.ts";
 import { localBinDir, shimReport, staleIntercepts } from "../../endpoint/shim.ts";
 import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { detectShellFrom, shellRcPathFor } from "../../shell-integration.ts";
+import { detectShellFrom, END_MARKER, MARKER, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
 import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
@@ -286,9 +286,14 @@ function shellRow(p: Probes): Row {
   if (rc) {
     const content = p.readFile(rc) ?? "";
     if (content.includes("rtcd")) return row({ ...base, status: "ready", detail: `rtcd alias in ${rc}` });
+    // path.link cannot bound an old block with no end marker, so its button would succeed and change nothing.
+    const markerAt = content.indexOf(MARKER);
+    if (markerAt !== -1 && content.indexOf(END_MARKER, markerAt) === -1) {
+      return row({ ...base, status: "needs-you", detail: `remove the old rt block from ${rc} by hand, then re-check`, action: RECHECK_ACTION });
+    }
     return row({ ...base, status: "needs-you", detail: "shell integration not added yet", action: ADD_TO_SHELL_ACTION });
   }
-  return row({ ...base, status: "needs-you", detail: "unrecognized shell — can't write shell integration automatically; add the rtcd alias yourself" });
+  return row({ ...base, status: "needs-you", detail: "unrecognized shell, so rt can't write shell integration automatically; add the rtcd alias yourself" });
 }
 
 async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
@@ -308,7 +313,7 @@ async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
   if (!answers && !isDaemonInstalled()) return row({ ...base, status: "missing", detail: "not registered yet", action: applyStepAction("Register services", "services.register") });
   if (!answers) {
     if (opts.ci) return row({ ...base, status: "needs-you", detail: "not booted (expected in CI)" });
-    return row({ ...base, status: "needs-you", detail: "installed but not responding — approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
+    return row({ ...base, status: "needs-you", detail: "installed but not responding; approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
   }
 
   const [statusRes, launchd, worktrees] = await Promise.all([

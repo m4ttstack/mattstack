@@ -1,4 +1,5 @@
 import { afterEach, afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { MARKER } from "../../shell-integration.ts";
 import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -336,6 +337,14 @@ describe("rtHealthRows — tool.shell (fully Probes-driven)", () => {
     const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
     expect(r.status).toBe("ready");
     expect(r.detail).toContain(".zshrc");
+  });
+
+  test("an old rt block with no end marker -> needs-you naming the rc file to fix by hand, re-check only (path.link cannot rewrite it)", async () => {
+    const p = fakeProbes({ home: "/fake-home", env: { SHELL: "/bin/zsh" }, files: { "/fake-home/.zshrc": `\n${MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n` } });
+    const r = await pickRow(rtHealthRows(p, { ci: false }), "tool.shell");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("remove the old rt block from /fake-home/.zshrc by hand, then re-check");
+    expect(r.action).toEqual({ type: "run", label: "Re-check", verb: ["setup", "status"] });
   });
 
   test("known shell, rc file exists but has no rtcd -> needs-you, with a row action that runs path.link (the step that writes it)", async () => {
