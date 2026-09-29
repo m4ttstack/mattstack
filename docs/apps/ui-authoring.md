@@ -84,34 +84,49 @@ that meets the need:
 2. **The Styles API**: a CSS module whose classes go in through
    `classNames` (`classNames={{ root: classes.root }}`), for layout and
    spacing only (width, gaps, alignment). Never an inline `style` or
-   `styles` object, and never a global `.mantine-*` selector.
+   `styles` object, and never a global `.mantine-*` selector. The one
+   inline `style` allowed sets only non-colour CSS custom properties that
+   a module reads, such as the motion index (`style={{ '--grow-i': i }}`);
+   it never sets a property directly and never carries a colour.
 3. **Stop and raise a kit question with Matt**, leaving the component
    at rung 1.
 
 Colour comes from the theme, so every app looks alike: on a kit
 component, colour is chosen only through the `color` and `variant`
 props, never set as a value (`style`, `styles`, `classNames`, `--tk-*`
-or `--mantine-*`).
+or `--mantine-*`). The one surface an app picks is the page body's:
+`PageShell.Content` takes `bg`, the kit's documented surface override,
+set to a surface role from the table below (`bg="var(--tk-panel)"`),
+never a hue or a raw value.
 
 When a kit control reads wrong (it blends into the page, or its contrast
 is low), check where it sits. Kit controls are drawn for `PageShell`
 surfaces: a `SegmentedControl` track is `--tk-inset`, the same step as
 `--tk-bg`, so it vanishes on the bare page and reads on
-`PageShell.Content` (`--tk-card`). Move the control into `PageShell`.
-If it still reads wrong there, that is rung 3.
+`PageShell.Content` (`--tk-card` by default, or the role its `bg`
+names). Move the control into `PageShell`, and never set that `bg` to
+`--tk-bg`, which puts the body back on the bare page. If it still reads
+wrong there, that is rung 3.
 
 ### Hover and motion
 
 Hover lives in the CSS module. A clickable row that is not a kit `Table`
 row takes `:hover` and `:focus-within` on the row, painted with the
-colour `Table`'s `highlightOnHover` uses. Anything else that reacts to
-the hover is styled from the same selector:
+colour `Table`'s `highlightOnHover` uses. `:hover` sits inside
+`@media (hover: hover)`, as the kit rail's does, so a tap on a touch
+screen leaves no stuck highlight; `:focus-within` stays outside it.
+Anything else that reacts to the hover is styled from the same
+selectors:
 
 ```css
 :where([data-mantine-color-scheme='light']) .row { --row-hover: var(--mantine-color-gray-1); }
 :where([data-mantine-color-scheme='dark']) .row { --row-hover: var(--mantine-color-dark-5); }
-.row:hover, .row:focus-within { background-color: var(--row-hover); }
-.row:hover .spark, .row:focus-within .spark { opacity: 1; }
+@media (hover: hover) {
+  .row:hover { background-color: var(--row-hover); }
+  .row:hover .spark { opacity: 1; }
+}
+.row:focus-within { background-color: var(--row-hover); }
+.row:focus-within .spark { opacity: 1; }
 ```
 
 Hover never goes through React state or a hover hook (`useHover`,
@@ -119,7 +134,8 @@ Hover never goes through React state or a hover hook (`useHover`,
 
 Motion is one shared grow-in, a CSS module the whole app imports: 400ms,
 `ease-out`, a light stagger (25ms per item through an index custom
-property, the index capped at 12 so the last item starts by 300ms),
+property set with `style`, the carve-out in rung 2, the index capped at
+12 so the last item starts by 300ms),
 `transform-origin` at the baseline, and `animation: none`
 under `prefers-reduced-motion: reduce`. Every bar, column and chart
 entrance takes its class from that module; no component writes its own
