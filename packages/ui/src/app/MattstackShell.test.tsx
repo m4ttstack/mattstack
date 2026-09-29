@@ -49,6 +49,24 @@ test('pins a colour-scheme control to the rail', () => {
   expect(screen.getByLabelText('Color scheme')).toBeInTheDocument();
 });
 
+test.each([
+  ['auto', 'lucide-monitor'],
+  ['light', 'lucide-sun'],
+  ['dark', 'lucide-moon'],
+])(
+  'the scheme control icon shows the stored %s choice',
+  (stored, iconClass) => {
+    window.localStorage.setItem('ui-color-scheme', JSON.stringify(stored));
+    try {
+      renderShell();
+      const control = screen.getByLabelText('Color scheme');
+      expect(control.querySelector(`svg.${iconClass}`)).not.toBeNull();
+    } finally {
+      window.localStorage.clear();
+    }
+  }
+);
+
 test('mounts the app launcher when appName is passed', () => {
   const { hook } = memoryLocation({ path: '/' });
   renderWithProviders(
@@ -89,4 +107,35 @@ test('useShellRail is exported and defaults to a closed rail', () => {
   }
   renderWithProviders(<Probe />);
   expect(seen.expanded).toBe(false); // default context: collapsed
+});
+
+test('renders header page context in place of the name, with actions before the launcher', () => {
+  const { hook } = memoryLocation({ path: '/' });
+  renderWithProviders(
+    <Router hook={hook}>
+      <MattstackShell
+        name="probe"
+        appName="probe"
+        deckBase="https://deck.mattstack"
+        mark={<svg data-testid="mark" />}
+      >
+        <MattstackShell.Header actions={<button type="button">Refresh</button>}>
+          <nav aria-label="Breadcrumb">probe / Runs</nav>
+        </MattstackShell.Header>
+        <main data-testid="page">page</main>
+      </MattstackShell>
+    </Router>
+  );
+  const banner = screen.getByRole('banner');
+  expect(within(banner).getByTestId('mark')).toBeInTheDocument();
+  expect(
+    within(banner).getByRole('navigation', { name: 'Breadcrumb' })
+  ).toHaveTextContent('probe / Runs');
+  expect(within(banner).queryByText('probe', { exact: true })).toBeNull();
+  const names = within(banner)
+    .getAllByRole('button')
+    .map(b => b.getAttribute('aria-label') ?? b.textContent);
+  expect(names.indexOf('Refresh')).toBeGreaterThan(-1);
+  expect(names.indexOf('Refresh')).toBeLessThan(names.indexOf('Apps'));
+  expect(screen.getByTestId('page')).toBeInTheDocument();
 });

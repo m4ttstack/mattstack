@@ -26,6 +26,16 @@ function RailBottomSlot({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+export interface MattstackShellHeaderProps {
+  /** Page context (a breadcrumb, say), shown after the mark in place of the app name. */
+  children?: ReactNode;
+  /** Right-aligned header actions, placed before the app launcher. */
+  actions?: ReactNode;
+}
+
+/** Read by `partition`; renders nothing where it is written. */
+const HeaderSlot: (props: MattstackShellHeaderProps) => null = () => null;
+
 export interface MattstackShellProps {
   name: string;
   /** 30px works with the wordmark recipe; the app owns the artwork. */
@@ -43,14 +53,17 @@ export interface MattstackShellProps {
 function partition(children: ReactNode) {
   let rail: ReactElement | undefined;
   let railBottom: ReactElement | undefined;
+  let header: MattstackShellHeaderProps | undefined;
   const page: ReactNode[] = [];
   Children.forEach(children, child => {
     if (isValidElement(child) && child.type === RailSlot) rail = child;
     else if (isValidElement(child) && child.type === RailBottomSlot)
       railBottom = child;
+    else if (isValidElement(child) && child.type === HeaderSlot)
+      header = child.props as MattstackShellHeaderProps;
     else page.push(child);
   });
-  return { rail, railBottom, page };
+  return { rail, railBottom, header, page };
 }
 
 /**
@@ -79,7 +92,7 @@ function Shell({
 }: MattstackShellProps) {
   const rail = useRailState();
   const headerProps = useHeaderProps();
-  const { rail: railSlot, railBottom, page } = partition(children);
+  const { rail: railSlot, railBottom, header, page } = partition(children);
   const expanded = rail.effectiveExpanded;
   return (
     <ShellRailContext.Provider value={{ expanded, close: rail.close }}>
@@ -88,15 +101,20 @@ function Shell({
         headerProps={headerProps}
         header={
           <Group justify="space-between" w="100%" wrap="nowrap">
-            <Group gap="sm" wrap="nowrap">
+            <Group gap="sm" wrap="nowrap" miw={0}>
               {mark}
-              <Text fw={700} fz={22} lh={1} style={{ whiteSpace: 'nowrap' }}>
-                {name}
-              </Text>
+              {header?.children ?? (
+                <Text fw={700} fz={22} lh={1} style={{ whiteSpace: 'nowrap' }}>
+                  {name}
+                </Text>
+              )}
             </Group>
-            {appName && (
-              <AppLauncher currentApp={appName} deckBase={deckBase} />
-            )}
+            <Group gap="md" wrap="nowrap">
+              {header?.actions}
+              {appName && (
+                <AppLauncher currentApp={appName} deckBase={deckBase} />
+              )}
+            </Group>
           </Group>
         }
         rail={
@@ -128,4 +146,5 @@ function Shell({
 export const MattstackShell = /* @__PURE__ */ Object.assign(Shell, {
   Rail: RailSlot,
   RailBottom: RailBottomSlot,
+  Header: HeaderSlot,
 });
