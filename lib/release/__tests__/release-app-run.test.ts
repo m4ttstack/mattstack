@@ -125,8 +125,9 @@ class World {
     if ((m = cmd.match(/^git diff(?: --no-renames)? --name-only (\S+)\.\.(\S+)$/))) {
       return ok([...new Set(this.range(m[1]!, m[2]!).flatMap((c) => c.files))].join("\n"));
     }
-    if ((m = cmd.match(/^git log --format=%s (\S+)\.\.origin\/main -- apps\/(\S+)\/$/))) {
-      const subjects = this.range(m[1]!, "origin/main").filter((c) => c.files.some((f) => f.startsWith(`apps/${m![2]}/`))).map((c) => c.subject);
+    if ((m = cmd.match(/^git log --format=%s (\S+)\.\.origin\/main -- (.+)$/))) {
+      const paths = m[2]!.split(" ");
+      const subjects = this.range(m[1]!, "origin/main").filter((c) => c.files.some((f) => paths.some((p) => f.startsWith(p)))).map((c) => c.subject);
       return ok(subjects.join("\n"));
     }
     if ((m = cmd.match(/^git log -1 --format=(\S+) (\S+)\.\.origin\/main -- RELEASE_NOTES\.md$/))) {
@@ -225,32 +226,41 @@ class World {
   }
 }
 
-const opts = (o: Partial<ReleaseAppOptions> = {}): ReleaseAppOptions => ({ name: "board", ...o });
+const opts = (o: Partial<ReleaseAppOptions> = {}): ReleaseAppOptions => ({ ...o });
 const lastStep = (r: { steps: { id: string; status: string; detail: string }[] }) => r.steps.at(-1)!;
 const MUTATING = [/^gh api -X PATCH /, /git\/trees --input/, /git\/commits --input/, /^git tag -a /, /^git push /];
 const mutations = (calls: string[][]) => calls.map((c) => c.join(" ")).filter((c) => MUTATING.some((re) => re.test(c)));
 
 /** Drives a run to the approval stop and returns the notes hash it printed. */
-async function toApproval(w: World, name = "board"): Promise<string> {
-  const r = await runReleaseApp(w.seams(), opts({ name }));
+async function toApproval(w: World): Promise<string> {
+  const r = await runReleaseApp(w.seams(), opts());
   if (r.status !== "awaiting-approval") throw new Error(`expected awaiting-approval, got ${r.status}: ${JSON.stringify(r.steps)}`);
   return r.notesHash!;
 }
 
 describe("runReleaseApp: qualification", () => {
-  test("refuses an app that has not moved since the last tag", async () => {
+  test("ships whichever served apps moved, with no app named", async () => {
     const w = new World();
     w.land(["apps/chat/x.ts", "RELEASE_NOTES.md"]);
     const r = await runReleaseApp(w.seams(), opts({ dryRun: true }));
-    expect(r.status).toBe("declined");
-    expect(r.steps[0]).toMatchObject({ id: "qualify", status: "stopped" });
-    expect(r.steps[0]!.detail).toContain(`board has not moved since ${LAST}`);
+    expect(r.status).toBe("planned");
+    expect(r.apps).toEqual(["chat"]);
+    expect(r.steps[0]!.detail).toContain(`releasing chat as ${NEXT}`);
+  });
+
+  test("a served-only kit change ships every app built from it, with the kit's commits in each section", async () => {
+    const w = new World();
+    w.land(["packages/ui/src/Button.tsx"], { subject: "app-kit: tighten button padding" });
+    const r = await runReleaseApp(w.seams(), opts({ dryRun: true }));
+    expect(r.status).toBe("planned");
+    expect(r.apps).toEqual(["boxscore", "chat", "console"]);
+    for (const app of ["boxscore", "chat", "console"]) expect(r.notes).toContain(`### ${app}\n\n- app-kit: tighten button padding\n`);
   });
 
   test("refuses deck: it is not a served-only app", async () => {
     const w = new World();
     w.land(["apps/deck/x.ts"]);
-    const r = await runReleaseApp(w.seams(), opts({ name: "deck", dryRun: true }));
+    const r = await runReleaseApp(w.seams(), opts({ dryRun: true }));
     expect(r.status).toBe("declined");
   });
 
@@ -275,7 +285,7 @@ describe("runReleaseApp: qualification", () => {
     const r = await runReleaseApp(seams, opts());
     expect(r.status).toBe("failed");
     expect(r.steps.find((s) => s.id === "notes")).toMatchObject({ status: "failed" });
-    expect(r.resume).toBe("rt release app board");
+    expect(r.resume).toBe("rt release apps");
   });
 });
 
@@ -397,7 +407,7 @@ describe("runReleaseApp: the approval flow", () => {
     const r = await runReleaseApp(w.seams(), opts({ yesNotes: hash }));
     expect(lastStep(r)).toMatchObject({ id: "notes", status: "failed" });
     expect(lastStep(r).detail).toContain("main moved from");
-    expect(r.resume).toBe("rt release app board");
+    expect(r.resume).toBe("rt release apps");
   });
 });
 
@@ -482,7 +492,7 @@ describe("runReleaseApp: resume", () => {
     const w = new World();
     const r = await runReleaseApp(w.seams(), opts());
     expect(r.status).toBe("declined");
-    expect(lastStep(r).detail).toContain(`board has not moved since ${LAST}`);
+    expect(lastStep(r).detail).toContain(`nothing has moved since ${LAST}`);
     expect(mutations(w.calls)).toEqual([]);
   });
 
@@ -537,7 +547,7 @@ describe("runReleaseApp: resume", () => {
     const before = w.calls.length;
     const second = await runReleaseApp(w.seams(), opts());
     expect(second.status).toBe("declined");
-    expect(lastStep(second).detail).toContain(`board has not moved since ${NEXT}`);
+    expect(lastStep(second).detail).toContain(`nothing has moved since ${NEXT}`);
     expect(mutations(w.calls.slice(before))).toEqual([]);
   });
 
