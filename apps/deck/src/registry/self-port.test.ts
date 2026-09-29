@@ -17,7 +17,7 @@ function isolate(): void {
 }
 
 isolate();
-const { reconcileSelfPort } = await import('./self-port.ts');
+const { ensureSelfRoutes, reconcileSelfPort } = await import('./self-port.ts');
 const { putRecord, reloadRegistry } = await import('./records.ts');
 
 beforeEach(() => {
@@ -119,4 +119,37 @@ test('a self record another process changed since load keeps that change', () =>
   const deck = JSON.parse(readFileSync(registry, 'utf8')).apps.deck;
   expect(deck.port).toBe(7940);
   expect(deck.displayName).toBe('Deck');
+});
+
+test('a helper-only machine with no deck routes gets deck.localhost and deck.mattstack on the served port', async () => {
+  writeFileSync(
+    routes,
+    JSON.stringify([
+      { hostname: 'board.mattstack', port: 11006, pid: 0 },
+      { hostname: 'board.localhost', port: 11006, pid: 0 },
+    ])
+  );
+
+  expect(await ensureSelfRoutes(7940)).toEqual([
+    'deck.localhost',
+    'deck.mattstack',
+  ]);
+  expect(JSON.parse(readFileSync(routes, 'utf8'))).toEqual([
+    { hostname: 'board.mattstack', port: 11006, pid: 0 },
+    { hostname: 'board.localhost', port: 11006, pid: 0 },
+    { hostname: 'deck.localhost', port: 7940, pid: 0 },
+    { hostname: 'deck.mattstack', port: 7940, pid: 0 },
+  ]);
+});
+
+test('deck routes that already exist are left as they are', async () => {
+  writeFileSync(
+    routes,
+    JSON.stringify([
+      { hostname: 'deck.mattstack', port: 7940, pid: 0 },
+      { hostname: 'deck.localhost', port: 7940, pid: 0 },
+    ])
+  );
+
+  expect(await ensureSelfRoutes(7940)).toEqual([]);
 });

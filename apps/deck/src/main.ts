@@ -24,7 +24,7 @@ import { bindGatewayOrExit } from './gateway-boot.ts';
 import { migrateManagedDevShape } from './registry/migrate-dev-shape.ts';
 import { stampSelfOnBoot } from './registry/new-code.ts';
 import { listRecords } from './registry/records.ts';
-import { reconcileSelfPort } from './registry/self-port.ts';
+import { ensureSelfRoutes, reconcileSelfPort } from './registry/self-port.ts';
 import { bundleRootFromExec } from './services/bundle-layout.ts';
 import {
   liveDeckOwner,
@@ -186,6 +186,15 @@ export async function serve(): Promise<void> {
       }
     } catch (err) {
       console.error('self port reconcile failed:', err);
+    }
+    try {
+      const added = await ensureSelfRoutes(PORT);
+      if (added.length)
+        console.log(
+          `[helper] deck serves on ${PORT}: added ${added.join(', ')}`
+        );
+    } catch (err) {
+      console.error('self route ensure failed:', err);
     }
   }
 

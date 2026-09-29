@@ -1,5 +1,5 @@
 import { MATTSTACK_TLD } from '../../core/discover.ts';
-import { repointRoutes } from '../../core/routes-writer.ts';
+import { addRoutes, repointRoutes } from '../../core/routes-writer.ts';
 import { PLATFORM_NAME } from '../services/manager.ts';
 import { getRecord, putRecord, reloadRegistry } from './records.ts';
 
@@ -21,4 +21,17 @@ export function reconcileSelfPort(port: number): {
     record,
     routes: repointRoutes(PLATFORM_NAME, port, ['localhost', MATTSTACK_TLD]),
   };
+}
+
+/**
+ * A helper-owned deck has no self record and never runs `deck setup`, the
+ * only other writer of deck's own routes, so without this a fresh install
+ * serves every app but deck. Run after reconcileSelfPort, which moves the
+ * routes that do exist.
+ */
+export function ensureSelfRoutes(port: number): Promise<string[]> {
+  return addRoutes(
+    [`${PLATFORM_NAME}.localhost`, `${PLATFORM_NAME}.${MATTSTACK_TLD}`],
+    port
+  );
 }
