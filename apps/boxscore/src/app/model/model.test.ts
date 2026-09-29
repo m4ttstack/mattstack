@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-// eslint-disable-next-line no-restricted-imports -- a test file never reaches the browser bundle, and the fixture is pure TS
 import { fixtureLeaderboard } from '../../server/fixture/index';
 import { metricByKey, METRICS, setMetricRank } from '../../shared/metrics';
 import type { UserRow } from '../../shared/types';
