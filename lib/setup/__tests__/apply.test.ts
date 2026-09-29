@@ -297,6 +297,21 @@ describe("runApplyWith — skipped is non-fatal", () => {
   });
 });
 
+describe("runApplyWith: needs-you is non-fatal", () => {
+  test("a needs-you step is streamed as such and the run still ends ok", async () => {
+    const { ctx, events } = testCtx();
+    const steps: StepDef[] = [
+      fakeStep("verify", { state: "needs-you", detail: "to connect: Slack" }),
+    ];
+
+    const result = await runApplyWith(steps, ctx, {});
+
+    expect(result).toEqual({ ok: true });
+    expect(events).toContainEqual({ event: "step", id: "verify", state: "needs-you", detail: "to connect: Slack" });
+    expect(events.at(-1)).toEqual({ event: "done", ok: true });
+  });
+});
+
 describe("runApplyWith — --from resume", () => {
   test("resumes at the named step; earlier steps get NO step event and never run", async () => {
     const { ctx, events } = testCtx();

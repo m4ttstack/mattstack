@@ -35,6 +35,7 @@ import {
 } from "../steps/tools.ts";
 import { outcomeFromChecks, settleChecks, verifyStep } from "../steps/verify.ts";
 import { teamSyncRow } from "../validators/rt-health.ts";
+import type { Row } from "../contract.ts";
 
 // ─── shared fakes (mirrors steps-a/b.test.ts's trivial no-ops) ─────────────
 
@@ -461,6 +462,63 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       const second = await pluginsInstallStep.run(makeCtx(p).ctx);
       expect(first.state).toBe("done");
       expect(second.state).toBe("done");
+    });
+
+    // Reply captured from the real CLI (2.1.284) enabling a plugin that is already on.
+    const ALREADY_ENABLED = (id: string) => `✘ Failed to enable plugin "${id}": Plugin "${id}" is already enabled`;
+
+    test("an already-enabled plugin is not an error: the enable reply logs nothing", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          if (argv[2] === "enable") return { code: 1, stdout: "", stderr: ALREADY_ENABLED(argv.at(-1)!) };
+          return ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+      expect(logs.filter((l) => l.line.includes("enable"))).toEqual([]);
+    });
+
+    test("an installed plugin the listing already shows enabled is never re-enabled", async () => {
+      const execCalls: string[][] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          execCalls.push(argv);
+          if (argv[2] === "list") return ok(JSON.stringify(BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true }))));
+          return ok("");
+        },
+      });
+
+      expect((await pluginsInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
+      expect(execCalls.filter((a) => a[2] === "enable")).toEqual([]);
+    });
+
+    test("a real enable failure is logged with claude's own first line", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          if (argv[2] === "enable") return { code: 1, stdout: "", stderr: "✘ Failed to enable plugin: settings.json is not writable\nmore detail" };
+          return ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+      const enableLogs = logs.filter((l) => l.line.includes("enable"));
+      expect(enableLogs.length).toBeGreaterThan(0);
+      expect(enableLogs[0]!.line).toContain("Failed to enable plugin: settings.json is not writable");
+      expect(enableLogs[0]!.line).not.toContain("more detail");
     });
 
     test("a team-authored pack ends DISABLED, asserted on the resulting state rather than the argv", async () => {
@@ -1442,6 +1500,49 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
           detail: "1 check failed: tool.app",
           remedy: "Run `rt verify` for details",
         });
+      });
+
+      const fail = (name: string) => ({ name, status: "fail" as const, detail: "", severity: "critical" as const });
+      const rowOf = (id: string, kind: Row["kind"], title: string, status: Row["status"]): Row =>
+        ({ id, kind, title, why: "", required: true, status, detail: "", action: null, recheck: "manual" }) as Row;
+
+      test("accounts to connect and team tools to install read as needs-you, each under its own verb", () => {
+        const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
+        expect(outcomeFromChecks([fail("account.slack"), fail("tool.team.doppler")], rows)).toEqual({
+          state: "needs-you",
+          detail: "to connect: Slack · to install: doppler",
+        });
+      });
+
+      test("settleChecks keeps waiting on tool.daemon while an unconnected account also fails", async () => {
+        const slack = fail("account.slack");
+        const daemonDown = { ...fail("tool.daemon"), detail: "daemon unreachable" };
+        const daemonUp = { name: "tool.daemon", status: "pass" as const, detail: "pid 1", severity: "critical" as const };
+        const reads = [[slack, daemonDown], [slack, daemonUp]];
+        const rows = [rowOf("account.slack", "account", "Slack", "missing")];
+        let readCount = 0;
+        const checks = await settleChecks(async () => { readCount++; return reads.shift()!; }, {
+          attempts: 5,
+          intervalMs: 3000,
+          sleep: async () => {},
+          leftForMember: (name) => name === "account.slack",
+        });
+        expect(readCount).toBe(2);
+        expect(outcomeFromChecks(checks, rows)).toEqual({ state: "needs-you", detail: "to connect: Slack" });
+      });
+
+      test("a genuine failure stays failed and still names what is left to connect", () => {
+        const rows = [rowOf("account.slack", "account", "Slack", "missing"), rowOf("tool.app", "tool", "mattstack.app", "error"), rowOf("tool.team.doppler", "tool", "doppler", "missing")];
+        expect(outcomeFromChecks([fail("account.slack"), fail("tool.app"), fail("tool.team.doppler")], rows)).toEqual({
+          state: "failed",
+          detail: "1 check failed: tool.app · to connect: Slack · to install: doppler",
+          remedy: "Run `rt verify` for details",
+        });
+      });
+
+      test("a connected account whose credential is now invalid is a genuine failure", () => {
+        const rows = [rowOf("account.github", "account", "GitHub", "invalid")];
+        expect(outcomeFromChecks([fail("account.github")], rows).state).toBe("failed");
       });
 
       test("a warning-severity fail never counts against canInstall's check", () => {
