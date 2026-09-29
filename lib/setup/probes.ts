@@ -8,6 +8,7 @@
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { wellKnownBinDirs } from "../bundled-tool.ts";
 import { daemonSocketQuery, trayRequest, type DaemonResponse, type TrayClient } from "../daemon-client.ts";
 import { readWrapperPrefix } from "../dev-mode.ts";
 import { UserActionableError } from "./errors.ts";
@@ -164,17 +165,22 @@ export async function execWithTimeout(argv: string[], opts?: { cwd?: string; tim
 }
 
 /**
- * ~/.local/bin is the directory rt manages (links, vendor installs) and the
- * one Install adds to the shell's PATH — so a probe running before Install
- * resolves a bare command there when PATH itself has no copy. PATH always
- * wins; the fallback only replaces a lookup that would have failed.
+ * The app spawns rt under launchd's minimal PATH, which holds neither
+ * Homebrew's bin nor ~/.local/bin (where rt links and vendor-installs), so a
+ * bare command resolves through `wellKnownBinDirs` when PATH has no copy.
+ * PATH always wins; the fallback only replaces a lookup that would have failed.
  */
-export function withLocalBinFallback(argv: string[], opts: { home: string; pathDirs: string[]; exists: (path: string) => boolean }): string[] {
+export function withWellKnownBinFallback(argv: string[], opts: { home: string; pathDirs: string[]; exists: (path: string) => boolean }): string[] {
   const cmd = argv[0];
   if (!cmd || cmd.includes("/")) return argv;
   if (opts.pathDirs.some((dir) => dir.length > 0 && opts.exists(join(dir, cmd)))) return argv;
-  const local = join(opts.home, ".local", "bin", cmd);
-  return opts.exists(local) ? [local, ...argv.slice(1)] : argv;
+  const local = join(opts.home, ".local", "bin");
+  // rt's own links in ~/.local/bin must beat a Homebrew copy, matching the
+  // child PATH withLocalBinOnPath builds.
+  const found = [local, ...wellKnownBinDirs(opts.home).filter((dir) => dir !== local)]
+    .map((dir) => join(dir, cmd))
+    .find((path) => opts.exists(path));
+  return found ? [found, ...argv.slice(1)] : argv;
 }
 
 /** `env` with `~/.local/bin` first on PATH — the child's own lookups (fast-browser finding claude, an installer re-probing) see what rt links and vendor installs put there. */
@@ -189,7 +195,7 @@ export function createRealProbes(): Probes {
   return {
     exec(argv, opts) {
       const home = process.env.HOME ?? homedir();
-      const resolved = withLocalBinFallback(argv, { home, pathDirs: (process.env.PATH ?? "").split(":"), exists: existsSync });
+      const resolved = withWellKnownBinFallback(argv, { home, pathDirs: (process.env.PATH ?? "").split(":"), exists: existsSync });
       const env = withLocalBinOnPath({ ...(process.env.PATH ? { PATH: process.env.PATH } : {}), ...opts?.env }, home);
       return execWithTimeout(resolved, { ...opts, env });
     },
