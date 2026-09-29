@@ -338,6 +338,12 @@ describe("accountRows — account.slack + account.slack-app", () => {
     expect(r.action).toEqual({ type: "oauth", label: "Connect", integration: "slack", verb: ["setup", "slack", "connect"] });
   });
 
+  test("account.slack: no token yet -> the detail names the redirect URL to add and the app's own OAuth page", async () => {
+    const team = baseTeam({ integrations: { slack: { appId: "A0TEAM", clientId: "abc" } } });
+    const r = await pickRow(accountRows(fakeProbes(), team, SLACK_REQS, fakeSecrets(), null), "account.slack");
+    expect(r.detail).toContain("add http://localhost:11234/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth");
+  });
+
   test("account.slack: app exists, token invalid -> invalid, oauth action still present (H2)", async () => {
     const team = baseTeam({ integrations: { slack: { clientId: "abc" } } });
     const fetch = async () => ({ status: 200, body: JSON.stringify({ ok: false, error: "invalid_auth" }), headers: {} });

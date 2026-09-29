@@ -4,7 +4,7 @@ import { fakeProbes, ok } from "../../lib/setup/__tests__/fakes.ts";
 import type { SecretPresence } from "../../lib/setup/validators/accounts.ts";
 import type { Probes } from "../../lib/setup/probes.ts";
 import type { TeamSnapshot } from "../../lib/setup/team-settings.ts";
-import { DEFAULT_SCOPE_NEEDS } from "../../lib/setup/slack-app.ts";
+import { DEFAULT_SCOPE_NEEDS, SlackCallbackTimeoutError } from "../../lib/setup/slack-app.ts";
 
 function neverCalled<T extends unknown[], R>(name: string) {
   return async (..._args: T): Promise<R> => {
@@ -533,10 +533,10 @@ describe("integrationConnect - switchboard (credential-less, host-confirm flow)"
   });
 });
 
-function slackTeamSnapshot(overrides: { clientId?: string; callbackPort?: number } = {}): TeamSnapshot {
+function slackTeamSnapshot(overrides: { clientId?: string; callbackPort?: number; appId?: string } = {}): TeamSnapshot {
   return {
     slug: "acme",
-    integrations: { slack: { clientId: overrides.clientId ?? "client-abc", callbackPort: overrides.callbackPort ?? 22222 } },
+    integrations: { slack: { clientId: overrides.clientId ?? "client-abc", callbackPort: overrides.callbackPort ?? 22222, ...(overrides.appId ? { appId: overrides.appId } : {}) } },
     trackingIdentities: [],
     marketplaces: [],
     plugins: [],
@@ -611,6 +611,57 @@ describe("integrationConnect — slack (OAuth flow)", () => {
     const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
     expect(payload.error.code).toBe("slack-oauth-failed");
     expect(payload.error.message).toContain("state did not match");
+  });
+
+  test("a callback that never arrives names the redirect URL to add at the team app's OAuth page", async () => {
+    const deps = baseDeps({
+      probes: fakeProbes({ exec: async () => ok() }),
+      teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM", callbackPort: 11234 }),
+      listen: async () => {
+        throw new SlackCallbackTimeoutError();
+      },
+    });
+
+    await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+    expect(deps.exitCodes).toEqual([2]);
+    const payload = JSON.parse(deps.lines[0]!) as { error: { code: string; message: string } };
+    expect(payload.error.code).toBe("slack-oauth-failed");
+    expect(payload.error.message).toContain("add http://localhost:11234/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth");
+  });
+
+  test("a bad_redirect_uri exchange names the redirect URL to add", async () => {
+    const fetch: Probes["fetch"] = async (url) => {
+      if (url === "https://slack.com/api/oauth.v2.access") return { status: 200, body: JSON.stringify({ ok: false, error: "bad_redirect_uri" }), headers: {} };
+      return { status: 0, body: "", headers: {} };
+    };
+    const deps = baseDeps({
+      probes: fakeProbes({ fetch }),
+      teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+      teamSecrets: { read: async () => "client-secret-value", write: neverCalled("teamSecrets.write") },
+      listen: async () => "auth-code",
+      writer: { storeReady: async () => true, write: async () => {} },
+    });
+
+    await integrationConnect("slack", ["--json"], deps);
+
+    const body = JSON.parse(deps.lines[0]!) as { status: string; detail: string };
+    expect(body.status).toBe("invalid");
+    expect(body.detail).toContain("add http://localhost:22222/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth");
+  });
+
+  test("a state mismatch keeps its own message, with no redirect advice", async () => {
+    const deps = baseDeps({
+      teamSnapshot: () => slackTeamSnapshot({ appId: "A0TEAM" }),
+      listen: async () => {
+        throw new Error("slack callback state did not match");
+      },
+    });
+
+    await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+    const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
+    expect(payload.error.message).not.toContain("Redirect URLs");
   });
 
   test("authorize URL carries the team's clientId, the manifest's user scopes, and the callback port + a state param; exchange POSTs client_secret+code and stores board/slackToken only after success", async () => {

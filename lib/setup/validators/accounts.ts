@@ -10,6 +10,7 @@
  * credential.
  */
 
+import { DEFAULT_CALLBACK_PORT, slackRedirectFix } from "../slack-app.ts";
 import type { Action, Integration, Row } from "../contract.ts";
 import { row } from "../contract.ts";
 import { readCredentialHealth, type CredentialHealthRow } from "../../credential-health/db.ts";
@@ -178,7 +179,10 @@ async function slackRow(p: Probes, base: Omit<Row, "status" | "detail" | "action
   }
   const spec = secretSpec(def);
   const stored = await secrets.has(spec.domain, spec.key);
-  if (stored === null) return row({ ...base, status: "missing", detail: "no Slack account connected", action: SLACK_OAUTH_ACTION });
+  if (stored === null) {
+    const fix = slackRedirectFix(team.integrations.slack.callbackPort ?? DEFAULT_CALLBACK_PORT, team.integrations.slack.appId);
+    return row({ ...base, status: "missing", detail: `no Slack account connected. If Slack says redirect_uri did not match, ${fix}`, action: SLACK_OAUTH_ACTION });
+  }
   const result = await def.validate(p, stored, ctx);
   if (result.status === "ready") return row({ ...base, status: "ready", detail: result.detail });
   return row({ ...base, status: result.status, detail: result.detail, action: SLACK_OAUTH_ACTION });
