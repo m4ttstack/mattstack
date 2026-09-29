@@ -1,6 +1,6 @@
 /**
  * rt logins: dev-server logins that browser runs fill on a matching page.
- * Values never travel in argv: a terminal prompts for both with hidden input, and
+ * Values never travel in argv: a terminal prompts for the email and a hidden password, and
  * --json reads {email, password} from stdin.
  */
 
@@ -101,7 +101,7 @@ export async function loginsAdd(args: string[], _ctx: CommandContext = {}, over?
       email = body.email;
       password = body.password;
     } else if (d.isTTY) {
-      email = await d.promptSecret(`Email for ${origin}`);
+      email = await d.promptText(`Email for ${origin}`);
       password = await d.promptSecret(`Password for ${origin}`);
     } else {
       throw new UserActionableError("needs-tty", "no terminal to prompt in; pass --json and pipe {email, password} on stdin");
