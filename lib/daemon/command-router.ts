@@ -20,6 +20,7 @@ import { createSystemProcessHandlers } from "./handlers/system-processes.ts";
 import { createSdmHandlers } from "./handlers/sdm.ts";
 import { createRunsHandlers } from "./handlers/runs.ts";
 import { createSecretsHandlers } from "./handlers/secrets.ts";
+import { createLoginsHandlers } from "./handlers/logins.ts";
 import { createProjectMRsHandlers } from "./handlers/project-mrs.ts";
 import { createEventsHandlers } from "./handlers/events.ts";
 import { createGateHandlers } from "./handlers/gate.ts";
@@ -259,6 +260,7 @@ export function buildRoutedHandlers(opts: {
     ...createSdmHandlers({ log: ctx.log }),
     ...createRunsHandlers({ log: ctx.log }, emitEvent),
     ...createSecretsHandlers({ log: ctx.log }),
+    ...createLoginsHandlers({ log: ctx.log }),
     ...createProjectMRsHandlers({ repoIndex: ctx.repoIndex, log: ctx.log }, broadcast),
     ...createEventsHandlers(opts.eventsBus, broadcast),
     ...gateHandlers,

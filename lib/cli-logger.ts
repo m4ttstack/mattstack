@@ -118,6 +118,33 @@ function redactTeamJoinTail(args: string[], command?: string): string[] {
 }
 
 /**
+ * `rt logins add` refuses anything past the origin, but only after the argv
+ * reached `logCommand`, so a stray email or password is redacted here. The
+ * first positional survives only when it is shaped like an origin.
+ */
+function redactLoginsAddTail(args: string[], command?: string): string[] {
+  const keepOriginAndJson = (tail: string[]) => {
+    let originSeen = false;
+    return tail.map((a) => {
+      if (a === "--json") return a;
+      if (!originSeen && !a.startsWith("-")) {
+        originSeen = true;
+        if (/^https?:\/\/\S+$/i.test(a)) return a;
+      }
+      return "[redacted]";
+    });
+  };
+  if (command && /(?:^|\s)logins add$/.test(command)) return keepOriginAndJson(args);
+
+  for (let i = 0; i + 1 < args.length; i++) {
+    if (args[i] === "logins" && args[i + 1] === "add") {
+      return [...args.slice(0, i + 2), ...keepOriginAndJson(args.slice(i + 2))];
+    }
+  }
+  return args;
+}
+
+/**
  * Returns a copy of args with the value following any `--reason` flag
  * replaced by "[redacted]" (also handles the `--reason=value` form), any
  * arg starting with `AGE-SECRET-KEY-1` replaced outright (defense in depth
@@ -161,7 +188,7 @@ export function redactSensitiveArgs(args: string[], command?: string): string[] 
     }
     result.push(arg);
   }
-  return redactTeamJoinTail(redactSecretsWriteTail(result, command), command);
+  return redactLoginsAddTail(redactTeamJoinTail(redactSecretsWriteTail(result, command), command), command);
 }
 
 export function logCommand(entry: CommandLog): void {

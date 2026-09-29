@@ -22,6 +22,7 @@ final class SetupCoordinator {
     private let install: InstallRunModel
     private let statusInstall: InstallRunModel
     private let teamSettings: TeamSettingsModel
+    private let devLogins: DevLoginsModel
     private let appsSettings: AppsSettingsModel
     private let settingsRefresher: SettingsRefresher
     private var setupWindow: SetupWindowController?
@@ -61,6 +62,7 @@ final class SetupCoordinator {
         // live `rt setup apply` the onboarding window owns.
         statusInstall = InstallRunModel(stream: { _ in AsyncThrowingStream { $0.finish() } }, needs: needs)
         teamSettings = TeamSettingsModel(rt: rt, needs: needs)
+        devLogins = DevLoginsModel(rt: rt)
         appsSettings = AppsSettingsModel(rt: rt)
         appsSettings.onAppsChanged = { NotificationCenter.default.post(name: .rtAppsChanged, object: nil) }
         settingsRefresher = SettingsRefresher(team: teamSettings, apps: appsSettings)
@@ -110,6 +112,7 @@ final class SetupCoordinator {
     func showSettings(pane: SettingsPane? = nil) {
         if settingsWindow == nil {
             let env = SettingsEnvironment(rt: rt, permissions: permissions, readiness: readiness, updater: updater, apps: appsSettings, team: teamSettings,
+                                          devLogins: devLogins,
                                           waivers: WaiverClient(rt: rt),
                                           isDevBuild: BundleFlavor.isDevBuild,
                                           version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
@@ -133,6 +136,11 @@ final class SetupCoordinator {
         }
         settingsWindow?.show(pane: pane)
         Task { @MainActor in await settingsRefresher.reload() }
+    }
+
+    func showDevLoginAdd(origin: String) {
+        showSettings(pane: .devLogins)
+        devLogins.addRequest = origin
     }
 
     /// A join link while setup is already complete is "join a DIFFERENT

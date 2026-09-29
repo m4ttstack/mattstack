@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import {
   readSecret,
   writeSecret,
+  removeSecret,
   rotateSecret,
   listSecretNames,
   secretsFilePath,
@@ -661,5 +662,64 @@ describe("rt secrets list (command layer)", () => {
     expect(output).toContain("other");
     expect(output).not.toContain(CANARY);
     expect(output).not.toContain("value2");
+  });
+});
+
+describe("removeSecret", () => {
+  test("re-encrypts the domain without the key and publishes it", async () => {
+    const domain = "rt";
+    let staged: string | undefined;
+    const execSeam: FakeSecretsExecSeam = new FakeSecretsExecSeam({
+      decrypt: () => ({ code: 0, stdout: JSON.stringify({ a: "1", b: "2" }), stderr: "" }),
+      encrypt: () => {
+        staged = execSeam.files.get(stagingPath(domain));
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    execSeam.writeFile(secretsFilePath(domain), "ciphertext");
+    const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
+
+    expect(await removeSecret(domain, "a", seams)).toBe(true);
+    expect(JSON.parse(staged!)).toEqual({ b: "2" });
+    expect(execSeam.fsyncAndRenameCalls.map((c) => c.to)).toEqual([secretsFilePath(domain)]);
+    expect(execSeam.files.has(stagingPath(domain))).toBe(false);
+  });
+
+  test("an absent key is a no-op: false, no encrypt", async () => {
+    const execSeam = new FakeSecretsExecSeam({ decrypt: () => ({ code: 0, stdout: JSON.stringify({ b: "2" }), stderr: "" }) });
+    execSeam.writeFile(secretsFilePath("rt"), "ciphertext");
+    const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
+
+    expect(await removeSecret("rt", "a", seams)).toBe(false);
+    expect(execSeam.calls.some((c) => c.cmd[1] === "-e")).toBe(false);
+  });
+
+  test("an inherited property name is not a stored key: false, no encrypt", async () => {
+    const execSeam = new FakeSecretsExecSeam({ decrypt: () => ({ code: 0, stdout: JSON.stringify({ b: "2" }), stderr: "" }) });
+    execSeam.writeFile(secretsFilePath("rt"), "ciphertext");
+    const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
+
+    expect(await removeSecret("rt", "toString", seams)).toBe(false);
+    expect(execSeam.calls.some((c) => c.cmd[1] === "-e")).toBe(false);
+  });
+
+  test("a missing domain file is false with no sops or keychain call", async () => {
+    const execSeam = new FakeSecretsExecSeam();
+    const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamThrows(), execSeam };
+
+    expect(await removeSecret("rt", "a", seams)).toBe(false);
+    expect(execSeam.calls).toEqual([]);
+  });
+
+  test("a read-back that still holds the key refuses and leaves the target untouched", async () => {
+    const execSeam = new FakeSecretsExecSeam({
+      decrypt: () => ({ code: 0, stdout: JSON.stringify({ a: "1" }), stderr: "" }),
+      encryptOutputContent: "garbled",
+    });
+    execSeam.writeFile(secretsFilePath("rt"), "ciphertext");
+    const seams: SecretsSeams = { ageKeySeam: fakeAgeKeySeamWithKey("AGE-X"), execSeam };
+
+    await expect(removeSecret("rt", "a", seams)).rejects.toThrow(/read-back/);
+    expect(execSeam.fsyncAndRenameCalls).toEqual([]);
   });
 });

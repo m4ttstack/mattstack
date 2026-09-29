@@ -348,4 +348,28 @@ else if (a0 === "settings" && a1 === "set") emit({ ok: true, key: a2 });
 else if (a0 === "restore") emit({ ok: true, repo: a1 });
 else if (a0 === "home" && a1 === "init") emit({ ok: true });
 else if (a0 === "version" || a0 === "--version") emit({ version: "2.8.0-stub", build: 0 });
+else if (a0 === "logins") {
+  const path = join(stateDir, "logins.json");
+  const saved: Record<string, { email: string }> = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+  const origin = args[2];
+  if (a1 === "list") {
+    const rows = Object.entries(saved).sort().map(([o, v]) => {
+      const u = new URL(o);
+      const key = u.host.replace(":", "_") + (u.protocol === "http:" ? "_http" : "");
+      return { origin: o, email: v.email, fields: { email: `devlogin:${key}:email`, password: `devlogin:${key}:password` } };
+    });
+    process.stdout.write(JSON.stringify(rows) + "\n");
+  } else if (a1 === "add" && origin) {
+    const body = await readStdinJSON();
+    const replaced = origin in saved;
+    saved[origin] = { email: String(body.email ?? "") };
+    writeFileSync(path, JSON.stringify(saved));
+    process.stdout.write(JSON.stringify({ ok: true, origin, replaced }) + "\n");
+  } else if (a1 === "remove" && origin) {
+    const removed = origin in saved;
+    delete saved[origin];
+    writeFileSync(path, JSON.stringify(saved));
+    process.stdout.write(JSON.stringify({ ok: true, removed }) + "\n");
+  } else fail("usage", "rt logins list|add|remove");
+}
 else fail("unknown-verb", `stub has no answer for: ${args.join(" ")}`);
