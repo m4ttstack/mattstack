@@ -10,6 +10,7 @@ import type {
 import { useUncontrolled } from '@mantine/hooks';
 
 import { Icons } from '@mattstack/app-kit/icons';
+import classes from './HybridMenu.module.css';
 
 export interface HybridMenuOption {
   label: string;
@@ -45,19 +46,19 @@ export interface HybridMenuProps {
   disableAllActions?: boolean;
   disableAllActionsTooltip?: string;
   /** Dropdown placement against the target; the pop-in grows from the
-   *  corner nearest the target. @default 'bottom-end' */
+   *  corner nearest the target, after any flip. @default 'bottom-end' */
   position?: MenuProps['position'];
 }
 
-/** The pop family names its origin corner, so a bottom-end dropdown grows
- *  from its top-right corner, down and to the left. */
-const POP_FROM: Partial<
-  Record<NonNullable<MenuProps['position']>, MantineTransition>
-> = {
-  'bottom-end': 'pop-top-right',
-  'bottom-start': 'pop-top-left',
-  'top-end': 'pop-bottom-right',
-  'top-start': 'pop-bottom-left',
+/** Mantine's pop with its origin left to a CSS variable, which the module
+ *  sets from the dropdown's resolved (post-flip) placement. No slide: the
+ *  flip lands after the first frame, and a transitioned translate would
+ *  carry the pre-flip direction into the first open. */
+const POP_FROM_ANCHOR: MantineTransition = {
+  in: { opacity: 1, transform: 'scale(1)' },
+  out: { opacity: 0, transform: 'scale(.9)' },
+  common: { transformOrigin: 'var(--pop-origin)' },
+  transitionProperty: 'transform, opacity',
 };
 
 /**
@@ -94,8 +95,9 @@ export function HybridMenu({
       onChange={setOpened}
       width="auto"
       styles={{ dropdown: { minWidth: 120 } }}
+      classNames={{ dropdown: classes.dropdown }}
       position={position}
-      transitionProps={{ transition: POP_FROM[position] ?? 'pop' }}
+      transitionProps={{ transition: POP_FROM_ANCHOR }}
     >
       <Menu.Target>
         {typeof target === 'function'

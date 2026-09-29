@@ -795,6 +795,25 @@ describe('HybridMenu', () => {
 
     expect(onChange).toHaveBeenCalledWith('b');
   });
+
+  // env="test" strips transition styles, so this pins the hook the origin CSS
+  // keys on; the origin itself is checked in a browser.
+  test('marks the dropdown with its resolved placement for the pop origin', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <HybridMenu
+        target={<button type="button">Menu target</button>}
+        options={[{ label: 'Option A', value: 'a' }]}
+        position="top-end"
+      />
+    );
+
+    await user.click(screen.getByText('Menu target'));
+    const dropdown = (await screen.findByRole('menu')) as HTMLElement;
+
+    expect(dropdown.getAttribute('data-position')).toBe('top-end');
+    expect(dropdown.className).toMatch(/dropdown/);
+  });
 });
 
 // --- RangePicker -------------------------------------------------------------
