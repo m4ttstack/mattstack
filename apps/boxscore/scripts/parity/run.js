@@ -294,4 +294,4 @@ async (
       url: page.url(),
     };
   }
-};
+}

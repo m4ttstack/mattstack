@@ -102,4 +102,4 @@ async (page, { rootSelector, nameAttr }) =>
       return out;
     },
     { rootSelector, nameAttr }
-  );
+  )
