@@ -166,7 +166,5 @@ const cache = new Hono()
 // Routes are CHAINED and handlers INLINE, both load-bearing for Hono's RPC inference:
 // a handler lifted into a named function loses path-param typing, and an unchained
 // app.get(...) never reaches `typeof routes`.
-export const routes = leaderboard
-  .route('/', jobs)
-  .route('/', cache);
+export const routes = leaderboard.route('/', jobs).route('/', cache);
 export type AppType = typeof routes;
