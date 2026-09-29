@@ -125,6 +125,8 @@ export interface EvidenceRow {
   cells: string[];
   /** Deep link for the row (GitLab MR, Linear issue). null = not linkable. */
   href?: string | null;
+  /** Links for the MRs a row names, in the order its MR cell lists them. */
+  mrHrefs?: string[];
   /** Render de-emphasized: the row exists but did NOT count toward the stat (e.g. stale issue). */
   muted?: boolean;
 }

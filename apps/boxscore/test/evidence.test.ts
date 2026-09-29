@@ -167,6 +167,8 @@ describe('issuesCompleted shows the closed date and non-mention links only', () 
     expect(row.cells[3]).toBe('2026-05-15');
     expect(row.cells[4]).not.toContain('!200'); // 200 is the mention-only link
     expect(row.cells[4]).toContain('!100');
+    expect(row.mrHrefs).toHaveLength(1);
+    expect(row.mrHrefs![0]).toMatch(/\/-\/merge_requests\/100$/);
   });
 });
 

@@ -7,8 +7,8 @@ import { Alert, ScrollArea, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
 import type { LeaderboardResponse, MetricKey } from '../shared/types';
 import { isColdCache, type RangeSelection } from './api';
-import { DetailPage } from './components/DetailPage';
 import { RefreshProgress as RefreshProgressBar } from './components/RefreshProgress';
+import { DetailPage, FIRST_STAT } from './detail/DetailPage';
 import { useLeaderboard } from './hooks/useLeaderboard';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useRefreshJob } from './hooks/useRefreshJob';
@@ -21,6 +21,7 @@ import {
 } from './leaderboard/LeaderboardPage';
 import { statHref } from './leaderboard/StandingsTable';
 import { scopeLabel } from './model/labels';
+import { descriptor } from './model/standings';
 import { useAppRoute, type AppRoute } from './routes';
 import { PageHeader, type RangeState, type ViewMode } from './shell/PageHeader';
 import { Rail } from './shell/Rail';
@@ -156,15 +157,64 @@ function AppShell() {
   const onRange = (range: string, start?: string, end?: string) =>
     setRangeState({ range, start, end });
 
+  const status = (
+    <>
+      {refreshJob.refreshing && (
+        <RefreshProgressBar
+          progress={refreshJob.progress}
+          onCancel={cancelRefresh}
+        />
+      )}
+      {error && (
+        <Alert
+          color="red"
+          title="Error"
+          variant="light"
+          icon={<Icon name="warning" size={16} />}
+        >
+          {error}
+        </Alert>
+      )}
+      {!error && loading && (
+        <Text size="sm" c="var(--tk-text-3)">
+          Loading…
+        </Text>
+      )}
+      {data && data.warnings.length > 0 && (
+        <Alert
+          color="warn"
+          variant="light"
+          icon={<Icon name="warning" size={16} />}
+        >
+          <Stack gap={4}>
+            {data.warnings.map((w, i) => (
+              <Text key={i} size="xs">
+                {w.message}
+              </Text>
+            ))}
+          </Stack>
+        </Alert>
+      )}
+    </>
+  );
+
+  const isPerson = route.name === 'user' || route.name === 'stat';
+  const stat = route.name === 'stat' ? route.stat : FIRST_STAT;
+
   let page: ReactNode;
-  if (route.name === 'user' || route.name === 'stat') {
+  if (isPerson) {
     page = (
-      <DetailPage
-        username={route.username}
-        initialStat={route.name === 'stat' ? route.stat : null}
-        range={rangeState}
-        trend={trend}
-      />
+      <>
+        {status}
+        {data && (
+          <DetailPage
+            data={data}
+            username={route.username}
+            stat={stat}
+            selection={selection}
+          />
+        )}
+      </>
     );
   } else if (route.name === 'not-found') {
     page = <NotFoundPage />;
@@ -181,42 +231,7 @@ function AppShell() {
           view={view}
           onView={setView}
         />
-        {refreshJob.refreshing && (
-          <RefreshProgressBar
-            progress={refreshJob.progress}
-            onCancel={cancelRefresh}
-          />
-        )}
-        {error && (
-          <Alert
-            color="red"
-            title="Error"
-            variant="light"
-            icon={<Icon name="warning" size={16} />}
-          >
-            {error}
-          </Alert>
-        )}
-        {!error && loading && (
-          <Text size="sm" c="var(--tk-text-3)">
-            Loading…
-          </Text>
-        )}
-        {data && data.warnings.length > 0 && (
-          <Alert
-            color="warn"
-            variant="light"
-            icon={<Icon name="warning" size={16} />}
-          >
-            <Stack gap={4}>
-              {data.warnings.map((w, i) => (
-                <Text key={i} size="xs">
-                  {w.message}
-                </Text>
-              ))}
-            </Stack>
-          </Alert>
-        )}
+        {status}
         {data && (
           <LeaderboardPage
             data={data}
@@ -242,14 +257,19 @@ function AppShell() {
     );
   }
 
-  const crumbs =
-    route.name === 'user' || route.name === 'stat'
-      ? ['boxscore', 'Leaderboard', route.username]
-      : ['boxscore', route.name === 'not-found' ? 'Not found' : 'Leaderboard'];
+  const personName = isPerson
+    ? (data?.users.find(u => u.username === route.username)?.name ??
+      route.username)
+    : null;
+  const crumbs = isPerson
+    ? ['boxscore', personName!, descriptor(stat).label]
+    : ['boxscore', route.name === 'not-found' ? 'Not found' : 'Leaderboard'];
 
   return (
     <div className={classes.frame} data-parity={frameName(route, view, trend)}>
-      <Rail active={route.name === 'leaderboard' ? 'leaderboard' : null} />
+      <Rail
+        active={route.name === 'leaderboard' || isPerson ? 'leaderboard' : null}
+      />
       <div className={classes.main}>
         <Topbar
           crumbs={crumbs}

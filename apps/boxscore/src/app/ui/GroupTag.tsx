@@ -5,13 +5,16 @@ import classes from './ui.module.css';
 type Variant = 'swatch-label' | 'pill' | 'tile';
 
 // The canvas draws the neutral group three ways: muted swatch with text-3 on cards,
-// text-2 swatch and label on leader tiles, raised pill with text-2 on panels.
+// text-2 swatch and label on leader tiles, a surface-3 pill with text-2 on panels.
+// The canvas neutral tint is surface step 3 in both schemes, which no role token holds.
 function colours(group: MetricGroup, variant: Variant) {
   const hue = GROUPS[group].hue;
   const neutral = hue === 'neutral';
   if (variant === 'pill') {
     return {
-      fill: neutral ? 'var(--tk-raised)' : `var(--mantine-color-${hue}-light)`,
+      fill: neutral
+        ? 'var(--tk-surface-3)'
+        : `var(--mantine-color-${hue}-light)`,
       swatch: undefined,
       label: hueVar(group, 'small'),
     };

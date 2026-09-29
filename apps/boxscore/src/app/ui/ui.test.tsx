@@ -155,10 +155,10 @@ describe('GroupTag', () => {
     expect(document.querySelector('[data-parity="Swatch"]')).toBeNull();
   });
 
-  it('draws the neutral pill on raised with body text', () => {
+  it('draws the neutral pill on surface step 3 with body text', () => {
     render(<GroupTag group="volume" variant="pill" parity="Group Tag" />);
     expect(document.querySelector('[data-parity="Group Tag"]')).toHaveStyle({
-      background: 'var(--tk-raised)',
+      background: 'var(--tk-surface-3)',
     });
     expect(screen.getByText('VOLUME')).toHaveStyle({
       color: 'var(--tk-text-2)',
@@ -184,7 +184,7 @@ describe('CountChip', () => {
     expect(label).toHaveStyle({ color: 'var(--tk-text-bad-small)' });
   });
 
-  it('draws neutral on raised with an optional count', () => {
+  it('draws neutral on surface step 3 with an optional count', () => {
     render(
       <CountChip
         count="4"
@@ -195,7 +195,7 @@ describe('CountChip', () => {
     );
     expect(
       document.querySelector('[data-parity="Chip excluded by state"]')
-    ).toHaveStyle({ background: 'var(--tk-raised)' });
+    ).toHaveStyle({ background: 'var(--tk-surface-3)' });
     const count = screen.getByText('4');
     expect(parityOf(count)).toBe('cn');
     expect(count).toHaveStyle({ color: 'var(--tk-text-2)' });

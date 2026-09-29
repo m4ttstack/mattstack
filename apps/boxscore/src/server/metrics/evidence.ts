@@ -295,19 +295,22 @@ export function buildUserEvidence(
     parts.push(`${c.issues.windowExcluded} outside window`);
   out.issuesCompleted = {
     columns: ['Issue', 'Title', 'State', 'Closed', 'MR(s)'],
-    rows: counted.map(i => ({
-      cells: [
-        i.identifier,
-        i.title,
-        i.stateName ?? i.stateType ?? '—',
-        day(i.closedAt),
-        i.linkedMrs
-          .filter(m => m.via !== 'mention')
-          .map(m => `!${m.iid}`)
-          .join(', ') || '—',
-      ],
-      href: i.url,
-    })),
+    rows: counted.map(i => {
+      const mrs = i.linkedMrs.filter(m => m.via !== 'mention');
+      return {
+        cells: [
+          i.identifier,
+          i.title,
+          i.stateName ?? i.stateType ?? '—',
+          day(i.closedAt),
+          mrs.map(m => `!${m.iid}`).join(', ') || '—',
+        ],
+        href: i.url,
+        mrHrefs: mrs.map(
+          m => `${baseUrl}/${m.projectPath}/-/merge_requests/${m.iid}`
+        ),
+      };
+    }),
     summary: parts.join(' · '),
     facts: {
       counted: counted.length,

@@ -15,8 +15,9 @@ export function CountChip({
   parity?: string;
 }) {
   const neutral = tone === 'neutral';
+  // The canvas neutral tint is surface step 3 in both schemes, which no role token holds.
   const fill = neutral
-    ? 'var(--tk-raised)'
+    ? 'var(--tk-surface-3)'
     : `var(--mantine-color-${tone}-light)`;
   const color = neutral ? 'var(--tk-text-2)' : `var(--tk-text-${tone}-small)`;
   return (

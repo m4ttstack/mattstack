@@ -372,6 +372,7 @@ function designEvidence(): Partial<Record<MetricKey, MetricEvidence>> {
           mrs.map(iid => `!${iid}`).join(', '),
         ],
         href: `${LINEAR_URL}/${id}`,
+        mrHrefs: mrs.map(mrUrl),
       };
     }),
     summary: `${ISSUES.length} counted · ${ISSUES_EXCLUDED_BY_STATE} excluded by state · ${ISSUES_OUTSIDE_WINDOW} outside window`,

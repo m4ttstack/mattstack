@@ -22,6 +22,9 @@ const LABEL: Record<FreshnessTone, string> = {
   warn: 'var(--tk-text-warn)',
 };
 
+const SEP_NAMES = ['Sep', 'Sep2'];
+const CRUMB_NAMES = ['Crumb', 'Crumb Stat'];
+
 export function syncedLabel(generatedAt: string, now: number): string {
   const minutes = Math.floor((now - Date.parse(generatedAt)) / 60_000);
   if (minutes < 1) return 'Synced just now';
@@ -53,10 +56,10 @@ export function Topbar({
         </span>
         {trail.map((c, i) => (
           <Fragment key={i}>
-            <span className={classes.sep} data-parity="Sep">
+            <span className={classes.sep} data-parity={SEP_NAMES[i]}>
               /
             </span>
-            <span className={classes.crumb} data-parity="Crumb">
+            <span className={classes.crumb} data-parity={CRUMB_NAMES[i]}>
               {c}
             </span>
           </Fragment>
