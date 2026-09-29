@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 
+import { resolveTool } from '../services/tool-resolve.ts';
+
 export interface TunnelDriver {
   create(name: string): Promise<{ uuid: string }>;
   delete(name: string): Promise<void>;
@@ -27,8 +29,10 @@ const realExec: ExecOut = async argv => {
   return { code: await proc.exited, stdout, stderr };
 };
 
-function bin(): string {
-  return process.env.LOCAL_CLOUDFLARED_BIN ?? 'cloudflared';
+function bin(): string[] {
+  const override = process.env.LOCAL_CLOUDFLARED_BIN;
+  if (override) return [override];
+  return resolveTool('cloudflared') ?? ['cloudflared'];
 }
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
@@ -44,7 +48,7 @@ export class CloudflaredCli implements TunnelDriver {
 
   private async run(args: string[], what: string): Promise<string> {
     const { code, stdout, stderr } = await this.exec([
-      bin(),
+      ...bin(),
       'tunnel',
       ...args,
     ]);
@@ -72,7 +76,7 @@ export class CloudflaredCli implements TunnelDriver {
     Array<{ name: string; uuid: string; connections: number }>
   > {
     const { code, stdout, stderr } = await this.exec([
-      bin(),
+      ...bin(),
       'tunnel',
       'list',
       '-o',
@@ -93,7 +97,7 @@ export class CloudflaredCli implements TunnelDriver {
   // Flags must precede the name: cloudflared parses `info <name> -o json` as two arguments.
   async info(name: string): Promise<{ connectors: number }> {
     const { code, stdout, stderr } = await this.exec([
-      bin(),
+      ...bin(),
       'tunnel',
       'info',
       '-o',

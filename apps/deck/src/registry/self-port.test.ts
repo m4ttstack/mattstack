@@ -17,7 +17,8 @@ function isolate(): void {
 }
 
 isolate();
-const { reconcileSelfPort } = await import('./self-port.ts');
+const { ensureSelfRecord, ensureSelfRoutes, reconcileSelfPort } =
+  await import('./self-port.ts');
 const { putRecord, reloadRegistry } = await import('./records.ts');
 
 beforeEach(() => {
@@ -119,4 +120,95 @@ test('a self record another process changed since load keeps that change', () =>
   const deck = JSON.parse(readFileSync(registry, 'utf8')).apps.deck;
   expect(deck.port).toBe(7940);
   expect(deck.displayName).toBe('Deck');
+});
+
+test('a helper-only machine with no deck routes gets deck.localhost and deck.mattstack on the served port', async () => {
+  writeFileSync(
+    routes,
+    JSON.stringify([
+      { hostname: 'board.mattstack', port: 11006, pid: 0 },
+      { hostname: 'board.localhost', port: 11006, pid: 0 },
+    ])
+  );
+
+  expect(await ensureSelfRoutes(7940)).toEqual([
+    'deck.localhost',
+    'deck.mattstack',
+  ]);
+  expect(JSON.parse(readFileSync(routes, 'utf8'))).toEqual([
+    { hostname: 'board.mattstack', port: 11006, pid: 0 },
+    { hostname: 'board.localhost', port: 11006, pid: 0 },
+    { hostname: 'deck.localhost', port: 7940, pid: 0 },
+    { hostname: 'deck.mattstack', port: 7940, pid: 0 },
+  ]);
+});
+
+test('deck routes that already exist are left as they are', async () => {
+  writeFileSync(
+    routes,
+    JSON.stringify([
+      { hostname: 'deck.mattstack', port: 7940, pid: 0 },
+      { hostname: 'deck.localhost', port: 7940, pid: 0 },
+    ])
+  );
+
+  expect(await ensureSelfRoutes(7940)).toEqual([]);
+});
+
+const PROD = { bundleRoot: '/Applications/m.app', devMode: false };
+
+test('a helper-only machine gets the self record `deck setup` would have written', () => {
+  putRecord({ ...selfRecord(11006), name: 'board', managedBy: 'rt' });
+
+  expect(ensureSelfRecord(7940, PROD)).toBe(true);
+
+  const deck = JSON.parse(readFileSync(registry, 'utf8')).apps.deck;
+  expect(deck).toMatchObject({
+    name: 'deck',
+    managedBy: 'deck',
+    port: 7940,
+    kind: 'service',
+    label: 'com.mattstack.deck',
+    command: ['/Applications/m.app/Contents/Helpers/deck', 'serve'],
+    workingDirectory: process.env.LOCAL_STATE_DIR,
+  });
+  expect(typeof deck.createdAt).toBe('string');
+});
+
+test("a dev deck's self record carries the dev helper label and runs the bundle's shim", () => {
+  expect(
+    ensureSelfRecord(7940, {
+      bundleRoot: '/Applications/mattstack-dev.app',
+      devMode: true,
+    })
+  ).toBe(true);
+
+  const deck = JSON.parse(readFileSync(registry, 'utf8')).apps.deck;
+  expect(deck.label).toBe('com.mattstack.deck.dev');
+  expect(deck.command).toEqual([
+    '/Applications/mattstack-dev.app/Contents/Helpers/deck',
+    'serve',
+  ]);
+});
+
+test('an existing self record, current or pre-rename, is left alone', () => {
+  putRecord(selfRecord(11007));
+  expect(ensureSelfRecord(7940, PROD)).toBe(false);
+  expect(JSON.parse(readFileSync(registry, 'utf8')).apps.deck.port).toBe(11007);
+
+  isolate();
+  reloadRegistry();
+  putRecord({ ...selfRecord(7940), name: 'local', managedBy: 'local' });
+  expect(ensureSelfRecord(7940, PROD)).toBe(false);
+  expect(JSON.parse(readFileSync(registry, 'utf8')).apps.deck).toBeUndefined();
+});
+
+test('a row already named deck under another owner is never overwritten', () => {
+  putRecord({ ...selfRecord(4000), managedBy: 'user' });
+
+  expect(ensureSelfRecord(7940, PROD)).toBe(false);
+  expect(JSON.parse(readFileSync(registry, 'utf8')).apps.deck).toMatchObject({
+    managedBy: 'user',
+    port: 4000,
+  });
 });

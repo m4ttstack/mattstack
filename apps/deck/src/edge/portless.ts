@@ -2,6 +2,8 @@ import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
+import { resolveTool } from '../services/tool-resolve.ts';
+
 export interface EdgeProxy {
   alias(name: string, port: number): Promise<void>;
   removeAlias(name: string): Promise<void>;
@@ -39,31 +41,27 @@ const realExec: Exec = async argv => {
  * are fine and already established practice.
  */
 export class PortlessCli implements EdgeProxy {
-  // Resolved once at construction against the CURRENT PATH, not looked up
-  // per call: defense in depth alongside the plist-level PATH fixes (see
-  // registry/bootstrap.ts, services/plist.ts) for the platform's own process,
-  // which shells out to portless directly rather than through a plist.
-  private readonly portlessBin: string;
+  // Resolved once at construction: a bundled deck runs the bundle's own
+  // portless (node plus script), since launchd's PATH reaches no copy of it.
+  // Outside a bundle, Bun.which() needs PATH passed explicitly or it reads a
+  // snapshot from Bun's own startup rather than the live process.env.PATH.
+  private readonly portless: string[];
 
   constructor(private exec: Exec = realExec) {
-    // Bun.which() with no PATH option resolves against a PATH snapshot taken
-    // at Bun's own process startup, not the live process.env.PATH; passing
-    // it explicitly is what actually picks up PATH as it stands right now
-    // (the installing shell's captured PATH, once the platform's own plist
-    // carries one; see registry/bootstrap.ts).
-    this.portlessBin =
-      Bun.which('portless', { PATH: process.env.PATH ?? '' }) ?? 'portless';
+    this.portless = resolveTool('portless') ?? [
+      Bun.which('portless', { PATH: process.env.PATH ?? '' }) ?? 'portless',
+    ];
   }
 
   async alias(name: string, port: number): Promise<void> {
-    const argv = [this.portlessBin, 'alias', name, String(port)];
+    const argv = [...this.portless, 'alias', name, String(port)];
     const { code } = await this.exec(argv);
     if (code !== 0)
       throw new Error(`\`portless alias ${name} ${port}\` failed`);
   }
 
   async removeAlias(name: string): Promise<void> {
-    const argv = [this.portlessBin, 'alias', '--remove', name];
+    const argv = [...this.portless, 'alias', '--remove', name];
     const { code, output } = await this.exec(argv);
     if (code === 0) return;
     // Teardown must be idempotent: an alias that is already gone (removed

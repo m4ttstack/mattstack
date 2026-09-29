@@ -17,7 +17,7 @@ const dir = mkdtempSync(join(tmpdir(), 'la-routes-'));
 process.env.LOCAL_APPS_ROUTES_PATH = join(dir, 'routes.json');
 const routesPath = process.env.LOCAL_APPS_ROUTES_PATH;
 
-const { removeRoutes, repointRoutes, setRoutePort } =
+const { addRoutes, removeRoutes, repointRoutes, setRoutePort } =
   await import('./routes-writer.ts');
 const { readRoutes } = await import('./discover.ts');
 
@@ -257,5 +257,55 @@ test('removeRoutes takes over a routes.lock older than 10s', async () => {
   expect(await removeRoutes('gitq', ['localhost', 'mattstack'])).toEqual([
     'gitq.mattstack',
   ]);
+  expect(existsSync(lockPath)).toBe(false);
+});
+
+test('addRoutes appends only the missing hosts, in place, leaving every other route alone', async () => {
+  writeFileSync(
+    routesPath,
+    JSON.stringify([
+      { hostname: 'deck.localhost', port: 11007, pid: 0 },
+      { hostname: 'board.mattstack', port: 11006, pid: 0 },
+    ])
+  );
+  const before = statSync(routesPath).ino;
+
+  expect(await addRoutes(['deck.localhost', 'deck.mattstack'], 7940)).toEqual([
+    'deck.mattstack',
+  ]);
+
+  expect(JSON.parse(readFileSync(routesPath, 'utf8'))).toEqual([
+    { hostname: 'deck.localhost', port: 11007, pid: 0 },
+    { hostname: 'board.mattstack', port: 11006, pid: 0 },
+    { hostname: 'deck.mattstack', port: 7940, pid: 0 },
+  ]);
+  expect(statSync(routesPath).ino).toBe(before);
+  expect(existsSync(lockPath)).toBe(false);
+});
+
+test('addRoutes with every host present writes nothing', async () => {
+  const before = statSync(routesPath).mtimeMs;
+  await Bun.sleep(5);
+  expect(await addRoutes(['boxscore.localhost'], 1)).toEqual([]);
+  expect(statSync(routesPath).mtimeMs).toBe(before);
+});
+
+test('addRoutes with no routes file creates it', async () => {
+  rmSync(routesPath);
+  expect(await addRoutes(['deck.localhost'], 7940)).toEqual(['deck.localhost']);
+  expect(JSON.parse(readFileSync(routesPath, 'utf8'))).toEqual([
+    { hostname: 'deck.localhost', port: 7940, pid: 0 },
+  ]);
+});
+
+test("addRoutes waits for portless's routes.lock before it writes", async () => {
+  mkdirSync(lockPath);
+  const adding = addRoutes(['deck.mattstack'], 7940);
+
+  await Bun.sleep(150);
+  expect(hostnames()).toEqual(['boxscore.localhost', 'prisma7.localhost']);
+
+  rmSync(lockPath, { recursive: true, force: true });
+  expect(await adding).toEqual(['deck.mattstack']);
   expect(existsSync(lockPath)).toBe(false);
 });

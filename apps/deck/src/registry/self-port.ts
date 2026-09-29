@@ -1,7 +1,19 @@
+import { join } from 'path';
+
 import { MATTSTACK_TLD } from '../../core/discover.ts';
-import { repointRoutes } from '../../core/routes-writer.ts';
-import { PLATFORM_NAME } from '../services/manager.ts';
-import { getRecord, putRecord, reloadRegistry } from './records.ts';
+import { addRoutes, repointRoutes } from '../../core/routes-writer.ts';
+import { stateDir } from '../api/state.ts';
+import {
+  isPlatformManagedBy,
+  PLATFORM_LABEL,
+  PLATFORM_NAME,
+} from '../services/manager.ts';
+import {
+  getRecord,
+  listRecords,
+  putRecord,
+  reloadRegistry,
+} from './records.ts';
 
 /**
  * The bundle helper's plist carries no PORT, so the port it serves on can
@@ -21,4 +33,48 @@ export function reconcileSelfPort(port: number): {
     record,
     routes: repointRoutes(PLATFORM_NAME, port, ['localhost', MATTSTACK_TLD]),
   };
+}
+
+/**
+ * A helper-owned deck has no self record and never runs `deck setup`, the
+ * only other writer of deck's own routes, so without this a fresh install
+ * serves every app but deck. Run after reconcileSelfPort, which moves the
+ * routes that do exist.
+ */
+export function ensureSelfRoutes(port: number): Promise<string[]> {
+  return addRoutes(
+    [`${PLATFORM_NAME}.localhost`, `${PLATFORM_NAME}.${MATTSTACK_TLD}`],
+    port
+  );
+}
+
+/**
+ * The self record `deck setup` writes, for a helper-owned deck that never
+ * runs it: without one deck has no row of its own and no name.mattstack
+ * route from the TLD reconcile. Label and command follow the running flavor,
+ * since teardown uninstalls the record's label and the dev helper runs the
+ * bundle's shim. Any row named deck, or a pre-rename "local" row, counts as
+ * present.
+ */
+export function ensureSelfRecord(
+  port: number,
+  flavor: { bundleRoot: string; devMode: boolean }
+): boolean {
+  reloadRegistry();
+  if (
+    getRecord(PLATFORM_NAME) ||
+    listRecords().some(r => isPlatformManagedBy(r.managedBy))
+  )
+    return false;
+  putRecord({
+    name: PLATFORM_NAME,
+    managedBy: PLATFORM_NAME,
+    port,
+    kind: 'service',
+    label: flavor.devMode ? `${PLATFORM_LABEL}.dev` : PLATFORM_LABEL,
+    command: [join(flavor.bundleRoot, 'Contents', 'Helpers', 'deck'), 'serve'],
+    workingDirectory: stateDir(),
+    createdAt: new Date().toISOString(),
+  });
+  return true;
 }
