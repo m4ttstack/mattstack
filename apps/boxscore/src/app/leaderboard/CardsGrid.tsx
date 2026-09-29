@@ -10,6 +10,7 @@ import { shortName } from '../model/labels';
 import {
   descriptor,
   isFullTie,
+  isQuietValue,
   rankedFor,
   type Ranked,
 } from '../model/standings';
@@ -88,7 +89,7 @@ function StatCard({
                   fraction={fractionOf(stat, r.value, rows)}
                   you={r.isYou}
                   leader={r.isLeader}
-                  dim={r.value === null || r.value === 0}
+                  dim={isQuietValue(stat, r.value)}
                   delta={delta ?? undefined}
                   href={statHref(r.user.username, stat)}
                   parity={r.isYou ? `Rank Row ${name}` : undefined}

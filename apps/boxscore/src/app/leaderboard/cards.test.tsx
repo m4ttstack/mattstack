@@ -78,6 +78,31 @@ describe('CardsGrid', () => {
     expect(vals(card(container, 'sizeHealthPct'))[0]).toBe('73%');
   });
 
+  it('dims a zero only where more is better', () => {
+    const data = fixtureLeaderboard(false);
+    const fastest = data.users.find(u => u.username === 'srivera')!;
+    fastest.metrics.responseLatencyHours = {
+      ...fastest.metrics.responseLatencyHours,
+      p50: 0,
+    };
+    const { container } = renderWithProviders(
+      <CardsGrid data={data} prior={null} onSelectStat={vi.fn()} />
+    );
+    const valueOf = (stat: string, name: string) => {
+      const c = card(container, stat);
+      const at = whoNames(c).indexOf(name);
+      return c.querySelectorAll<HTMLElement>('[data-parity="Val"]')[at]!;
+    };
+
+    const zeroWait = valueOf('responseLatencyHours', 'Sam R.');
+    expect(zeroWait).toHaveTextContent(/^0/);
+    expect(zeroWait.style.color).toBe('');
+
+    const zeroReviews = valueOf('mrsReviewed', 'Lena O.');
+    expect(zeroReviews).toHaveTextContent('0');
+    expect(zeroReviews.style.color).toBe('var(--tk-text-3)');
+  });
+
   it('marks you on your row with the full name as the row layer', () => {
     const { container } = renderCards();
     const row = card(container, 'mrsMerged').querySelector(

@@ -24,6 +24,11 @@ function rankedUsers(users: UserRow[], d: MetricDescriptor): UserRow[] {
   return users.filter(u => u.resolved && metricRank(u.metrics, d) !== null);
 }
 
+/** A missing value, or a zero where more is better, reads as quiet; a zero latency or revert rate is a good result. */
+export function isQuietValue(key: MetricKey, value: number | null): boolean {
+  return value === null || (value === 0 && descriptor(key).better === 'desc');
+}
+
 /** At least two ranked users, all sharing rank 1: nobody leads. */
 export function isFullTie(users: UserRow[], key: MetricKey): boolean {
   const d = descriptor(key);

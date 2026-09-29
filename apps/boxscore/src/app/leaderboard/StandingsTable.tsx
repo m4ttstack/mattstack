@@ -17,7 +17,12 @@ import type {
 import { userDelta } from '../model/delta';
 import { hueVar, OVERVIEW, statsInGroup } from '../model/groups';
 import { initials, priorWindowLabel } from '../model/labels';
-import { descriptor, rankedFor, type Ranked } from '../model/standings';
+import {
+  descriptor,
+  isQuietValue,
+  rankedFor,
+  type Ranked,
+} from '../model/standings';
 import { DeltaMark } from '../ui/DeltaMark';
 import { Glyph } from '../ui/Glyph';
 import { LeaderMark } from '../ui/LeaderMark';
@@ -294,7 +299,11 @@ function StatCell({
           <span
             className={classes.value}
             data-parity="Value"
-            style={value === 0 ? { color: 'var(--tk-text-3)' } : undefined}
+            style={
+              isQuietValue(stat, value)
+                ? { color: 'var(--tk-text-3)' }
+                : undefined
+            }
           >
             {cellText(stat, value)}
           </span>
