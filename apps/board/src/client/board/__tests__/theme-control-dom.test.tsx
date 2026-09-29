@@ -96,3 +96,14 @@ test('focus lands on the checked choice and returns to the trigger on close', as
   await React.act(async () => items()[2]!.click());
   expect(document.activeElement).toBe(trigger());
 });
+
+test('the open trigger names its menu through aria-controls', async () => {
+  await render('system', []);
+  expect(trigger().hasAttribute('aria-controls')).toBe(false);
+
+  await React.act(async () => trigger().click());
+
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  expect(menu.id).not.toBe('');
+  expect(trigger().getAttribute('aria-controls')).toBe(menu.id);
+});

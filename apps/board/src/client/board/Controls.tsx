@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 import {
   CHECK_ICON,
@@ -219,6 +219,7 @@ function ThemeControl({
   const [at, setAt] = useState<{ right: number; x: number; y: number } | null>(
     null
   );
+  const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const checkedRef = useRef<HTMLButtonElement>(null);
@@ -242,6 +243,7 @@ function ThemeControl({
         aria-label="Color scheme"
         aria-haspopup="menu"
         aria-expanded={at !== null}
+        aria-controls={at ? menuId : undefined}
         title="color scheme"
         // The open menu closes on any outside mousedown, which would reopen it
         // on this same click; swallowing it here makes the trigger a toggle.
@@ -259,6 +261,7 @@ function ThemeControl({
       {at && (
         <ContextMenu
           ref={menuRef}
+          id={menuId}
           x={at.x}
           y={at.y}
           ariaLabel="color scheme"
