@@ -38,7 +38,7 @@ export function DetailPage({
     <div className={classes.page}>
       <ProfileHeader person={person} people={people} stat={stat} meta={meta} />
       <PersonSummary users={data.users} person={person} window={data.window} />
-      <div className={classes.body}>
+      <div className={classes.body} data-parity="Body">
         <StatRail person={person} selected={stat} />
         <StatPanel
           users={data.users}

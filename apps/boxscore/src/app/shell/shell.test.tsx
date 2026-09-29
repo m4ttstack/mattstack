@@ -1,14 +1,11 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 
 import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 import { App } from '../App';
-import { Rail } from './Rail';
-import { syncedLabel } from './Topbar';
+import { syncedLabel } from './HeaderStatus';
 
 const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
   useLeaderboard: vi.fn(() => ({
@@ -20,132 +17,43 @@ const { useLeaderboard, useUserDetail } = vi.hoisted(() => ({
 }));
 vi.mock('../hooks/useLeaderboard', () => ({ useLeaderboard, useUserDetail }));
 
-describe('Rail', () => {
-  it('links settings out to the console boxscore section in a new tab', () => {
-    renderWithProviders(
-      <QueryClientProvider client={new QueryClient()}>
-        <Rail active="leaderboard" />
-      </QueryClientProvider>
+function renderAt(path: string) {
+  const { hook } = memoryLocation({ path });
+  return renderWithProviders(
+    <Router hook={hook}>
+      <App />
+    </Router>
+  );
+}
+
+describe('kit shell', () => {
+  it('mounts MattstackShell with the boxscore mark, rail entries and scheme control', () => {
+    const { container } = renderAt('/');
+    expect(container.querySelector('header img')).toHaveAttribute(
+      'src',
+      '/favicon.svg'
     );
-    const link = screen.getByRole('link', { name: /settings/i });
+    const board = screen.getByRole('link', { name: 'Leaderboard' });
+    expect(board).toHaveAttribute('href', '/');
+    expect(board).toHaveAttribute('aria-current', 'page');
+    expect(
+      screen.getByRole('button', { name: 'Color scheme' })
+    ).toBeInTheDocument();
+  });
+
+  it('links settings out to the console boxscore section in a new tab', () => {
+    renderAt('/');
+    const link = screen.getByRole('link', { name: 'Settings' });
     expect(link.getAttribute('href')).toMatch(/\/settings#boxscore$/);
     expect(link).toHaveAttribute('target', '_blank');
   });
 
-  it('opens the settings tooltip on hover', async () => {
-    const user = userEvent.setup();
-    renderRail();
-    const link = screen.getByRole('link', { name: /settings/i });
-    await user.hover(link);
-    const tip = await screen.findByRole('tooltip', {}, { timeout: 2000 });
-    expect(tip).toHaveTextContent('Opens console › boxscore');
-    expect(link).toHaveAttribute('data-parity', 'Nav Settings (console)');
-    await user.unhover(link);
-    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
-  });
-});
-
-function renderRail() {
-  return renderWithProviders(
-    <QueryClientProvider client={new QueryClient()}>
-      <Rail active="leaderboard" />
-    </QueryClientProvider>
-  );
-}
-
-const schemeAttr = () =>
-  document.documentElement.getAttribute('data-mantine-color-scheme');
-
-function mockOsScheme(initial: 'light' | 'dark') {
-  let dark = initial === 'dark';
-  const listeners = new Set<(e: MediaQueryListEvent) => void>();
-  vi.stubGlobal('matchMedia', (query: string) => {
-    const isDarkQuery = query.includes('prefers-color-scheme: dark');
-    return {
-      get matches() {
-        return isDarkQuery ? dark : false;
-      },
-      media: query,
-      onchange: null,
-      addListener: (l: (e: MediaQueryListEvent) => void) => listeners.add(l),
-      removeListener: (l: (e: MediaQueryListEvent) => void) =>
-        listeners.delete(l),
-      addEventListener: (_: string, l: (e: MediaQueryListEvent) => void) =>
-        listeners.add(l),
-      removeEventListener: (_: string, l: (e: MediaQueryListEvent) => void) =>
-        listeners.delete(l),
-      dispatchEvent: () => false,
-    };
-  });
-  return (next: 'light' | 'dark') => {
-    dark = next === 'dark';
-    act(() => {
-      for (const l of listeners)
-        l({
-          matches: dark,
-          media: '(prefers-color-scheme: dark)',
-        } as MediaQueryListEvent);
-    });
-  };
-}
-
-describe('Rail brand and colour scheme', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    window.localStorage.clear();
-  });
-
-  it('shows the boxscore brand icon in the mark slot', () => {
-    const { container } = renderRail();
-    const img = container.querySelector('[data-parity="Mark"] img');
-    expect(img).toHaveAttribute('src', '/favicon.svg');
-  });
-
-  it('offers system, light and dark, and applies and persists each', async () => {
-    const user = userEvent.setup();
-    renderRail();
-    const pick = async (label: string) => {
-      await user.click(screen.getByRole('button', { name: 'Color scheme' }));
-      await user.click(screen.getByRole('menuitem', { name: label }));
-    };
-    const stored = () =>
-      JSON.parse(window.localStorage.getItem('ui-color-scheme') ?? 'null');
-
-    await user.click(screen.getByRole('button', { name: 'Color scheme' }));
-    expect(
-      screen.getAllByRole('menuitem').map(i => i.textContent?.trim())
-    ).toEqual(['System', 'Light', 'Dark']);
-    await user.keyboard('{Escape}');
-
-    await pick('Dark');
-    expect(stored()).toBe('dark');
-    expect(schemeAttr()).toBe('dark');
-
-    await pick('Light');
-    expect(stored()).toBe('light');
-    expect(schemeAttr()).toBe('light');
-
-    await pick('System');
-    expect(stored()).toBe('auto');
-  });
-
-  it('follows the OS scheme live while set to system', () => {
-    const setOs = mockOsScheme('light');
-    window.localStorage.setItem('ui-color-scheme', JSON.stringify('auto'));
-    renderRail();
-    expect(schemeAttr()).toBe('light');
-    setOs('dark');
-    expect(schemeAttr()).toBe('dark');
-    setOs('light');
-    expect(schemeAttr()).toBe('light');
-  });
-
-  it('keeps an explicit choice when the OS scheme changes', () => {
-    const setOs = mockOsScheme('light');
-    window.localStorage.setItem('ui-color-scheme', JSON.stringify('light'));
-    renderRail();
-    setOs('dark');
-    expect(schemeAttr()).toBe('light');
+  it('keeps the leaderboard entry active on a person page', () => {
+    renderAt('/user/srivera');
+    expect(screen.getByRole('link', { name: 'Leaderboard' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    );
   });
 });
 

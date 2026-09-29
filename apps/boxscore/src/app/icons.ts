@@ -1,7 +1,6 @@
 // The app's one sanctioned lucide import site (apps/AGENTS.md section 8).
 // eslint-disable-next-line no-restricted-imports
 import {
-  ArrowUpRight,
   CircleCheck,
   GitBranch,
   Hourglass,
@@ -15,7 +14,6 @@ import {
 import { lucideWrapperFn, registerIcons } from '@mattstack/app-kit/icons';
 
 registerIcons({
-  arrowUpRight: lucideWrapperFn(ArrowUpRight),
   circleCheck: lucideWrapperFn(CircleCheck),
   gitBranch: lucideWrapperFn(GitBranch),
   hourglass: lucideWrapperFn(Hourglass),

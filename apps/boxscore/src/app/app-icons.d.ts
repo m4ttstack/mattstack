@@ -1,6 +1,5 @@
 declare module '@mattstack/app-kit/icons' {
   interface AppIcons {
-    arrowUpRight: true;
     circleCheck: true;
     gitBranch: true;
     hourglass: true;

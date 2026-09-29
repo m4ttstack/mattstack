@@ -119,6 +119,7 @@ export function CardsGrid({
       className={
         dimmed ? `${classes.cardsGrid} ${classes.dimmed}` : classes.cardsGrid
       }
+      data-parity="Metric Grid"
     >
       {CARD_STATS.map(stat => (
         <StatCard

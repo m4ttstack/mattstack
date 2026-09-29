@@ -6,7 +6,11 @@ import { renderWithProviders } from '@mattstack/app-kit/test-utils';
 
 import '../icons';
 
-import { customRangeLabel, PageHeader, type RangeState } from './PageHeader';
+import {
+  customRangeLabel,
+  HeaderControls,
+  type RangeState,
+} from './HeaderControls';
 
 function renderHeader(range: RangeState = { range: '7d' }) {
   const props = {
@@ -15,14 +19,7 @@ function renderHeader(range: RangeState = { range: '7d' }) {
     onView: vi.fn(),
   };
   renderWithProviders(
-    <PageHeader
-      title="Leaderboard"
-      subtitle={null}
-      range={range}
-      trend={false}
-      view="table"
-      {...props}
-    />
+    <HeaderControls range={range} trend={false} view="table" {...props} />
   );
   return props;
 }
@@ -34,7 +31,7 @@ const checked = (name: string) =>
     .filter(r => (r as HTMLInputElement).checked)
     .map(r => r.getAttribute('value'));
 
-describe('PageHeader switches', () => {
+describe('HeaderControls switches', () => {
   it('renders range, mode and view as segmented controls with one active segment each', () => {
     renderHeader();
     expect(checked('Range')).toEqual(['7d']);

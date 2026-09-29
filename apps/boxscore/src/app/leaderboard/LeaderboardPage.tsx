@@ -5,7 +5,7 @@ import type {
 } from '../../shared/types';
 import { priorWindowLabel, windowLabel } from '../model/labels';
 import { descriptor } from '../model/standings';
-import type { ViewMode } from '../shell/PageHeader';
+import type { ViewMode } from '../shell/HeaderControls';
 import { Glyph } from '../ui/Glyph';
 import { CardsGrid } from './CardsGrid';
 import classes from './leaderboard.module.css';
@@ -80,7 +80,7 @@ export function LeaderboardPage({
         onSort={onSort}
         onSelectStat={onSelectStat}
       />
-      <p className={classes.footnote}>
+      <p className={classes.footnote} data-parity="Footnote">
         <Glyph name="info" size={13} color="var(--tk-text-3)" parity="Info" />
         <span className={classes.footnoteText} data-parity="Footnote Text">
           Revert rate counts detected reverts only, so it undercounts

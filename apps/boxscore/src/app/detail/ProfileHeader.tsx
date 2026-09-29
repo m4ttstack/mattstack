@@ -71,7 +71,7 @@ export function ProfileHeader({
   const you = person.isCurrentUser;
   return (
     <>
-      <Link href="/" className={classes.backLink}>
+      <Link href="/" className={classes.backLink} data-parity="Back Link">
         <Glyph
           name="arrowLeft"
           size={14}
@@ -85,7 +85,7 @@ export function ProfileHeader({
           Leaderboard
         </span>
       </Link>
-      <div className={classes.profileHeader}>
+      <div className={classes.profileHeader} data-parity="Profile Header">
         <div className={classes.profile}>
           <span
             className={classes.avatar}
