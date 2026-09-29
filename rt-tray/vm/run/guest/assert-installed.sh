@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assert the installed state in the guest, through rt and tray.sock (never UI text).
-# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted] [--solo]
+# Usage: assert-installed.sh [--expect-version <v>] [--headless] [--expect-untrusted] [--solo] [--join <team slug>]
 #
 # --expect-untrusted is the declined-certificate scenario: the install ran, the
 # user said no to macOS's trust prompt, and the claim under test is that the
@@ -9,11 +9,15 @@
 # --solo is the just-me scenario: no team was created or joined, so no
 # access.* or team.* rows should exist, rt team status reports mode solo,
 # and every team-only app in the catalog is off.
+#
+# --join is the invite scenario: the team named by the slug is cloned, and
+# the rows a join produces (team plugins, the team repo, the team
+# marketplace, every tracked repo) are ready or a clear partial.
 set -uo pipefail
 GUEST_RUN="${GUEST_RUN:-/Volumes/My Shared Files/run}"; LOGS="$GUEST_RUN/logs"
 mkdir -p "$LOGS" || { echo "assert-installed.sh: cannot write $LOGS" >&2; exit 2; }
-EXPECT=""; HEADLESS=0; UNTRUSTED=0; SOLO=0
-while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; --solo) SOLO=1; shift;; *) shift;; esac; done
+EXPECT=""; HEADLESS=0; UNTRUSTED=0; SOLO=0; JOIN_SLUG=""
+while [ $# -gt 0 ]; do case "$1" in --expect-version) [ -n "${2:-}" ] || { echo "assert-installed.sh: --expect-version needs a value" >&2; exit 2; }; EXPECT="$2"; shift 2;; --headless) HEADLESS=1; shift;; --expect-untrusted) UNTRUSTED=1; shift;; --solo) SOLO=1; shift;; --join) [ -n "${2:-}" ] || { echo "assert-installed.sh: --join needs a team slug" >&2; exit 2; }; JOIN_SLUG="$2"; shift 2;; *) shift;; esac; done
 export PATH="$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 fails=0
 ok()   { echo "ASSERT ok   $1"; }
@@ -52,6 +56,21 @@ if [ "$SOLO" = 1 ]; then
   if rt setup status --json | tail -1 | "$JQ" -e '[.groups[].rows[].id | select(startswith("access.") or startswith("team."))] | length == 0' >/dev/null; then ok "solo: no access or team rows"; else bad "solo: access or team rows present"; fi
   if rt team status --json | tail -1 | "$JQ" -e '.mode == "solo"' >/dev/null; then ok "solo: team status reports mode solo"; else bad "solo: team status did not report mode solo"; fi
   if rt apps list --json | tail -1 | "$JQ" -e '[.apps[] | select(.requiresTeam) | .enabled] | all(. == false)' >/dev/null; then ok "solo: every team-only app is off"; else bad "solo: a team-only app is on"; fi
+fi
+
+if [ -n "$JOIN_SLUG" ]; then
+  rt team status --json 2>/dev/null | tail -1 > "$LOGS/team-status-join.json"
+  if "$JQ" -e --arg slug "$JOIN_SLUG" '.slug == $slug' "$LOGS/team-status-join.json" >/dev/null 2>&1; then ok "join: rt team status names $JOIN_SLUG"; else bad "join: rt team status does not name $JOIN_SLUG (logs/team-status-join.json)"; fi
+  rt setup status --json 2>/dev/null | tail -1 > "$LOGS/setup-status-join.json"
+  JOIN_VERDICT=$("$JQ" -r -f "$(cd "$(dirname "$0")" && pwd)/jq/join-rows.jq" "$LOGS/setup-status-join.json" 2>&1) \
+    || JOIN_VERDICT="bad"$'\t'"join-rows.jq failed: $(printf '%s' "$JOIN_VERDICT" | tr '\n' ' ' | head -c 200)"
+  while IFS=$'\t' read -r kind msg; do
+    case "$kind" in
+      ok)  ok "join: $msg";;
+      bad) bad "join: $msg";;
+      *)   bad "join-rows.jq printed an unexpected line: $kind $msg";;
+    esac
+  done <<< "$JOIN_VERDICT"
 fi
 
 # tray.sock /version
