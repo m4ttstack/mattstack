@@ -401,6 +401,16 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       });
     }
 
+    test("a local directory mattstack marketplace (a dev overlay) counts as present: no add, plugins still install", async () => {
+      const p = memberWithMattstack({ source: "directory", path: "/x/mattstack-marketplace" });
+      const { ctx } = makeCtx(p);
+
+      const outcome = await pluginsInstallStep.run(ctx);
+      expect(outcome.state).toBe("done");
+      expect(p.calls.exec.some((a) => a.includes("add") && a.at(-1) === MATTSTACK_MARKETPLACE_SOURCE)).toBe(false);
+      expect(p.calls.exec.some((a) => a[2] === "install" && a.at(-1) === "mattstack@mattstack")).toBe(true);
+    });
+
     test("a mattstack marketplace registered from a different repo is a named failure, and rt never adds over it", async () => {
       const p = memberWithMattstack({ source: "github", repo: "someone-else/mattstack-marketplace" });
       const { ctx } = makeCtx(p);

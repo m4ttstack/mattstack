@@ -54,6 +54,7 @@ function dedupe(values: string[]): string[] {
 
 interface RegisteredMarketplace {
   name: string;
+  kind: string | null;
   /** The `repo`, `url` or `path` Claude Code recorded, whichever its `source` kind carries. */
   source: string | null;
 }
@@ -66,10 +67,10 @@ async function listMarketplaces(run: (args: string[]) => Promise<ExecResult>): P
     const parsed: unknown = JSON.parse(res.stdout);
     if (!Array.isArray(parsed)) return null;
     const out: RegisteredMarketplace[] = [];
-    for (const m of parsed as { name?: unknown; repo?: unknown; url?: unknown; path?: unknown }[]) {
+    for (const m of parsed as { name?: unknown; source?: unknown; repo?: unknown; url?: unknown; path?: unknown }[]) {
       if (typeof m?.name !== "string") continue;
       const source = [m.repo, m.url, m.path].find((v): v is string => typeof v === "string" && v.length > 0) ?? null;
-      out.push({ name: m.name, source });
+      out.push({ name: m.name, kind: typeof m.source === "string" ? m.source : null, source });
     }
     return out;
   } catch {
@@ -259,11 +260,13 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       const key = marketplaceSourceKey(src);
       if (known?.some((m) => m.source !== null && marketplaceSourceKey(m.source) === key)) continue;
       if (src === mattstackSource) {
-        const squatter = known?.find((m) => m.name === "mattstack");
-        if (squatter) {
+        const existing = known?.find((m) => m.name === "mattstack");
+        // A local checkout of the marketplace is a developer's overlay of the same one.
+        if (existing?.kind === "directory") continue;
+        if (existing) {
           return {
             state: "failed",
-            detail: `a mattstack marketplace from ${squatter.source ?? "another source"} is already registered`,
+            detail: `a mattstack marketplace from ${existing.source ?? "another source"} is already registered`,
             remedy: "Run `claude plugin marketplace remove mattstack`, then Retry.",
           };
         }
