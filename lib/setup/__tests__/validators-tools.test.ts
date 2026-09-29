@@ -356,6 +356,29 @@ describe("toolRows — tool.fast-browser", () => {
     expect(r.action).toEqual({ type: "run", label: "Run setup", verb: ["tools", "setup", "fast-browser"] });
   });
 
+  // `fast-browser setup` run from an rt worktree once left the launcher
+  // execing a checkout that was later disposed: the bare command is broken
+  // while the bundled copy rt runs is fine.
+  test("launcher into a deleted checkout -> needs-you with a relink, not ready", async () => {
+    const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
+    p.writeFile(
+      `${p.home}/.local/bin/fast-browser`,
+      '#!/bin/sh\n# Managed by fast-browser setup; rewritten on every setup run. Do not edit.\nexec /usr/bin/env node "/worktrees/gone/bin/fast-browser.mjs" "$@"\n',
+    );
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("the fast-browser command runs a copy that no longer exists");
+    expect(r.required).toBe(false);
+    expect(r.action).toEqual({ type: "link-bundled", label: "Relink", tool: "fast-browser" });
+  });
+
+  test("launcher that still runs -> ready, whoever wrote it", async () => {
+    const p = fakeProbes({ exec: doctorExec(REAL_DOCTOR) });
+    p.writeFile(`${p.home}/.local/bin/fast-browser`, "#!/bin/sh\necho someone else\n");
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
+    expect(r.status).toBe("ready");
+  });
+
   test("data-permissions check absent from the report -> error, not a guessed ready", async () => {
     const p = fakeProbes({ exec: doctorExec(withoutCheck(REAL_DOCTOR, "data-permissions")) });
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser");
@@ -459,6 +482,17 @@ describe("toolRows - tool.fast-browser-extension", () => {
     const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
     expect(r.status).toBe("skipped");
     expect(r.required).toBe(false);
+  });
+
+  // doctor warns when macOS privacy keeps it out of Chrome's profile; its
+  // wording addresses a terminal, and here the reader is the app.
+  test("extension-installed warns (profile unreadable) -> mattstack's own detail, never doctor's terminal text", async () => {
+    const p = withChrome(doctorExec(withCheckStatus(REAL_DOCTOR, "extension-installed", "warn")));
+    const r = await pickRow(toolRows(p, [], { hasBrew: true, secrets: NO_SECRETS }, fastBrowserSeams()), "tool.fast-browser-extension");
+    expect(r.status).toBe("needs-you");
+    expect(r.detail).toBe("mattstack can't read Chrome's profile; grant Full Disk Access to mattstack.app, or skip if Fast Browser shows in chrome://extensions");
+    expect(r.action?.type).toBe("steps");
+    expect((r.action as { steps: string[] }).steps.join(" ")).not.toContain("terminal");
   });
 
   test("extension-loaded check fails -> needs-you with steps that end in pairing", async () => {

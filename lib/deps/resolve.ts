@@ -94,9 +94,9 @@ export function userCopyOnPath(p: Pick<Probes, "exists" | "readlink" | "readFile
   const dirs = [...new Set([...(p.env.PATH ?? "").split(":").filter((d) => d.length > 0), dirname(own)])];
   for (const dir of dirs) {
     const candidate = join(dir, tool);
-    // rt's own slot counts only when it holds a real binary, not our tagged
-    // wrapper or link into the bundle.
-    if (candidate === own && isOurLink(p, tool)) continue;
+    // rt's own slot counts only when it holds a real, runnable binary, not
+    // our tagged wrapper or link into the bundle.
+    if (candidate === own && (isOurLink(p, tool) || isBrokenLauncher(p, tool))) continue;
     if (pointsIntoAnyBundle(candidate, roots)) continue; // the bundle's own copy, reached via a PATH entry the daemon itself prepended
     if (!p.exists(candidate)) continue;
     if (p.fileSize(candidate) === null) continue; // a directory (or something unreadable) is never an executable copy
@@ -139,6 +139,42 @@ export function isOurLink(p: Pick<Probes, "readlink" | "readFile" | "exists" | "
   if (size === null || size > MAX_WRAPPER_BYTES) return false; // never decode a large/unreadable file just to check line 2
   const content = p.readFile(path) ?? "";
   return (content.split("\n")[1] ?? "").startsWith(LINK_TAG);
+}
+
+/** The marker `fast-browser setup` writes on line 2 of the launcher it installs from a checkout. */
+const FAST_BROWSER_SHIM_MARKER = "# Managed by fast-browser setup; rewritten on every setup run. Do not edit.";
+const FAST_BROWSER_SHIM_EXEC = /^exec \/usr\/bin\/env node "(.+)" "\$@"$/m;
+
+/** Inverse of links.ts's shQuote over a wrapper's exec line: every single-quoted argument, `'\''` splices restored. */
+function wrapperArgv(content: string): string[] {
+  const execLine = content.split("\n").find((line) => line.startsWith("exec ")) ?? "";
+  return [...execLine.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1]!.split(`'\\''`).join("'"));
+}
+
+/**
+ * The slot at ~/.local/bin/<tool> holds a launcher that can no longer run
+ * anything: a dangling symlink, our tagged wrapper whose exec targets have
+ * moved, or fast-browser setup's own shim whose checkout was deleted (a
+ * disposed worktree). Such a slot is never a user copy and link() may
+ * replace it without --force.
+ */
+export function isBrokenLauncher(p: Pick<Probes, "readlink" | "readFile" | "exists" | "fileSize" | "home">, tool: string): boolean {
+  const path = linkPath(p.home, tool);
+  if (p.readlink(path) !== null) return !p.exists(path);
+  if (!p.exists(path)) return false;
+  const size = p.fileSize(path);
+  if (size === null || size > MAX_WRAPPER_BYTES) return false;
+  const content = p.readFile(path) ?? "";
+  const marker = content.split("\n")[1] ?? "";
+  if (marker.startsWith(LINK_TAG)) {
+    const argv = wrapperArgv(content);
+    return argv.length > 0 && argv.some((arg) => !p.exists(arg));
+  }
+  if (marker === FAST_BROWSER_SHIM_MARKER) {
+    const entry = content.match(FAST_BROWSER_SHIM_EXEC)?.[1];
+    return entry !== undefined && !p.exists(entry);
+  }
+  return false;
 }
 
 export interface ToolResolution {
