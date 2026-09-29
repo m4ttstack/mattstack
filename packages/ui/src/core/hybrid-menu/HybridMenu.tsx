@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Menu, Text, Tooltip } from '@mantine/core';
-import type { MantineColor, MenuItemProps } from '@mantine/core';
+import type {
+  MantineColor,
+  MantineTransition,
+  MenuItemProps,
+  MenuProps,
+} from '@mantine/core';
 import { useUncontrolled } from '@mantine/hooks';
 
 import { Icons } from '@mattstack/app-kit/icons';
@@ -39,7 +44,21 @@ export interface HybridMenuProps {
   disableAllValuesTooltip?: string;
   disableAllActions?: boolean;
   disableAllActionsTooltip?: string;
+  /** Dropdown placement against the target; the pop-in grows from the
+   *  corner nearest the target. @default 'bottom-end' */
+  position?: MenuProps['position'];
 }
+
+/** The pop family names its origin corner, so a bottom-end dropdown grows
+ *  from its top-right corner, down and to the left. */
+const POP_FROM: Partial<
+  Record<NonNullable<MenuProps['position']>, MantineTransition>
+> = {
+  'bottom-end': 'pop-top-right',
+  'bottom-start': 'pop-top-left',
+  'top-end': 'pop-bottom-right',
+  'top-start': 'pop-bottom-left',
+};
 
 /**
  * A menu that's part `Select` (a list of mutually-exclusive `options`, one
@@ -60,6 +79,7 @@ export function HybridMenu({
   disableAllActionsTooltip = 'These actions are not allowed.',
   disableAllValues = false,
   disableAllValuesTooltip = 'Changing the value is not allowed.',
+  position = 'bottom-end',
 }: HybridMenuProps) {
   const [opened, setOpened] = useState(false);
   const [_value, handleChange] = useUncontrolled({
@@ -74,7 +94,8 @@ export function HybridMenu({
       onChange={setOpened}
       width="auto"
       styles={{ dropdown: { minWidth: 120 } }}
-      position="bottom-end"
+      position={position}
+      transitionProps={{ transition: POP_FROM[position] ?? 'pop' }}
     >
       <Menu.Target>
         {typeof target === 'function'
