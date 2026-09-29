@@ -20,9 +20,9 @@ import { appBundlePath, linkPath } from "../../deps/resolve.ts";
 import { localBinDir, shimReport, staleIntercepts } from "../../endpoint/shim.ts";
 import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, RT_DIR_LABEL, TRAY_APP_BUNDLE } from "../../rt-paths.ts";
 import { getSetting } from "../../settings/resolve.ts";
-import { detectShellFrom, shellRcPathFor } from "../../shell-integration.ts";
+import { detectShellFrom, END_MARKER, MARKER, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
-import { row, type Action, type Row } from "../contract.ts";
+import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
@@ -190,7 +190,7 @@ function interceptsRow(p: Probes): Row {
     return row({ ...base, status: "error", detail: `check failed: ${(err as Error).message}` });
   }
 
-  if (report.length === 0) return row({ ...base, status: "skipped", detail: "no intercepts declared" });
+  if (report.length === 0) return row({ ...base, status: "ready", detail: "Not needed: your team declares no intercepts" });
 
   const missing = report.filter((r) => !r.installed);
   const stale = report.filter((r) => r.installed && !r.current);
@@ -269,6 +269,9 @@ function extensionRow(p: Probes): Row {
   return row({ ...base, status: "skipped", detail: result.detail });
 }
 
+/** `path.link` is the step that writes the rc block; `--only` runs just it (lib/setup/apply.ts). */
+const ADD_TO_SHELL_ACTION: Action = { type: "run", label: "Add to shell", verb: ["setup", "apply", "--only", "path.link"] };
+
 function shellRow(p: Probes): Row {
   const base = {
     id: "tool.shell",
@@ -283,9 +286,14 @@ function shellRow(p: Probes): Row {
   if (rc) {
     const content = p.readFile(rc) ?? "";
     if (content.includes("rtcd")) return row({ ...base, status: "ready", detail: `rtcd alias in ${rc}` });
-    return row({ ...base, status: "needs-you", detail: "shell integration missing — Install writes it" });
+    // path.link cannot bound an old block with no end marker, so its button would succeed and change nothing.
+    const markerAt = content.indexOf(MARKER);
+    if (markerAt !== -1 && content.indexOf(END_MARKER, markerAt) === -1) {
+      return row({ ...base, status: "needs-you", detail: `remove the old rt block from ${rc} by hand, then re-check`, action: RECHECK_ACTION });
+    }
+    return row({ ...base, status: "needs-you", detail: "shell integration not added yet", action: ADD_TO_SHELL_ACTION });
   }
-  return row({ ...base, status: "needs-you", detail: "unrecognized shell — can't write shell integration automatically; add the rtcd alias yourself" });
+  return row({ ...base, status: "needs-you", detail: "unrecognized shell, so rt can't write shell integration automatically; add the rtcd alias yourself" });
 }
 
 async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
@@ -298,12 +306,14 @@ async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
     recheck: "on-activate" as const,
   };
 
-  if (!isDaemonInstalled()) return row({ ...base, status: "missing", detail: "run Install (registers the daemon)" });
-
+  // The marker is written only by services.register, but the app also
+  // registers the daemon at launch; one that answers is installed either way.
   const ping = await p.daemon("ping");
-  if (!ping || !ping.ok) {
+  const answers = ping?.ok === true;
+  if (!answers && !isDaemonInstalled()) return row({ ...base, status: "missing", detail: "not registered yet", action: applyStepAction("Register services", "services.register") });
+  if (!answers) {
     if (opts.ci) return row({ ...base, status: "needs-you", detail: "not booted (expected in CI)" });
-    return row({ ...base, status: "needs-you", detail: "installed but not responding — approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
+    return row({ ...base, status: "needs-you", detail: "installed but not responding; approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
   }
 
   const [statusRes, launchd, worktrees] = await Promise.all([
@@ -416,6 +426,8 @@ function homePushDelaySec(): number {
   return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : HOME_PUSH_DELAY_FALLBACK_SEC;
 }
 
+const CREATE_HOME_REPO_ACTION: Action = { type: "run", label: "Create home repo", verb: ["setup", "apply", "--only", "home.init"] };
+
 /**
  * Green means a push actually happened, never merely that a remote is
  * configured — read from git's own remote-tracking ref, so this is right on
@@ -445,7 +457,7 @@ export async function homeBackupRow(
   };
 
   if (!(await isGitRepo(exec, repoDir))) {
-    return row({ ...base, status: "needs-you", detail: "no home repo found yet — nothing to back up" });
+    return row({ ...base, status: "needs-you", detail: "no home repo found yet... nothing to back up", action: CREATE_HOME_REPO_ACTION });
   }
 
   // Ahead of the remote check: an unborn repo is not "versioned on this

@@ -13,7 +13,7 @@ import type { PackRequirements } from "../requirements.ts";
 import type { ToolResolution } from "../../deps/resolve.ts";
 import type { DetectedEditor } from "../../editors.ts";
 import type { ExecResult } from "../probes.ts";
-import type { Row } from "../contract.ts";
+import type { Action, Row } from "../contract.ts";
 import type { SecretPresence } from "../validators/accounts.ts";
 import { PORTLESS_LAUNCHD_PLIST } from "../steps/services.ts";
 
@@ -1093,7 +1093,8 @@ describe("toolRows — pack.<pack>", () => {
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(REAL_PLUGIN_LIST_JSON) : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("installed by Install (plugins.install)");
+    expect(r.detail).toBe("not installed yet");
+    expect(r.action).toEqual({ type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] });
   });
 
   // The real listing has "fast-browser@mattstack" but nothing with the exact
@@ -1268,10 +1269,14 @@ describe("toolRows: tool.linear-mcp", () => {
     expect(r.detail).toContain("not a Linear MCP");
   });
 
-  test("a Linear MCP under another name -> missing, naming it", async () => {
+  const ADD_TO_CLAUDE: Action = { type: "run", label: "Add to Claude", verb: ["setup", "apply", "--only", "linear.mcp"] };
+
+  test("a Linear MCP under another name -> missing, naming it, with a way to add linear", async () => {
     const r = await rowFor(conf({ mcpServers: { "linear-matt": hosted } }), HAS_KEY);
     expect(r.status).toBe("missing");
     expect(r.detail).toContain("linear-matt");
+    expect(r.detail).toContain("not added yet");
+    expect(r.action).toEqual(ADD_TO_CLAUDE);
   });
 
   test("a Linear MCP under another name with no key -> needs-you, since Install would skip", async () => {
@@ -1288,9 +1293,10 @@ describe("toolRows: tool.linear-mcp", () => {
     expect(r.action).toEqual({ type: "connect", label: "Connect Linear", integration: "linear", fields: [{ name: "apiKey", label: "Linear API key", secret: true, hint: "lin_api_…" }] });
   });
 
-  test("nothing configured but a key is stored -> missing, Install's job", async () => {
+  test("nothing configured but a key is stored -> missing, and the row adds it (Linear connected after Install skipped it)", async () => {
     const r = await rowFor(conf({}), HAS_KEY);
-    expect([r.status, r.detail]).toEqual(["missing", "installed by Install (linear.mcp)"]);
+    expect([r.status, r.detail]).toEqual(["missing", "Linear is connected but not added to Claude Code yet"]);
+    expect(r.action).toEqual(ADD_TO_CLAUDE);
   });
 
   test("an absent config file is not an error", async () => {
@@ -1329,7 +1335,7 @@ describe("toolRows: tool.linear-mcp", () => {
   test("never required, so it can neither block Install nor fail verify", async () => {
     for (const secrets of [NO_SECRETS, HAS_KEY]) {
       const r = await rowFor(conf({}), secrets);
-      expect([r.required, r.optionalNote]).toEqual([false, "Installed by Install (linear.mcp)."]);
+      expect([r.required, r.optionalNote]).toEqual([false, "Works without this; only the skills that read Linear tickets need it."]);
     }
   });
 });

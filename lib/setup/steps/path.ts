@@ -66,8 +66,8 @@ async function pathLinkRun(ctx: ApplyContext): Promise<StepOutcome> {
     }
   }
 
-  // Neither of these throws (installZshenvPrecedence wraps its own fs calls)
-  // — their symlinks above have already landed either way, so a rc-file
+  // Neither of these throws (installZshenvPrecedence wraps its own fs calls);
+  // their symlinks above have already landed either way, so a rc-file
   // problem here is reported honestly in the detail rather than silently
   // dropped or turned into a step failure that would undo real progress.
   const notes: string[] = [];

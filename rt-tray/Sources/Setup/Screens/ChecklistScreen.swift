@@ -5,10 +5,12 @@ struct ChecklistScreen: View {
     @ObservedObject var model: ReadinessModel
     let permissions: PermissionsService
     let rt: RtRunning
+    let needs: NeedBroker
     @State private var connect: (row: PlanRow, fields: [ActionField], alternatives: [ActionAlternative], create: ActionLink?)?
     @State private var steps: (title: String, steps: [String])?
     @State private var choose: PlanRow?
     @State private var actionError: (rowId: String, message: String)?
+    @State private var waitingOnYou: [String: String] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +27,7 @@ struct ChecklistScreen: View {
                 ForEach(model.groups) { group in
                     Section(group.title) {
                         ForEach(group.rows) { row in
-                            RowView(row: row, isChecking: model.checkingRowIds.contains(row.id)) { perform(row) }
+                            RowView(row: row, isChecking: model.checkingRowIds.contains(row.id), waiting: waitingOnYou[row.id]) { perform(row) }
                             if let actionError, actionError.rowId == row.id {
                                 Text(actionError.message).font(.caption).foregroundStyle(.red)
                                     .accessibilityIdentifier(AXID.checklistRowError(row.id))
@@ -106,6 +108,17 @@ struct ChecklistScreen: View {
             Task {
                 defer { model.endChecking(row.id) }
                 let verb = args.joined(separator: " ")
+                if RowVerbRun.streamsApplyEvents(args) {
+                    let rowId = row.id
+                    if let failure = await RowVerbRun.apply(args, rt: rt, needs: needs, waiting: { copy in
+                        await MainActor.run { waitingOnYou[rowId] = copy }
+                    }) {
+                        TrayLog.warn("row action failed", ["row": row.id, "err": failure])
+                        actionError = (row.id, failure)
+                    }
+                    await model.afterAction(rowId: row.id)
+                    return
+                }
                 do {
                     let result = try await rt.run(args, stdin: stdin)
                     if let e = result.userError(redactStderr: redactStderr) {
@@ -147,4 +160,18 @@ struct ChecklistScreen: View {
         }
     }
 
+}
+
+struct RowWaitingCaption: View {
+    let rowId: String
+    let text: String
+    var body: some View {
+        Label {
+            Text(text).fontWeight(.medium)
+        } icon: {
+            Image(systemName: "hourglass").foregroundStyle(.orange)
+        }
+        .font(.caption)
+        .accessibilityIdentifier(AXID.checklistRowWaiting(rowId))
+    }
 }

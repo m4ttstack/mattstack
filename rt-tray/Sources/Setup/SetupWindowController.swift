@@ -5,6 +5,7 @@ import MattstackCore
 
 struct SetupEnvironment {
     let rt: RtRunning
+    let needs: NeedBroker
     let readiness: ReadinessModel
     let install: InstallRunModel
     let permissions: PermissionsService

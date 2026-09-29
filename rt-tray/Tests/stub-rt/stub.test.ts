@@ -66,6 +66,13 @@ test("setup apply streams plan/step/need/done; apply-fail-retry fails once then 
   expect(retry.lines.at(-1).ok).toBe(true);
 });
 
+test("setup apply --only runs just that step, so a checklist row's proxy.install carries its privileged need", async () => {
+  const only = await run("join-happy", ["setup", "apply", "--only", "proxy.install", "--json"]);
+  expect(only.lines[0].steps.map((s: { id: string }) => s.id)).toEqual(["proxy.install"]);
+  expect(only.lines.find((e) => e.event === "need").request).toEqual({ type: "app-privileged", op: "proxy-install" });
+  expect(only.lines.at(-1)).toEqual({ event: "done", ok: true, failedStep: null });
+});
+
 test("uninstall --dry-run lists L1's action ids; --delete-data needs --yes; version build is numeric", async () => {
   const dry = await run("uninstall", ["uninstall", "--dry-run", "--json"]);
   expect(dry.lines[0].actions.map((a: { id: string }) => a.id)).toEqual(["deck.managed-remove", "services.unregister", "proxy.remove", "path.unlink", "shell.remove", "extension.uninstall", "plugins.uninstall", "app.trash"]);
