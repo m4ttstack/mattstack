@@ -3,8 +3,11 @@
 import {
   ArrowUpRight,
   ChartNoAxesColumn,
+  CircleCheck,
   GitBranch,
+  Hourglass,
   LayoutGrid,
+  LoaderCircle,
   Table2,
   Trophy,
   Undo2,
@@ -15,8 +18,11 @@ import { lucideWrapperFn, registerIcons } from '@mattstack/app-kit/icons';
 registerIcons({
   arrowUpRight: lucideWrapperFn(ArrowUpRight),
   chartNoAxesColumn: lucideWrapperFn(ChartNoAxesColumn),
+  circleCheck: lucideWrapperFn(CircleCheck),
   gitBranch: lucideWrapperFn(GitBranch),
+  hourglass: lucideWrapperFn(Hourglass),
   layoutGrid: lucideWrapperFn(LayoutGrid),
+  loaderCircle: lucideWrapperFn(LoaderCircle),
   table2: lucideWrapperFn(Table2),
   trophy: lucideWrapperFn(Trophy),
   undo2: lucideWrapperFn(Undo2),

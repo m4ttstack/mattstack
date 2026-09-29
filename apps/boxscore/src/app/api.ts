@@ -2,6 +2,7 @@ import { hc } from 'hono/client';
 import type { InferResponseType } from 'hono/client';
 
 import type { AppType } from '../server/routes';
+import type { ColdCacheResponse } from '../shared/types';
 
 /** Same-origin: Vite proxies /api to the boxscore server in dev, and in production the server serves this bundle itself. */
 export const client = hc<AppType>('/');
@@ -23,7 +24,9 @@ export type CacheStats = InferResponseType<
   200
 >;
 
-export function isColdCache(res: LeaderboardResult): res is { cached: false } {
+export function isColdCache(
+  res: LeaderboardResult
+): res is LeaderboardResult & ColdCacheResponse {
   return 'cached' in res && res.cached === false;
 }
 

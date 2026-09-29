@@ -6,14 +6,17 @@ export function Glyph({
   size,
   color,
   parity,
+  className,
 }: {
   name: IconName;
   size: number;
   color: string;
   parity?: string;
+  className?: string;
 }) {
   return (
     <span
+      className={className}
       data-parity={parity}
       style={{
         display: 'inline-flex',

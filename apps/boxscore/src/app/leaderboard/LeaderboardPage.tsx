@@ -44,6 +44,7 @@ export function LeaderboardPage({
   data,
   view,
   trend,
+  dimmed = false,
   sort,
   onSort,
   onSelectStat,
@@ -51,20 +52,30 @@ export function LeaderboardPage({
   data: LeaderboardResponse;
   view: ViewMode;
   trend: boolean;
+  /** A refresh is running, so these are the last good numbers. */
+  dimmed?: boolean;
   sort: MetricKey;
   onSort: (k: MetricKey) => void;
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
   const prior = trendWindow(data, trend);
   if (view === 'cards') {
-    return <CardsGrid data={data} prior={prior} onSelectStat={onSelectStat} />;
+    return (
+      <CardsGrid
+        data={data}
+        prior={prior}
+        dimmed={dimmed}
+        onSelectStat={onSelectStat}
+      />
+    );
   }
   return (
     <>
-      <LeadersStrip data={data} trend={prior !== null} />
+      <LeadersStrip data={data} trend={prior !== null} dimmed={dimmed} />
       <StandingsTable
         data={data}
         prior={prior}
+        dimmed={dimmed}
         sort={sort}
         onSort={onSort}
         onSelectStat={onSelectStat}

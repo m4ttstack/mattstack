@@ -412,6 +412,7 @@ function PersonRow({
 export function StandingsTable({
   data,
   prior,
+  dimmed = false,
   sort,
   onSort,
   onSelectStat,
@@ -419,6 +420,7 @@ export function StandingsTable({
   data: LeaderboardResponse;
   /** The window deltas compare against; null shows values only. */
   prior: TimeWindow | null;
+  dimmed?: boolean;
   sort: MetricKey;
   onSort: (k: MetricKey) => void;
   onSelectStat: (username: string, stat: MetricKey) => void;
@@ -430,7 +432,9 @@ export function StandingsTable({
 
   return (
     <section
-      className={classes.standings}
+      className={
+        dimmed ? `${classes.standings} ${classes.dimmed}` : classes.standings
+      }
       data-parity="Standings"
       aria-label="Standings"
     >

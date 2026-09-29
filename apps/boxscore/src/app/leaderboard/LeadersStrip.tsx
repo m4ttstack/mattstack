@@ -119,13 +119,15 @@ function LeaderTile({
 export function LeadersStrip({
   data,
   trend,
+  dimmed = false,
 }: {
   data: LeaderboardResponse;
   trend: boolean;
+  dimmed?: boolean;
 }) {
   return (
     <section
-      className={classes.strip}
+      className={dimmed ? `${classes.strip} ${classes.dimmed}` : classes.strip}
       data-parity="Stat Leaders"
       aria-label="Stat leaders"
     >

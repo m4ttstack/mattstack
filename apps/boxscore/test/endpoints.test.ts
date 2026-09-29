@@ -107,6 +107,8 @@ describe('refresh endpoints', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.cached).toBe(false);
+    expect(body.window).toMatchObject({ start: '2019-01-01T00:00:00.000Z' });
+    expect(body.scope).toEqual({ type: 'projects', projectPaths: PROJECTS });
   });
 
   // The trend flag must not bypass the cold-store check: a probe still needs to know the

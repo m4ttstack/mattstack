@@ -4,11 +4,13 @@
  * Pure TypeScript with no runtime-specific imports: component tests import it.
  */
 import type {
+  ColdCacheResponse,
   EvidenceRow,
   LeaderboardResponse,
   MetricEvidence,
   MetricKey,
   RefreshStatusResponse,
+  Scope,
   UserDetailResponse,
   UserMetrics,
   UserRow,
@@ -52,6 +54,7 @@ export function fixtureScenario(): FixtureScenario {
 }
 
 const SYNCED_MINUTES_AGO = 4;
+const SCOPE: Scope = { type: 'projects', projectPaths: [PROJECT_PATH] };
 const SIZE_BAND = { low: 10, high: 400 };
 
 function buildUsers(trend: boolean): UserRow[] {
@@ -109,7 +112,7 @@ export function fixtureLeaderboard(trend: boolean): LeaderboardResponse {
   const users = buildUsers(trend);
   const leaders = applyRankings(users);
   return {
-    scope: { type: 'projects', projectPaths: [PROJECT_PATH] },
+    scope: SCOPE,
     window: { ...WINDOW },
     priorWindow: trend ? { ...PRIOR_WINDOW } : null,
     hasTrend: trend,
@@ -147,6 +150,10 @@ export function fixtureDetail(
   };
 }
 
+export function fixtureColdCache(): ColdCacheResponse {
+  return { cached: false, window: { ...WINDOW }, scope: SCOPE };
+}
+
 export function fixtureRefresh(): RefreshStatusResponse {
   return {
     jobId: 'design-fixture',
@@ -157,6 +164,7 @@ export function fixtureRefresh(): RefreshStatusResponse {
       done: 142,
       total: 310,
       window: 'current',
+      totals: { users: ROSTER.length, 'mrs-list': 1, 'mrs-detail': 310 },
     },
   };
 }

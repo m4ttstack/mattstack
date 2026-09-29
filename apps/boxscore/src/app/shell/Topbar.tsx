@@ -101,14 +101,12 @@ export function Topbar({
           data-parity="Refresh Button"
           onClick={onAction}
         >
-          {action === 'refresh' && (
-            <Glyph
-              name="refresh"
-              size={14}
-              color="var(--tk-text-2)"
-              parity="Refresh Icon"
-            />
-          )}
+          <Glyph
+            name={action === 'refresh' ? 'refresh' : 'close'}
+            size={14}
+            color="var(--tk-text-2)"
+            parity="Refresh Icon"
+          />
           <span className={classes.refreshLabel} data-parity="Refresh Label">
             {action === 'refresh' ? 'Refresh' : 'Cancel'}
           </span>

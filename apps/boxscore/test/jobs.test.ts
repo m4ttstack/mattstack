@@ -43,6 +43,37 @@ describe('refresh job registry', () => {
     expect(res.progress?.phase).toBe('users');
   });
 
+  it('carries the last total of each phase reached in the reading window', () => {
+    let report: (
+      p: Parameters<typeof toStatusResponse>[0]['progress']
+    ) => void = () => {};
+    const job = startRefresh(
+      { window: WINDOW, trend: true, selection: SELECTION },
+      ({ onProgress }) => {
+        report = p => onProgress(p!);
+        return new Promise(() => {});
+      }
+    );
+    const at = (
+      phase: 'users' | 'mrs-list' | 'mrs-detail',
+      done: number,
+      total: number,
+      window: 'current' | 'prior' = 'current'
+    ) => report({ phase, label: phase, done, total, window });
+
+    at('users', 7, 7);
+    at('mrs-list', 1, 1);
+    at('mrs-detail', 142, 310);
+    expect(toStatusResponse(job).progress?.totals).toEqual({
+      users: 7,
+      'mrs-list': 1,
+      'mrs-detail': 310,
+    });
+
+    at('users', 3, 7, 'prior');
+    expect(toStatusResponse(job).progress?.totals).toEqual({ users: 7 });
+  });
+
   it('returns the same running job on re-entry (re-click is a no-op)', () => {
     const a = startRefresh(
       { window: WINDOW, trend: false, selection: SELECTION },

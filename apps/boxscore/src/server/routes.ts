@@ -7,9 +7,10 @@ import {
   type LocalServer,
 } from '@mattstack/app-server/local-request';
 import { settingsHandler } from '@mattstack/settings-kit/server';
-import type { CacheStatsResponse } from '../shared/types.js';
+import type { CacheStatsResponse, ColdCacheResponse } from '../shared/types.js';
 import { ConfigError, readSettings } from './config/index.js';
 import {
+  fixtureColdCache,
   fixtureDetail,
   fixtureLeaderboard,
   fixtureMode,
@@ -17,6 +18,7 @@ import {
   fixtureScenario,
 } from './fixture/index.js';
 import {
+  ColdCacheError,
   getLeaderboard,
   getUserDetail,
   UnknownUserError,
@@ -53,7 +55,7 @@ const leaderboard = new Hono()
   .get('/api/leaderboard', async c => {
     if (fixtureMode())
       return fixtureScenario() === 'cold-stalled'
-        ? c.json({ cached: false as const }, 200)
+        ? c.json(fixtureColdCache(), 200)
         : c.json(fixtureLeaderboard(boolQuery(c, 'trend')));
     const window = windowFromQuery(c);
     if (window instanceof Response) return window;
@@ -71,8 +73,14 @@ const leaderboard = new Hono()
       });
       return c.json(result);
     } catch (err) {
-      if ((err as Error).name === 'ColdCacheError')
-        return c.json({ cached: false }, 200);
+      if (err instanceof ColdCacheError) {
+        const cold: ColdCacheResponse = {
+          cached: false,
+          window,
+          scope: err.scope,
+        };
+        return c.json(cold, 200);
+      }
       if (err instanceof ConfigError)
         return c.json({ error: err.message }, 400);
       console.error('[leaderboard] failed:', err);

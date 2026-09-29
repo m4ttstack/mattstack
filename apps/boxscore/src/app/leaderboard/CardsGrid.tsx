@@ -105,14 +105,20 @@ function StatCard({
 export function CardsGrid({
   data,
   prior,
+  dimmed = false,
   onSelectStat,
 }: {
   data: LeaderboardResponse;
   prior: TimeWindow | null;
+  dimmed?: boolean;
   onSelectStat: (username: string, stat: MetricKey) => void;
 }) {
   return (
-    <div className={classes.cardsGrid}>
+    <div
+      className={
+        dimmed ? `${classes.cardsGrid} ${classes.dimmed}` : classes.cardsGrid
+      }
+    >
       {CARD_STATS.map(stat => (
         <StatCard
           key={stat}

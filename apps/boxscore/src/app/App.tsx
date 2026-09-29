@@ -5,12 +5,16 @@ import { useLocation } from 'wouter';
 import { NotFoundPage } from '@mattstack/app-kit/app';
 import { Alert, ScrollArea, Stack, Text } from '@mattstack/app-kit/core';
 import { Icon } from '@mattstack/app-kit/icons';
-import type { LeaderboardResponse, MetricKey } from '../shared/types';
+import type {
+  ColdCacheResponse,
+  LeaderboardResponse,
+  MetricKey,
+} from '../shared/types';
 import { isColdCache, type RangeSelection } from './api';
-import { RefreshProgress as RefreshProgressBar } from './components/RefreshProgress';
 import { DetailPage, FIRST_STAT } from './detail/DetailPage';
 import { useLeaderboard } from './hooks/useLeaderboard';
 import { usePersistentState } from './hooks/usePersistentState';
+import { useRefreshClock } from './hooks/useRefreshClock';
 import { useRefreshJob } from './hooks/useRefreshJob';
 
 import './icons';
@@ -20,8 +24,11 @@ import {
   leaderboardSubtitle,
 } from './leaderboard/LeaderboardPage';
 import { statHref } from './leaderboard/StandingsTable';
-import { scopeLabel } from './model/labels';
+import { progressKey, STALL_AFTER_MS } from './lib/progress';
+import { scopeLabel, windowLabel } from './model/labels';
 import { descriptor } from './model/standings';
+import { RefreshStatus } from './refresh/RefreshStatus';
+import { SkeletonStandings } from './refresh/SkeletonStandings';
 import { useAppRoute, type AppRoute } from './routes';
 import { PageHeader, type RangeState, type ViewMode } from './shell/PageHeader';
 import { Rail } from './shell/Rail';
@@ -40,8 +47,20 @@ export function App() {
   );
 }
 
-function frameName(route: AppRoute, view: ViewMode, trend: boolean): string {
+type LoadState = 'idle' | 'refreshing' | 'first-load' | 'first-load-stalled';
+
+function frameName(
+  route: AppRoute,
+  view: ViewMode,
+  trend: boolean,
+  load: LoadState
+): string {
   if (route.name === 'leaderboard') {
+    if (load === 'refreshing') return 'Leaderboard · Refreshing';
+    if (load === 'first-load') return 'Leaderboard · First load';
+    if (load === 'first-load-stalled') {
+      return 'Leaderboard · First load, stalled';
+    }
     if (view === 'cards') return 'Leaderboard · Cards';
     return trend ? 'Leaderboard · Trend' : 'Leaderboard · Table';
   }
@@ -62,6 +81,7 @@ function useNow(intervalMs: number): number {
 
 function AppShell() {
   const [data, setData] = useState<LeaderboardResponse | null>(null);
+  const [cold, setCold] = useState<ColdCacheResponse | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
   // True from the moment a cold cache triggers a background refresh until that refresh lands
   // (onDone/onError) or the selection changes. Covers the whole span, including the gap between
@@ -115,6 +135,7 @@ function AppShell() {
     refreshJob.cancel();
     setJobError(null);
     setAwaitingRefresh(false);
+    setCold(null);
     // refreshJob.cancel is intentionally excluded: it is a no-op when idle, and including it here
     // (its identity changes with jobId) would refire this effect for job starts/stops, not just
     // selection changes, which is the one thing this effect must run on.
@@ -125,6 +146,7 @@ function AppShell() {
     const result = leaderboardQuery.data;
     if (!result) return;
     if (isColdCache(result)) {
+      setCold(result);
       setAwaitingRefresh(true);
       void refreshJob.start(selection);
     } else {
@@ -148,11 +170,34 @@ function AppShell() {
     refreshJob.cancel();
   };
 
+  const clock = useRefreshClock(
+    refreshJob.refreshing,
+    progressKey(refreshJob.progress)
+  );
+  const stalledMs =
+    refreshJob.refreshing && clock.idleMs >= STALL_AFTER_MS
+      ? clock.idleMs
+      : null;
+  const seconds = (ms: number) => Math.floor(ms / 1000);
+
   const freshness: Freshness | null = refreshJob.refreshing
-    ? { label: 'Refreshing', tone: 'accent' }
+    ? stalledMs !== null
+      ? { label: `Stalled · ${seconds(stalledMs)}s`, tone: 'warn' }
+      : { label: `Refreshing · ${seconds(clock.elapsedMs)}s`, tone: 'accent' }
     : data
       ? { label: syncedLabel(data.generatedAt, now), tone: 'ok' }
       : null;
+
+  const firstLoad = !data && cold !== null;
+  const load: LoadState = !refreshJob.refreshing
+    ? 'idle'
+    : !data
+      ? stalledMs !== null
+        ? 'first-load-stalled'
+        : 'first-load'
+      : 'refreshing';
+  const shownWindow = data?.window ?? cold?.window ?? null;
+  const shownScope = data?.scope ?? cold?.scope ?? null;
 
   const onRange = (range: string, start?: string, end?: string) =>
     setRangeState({ range, start, end });
@@ -160,8 +205,11 @@ function AppShell() {
   const status = (
     <>
       {refreshJob.refreshing && (
-        <RefreshProgressBar
+        <RefreshStatus
           progress={refreshJob.progress}
+          stalledMs={stalledMs}
+          window={shownWindow ? windowLabel(shownWindow) : ''}
+          cold={!data}
           onCancel={cancelRefresh}
         />
       )}
@@ -174,11 +222,6 @@ function AppShell() {
         >
           {error}
         </Alert>
-      )}
-      {!error && loading && (
-        <Text size="sm" c="var(--tk-text-3)">
-          Loading…
-        </Text>
       )}
       {data && data.warnings.length > 0 && (
         <Alert
@@ -206,6 +249,11 @@ function AppShell() {
     page = (
       <>
         {status}
+        {!error && loading && (
+          <Text size="sm" c="var(--tk-text-3)">
+            Loading…
+          </Text>
+        )}
         {data && (
           <DetailPage
             data={data}
@@ -223,7 +271,13 @@ function AppShell() {
       <>
         <PageHeader
           title="Leaderboard"
-          subtitle={data ? leaderboardSubtitle(data, sort, trend, view) : null}
+          subtitle={
+            data
+              ? leaderboardSubtitle(data, sort, trend, view)
+              : cold
+                ? `${windowLabel(cold.window)}  ·  first refresh for this window`
+                : null
+          }
           range={rangeState}
           onRange={onRange}
           trend={trend}
@@ -232,11 +286,18 @@ function AppShell() {
           onView={setView}
         />
         {status}
+        {!data && !error && loading && <SkeletonStandings />}
+        {firstLoad && !error && !loading && (
+          <Text size="sm" c="var(--tk-text-3)">
+            Nothing is stored for this window yet. Refresh to build it.
+          </Text>
+        )}
         {data && (
           <LeaderboardPage
             data={data}
             view={view}
             trend={trend}
+            dimmed={refreshJob.refreshing}
             sort={sort}
             onSort={setSort}
             onSelectStat={(username, stat) =>
@@ -266,14 +327,17 @@ function AppShell() {
     : ['boxscore', route.name === 'not-found' ? 'Not found' : 'Leaderboard'];
 
   return (
-    <div className={classes.frame} data-parity={frameName(route, view, trend)}>
+    <div
+      className={classes.frame}
+      data-parity={frameName(route, view, trend, load)}
+    >
       <Rail
         active={route.name === 'leaderboard' || isPerson ? 'leaderboard' : null}
       />
       <div className={classes.main}>
         <Topbar
           crumbs={crumbs}
-          scope={data ? scopeLabel(data.scope) : null}
+          scope={shownScope ? scopeLabel(shownScope) : null}
           freshness={freshness}
           action={refreshJob.refreshing ? 'cancel' : 'refresh'}
           onAction={

@@ -28,11 +28,18 @@ export interface Mismatch {
 
 export type Scenario = 'warm' | 'refreshing' | 'cold-stalled';
 
+/** Text a layer must match (a RegExp source) before the runner collects. */
+export interface TextWait {
+  layer: string;
+  pattern: string;
+  timeoutMs: number;
+}
+
 /** What the runner does after the route loads, before collecting. */
 export type BoardAction =
-  | { kind: 'click'; layer: string; waitFor: string }
-  | { kind: 'hover'; layer: string; waitFor: string }
-  | { kind: 'waitText'; layer: string; prefix: string; timeoutMs: number };
+  | { kind: 'click'; layer: string; waitFor: string; until?: TextWait }
+  | { kind: 'hover'; layer: string; waitFor: string; until?: TextWait }
+  | { kind: 'waitText'; layer: string; until: TextWait };
 
 export interface Board {
   slug: string;
@@ -146,6 +153,7 @@ export const BOARDS: Board[] = [
       kind: 'click',
       layer: 'Refresh Button',
       waitFor: 'Refresh Status',
+      until: { layer: 'Fresh Label', pattern: '· \\d{2}s$', timeoutMs: 30_000 },
     },
   },
   {
@@ -161,8 +169,11 @@ export const BOARDS: Board[] = [
     action: {
       kind: 'waitText',
       layer: 'RS Sub',
-      prefix: 'No progress',
-      timeoutMs: 90_000,
+      until: {
+        layer: 'RS Sub',
+        pattern: 'still waiting on GitLab',
+        timeoutMs: 90_000,
+      },
     },
   },
   {

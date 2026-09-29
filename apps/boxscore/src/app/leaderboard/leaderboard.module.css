@@ -579,3 +579,8 @@
   color: var(--tk-text-2);
   font-size: 12px;
 }
+
+/* Last good numbers, shown under a running refresh. */
+.dimmed {
+  opacity: 0.55;
+}

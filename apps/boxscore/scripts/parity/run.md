@@ -151,13 +151,16 @@ been closed`), open one with `browser_tabs` `{ "action": "new", "url":
 It sets a `1440 x height` viewport and the scheme, opens the design export,
 corrects it, collects every target, then for each target: opens the app,
 clears localStorage and sets the board's `storage` plus the scheme, loads the
-route, disables transitions and animations, waits for the root, asserts
-`data-mantine-color-scheme` is the scheme, does the board's action (02 hovers
-`Nav Settings (console) Icon` and waits for `Settings Tooltip`, since the
-board draws the rail tooltip open; 05 clicks `Refresh Button` and waits for
-`Refresh Status`; 06 waits up to 90 s for `RS Sub` to read `No
-progress...`), collects, screenshots the root, and composes
-the side-by-side. It uploads everything to `~/.fast-browser/output/parity/`:
+route, disables transitions and animations, waits for the root (or, on a
+board with an action, the action's layer: the app names its frame after the
+state it is in, so boards 05 and 06 only carry their root name once the
+action has happened), asserts `data-mantine-color-scheme` is the scheme,
+does the board's action (02 hovers `Nav Settings (console) Icon` and waits
+for `Settings Tooltip`, since the board draws the rail tooltip open; 05
+clicks `Refresh Button` and waits for `Refresh Status`; 06 waits up to 90 s
+for `RS Sub` to contain `still waiting on GitLab`, the copy shown once the
+reading has held past the 30 s request deadline), waits for the root,
+collects, screenshots the root, and composes the side-by-side. It uploads everything to `~/.fast-browser/output/parity/`:
 
 | File                                     | What                                                  |
 | ---------------------------------------- | ----------------------------------------------------- |

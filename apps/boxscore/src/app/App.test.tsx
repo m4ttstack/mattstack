@@ -19,6 +19,19 @@ vi.mock('./routes', () => ({
   useAppRoute: () => ({ name: 'leaderboard' as const }),
 }));
 
+const COLD = {
+  cached: false as const,
+  window: {
+    start: '2026-08-30T00:00:00.000Z',
+    end: '2026-09-29T00:00:00.000Z',
+    key: '30d',
+  },
+  scope: { type: 'projects' as const, projectPaths: ['acme/web-app'] },
+};
+
+const skeleton = () =>
+  screen.queryByRole('region', { name: 'Loading standings' });
+
 function idleRefreshJob(
   overrides: Partial<ReturnType<typeof useRefreshJob>> = {}
 ) {
@@ -35,12 +48,12 @@ function idleRefreshJob(
 // Regression coverage for the cold-cache orchestration bug: a cache-only probe that comes back
 // cold (no cached data for this selection, e.g. trend just turned on with no prior-window cache)
 // used to leave the leaderboard blank -- zero rows, no loading text -- for the whole background
-// refresh, because the "Loading…" message was gated on the probe's own isFetching flag, which
+// refresh, because the loading state was gated on the probe's own isFetching flag, which
 // turns false the instant the probe settles, well before the refresh job it kicks off finishes.
 describe('App: cold-cache orchestration', () => {
   it('shows a loading indicator, not a blank leaderboard, the instant a cold cache starts a background refresh', () => {
     useLeaderboard.mockReturnValue({
-      data: { cached: false },
+      data: COLD,
       error: null,
       isFetching: false,
     });
@@ -49,7 +62,7 @@ describe('App: cold-cache orchestration', () => {
 
     renderWithProviders(<App />);
 
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(skeleton()).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(start).toHaveBeenCalled();
   });
@@ -57,7 +70,7 @@ describe('App: cold-cache orchestration', () => {
   it('clears the loading indicator when a running refresh is cancelled, rather than stranding it', async () => {
     const user = userEvent.setup();
     useLeaderboard.mockReturnValue({
-      data: { cached: false },
+      data: COLD,
       error: null,
       isFetching: false,
     });
@@ -67,7 +80,7 @@ describe('App: cold-cache orchestration', () => {
     );
 
     renderWithProviders(<App />);
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(skeleton()).toBeInTheDocument();
 
     await user.click(
       within(screen.getByRole('banner')).getByRole('button', {
@@ -78,12 +91,12 @@ describe('App: cold-cache orchestration', () => {
     // cancel() never routes through onDone or onError, so if the handler does not clear the
     // flag itself the indicator stays up forever with nothing running behind it.
     expect(cancel).toHaveBeenCalled();
-    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    expect(skeleton()).not.toBeInTheDocument();
   });
 
   it('keeps the loading indicator up once the refresh job is actually running (jobId assigned)', () => {
     useLeaderboard.mockReturnValue({
-      data: { cached: false },
+      data: COLD,
       error: null,
       isFetching: false,
     });
@@ -93,7 +106,14 @@ describe('App: cold-cache orchestration', () => {
 
     renderWithProviders(<App />);
 
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(skeleton()).toBeInTheDocument();
+    expect(screen.getByText('Building Aug 30 – Sep 29')).toBeInTheDocument();
+    expect(
+      screen.getByText('Aug 30 – Sep 29 · first refresh for this window', {
+        normalizer: t => t.replace(/\s+/g, ' ').trim(),
+      })
+    ).toBeInTheDocument();
+    expect(screen.getByText('acme/web-app')).toBeInTheDocument();
   });
 
   it('renders the leaderboard, with no loading text, once warm-cache data is available', () => {
@@ -106,7 +126,7 @@ describe('App: cold-cache orchestration', () => {
 
     renderWithProviders(<App />);
 
-    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    expect(skeleton()).not.toBeInTheDocument();
     expect(
       screen.getByText('No users configured, or none resolved on the instance.')
     ).toBeInTheDocument();
@@ -122,6 +142,33 @@ describe('App: cold-cache orchestration', () => {
 
     renderWithProviders(<App />);
 
-    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    expect(skeleton()).not.toBeInTheDocument();
+  });
+
+  it('keeps the last good numbers on screen, dimmed, under a warm refresh', () => {
+    useLeaderboard.mockReturnValue({
+      data: { ...buildResponse([]), cached: true },
+      error: null,
+      isFetching: false,
+    });
+    useRefreshJob.mockReturnValue(
+      idleRefreshJob({ jobId: 'job-1', refreshing: true })
+    );
+
+    const { container } = renderWithProviders(<App />);
+
+    expect(
+      screen.getByText('Showing the last good numbers until this finishes')
+    ).toBeInTheDocument();
+    expect(skeleton()).not.toBeInTheDocument();
+    expect(
+      container.querySelector('[data-parity="Standings"]')?.className
+    ).toMatch(/dimmed/);
+    expect(
+      container.querySelector('[data-parity="Fresh Label"]')?.textContent
+    ).toBe('Refreshing · 0s');
+    expect(
+      container.querySelector('[data-parity="Leaderboard · Refreshing"]')
+    ).not.toBeNull();
   });
 });

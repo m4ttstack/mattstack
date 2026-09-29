@@ -38,7 +38,15 @@ describe('design fixture mode', () => {
     process.env.BOXSCORE_FIXTURE_SCENARIO = 'cold-stalled';
     const { routes } = await import('../src/server/routes');
     const res = await routes.request('/api/leaderboard?range=30d&cacheOnly=1');
-    expect(await res.json()).toEqual({ cached: false });
+    expect(await res.json()).toEqual({
+      cached: false,
+      window: {
+        start: '2026-08-30T00:00:00.000Z',
+        end: '2026-09-29T00:00:00.000Z',
+        key: '30d',
+      },
+      scope: { type: 'projects', projectPaths: ['acme/web-app'] },
+    });
   });
 
   it('answers the console link', async () => {
@@ -199,6 +207,7 @@ describe('design fixture mode', () => {
           done: 142,
           total: 310,
           window: 'current',
+          totals: { users: 7, 'mrs-list': 1, 'mrs-detail': 310 },
         },
       });
   });

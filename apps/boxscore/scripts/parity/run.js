@@ -217,17 +217,21 @@ async (
           '*,*::before,*::after{transition:none!important;animation-play-state:paused!important;caret-color:transparent!important}',
       });
       const root = sel(cfg.appAttr, t.root);
-      await page.waitForSelector(root, { state: 'visible', timeout: 30_000 });
+      const action = cfg.action;
+      await page.waitForSelector(action ? sel(cfg.appAttr, action.layer) : root, {
+        state: 'visible',
+        timeout: 30_000,
+      });
       const applied = await page.evaluate(() =>
         document.documentElement.getAttribute('data-mantine-color-scheme')
       );
       if (applied !== scheme)
         throw new Error(`app rendered ${applied}, wanted ${scheme}`);
 
-      const action = cfg.action;
       if (action?.kind === 'click') {
         step = `app: click ${action.layer}`;
         await page.locator(sel(cfg.appAttr, action.layer)).click();
+        await page.mouse.move(0, 0);
         await page.waitForSelector(sel(cfg.appAttr, action.waitFor), {
           state: 'visible',
           timeout: 30_000,
@@ -239,15 +243,21 @@ async (
           state: 'visible',
           timeout: 30_000,
         });
-      } else if (action?.kind === 'waitText') {
-        step = `app: wait for ${action.layer} to read "${action.prefix}..."`;
+      }
+      if (action?.until) {
+        const u = action.until;
+        step = `app: wait for ${u.layer} to match /${u.pattern}/`;
         await page.waitForFunction(
-          ({ s, prefix }) =>
-            document.querySelector(s)?.textContent?.trim().startsWith(prefix),
-          { s: sel(cfg.appAttr, action.layer), prefix: action.prefix },
-          { timeout: action.timeoutMs }
+          ({ s, pattern }) =>
+            new RegExp(pattern).test(
+              (document.querySelector(s)?.textContent ?? '').trim()
+            ),
+          { s: sel(cfg.appAttr, u.layer), pattern: u.pattern },
+          { timeout: u.timeoutMs }
         );
       }
+      step = `app: root ${t.root}`;
+      await page.waitForSelector(root, { state: 'visible', timeout: 30_000 });
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(300);
 
