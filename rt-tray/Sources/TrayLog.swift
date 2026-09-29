@@ -133,6 +133,73 @@ extension TrayLog {
     }
 }
 
+/// The head of a detached child's stdout and stderr, drained as it arrives so
+/// a long-lived child never blocks on a full pipe.
+final class CapturedOutput: @unchecked Sendable {
+    private static let capBytes = 4 * 1024
+    private let lock = NSLock()
+    private var out = Data()
+    private var err = Data()
+    private var status: Int32?
+
+    fileprivate func append(_ data: Data, toStderr: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        if toStderr {
+            err.append(data.prefix(max(0, Self.capBytes - err.count)))
+        } else {
+            out.append(data.prefix(max(0, Self.capBytes - out.count)))
+        }
+    }
+    fileprivate func finish(_ code: Int32) { lock.lock(); status = code; lock.unlock() }
+
+    var exitStatus: Int32? { lock.lock(); defer { lock.unlock() }; return status }
+    var text: (stderr: String, stdout: String) {
+        lock.lock(); defer { lock.unlock() }
+        return (String(decoding: err, as: UTF8.self), String(decoding: out, as: UTF8.self))
+    }
+}
+
+extension TrayLog {
+    /// `spawnLoggedDetached` for a caller that needs the child's own words:
+    /// both streams are captured and the exit status is recorded. Returns nil
+    /// when the spawn itself failed.
+    static func spawnLoggedCapturing(_ task: Process, label: String) -> CapturedOutput? {
+        let captured = CapturedOutput()
+        let outPipe = Pipe(), errPipe = Pipe()
+        task.standardOutput = outPipe
+        task.standardError = errPipe
+        for (pipe, toStderr) in [(outPipe, false), (errPipe, true)] {
+            pipe.fileHandleForReading.readabilityHandler = { h in
+                let data = h.availableData
+                // Empty means EOF, and the handler would otherwise spin on it.
+                if data.isEmpty { h.readabilityHandler = nil; return }
+                captured.append(data, toStderr: toStderr)
+            }
+        }
+        // A grandchild (logdy under rt) can hold the pipes open past the
+        // child's exit, so draining to EOF here could block forever; the
+        // grace period lets the readability handlers deliver what the child
+        // wrote before exiting.
+        task.terminationHandler = { proc in
+            let status = proc.terminationStatus
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+                captured.finish(status)
+                if status != 0 {
+                    TrayLog.warn("nonzero exit: \(label)", ["exitCode": Int(status), "stderr": captured.text.stderr])
+                }
+            }
+        }
+        do {
+            try task.run()
+            TrayLog.info("spawned: \(label)", ["pid": Int(task.processIdentifier)])
+            return captured
+        } catch {
+            TrayLog.error("spawn failed: \(label)", ["err": String(describing: error)])
+            return nil
+        }
+    }
+}
+
 // ─── Crash capture ───────────────────────────────────────────────────────────
 
 /// Pre-opened fd for the signal handler — Foundation is not async-signal-safe,

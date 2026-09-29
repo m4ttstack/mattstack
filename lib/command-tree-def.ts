@@ -1504,6 +1504,7 @@ export const TREE: Record<string, CommandNode> = {
         fn: "showLogs",
         args: [
           { name: "Terminal", flag: "--terminal", type: "boolean", default: false, hint: "Tail logs in terminal via lnav or pino-pretty instead of opening the web viewer (alias -t)" },
+          { name: "No open", flag: "--no-open", type: "boolean", default: false, hint: "Start the web viewer without opening a browser on it" },
         ],
       },
       "log-level": {

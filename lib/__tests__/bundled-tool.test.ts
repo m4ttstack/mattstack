@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveBundledTool } from "../bundled-tool.ts";
+import { resolveBundledTool, wellKnownBinDirs, whichWithWellKnownDirs } from "../bundled-tool.ts";
 
 describe("resolveBundledTool", () => {
   // The whole point: an installed machine must not depend on the user having
@@ -26,5 +26,44 @@ describe("resolveBundledTool", () => {
       return "/opt/homebrew/bin/fzf";
     });
     expect(calls).toBe(1);
+  });
+});
+
+describe("whichWithWellKnownDirs", () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = require("fs") as typeof import("fs");
+  const { join } = require("path") as typeof import("path");
+  const { tmpdir } = require("os") as typeof import("os");
+
+  function executable(dir: string, name: string): string {
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, name);
+    writeFileSync(path, "#!/bin/sh\n", { mode: 0o755 });
+    return path;
+  }
+
+  // launchd hands the tray and daemon a PATH without Homebrew or ~/.local/bin.
+  test("finds a tool in ~/.local/bin when PATH is launchd's minimal one", () => {
+    const home = mkdtempSync(join(tmpdir(), "rt-wellknown-"));
+    try {
+      const want = executable(join(home, ".local", "bin"), "rt-wellknown-probe");
+      expect(whichWithWellKnownDirs(home, "/usr/bin:/bin")("rt-wellknown-probe")).toBe(want);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("PATH outranks the well-known dirs", () => {
+    const home = mkdtempSync(join(tmpdir(), "rt-wellknown-"));
+    try {
+      executable(join(home, ".local", "bin"), "rt-wellknown-probe");
+      const onPath = executable(join(home, "onpath"), "rt-wellknown-probe");
+      expect(whichWithWellKnownDirs(home, join(home, "onpath"))("rt-wellknown-probe")).toBe(onPath);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("names Homebrew's two prefixes and ~/.local/bin", () => {
+    expect(wellKnownBinDirs("/Users/x")).toEqual(["/opt/homebrew/bin", "/usr/local/bin", "/Users/x/.local/bin"]);
   });
 });

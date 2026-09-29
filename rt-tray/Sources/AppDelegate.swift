@@ -1244,12 +1244,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// Open the logdy-based daemon log viewer in the user's default browser.
     /// If logdy is already serving on :5544 AND we know it's still current
     /// (see `isLogdyStale`), just opens the URL. Otherwise kills whatever
-    /// holds :5544 (a foreign or stale instance) and spawns `rt daemon logs`
-    /// fresh via a login shell so it picks up the user's PATH (rt-tray
-    /// inherits launchd's minimal PATH).
+    /// holds :5544 (a foreign or stale instance), spawns `rt daemon logs
+    /// --no-open`, and opens the URL only once logdy answers; when it never
+    /// does, the user gets rt's own reason instead of a dead page.
     @objc private func viewDaemonLogs() {
-        let url = URL(string: "http://localhost:5544")!
+        let url = LogViewerLaunch.url
         Task { @MainActor in
+            // A second click mid-poll would spawn a rival rt, and its failure
+            // would forget the first launch's spawn record.
+            guard !self.logViewerLaunching else { return }
+            self.logViewerLaunching = true
+            defer { self.logViewerLaunching = false }
             let up = await self.isLogdyUp()
             if up && !self.isLogdyStale() {
                 NSWorkspace.shared.open(url)
@@ -1261,19 +1266,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
                 // Give the port a moment to free before respawning.
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
-            self.spawnRtDaemonLogs()
-            // Poll until logdy answers, up to ~4s, then open.
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                if await self.isLogdyUp() {
-                    NSWorkspace.shared.open(url)
-                    return
-                }
+            guard let (task, captured) = self.spawnRtDaemonLogs() else {
+                self.reportLogViewerFailure("rt daemon logs could not be started.")
+                return
             }
-            // Fallback: open the URL anyway — user sees a connection error if
-            // logdy never came up (e.g. logdy not installed).
-            NSWorkspace.shared.open(url)
+            let deps = LogViewerWaitDeps(
+                isUp: { await self.isLogdyUp() },
+                exitStatus: { captured.exitStatus },
+                output: { captured.text },
+                sleep: { try? await Task.sleep(nanoseconds: 200_000_000) }
+            )
+            // rt gives logdy 5s before exiting with its own reason; 11s of
+            // polling covers a cold dev-wrapper rt so that reason arrives
+            // rather than a bare timeout.
+            switch await LogViewerLaunch.awaitViewer(deps, attempts: 55) {
+            case .open:
+                NSWorkspace.shared.open(url)
+            case .failed(let reason):
+                self.forgetLogdySpawn()
+                self.reportLogViewerFailure(reason)
+            case .timedOut:
+                if task.isRunning { task.terminate() }
+                self.forgetLogdySpawn()
+                self.reportLogViewerFailure(LogViewerLaunch.timedOutReason)
+            }
         }
+    }
+
+    @MainActor
+    private func reportLogViewerFailure(_ reason: String) {
+        TrayLog.warn("log viewer did not start", ["reason": reason])
+        let alert = NSAlert()
+        alert.messageText = "Couldn't open the log viewer"
+        alert.informativeText = reason
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     /// True when the logdy this tray believes is running on :5544 can no
@@ -1342,14 +1370,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         }
     }
 
-    /// Spawn `rt daemon logs` detached. Uses the installed CLI at
-    /// ~/.local/bin/rt (the dev app's source wrapper, or the prod binary), else this
-    /// bundle's own embedded daemon binary, else a login-shell PATH lookup.
+    /// Spawn `rt daemon logs --no-open` detached, capturing its output for
+    /// the failure alert. Uses the installed CLI at ~/.local/bin/rt (the dev
+    /// app's source wrapper, or the prod binary), else this bundle's own
+    /// embedded rt, else a login-shell PATH lookup.
     ///
     /// Logdy stays running in the background after this method returns;
-    /// it's killed only if the user Ctrl-Cs the spawned rt OR the rt-tray
-    /// app group is terminated.
-    private func spawnRtDaemonLogs() {
+    /// it's killed only if the spawned rt is signalled OR the rt-tray app
+    /// group is terminated.
+    private func spawnRtDaemonLogs() -> (Process, CapturedOutput)? {
         let home = AppHome.current
         let candidates = [
             "\(home)/.local/bin/rt",
@@ -1360,17 +1389,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let task = Process()
         if let rtBin = rtBin {
             task.executableURL = URL(fileURLWithPath: rtBin)
-            task.arguments = ["daemon", "logs"]
+            task.arguments = LogViewerLaunch.rtArguments
         } else {
-            // Last-resort PATH lookup via login shell.
             task.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            task.arguments = ["-lc", "exec rt daemon logs"]
+            task.arguments = ["-lc", LogViewerLaunch.loginShellCommand]
             TrayLog.warn("no rt binary found in known locations; falling back to PATH lookup")
         }
-        TrayLog.spawnLoggedDetached(task, label: "rt daemon logs")
+        guard let captured = TrayLog.spawnLoggedCapturing(task, label: "rt daemon logs") else { return nil }
         let now = Date()
         logdySpawnedAt = now
         logdySpawnedDay = Self.dayString(for: now)
+        return (task, captured)
+    }
+
+    private func forgetLogdySpawn() {
+        logdySpawnedAt = nil
+        logdySpawnedDay = nil
     }
 
     /// Open whichever crash/panic log is actually current (S029). Neither
@@ -1579,6 +1613,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     /// When this tray last spawned `rt daemon logs`, and the calendar day it
     /// did so on -- nil whenever logdy wasn't spawned by this tray instance
     /// (see `isLogdyStale`, S080).
+    @MainActor private var logViewerLaunching = false
     private var logdySpawnedAt: Date?
     private var logdySpawnedDay: String?
 
