@@ -147,7 +147,7 @@ export function StatPanel({
                   className={`${classes.t} ${classes.blockLabel}`}
                   data-parity="of"
                 >
-                  {`of ${ranked.length}`}
+                  {`of ${points.length}`}
                 </span>
               </span>
             </div>

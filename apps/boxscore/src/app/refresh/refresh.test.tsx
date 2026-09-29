@@ -23,6 +23,21 @@ const phase = (container: HTMLElement, name: string) =>
   container.querySelector(`[data-phase="${name}"]`) as HTMLElement;
 
 describe('RefreshStatus', () => {
+  it('says when a trend refresh is on its second pass, over the prior window', () => {
+    const { container } = renderWithProviders(
+      <RefreshStatus
+        progress={{ ...PROGRESS, window: 'prior' }}
+        stalledMs={null}
+        window="Aug 30 – Sep 29"
+        cold={false}
+        onCancel={vi.fn()}
+      />
+    );
+    expect(
+      container.querySelector('[data-parity="RS Title"]')
+    ).toHaveTextContent('Refreshing Aug 30 – Sep 29 · prior window');
+  });
+
   it('shows the step, the count and the phases a warm refresh has finished', () => {
     const { container } = renderWithProviders(
       <RefreshStatus

@@ -185,6 +185,7 @@ export function RefreshStatus({
           )}
           <span className={classes.title} data-parity="RS Title">
             {cold ? 'Building' : 'Refreshing'} {window}
+            {progress?.window === 'prior' && ' · prior window'}
           </span>
           <span
             className={classes.sub}

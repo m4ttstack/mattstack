@@ -174,6 +174,13 @@ describe('person page', () => {
     ).toHaveAttribute('aria-current', 'page');
   });
 
+  it('counts only people with a value in the rank block, as the team strip does', () => {
+    const { container } = renderAt('/user/srivera/responseLatencyHours');
+    const panel = layer(container, 'Panel · Response time')!;
+    expect(layer(panel, 'of')).toHaveTextContent('of 5');
+    expect(panel.querySelectorAll('[data-parity^="Dot "]')).toHaveLength(5);
+  });
+
   it('marks an unranked stat in the rail with an en dash, as the board draws a rank', () => {
     renderAt('/user/lortiz/issuesCompleted');
     const rail = screen.getByRole('navigation', { name: 'Stats' });
