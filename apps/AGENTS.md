@@ -34,9 +34,11 @@ it precedes the numbered kit contract sections.
 4. The kit contract below (sections 1 to 10): import walls, theme and icon
    extension points, the boot family, and the consumer requirements a new
    app must not skip.
-5. `docs/apps/ui-authoring.md` -- MANDATORY before writing UI colour or type
-   anywhere in this repo: the Radix step model, the role tokens, the
-   contrast bars and their ledger, and the type rules. Each app's own
+5. `docs/apps/ui-authoring.md` -- MANDATORY before writing any UI
+   anywhere in this repo: kit chrome and components over design boards,
+   the rail and `PageShell` rule, the Mantine styling ladder, the Radix
+   step model, the role tokens, the contrast bars and their ledger, and
+   the type rules. Each app's own
    `apps/<name>/AGENTS.md` points back here and carries that app's
    specifics.
 
