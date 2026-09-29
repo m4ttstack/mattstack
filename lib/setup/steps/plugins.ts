@@ -114,6 +114,11 @@ function addFoundExisting(res: ExecResult): boolean {
   return isAlready(res) || /already on disk/i.test(res.stdout);
 }
 
+/** Enabling a plugin that is already on exits 1 with "is already enabled" on stderr (claude 2.1.284). */
+function isAlreadyEnabled(res: ExecResult): boolean {
+  return /already enabled/i.test(res.stderr);
+}
+
 function isUnknownSubcommand(res: { stdout: string; stderr: string }): boolean {
   return /unknown (sub)?command/i.test(`${res.stdout}\n${res.stderr}`);
 }
@@ -240,8 +245,8 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   /** The single site every trusted enable goes through. Best-effort, and logged: an older claude without the subcommand must never fail an otherwise-good install, but a silent failure would leave a disabled baseline plugin with no signal anywhere. */
   async function enableTrusted(runner: ClaudeRunner, plugin: string, dir: string): Promise<void> {
     const enable = await runner.run(["plugin", "enable", plugin], PACK_EXEC_TIMEOUT_MS);
-    if (enable.code !== 0 && !isAlready(enable) && !isUnknownSubcommand(enable)) {
-      ctx.log("plugins.install", `claude plugin enable ${plugin} (${dir}) exited ${enable.code} ... ignored`);
+    if (enable.code !== 0 && !isAlready(enable) && !isAlreadyEnabled(enable) && !isUnknownSubcommand(enable)) {
+      ctx.log("plugins.install", `claude plugin enable ${plugin} (${dir}): ${claudeMessage(enable, `exited ${enable.code}`)} ... ignored`);
     }
   }
 
@@ -313,7 +318,7 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
           // `tool.plugins` needs-you row's action is `rt setup pack`, which
           // lands here: without this, the one command offered for an
           // installed-but-disabled baseline plugin does nothing.
-          if (!teamAuthored) await enableTrusted(runner, plugin, dir);
+          if (!teamAuthored && !byId.get(plugin)!.enabled) await enableTrusted(runner, plugin, dir);
           settled.push(plugin);
           continue;
         }

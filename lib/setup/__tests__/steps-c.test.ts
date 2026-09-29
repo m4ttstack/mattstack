@@ -463,6 +463,63 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(second.state).toBe("done");
     });
 
+    // Reply captured from the real CLI (2.1.284) enabling a plugin that is already on.
+    const ALREADY_ENABLED = (id: string) => `✘ Failed to enable plugin "${id}": Plugin "${id}" is already enabled`;
+
+    test("an already-enabled plugin is not an error: the enable reply logs nothing", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          if (argv[2] === "enable") return { code: 1, stdout: "", stderr: ALREADY_ENABLED(argv.at(-1)!) };
+          return ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+      expect(logs.filter((l) => l.line.includes("enable"))).toEqual([]);
+    });
+
+    test("an installed plugin the listing already shows enabled is never re-enabled", async () => {
+      const execCalls: string[][] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          execCalls.push(argv);
+          if (argv[2] === "list") return ok(JSON.stringify(BASE_PLUGINS.map((id) => ({ id, version: "1.0.0", enabled: true }))));
+          return ok("");
+        },
+      });
+
+      expect((await pluginsInstallStep.run(makeCtx(p).ctx)).state).toBe("done");
+      expect(execCalls.filter((a) => a[2] === "enable")).toEqual([]);
+    });
+
+    test("a real enable failure is logged with claude's own first line", async () => {
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          if (argv[2] === "enable") return { code: 1, stdout: "", stderr: "✘ Failed to enable plugin: settings.json is not writable\nmore detail" };
+          return ok("");
+        },
+      });
+      const { ctx, logs } = makeCtx(p);
+
+      expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+      const enableLogs = logs.filter((l) => l.line.includes("enable"));
+      expect(enableLogs.length).toBeGreaterThan(0);
+      expect(enableLogs[0]!.line).toContain("Failed to enable plugin: settings.json is not writable");
+      expect(enableLogs[0]!.line).not.toContain("more detail");
+    });
+
     test("a team-authored pack ends DISABLED, asserted on the resulting state rather than the argv", async () => {
       const teamDir = join(home, ".mattstack", "teams", "acme");
       const marketplacePath = join(teamDir, ".claude-plugin", "marketplace.json");
