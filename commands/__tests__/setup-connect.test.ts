@@ -630,6 +630,21 @@ describe("integrationConnect — slack (OAuth flow)", () => {
     expect(payload.error.message).toContain("add http://localhost:11234/callback to the Slack app's Redirect URLs at https://api.slack.com/apps/A0TEAM/oauth");
   });
 
+  test("with no appId recorded, the timeout advice points at the Slack apps list", async () => {
+    const deps = baseDeps({
+      probes: fakeProbes({ exec: async () => ok() }),
+      teamSnapshot: () => slackTeamSnapshot({ callbackPort: 11234 }),
+      listen: async () => {
+        throw new SlackCallbackTimeoutError();
+      },
+    });
+
+    await expectExit(() => integrationConnect("slack", ["--json"], deps));
+
+    const payload = JSON.parse(deps.lines[0]!) as { error: { message: string } };
+    expect(payload.error.message).toContain("add http://localhost:11234/callback to the Slack app's Redirect URLs at https://api.slack.com/apps (your app's OAuth & Permissions page)");
+  });
+
   test("a bad_redirect_uri exchange names the redirect URL to add", async () => {
     const fetch: Probes["fetch"] = async (url) => {
       if (url === "https://slack.com/api/oauth.v2.access") return { status: 200, body: JSON.stringify({ ok: false, error: "bad_redirect_uri" }), headers: {} };

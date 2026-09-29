@@ -34,6 +34,10 @@ export function slackRedirectFix(callbackPort: number, appId: string | undefined
   return `add ${slackRedirectUri(callbackPort)} to the Slack app's Redirect URLs at ${page}`;
 }
 
+export function slackRedirectHint(callbackPort: number): string {
+  return `If Slack rejects the redirect, add ${slackRedirectUri(callbackPort)} in the app's OAuth settings`;
+}
+
 export class SlackCallbackTimeoutError extends Error {
   constructor() {
     super("timed out waiting for the Slack OAuth callback");
