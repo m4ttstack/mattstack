@@ -101,3 +101,60 @@ let rowVerbRunChecks: [Check] = [
         c.expect(failure != nil)
     },
 ]
+
+/// Records when each stream opens and closes, so a check can see whether two runs overlapped.
+private final class OverlapRt: RtRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var log: [String] = []
+    func run(_ args: [String], stdin: Data?) async throws -> RtResult { RtResult(exitCode: 1, stdout: Data(), stderr: Data()) }
+    func stream(_ args: [String], stdin: Data?) -> AsyncThrowingStream<String, Error> {
+        let name = args[3]
+        return AsyncThrowingStream { cont in
+            Task {
+                self.note("start \(name)")
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                cont.yield(#"{"event":"step","id":"\#(name)","state":"done"}"#)
+                cont.yield(#"{"event":"done","ok":true,"failedStep":null}"#)
+                self.note("end \(name)")
+                cont.finish()
+            }
+        }
+    }
+    private func note(_ s: String) { lock.lock(); log.append(s); lock.unlock() }
+}
+
+let rowVerbRunScopeChecks: [Check] = [
+    Check("a row run forgets only its own step's outcome, never another run's") { c in
+        let rt = ScriptedRt()
+        rt.streamLines = [proxyPlan, #"{"event":"step","id":"proxy.install","state":"done"}"#, #"{"event":"done","ok":true,"failedStep":null}"#]
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        _ = await broker.perform(id: "services.register", request: NeedRequest(type: "app-register-services", plists: [], op: nil))
+        _ = await RowVerbRun.apply(proxyOnly, rt: rt, needs: broker) { _ in }
+        c.expectEqual(await broker.outcome(id: "services.register").state, "done", "Install may still be polling this")
+    },
+    Check("an --only run whose step never ran fails the row instead of reading as success") { c in
+        let rt = ScriptedRt()
+        rt.streamLines = [#"{"event":"plan","steps":[]}"#, #"{"event":"done","ok":true,"failedStep":null}"#]
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        let failure = await RowVerbRun.apply(["setup", "apply", "--only", "home.init", "--json"], rt: rt, needs: broker) { _ in }
+        c.expect(failure?.contains("home.init") == true, "got \(String(describing: failure))")
+    },
+    Check("an --only run whose step skipped fails the row with the step's reason") { c in
+        let rt = ScriptedRt()
+        rt.streamLines = [#"{"event":"step","id":"linear.mcp","state":"skipped","detail":"no Linear key stored (connect Linear, then Retry)"}"#,
+                          #"{"event":"done","ok":true,"failedStep":null}"#]
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        let failure = await RowVerbRun.apply(["setup", "apply", "--only", "linear.mcp", "--json"], rt: rt, needs: broker) { _ in }
+        c.expectEqual(failure, "no Linear key stored (connect Linear, then Retry)")
+    },
+    Check("two rows' apply runs never overlap") { c in
+        let rt = OverlapRt()
+        let broker = NeedBroker(services: FakeServices(), privileged: FakePrivileged())
+        async let a = RowVerbRun.apply(["setup", "apply", "--only", "path.link", "--json"], rt: rt, needs: broker) { _ in }
+        async let b = RowVerbRun.apply(["setup", "apply", "--only", "linear.mcp", "--json"], rt: rt, needs: broker) { _ in }
+        _ = await (a, b)
+        let log = rt.log
+        try c.requireEqual(log.count, 4)
+        c.expect(log[0].hasPrefix("start") && log[1].hasPrefix("end") && log[2].hasPrefix("start"), "runs overlapped: \(log)")
+    },
+]
