@@ -43,7 +43,7 @@ digraph rt_release {
     "Land the fix each cut row needs" [shape=box];
     "Record each held row for the notes" [shape=box];
     "Which gate does the diff imply?" [shape=diamond];
-    "Fast path: rt release app (fast-path.md)" [shape=box];
+    "Fast path: rt release apps (fast-path.md)" [shape=box];
     "Fast path outcome?" [shape=diamond];
     "Prepare the release (prepare.md)" [shape=box];
     "Prove and tag (prove-and-tag.md)" [shape=box];
@@ -98,9 +98,9 @@ digraph rt_release {
     "Local main diverged after the cuts: gate rounds = 2?" -> "Handed back to Matt" [label="yes: budget spent"];
     "Pull after the cuts result?" -> "Off-script gate: local main diverged after the cuts" [label="refused"];
     "Record each held row for the notes" -> "Which gate does the diff imply?";
-    "Which gate does the diff imply?" -> "Fast path: rt release app (fast-path.md)" [label="served-app fast path, one app"];
-    "Which gate does the diff imply?" -> "Prepare the release (prepare.md)" [label="anything else, or several apps together"];
-    "Fast path: rt release app (fast-path.md)" -> "Fast path outcome?";
+    "Which gate does the diff imply?" -> "Fast path: rt release apps (fast-path.md)" [label="served-app fast path"];
+    "Which gate does the diff imply?" -> "Prepare the release (prepare.md)" [label="anything else"];
+    "Fast path: rt release apps (fast-path.md)" -> "Fast path outcome?";
     "Fast path outcome?" -> "Publish and finish (publish-and-finish.md)" [label="tag verified"];
     "Fast path outcome?" -> "Prepare the release (prepare.md)" [label="refused: take the full path"];
     "Fast path outcome?" -> "Held: release paused, resume point named" [label="held inside the fast path"];
@@ -111,11 +111,14 @@ digraph rt_release {
 }
 ```
 
-`Which gate does the diff imply?` reads preflight's gate row. The fast path is one served app:
-the diff since the last tag touches only served-app directories (`apps/board`, `apps/boxscore`,
-`apps/chat`, `apps/console`, `apps/gitq`), `RELEASE_NOTES.md` and `website/`. A deck change, a
-tool row, fast-browser, any rt file, or several served apps released together (when Matt wants
-that) take the full path.
+`Which gate does the diff imply?` reads preflight's gate row: `fast` takes the fast path,
+anything else takes the full path. The fast path ships every served app that moved in one
+patch release, however many there are: the diff since the last tag touches only served-app
+directories (`apps/board`, `apps/boxscore`, `apps/chat`, `apps/console`, `apps/gitq`), the
+kits only those apps build from (`packages/ui`, `packages/tokyo`, `packages/settings-kit`,
+`packages/gate-kit`, each counting as every app built from it), `RELEASE_NOTES.md` and
+`website/`. A deck change, a tool row, fast-browser, any other package, or any rt file takes
+the full path.
 
 Counters say what one count is. `Preflight runs = 3?` counts every preflight run in this release,
 the first one and the reruns after cuts included. Every `<origin>: gate rounds = 2?` counts the
@@ -148,7 +151,7 @@ lag origin/main), then take the first edge that matches:
   flight); or the newest tag's verify is not `released`; or Matt or the brief says the last
   release stopped before rt.cool or update-machine.
 - `nothing started`: neither. A fast-path notes commit (`chore(release): notes for <tag>`)
-  with no tag also lands here: `rt release app` resumes its own steps.
+  with no tag also lands here: `rt release apps` resumes its own steps.
 
 ### Gate: cut or hold each stale row
 
@@ -225,10 +228,10 @@ Quote each row still `!` (unverifiable) or stale after three preflight runs; a `
 pass. Take: Matt accepts the rows as they stand, and they join the held rows for the notes.
 Iterate: Matt fixed the cause (network, a token, a landed fix), and preflight runs again.
 
-### Fast path: rt release app (fast-path.md)
+### Fast path: rt release apps (fast-path.md)
 
-One served app's fix, released by one verb that qualifies origin/main, writes and commits the
-notes, tags the next patch without a rehearsal, and verifies the publish.
+Every served app that moved, released together by one verb that qualifies origin/main, writes
+and commits the notes, tags the next patch without a rehearsal, and verifies the publish.
 Read `fast-path.md` now and follow its graph; its sections are there.
 
 ### Prepare the release (prepare.md)

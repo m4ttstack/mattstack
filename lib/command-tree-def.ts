@@ -1731,13 +1731,11 @@ export const TREE: Record<string, CommandNode> = {
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the leg report as JSON" },
         ],
       },
-      app: {
-        description: "Patch-release one served app end to end: qualify the path gate, write the notes, tag and verify",
+      apps: {
+        description: "Ship a quick patch release of the web apps that changed",
         module: "./commands/release.ts",
-        fn: "releaseApp",
-        omitBehavior: "picker",
+        fn: "releaseApps",
         args: [
-          { name: "Name", type: "text", placeholder: "board", hint: "Served app to release (board, chat, console, boxscore); omit on a terminal to pick one" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Resolve and print the whole plan without changing anything" },
           { name: "Yes notes", flag: "--yes-notes", type: "text", placeholder: "3f9c2a7b1e04", hint: "Approve the notes a stopped run showed, by the 12-character hash it printed; refused if the notes changed since" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Emit the release report as JSON; without --yes-notes it stops at notes not yet committed on main" },
