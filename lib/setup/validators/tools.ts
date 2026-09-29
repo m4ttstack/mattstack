@@ -20,7 +20,7 @@ import { resolveTool } from "../../deps/resolve.ts";
 import { detectEditors } from "../../editors.ts";
 import { BACKUP_TOOLS as BACKUP_TOOL_NAMES } from "../../state/backup-tools.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
-import { row, type Action, type Row } from "../contract.ts";
+import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { integrationDef } from "../integrations.ts";
 import { callableBySkills, claudeJsonPath, linearServerNames, nameTaken, readClaudeConfig } from "../linear-mcp.ts";
 import { parsePluginList, readServedPacks, type ServedPack } from "../pack-cache.ts";
@@ -539,7 +539,7 @@ function packRow(req: PackRequirements, pluginList: ExecResult, served?: ServedP
     // contradicts this row's own detail.
     return row({ ...base, optionalNote: null, status: "skipped", detail: "version unknown; rt does not track this source's version" });
   }
-  if (!entry) return row({ ...base, status: "missing", detail: "installed by Install (plugins.install)" });
+  if (!entry) return row({ ...base, status: "missing", detail: "not installed yet", action: applyStepAction("Install plugins", "plugins.install") });
 
   const installed = entry.version ?? "unknown";
   if (served && served.servedVersion !== null && entry.version !== null && entry.version !== served.servedVersion) {

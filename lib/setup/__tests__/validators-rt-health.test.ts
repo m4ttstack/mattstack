@@ -382,7 +382,8 @@ describe("rtHealthRows — tool.daemon", () => {
     rmSync(DAEMON_CONFIG_PATH, { force: true });
     const r = await pickRow(rtHealthRows(fakeProbes(), { ci: false }), "tool.daemon");
     expect(r.status).toBe("missing");
-    expect(r.detail).toContain("Install");
+    expect(r.detail).toBe("not registered yet");
+    expect(r.action).toEqual({ type: "run", label: "Register services", verb: ["setup", "apply", "--only", "services.register"] });
     expect(r.required).toBe(true);
     expect(r.recheck).toBe("on-activate");
   });

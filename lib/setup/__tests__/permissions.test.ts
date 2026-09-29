@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { fetchPermissions, permissionRows, type PermissionsReply } from "../permissions.ts";
 import { fakeTray } from "./fakes.ts";
+import type { Action } from "../contract.ts";
 
 function reply(overrides: Partial<PermissionsReply>): PermissionsReply {
   return {
@@ -91,17 +92,19 @@ describe("permissionRows — perm.login-items", () => {
     expect(r.action).toEqual({ type: "open-settings", label: "Open Login Items…", target: "login-items" });
   });
 
-  test("notRegistered -> missing, no action (Install registers it)", () => {
+  const REGISTER: Action = { type: "run", label: "Register services", verb: ["setup", "apply", "--only", "services.register"] };
+
+  test("notRegistered -> missing, with a row action that runs services.register", () => {
     const r = pickRow(permissionRows(reply({ loginItems: { status: "notRegistered" } }), null), "perm.login-items");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("Not registered yet (Install registers it)");
-    expect(r.action).toBeNull();
+    expect(r.detail).toBe("Not registered yet");
+    expect(r.action).toEqual(REGISTER);
   });
 
-  test("notFound -> missing, no action", () => {
+  test("notFound -> missing, same register action", () => {
     const r = pickRow(permissionRows(reply({ loginItems: { status: "notFound" } }), null), "perm.login-items");
     expect(r.status).toBe("missing");
-    expect(r.action).toBeNull();
+    expect(r.action).toEqual(REGISTER);
   });
 
   test("reply null -> error, re-check action", () => {

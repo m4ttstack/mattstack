@@ -1093,7 +1093,8 @@ describe("toolRows — pack.<pack>", () => {
     const exec: ExecScript = (argv) => (argv[0] === "claude" && argv[1] === "plugin" && argv[2] === "list" ? ok(REAL_PLUGIN_LIST_JSON) : ok());
     const r = await pickRow(toolRows(fakeProbes({ exec }), reqs, { hasBrew: true, secrets: NO_SECRETS }, NOOP_SEAMS), "pack.acme");
     expect(r.status).toBe("missing");
-    expect(r.detail).toBe("installed by Install (plugins.install)");
+    expect(r.detail).toBe("not installed yet");
+    expect(r.action).toEqual({ type: "run", label: "Install plugins", verb: ["setup", "apply", "--only", "plugins.install"] });
   });
 
   // The real listing has "fast-browser@mattstack" but nothing with the exact

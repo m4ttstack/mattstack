@@ -22,7 +22,7 @@ import { DEV_TRAY_APP_BUNDLE, legacyDirsPresent, legacyTrayAppPaths, RT_DIR_LABE
 import { getSetting } from "../../settings/resolve.ts";
 import { detectShellFrom, shellRcPathFor } from "../../shell-integration.ts";
 import { readHomePushRecord, type HomePushRecord } from "../../home/push-record.ts";
-import { row, type Action, type Row } from "../contract.ts";
+import { applyStepAction, row, type Action, type Row } from "../contract.ts";
 import { hasCommits, hasRemote, isGitRepo, originPushState } from "../home-git.ts";
 import { LOGIN_ITEMS_SETTINGS_ACTION } from "../permissions.ts";
 import { execWithTimeout, type Probes } from "../probes.ts";
@@ -305,7 +305,7 @@ async function daemonRow(p: Probes, opts: { ci: boolean }): Promise<Row> {
   // registers the daemon at launch; one that answers is installed either way.
   const ping = await p.daemon("ping");
   const answers = ping?.ok === true;
-  if (!answers && !isDaemonInstalled()) return row({ ...base, status: "missing", detail: "run Install (registers the daemon)" });
+  if (!answers && !isDaemonInstalled()) return row({ ...base, status: "missing", detail: "not registered yet", action: applyStepAction("Register services", "services.register") });
   if (!answers) {
     if (opts.ci) return row({ ...base, status: "needs-you", detail: "not booted (expected in CI)" });
     return row({ ...base, status: "needs-you", detail: "installed but not responding — approve in Login Items", action: LOGIN_ITEMS_SETTINGS_ACTION });
