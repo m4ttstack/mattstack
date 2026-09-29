@@ -286,10 +286,11 @@ describe("rtHealthRows — tool.intercepts", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  test("no rules declared -> skipped", async () => {
+  test("no rules declared -> ready and says it is not needed, never a pending-looking skipped", async () => {
     const r = await pickRow(rtHealthRows(fakeProbes({ home }), { ci: false }), "tool.intercepts");
-    expect(r.status).toBe("skipped");
-    expect(r.detail).toBe("no intercepts declared");
+    expect(r.status).toBe("ready");
+    expect(r.detail).toBe("Not needed: your team declares no intercepts");
+    expect(r.action).toBeNull();
     expect(r.required).toBe(false);
     expect(r.optionalNote).not.toBeNull();
   });

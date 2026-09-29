@@ -190,7 +190,7 @@ function interceptsRow(p: Probes): Row {
     return row({ ...base, status: "error", detail: `check failed: ${(err as Error).message}` });
   }
 
-  if (report.length === 0) return row({ ...base, status: "skipped", detail: "no intercepts declared" });
+  if (report.length === 0) return row({ ...base, status: "ready", detail: "Not needed: your team declares no intercepts" });
 
   const missing = report.filter((r) => !r.installed);
   const stale = report.filter((r) => r.installed && !r.current);
