@@ -22,7 +22,7 @@ import { materializeSkills } from "../skills-materialize.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
-import { repoBasename } from "./repos.ts";
+import { repoBasename, skippedIdentities } from "./repos.ts";
 import { toFailedOutcome, unwritten } from "./step-utils.ts";
 
 // ─── skills.materialize ──────────────────────────────────────────────────────
@@ -100,20 +100,25 @@ export const skillsLinkStep: StepDef = {
 // ─── board.keys ──────────────────────────────────────────────────────────────
 
 /**
- * Each tracking identity that has a registered repo, named by its basename
- * (the name `repos.clone` gives its destination) and located where the index
- * says it lives. Rows are keyed by serialized identity; a legacy row keyed by
+ * The tracking identities (less any `RT_SKIP_REPOS` entry), split into the
+ * ones with a registered repo, named by basename (what `repos.clone` calls
+ * its destination) and located where the index says it lives, and the ones
+ * still missing. Rows are keyed by serialized identity; a legacy row keyed by
  * that basename still counts.
  */
-function trackedRepos(ctx: ApplyContext): { name: string; path: string }[] {
+function trackedRepos(ctx: ApplyContext): { found: { name: string; path: string }[]; missing: string[] } {
+  const skip = skippedIdentities(ctx.p.env);
+  const identities = (ctx.snapshot?.trackingIdentities ?? []).filter((id) => !skip.has(id) && !skip.has(repoBasename(id)));
   const known = getKnownRepos().filter((r) => r.registered !== false && r.worktrees[0]);
   const found: { name: string; path: string }[] = [];
-  for (const identity of ctx.snapshot?.trackingIdentities ?? []) {
+  const missing: string[] = [];
+  for (const identity of identities) {
     const name = repoBasename(identity);
     const row = known.find((r) => r.repoName === serializeIdentity({ kind: "remote", id: identity })) ?? known.find((r) => r.repoName === name);
     if (row) found.push({ name, path: row.worktrees[0]!.path });
+    else missing.push(name);
   }
-  return found;
+  return { found, missing };
 }
 
 /** True only when a key is both registered AND write-eligible — a def missing from the registry (or shipped `migrated: false`) is logged and left alone rather than letting `setSetting`'s own refusal crash the step. */
@@ -165,26 +170,26 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
 
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
-  const repos = trackedRepos(ctx);
+  const { found, missing } = trackedRepos(ctx);
   const root = getSetting<string[]>("rt.repoRoots").value?.[0];
+  // Both keys are written once and never topped up, so they wait until every tracked repo is registered.
+  const waiting = missing.length > 0 ? `waiting on ${missing.join(", ")} (not registered yet), left unset; written on the next run once repos.clone lands them` : null;
 
   if (writable(ctx, "board.cwds") && isUnset("board.cwds")) {
-    const cwd = repos[0]?.path;
-    if (cwd) {
+    const cwd = found[0]?.path;
+    if (waiting) ctx.log("board.keys", `board.cwds: ${waiting}`);
+    else if (!cwd) ctx.log("board.keys", "board.cwds: the team tracks no repos, left unset");
+    else {
       setSetting("board.cwds", { review: cwd, respond: cwd, doctor: cwd }, "machine");
       written.push("board.cwds");
-    } else {
-      ctx.log("board.keys", "board.cwds: no registered tracked repo yet, left unset; it is written on the next run once repos.clone lands one");
     }
   }
 
   if (writable(ctx, "gitq.board") && isUnset("gitq.board")) {
-    // Written once and never again, so an empty list is only written when the team tracks nothing at all.
-    if (repos.length > 0 || (ctx.snapshot?.trackingIdentities ?? []).length === 0) {
-      setSetting("gitq.board", { repos: repos.map((r) => r.name), port: 11008 }, "machine");
+    if (waiting) ctx.log("board.keys", `gitq.board: ${waiting}`);
+    else {
+      setSetting("gitq.board", { repos: found.map((r) => r.name), port: 11008 }, "machine");
       written.push("gitq.board");
-    } else {
-      ctx.log("board.keys", "gitq.board: no tracked repo registered yet, left unset; it is written on the next run once repos.clone lands one");
     }
   }
 

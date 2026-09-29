@@ -38,7 +38,8 @@ export function repoBasename(identity: string): string {
   return identity.split("/").pop() || identity;
 }
 
-function skippedIdentities(env: Record<string, string | undefined>): Set<string> {
+/** `RT_SKIP_REPOS`: identities or basenames the operator told Install to leave uncloned. Exported: `board.keys` must not wait on a repo this step will never land. */
+export function skippedIdentities(env: Record<string, string | undefined>): Set<string> {
   return new Set(
     (env.RT_SKIP_REPOS ?? "")
       .split(",")

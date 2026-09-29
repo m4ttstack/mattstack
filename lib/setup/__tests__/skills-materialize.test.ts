@@ -118,12 +118,12 @@ describe("materializeSkills", () => {
     const p = fakeProbes({
       home: "/fake-home",
       env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-      exec: async () => ({ code: 2, stdout: "", stderr: "no git remote" }),
+      exec: async () => ({ code: 2, stdout: "", stderr: "merge-manifests: no git remote in /x -- no per-repo manifest" }),
     });
 
     const result = await materializeSkills(p, { repo: repoName });
 
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, detail: "no git remote" }] });
+    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, detail: "merge-manifests: no git remote in /x -- no per-repo manifest" }] });
   });
 
   test("skips honestly (never throws) when the script can't be found — the ordinary fresh-machine case", async () => {

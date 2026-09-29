@@ -229,9 +229,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
         break;
       }
       if (step.reloadsTeam && outcome.state === "done") ctx.reloadTeam?.();
-      // "skipped" and "partial" are non-fatal by contract (a fresh machine
-      // skips skills.materialize honestly before plugins.install runs it for
-      // real) — only "failed" stops the run.
+      // Only "failed" stops the run.
     }
   } finally {
     // `lastApplyAt` is written on every terminal outcome, success or

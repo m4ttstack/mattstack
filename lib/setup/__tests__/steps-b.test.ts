@@ -921,6 +921,17 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(logs.some((l) => l.line.includes("no team declares"))).toBe(true);
     });
 
+    test("exit 2 without the no-manifest message is a real failure", async () => {
+      const repoDir = mkdtempSync(join(home, "repo-"));
+      updateRepoIndex(basename(repoDir), repoDir);
+      const p = fakeProbes({
+        home,
+        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
+        exec: async () => ({ code: 2, stdout: "", stderr: "jq: error: something else" }),
+      });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 0, failed 1" });
+    });
+
     test("idempotent re-run: same script, same repo, done again", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
@@ -994,6 +1005,30 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const outcome = await boardKeysStep.run(after);
       expect(detailOf(outcome)).toContain("board.cwds");
       expect(getSetting("gitq.board").value).toEqual({ repos: ["acme-dev"], port: 11008 });
+    });
+
+    test("with only some tracked repos registered, board.cwds and gitq.board wait for the rest instead of latching a partial set", async () => {
+      const snapshot = { slug: "acme", integrations: {}, trackingIdentities: ["gitlab.com/acme/one", "gitlab.com/acme/two"], marketplaces: [], plugins: [], remote: null };
+      setSetting("rt.repoRoots", [home], "machine");
+      const one = join(home, "one");
+      mkdirSync(one);
+      execFileSync("git", ["init", "-q", one]);
+      await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: "gitlab.com/acme/one" }), one);
+
+      const { ctx, logs } = makeCtx(fakeProbes({ home }), { snapshot });
+      await boardKeysStep.run(ctx);
+      expect(getSetting("board.cwds").value).toBeUndefined();
+      expect(getSetting("gitq.board").value).toBeUndefined();
+      expect(logs.some((l) => l.line.includes("two"))).toBe(true);
+
+      const two = join(home, "two");
+      mkdirSync(two);
+      execFileSync("git", ["init", "-q", two]);
+      await updateRepoIndexAsync(serializeIdentity({ kind: "remote", id: "gitlab.com/acme/two" }), two);
+      const { ctx: after } = makeCtx(fakeProbes({ home }), { snapshot });
+      await boardKeysStep.run(after);
+      expect(getSetting("gitq.board").value).toEqual({ repos: ["one", "two"], port: 11008 });
+      expect(getSetting<Record<string, string>>("board.cwds").value?.review).toBeDefined();
     });
 
     test("never writes board.rtRepos: the board derives it from board.projects and board.gitlabHost", async () => {

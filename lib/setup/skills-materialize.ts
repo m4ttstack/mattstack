@@ -69,8 +69,9 @@ export interface MaterializeRepoResult {
   detail: string;
 }
 
-/** merge-manifests.sh's exit code for "no per-repo manifest" (no git remote, or no team declares the repo). */
+/** merge-manifests.sh's exit code and stderr marker for "no per-repo manifest" (no git remote, or no team declares the repo); exit 2 alone is not specific enough. */
 const NO_MANIFEST_EXIT = 2;
+const NO_MANIFEST_MARKER = "no per-repo manifest";
 
 export type MaterializeSkillsResult =
   | { skipped: true; reason: string; repos: [] }
@@ -125,7 +126,7 @@ export async function materializeSkills(p: Probes, opts: { repo?: string }): Pro
             name: target.name,
             path: target.path,
             ok: false,
-            ...(res.code === NO_MANIFEST_EXIT ? { noManifest: true as const } : {}),
+            ...(res.code === NO_MANIFEST_EXIT && res.stderr.includes(NO_MANIFEST_MARKER) ? { noManifest: true as const } : {}),
             detail: res.stderr.trim() || `merge-manifests.sh exited ${res.code}`,
           },
     );
