@@ -71,8 +71,8 @@ test('/ is the Inbox: the rail names both views and the landing view is the inbo
   ).toBeNull();
 
   expect(
-    within(screen.getByRole('banner')).getByRole('button', { name: 'Apps' })
-  ).toBeTruthy();
+    within(screen.getByRole('banner')).queryByRole('button', { name: 'Apps' })
+  ).toBeNull();
 
   expect(screen.getByTestId('inbox-bar')).toHaveTextContent('Inbox');
   expect(screen.getByTestId('inbox-elsewhere-note')).toBeInTheDocument();
