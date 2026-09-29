@@ -97,8 +97,9 @@ struct DevLoginSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(saving).accessibilityIdentifier(AXID.devLoginSheetCancel)
+                // A disabled default button still paints saturated blue in dark mode.
                 Button(saving ? "Saving…" : "Save") { save() }
-                    .keyboardShortcut(.defaultAction)
+                    .keyboardShortcut(canSave && !saving ? .defaultAction : nil)
                     .disabled(!canSave || saving)
                     .accessibilityIdentifier(AXID.devLoginSheetSave)
             }
