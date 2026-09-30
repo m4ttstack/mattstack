@@ -36,7 +36,7 @@ export function unwritten(key: string): boolean {
  * than re-deriving it — only the remedy/detail text is step-specific.
  */
 export function needOutcome(
-  reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable",
+  reply: NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal",
   ctx: Pick<ApplyContext, "nonInteractive">,
   copy: { noAppDetail: string; noAppRemedy: string; timeoutRemedy: string },
 ): StepOutcome {
@@ -48,6 +48,9 @@ export function needOutcome(
   const base = outcomeFromNeed(reply);
   if (reply === "app-unanswerable" && base.state === "failed") {
     return { ...base, remedy: "Quit mattstack.app, then Retry" };
+  }
+  if (reply === "needs-terminal" && base.state === "failed") {
+    return { ...base, remedy: "Run rt setup apply from a terminal, or use the row's button in mattstack.app" };
   }
   if ((reply === "timeout" || reply === "app-gone") && base.state === "failed") {
     return { ...base, remedy: copy.timeoutRemedy };

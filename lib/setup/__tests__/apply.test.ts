@@ -10,6 +10,7 @@ import { UserActionableError } from "../errors.ts";
 import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
+import { needOutcome } from "../steps/step-utils.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -868,6 +869,7 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
       const p = ctx.p as ReturnType<typeof fakeProbes>;
       const both = async () => [await byId("team.join").satisfied!(ctx), await byId("team.create").satisfied!(ctx)];
 
+      p.mkdirp("/fake-home/.mattstack/teams/acme");
       p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
       expect(await both()).toEqual([false, false]);
       p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc", "{}");
@@ -1215,9 +1217,27 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
     });
     const { ctx } = await terminalCtx(tray, { tty: false });
 
-    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust" })).toBe("app-unanswerable");
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust" })).toBe("needs-terminal");
     expect(asked).toBe(false);
     expect(await ctx.need("services.register", { type: "app-register-services", plists: [] })).toEqual({ ok: true, detail: "" });
+  });
+
+  // Quitting the app, the remedy for a non-interactive run, would only swap
+  // this failure for "open mattstack.app".
+  test("the step tells a caller with no terminal where the admin prompt can be answered", async () => {
+    const tray = fakeTray({ ...reachable });
+    const { ctx } = await terminalCtx(tray, { tty: false });
+    const outcome = needOutcome(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" }), ctx, {
+      noAppDetail: "x",
+      noAppRemedy: "x",
+      timeoutRemedy: "x",
+    });
+
+    expect(outcome).toEqual({
+      state: "failed",
+      detail: "this step raises an admin prompt, which needs a person at an interactive terminal",
+      remedy: "Run rt setup apply from a terminal, or use the row's button in mattstack.app",
+    });
   });
 
   test("a run the app spawned keeps the need protocol, since the app pumps it", async () => {

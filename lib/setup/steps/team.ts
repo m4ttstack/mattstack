@@ -23,7 +23,7 @@ import type { StepDef, StepOutcome } from "../apply.ts";
 import type { StepId } from "../contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { readIntent } from "../intent.ts";
-import { parseOriginUrl } from "../team-settings.ts";
+import { discoverTeams, parseOriginUrl } from "../team-settings.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 /**
@@ -199,10 +199,8 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
 
 /** A create or join that stopped partway leaves a folder without these, and must run again. */
 function teamCloned(ctx: ApplyContext): boolean {
-  if (ctx.team.slug === "") return false;
-  const dir = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug);
-  if (!ctx.p.exists(join(dir, "mattstack", "settings.team.jsonc"))) return false;
-  const config = ctx.p.readFile(join(dir, ".git", "config"));
+  if (ctx.team.slug === "" || !discoverTeams(ctx.p).includes(ctx.team.slug)) return false;
+  const config = ctx.p.readFile(join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, ".git", "config"));
   return config !== null && parseOriginUrl(config) !== null;
 }
 

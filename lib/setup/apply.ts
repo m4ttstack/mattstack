@@ -88,7 +88,7 @@ export interface ApplyContext {
    * `EventId` (not `StepId`) so `rt uninstall`'s action ids — which share
    * this same need protocol and this same context type — typecheck too.
    */
-  need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable">;
+  need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal">;
 }
 
 export interface StepDef {
@@ -393,7 +393,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     relay,
     secretPresence: deps.secretPresence ?? realSecretPresence(),
     redact: redactor.redact,
-    async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable"> {
+    async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable" | "needs-terminal"> {
       // The app pumps needs only for the rt it spawned, which it marks with
       // RT_APP_SOCKET. Any other run asks the app's plain route for the same
       // work, failing fast when no app is there to take it. An admin prompt
@@ -402,7 +402,8 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
       if (!p.env.RT_APP_SOCKET && hasDirectRoute(request)) {
         if (!(await trayReachable(p))) return "no-app";
         const prompts = request.type === "app-privileged";
-        if (prompts && (flags.nonInteractive || !(flags.tty ?? process.stdin.isTTY === true))) return "app-unanswerable";
+        if (prompts && flags.nonInteractive) return "app-unanswerable";
+        if (prompts && !(flags.tty ?? process.stdin.isTTY === true)) return "needs-terminal";
         if (prompts) emit({ event: "log", id, line: "approve the admin prompt mattstack.app shows" });
         const direct = await askAppDirectly(p.tray, request);
         if (direct !== null) return direct;
