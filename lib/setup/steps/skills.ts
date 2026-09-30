@@ -167,6 +167,13 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
   }
 }
 
+/** The alphabetically first plugin dir under the team's mattstack/packs; the pack `rt setup` installs first is the one a fresh board should launch with. */
+function firstTeamPack(ctx: ApplyContext): string | null {
+  if (!ctx.team.slug) return null;
+  const packs = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, "mattstack", "packs");
+  return ctx.p.readDir(packs).filter((name) => ctx.p.exists(join(packs, name, ".claude-plugin", "plugin.json"))).sort()[0] ?? null;
+}
+
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
   const written: string[] = [];
   const { found, missing } = trackedRepos(ctx);
@@ -198,6 +205,16 @@ async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {
       written.push("gitq.workSlots");
     } else {
       ctx.log("board.keys", "gitq.workSlots: no repo root yet — left unset");
+    }
+  }
+
+  if (writable(ctx, "board.defaultPack") && unwritten("board.defaultPack")) {
+    const pack = firstTeamPack(ctx);
+    if (pack) {
+      setSetting("board.defaultPack", pack, "user");
+      written.push("board.defaultPack");
+    } else {
+      ctx.log("board.keys", "board.defaultPack: the team has no packs, left unset");
     }
   }
 

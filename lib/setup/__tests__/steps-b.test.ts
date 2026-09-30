@@ -1140,6 +1140,40 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       expect(getSetting("board.defaultMember").value).toBeUndefined();
       expect(logs.some((l) => l.line.includes("forge login unavailable"))).toBe(true);
     });
+
+    /** A team zone at ~/.mattstack/teams/acme whose mattstack/packs holds each named plugin dir, each with its plugin.json. */
+    function teamPackProbes(packs: string[]) {
+      const packsDir = join(home, ".mattstack", "teams", "acme", "mattstack", "packs");
+      const files: Record<string, string> = {};
+      const dirs: Record<string, string[]> = { [packsDir]: [...packs] };
+      for (const pack of packs) files[join(packsDir, pack, ".claude-plugin", "plugin.json")] = JSON.stringify({ name: pack });
+      return fakeProbes({ home, files, dirs });
+    }
+
+    const ACME_TEAM: ApplyContext["team"] = { slug: "acme", name: "Acme", mode: "join" };
+
+    test("seeds board.defaultPack with the team's first pack", async () => {
+      const { ctx } = makeCtx(teamPackProbes(["widgets", "gadgets"]), { team: ACME_TEAM });
+      const outcome = await boardKeysStep.run(ctx);
+      expect(detailOf(outcome)).toContain("board.defaultPack");
+      expect(getSetting("board.defaultPack").value).toBe("gadgets");
+    });
+
+    test("leaves board.defaultPack alone when set", async () => {
+      setSetting("board.defaultPack", "widgets", "user");
+      const { ctx } = makeCtx(teamPackProbes(["gadgets", "widgets"]), { team: ACME_TEAM });
+      const outcome = await boardKeysStep.run(ctx);
+      expect(detailOf(outcome)).not.toContain("board.defaultPack");
+      expect(getSetting("board.defaultPack").value).toBe("widgets");
+    });
+
+    test("logs and leaves board.defaultPack unset when the team has no packs", async () => {
+      const { ctx, logs } = makeCtx(teamPackProbes([]), { team: ACME_TEAM });
+      const outcome = await boardKeysStep.run(ctx);
+      expect(detailOf(outcome)).not.toContain("board.defaultPack");
+      expect(getSetting("board.defaultPack").value).toBeUndefined();
+      expect(logs).toContainEqual({ id: "board.keys", line: "board.defaultPack: the team has no packs, left unset" });
+    });
   });
 
   // ─── cron.triage ────────────────────────────────────────────────────────
