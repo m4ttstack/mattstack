@@ -286,6 +286,43 @@ describe("watchPipeline", () => {
     expect(r).toMatchObject({ state: "lease_lost", holder: { owner: "session:b" }, lease: null, pipeline: { status: "failed" } });
     expect(r.next).toContain("stand down");
   });
+  test("a blocking failure while the pipeline is still running returns failed on that poll", async () => {
+    const failed = { id: "gitlab:job:7", name: "integration", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "running" }))], { failedJobs: async () => [failed] });
+    const r = await watchPipeline(base, deps) as { state: string; polls: number; blockingFailures: number; failedJobs: Array<{ jobId: number; traceTail?: string }>; next: string; pipeline: { status: string } };
+    expect(r).toMatchObject({ state: "failed", polls: 1, blockingFailures: 1, pipeline: { status: "running" } });
+    expect(r.failedJobs[0]).toMatchObject({ jobId: 7, traceTail: "tail" });
+    expect(r.next).toContain("still running");
+  });
+  test("an allow_failure job while the pipeline runs keeps watching", async () => {
+    const soft = { id: "gitlab:job:8", name: "lint", stage: "test", status: "failed", allowFailure: true, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "running" }))], { failedJobs: async () => [soft] });
+    expect(await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "running", polls: 3 });
+  });
+  test("a failed jobs fetch while the pipeline runs keeps watching", async () => {
+    const { deps } = fake([mr(SHA, pipe({ status: "running" }))], { failedJobs: async () => null });
+    expect(await watchPipeline({ ...base, maxWaitSeconds: 60 }, deps)).toMatchObject({ state: "running", polls: 3 });
+  });
+  test("a fetched failed row replaces a cached row with the same id that still reads running", async () => {
+    const stale = { id: "gitlab:job:7", name: "integration", stage: "test", status: "running", allowFailure: false, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "running", jobs: [stale] }))], { failedJobs: async () => [{ ...stale, status: "failed" }] });
+    expect(await watchPipeline(base, deps)).toMatchObject({ state: "failed", blockingFailures: 1, polls: 1 });
+  });
+  test("fetched failed jobs take the trace slots before cached ones", async () => {
+    const cached = Array.from({ length: 5 }, (_, i) => ({ id: `gitlab:job:${i + 1}`, name: `c${i}`, stage: "test", status: "failed", allowFailure: false, webUrl: null }));
+    const child = { id: "gitlab:job:9", name: "integration", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs: cached }))], { failedJobs: async () => [child] });
+    const r = await watchPipeline(base, deps) as { failedJobs: Array<{ jobId: number; traceTail?: string }> };
+    expect(r.failedJobs.find((j) => j.jobId === 9)?.traceTail).toBe("tail");
+  });
+  test("a settled failed pipeline reports failed jobs its cached job list lacks", async () => {
+    const bridge = { id: "gitlab:job:1", name: "dynamic-tests", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+    const child = { id: "gitlab:job:9", name: "integration", stage: "test", status: "failed", allowFailure: false, webUrl: null };
+    const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs: [bridge] }))], { failedJobs: async () => [child] });
+    const r = await watchPipeline(base, deps) as { failedJobs: Array<{ jobId: number }>; blockingFailures: number };
+    expect(r.failedJobs.map((j) => j.jobId).sort()).toEqual([1, 9]);
+    expect(r.blockingFailures).toBe(2);
+  });
   test("a failed pipeline with no failed job rows points at the downstream pipeline", async () => {
     const { deps } = fake([mr(SHA, pipe({ status: "failed", jobs: [] }))], { failedJobs: async () => [] });
     const r = await watchPipeline(base, deps) as { state: string; next: string };

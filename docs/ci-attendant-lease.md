@@ -219,19 +219,26 @@ pipeline. `next` says to pass it, so the proof survives across calls.
 
 Returns `state`, `sha`, `headSha`, the matching `pipeline` (or null),
 `failedJobs` (with a 40 line trace tail for up to five blocking failures on
-a terminal `failed`), `blockingFailures`, `lease`, `waitedSeconds`, `polls`
-and `next`, a one line hint for what to do next. A `failed` pipeline with no
-failed job rows (a bridge job's downstream pipeline failed, and GitLab lists
-bridges apart from jobs) points `next` at `mr_pipeline` with the bridge
-job's `jobId` instead of `mr_job_trace`. The watch heartbeats once more right
-before returning a settled state, since reading the failed jobs' traces can
-take a while; if the lease was lost by then it returns `lease_lost` (with the
-settled pipeline) instead.
+a `failed` result), `blockingFailures`, `lease`, `waitedSeconds`, `polls`
+and `next`, a one line hint for what to do next. `failedJobs` includes the
+failed jobs of every same-project downstream (child) pipeline the bridges
+trigger, nested ones included; a child job under an `allow_failure` bridge,
+or under a bridge that does not depend on its child, counts as
+`allowFailure`. A `failed` pipeline with no failed job rows (a cross-project
+downstream pipeline failed, or the failed jobs could not be read) points
+`next` at `mr_pipeline` with the bridge job's `jobId` instead of
+`mr_job_trace`. The watch heartbeats once more right before returning a
+`failed` or settled state, since reading the failed jobs' traces can take a
+while; if the lease was lost by then it returns `lease_lost` (with the
+pipeline) instead.
 
 `state` is one of:
 
 - `success`, `success_with_warnings`, `failed`, `canceled`, `skipped`,
   `manual`: the pipeline settled.
+- `failed` while `pipeline.status` is still `running`: a blocking job
+  already failed, in the pipeline or a child; the watch returns on that
+  poll instead of waiting for the pipeline to settle.
 - `running`: the pipeline for the pushed sha is in progress; call again.
 - `waiting`: no matching pipeline yet, or the MR's head has not caught up to
   the pushed sha yet; call again.

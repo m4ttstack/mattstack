@@ -141,10 +141,13 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     let jobs = p.jobs;
     const pid = idNumber(p.id);
     let fetchFailed = false;
-    if (jobs.length === 0 && pid !== null && p.status !== "success") {
+    // The cached job list never holds a downstream pipeline's jobs, so the fetch runs even when it is non-empty.
+    // Fetched rows lead so a child job's log gets a trace slot before a cached bridge row, which has none.
+    if (pid !== null && p.status !== "success") {
       const fetched = await deps.failedJobs(pid);
       fetchFailed = fetched === null;
-      jobs = fetched ?? [];
+      const fetchedIds = new Set((fetched ?? []).map((j) => j.id));
+      jobs = [...(fetched ?? []), ...jobs.filter((j) => !fetchedIds.has(j.id))];
     }
     const failed = jobs.filter((j) => j.status === "failed");
     const out: WatchResult["failedJobs"] = [];
@@ -210,6 +213,16 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
                 ? "no failed job rows (a bridge job's downstream pipeline failed); read it with mr_pipeline and the bridge job's jobId"
                 : "read more of a job's log with mr_job_trace";
           return result(p.status as WatchState, mr, next, { failedJobs: f.failedJobs, blockingFailures: f.blockingFailures });
+        }
+        const early = await failures(p, true);
+        if (early.blockingFailures > 0) {
+          const after = deps.leaseCheck();
+          if (!after.ok) return result("lease_lost", mr, standDown(after), { holder: after.holder, lease: null });
+          lease = after.lease;
+          return result("failed", mr, "a blocking job failed while the pipeline is still running; read more of its log with mr_job_trace", {
+            failedJobs: early.failedJobs,
+            blockingFailures: early.blockingFailures,
+          });
         }
         last = { state: "running", mr, hint: again("the pipeline for the pushed sha is still running") };
       } else {

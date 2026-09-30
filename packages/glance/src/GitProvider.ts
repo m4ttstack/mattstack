@@ -580,7 +580,14 @@ export interface GitProvider {
   /** The commit's parent shas. GitLab only. */
   fetchCommitParents?(projectPath: string, sha: string): Promise<string[]>;
 
-  /** The pipeline's failed jobs, independent of the MR cache's fragment weight. GitLab only. */
+  /**
+   * The pipeline's failed jobs, independent of the MR cache's fragment weight,
+   * plus those of every same-project downstream pipeline its bridges trigger
+   * (a child's failure never appears among the parent's own jobs). Rows under a
+   * bridge that cannot fail the parent come back allowFailure. All or nothing:
+   * one failed listing anywhere in the tree throws, so a partial result never
+   * reads as clean. GitLab only.
+   */
   fetchPipelineFailedJobs?(projectPath: string, pipelineId: number): Promise<PipelineJob[]>;
 
   /**
