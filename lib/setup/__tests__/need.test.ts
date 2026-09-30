@@ -180,9 +180,11 @@ describe("awaitNeed", () => {
 describe("askAppDirectly", () => {
   test("services register POSTs the plists and reports each one's status", async () => {
     let body: unknown;
+    let timeoutMs: number | undefined;
     const tray = fakeTray({
-      "POST /services/register": (b) => {
+      "POST /services/register": (b, init) => {
         body = b;
+        timeoutMs = init?.timeoutMs;
         return { status: 200, json: { ok: true, results: [{ plist: "com.mattstack.daemon.plist", ok: true, status: "enabled" }] } };
       },
     });
@@ -190,6 +192,8 @@ describe("askAppDirectly", () => {
     const reply = await askAppDirectly(tray, { type: "app-register-services", plists: ["com.mattstack.daemon.plist"] });
 
     expect(body).toEqual({ plists: ["com.mattstack.daemon.plist"] });
+    // The route answers only once the work is done, admin prompt included.
+    expect(timeoutMs).toBe(600_000);
     expect(reply).toEqual({ ok: true, detail: "com.mattstack.daemon.plist: enabled" });
   });
 
@@ -228,6 +232,18 @@ describe("askAppDirectly", () => {
 
     expect(await askAppDirectly(tray, { type: "app-unregister-services", plists: ["a.plist"] })).toBeNull();
     expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-remove" })).toBeNull();
+  });
+
+  test("a request still unanswered at its deadline reads as a timeout, not a gone app", async () => {
+    let clock = 0;
+    const tray = fakeTray({
+      "POST /privileged/proxy-install": (_b, init) => {
+        clock += init?.timeoutMs ?? 0;
+        return { status: 0, json: null };
+      },
+    });
+
+    expect(await askAppDirectly(tray, { type: "app-privileged", op: "proxy-install" }, { now: () => clock })).toBe("timeout");
   });
 
   test("an app that drops the connection mid-request reads as gone", async () => {

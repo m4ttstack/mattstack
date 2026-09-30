@@ -786,7 +786,34 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
 
     await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
 
-    expect(order).toEqual(["team.join", "plugins.install", "intercepts.install"]);
+    expect(order).toEqual(["team.join", "intercepts.install", "plugins.install"]);
+  });
+
+  // A retry skips the landed feeder as satisfied, so its intercepts must not
+  // wait behind a target that can still fail.
+  test("a target that fails after a feeder landed still leaves the intercepts installed", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false, feedsIntercepts: true }),
+      step("intercepts.install"),
+      step("plugins.install", { prerequisites: ["team.join"] }, { state: "failed", detail: "claude missing" }),
+    ];
+
+    expect(await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" })).toEqual({ ok: false, failedStep: "plugins.install" });
+    expect(order).toEqual(["team.join", "intercepts.install", "plugins.install"]);
+  });
+
+  test("a failed prerequisite names itself in its detail, since the row shows the step it ran for", async () => {
+    const { step } = recorder();
+    const steps = [
+      { ...step("team.join", { satisfied: () => false }, { state: "failed", detail: "relay down" }), title: "Join your team" },
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+    const { ctx, events } = testCtx();
+
+    await runApplyWith(steps, ctx, { only: "plugins.install" });
+
+    expect(events).toContainEqual({ event: "step", id: "team.join", state: "failed", detail: "Join your team: relay down" });
   });
 
   describe("in the real registry", () => {
@@ -804,32 +831,57 @@ describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
         for (const pre of s.prerequisites ?? []) {
           expect(at(pre)).toBeLessThan(at(s.id));
           expect(typeof byId(pre).satisfied).toBe("function");
+          // A prerequisite runs inside a row's Retry, where no need is pumped.
+          expect(byId(pre).kind).toBe("rt");
         }
       }
     });
 
-    test("the home steps are satisfied once the home repo is cloned", () => {
-      const { ctx } = testCtx();
-      expect(byId("home.init").satisfied!(ctx)).toBe(false);
-      expect(byId("home.restore").satisfied!(ctx)).toBe(false);
-      ctx.p.mkdirp("/fake-home/.mattstack/user/.git");
-      expect(byId("home.init").satisfied!(ctx)).toBe(true);
-      expect(byId("home.restore").satisfied!(ctx)).toBe(true);
+    const keySeam = (key: "present" | "absent" | "locked") => ({
+      run: async () =>
+        key === "present"
+          ? { code: 0, stdout: "AGE-SECRET-KEY-1FAKE\n", stderr: "" }
+          : key === "absent"
+            ? { code: 44, stdout: "", stderr: "security: The specified item could not be found in the keychain." }
+            : { code: 36, stdout: "", stderr: "security: user interaction is not allowed" },
     });
 
-    test("the team steps are satisfied once this run's team is cloned", () => {
+    test("the home steps are satisfied only by the clone and its age key together, as home.init's own done check", async () => {
+      for (const id of ["home.init", "home.restore"] as const) {
+        const present = testCtx({ secrets: { ...fakeSecrets, ageKeySeam: keySeam("present") } }).ctx;
+        expect(await byId(id).satisfied!(present)).toBe(false);
+        present.p.mkdirp("/fake-home/.mattstack/user/.git");
+        expect(await byId(id).satisfied!(present)).toBe(true);
+
+        const absent = testCtx({ secrets: { ...fakeSecrets, ageKeySeam: keySeam("absent") } }).ctx;
+        absent.p.mkdirp("/fake-home/.mattstack/user/.git");
+        expect(await byId(id).satisfied!(absent)).toBe(false);
+
+        const locked = testCtx({ secrets: { ...fakeSecrets, ageKeySeam: keySeam("locked") } }).ctx;
+        locked.p.mkdirp("/fake-home/.mattstack/user/.git");
+        expect(await byId(id).satisfied!(locked)).toBe(false);
+      }
+    });
+
+    test("the team steps are satisfied only by a finished clone: the team settings file and an origin", async () => {
       const { ctx } = testCtx({ team: { slug: "acme", name: "Acme", mode: "join" } });
-      expect(byId("team.join").satisfied!(ctx)).toBe(false);
-      expect(byId("team.create").satisfied!(ctx)).toBe(false);
-      ctx.p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
-      expect(byId("team.join").satisfied!(ctx)).toBe(true);
-      expect(byId("team.create").satisfied!(ctx)).toBe(true);
+      const p = ctx.p as ReturnType<typeof fakeProbes>;
+      const both = async () => [await byId("team.join").satisfied!(ctx), await byId("team.create").satisfied!(ctx)];
+
+      p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
+      expect(await both()).toEqual([false, false]);
+      p.writeFile("/fake-home/.mattstack/teams/acme/mattstack/settings.team.jsonc", "{}");
+      expect(await both()).toEqual([false, false]);
+      p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "upstream"]\n\turl = https://example.com/acme/other.git\n');
+      expect(await both()).toEqual([false, false]);
+      p.writeFile("/fake-home/.mattstack/teams/acme/.git/config", '[remote "origin"]\n\turl = https://example.com/acme/team.git\n');
+      expect(await both()).toEqual([true, true]);
     });
 
-    test("a run with no team yet never reads a team step as satisfied", () => {
+    test("a run with no team yet never reads a team step as satisfied", async () => {
       const { ctx } = testCtx({ team: { slug: "", name: "", mode: "none" } });
       ctx.p.mkdirp("/fake-home/.mattstack/teams/.git");
-      expect(byId("team.create").satisfied!(ctx)).toBe(false);
+      expect(await byId("team.create").satisfied!(ctx)).toBe(false);
     });
   });
 });
@@ -1084,14 +1136,14 @@ describe("createApplyContext", () => {
 describe("createApplyContext: a terminal run asks the app's routes directly", () => {
   const reachable = { "GET /version": () => ({ status: 200, json: { version: "1.0.0" } }) };
 
-  async function terminalCtx(tray: ReturnType<typeof fakeTray>, opts: { nonInteractive?: boolean; env?: Record<string, string> } = {}) {
+  async function terminalCtx(tray: ReturnType<typeof fakeTray>, opts: { nonInteractive?: boolean; tty?: boolean; env?: Record<string, string> } = {}) {
     const events: ApplyEvent[] = [];
     const ctx = await createApplyContext({
       probes: fakeProbes({ tray, env: opts.env ?? {} }),
       emit: (ev) => events.push(ev),
       secrets: fakeSecrets,
       relay: fakeRelay,
-      flags: { nonInteractive: opts.nonInteractive ?? false, teamOfOne: false, ci: false },
+      flags: { nonInteractive: opts.nonInteractive ?? false, teamOfOne: false, ci: false, tty: opts.tty ?? true },
       needOpts: { timeoutMs: 0, sleep: async () => {} },
     });
     return { ctx, events };
@@ -1149,6 +1201,23 @@ describe("createApplyContext: a terminal run asks the app's routes directly", ()
 
     expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" })).toBe("app-unanswerable");
     expect(asked).toBe(false);
+  });
+
+  test("a run with no terminal (an agent's shell) never raises an admin prompt either", async () => {
+    let asked = false;
+    const tray = fakeTray({
+      ...reachable,
+      "POST /privileged/proxy-trust": () => {
+        asked = true;
+        return { status: 200, json: { ok: true, detail: "trusted" } };
+      },
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [] } }),
+    });
+    const { ctx } = await terminalCtx(tray, { tty: false });
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-trust" })).toBe("app-unanswerable");
+    expect(asked).toBe(false);
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: [] })).toEqual({ ok: true, detail: "" });
   });
 
   test("a run the app spawned keeps the need protocol, since the app pumps it", async () => {

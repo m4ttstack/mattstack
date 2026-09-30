@@ -14,6 +14,11 @@
  * past that would misread as "app-gone" after three polls. That never
  * happens against the merged app: NeedBroker's outcome read is a
  * non-blocking actor read that answers immediately either way.
+ *
+ * That exchange works only for an rt the app spawned, since the app reads
+ * `need` events off that child's stdout. A run it did not spawn uses
+ * `askAppDirectly` instead, for the requests the app also serves as plain
+ * routes.
  */
 
 import type { TrayClient } from "../daemon-client.ts";
@@ -143,12 +148,19 @@ export function hasDirectRoute(request: NeedRequest): boolean {
  * connection until the work is done, an admin prompt included, so it gets
  * the need protocol's own deadline.
  */
-export async function askAppDirectly(tray: TrayClient, request: NeedRequest): Promise<NeedReply | "app-gone" | null> {
+export async function askAppDirectly(
+  tray: TrayClient,
+  request: NeedRequest,
+  opts: { now?: () => number } = {},
+): Promise<NeedReply | "timeout" | "app-gone" | null> {
   const route = directRoute(request);
   if (route === null) return null;
   const { path, body } = route;
+  const now = opts.now ?? Date.now;
+  const started = now();
   const res = await tray<{ ok?: boolean; detail?: string; results?: ServiceRegisterResult[] }>(path, { method: "POST", body, timeoutMs: DEFAULT_TIMEOUT_MS });
-  if (res.status === 0) return "app-gone";
+  // A transport failure and our own deadline both come back as status 0.
+  if (res.status === 0) return now() - started >= DEFAULT_TIMEOUT_MS ? "timeout" : "app-gone";
   if (res.status !== 200) return { ok: false, detail: `mattstack.app answered ${path} with status ${res.status}` };
   if (request.type === "app-register-services") return registerReply(res.json);
   return { ok: res.json?.ok === true, ...(typeof res.json?.detail === "string" ? { detail: res.json.detail } : {}) };

@@ -601,7 +601,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         // applicationDidFinishLaunching runs buildServices() before it starts
         // the listener, so no connection can arrive while `routes` is still
         // nil and fall through to the legacy 404 handler.
-        TrayServer.shared.routes = TrayRoutes(permissions: permissionsService, services: servicesForNeeds, privileged: privilegedForNeeds,
+        TrayServer.shared.routes = TrayRoutes(permissions: permissionsService, services: servicesForNeeds,
                                               needs: needBroker, updater: updater, version: self, window: windowBridge)
         rtClient = RtClientFactory.make()
         notificationManager.rt = rtClient

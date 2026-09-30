@@ -105,8 +105,8 @@ export interface StepDef {
   feedsIntercepts?: boolean;
   /** Steps an `--only` run of this one needs behind it: each that applies and is not `satisfied` runs first, in registry order. Every listed step must sit earlier in the registry and define `satisfied`. */
   prerequisites?: StepId[];
-  /** Whether what this step produces is already on disk. Read only when the step is an `--only` run's prerequisite; absent reads as unsatisfied. */
-  satisfied?(ctx: ApplyContext): boolean;
+  /** Whether what this step produces is already complete on disk, judged as strictly as the step's own done check. Read only when the step is an `--only` run's prerequisite; absent reads as unsatisfied. */
+  satisfied?(ctx: ApplyContext): boolean | Promise<boolean>;
 }
 
 const INTERCEPTS_STEP: StepId = "intercepts.install";
@@ -151,11 +151,11 @@ function resumeStart(applicable: StepDef[], from: StepId | undefined): number {
 }
 
 /**
- * Resolves `--only` to the index of the single step to run, applying the same
+ * Resolves `--only` to the index of the step it names, applying the same
  * refusal `resumeStart` does to an id that is not a step id at all. A real id
  * this run's `applies()` gated out runs nothing (past the end), never the step
- * that happens to sit at its position: `--only` names one step, and running a
- * different one would be worse than running none.
+ * that happens to sit at its position: running a different one would be worse
+ * than running none.
  */
 function onlyIndex(applicable: StepDef[], only: StepId): number {
   if (!STEP_IDS.includes(only)) {
@@ -171,18 +171,27 @@ function onlyIndex(applicable: StepDef[], only: StepId): number {
  * prerequisites are never walked. One this run gates out is dropped silently,
  * the same way a full run would never reach it.
  */
-function onlyQueue(applicable: StepDef[], target: StepDef, ctx: ApplyContext): StepDef[] {
+async function onlyQueue(applicable: StepDef[], target: StepDef, ctx: ApplyContext): Promise<StepDef[]> {
   const picked = new Set<StepDef>([target]);
-  const visit = (step: StepDef): void => {
+  const visit = async (step: StepDef): Promise<void> => {
     for (const id of step.prerequisites ?? []) {
       const pre = applicable.find((s) => s.id === id);
-      if (!pre || picked.has(pre) || pre.satisfied?.(ctx) === true) continue;
+      if (!pre || picked.has(pre) || (await pre.satisfied?.(ctx)) === true) continue;
       picked.add(pre);
-      visit(pre);
+      await visit(pre);
     }
   };
-  visit(target);
+  await visit(target);
   return applicable.filter((s) => picked.has(s));
+}
+
+/** Slots a follow-on step into the unrun part of `queue` at its registry position, so it never waits behind a later step that can fail. */
+function enqueueInOrder(queue: StepDef[], next: number, step: StepDef, applicable: StepDef[]): void {
+  if (queue.includes(step)) return;
+  const at = applicable.indexOf(step);
+  const later = queue.findIndex((s, i) => i >= next && applicable.indexOf(s) > at);
+  if (later < 0) queue.push(step);
+  else queue.splice(later, 0, step);
 }
 
 /**
@@ -190,8 +199,8 @@ function onlyQueue(applicable: StepDef[], target: StepDef, ctx: ApplyContext): S
  *
  * `lastApplyAt` is written for any terminal outcome, but the intent is the
  * in-flight create/join choice every step still to come reads: only a run that
- * could have finished the install may clear it. `--only` runs one step for one
- * row's Retry and leaves the rest untouched, so it never does; `--from`
+ * could have finished the install may clear it. `--only` runs one row's step
+ * (and what it needs) and leaves the rest untouched, so it never does; `--from`
  * resumes and then runs everything left, so it does.
  */
 function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: StepId | undefined, oneStepOnly: boolean): void {
@@ -220,7 +229,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   let queue: StepDef[];
   if (opts.only !== undefined) {
     const target = applicable[onlyIndex(applicable, opts.only)];
-    queue = target ? onlyQueue(applicable, target, ctx) : [];
+    queue = target ? await onlyQueue(applicable, target, ctx) : [];
   } else {
     queue = applicable.slice(resumeStart(applicable, opts.from));
   }
@@ -259,6 +268,9 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
         }
       }
 
+      if (outcome.state === "failed" && opts.only !== undefined && step.id !== opts.only && step.id !== INTERCEPTS_STEP) {
+        outcome = { ...outcome, detail: `${step.title}: ${outcome.detail}` };
+      }
       ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
 
       if (outcome.state === "failed") {
@@ -268,7 +280,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       if (step.reloadsTeam && (outcome.state === "done" || outcome.state === "partial")) ctx.reloadTeam?.();
       if (opts.only !== undefined && step.feedsIntercepts && (outcome.state === "done" || outcome.state === "partial")) {
         const follow = applicable.find((s) => s.id === INTERCEPTS_STEP);
-        if (follow && !queue.includes(follow)) queue.push(follow);
+        if (follow) enqueueInOrder(queue, i + 1, follow, applicable);
       }
       // Only "failed" stops the run.
     }
@@ -299,7 +311,8 @@ export interface CreateApplyContextDeps {
   relay: RelayClient;
   /** Defaults to `realSecretPresence()` — override for a fully-faked run/test so `verify` (and anything else reading `ctx.secretPresence`) can never reach the real keychain/sops. */
   secretPresence?: SecretPresence;
-  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean };
+  /** `tty` defaults to whether stdin is a terminal: an admin prompt is only raised for a person at one. */
+  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean };
   /** Threaded straight into `awaitNeed`'s poll loop for the reachable/interactive branch of `need()` — real timers and `Date.now` by default. Tests inject a fake clock/sleep so that branch is driven deterministically instead of pinned to a real 10-minute deadline and 1 s polls. */
   needOpts?: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number };
 }
@@ -384,10 +397,12 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
       // The app pumps needs only for the rt it spawned, which it marks with
       // RT_APP_SOCKET. Any other run asks the app's plain route for the same
       // work, failing fast when no app is there to take it. An admin prompt
-      // is left to the path below when no one is at the keyboard for it.
-      const prompts = request.type === "app-privileged";
-      if (!p.env.RT_APP_SOCKET && hasDirectRoute(request) && !(flags.nonInteractive && prompts)) {
+      // is raised only for a person at an interactive terminal: an agent's
+      // shell must never put a real password dialog on screen.
+      if (!p.env.RT_APP_SOCKET && hasDirectRoute(request)) {
         if (!(await trayReachable(p))) return "no-app";
+        const prompts = request.type === "app-privileged";
+        if (prompts && (flags.nonInteractive || !(flags.tty ?? process.stdin.isTTY === true))) return "app-unanswerable";
         if (prompts) emit({ event: "log", id, line: "approve the admin prompt mattstack.app shows" });
         const direct = await askAppDirectly(p.tray, request);
         if (direct !== null) return direct;

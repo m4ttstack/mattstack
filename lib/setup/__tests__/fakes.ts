@@ -297,12 +297,12 @@ export function fakeProbes(opts: FakeProbesOpts = {}): Probes & {
  * `fakeProbes({ home })`'s own bare default (no `tray` option) to simulate
  * an actually-unreachable app.
  */
-export function fakeTray(routes: Record<string, (body?: unknown) => { status: number; json: unknown }>): TrayClient {
+export function fakeTray(routes: Record<string, (body?: unknown, init?: Parameters<TrayClient>[1]) => { status: number; json: unknown }>): TrayClient {
   return (async (path, init = { method: "GET" }) => {
     const key = `${init.method} ${path}`;
     const handler = routes[key];
     if (!handler) return { status: 404, json: null };
-    return handler(init.body);
+    return handler(init.body, init);
   }) as TrayClient;
 }
 
