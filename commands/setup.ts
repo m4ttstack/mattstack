@@ -366,7 +366,7 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
     secrets: deps.secrets,
     relay: deps.relay,
     secretPresence: deps.secretPresence,
-    flags: { nonInteractive: true, teamOfOne: false, ci: process.env.CI === "true" },
+    flags: { nonInteractive: true, teamOfOne: false, ci: process.env.CI === "true", update: true },
     needOpts: deps.needOpts,
   });
   const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);

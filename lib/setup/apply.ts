@@ -49,6 +49,8 @@ export interface ApplyContext {
   /** Re-reads `snapshot` and `reqs` from disk; the engine calls it after a done or partial `reloadsTeam` step. */
   reloadTeam?: () => void;
   nonInteractive: boolean;
+  /** Set only for `rt setup update`: a step must not re-assert anything the member undid since rt put it there (a disabled or removed plugin, an editor rt never installed into). */
+  update?: true;
   teamOfOne: boolean;
   appPath: string | null;
   ci: boolean;
@@ -408,7 +410,7 @@ export interface CreateApplyContextDeps {
   /** Defaults to `realSecretPresence()` — override for a fully-faked run/test so `verify` (and anything else reading `ctx.secretPresence`) can never reach the real keychain/sops. */
   secretPresence?: SecretPresence;
   /** `tty` defaults to whether stdin is a terminal: an admin prompt is only raised for a person at one. */
-  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean };
+  flags: { nonInteractive: boolean; teamOfOne: boolean; ci: boolean; appMayDrive?: boolean; tty?: boolean; update?: true };
   /** Threaded straight into `awaitNeed`'s poll loop for the reachable/interactive branch of `need()` — real timers and `Date.now` by default. Tests inject a fake clock/sleep so that branch is driven deterministically instead of pinned to a real 10-minute deadline and 1 s polls. */
   needOpts?: { timeoutMs?: number; pollMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number };
 }
@@ -481,6 +483,7 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
       ctx.reqs = readPackRequirements(p, ctx.team.slug);
     },
     nonInteractive: flags.nonInteractive,
+    ...(flags.update ? { update: true as const } : {}),
     teamOfOne: flags.teamOfOne,
     appPath,
     ci: flags.ci,

@@ -26,7 +26,7 @@ import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
-import { updateSetupState } from "../state.ts";
+import { readSetupState, updateSetupState } from "../state.ts";
 import { claudeConfigDirs } from "../tools-install.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
@@ -240,6 +240,11 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
   const { trusted: trustedPlugins, teamAuthored: teamAuthoredPlugins } = computePlugins(ctx, teamMarketplace);
   const allPlugins = dedupe([...trustedPlugins, ...teamAuthoredPlugins]);
   const configDirs = claudeConfigDirs(ctx.p, []);
+  // Setup-state holds only what rt itself added, so under an update run a
+  // recorded id that is now absent is one the member removed, while an
+  // unrecorded one is new in this release and still installs.
+  const update = ctx.update === true;
+  const recorded = update ? readSetupState(ctx.p) : null;
 
   /** The single site every trusted enable goes through. Best-effort, and logged: an older claude without the subcommand must never fail an otherwise-good install, but a silent failure would leave a disabled baseline plugin with no signal anywhere. */
   async function enableTrusted(runner: ClaudeRunner, plugin: string, dir: string): Promise<void> {
@@ -266,6 +271,10 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
     for (const src of marketplaces) {
       const key = marketplaceSourceKey(src);
       if (known?.some((m) => m.source !== null && marketplaceSourceKey(m.source) === key)) continue;
+      if (recorded?.marketplaces.includes(src)) {
+        ctx.log("plugins.install", `marketplace ${src}: removed since rt added it, left alone`);
+        continue;
+      }
       if (src === mattstackSource) {
         const existing = known?.find((m) => m.name === "mattstack");
         // A local checkout of the marketplace is a developer's overlay of the same one.
@@ -303,21 +312,36 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
       };
     }
     const byId = new Map(installedBefore.map((e) => [e.id, e]));
+    const knownNames = known ? new Set(known.map((m) => m.name)) : null;
 
     for (const listed of allPlugins) {
       const teamAuthored = teamAuthoredPlugins.includes(listed);
       const plugin = teamAuthored ? listed : resolveBasePlugin(listed, (id) => byId.has(id));
 
+      if (update && !byId.has(plugin)) {
+        if (recorded!.plugins.includes(plugin)) {
+          ctx.log("plugins.install", `${plugin}: removed since rt installed it, left alone`);
+          continue;
+        }
+        const marketplace = plugin.slice(plugin.lastIndexOf("@") + 1);
+        if (knownNames && plugin.includes("@") && !knownNames.has(marketplace)) {
+          ctx.log("plugins.install", `${plugin}: marketplace ${marketplace} is not registered, left alone`);
+          continue;
+        }
+      }
+
       // An already-installed plugin takes update, never install: install would
       // flip a deliberately disabled pack back on.
       if (byId.has(plugin)) {
+        const disabled = !byId.get(plugin)!.enabled;
         const updated = await runner.run(["plugin", "update", plugin, "-y"], PACK_EXEC_TIMEOUT_MS);
         if (updated.code === 0) {
           // Trusted plugins keep the best-effort re-enable they get today. The
           // `tool.plugins` needs-you row's action is `rt setup pack`, which
           // lands here: without this, the one command offered for an
-          // installed-but-disabled baseline plugin does nothing.
-          if (!teamAuthored && !byId.get(plugin)!.enabled) await enableTrusted(runner, plugin, dir);
+          // installed-but-disabled baseline plugin does nothing. An update run
+          // is unattended, so a disabled plugin stays the member's choice.
+          if (!teamAuthored && disabled && !update) await enableTrusted(runner, plugin, dir);
           settled.push(plugin);
           continue;
         }
@@ -328,6 +352,10 @@ async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
         // `plugin update` subcommand.
         if (teamAuthored || (!isNotFound(updated) && !isUnknownSubcommand(updated))) {
           return { state: "failed", detail: `claude plugin update exited ${updated.code}`, remedy: RETRY_REMEDY };
+        }
+        if (update && disabled) {
+          settled.push(plugin);
+          continue;
         }
       }
 
