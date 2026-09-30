@@ -47,7 +47,7 @@ function fakeStep(id: StepId, outcome: StepOutcome | ((ctx: ApplyContext) => Pro
   };
 }
 
-/** Never invoked — proves a branch that must short-circuit before touching the engine really does. */
+/** Never invoked: proves a branch that must short-circuit before touching the engine really does. */
 function neverRunsStep(id: StepId): StepDef {
   return {
     id,
@@ -209,10 +209,26 @@ describe("rt setup update", () => {
     expect(["no-app", "app-unanswerable"]).toContain(reply as string);
   });
 
-  test("--from and --only are refused with the exit-2 envelope", async () => {
+  test.each(["--from", "--only"])("%s is refused with the exit-2 envelope", async (flag) => {
     const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
-    await run(deps, ["--only", "path.link", "--json"]);
+    await run(deps, [flag, "path.link", "--json"]);
     expect(deps.exitCodes).toEqual([2]);
     expect(JSON.parse(deps.lines[0]!).error.code).toBe("unknown-flag");
+  });
+
+  test("a stamp write that throws does not lose the notification or the exit code", async () => {
+    const probes = fakeProbes({ files: { [DAEMON]: "{}" } });
+    const realWrite = probes.writeFile.bind(probes);
+    probes.writeFile = (path, content, mode) => {
+      if (path === STATE) throw new Error("disk full");
+      return realWrite(path, content, mode);
+    };
+    const deps = updateDeps({
+      probes,
+      steps: [updateStep("verify", { state: "needs-you", detail: "to connect: Slack" })],
+    });
+    await run(deps, []);
+    expect(deps.exitCodes).toEqual([2]);
+    expect(deps.notifications.map((n) => n.id)).toEqual(["setup_update:2.15.0"]);
   });
 });

@@ -371,7 +371,13 @@ export async function setupUpdate(args: string[], _ctx: CommandContext = {}, dep
   });
   const result: UpdateRunResult = await runUpdateWith(deps.steps ?? STEPS, deps.migrations ?? MIGRATIONS, ctx);
 
-  updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
+  try {
+    updateSetupState(deps.probes, (s) => ({ ...s, lastUpdate: { version, at: deps.probes.now().toISOString() } }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const lastId = result.outcomes.at(-1)?.id;
+    if (lastId) emit({ event: "log", id: lastId, line: `warn: setup update stamp not persisted: ${message}` });
+  }
 
   const notification = updateNotification(version, result.outcomes);
   if (notification) (deps.notify ?? (() => {}))(SETUP_UPDATE_CATEGORY, notification.title, notification.message, notification.id);
