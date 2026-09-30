@@ -1130,6 +1130,16 @@ describe("joinRedeem", () => {
       expect(readTeamLocal(p, POINTER.team).peeringPending).toBe(true);
     });
 
+    test("a non-https declared switchboard is not stamped: only the owner can fix the URL, so a re-invite would not help", async () => {
+      const p = redeemProbes();
+      const { seams } = baseJoinRedeemSeams({ read: fakeRead({ "mattstack.integrations": { switchboard: { url: "http://sb.lan" } } }) });
+
+      const result = await joinRedeem(p, fakeRelay().client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.peering).toBe("unavailable");
+      expect(readTeamLocal(p, POINTER.team).peeringPending).toBeUndefined();
+    });
+
     test("a join that peers clears an earlier stamp", async () => {
       const p = redeemProbes();
       updateTeamLocal(p, POINTER.team, { peeringPending: true });

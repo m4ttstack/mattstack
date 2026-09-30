@@ -590,10 +590,12 @@ describe("team.join after the join itself finished", () => {
   const TEAMS = "/fake-home/.mattstack/teams";
 
   /** Two cloned teams, so the stamp on the second proves every team is checked, not just ctx.team (teams[0]). */
-  function joinedCtx(opts: { stamp?: boolean; boardEnv?: string; secrets?: SecretsSeams } = {}): { ctx: ApplyContext; p: Probes; secrets: SecretsSeams } {
+  function joinedCtx(opts: { stamp?: boolean; boardEnv?: string; secrets?: SecretsSeams; betaSwitchboard?: string | null } = {}): { ctx: ApplyContext; p: Probes; secrets: SecretsSeams } {
+    const betaSwitchboard = opts.betaSwitchboard === undefined ? "https://sb.test" : opts.betaSwitchboard;
+    const betaSettings = betaSwitchboard === null ? {} : { "mattstack.integrations": { switchboard: { url: betaSwitchboard } } };
     const files: Record<string, string> = {
       [`${TEAMS}/alpha/mattstack/settings.team.jsonc`]: "{}",
-      [`${TEAMS}/beta/mattstack/settings.team.jsonc`]: "{}",
+      [`${TEAMS}/beta/mattstack/settings.team.jsonc`]: `// team settings\n${JSON.stringify(betaSettings)}\n`,
     };
     if (opts.boardEnv !== undefined) files["/fake-home/.mattstack/board/.env"] = opts.boardEnv;
     const p = fakeProbes({ home: "/fake-home", files, dirs: { [TEAMS]: ["alpha", "beta"] } });
@@ -623,6 +625,15 @@ describe("team.join after the join itself finished", () => {
     const outcome = await teamJoinStep.run(ctx);
     expect(outcome).toEqual({ state: "skipped", detail: "already joined — no invite in progress" });
     expect(readTeamLocal(p, "beta").peeringPending).toBeUndefined();
+  });
+
+  test("a team that dropped its switchboard, or declares a non-https one, has its stamp cleared instead of a permanent partial", async () => {
+    for (const betaSwitchboard of [null, "http://sb.lan"]) {
+      const { ctx, p } = joinedCtx({ betaSwitchboard });
+      expect(await teamJoinStep.run(ctx)).toEqual({ state: "skipped", detail: "already joined — no invite in progress" });
+      expect(readTeamLocal(p, "beta").peeringPending).toBeUndefined();
+      expect(teamJoinStep.applies(ctx)).toBe(false);
+    }
   });
 
   test("the stamp clears after a later store of rt's own token, and the step leaves the plan", async () => {

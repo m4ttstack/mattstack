@@ -11,7 +11,11 @@ import { JoinKeyExchangeError, JoinPeeringStoreError, joinRedeem, realJoinRedeem
 import { personalStoreReady, readSecret, writeSecret } from "../../secrets/store.ts";
 import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import { boardEnvHasSwitchboardToken } from "../../team/board-token.ts";
-import { discoverTeams } from "../team-settings.ts";
+import { parse } from "jsonc-parser";
+import { join } from "path";
+import { discoverTeams, readTeamSnapshot } from "../team-settings.ts";
+import { isValidHttpsUrl } from "../host-validate.ts";
+import type { Probes } from "../probes.ts";
 import { publishTeam } from "../../team/publish.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -129,8 +133,22 @@ const REINVITE_FIX =
 
 const ALREADY_JOINED: StepOutcome = { state: "skipped", detail: "already joined — no invite in progress" };
 
+/** Reads the one team's own store, never the resolver's multi-team overlay, so each stamp is judged by its own team's declaration. */
+function declaresHttpsSwitchboard(p: Probes, slug: string): boolean {
+  const raw = p.readFile(join(p.home, ".mattstack", "teams", slug, "mattstack", "settings.team.jsonc"));
+  const parsed: unknown = raw === null ? undefined : parse(raw, [], { allowTrailingComma: true });
+  const store = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  const url = readTeamSnapshot(p, slug, { read: <T>(key: string) => store[key] as T | undefined, warn: () => {} }).integrations.switchboard?.url;
+  return !!url && isValidHttpsUrl(url);
+}
+
 /** The board takes its token from its own .env first (where its peer-join writes) and rt's secret second, so either one clears the stamp. */
-async function recheckPendingPeering(ctx: ApplyContext, pending: string[]): Promise<StepOutcome> {
+async function recheckPendingPeering(ctx: ApplyContext, stamped: string[]): Promise<StepOutcome> {
+  // A team that dropped its switchboard, or broke its URL, has nothing a re-invite could peer.
+  const pending = stamped.filter((slug) => declaresHttpsSwitchboard(ctx.p, slug));
+  for (const slug of stamped) if (!pending.includes(slug)) updateTeamLocal(ctx.p, slug, { peeringPending: false });
+  if (pending.length === 0) return ALREADY_JOINED;
+
   if (!boardEnvHasSwitchboardToken(ctx.p)) {
     let token: string | null;
     try {

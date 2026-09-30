@@ -611,7 +611,8 @@ export async function joinRedeem(
   }
 
   const { peering, peeringFix } = await peerBoard(p, seams, secrets, pointer, declaredUrl, handle);
-  updateTeamLocal(p, pointer.team, { peeringPending: peering === "unavailable" });
+  // A non-https declaration is the owner's to fix, so no later run could clear it.
+  updateTeamLocal(p, pointer.team, { peeringPending: peering === "unavailable" && !!declaredUrl && isValidHttpsUrl(declaredUrl) });
 
   let publicKey: string;
   try {
