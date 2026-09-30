@@ -16,7 +16,7 @@ import type { TeamSnapshot } from "../team-settings.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
 import type { SetupIntent } from "../intent.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
-import { MERGE_MANIFESTS_MISSING_CODE } from "../skills-materialize.ts";
+import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 
@@ -98,6 +98,29 @@ function detailOf(outcome: StepOutcome): string | undefined {
 
 function lockTool(name: string, sha: string) {
   return { name, version: "0.1.0", license: "MIT", url: `https://x/${name}.tgz`, sha256: sha.repeat(64), archive: "raw", extract: "", bundlePath: `${HELPERS_DIR}/${name}`, exec: [`${HELPERS_DIR}/${name}`], exposeByDefault: true, entitlements: "none", status: "bundled", kind: "helper" };
+}
+
+/** A fake world where one zone ("acme", pack "widgets") declares acme/widgets and the engine fragment is empty. `exec` answers `git remote get-url origin` with the widgets remote; every other exec is the file's default. */
+function materializeWorld(home: string, opts: { fragment?: string; remote?: string } = {}) {
+  const zone = `${home}/.mattstack/teams/acme/mattstack`;
+  const engine = `${home}/engine`;
+  return {
+    env: { RT_ENGINE_PACK_DIR: engine },
+    dirs: {
+      [`${home}/.mattstack/teams`]: ["acme"],
+      [`${zone}/packs`]: ["widgets"],
+    },
+    files: {
+      [`${engine}/pack/skills.jsonc`]: "{}",
+      [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
+      [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
+      [`${zone}/packs/widgets/pack/skills.jsonc`]: opts.fragment ?? "{}",
+    },
+    exec: async (argv: string[]) =>
+      argv[0] === "git" && argv.includes("get-url")
+        ? { code: 0, stdout: `${opts.remote ?? "https://gitlab.example.com/acme/widgets.git"}\n`, stderr: "" }
+        : { code: 0, stdout: "", stderr: "" },
+  };
 }
 
 describe("services B: services.register, proxy.install, deck.managed, skills.materialize, board.keys, cron.triage", () => {
@@ -865,41 +888,35 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
   // ─── skills.materialize ─────────────────────────────────────────────────
 
   describe("skills.materialize", () => {
-    test("merge-manifests.sh absent -> skipped honestly, reason carries the missing code", async () => {
+    test("mattstack plugin absent -> skipped honestly, reason carries the missing code", async () => {
       const p = fakeProbes({ home });
       const { ctx } = makeCtx(p);
       const outcome = await skillsMaterializeStep.run(ctx);
       expect(outcome.state).toBe("skipped");
-      expect(detailOf(outcome)).toContain(MERGE_MANIFESTS_MISSING_CODE);
+      expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE);
     });
 
-    test("script present + a registered repo -> done, per-repo summary", async () => {
+    test("engine pack present + a registered repo a zone declares -> done, per-repo summary", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
-      const repoName = basename(repoDir);
-      updateRepoIndex(repoName, repoDir);
+      updateRepoIndex(basename(repoDir), repoDir);
 
-      const p = fakeProbes({
-        home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async () => ok("materialized"),
-      });
+      const p = fakeProbes({ home, ...materializeWorld(home) });
       const { ctx } = makeCtx(p);
       expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
+      expect(p.calls.exec).toContainEqual(["git", "-C", repoDir, "remote", "get-url", "origin"]);
+      expect(p.readFile(`${home}/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc`)).not.toBeNull();
     });
 
-    test("a per-repo script failure is logged and tallied, never fatal to the step", async () => {
+    test("a per-repo merge failure is logged and tallied, never fatal to the step", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       const repoName = basename(repoDir);
       updateRepoIndex(repoName, repoDir);
 
-      const p = fakeProbes({
-        home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async () => ({ code: 1, stdout: "", stderr: "merge-manifests: fragment is not valid JSONC: x" }),
-      });
+      const p = fakeProbes({ home, ...materializeWorld(home, { fragment: "{ nope" }) });
       const { ctx, logs } = makeCtx(p);
       expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0, failed 1" });
-      expect(logs.some((l) => l.line.includes("not valid JSONC"))).toBe(true);
+      const fragment = `${home}/.mattstack/teams/acme/mattstack/packs/widgets/pack/skills.jsonc`;
+      expect(logs.some((l) => l.line === `${repoName}: widgets: fragment is not valid JSONC: ${fragment}`)).toBe(true);
     });
 
     test("a tracked repo the team declares no skills for is nothing to do, never a failure", async () => {
@@ -908,34 +925,28 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       updateRepoIndex(basename(declared), declared);
       updateRepoIndex(basename(undeclared), undeclared);
 
+      const world = materializeWorld(home);
       const p = fakeProbes({
         home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async (argv) =>
-          argv.includes(undeclared)
-            ? { code: 2, stdout: "", stderr: "merge-manifests: no team declares gitlab.com/acme/tools -- no per-repo manifest" }
-            : ok("materialized"),
+        ...world,
+        exec: async (argv) => (argv.includes(undeclared) ? ok("https://gitlab.example.com/acme/other.git\n") : world.exec(argv)),
       });
       const { ctx, logs } = makeCtx(p);
       expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0, no skills declared 1" });
-      expect(logs.some((l) => l.line.includes("no team declares"))).toBe(true);
+      expect(logs.some((l) => l.line.includes("no team declares gitlab.example.com/acme/other"))).toBe(true);
     });
 
-    test("exit 2 without the no-manifest message is a real failure", async () => {
+    test("a repo with no git remote is nothing to do, never a failure", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
-      const p = fakeProbes({
-        home,
-        env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
-        exec: async () => ({ code: 2, stdout: "", stderr: "jq: error: something else" }),
-      });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 0, failed 1" });
+      const p = fakeProbes({ home, ...materializeWorld(home), exec: async () => ({ code: 1, stdout: "", stderr: "error: No such remote 'origin'" }) });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 0, failed 0, no skills declared 1" });
     });
 
-    test("idempotent re-run: same script, same repo, done again", async () => {
+    test("idempotent re-run: same world, same repo, done again", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
-      const p = fakeProbes({ home, env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" }, exec: async () => ok("materialized") });
+      const p = fakeProbes({ home, ...materializeWorld(home) });
 
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
       expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });

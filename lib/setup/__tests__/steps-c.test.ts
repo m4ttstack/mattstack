@@ -10,7 +10,7 @@ import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS } from "../base-plugins.ts";
-import { MERGE_MANIFESTS_MISSING_CODE } from "../skills-materialize.ts";
+import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { stageSecret } from "../staging.ts";
 import { readSetupState, updateSetupState } from "../state.ts";
 import type { TeamSnapshot } from "../team-settings.ts";
@@ -306,7 +306,7 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       expect(outcome.state).toBe("done");
       expect(detailOf(outcome)).toContain("4 marketplace(s), 5 plugin(s) across 1 config dir(s)");
-      expect(detailOf(outcome)).toContain(MERGE_MANIFESTS_MISSING_CODE); // no mattstack plugin on disk yet in this fake — materialize honestly skips
+      expect(detailOf(outcome)).toContain(ENGINE_PACK_MISSING_CODE); // no mattstack plugin on disk yet in this fake — materialize honestly skips
       // acme-skills is team-authored (came from the team's own marketplace.json) — installed, never auto-enabled.
       expect(detailOf(outcome)).toContain("awaiting your approval to enable: acme-skills@acme-market");
 
@@ -331,15 +331,27 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect([...state.plugins].sort()).toEqual([...pluginNames].sort());
     });
 
-    test("runs materializeSkills AFTER a successful install, honest tally when the script exists", async () => {
+    test("runs materializeSkills AFTER a successful install, honest tally when the engine pack exists", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
 
+      const zone = `${home}/.mattstack/teams/acme/mattstack`;
       const p = fakeProbes({
         home,
-        env: { PATH: "/usr/local/bin", RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
-        files: { "/usr/local/bin/claude": "bin" },
-        exec: async (argv) => (argv[2] === "list" ? ok("[]") : ok("materialized")),
+        env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
+        dirs: { [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        files: {
+          "/usr/local/bin/claude": "bin",
+          "/fake/engine/pack/skills.jsonc": "{}",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
+          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
+          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{}",
+        },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          if (argv[0] === "git" && argv.includes("get-url")) return ok("https://gitlab.example.com/acme/widgets.git\n");
+          return ok("");
+        },
       });
       const { ctx } = makeCtx(p);
 
