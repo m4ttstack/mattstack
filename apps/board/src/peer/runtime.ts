@@ -106,3 +106,22 @@ export function makePeering(host: PeeringHost) {
     },
   };
 }
+
+/** Boot-time start. The token lives behind the rt daemon, which routinely
+    comes up after the board, so a null read retries instead of leaving the
+    board off the switchboard until its next restart. The default interval
+    matches memoizeAsync's failure TTL: polling a memoized loader any faster
+    only re-reads its cached null. Stands down once /peer/join has started
+    peering, so a late token never replaces the joined client. */
+export async function startPeeringWhenTokenLoads(opts: {
+  peering: Pick<ReturnType<typeof makePeering>, 'current' | 'start'>;
+  url: string;
+  loadToken: () => Promise<string | null>;
+  retryMs?: number;
+}): Promise<void> {
+  while (!opts.peering.current()) {
+    const token = await opts.loadToken();
+    if (token && !opts.peering.current()) opts.peering.start(opts.url, token);
+    else if (!token) await Bun.sleep(opts.retryMs ?? 60_000);
+  }
+}

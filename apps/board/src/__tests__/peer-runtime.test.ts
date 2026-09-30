@@ -5,7 +5,7 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { SwitchboardClient } from '../peer/client.ts';
-import { makePeering } from '../peer/runtime.ts';
+import { makePeering, startPeeringWhenTokenLoads } from '../peer/runtime.ts';
 import { openStateDb } from '../state/db.ts';
 
 /** Every peering built here pins its own outbox db. Without this the runtime
@@ -152,6 +152,51 @@ describe('makePeering: enrolled peers cache', () => {
     const rt = peering.start('https://sb', 'tok');
     await peering.tickNow();
     expect(rt.peers()).toBeNull();
+    peering.stop();
+  });
+});
+
+describe('startPeeringWhenTokenLoads', () => {
+  test('keeps retrying a null token read until the daemon hands one over', async () => {
+    const tokens: Array<string | null> = [null, null, 'tok'];
+    const made: string[] = [];
+    const peering = makePeering({
+      makeClient: (url, token) => (
+        made.push(`${url} ${token}`),
+        fakeClient(() => [])
+      ),
+      deps: noDeps,
+      tickMs: 999_999,
+      outboxDb: freshDb(),
+    });
+    await startPeeringWhenTokenLoads({
+      peering,
+      url: 'https://sb',
+      loadToken: async () => tokens.shift() ?? null,
+      retryMs: 0,
+    });
+    expect(made).toEqual(['https://sb tok']);
+    peering.stop();
+  });
+
+  test('stands down once /peer/join has started peering', async () => {
+    const made: string[] = [];
+    const peering = makePeering({
+      makeClient: (_url, token) => (made.push(token), fakeClient(() => [])),
+      deps: noDeps,
+      tickMs: 999_999,
+      outboxDb: freshDb(),
+    });
+    await startPeeringWhenTokenLoads({
+      peering,
+      url: 'https://sb',
+      loadToken: async () => {
+        peering.start('https://sb', 'joined');
+        return 'boot';
+      },
+      retryMs: 0,
+    });
+    expect(made).toEqual(['joined']);
     peering.stop();
   });
 });
