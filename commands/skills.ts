@@ -2415,8 +2415,17 @@ export async function skillsBind(args: string[]): Promise<void> {
       fixtureMode: bindFlags.mattstackDir !== null,
       materialize: () => regeneratePackFile(manifestPath),
     });
-    if (regenerated === false && !bindFlags.json) {
+    // A recompile here would read the stale bindings file and bake the old fill in.
+    if (regenerated === false) {
+      process.exitCode = 1;
+      if (bindFlags.json) {
+        console.log(JSON.stringify({ ok: false, verb: verbName, slot: slotName, from: oldValue, to: fill, fragmentUpdated, shadowedBy, regenerated, regenerateDetail }));
+        return;
+      }
+      console.log(`${summary} (fragment updated: ${fragmentUpdated})`);
       console.error(`rt skills bind: bindings file not regenerated: ${regenerateDetail}`);
+      console.error(`rt skills bind: the fragment ${fragmentUpdated} is written and the next rt skills materialize picks it up; nothing was recompiled`);
+      return;
     }
     if (shadowedBy) {
       console.error(`rt skills bind: ${engineRef}.${slotName} is bound to ${fill} in the fragment, but the ${shadowedBy} layer still wins in ${resolved.manifestPath}`);

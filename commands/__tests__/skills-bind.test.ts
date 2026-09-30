@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import type { PickRequest, PickResult } from "../../lib/ui/protocol.ts";
+import * as sources from "../../lib/skills/sources.ts";
 import { readManifestBindings, stripJsonc } from "../../lib/skills/sources.ts";
 import { applyBind, regenerateOutcomeFor, regeneratePackFile, skillsBind, skillsCompile } from "../skills.ts";
 
@@ -703,6 +704,43 @@ describe("applyBind", () => {
       expect(result.regenerated).toBe(false);
       expect(result.regenerateDetail).toContain("engine-pack-missing");
       expect(result.regenerateDetail).toContain("mattstack plugin");
+    });
+
+    test.each([["--json"], ["text"]])("no engine pack through skillsBind (%s): exit 1, not ok, and no recompile", async (mode) => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+      cpSync(FIX, root, { recursive: true });
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+      const pack = join(root, "pack");
+      const fragmentPath = join(pack, "pack", "skills.jsonc");
+      writeFile(fragmentPath, `{\n  "bindings": {}\n}\n`);
+      const manifest = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      writeFile(manifest, `{\n  "pipelines": { "feature": ["mattstack:stage-plan", "mattstack:stage-implement", "mattstack:stage-ship"] },\n  "bindings": {}\n}\n`);
+      const rootsSpy = spyOn(sources, "resolvePluginRoots").mockImplementation(() => sources.resolvePluginRootsFromDir(join(root, "mattstack-home")));
+      const errors: string[] = [];
+      const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+        errors.push(args.map(String).join(" "));
+      });
+      try {
+        await skillsBind(["stage-plan", "domain", "acme:plan-policy", "--pack-dir", pack, "--manifest", manifest, ...(mode === "--json" ? ["--json"] : [])]);
+      } finally {
+        errorSpy.mockRestore();
+        rootsSpy.mockRestore();
+      }
+
+      expect(existsSync(join(pack, "skills"))).toBe(false);
+      expect(process.exitCode).toBe(1);
+      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:stage-plan"].domain).toBe("acme:plan-policy");
+      if (mode === "--json") {
+        expect(logs).toHaveLength(1);
+        const payload = JSON.parse(logs[0]!);
+        expect(payload).toMatchObject({ ok: false, regenerated: false, fragmentUpdated: fragmentPath });
+        expect(payload.regenerateDetail).toContain("engine-pack-missing");
+      } else {
+        expect(errors.some((l) => l.includes("bindings file not regenerated") && l.includes("engine-pack-missing"))).toBe(true);
+        expect(errors.some((l) => l.includes("rt skills materialize"))).toBe(true);
+      }
     });
   });
 
