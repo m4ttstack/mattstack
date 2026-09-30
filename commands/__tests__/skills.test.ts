@@ -1,15 +1,25 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { compilePackAll, installedCacheLine, installedInfoFor, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
+import { materializeRepo, type MaterializeFs } from "../../lib/skills/materialize.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
 import type { PluginRoots } from "../../lib/skills/sources.ts";
 import type { PackInfo } from "../../lib/skills/packs.ts";
 import type { VerbDef } from "../../lib/skills/types.ts";
 import { runExpectingCleanExit } from "../../lib/skills/__tests__/helpers.ts";
+
+const realInitFsForTests: MaterializeFs = {
+  exists: existsSync,
+  readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
+  writeFile: (p, t) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, t); },
+  mkdirp: (p) => mkdirSync(p, { recursive: true }),
+  readDir: (p) => (existsSync(p) ? readdirSync(p) : []),
+  rename: renameSync,
+};
 
 function writeFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -553,6 +563,41 @@ describe("skillsCompile", () => {
 
     expect(errors).toEqual([]);
     expect(logs.some((l) => /would write \d+ files/.test(l))).toBe(true);
+  });
+
+  test("two packs bound to one repo compile different domain fills with no merge error", async () => {
+    const mattstackDir = makeMattstackDir();
+    writeFile(join(mattstackDir, "plugins", "gadgets", ".claude-plugin", "plugin.json"), JSON.stringify({ version: "0.1.0" }));
+    writeFile(join(mattstackDir, "plugins", "gadgets", "attachments", "watch-ci-domain", "SKILL.md"), DOMAIN_SKILL_MD);
+    writeFile(join(mattstackDir, "plugins", "gadgets", "attachments", "watch-ci-domain", "ci-config.json"), CI_CONFIG_JSON);
+    const zone = (slug: string, pack: string, domain: string) => {
+      const dir = join(mattstackDir, "teams", slug, "mattstack");
+      writeFile(join(dir, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: pack }));
+      writeFile(join(dir, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }));
+      writeFile(join(dir, "packs", pack, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:watch-ci": { domain, forge: "mattstack:gitlab-forge" } } }));
+      writeFile(join(dir, "packs", pack, "pack", "stubs.jsonc"), STUBS_JSONC);
+      return join(dir, "packs", pack);
+    };
+    const widgetsDir = zone("acme-w", "widgets", "acme:watch-ci-domain");
+    const gadgetsDir = zone("acme-g", "gadgets", "gadgets:watch-ci-domain");
+    const engine = join(mattstackDir, "plugins", "mattstack");
+    const out = materializeRepo({ fs: realInitFsForTests, mattstackRoot: mattstackDir, claudeHome: mattstackDir, enginePackDir: engine }, "https://gitlab.example.com/acme/widgets.git");
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.every((p) => p.ok)).toBe(true);
+
+    const widgets = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "widgets", "--pack-dir", widgetsDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    const gadgets = await runExpectingCleanExit(() =>
+      skillsCompile(["--team", "gadgets", "--pack-dir", gadgetsDir, "--mattstack-dir", mattstackDir, "--verb", "watch-ci"]));
+    expect(widgets.errors).toEqual([]);
+    expect(gadgets.errors).toEqual([]);
+
+    const widgetsBody = readFileSync(join(widgetsDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+    const gadgetsBody = readFileSync(join(gadgetsDir, "skills", "watch-ci", "SKILL.md"), "utf8");
+    expect(widgetsBody).toContain("acme:watch-ci-domain");
+    expect(widgetsBody).not.toContain("gadgets:watch-ci-domain");
+    expect(gadgetsBody).toContain("gadgets:watch-ci-domain");
+    expect(gadgetsBody).not.toContain("acme:watch-ci-domain");
   });
 
   test("another pack's file on the same repo is never picked", async () => {
