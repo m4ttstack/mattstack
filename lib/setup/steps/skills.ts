@@ -19,6 +19,7 @@ import type { StepDef, StepOutcome } from "../apply.ts";
 import { installCronTrigger, resolveBoardTriage, triageTrigger } from "../cron-install.ts";
 import { linkBundledSkills } from "../skills-link-bundled.ts";
 import { materializeSkills, materializeTally } from "../skills-materialize.ts";
+import { isPackDir } from "../../skills/init.ts";
 import { linkPersonalSkills } from "../../skills/writing-style-sources.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { resolveForge } from "./forge-identity.ts";
@@ -167,11 +168,11 @@ async function seedOwnHandle(ctx: ApplyContext, written: string[]): Promise<void
   }
 }
 
-/** The alphabetically first pack under the team's mattstack/packs, by the same pack/skills.jsonc test materialize uses; the pack `rt setup` installs first is the one a fresh board should launch with. */
+/** The alphabetically first pack under the team's mattstack/packs; the pack `rt setup` installs first is the one a fresh board should launch with. */
 function firstTeamPack(ctx: ApplyContext): string | null {
   if (!ctx.team.slug) return null;
   const packs = join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, "mattstack", "packs");
-  return ctx.p.readDir(packs).filter((name) => ctx.p.exists(join(packs, name, "pack", "skills.jsonc"))).sort()[0] ?? null;
+  return ctx.p.readDir(packs).filter((name) => isPackDir(ctx.p, join(packs, name))).sort()[0] ?? null;
 }
 
 async function boardKeysRun(ctx: ApplyContext): Promise<StepOutcome> {

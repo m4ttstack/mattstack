@@ -76,11 +76,18 @@ describe("readZones", () => {
     }));
     expect(readZones(fs, HOME)[0]).toMatchObject({ slug: "beta", namespace: "beta", host: "gitlab.com", projects: [] });
   });
-  test("a zone with a plugin.json under mattstack/packs/* has a pack", () => {
+  test("a zone with a pack/skills.jsonc under mattstack/packs/* has a pack", () => {
+    const fs = memFs(zoneFiles("acme", {
+      [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.5.0" }`,
+      [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/skills.jsonc`]: `{}`,
+    }));
+    expect(readZones(fs, HOME)[0]!.hasPack).toBe(true);
+  });
+  test("a plugin.json alone under mattstack/packs/* is not a pack", () => {
     const fs = memFs(zoneFiles("acme", {
       [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.5.0" }`,
     }));
-    expect(readZones(fs, HOME)[0]!.hasPack).toBe(true);
+    expect(readZones(fs, HOME)[0]!.hasPack).toBe(false);
   });
   test("a user-role zone is skipped", () => {
     const fs = memFs({
@@ -377,6 +384,7 @@ describe("initPack", () => {
       files: {
         [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `{ "gitlabHost": "https://gitlab.com", "projects": ["acme/other"] }\n`,
         [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.3.0" }`,
+        [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/skills.jsonc`]: `{}`,
       },
     });
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
@@ -389,6 +397,7 @@ describe("initPack", () => {
       files: {
         [`${HOME}/.mattstack/teams/acme/mattstack/team.jsonc`]: `{ "gitlabHost": "https://gitlab.com", "projects": ["acme/other"] }\n`,
         [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/.claude-plugin/plugin.json`]: `{ "name": "acme", "version": "0.3.0" }`,
+        [`${HOME}/.mattstack/teams/acme/mattstack/packs/acme/pack/skills.jsonc`]: `{}`,
       },
     });
     const out = await initPack({ repoDir: REPO, zone: "acme" }, deps);

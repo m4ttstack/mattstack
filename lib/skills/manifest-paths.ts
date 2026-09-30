@@ -1,5 +1,10 @@
 import { basename, dirname, join } from "path";
 
+/** The directory name under repos/ for a forge repo; resolve-args.sh and the board spell the same rule. */
+export function repoSlug(host: string, path: string): string {
+  return `${host.toLowerCase()}-${path.replaceAll("/", "-")}`;
+}
+
 export function packManifestPath(mattstackRoot: string, slug: string, pack: string): string {
   return join(mattstackRoot, "repos", slug, "packs", pack, "skills.jsonc");
 }

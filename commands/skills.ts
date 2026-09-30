@@ -40,7 +40,7 @@ import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.t
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
-import { manifestPack, manifestRepoKey, packManifestPath } from "../lib/skills/manifest-paths.ts";
+import { manifestPack, manifestRepoKey, packManifestPath, repoSlug } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -381,7 +381,8 @@ function isUnder(parent: string, child: string): boolean {
 }
 
 function repoSlugArg(repo: string): string {
-  return repo.includes("/") ? `${repo.split("/")[0]!.toLowerCase()}-${repo.split("/").slice(1).join("-")}` : repo;
+  const slash = repo.indexOf("/");
+  return slash === -1 ? repo : repoSlug(repo.slice(0, slash), repo.slice(slash + 1));
 }
 
 /**
@@ -409,10 +410,10 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
   if (candidates.length > 1) {
     const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"))
       .filter((z) => existsSync(join(z.dir, "mattstack", "packs", team)));
-    for (const zone of zones) {
-      if (!zone.host) continue;
-      for (const project of zone.projects) {
-        const hit = candidates.find((c) => c.slug === `${zone.host}-${project.replaceAll("/", "-")}`);
+    for (const { host, projects } of zones) {
+      if (!host) continue;
+      for (const project of projects) {
+        const hit = candidates.find((c) => c.slug === repoSlug(host, project));
         if (hit) return hit.path;
       }
     }

@@ -1,6 +1,6 @@
 import { join, relative, resolve } from "path";
 import { applyEdits, modify } from "jsonc-parser";
-import { packManifestPath } from "./manifest-paths.ts";
+import { packManifestPath, repoSlug } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
@@ -24,7 +24,7 @@ export function parseRemote(url: string): RepoRef | null {
   if (slash === -1 || slash === u.length - 1) return null;
   const host = u.slice(0, slash).toLowerCase();
   const path = u.slice(slash + 1);
-  return { host, path, slug: `${host}-${path.replaceAll("/", "-")}` };
+  return { host, path, slug: repoSlug(host, path) };
 }
 
 export type InitFs = {
@@ -69,9 +69,14 @@ function hostOnly(value: unknown): string | null {
   return value.replace(/^https?:\/\//, "").split("/")[0]!.toLowerCase() || null;
 }
 
+/** A pack is a directory holding the fragment materialize layers, so every "which packs are here" question agrees with materialize. */
+export function isPackDir(fs: Pick<InitFs, "exists">, dir: string): boolean {
+  return fs.exists(join(dir, "pack", "skills.jsonc"));
+}
+
 function zoneHasPack(fs: InitFs, dir: string): boolean {
   const packs = join(dir, "mattstack", "packs");
-  return fs.readDir(packs).some((name) => fs.exists(join(packs, name, ".claude-plugin", "plugin.json")));
+  return fs.readDir(packs).some((name) => isPackDir(fs, join(packs, name)));
 }
 
 export function readZones(fs: InitFs, home: string): ZoneInfo[] {

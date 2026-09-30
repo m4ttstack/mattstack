@@ -1,6 +1,6 @@
 import { dirname, join } from "path";
 import { findInstalledPluginDir, PLUGIN_REF_RE } from "./installed-plugins.ts";
-import { parseRemote, readZonesFrom, type InitFs, type ZoneInfo } from "./init.ts";
+import { isPackDir, parseRemote, readZonesFrom, type InitFs, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
 
@@ -30,7 +30,7 @@ function readFragment(fs: MaterializeFs, path: string): Fragment | null {
 
 function packsIn(fs: MaterializeFs, zone: ZoneInfo): string[] {
   const packsDir = join(zone.dir, "mattstack", "packs");
-  return fs.readDir(packsDir).filter((name) => fs.exists(join(packsDir, name, "pack", "skills.jsonc"))).sort();
+  return fs.readDir(packsDir).filter((name) => isPackDir(fs, join(packsDir, name))).sort();
 }
 
 function baseLayer(deps: MaterializeDeps, pack: string, ref: string): Layer | { error: string } {
