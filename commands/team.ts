@@ -4,7 +4,7 @@
  *
  *   rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
- *   rt team invite --handle <h> [--team <slug>] [--json]
+ *   rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
  *   rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]
@@ -227,7 +227,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
   const handle = flagValue(args, "--handle");
 
   if (!handle) {
-    usageError(deps, json, "team invite", "rt team invite --handle <h> [--team <slug>] [--json]");
+    usageError(deps, json, "team invite", "rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]");
   }
 
   try {
@@ -253,7 +253,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     }
 
     const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
-    const result = await mintInvite(deps.probes, relay, { slug, handle, now: deps.probes.now() });
+    const result = await mintInvite(deps.probes, relay, { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") });
 
     if (json) {
       deps.print(JSON.stringify(envelope(result)));

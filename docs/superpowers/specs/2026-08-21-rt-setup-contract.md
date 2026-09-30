@@ -185,13 +185,23 @@ verifies the clone and the Keychain key.
 
 ## `rt team join --json` (stdin: `{"code": "..."}`) / `--dry-run`
 
-→ `{ "contract":1, "team": {"slug","name","owner"}, "access": "ok"|"denied"|"unreachable", "peering": "applied"|"idle"|"unavailable", "message": "..." }`
-(exit 0 even when `access` is `denied`/`unreachable`; exit 2 only for
-`invite-unknown`/`invite-malformed`).
+→ `{ "contract":1, "team": {"slug","name","owner"}, "access": "ok"|"denied"|"unreachable", "peering": "applied"|"idle"|"unavailable", "peeringFix"?: "...", "message": "..." }`
+(exit 0 even when `access` is `denied`/`unreachable`; exit 2 for
+`invite-unknown`/`invite-malformed`, and for the resumable
+`secrets-store-not-ready` (refused before the redeem) and
+`peering-store-failed` (after it; rerun `rt team join` with no code).
+`peeringFix` is present exactly when `peering` is `unavailable`, and the
+`team.join` step then ends `partial` with it as the remedy.
 
-## `rt team invite --handle <h> --json`
+## `rt team invite --handle <h> [--require-peering] --json`
 
-→ `{ "contract":1, "code": "...", "expiresAt": "...", "pasteBlock": "Install mattstack from … then open mattstack://join/… or paste …", "forgeAccess": "granted"|"manual"|"skipped", "manualSteps": [...] }`
+→ `{ "contract":1, "code": "...", "expiresAt": "...", "pasteBlock": "Install mattstack from … then open mattstack://join/… or paste …", "forgeAccess": "granted"|"manual"|"skipped", "manualSteps": [...], "peering": "embedded"|"missing"|"none", "peeringWarning"?: "..." }`
+
+`peering` is `none` when the team declares no switchboard, and `missing`
+when it does but no board token could be sealed into the invite;
+`peeringWarning` (the same sentence warned on stderr) is present exactly
+then. `--require-peering` refuses a `missing` invite before anything is
+minted (exit 2 `peering-not-embedded`).
 
 ## `rt uninstall --json [--keep-data|--delete-data] [--yes] [--dry-run]`
 

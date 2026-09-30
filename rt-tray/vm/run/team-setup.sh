@@ -76,6 +76,9 @@ case "$cmd" in
           "") vm_warn "rt team invite --json carried no forgeAccess field (see $VM_CACHE/invite.err)";;
           *)  vm_log "forge access: $ACCESS";;
         esac
+        if [ "$(printf '%s' "$out" | jq -r '.peering // empty')" = "missing" ]; then
+          vm_warn "rt team invite: $(printf '%s' "$out" | jq -r '.peeringWarning // "board peering was not embedded"')"
+        fi
       else
         rm -f "$OUT"
         vm_die "rt team invite failed (relay down? L6 not deployed?): $(cat "$VM_CACHE/invite.err")"
