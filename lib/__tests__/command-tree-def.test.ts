@@ -30,6 +30,16 @@ test("sdm connect carries the agent flags", () => {
   expect(flags).toContain("--confirm-production");
 });
 
+test("bare rt setup offers its subcommands; the checklist walk is rt setup install", () => {
+  const setup = TREE.setup!;
+  expect(setup.module).toBeUndefined();
+  expect(setup.fn).toBeUndefined();
+  const install = setup.subcommands!.install!;
+  expect(install.module).toBe("./commands/setup.ts");
+  expect(install.fn).toBe("setupInteractive");
+  expect(install.args!.map(a => a.flag)).toEqual(["--json", "--force"]);
+});
+
 test("worktree restore's Tree arg is marked optional, matching its picker/--list omission", () => {
   const restore = TREE.worktree!.subcommands!.restore!;
   expect(restore.omitBehavior).toBe("picker");
