@@ -93,6 +93,8 @@ export interface ApplyContext {
 export interface StepDef {
   id: StepId;
   title: string;
+  /** The row's title for this run when it depends on the machine's state; `title` otherwise. */
+  titleFor?(ctx: ApplyContext): string;
   kind: StepKind;
   applies(ctx: ApplyContext): boolean;
   run(ctx: ApplyContext): Promise<StepOutcome>;
@@ -193,7 +195,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   const start = opts.only !== undefined ? onlyIndex(applicable, opts.only) : resumeStart(applicable, opts.from);
   const end = opts.only !== undefined ? Math.min(start + 1, applicable.length) : applicable.length;
 
-  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.title, kind: s.kind })) });
+  ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.titleFor?.(ctx) ?? s.title, kind: s.kind })) });
 
   const queue = applicable.slice(start, end);
   let lastRanId: StepId | undefined;

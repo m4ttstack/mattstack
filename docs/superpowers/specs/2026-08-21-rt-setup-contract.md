@@ -191,9 +191,14 @@ verifies the clone and the Keychain key.
 `secrets-store-not-ready` (refused before the redeem) and
 `peering-store-failed` (after it; rerun `rt team join` with no code).
 `peeringFix` is present exactly when `peering` is `unavailable`, and the
-`team.join` step then ends `partial` with it as the remedy, and stays
-`partial` on a later run while a joined member of a switchboard team has
-no stored `switchboardToken`. A secrets store that keeps failing blocks the
+`team.join` step then ends `partial` with it as the remedy. Such a join
+stamps `peeringPending` on the team's local record
+(`~/.mattstack/rt/teams/<slug>.json`); while any team carries the stamp,
+later runs keep the step (titled "Team membership" with no invite in
+progress) and end it `partial` until a token turns up in either source the
+board reads (its own `.env` `SWITCHBOARD_TOKEN`, or rt's `switchboardToken`),
+which clears the stamp. An unreadable secrets store is `partial` with a
+keychain remedy, never read as absent. A secrets store that keeps failing blocks the
 join outright, with no bypass, by design: finishing without the token
 would lose it.
 

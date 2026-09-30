@@ -611,6 +611,7 @@ export async function joinRedeem(
   }
 
   const { peering, peeringFix } = await peerBoard(p, seams, secrets, pointer, declaredUrl, handle);
+  updateTeamLocal(p, pointer.team, { peeringPending: peering === "unavailable" });
 
   let publicKey: string;
   try {
