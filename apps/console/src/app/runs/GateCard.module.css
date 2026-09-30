@@ -27,4 +27,9 @@
     border-top: 0;
     border-left: 1px solid var(--tk-line-1);
   }
+
+  .pin {
+    position: sticky;
+    top: var(--mantine-spacing-xl);
+  }
 }

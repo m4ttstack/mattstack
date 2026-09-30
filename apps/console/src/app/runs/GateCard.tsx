@@ -356,7 +356,7 @@ export function GateCard({ gate }: { gate: GateRow }) {
                 className={classes.formColumn}
                 data-testid="gate-form-column"
               >
-                {answerArea}
+                <div className={classes.pin}>{answerArea}</div>
               </div>
             </div>
           </div>
