@@ -507,7 +507,7 @@ describe("initPack", () => {
   test("materialize that leaves no manifest is materialize-failed", async () => {
     const { deps } = world({ materialize: async () => ({ ok: false, detail: "no team declares" }) });
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
-    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed" });
+    expect(out).toMatchObject({ ok: false, refused: false, code: "materialize-failed", remedy: `then: rt skills materialize --dir ${REPO}` });
   });
 
   test("a throw from registerRepo after writing is materialize-failed, keeping wrote", async () => {

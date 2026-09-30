@@ -331,7 +331,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
 
   const remedyFor = (code: FailureCode): string => {
     if (code === "write-failed") return `then: remove ${packDir} and re-run rt skills init`;
-    if (code === "materialize-failed") return `then: rt skills materialize --repo ${opts.repoDir}`;
+    if (code === "materialize-failed") return `then: rt skills materialize --dir ${opts.repoDir}`;
     if (code === "compile-failed" || code === "check-drift") {
       return `then: rt skills compile --pack-dir ${packDir} and rt skills check --pack-dir ${packDir}`;
     }

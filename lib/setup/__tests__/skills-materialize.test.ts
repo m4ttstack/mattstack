@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { updateRepoIndex } from "../../repo-index.ts";
+import { setSetting } from "../../settings/write.ts";
+import { UserActionableError } from "../errors.ts";
 import { createRealProbes } from "../probes.ts";
 import { ENGINE_PACK_MISSING_CODE, findEnginePackDir, materializeSkills } from "../skills-materialize.ts";
 import { fakeProbes } from "./fakes.ts";
@@ -114,6 +116,41 @@ describe("materializeSkills", () => {
     if (result.skipped) throw new Error("skipped");
     expect(result.repos[0]!.ok).toBe(false);
     expect(result.repos[0]!.detail).toBe("widgets: widgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins");
+  });
+
+  test("--repo naming no registered repo throws repo-not-registered", async () => {
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: engine() } });
+    const err = await materializeSkills(p, { repo: "no-such-widgets" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("repo-not-registered");
+  });
+
+  test("--repo naming two registered repos throws repo-ambiguous listing both", async () => {
+    const first = join(home, "a", "widgets");
+    const second = join(home, "b", "widgets");
+    mkdirSync(first, { recursive: true });
+    mkdirSync(second, { recursive: true });
+    updateRepoIndex("remote:gitlab.example.com%2Facme%2Fwidgets", first);
+    updateRepoIndex("remote:gitlab.example.com%2Facme%2Fgadgets%2Fwidgets", second);
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: engine() } });
+    const err = await materializeSkills(p, { repo: "widgets" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("repo-ambiguous");
+    expect((err as Error).message).toContain("remote:gitlab.example.com%2Facme%2Fwidgets");
+    expect((err as Error).message).toContain("remote:gitlab.example.com%2Facme%2Fgadgets%2Fwidgets");
+    expect(p.calls.exec).toEqual([]);
+  });
+
+  test("targets only registered repos, never checkouts a repo-root scan discovered", async () => {
+    const { name } = seedRepo("https://gitlab.example.com/acme/widgets.git");
+    const scanned = mkdtempSync(join(home, "scanned-"));
+    execFileSync("git", ["init", "-q", scanned]);
+    setSetting("rt.repoRoots", [home], "machine");
+    seedZone();
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos.map((r) => r.name)).toEqual([name]);
   });
 
   test("--dir materializes an unregistered checkout by path", async () => {
