@@ -498,6 +498,25 @@ describe('runTriage attendant lease (BOARD-10)', () => {
     expect(releases).toEqual([['https://x/mr/1', 1]]);
   });
 
+  test('a launch that throws records its cause on the doctor row', async () => {
+    const writes: Array<{ status?: string; message?: string }> = [];
+    const d = deps({
+      launchDoctor: async () => {
+        throw new Error('herdr not found at /nowhere/herdr');
+      },
+    });
+    const base = d.writeDoctorState;
+    d.writeDoctorState = (path, patch) => {
+      writes.push(patch);
+      return base(path, patch);
+    };
+    await runTriage(d);
+    expect(writes.at(-1)).toEqual({
+      status: 'error',
+      message: 'herdr not found at /nowhere/herdr',
+    });
+  });
+
   test('a throw between the claim and the launch (doctorFilePath) still releases the claim', async () => {
     const releases: Array<[string, number]> = [];
     const d = deps({

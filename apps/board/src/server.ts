@@ -167,6 +167,7 @@ import {
   RESPOND_IN_FLIGHT,
   REVIEW_IN_FLIGHT,
 } from './launch-dedup.ts';
+import { launchErrorMessage } from './launch-error.ts';
 import { hasLocalOrigin, isLocalRequest, requireJsonBody } from './local.ts';
 import { resolveBoardSkill, type BoardSkillKind } from './manifest-bindings.ts';
 import { memoizeAsync } from './memoize-async.ts';
@@ -1680,7 +1681,7 @@ const httpServer = Bun.serve({
             );
             writeReviewState(statePath, {
               status: 'error',
-              message: 'failed to launch review pane',
+              message: launchErrorMessage('review', err),
             });
           });
         return new Response(JSON.stringify({ ok: true }), {
@@ -1811,7 +1812,7 @@ const httpServer = Bun.serve({
             );
             writeRespondState(statePath, {
               status: 'error',
-              message: 'failed to launch respond pane',
+              message: launchErrorMessage('respond', err),
             });
           });
         return new Response(JSON.stringify({ ok: true }), {
@@ -1981,7 +1982,7 @@ const httpServer = Bun.serve({
             );
             writeDoctorState(statePath, {
               status: 'error',
-              message: 'failed to launch doctor pane',
+              message: launchErrorMessage('doctor', err),
             });
           });
         return new Response(JSON.stringify({ ok: true }), {
