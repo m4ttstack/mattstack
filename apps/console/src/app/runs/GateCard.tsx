@@ -22,6 +22,7 @@ import type { GateRow } from '@mattstack/rt-client';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { client } from '../api';
+import classes from './GateCard.module.css';
 import { GateContext } from './GateContext';
 import { GateQuestionnaire } from './GateQuestionnaire';
 
@@ -248,6 +249,48 @@ export function GateCard({ gate }: { gate: GateRow }) {
     </Button>
   );
 
+  const hasContext =
+    typeof gate.context === 'string' && gate.context.length > 0;
+  const split = hasContext && contextOpen && actionable && !answered && !lost;
+  const answerArea = answered ? (
+    <AnsweredSummary row={gate} />
+  ) : lost ? (
+    <>
+      <Text fz={12} style={{ color: 'var(--tk-text-bad-vivid)' }}>
+        answered elsewhere
+      </Text>
+      <AnsweredSummary
+        startOpen
+        row={{
+          subject: gate.subject,
+          kind: gate.kind,
+          status: 'answered',
+          questions: gate.questions,
+          answer: { answers: lost.answers, by: lost.by },
+        }}
+      />
+    </>
+  ) : actionable ? (
+    <GateQuestionnaire
+      gate={questionnaireGate}
+      selections={selections}
+      onSelectionsChange={setSelections}
+      notes={notes}
+      onNoteChange={(name, value) =>
+        setNotes(prev => ({ ...prev, [name]: value }))
+      }
+      step={step}
+      onStepChange={setStep}
+      onReset={resetAll}
+      busy={busy}
+      onSubmitAnswers={payload => void submit(payload)}
+      status={status}
+      focus={focus}
+    />
+  ) : (
+    <AnsweredSummary row={gate} />
+  );
+
   return (
     // Clicks on a choice's label text are not inside an `a`/`button` a
     // row-level closest() would catch; kept as cheap insurance for a future
@@ -294,57 +337,36 @@ export function GateCard({ gate }: { gate: GateRow }) {
             )}
           </Group>
         </Group>
-        {typeof gate.context === 'string' && gate.context.length > 0 && (
-          <Stack gap={4}>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              onClick={() => setContextOpen(o => !o)}
-              data-testid="gate-context-toggle"
-              style={{ alignSelf: 'flex-start' }}
-            >
-              {contextOpen ? 'hide context' : 'show context'}
-            </Button>
-            {contextOpen && <GateContext text={gate.context} />}
-          </Stack>
+        {hasContext && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            onClick={() => setContextOpen(o => !o)}
+            data-testid="gate-context-toggle"
+            style={{ alignSelf: 'flex-start' }}
+          >
+            {contextOpen ? 'hide context' : 'show context'}
+          </Button>
         )}
-        {answered ? (
-          <AnsweredSummary row={gate} />
-        ) : lost ? (
-          <>
-            <Text fz={12} style={{ color: 'var(--tk-text-bad-vivid)' }}>
-              answered elsewhere
-            </Text>
-            <AnsweredSummary
-              startOpen
-              row={{
-                subject: gate.subject,
-                kind: gate.kind,
-                status: 'answered',
-                questions: gate.questions,
-                answer: { answers: lost.answers, by: lost.by },
-              }}
-            />
-          </>
-        ) : actionable ? (
-          <GateQuestionnaire
-            gate={questionnaireGate}
-            selections={selections}
-            onSelectionsChange={setSelections}
-            notes={notes}
-            onNoteChange={(name, value) =>
-              setNotes(prev => ({ ...prev, [name]: value }))
-            }
-            step={step}
-            onStepChange={setStep}
-            onReset={resetAll}
-            busy={busy}
-            onSubmitAnswers={payload => void submit(payload)}
-            status={status}
-            focus={focus}
-          />
+        {split ? (
+          <div className={classes.body}>
+            <div className={classes.split} data-testid="gate-split">
+              <GateContext text={gate.context as string} />
+              <div
+                className={classes.formColumn}
+                data-testid="gate-form-column"
+              >
+                {answerArea}
+              </div>
+            </div>
+          </div>
         ) : (
-          <AnsweredSummary row={gate} />
+          <>
+            {hasContext && contextOpen && (
+              <GateContext text={gate.context as string} />
+            )}
+            {answerArea}
+          </>
         )}
       </Stack>
     </Paper>
