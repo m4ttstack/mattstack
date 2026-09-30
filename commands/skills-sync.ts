@@ -8,7 +8,7 @@
  *
  * The full step chain and its refusal conditions live in lib/skills/sync.ts;
  * this file only wires real dependencies (git/claude subprocesses, checkPack,
- * compilePackAll) and renders the resulting SyncReport.
+ * compilePackAll, materializeSkills) and renders the resulting SyncReport.
  */
 
 import { homedir } from "os";
@@ -21,6 +21,8 @@ import { syncPack, type SyncDeps, type SyncEngine, type SyncReport, type SyncSte
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
+import { createRealProbes } from "../lib/setup/probes.ts";
+import { materializeSkills } from "../lib/setup/skills-materialize.ts";
 
 /**
  * The mattstack pack is the only valid sync engine: falling back to the pack
@@ -134,6 +136,14 @@ export async function skillsSync(args: string[]): Promise<void> {
       return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint };
     },
     compilePack: (name) => compilePackAll({ pack: name, ...(manifest ? { manifest } : {}) }),
+    materialize: async () => {
+      const r = await materializeSkills(createRealProbes(), {});
+      if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}` };
+      const failed = r.repos.filter((x) => !x.ok && !x.noManifest);
+      return failed.length === 0
+        ? { ok: true, detail: `materialized ${r.repos.filter((x) => x.ok).length}` }
+        : { ok: false, detail: failed.map((x) => `${x.name}: ${x.detail}`).join("; ") };
+    },
     configDir,
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
     inTreeRoot: resolveSharedCheckout(homedir()),

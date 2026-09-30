@@ -1,5 +1,6 @@
 import { join, relative, resolve } from "path";
 import { applyEdits, modify } from "jsonc-parser";
+import { packManifestPath } from "./manifest-paths.ts";
 import { stripJsonc } from "./sources.ts";
 
 /** Strips only the userinfo (scheme://user:pass@) so the rest of a rejected remote URL stays in the message; withoutUrls's full-URL redaction would leave nothing readable here. */
@@ -9,7 +10,7 @@ function withoutCredentials(message: string): string {
 
 export type RepoRef = { host: string; path: string; slug: string };
 
-/** Mirrors norm_url in merge-manifests.sh so the slug here is the one the per-repo manifest lands under. */
+/** The slug here is the directory every per-pack bindings file for this repo lands under. */
 export function parseRemote(url: string): RepoRef | null {
   let u = url.trim();
   if (u.endsWith(".git")) u = u.slice(0, -4);
@@ -165,8 +166,9 @@ export function renderPackFiles(opts: { pack: string; workDescription: string })
       "// engine; rewrite it in your team's words.\n" +
       JSON.stringify(stubs, null, 2) + "\n",
     "pack/skills.jsonc":
-      `// ${pack} bindings fragment. merge-manifests.sh folds it into the per-repo\n` +
-      "// manifest at ~/.mattstack/repos/<slug>/skills.jsonc. Every domain slot is\n" +
+      `// ${pack} bindings fragment. rt skills materialize layers it under mattstack's\n` +
+      "// defaults and over any base pack into the per-pack file at\n" +
+      `// ~/.mattstack/repos/<repo>/packs/${pack}/skills.jsonc. Every domain slot is\n` +
       "// optional; bind one with rt skills bind (see mattstack:extending-a-pack).\n" +
       JSON.stringify(manifest, null, 2) + "\n",
   };
@@ -196,8 +198,8 @@ function renderPackMd(pack: string): string {
 export function declareRepo(teamJsonc: string | null, repo: RepoRef): string {
   if (teamJsonc === null) {
     return (
-      "// Team declaration read by merge-manifests.sh: which forge host and which\n" +
-      "// projects this zone's packs bind into.\n" +
+      "// Team declaration read by rt skills materialize: which forge host and which\n" +
+      "// projects this zone's pack binds.\n" +
       JSON.stringify({ gitlabHost: `https://${repo.host}`, projects: [repo.path] }, null, 2) + "\n"
     );
   }
@@ -377,7 +379,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
   const materializedAttempt = await attempt("materialize-failed", () => deps.materialize(registered.value));
   if ("outcome" in materializedAttempt) return materializedAttempt.outcome;
   const materialized = materializedAttempt.value;
-  const manifestPath = join(deps.home, ".mattstack", "repos", repo.slug, "skills.jsonc");
+  const manifestPath = packManifestPath(join(deps.home, ".mattstack"), repo.slug, pack);
   if (!materialized.ok || !deps.fs.exists(manifestPath)) {
     return failed("materialize-failed", `${materialized.detail}; expected ${manifestPath}`);
   }

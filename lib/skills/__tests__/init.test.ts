@@ -246,8 +246,8 @@ function world(overrides: Partial<InitDeps> & { files?: Record<string, string>; 
     registerRepo: async (dir) => { calls.registered.push(dir); return "gitlab.com/acme/api"; },
     materialize: async (name) => {
       calls.materialized.push(name);
-      fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api`);
-      fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc`, "// mattstack:work tiering <- acme@acme\n{}");
+      fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme`);
+      fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "// mattstack:work tiering <- acme@acme\n{}");
       return { ok: true, detail: "merged" };
     },
     compile: async (dir) => { calls.compiled.push(dir); return { ok: true, errors: [] }; },
@@ -274,18 +274,24 @@ describe("initPack", () => {
     expect(calls.checked).toEqual([packDir]);
     expect(calls.claude).toContainEqual(["plugin", "marketplace", "add", `${HOME}/.mattstack/teams/acme`]);
     expect(calls.claude).toContainEqual(["plugin", "install", "acme@acme-market"]);
-    expect(out.repo).toEqual({ slug: "gitlab.com-acme-api", manifest: `${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc` });
+    expect(out.repo).toEqual({ slug: "gitlab.com-acme-api", manifest: `${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc` });
     expect(out.tryNext).toBe("/acme:work <ticket>");
     expect(out.restartNeeded).toBe(true);
   });
 
   test("the pack takes the zone namespace when it differs from the slug", async () => {
-    const { deps } = world({
+    const { deps, fs } = world({
       files: { [`${HOME}/.mattstack/teams/acme/mattstack/mattstack.jsonc`]: `{ "role": "team", "namespace": "acmens", "org": "x" }` },
     });
+    deps.materialize = async () => {
+      fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acmens`);
+      fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acmens/skills.jsonc`, "{}");
+      return { ok: true, detail: "merged" };
+    };
     const out = await initPack({ repoDir: REPO, zone: null }, deps);
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.pack.name).toBe("acmens");
+    if (out.ok) expect(out.repo.manifest).toBe(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acmens/skills.jsonc`);
   });
 
   test("marketplace.json absent from disk: init mkdirps .claude-plugin before writing it", async () => {
@@ -305,8 +311,8 @@ describe("initPack", () => {
       claude: async (args) => (args[1] === "marketplace" && args[2] === "list" ? ok("[]") : ok("")),
       registerRepo: async () => "gitlab.com/acme/api",
       materialize: async () => {
-        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api`);
-        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc`, "{}");
+        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme`);
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "{}");
         return { ok: true, detail: "merged" };
       },
       compile: async () => ({ ok: true, errors: [] }),
@@ -446,8 +452,8 @@ describe("initPack", () => {
         return { slug: "beta", dir };
       },
       materialize: async () => {
-        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api`);
-        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api/skills.jsonc`, "// beta@beta\n{}");
+        fs.mkdirp(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api/packs/beta`);
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.example.com-acme-api/packs/beta/skills.jsonc`, "// beta@beta\n{}");
         return { ok: true, detail: "merged" };
       },
     });
