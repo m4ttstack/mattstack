@@ -11,15 +11,14 @@ public struct RouteResponse: Equatable, Sendable {
 public struct TrayRoutes: Sendable {
     private let permissions: PermissionsProviding
     private let services: ServicesProviding
-    private let privileged: PrivilegedInstalling
     private let needs: NeedBroker
     private let updater: UpdateChecking
     private let version: VersionProviding
     private let window: WindowOpening
 
-    public init(permissions: PermissionsProviding, services: ServicesProviding, privileged: PrivilegedInstalling,
+    public init(permissions: PermissionsProviding, services: ServicesProviding,
                 needs: NeedBroker, updater: UpdateChecking, version: VersionProviding, window: WindowOpening) {
-        self.permissions = permissions; self.services = services; self.privileged = privileged
+        self.permissions = permissions; self.services = services
         self.needs = needs; self.updater = updater; self.version = version; self.window = window
     }
 
@@ -48,9 +47,9 @@ public struct TrayRoutes: Sendable {
             guard let label = field("label", in: body) else { return bad("label is required") }
             return RouteResponse(status: 200, body: "{\"ok\":\(await services.restart(label: label))}")
         case ("POST", "/privileged/proxy-install"):
-            return encode(await privileged.proxyInstall())
+            return encode(await needs.performPrivileged(op: "proxy-install"))
         case ("POST", "/privileged/proxy-trust"):
-            return encode(await privileged.proxyTrust())
+            return encode(await needs.performPrivileged(op: "proxy-trust"))
         case ("GET", _) where isNeed:
             let id = String(path.dropFirst("/setup/need/".count))
             guard !id.isEmpty else { return bad("need id is required") }

@@ -395,6 +395,7 @@ export const pluginsInstallStep: StepDef = {
   id: "plugins.install",
   title: "Install plugins",
   kind: "rt",
+  prerequisites: ["team.create", "team.join"],
   applies: () => true,
   run: installPlugins,
 };
