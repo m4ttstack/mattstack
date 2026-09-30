@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { machineSettingsPath, teamSettingsPath } from "../../lib/rt-paths.ts";
+import { machineSettingsPath, teamSettingsPath, userSettingsPath } from "../../lib/rt-paths.ts";
 import { hookInstallCommand, hookRepoIdentity, parseHookStdin, priorClaudeHookAnswer, recordClaudeHookAnswer, shouldOfferClaudeHook } from "../worktree-hook.ts";
 import { loadWorktreeAppConfig } from "../../lib/worktree/config.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
@@ -86,19 +86,14 @@ describe("recordClaudeHookAnswer", () => {
     else process.env.HOME = REAL_HOME;
   });
 
-  test("on an unowned machine, recording an answer pins the pre-existing effective config instead of flipping it", () => {
-    // Unowned machine (no store rung, no legacy file): the documented S077
-    // default is `enabled: false`. Regression: recordClaudeHookAnswer used to
-    // write `{ claudeHook }` alone, which first-time-owned the key with no
-    // `enabled` field... loadWorktreeAppConfig()'s store branch then defaults
-    // `enabled` to true, silently flipping worktree-app on.
+  test("recording an answer on a machine with nothing set writes only claudeHook and leaves the pool off", () => {
     expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
 
     recordClaudeHookAnswer("declined");
 
     expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
-    const stored = getSetting<Record<string, unknown> | undefined>("rt.worktreeApp").value;
-    expect(stored).toEqual({ claudeHook: "declined" });
+    const machine = JSON.parse(readFileSync(machineSettingsPath(), "utf8").replace(/^\/\/.*\n/, ""));
+    expect(machine["rt.worktreeApp"]).toEqual({ claudeHook: "declined" });
   });
 
   test("an unowned machine that answered the offer still follows a later team opt-in", () => {
@@ -130,6 +125,19 @@ describe("recordClaudeHookAnswer", () => {
     expect(priorClaudeHookAnswer()).toBeUndefined();
     recordClaudeHookAnswer("installed");
     expect(priorClaudeHookAnswer()).toBe("installed");
+  });
+
+  test("a user-scope claudeHook is ignored, and recording an answer never copies the user's fields", () => {
+    const user = userSettingsPath();
+    mkdirSync(dirname(user), { recursive: true });
+    writeFileSync(user, JSON.stringify({ "rt.worktreeApp": { enabled: true, claudeHook: "declined" } }));
+
+    expect(priorClaudeHookAnswer()).toBeUndefined();
+    recordClaudeHookAnswer("installed");
+
+    const machine = JSON.parse(readFileSync(machineSettingsPath(), "utf8").replace(/^\/\/.*\n/, ""));
+    expect(machine["rt.worktreeApp"]).toEqual({ claudeHook: "installed" });
+    expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
   });
 });
 

@@ -84,7 +84,7 @@ cloned AND indexed. `repos.clone` (step 9) does both, awaiting
 | `rt.workspacePrefs` | machine | `savePrefs` (`commands/code.ts`) | unset; the joiner picks an editor when they first open a tree | by hand | none |
 | `rt.homeSnapshot` | machine | default | enabled, 20s debounce, 60s push delay | default | none |
 | `rt.teamSnapshot` | machine | default | enabled, 300s pull interval; this is what makes the team store propagate | default | none |
-| `rt.worktreeApp` | machine | the worktree hook installer | set once the joiner installs the hook | app-owned | none |
+| `rt.worktreeApp` | team/user/machine | team owner or the member, by hand; `claudeHook` by the worktree hook installer (machine only) | inherited from the team store; `{enabled:false, killProcesses:true}` default otherwise | travels | none |
 | `rt.sdmEnrichment` | team | team owner, by hand | inherited | travels | none |
 | `rt.logRetentionDays` | machine/user | default 14 | 14 files, not 14 days | default | none |
 | `rt.logLevel` | machine/user | default | `info` | default | none |

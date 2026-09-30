@@ -915,10 +915,7 @@ export function createWorktreeHandlers(
 
       if (result.ok) {
         // Adopt supersedes the parking lot: its per-repo index and app-level
-        // transition state are dead once every tree is registry-tracked. The
-        // app CONFIG file (~/.mattstack/rt/parking-lot.json, no "-state" suffix) is left
-        // alone — loadWorktreeAppConfig still compat-reads it once to seed
-        // worktrees.json.
+        // transition state are dead once every tree is registry-tracked.
         rmSync(join(repoDataDir(repoName), "parking-lot.json"), { force: true });
         rmSync(join(rtDir(), "parking-lot-state.json"), { force: true });
       }

@@ -76,8 +76,7 @@ export function priorClaudeHookAnswer(): string | undefined {
 /**
  * Merges `claudeHook` into the machine-scope value only, so sibling fields
  * are kept but nothing else is pinned: a copied `enabled` would outvote the
- * team's value forever, and a legacy worktrees.json keeps applying on its own
- * while the machine store sets neither field (lib/worktree/config.ts).
+ * team's and user's values forever.
  */
 export function recordClaudeHookAnswer(answer: "installed" | "declined"): void {
   setSetting(WORKTREE_APP_SETTING_KEY, { ...(machineWorktreeAppValue() ?? {}), claudeHook: answer }, "machine");

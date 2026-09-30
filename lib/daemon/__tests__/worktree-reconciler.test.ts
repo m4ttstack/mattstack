@@ -6,7 +6,6 @@ import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import type { Logger } from "pino";
-import { readJson, writeJson } from "../../json-store.ts";
 import { closeStateDb, listKvValues, setKvValue } from "../../state/index.ts";
 import { composeKey } from "../../state/branch-cache.ts";
 import { goldenRoot, machineSettingsPath, rtDir, teamSettingsPath } from "../../rt-paths.ts";
@@ -151,7 +150,7 @@ describe("reconcileRepoRegistry", () => {
     // S077 flipped the unowned default to disabled; reconcileRepoRegistry's
     // creating-entry scrap is itself gated on this flag, so this suite's
     // fixtures opt in explicitly instead of riding the old implicit default.
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: true } });
   });
 
   test("adopts main and a manually-added worktree as unmanaged", async () => {
@@ -442,7 +441,7 @@ describe("createWorktreeReconciler", () => {
     // S077 flipped the unowned default to disabled; runOnce gates freshen/
     // replenish/reap on it, so this suite opts in explicitly (the "app
     // disabled" test below overrides this with its own write).
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: true } });
   });
 
   test("runOnce reconciles only repos with registry entries or a worktrees config", async () => {
@@ -587,14 +586,14 @@ describe("createWorktreeReconciler", () => {
     // describe use): the prior test's `kick()` is deliberately unawaited by
     // design, and since every internal path resolves HOME dynamically at call
     // time, a still-running background pass from that test reading a fresh
-    // `worktrees.json`/onDeck config off "acme" could otherwise land its own
+    // `rt.worktreeApp`/onDeck config off "acme" could otherwise land its own
     // (stale, enabled=true-baked-in) replenish attempt into this test's
     // registry. A distinct repoName makes that collision structurally
     // impossible regardless of any other test's timing.
     const disabledRepoName = "acme-disabled";
     addBareOrigin(repo);
     await declareWorktrees(repo, disabledRepoName, { onDeck: 1, root: join(repo, ".worktrees") });
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: false });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: false, killProcesses: false } });
 
     // Advance origin so a freshen (if it ran) would have something to do.
     const originUrl = execSync(`git -C ${repo} remote get-url origin`, { encoding: "utf8" }).trim();
@@ -635,10 +634,9 @@ describe("createWorktreeReconciler", () => {
     expect(existsSync(seededTrash)).toBe(true);
   });
 
-  test("S077: an unowned machine with a team-only onDeck declaration stays dormant, replenish never creates", async () => {
+  test("S077: a machine with no rt.worktreeApp value and a team-only onDeck declaration stays dormant, replenish never creates", async () => {
     // Fresh HOME, deliberately bypassing this describe's beforeEach write: the
-    // app-level toggle here is genuinely unowned (no file, no store), not
-    // merely disabled.
+    // app-level toggle here is unset everywhere, not merely disabled.
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rtrecon-dormant-home-")));
     closeStateDb();
     const dormantRepo = makeRepo();
@@ -659,31 +657,6 @@ describe("createWorktreeReconciler", () => {
     const trees = loadRegistry(dormantRepoName);
     expect(trees.some((t) => t.kind === "main")).toBe(true); // read-only reconcile still ran
     expect(trees.some((t) => t.kind === "ephemeral")).toBe(false); // replenish never ran
-  });
-
-  test("S077: a legacy parking-lot.json opts an otherwise-unowned machine in, and replenish builds", async () => {
-    process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rtrecon-legacy-home-")));
-    closeStateDb();
-    mkdirSync(rtDir(), { recursive: true });
-    writeFileSync(join(rtDir(), "parking-lot.json"), JSON.stringify({ enabled: true, killProcesses: false }));
-
-    const legacyRepo = makeRepo();
-    addBareOrigin(legacyRepo);
-    const legacyRepoName = "acme-legacy-owned";
-    await declareWorktrees(legacyRepo, legacyRepoName, { onDeck: 1, root: join(legacyRepo, ".worktrees") });
-
-    const reconciler = createWorktreeReconciler({
-      cache: { entries: {} },
-      repoIndex: () => ({ [legacyRepoName]: legacyRepo }),
-      emit: () => {},
-      log: fakeLog(),
-      findRunningRunByWorktree: () => ({ kind: "none" }),
-    });
-
-    await reconciler.runOnce();
-
-    const trees = loadRegistry(legacyRepoName).filter((t) => t.kind === "ephemeral" && t.state === "on-deck");
-    expect(trees.length).toBe(1);
   });
 
   test("a legacy name-keyed registry is re-keyed onto the repo's identity on first reconcile", async () => {
@@ -763,7 +736,7 @@ describe("merge reactor (detectTransitions)", () => {
     addBareOrigin(repo);
     // killProcesses off: the reactor must not go scanning this machine's
     // process table during a unit test.
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: false } });
     events = [];
   });
 
@@ -1162,7 +1135,7 @@ describe("freshen", () => {
     __test__.createBackoff.clear();
     repo = makeRepo();
     addBareOrigin(repo);
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: false } });
   });
 
   test("idle main behind origin gets ff'd; readyStamp advances only when a triggered step ran; worktree:freshened emitted", async () => {
@@ -1467,7 +1440,7 @@ describe("freshen", () => {
   });
 
   test("freshen: a dormant machine (enabled: false) never treats idle main as a freshen candidate", async () => {
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: false });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: false, killProcesses: false } });
 
     saveRegistry(repoName, [
       { name: basename(repo), path: repo, kind: "main", branch: "main", createdAt: new Date().toISOString() },
@@ -1756,7 +1729,7 @@ describe("detached trigger / latency", () => {
     closeStateDb();
     __test__.createBackoff.clear();
     // S077 flipped the unowned default to disabled; replenish is gated on it.
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: true } });
     const repoName = "acme";
     const repo = makeRepo();
     addBareOrigin(repo);
@@ -1810,7 +1783,7 @@ describe("detached trigger / latency", () => {
     closeStateDb();
     __test__.createBackoff.clear();
     // S077 flipped the unowned default to disabled; replenish is gated on it.
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: true } });
     const repoName = "acme-kick2";
     const repo = makeRepo();
     addBareOrigin(repo);

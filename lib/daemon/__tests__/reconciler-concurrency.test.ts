@@ -12,9 +12,8 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } fro
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
-import { writeJson } from "../../json-store.ts";
 import { closeStateDb } from "../../state/index.ts";
-import { machineSettingsPath, rtDir } from "../../rt-paths.ts";
+import { machineSettingsPath } from "../../rt-paths.ts";
 import { deriveRepoIdentity } from "../../settings/identity.ts";
 import { createWorktreeReconciler } from "../worktree-reconciler.ts";
 
@@ -91,7 +90,7 @@ describe("reconciler per-repo concurrency (S094)", () => {
   beforeEach(() => {
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rtcc-home-")));
     closeStateDb();
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: true } });
   });
 
   test("a fast repo's create finishes without waiting behind a slow repo's create", async () => {

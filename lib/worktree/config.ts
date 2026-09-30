@@ -1,6 +1,6 @@
 /**
  * Worktree config: the per-repo pool declaration (`rt.worktrees`, resolved
- * through the settings resolver since RT-47) plus the app-level on/off file.
+ * through the settings resolver since RT-47) plus the app-level on/off switch.
  *
  * ── Where the per-repo values come from ───────────────────────────────────
  * `loadWorktreeRepoConfig` goes through `lib/settings/resolve.ts#getSetting`,
@@ -44,21 +44,18 @@
  * to "nothing declared" with one warning rather than taking a reconcile pass
  * (or every repo behind it) down.
  *
- * ── The app-level toggle: team, then this machine ─────────────────────────────
- * `rt.worktreeApp` (a DIFFERENT key from `rt.worktrees` above: same file
- * family, unrelated shape and scope; `rt.worktrees` is per-repo and
- * repoScoped, this one is a single on/off switch). A team can set it for every
- * member; this machine's own say comes from the machine store, falling back
- * per field to the pre-store `~/.mattstack/rt/worktrees.json` (seeded once
- * from `parking-lot.json`). The machine's say wins per field. With no layer setting a field, `enabled` is
- * `false` (S077) and `killProcesses` is `true`.
+ * ── The app-level toggle ──────────────────────────────────────────────────
+ * `rt.worktreeApp` (a DIFFERENT key from `rt.worktrees` above: a single
+ * on/off switch, not per-repo) resolves through `getSetting` like any other
+ * key, `default < team < user < machine`, merged per field. `enabled` is on
+ * only when the resolved value says `true` outright (S077) and
+ * `killProcesses` is on unless it says `false`.
  */
 
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { readJson, writeJson } from "../json-store.ts";
-import { rtDir, worktreePoolRoot } from "../rt-paths.ts";
+import { worktreePoolRoot } from "../rt-paths.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../settings/identity.ts";
 import { explainSetting, getSetting, SCOPE_ORDER, type ResolveOpts, type Scope } from "../settings/resolve.ts";
 import { readReadyApproval, readyLadderHash } from "./ready-approval.ts";
@@ -456,98 +453,26 @@ export async function worktreeReadyHeld(repoName: string, repoPath: string): Pro
 
 // ─── App-level config ────────────────────────────────────────────────────────
 
-// Unowned machines start disabled (S077): a team-declared pool must never build
-// multi-GB worktrees on a laptop unless someone opted in, either the team (a
-// team-scope rt.worktreeApp) or the machine itself.
-const APP_CONFIG_DEFAULTS: WorktreeAppConfig = { enabled: false, killProcesses: true };
 const APP_SETTING_KEY = "rt.worktreeApp";
 
 /** The exact command a dormant machine's operator runs to opt in. */
 export const WORKTREE_APP_ENABLE_COMMAND = 'rt settings set rt.worktreeApp \'{"enabled":true}\' --scope machine';
 
-type AppLayer = { enabled?: unknown; killProcesses?: unknown; claudeHook?: unknown };
-
-function asLayer(value: unknown): AppLayer | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as AppLayer) : undefined;
-}
-
 /**
- * The team and machine rungs, weakest first. A refused value (`invalid`) is
- * skipped; a probe failure reads as no store value at all, with one warning
- * that names the key but never the value.
- */
-function appConfigRungs(): { teams: AppLayer[]; machine: AppLayer | undefined } {
-  try {
-    const all = explainSetting(APP_SETTING_KEY);
-    for (const r of all) {
-      if (r.present && r.invalid !== undefined) console.warn(`rt: ignoring "${APP_SETTING_KEY}" from the ${r.scope} scope (${r.file ?? "no file"}): refused value`);
-    }
-    const rows = all.filter((r) => r.present && r.invalid === undefined);
-    return {
-      teams: rows.filter((r) => r.scope === "team").flatMap((r) => asLayer(r.value) ?? []),
-      machine: asLayer(rows.find((r) => r.scope === "machine")?.value),
-    };
-  } catch (err) {
-    console.warn(`rt: ignoring "${APP_SETTING_KEY}": ${(err as Error).message}`);
-    return { teams: [], machine: undefined };
-  }
-}
-
-/**
- * Before this key took team scope, answering the Claude hook offer on an
- * unowned machine wrote the unowned defaults next to `claudeHook`. That value
- * is indistinguishable from "never chose" and would outvote a team's opt-in,
- * so its two pinned fields read as unset.
- */
-function isPinnedHookSeed(layer: AppLayer): boolean {
-  const keys = Object.keys(layer).sort();
-  return keys.join(",") === "claudeHook,enabled,killProcesses" && layer.enabled === false && layer.killProcesses === true;
-}
-
-function machineAppFields(layer: AppLayer | undefined): AppLayer | undefined {
-  if (!layer || isPinnedHookSeed(layer)) return undefined;
-  const fields: AppLayer = {};
-  if (typeof layer.enabled === "boolean") fields.enabled = layer.enabled;
-  if (typeof layer.killProcesses === "boolean") fields.killProcesses = layer.killProcesses;
-  return Object.keys(fields).length > 0 ? fields : undefined;
-}
-
-/**
- * ~/.mattstack/rt/worktrees.json, the pre-store machine toggle; if absent AND
- * ~/.mattstack/rt/parking-lot.json exists, seed it from that once. Undefined
- * when neither file exists.
- */
-function readLegacyAppFile(): AppLayer | undefined {
-  const path = join(rtDir(), "worktrees.json");
-  const legacyPath = join(rtDir(), "parking-lot.json");
-
-  if (!existsSync(path) && existsSync(legacyPath)) {
-    const legacy = readJson<{ enabled?: boolean; killProcesses?: boolean }>(legacyPath, {});
-    const seeded: WorktreeAppConfig = {
-      enabled: legacy.enabled !== false,
-      killProcesses: legacy.killProcesses !== false,
-    };
-    writeJson(path, seeded);
-  }
-
-  if (!existsSync(path)) return undefined;
-  return asLayer(readJson<unknown>(path, {}));
-}
-
-/**
- * `rt.worktreeApp`, applied per field weakest first: the defaults, each team
- * store, the legacy file, then the machine store. A field counts only when it
- * is a boolean, so `enabled` is on only when some layer says `true` outright.
+ * The resolved `rt.worktreeApp`. A pool is on only when the value says
+ * `enabled: true` outright: a team-declared pool must never build multi-GB
+ * worktrees on a machine nobody opted in (S077). A probe failure reads as the
+ * defaults plus one warning that names the key but never the value.
  */
 export function loadWorktreeAppConfig(): WorktreeAppConfig {
-  const { teams, machine } = appConfigRungs();
-  const layers = [...teams, readLegacyAppFile() ?? {}, machineAppFields(machine) ?? {}];
-  const config: WorktreeAppConfig = { ...APP_CONFIG_DEFAULTS };
-  for (const layer of layers) {
-    if (typeof layer.enabled === "boolean") config.enabled = layer.enabled;
-    if (typeof layer.killProcesses === "boolean") config.killProcesses = layer.killProcesses;
+  let value: Record<string, unknown> | undefined;
+  try {
+    const resolved = getSetting<unknown>(APP_SETTING_KEY).value;
+    if (isPlainObject(resolved)) value = resolved;
+  } catch (err) {
+    console.warn(`rt: ignoring "${APP_SETTING_KEY}": ${(err as Error).message}`);
   }
-  return config;
+  return { enabled: value?.enabled === true, killProcesses: value?.killProcesses !== false };
 }
 
 /**

@@ -4,9 +4,8 @@ import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
-import { writeJson } from "../../../json-store.ts";
+import { setSetting } from "../../../settings/write.ts";
 import { closeStateDb } from "../../../state/index.ts";
-import { rtDir } from "../../../rt-paths.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../../worktree/registry.ts";
 import { detectTransitions, __test__, type ReactorDeps } from "../reactor.ts";
 import type { RunningRunScan } from "../../../runs/store.ts";
@@ -68,7 +67,7 @@ describe("terminal-state catch-up (missed edges)", () => {
     closeStateDb();
     repo = makeRepo();
     addBareOrigin(repo);
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: false }, "machine");
   });
 
   function detect(entries: Record<string, unknown>, liveCwds?: () => Promise<Set<string>>): Promise<void> {
@@ -159,7 +158,7 @@ describe("R049: fired-ledger GC", () => {
     closeStateDb();
     repo = makeRepo();
     addBareOrigin(repo);
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: false }, "machine");
   });
 
   function detect(entries: Record<string, unknown>, findRunningRun: (worktree: string) => RunningRunScan = () => ({ kind: "none" })): Promise<void> {
@@ -231,7 +230,7 @@ describe("auto-dispose refuses a tree with a live pipeline run", () => {
     closeStateDb();
     repo = makeRepo();
     addBareOrigin(repo);
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: false }, "machine");
   });
 
   test("a merged branch whose worktree has a running run is marked disposable, not deleted", async () => {
@@ -273,7 +272,7 @@ describe("held trees say why (RT-267)", () => {
     closeStateDb();
     repo = makeRepo();
     addBareOrigin(repo);
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: false }, "machine");
   });
 
   function detect(entries: Record<string, unknown>, extra: Partial<ReactorDeps> = {}): Promise<void> {
@@ -349,7 +348,7 @@ describe("held trees say why (RT-267)", () => {
   const headOf = (path: string) => execSync(`git -C ${path} rev-parse HEAD`, { encoding: "utf8" }).trim();
 
   test("a merged tree held only by stale orphans stops them and disposes on the next pass", async () => {
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
     const rec = ephemeralTree(repo, repoName, "quebec", "feat-quebec");
     const merged = { "feat-quebec": { repoName, mr: { iid: 85, state: "merged", sha: headOf(rec.path) } } };
     const stopped: number[][] = [];
@@ -373,7 +372,7 @@ describe("held trees say why (RT-267)", () => {
   });
 
   test("stale orphans are left running when the merged MR does not cover the tree's HEAD", async () => {
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
     const rec = ephemeralTree(repo, repoName, "tango", "feat-tango");
     const stopped: number[][] = [];
     await detect({ "feat-tango": { repoName, mr: { iid: 88, state: "merged" } } }, {
@@ -383,7 +382,7 @@ describe("held trees say why (RT-267)", () => {
   });
 
   test("stale orphans are left running when the tree's branch holds a commit the merged MR lacks", async () => {
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
     const rec = ephemeralTree(repo, repoName, "yankee", "feat-yankee");
     const mergedSha = headOf(rec.path);
     writeFileSync(join(rec.path, "later.txt"), "never merged\n");
@@ -396,7 +395,7 @@ describe("held trees say why (RT-267)", () => {
   });
 
   test("stale orphans are left running in a dirty tree dispose would refuse anyway", async () => {
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: true });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: true }, "machine");
     const rec = ephemeralTree(repo, repoName, "uniform", "feat-uniform");
     writeFileSync(join(rec.path, "scratch.txt"), "dirt\n");
     const stopped: number[][] = [];
