@@ -75,13 +75,26 @@ export function missingDefaultMode(settings: ClaudeSettings): boolean {
 }
 
 /**
- * Appends `toAdd` to `permissions.allow` and seeds `defaultMode` when it is
- * absent, preserving every other key on `settings` and every other key
- * under `permissions` (deny, ask, anything unknown) byte-for-byte.
+ * rt chat, herds and gates deliver messages between Claude sessions; without
+ * this, each delivery waits on a permission prompt in the receiving pane. A
+ * value the user set, whatever it is, is never touched.
+ */
+export const SEEDED_CROSS_SESSION_INBOUND = "accept";
+
+export function missingCrossSessionInbound(settings: ClaudeSettings): boolean {
+  return settings.crossSessionInbound === undefined;
+}
+
+/**
+ * Appends `toAdd` to `permissions.allow` and seeds `defaultMode` and
+ * `crossSessionInbound` when they are absent, preserving every other key on
+ * `settings` and every other key under `permissions` (deny, ask, anything
+ * unknown) byte-for-byte.
  */
 export function withPermissions(settings: ClaudeSettings, toAdd: string[]): ClaudeSettings {
   return {
     ...settings,
+    ...(missingCrossSessionInbound(settings) ? { crossSessionInbound: SEEDED_CROSS_SESSION_INBOUND } : {}),
     permissions: {
       ...(settings.permissions ?? {}),
       ...(missingDefaultMode(settings) ? { defaultMode: SEEDED_DEFAULT_MODE } : {}),
