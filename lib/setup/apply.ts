@@ -102,6 +102,10 @@ export interface StepDef {
   reloadsTeam?: boolean;
   /** The step writes what `intercepts.install` builds its rules from (the repo index or a settings store): an `--only` run of it that lands anything is followed by `intercepts.install`, so a late retry cannot leave the shims behind. */
   feedsIntercepts?: boolean;
+  /** Steps an `--only` run of this one needs behind it: each that applies and is not `satisfied` runs first, in registry order. Every listed step must sit earlier in the registry and define `satisfied`. */
+  prerequisites?: StepId[];
+  /** Whether what this step produces is already on disk. Read only when the step is an `--only` run's prerequisite; absent reads as unsatisfied. */
+  satisfied?(ctx: ApplyContext): boolean;
 }
 
 const INTERCEPTS_STEP: StepId = "intercepts.install";
@@ -161,6 +165,26 @@ function onlyIndex(applicable: StepDef[], only: StepId): number {
 }
 
 /**
+ * The `--only` queue: the named step, preceded by every prerequisite this run
+ * still has to land. A satisfied prerequisite is trusted whole, so its own
+ * prerequisites are never walked. One this run gates out is dropped silently,
+ * the same way a full run would never reach it.
+ */
+function onlyQueue(applicable: StepDef[], target: StepDef, ctx: ApplyContext): StepDef[] {
+  const picked = new Set<StepDef>([target]);
+  const visit = (step: StepDef): void => {
+    for (const id of step.prerequisites ?? []) {
+      const pre = applicable.find((s) => s.id === id);
+      if (!pre || picked.has(pre) || pre.satisfied?.(ctx) === true) continue;
+      picked.add(pre);
+      visit(pre);
+    }
+  };
+  visit(target);
+  return applicable.filter((s) => picked.has(s));
+}
+
+/**
  * Best-effort bookkeeping after the run: never allowed to suppress the terminal `done` event a throw would otherwise swallow. A failure here becomes a `log` warning (tagged with the last step that actually ran) instead of an exception.
  *
  * `lastApplyAt` is written for any terminal outcome, but the intent is the
@@ -186,18 +210,22 @@ function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: StepId 
  * for ids it never saw listed, so a full plan is the only safe choice. Steps
  * before `--from` get NO `step` event at all — the shipped app deliberately
  * preserves a retried run's earlier `done` rows, and a `skipped` event here
- * would overwrite them. `--only` runs exactly one step (plus
- * `intercepts.install` after a `feedsIntercepts` step) and is silent about
- * every other id for the same reason.
+ * would overwrite them. `--only` runs the named step behind its unsatisfied
+ * `prerequisites` (plus `intercepts.install` after a `feedsIntercepts` step)
+ * and is silent about every other id for the same reason.
  */
 export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
   const applicable = steps.filter((s) => s.applies(ctx));
-  const start = opts.only !== undefined ? onlyIndex(applicable, opts.only) : resumeStart(applicable, opts.from);
-  const end = opts.only !== undefined ? Math.min(start + 1, applicable.length) : applicable.length;
+  let queue: StepDef[];
+  if (opts.only !== undefined) {
+    const target = applicable[onlyIndex(applicable, opts.only)];
+    queue = target ? onlyQueue(applicable, target, ctx) : [];
+  } else {
+    queue = applicable.slice(resumeStart(applicable, opts.from));
+  }
 
   ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.titleFor?.(ctx) ?? s.title, kind: s.kind })) });
 
-  const queue = applicable.slice(start, end);
   let lastRanId: StepId | undefined;
   let result: { ok: boolean; failedStep?: StepId } = { ok: true };
   let hasBug = false;

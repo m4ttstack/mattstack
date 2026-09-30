@@ -174,6 +174,10 @@ async function homeRestoreRun(ctx: ApplyContext): Promise<StepOutcome> {
   };
 }
 
+function homeRepoCloned(ctx: ApplyContext): boolean {
+  return ctx.p.exists(homeGitDir(ctx.p.home));
+}
+
 async function homeInitRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
   try {
     return await homeInitRun(ctx);
@@ -195,6 +199,7 @@ export const homeInitStep: StepDef = {
   title: "Create your settings home repo",
   kind: "rt",
   applies: (ctx) => ctx.intent?.mode !== "restore",
+  satisfied: homeRepoCloned,
   run: homeInitRunSafe,
 };
 
@@ -204,5 +209,6 @@ export const homeRestoreStep: StepDef = {
   title: "Restore your settings home repo",
   kind: "rt",
   applies: (ctx) => ctx.intent?.mode === "restore",
+  satisfied: homeRepoCloned,
   run: homeRestoreRunSafe,
 };

@@ -20,6 +20,7 @@ import { publishTeam } from "../../team/publish.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
+import type { StepId } from "../contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { readIntent } from "../intent.ts";
 import { toFailedOutcome } from "./step-utils.ts";
@@ -195,12 +196,20 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
   }
 }
 
+function teamCloned(ctx: ApplyContext): boolean {
+  return ctx.team.slug !== "" && ctx.p.exists(join(ctx.p.home, ".mattstack", "teams", ctx.team.slug, ".git"));
+}
+
+const HOME_STEPS: StepId[] = ["home.init", "home.restore"];
+
 export const teamCreateStep: StepDef = {
   reloadsTeam: true,
   id: "team.create",
   feedsIntercepts: true,
   title: "Create your team",
   kind: "rt",
+  prerequisites: HOME_STEPS,
+  satisfied: teamCloned,
   applies: (ctx) => ctx.intent?.mode === "create" || (ctx.teamOfOne && ctx.intent === null && ctx.team.slug === ""),
   run: teamCreateRun,
 };
@@ -212,6 +221,8 @@ export const teamJoinStep: StepDef = {
   title: "Join your team",
   titleFor: (ctx) => (ctx.intent?.mode === "join" ? "Join your team" : "Team membership"),
   kind: "rt",
+  prerequisites: HOME_STEPS,
+  satisfied: teamCloned,
   applies: (ctx) => ctx.intent?.mode === "join" || peeringPendingTeams(ctx).length > 0,
   run: teamJoinRun,
 };

@@ -656,6 +656,184 @@ describe("runApplyWith: --only", () => {
   });
 });
 
+// A row's Retry runs one step, but some steps cannot land without an earlier
+// one: plugins.install reads the team clone team.join makes, which needs the
+// home repo home.init makes.
+describe("runApplyWith: --only runs unsatisfied prerequisites first", () => {
+  function recorder() {
+    const order: string[] = [];
+    const step = (id: StepId, extra: Partial<StepDef> = {}, outcome: StepOutcome = { state: "done" }): StepDef => ({
+      ...fakeStep(id, async () => {
+        order.push(id);
+        return outcome;
+      }),
+      ...extra,
+    });
+    return { order, step };
+  }
+
+  function stepStates(events: ApplyEvent[]): string[] {
+    return events.filter((e) => e.event === "step").map((e) => `${e.id}:${(e as { state: string }).state}`);
+  }
+
+  test("an unsatisfied prerequisite runs before the named step, and both stream their rows", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false }),
+      step("repos.clone"),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+    const { ctx, events } = testCtx();
+
+    expect(await runApplyWith(steps, ctx, { only: "plugins.install" })).toEqual({ ok: true });
+
+    expect(order).toEqual(["team.join", "plugins.install"]);
+    expect(stepStates(events)).toEqual(["team.join:running", "team.join:done", "plugins.install:running", "plugins.install:done"]);
+  });
+
+  test("a satisfied prerequisite is left alone", async () => {
+    const { order, step } = recorder();
+    const steps = [step("team.join", { satisfied: () => true }), step("plugins.install", { prerequisites: ["team.join"] })];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["plugins.install"]);
+  });
+
+  test("prerequisites chain, and run in registry order whatever order they are listed in", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("team.create", { satisfied: () => false }),
+      step("team.join", { satisfied: () => false, prerequisites: ["home.init"] }),
+      step("plugins.install", { prerequisites: ["team.join", "team.create"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["home.init", "team.create", "team.join", "plugins.install"]);
+  });
+
+  test("a satisfied prerequisite's own prerequisites are not run", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("team.join", { satisfied: () => true, prerequisites: ["home.init"] }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["plugins.install"]);
+  });
+
+  test("a prerequisite this run gates out is skipped without a row", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("home.restore", { satisfied: () => false, applies: () => false }),
+      step("team.join", { prerequisites: ["home.init", "home.restore"], satisfied: () => false }),
+    ];
+    const { ctx, events } = testCtx();
+
+    await runApplyWith(steps, ctx, { only: "team.join" });
+
+    expect(order).toEqual(["home.init", "team.join"]);
+    expect(stepStates(events).some((s) => s.startsWith("home.restore"))).toBe(false);
+  });
+
+  test("a failed prerequisite stops the run before the named step", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false }, { state: "failed", detail: "relay down" }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    expect(await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" })).toEqual({ ok: false, failedStep: "team.join" });
+    expect(order).toEqual(["team.join"]);
+  });
+
+  test("a named step this run gates out runs none of its prerequisites either", async () => {
+    const { order, step } = recorder();
+    const steps = [step("team.join", { satisfied: () => false }), step("plugins.install", { prerequisites: ["team.join"], applies: () => false })];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual([]);
+  });
+
+  test("full and --from runs are untouched: every step runs once, in order", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("home.init", { satisfied: () => false }),
+      step("team.join", { satisfied: () => false, prerequisites: ["home.init"] }),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx);
+    await runApplyWith(steps, testCtx().ctx, { from: "plugins.install" });
+
+    expect(order).toEqual(["home.init", "team.join", "plugins.install", "plugins.install"]);
+  });
+
+  test("a prerequisite that feeds the intercepts still hands them its work", async () => {
+    const { order, step } = recorder();
+    const steps = [
+      step("team.join", { satisfied: () => false, feedsIntercepts: true }),
+      step("intercepts.install"),
+      step("plugins.install", { prerequisites: ["team.join"] }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "plugins.install" });
+
+    expect(order).toEqual(["team.join", "plugins.install", "intercepts.install"]);
+  });
+
+  describe("in the real registry", () => {
+    const byId = (id: StepId) => STEPS.find((s) => s.id === id)!;
+
+    test("plugins.install waits on the team clone, and the team on the home repo", () => {
+      expect(byId("plugins.install").prerequisites).toEqual(expect.arrayContaining(["team.create", "team.join"]));
+      expect(byId("team.join").prerequisites).toEqual(expect.arrayContaining(["home.init", "home.restore"]));
+      expect(byId("team.create").prerequisites).toEqual(expect.arrayContaining(["home.init", "home.restore"]));
+    });
+
+    test("every prerequisite sits earlier in the registry and can say whether it is satisfied", () => {
+      const at = (id: StepId) => STEPS.findIndex((s) => s.id === id);
+      for (const s of STEPS) {
+        for (const pre of s.prerequisites ?? []) {
+          expect(at(pre)).toBeLessThan(at(s.id));
+          expect(typeof byId(pre).satisfied).toBe("function");
+        }
+      }
+    });
+
+    test("the home steps are satisfied once the home repo is cloned", () => {
+      const { ctx } = testCtx();
+      expect(byId("home.init").satisfied!(ctx)).toBe(false);
+      expect(byId("home.restore").satisfied!(ctx)).toBe(false);
+      ctx.p.mkdirp("/fake-home/.mattstack/user/.git");
+      expect(byId("home.init").satisfied!(ctx)).toBe(true);
+      expect(byId("home.restore").satisfied!(ctx)).toBe(true);
+    });
+
+    test("the team steps are satisfied once this run's team is cloned", () => {
+      const { ctx } = testCtx({ team: { slug: "acme", name: "Acme", mode: "join" } });
+      expect(byId("team.join").satisfied!(ctx)).toBe(false);
+      expect(byId("team.create").satisfied!(ctx)).toBe(false);
+      ctx.p.mkdirp("/fake-home/.mattstack/teams/acme/.git");
+      expect(byId("team.join").satisfied!(ctx)).toBe(true);
+      expect(byId("team.create").satisfied!(ctx)).toBe(true);
+    });
+
+    test("a run with no team yet never reads a team step as satisfied", () => {
+      const { ctx } = testCtx({ team: { slug: "", name: "", mode: "none" } });
+      ctx.p.mkdirp("/fake-home/.mattstack/teams/.git");
+      expect(byId("team.create").satisfied!(ctx)).toBe(false);
+    });
+  });
+});
+
 describe("runApplyWith — need-bearing steps", () => {
   type NeedRequestForTest = Parameters<ApplyContext["need"]>[1];
 
