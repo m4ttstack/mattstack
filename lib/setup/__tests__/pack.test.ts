@@ -111,6 +111,26 @@ describe("setupPackFlow", () => {
     const p = fakeProbes({ home, ...materializeWorld(home) });
     const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
     expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
+    expect(NO_MANIFEST_DETAIL).toBe("no bindings file for this pack yet; run rt skills materialize");
+  });
+
+  test("the pack's own failed materialize outcome is the detail, not a missing-file note", async () => {
+    registerRepo(home);
+    const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
+    const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
+    expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({
+      ok: false,
+      detail: "gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins",
+    });
+  });
+
+  test("a sibling pack's failure leaves this pack's check alone", async () => {
+    registerRepo(home);
+    const p = fakeProbes({
+      home,
+      ...materializeWorld(home, { fragment: fragment({}, { feature: ["stage-plan"] }), siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }),
+    });
+    expect(await setupPackFlow(makeCtx(p, { reqs: widgets() }))).toEqual({ ok: true, detail: `1 stage(s) resolved for "feature"` });
   });
 
   test("no registered repo, plugins installed -> not a failure, the check waits on a repo clone", async () => {

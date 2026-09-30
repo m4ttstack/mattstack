@@ -22,7 +22,7 @@ import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
-import { materializeSkills } from "../lib/setup/skills-materialize.ts";
+import { materializeSkills, packVerdict, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 
 /**
  * The mattstack pack is the only valid sync engine: falling back to the pack
@@ -77,6 +77,14 @@ export function manifestTarget(args: string[]): { manifest?: string; repo?: stri
   const manifest = flagValue(args, "--manifest");
   const repo = flagValue(args, "--repo");
   return { ...(manifest ? { manifest } : {}), ...(repo ? { repo } : {}) };
+}
+
+export function syncMaterializeVerdict(r: MaterializeSkillsResult, pack: string): { ok: boolean; detail: string } {
+  if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}` };
+  const verdict = packVerdict(r.repos, pack);
+  if (verdict.failures.length > 0) return { ok: false, detail: verdict.failures.join("; ") };
+  const others = verdict.warnings.length > 0 ? `; other packs failed: ${verdict.warnings.join("; ")}` : "";
+  return { ok: true, detail: `materialized ${verdict.written} ${pack} pack file${verdict.written === 1 ? "" : "s"}${others}` };
 }
 
 function stepLine(step: SyncStep): string {
@@ -142,14 +150,7 @@ export async function skillsSync(args: string[]): Promise<void> {
       return { drift: payload.drift, lintHits: payload.mcpLint.length, strict: payload.strictLint };
     },
     compilePack: (name) => compilePackAll({ pack: name, ...target }),
-    materialize: async () => {
-      const r = await materializeSkills(createRealProbes(), {});
-      if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}` };
-      const failed = r.repos.filter((x) => !x.ok && !x.noManifest);
-      return failed.length === 0
-        ? { ok: true, detail: `materialized ${r.repos.filter((x) => x.ok).length}` }
-        : { ok: false, detail: failed.map((x) => `${x.name}: ${x.detail}`).join("; ") };
-    },
+    materialize: async (name) => syncMaterializeVerdict(await materializeSkills(createRealProbes(), {}), name),
     configDir,
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
     inTreeRoot: resolveSharedCheckout(homedir()),

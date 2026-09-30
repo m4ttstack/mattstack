@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { PackInfo } from "../../lib/skills/packs.ts";
-import { deriveEngine, manifestTarget } from "../skills-sync.ts";
+import type { MaterializeSkillsResult } from "../../lib/setup/skills-materialize.ts";
+import { deriveEngine, manifestTarget, syncMaterializeVerdict } from "../skills-sync.ts";
 
 function pack(name: string): PackInfo {
   return { name, dir: `/fake/${name}`, layout: "flat", surfacePath: `/fake/${name}/surface.jsonc`, marketplace: "local" };
@@ -90,5 +91,36 @@ describe("manifestTarget", () => {
 
   test("omits what was not passed", () => {
     expect(manifestTarget(["--pack", "acme", "--json"])).toEqual({});
+  });
+});
+
+describe("syncMaterializeVerdict", () => {
+  const result = (repos: Extract<MaterializeSkillsResult, { skipped: false }>["repos"]): MaterializeSkillsResult => ({ skipped: false, repos });
+  const written = (pack: string) => ({ pack, zone: "acme", ok: true as const, path: `/h/${pack}/skills.jsonc`, layers: ["pack"] });
+  const broken = (pack: string, detail: string) => ({ pack, zone: "acme-gadgets", ok: false as const, detail });
+
+  test("a sibling pack's failure is a note, not a failure", () => {
+    const r = result([{ name: "repo-a", path: "/r/a", ok: false, detail: "", packs: [written("widgets"), broken("gadgets", "gadgets extends acme-base@acme, which is not installed")] }]);
+    const verdict = syncMaterializeVerdict(r, "widgets");
+    expect(verdict.ok).toBe(true);
+    expect(verdict.detail).toContain("gadgets (repo-a)");
+  });
+
+  test("this pack's own failure fails, naming the pack and repo", () => {
+    const r = result([{ name: "repo-a", path: "/r/a", ok: false, detail: "", packs: [written("widgets"), broken("gadgets", "gadgets extends acme-base@acme, which is not installed")] }]);
+    expect(syncMaterializeVerdict(r, "gadgets")).toEqual({ ok: false, detail: "gadgets (repo-a): gadgets extends acme-base@acme, which is not installed" });
+  });
+
+  test("a repo-level error with no packs fails; no-remote and undeclared rows do not", () => {
+    const r = result([
+      { name: "repo-a", path: "/r/a", ok: false, detail: "EACCES: permission denied" },
+      { name: "repo-b", path: "/r/b", ok: false, noManifest: true, detail: "no remote in /r/b" },
+    ]);
+    expect(syncMaterializeVerdict(r, "widgets")).toEqual({ ok: false, detail: "repo-a: EACCES: permission denied" });
+    expect(syncMaterializeVerdict(result([r.repos[1]!]), "widgets").ok).toBe(true);
+  });
+
+  test("a skipped run is not a failure", () => {
+    expect(syncMaterializeVerdict({ skipped: true, reason: "engine-pack-missing", repos: [] }, "widgets")).toEqual({ ok: true, detail: "skipped: engine-pack-missing" });
   });
 });

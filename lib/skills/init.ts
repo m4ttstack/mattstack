@@ -233,7 +233,7 @@ export type InitDeps = {
   engineDescription(engine: string): string | null;
   claude: ((args: string[]) => Promise<RunResult>) | null;
   registerRepo(repoDir: string): Promise<string>;
-  materialize(repoName: string): Promise<{ ok: boolean; detail: string }>;
+  materialize(repoName: string, pack: string): Promise<{ ok: boolean; detail: string }>;
   compile(packDir: string, manifestPath: string): Promise<{ ok: boolean; errors: string[] }>;
   check(packDir: string, manifestPath: string): Promise<{ drift: boolean }>;
 };
@@ -376,7 +376,7 @@ export async function initPack(opts: { repoDir: string; zone: string | null }, d
 
   const registered = await attempt("materialize-failed", () => deps.registerRepo(opts.repoDir));
   if ("outcome" in registered) return registered.outcome;
-  const materializedAttempt = await attempt("materialize-failed", () => deps.materialize(registered.value));
+  const materializedAttempt = await attempt("materialize-failed", () => deps.materialize(registered.value, pack));
   if ("outcome" in materializedAttempt) return materializedAttempt.outcome;
   const materialized = materializedAttempt.value;
   const manifestPath = packManifestPath(join(deps.home, ".mattstack"), repo.slug, pack);

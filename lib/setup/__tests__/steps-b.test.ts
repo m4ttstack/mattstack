@@ -880,7 +880,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const p = fakeProbes({ home, ...materializeWorld(home) });
       const { ctx } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
       expect(p.calls.exec).toContainEqual(["git", "-C", repoDir, "remote", "get-url", "origin"]);
       expect(p.readFile(`${home}/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc`)).not.toBeNull();
     });
@@ -892,9 +892,24 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
 
       const p = fakeProbes({ home, ...materializeWorld(home, { fragment: "{ nope" }) });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 0, failed 1" });
       const fragment = `${home}/.mattstack/teams/acme/mattstack/packs/widgets/pack/skills.jsonc`;
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({
+        state: "done",
+        detail: `materialized 0 pack files; failed: widgets (${repoName}): fragment is not valid JSONC: ${fragment}`,
+      });
       expect(logs.some((l) => l.line === `${repoName}: widgets: fragment is not valid JSONC: ${fragment}`)).toBe(true);
+    });
+
+    test("one failed pack of two on a repo counts per pack and names the pack, repo and fix", async () => {
+      const repoDir = mkdtempSync(join(home, "repo-"));
+      const repoName = basename(repoDir);
+      updateRepoIndex(repoName, repoDir);
+
+      const p = fakeProbes({ home, ...materializeWorld(home, { siblingFragment: JSON.stringify({ extends: "acme-base@acme" }) }) });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({
+        state: "done",
+        detail: `materialized 1 pack file; failed: gadgets (${repoName}): gadgets extends acme-base@acme, which is not installed; add it to the team's claude.plugins`,
+      });
     });
 
     test("a tracked repo the team declares no skills for is nothing to do, never a failure", async () => {
@@ -910,7 +925,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
         exec: async (argv) => (argv.includes(undeclared) ? ok("https://gitlab.example.com/acme/other.git\n") : world.exec(argv)),
       });
       const { ctx, logs } = makeCtx(p);
-      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0, no skills declared 1" });
+      expect(await skillsMaterializeStep.run(ctx)).toEqual({ state: "done", detail: "materialized 1 pack file, no skills declared 1" });
       expect(logs.some((l) => l.line.includes("no team declares gitlab.example.com/acme/other"))).toBe(true);
     });
 
@@ -918,7 +933,7 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
       const p = fakeProbes({ home, ...materializeWorld(home), exec: async () => ({ code: 1, stdout: "", stderr: "error: No such remote 'origin'" }) });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 0, failed 0, no skills declared 1" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 0 pack files, no skills declared 1" });
     });
 
     test("idempotent re-run: same world, same repo, done again", async () => {
@@ -926,8 +941,8 @@ describe("services B: services.register, proxy.install, deck.managed, skills.mat
       updateRepoIndex(basename(repoDir), repoDir);
       const p = fakeProbes({ home, ...materializeWorld(home) });
 
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
-      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1, failed 0" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
+      expect(await skillsMaterializeStep.run(makeCtx(p).ctx)).toEqual({ state: "done", detail: "materialized 1 pack file" });
     });
   });
 

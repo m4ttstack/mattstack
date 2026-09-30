@@ -12,7 +12,7 @@ import { materializeSkills } from "./skills-materialize.ts";
 
 const DEFAULT_WORK_TYPE = "feature";
 
-export const NO_MANIFEST_DETAIL = "no per-repo manifest yet";
+export const NO_MANIFEST_DETAIL = "no bindings file for this pack yet; run rt skills materialize";
 
 /** No repo is registered yet, so the pipeline check has nothing to read: an expected first-run state, not a failure. */
 const AWAITING_CLONE_NOTE = "waiting on a repo clone to check the pipeline";
@@ -65,11 +65,12 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; s
   }
 
   const packName = ctx.reqs[0]?.pack;
-  const written = materialized.skipped
-    ? null
-    : materialized.repos.flatMap((r) => r.packs ?? []).find((pk) => pk.ok && pk.pack === packName);
+  const outcomes = materialized.skipped ? [] : materialized.repos.flatMap((r) => r.packs ?? []).filter((pk) => pk.pack === packName);
+  const written = outcomes.find((pk) => pk.ok);
   const text = written && written.ok ? ctx.p.readFile(written.path) : null;
   if (text === null) {
+    const failed = outcomes.find((pk) => !pk.ok);
+    if (failed && !failed.ok) return { ok: false, detail: failed.detail };
     const nothing = materialized.skipped ? undefined : materialized.repos.find((r) => r.noManifest && r.path === repo.worktrees[0]?.path);
     if (nothing?.noRemote) return { ok: true, detail: `${repo.repoName} has no git remote; no pipeline to check` };
     if (nothing) return { ok: true, detail: `no team pack declares ${repo.repoName}; no pipeline to check` };

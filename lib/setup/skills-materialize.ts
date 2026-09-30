@@ -46,10 +46,14 @@ export type MaterializeSkillsResult =
 
 /** One wording for every step that reports a materialize run: a repo nothing declares is its own count, never a failure. */
 export function materializeTally(repos: MaterializeRepoResult[]): string {
-  const ok = repos.filter((r) => r.ok).length;
+  const written = repos.flatMap((r) => r.packs ?? []).filter((pk) => pk.ok).length;
   const undeclared = repos.filter((r) => r.noManifest).length;
-  const failed = repos.length - ok - undeclared;
-  return `materialized ${ok}, failed ${failed}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}`;
+  const failures = repos.flatMap((r) => {
+    if (r.packs) return r.packs.flatMap((pk) => (pk.ok ? [] : [`${pk.pack} (${r.name}): ${pk.detail}`]));
+    return r.ok || r.noManifest ? [] : [`${r.name}: ${r.detail}`];
+  });
+  const head = `materialized ${written} pack file${written === 1 ? "" : "s"}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}`;
+  return failures.length > 0 ? `${head}; failed: ${failures.join("\nfailed: ")}` : head;
 }
 
 function registeredKnownRepos(): Pick<KnownRepo, "repoName" | "worktrees">[] {
@@ -121,4 +125,22 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
     }
   }
   return { skipped: false, repos };
+}
+
+/** One pack's view of a run: its own failed outcomes and repo-level errors are failures; another pack's failure is only a warning. No-remote and undeclared rows are neither. */
+export function packVerdict(repos: MaterializeRepoResult[], pack: string): { written: number; failures: string[]; warnings: string[] } {
+  let written = 0;
+  const failures: string[] = [];
+  const warnings: string[] = [];
+  for (const repo of repos) {
+    if (!repo.packs) {
+      if (!repo.ok && !repo.noManifest) failures.push(`${repo.name}: ${repo.detail}`);
+      continue;
+    }
+    for (const pk of repo.packs) {
+      if (pk.ok) written += pk.pack === pack ? 1 : 0;
+      else (pk.pack === pack ? failures : warnings).push(`${pk.pack} (${repo.name}): ${pk.detail}`);
+    }
+  }
+  return { written, failures, warnings };
 }

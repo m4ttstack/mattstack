@@ -590,6 +590,25 @@ describe("syncPack", () => {
     expect(report.steps.find((s) => s.name === "materialize")).toEqual({ name: "materialize", status: "ran", detail: "materialized 1" });
   });
 
+  test("materialize is asked about the pack being synced", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = fixturePack("beacon", "local", "2.0.0");
+    const deps = makeDeps(pack, engine, {
+      calls: [],
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+    const asked: string[] = [];
+    deps.materialize = async (name) => {
+      asked.push(name);
+      return { ok: true, detail: "materialized 1" };
+    };
+
+    await syncPack(pack, engine, deps);
+
+    expect(asked).toEqual(["acme"]);
+  });
+
   test("a failed materialize stops the chain before check", async () => {
     const pack = fixturePack("acme", "local", "1.0.0");
     const engine = fixturePack("beacon", "local", "2.0.0");
