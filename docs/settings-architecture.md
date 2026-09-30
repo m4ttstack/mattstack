@@ -122,8 +122,9 @@ exist for out-of-process callers only.
    after `bun run release` from `apps/gitq`.
 7. Read via `getSetting`, write via `setSetting`. Never construct store paths
    by hand; never cache a path or a value at module load.
-   `lib/__tests__/no-settings-bypass.test.ts` fails CI on an `explainSetting`,
-   raw store read or store file path outside its reasoned allowlist.
+   `lib/__tests__/no-settings-bypass.test.ts` fails CI on a per-rung read
+   (`explainSetting` and its kin), raw store read or store file path beyond
+   its allowlist's pinned per-file counts.
 
 ## Schemas, the write gate and the lock
 
