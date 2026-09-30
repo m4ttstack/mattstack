@@ -357,29 +357,37 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("materialized 1, failed 0");
+      expect(detailOf(outcome)).toContain("materialized 1 pack file");
     });
 
     test("a repo no team pack declares is tallied as nothing to do, never as a failed materialize", async () => {
       const repoDir = mkdtempSync(join(home, "repo-"));
       updateRepoIndex(basename(repoDir), repoDir);
 
+      const zone = `${home}/.mattstack/teams/acme/mattstack`;
       const p = fakeProbes({
         home,
-        env: { PATH: "/usr/local/bin", RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
-        files: { "/usr/local/bin/claude": "bin" },
-        exec: async (argv) =>
-          argv[2] === "list"
-            ? ok("[]")
-            : argv.includes("--repo")
-              ? { code: 2, stdout: "", stderr: "merge-manifests: no team pack declares gitlab.com/acme/tools; nothing to materialize" }
-              : ok(""),
+        env: { PATH: "/usr/local/bin", RT_ENGINE_PACK_DIR: "/fake/engine" },
+        dirs: { "/fake/engine": ["pack"], [`${home}/.mattstack/teams`]: ["acme"], [`${zone}/packs`]: ["widgets"] },
+        files: {
+          "/usr/local/bin/claude": "bin",
+          "/fake/engine/pack/skills.jsonc": "{}",
+          [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
+          [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
+          [`${zone}/packs/widgets/pack/skills.jsonc`]: "{}",
+        },
+        exec: async (argv) => {
+          if (argv[2] === "list") return ok("[]");
+          if (argv[0] === "git" && argv.includes("get-url")) return ok("https://gitlab.example.com/acme/tools.git\n");
+          return ok("");
+        },
       });
       const { ctx } = makeCtx(p);
 
       const outcome = await pluginsInstallStep.run(ctx);
       expect(outcome.state).toBe("done");
-      expect(detailOf(outcome)).toContain("materialized 0, failed 0, no skills declared 1");
+      expect(detailOf(outcome)).toContain("materialized 0 pack files, no skills declared 1");
+      expect(detailOf(outcome)).not.toContain("failed");
     });
 
     test("marketplace add exits non-zero (not 'already') -> failed with claude's own first line and the contract remedy, install never reached", async () => {

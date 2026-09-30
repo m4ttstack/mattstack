@@ -2277,6 +2277,15 @@ describe("skillsMaterialize --dir exit codes", () => {
     expect(logs.join("\n")).toContain("no team declares gitlab.example.com/acme/gadgets");
   });
 
+  test("a checkout with no git remote exits 2", async () => {
+    process.env.RT_ENGINE_PACK_DIR = ENGINE;
+    const dir = mkdtempSync(join(home, "loose-"));
+    execFileSync("git", ["init", "-q", dir]);
+    await skillsMaterialize(["--dir", dir]);
+    expect(process.exitCode).toBe(2);
+    expect(logs.join("\n")).toContain(`no git remote in ${dir}`);
+  });
+
   test("no engine pack installed exits 1: nothing was written", async () => {
     await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
     expect(process.exitCode).toBe(1);
