@@ -173,6 +173,36 @@ describe("runApplyWith: the legacy finish is judged before the run installs anyt
   });
 });
 
+// The app reopens an unfinished setup at Done only after a run that got
+// through; a failed one (a join clears its intent mid-run) goes back to the
+// checklist, where its broken rows are.
+describe("runApplyWith: lastApplyOk records whether the last whole run got through", () => {
+  const lastApplyOk = (ctx: ApplyContext) => readSetupState(ctx.p as ReturnType<typeof fakeProbes>).lastApplyOk;
+
+  test("a run that ends ok records true, a failed one false", async () => {
+    const good = testCtx().ctx;
+    await runApplyWith([fakeStep("path.link", { state: "done" })], good);
+    expect(lastApplyOk(good)).toBe(true);
+
+    const bad = testCtx().ctx;
+    await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" })], bad);
+    expect(lastApplyOk(bad)).toBe(false);
+  });
+
+  test("--from counts, since it runs everything left", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("home.init", { state: "done" }), fakeStep("path.link", { state: "failed", detail: "boom" })], ctx, { from: "path.link" });
+    expect(lastApplyOk(ctx)).toBe(false);
+  });
+
+  test("an --only retry leaves the last whole run's answer alone", async () => {
+    const { ctx } = testCtx();
+    await runApplyWith([fakeStep("path.link", { state: "failed", detail: "boom" })], ctx);
+    await runApplyWith([fakeStep("path.link", { state: "done" })], ctx, { only: "path.link" });
+    expect(lastApplyOk(ctx)).toBe(false);
+  });
+});
+
 describe("runApplyWith — happy path", () => {
   test("three done steps stream plan, running/done per step, then done ok:true", async () => {
     const { ctx, events } = testCtx();

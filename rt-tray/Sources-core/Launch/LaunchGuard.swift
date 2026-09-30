@@ -38,12 +38,15 @@ public enum SetupCompletion {
                    intentExists: fileExists(intentPath(home: home)))
     }
 
-    /// Where an unfinished setup reopens. An Install with no team choice
-    /// pending lands on Done, so quitting there never costs a re-Install.
+    /// Where an unfinished setup reopens. A run that got through, with no
+    /// team choice pending, lands on Done so quitting there never costs a
+    /// re-Install; a failed one goes back to the checklist, where its broken
+    /// rows are, since Done's Finish could otherwise record over them.
     public static func resumeStep(stateJSON: Data?, intentExists: Bool) -> SetupStep? {
         if !intentExists, let stateJSON,
            let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any],
-           let lastApplyAt = state["lastApplyAt"] as? String, !lastApplyAt.isEmpty {
+           let lastApplyAt = state["lastApplyAt"] as? String, !lastApplyAt.isEmpty,
+           state["lastApplyOk"] as? Bool == true {
             return .done
         }
         return intentExists || stateJSON != nil ? .checklist : nil

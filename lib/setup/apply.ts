@@ -208,10 +208,12 @@ function enqueueInOrder(queue: StepDef[], next: number, step: StepDef, applicabl
  * could have finished the install may clear it. `--only` runs one row's step
  * (and what it needs) and leaves the rest untouched, so it never does; `--from`
  * resumes and then runs everything left, so it does.
+ * `lastApplyOk` follows the same line: only a run that could have
+ * finished the install sets it.
  */
 function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId | undefined, oneStepOnly: boolean): void {
   try {
-    updateSetupState(ctx.p, (s) => ({ ...s, lastApplyAt: ctx.p.now().toISOString() }));
+    updateSetupState(ctx.p, (s) => ({ ...s, lastApplyAt: ctx.p.now().toISOString(), ...(oneStepOnly ? {} : { lastApplyOk: ok }) }));
     if (ok && !oneStepOnly) clearIntent(ctx.p);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

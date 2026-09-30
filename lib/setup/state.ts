@@ -22,6 +22,8 @@ export interface SetupState {
   lastApplyAt?: string;
   /** The rt version the last `rt setup update` run stamped, whatever its outcome. */
   lastUpdate?: { version: string; at: string };
+  /** Whether the last full or `--from` run ended ok; `--only` retries and update runs leave it. mattstack.app reopens an unfinished setup at Done only when true. */
+  lastApplyOk?: boolean;
   /** When setup finished on this Mac. mattstack.app reads this file directly (rt-tray's SetupCompletion). */
   finishedAt?: string;
 }
