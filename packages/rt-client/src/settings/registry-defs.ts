@@ -49,6 +49,15 @@ export const REGISTRY: readonly SettingDef[] = [
     description: "Per-repo worktree pool config (onDeck size, ready steps, name pool, staleClaimDays, junk (untracked globs a merged tree may discard on dispose)); root/branchFormat/ready computed-or-empty in the reader.",
   },
   {
+    key: "rt.worktreeApp",
+    type: "object",
+    scopes: ["team", "user", "machine"],
+    default: { enabled: false, killProcesses: true },
+    merge: "deep",
+    migrated: true,
+    description: "Worktree pool on/off switch (enabled, killProcesses, claudeHook), merged per field. A team can turn the pool on for every member; a user or machine value overrides the team's, so a machine that wants it off sets {\"enabled\":false} at machine scope. claudeHook records this machine's answer to the Claude hook offer and is read from the machine store only. A distinct key from rt.worktrees (the per-repo pool config above).",
+  },
+  {
     key: "rt.worktreeReadyApproval",
     type: "string",
     scopes: ALL_SCOPES,
@@ -218,14 +227,6 @@ export const REGISTRY: readonly SettingDef[] = [
   // .value === undefined`, and a registry default materializes as a present
   // value — adding one flips the key store-authoritative on every install
   // (same invariant as the board.* block above).
-  {
-    key: "rt.worktreeApp",
-    type: "object",
-    scopes: ["team", "machine"],
-    merge: "deep",
-    migrated: true,
-    description: "Worktree pool on/off switch (enabled, killProcesses, claudeHook). A team can turn the pool on for every member; a machine value wins per field, so a machine that wants it off sets {\"enabled\":false} at machine scope. claudeHook is read from the machine store only. Ownership-latch port of ~/.mattstack/rt/worktrees.json: once any store has a value the file is no longer read. A distinct key from rt.worktrees (the per-repo pool config above): same file family, unrelated shape and scope.",
-  },
   {
     key: "rt.sdmEnrichment",
     type: "object",
