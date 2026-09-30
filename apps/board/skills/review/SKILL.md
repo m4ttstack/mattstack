@@ -7,7 +7,9 @@ description: >-
   generically when none is given). Invoked as "/board:review
   <mrUrl> --state <path> --status-bin <path> [--report <path>] [--skill <name>]
   [--re-review]". When no --skill is given, the domain skill is resolved from
-  the review slot binding in .mattstack/skills.jsonc. Not for manual use.
+  the review slot binding in the pack's bindings file
+  (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
+  manual use.
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/open-gate.sh:*)
 metadata:
@@ -18,7 +20,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=18-1571 -->
+<!-- part: step source=review/SKILL.md path=review/SKILL.md lines=20-1573 -->
 # mr-board review runner
 
 The mr-board spawned this pane to review one MR and report status back to the

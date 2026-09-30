@@ -6,7 +6,8 @@ description: >-
   board's status CLI, then delegates the actual work to the skill named by --skill.
   Invoked as "/board:respond <mrUrl> --state <path> --status-bin
   <path> [--report <path>] [--skill <name>]". When no --skill is given, the domain skill is
-  resolved from the respond slot binding in .mattstack/skills.jsonc. Not for
+  resolved from the respond slot binding in the pack's bindings file
+  (repos/<slug>/packs/<pack>/skills.jsonc, chosen by MATTSTACK_PACK). Not for
   manual use.
 disable-model-invocation: true
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/resolve-args.sh:*), Bash(${CLAUDE_SKILL_DIR}/scripts/open-gate.sh:*)
@@ -18,7 +19,7 @@ metadata:
 
 <!-- expanded by rt skills expand from the sources below; edits here are drift (edit the source dir and re-run) -->
 
-<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=18-536 -->
+<!-- part: step source=respond/SKILL.md path=respond/SKILL.md lines=19-537 -->
 # mr-board respond runner
 
 The mr-board spawned this pane to process the review feedback on ONE of your own
