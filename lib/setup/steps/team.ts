@@ -122,6 +122,7 @@ async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
 export const teamCreateStep: StepDef = {
   reloadsTeam: true,
   id: "team.create",
+  feedsIntercepts: true,
   title: "Create your team",
   kind: "rt",
   applies: (ctx) => ctx.intent?.mode === "create" || (ctx.teamOfOne && ctx.intent === null && ctx.team.slug === ""),
@@ -131,6 +132,7 @@ export const teamCreateStep: StepDef = {
 export const teamJoinStep: StepDef = {
   reloadsTeam: true,
   id: "team.join",
+  feedsIntercepts: true,
   title: "Join your team",
   kind: "rt",
   applies: (ctx) => ctx.intent?.mode === "join",

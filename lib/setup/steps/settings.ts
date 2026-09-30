@@ -63,6 +63,7 @@ async function settingsSeedRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
 
 export const settingsSeedStep: StepDef = {
   id: "settings.seed",
+  feedsIntercepts: true,
   title: "Seed your settings",
   kind: "rt",
   applies: () => true,

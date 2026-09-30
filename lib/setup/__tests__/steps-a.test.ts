@@ -18,7 +18,9 @@ import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../sec
 import { readTeamSecret, teamSopsYamlPath } from "../../secrets/team-store.ts";
 import { teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
-import type { ApplyContext, StepOutcome } from "../apply.ts";
+import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
+import { runApplyWith } from "../apply.ts";
+import { renderInterceptShim, shimPath } from "../../endpoint/shim.ts";
 import { AUTH_FAILURE_PATTERN } from "../../team/publish.ts";
 import { intentPath, type SetupIntent } from "../intent.ts";
 import { stageSecret, stagingDir } from "../staging.ts";
@@ -1303,5 +1305,33 @@ describe("path.link / settings.seed / repos.clone / intercepts.install (real HOM
     expect(second).toEqual({ state: "done", detail: "1 shims" }); // same total; installShims itself distinguishes installed vs current internally
 
     rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test("intercepts.install: a repo that lands on a later --only repos.clone gets its shim", async () => {
+    const repoDir = mkdtempSync(join(home, "late-clone-"));
+    execSync("git init -q", { cwd: repoDir });
+    execSync("git remote add origin git@x:acme/r-late.git", { cwd: repoDir });
+    mkdirSync(dirname(teamSettingsPath("acme")), { recursive: true });
+    writeFileSync(
+      teamSettingsPath("acme"),
+      JSON.stringify({ repos: { "x/acme/r-late": { "rt.intercepts": [{ command: "fakecmd-late", matches: [{ cwdGlob: ".", role: "x" }] }] } } }),
+    );
+    let reachable = false;
+    const lateClone: StepDef = {
+      ...reposCloneStep,
+      run: async () => {
+        if (!reachable) return { state: "partial", detail: "cloned 0, present 0, failed 1 (r-late)" };
+        setKvValue("repo-index", serializeIdentity({ kind: "remote", id: "x/acme/r-late" }), repoDir);
+        return { state: "done", detail: "cloned 1, present 0, failed 0" };
+      },
+    };
+    const steps = [lateClone, interceptsInstallStep];
+
+    await runApplyWith(steps, makeCtx(fakeProbes({ home })).ctx);
+    expect(existsSync(shimPath("fakecmd-late"))).toBe(false);
+
+    reachable = true;
+    expect(await runApplyWith(steps, makeCtx(fakeProbes({ home })).ctx, { only: "repos.clone" })).toEqual({ ok: true });
+    expect(readFileSync(shimPath("fakecmd-late"), "utf8")).toBe(renderInterceptShim("fakecmd-late"));
   });
 });
