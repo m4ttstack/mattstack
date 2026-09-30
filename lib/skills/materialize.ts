@@ -95,21 +95,32 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
     sharedError = err.message;
   }
 
+  const claims = zones.map((zone) => ({ zone, names: packsIn(deps.fs, zone) }));
+  const zonesByPack = new Map<string, string[]>();
+  for (const { zone, names } of claims) {
+    for (const pack of names) zonesByPack.set(pack, [...(zonesByPack.get(pack) ?? []), zone.slug]);
+  }
+
   const packs: PackOutcome[] = [];
-  for (const zone of zones) {
-    const names = packsIn(deps.fs, zone);
+  for (const { zone, names } of claims) {
     if (names.length > 1) {
       const detail = `zone "${zone.slug}" holds ${names.length} packs (${names.join(", ")}) that all claim ${repo}; a zone binds one pack per repo, so move the others to a zone that declares no projects`;
       for (const pack of names) packs.push({ pack, zone: zone.slug, ok: false, detail });
       continue;
     }
     for (const pack of names) {
+      const holders = zonesByPack.get(pack)!;
+      if (holders.length > 1) {
+        const detail = `pack "${pack}" is in ${holders.length} zones (${[...holders].sort().join(", ")}) that all claim ${repo}; they would all write one file, so declare the repo in only one of them`;
+        packs.push({ pack, zone: zone.slug, ok: false, detail });
+        continue;
+      }
       packs.push(sharedError !== null
         ? { pack, zone: zone.slug, ok: false, detail: sharedError }
         : materializePack(deps, zone, pack, repo, ref.slug, defaults, override));
     }
   }
-  packs.sort((a, b) => a.pack.localeCompare(b.pack));
+  packs.sort((a, b) => a.pack.localeCompare(b.pack) || a.zone.localeCompare(b.zone));
 
   let migrated: string | null = null;
   const legacy = legacyManifestPath(deps.mattstackRoot, ref.slug);

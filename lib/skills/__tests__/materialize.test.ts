@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, writeFileSync } from "fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { materializeRepo, type MaterializeFs } from "../materialize.ts";
@@ -19,8 +19,15 @@ const SLUG = "gitlab.example.com-acme-widgets";
 
 function write(p: string, text: string): void { realFs.writeFile(p, text); }
 
+const homes: string[] = [];
+
+afterEach(() => {
+  for (const dir of homes.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 function makeWorld() {
   const home = mkdtempSync(join(tmpdir(), "rt-materialize-"));
+  homes.push(home);
   const root = join(home, ".mattstack");
   const engine = join(home, "engine");
   write(join(engine, "pack", "skills.jsonc"), JSON.stringify({ bindings: { "mattstack:stage-gates": { domain: "mattstack:generic-gates" } }, pipelines: { feature: ["stage-plan", "stage-gates"] } }));
@@ -136,6 +143,29 @@ describe("materializeRepo", () => {
     if (out.kind !== "written") throw new Error(out.kind);
     expect(out.packs[0]).toMatchObject({ ok: false });
     if (!out.packs[0]!.ok) expect(out.packs[0]!.detail).toContain("widgets/pack/skills.jsonc");
+  });
+
+  test("one pack name in two declaring zones is refused in both", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {} } });
+    zone(root, "beta", { projects: ["acme/widgets"], packs: { widgets: {} } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.map((p) => [p.pack, p.zone, p.ok])).toEqual([["widgets", "acme", false], ["widgets", "beta", false]]);
+    for (const p of out.packs) {
+      if (!p.ok) expect(p.detail).toContain('pack "widgets" is in 2 zones (acme, beta) that all claim gitlab.example.com/acme/widgets');
+    }
+    expect(existsSync(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc"))).toBe(false);
+  });
+
+  test("a declaring zone with no packs writes nothing", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: {} });
+    write(join(root, "repos", SLUG, "skills.jsonc"), "{}");
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    expect(out).toEqual({ kind: "written", repo: "gitlab.example.com/acme/widgets", slug: SLUG, packs: [], migrated: null });
+    expect(existsSync(join(root, "repos", SLUG, "packs"))).toBe(false);
+    expect(readFileSync(join(root, "repos", SLUG, "skills.jsonc"), "utf8")).toBe("{}");
   });
 
   test("the old merged file is renamed .migrated, never deleted", () => {
