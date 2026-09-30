@@ -68,9 +68,9 @@ describe("updateSetupState", () => {
   });
 });
 
-// mattstack.app opens the wizard until this reads finished, so it must never
-// read finished before the wizard's Finish, and an install that finished
-// before the field existed must not be sent back through setup.
+// mattstack.app opens the wizard until this reads finished, so a new setup
+// must not read finished early, and a file from before the field is judged
+// by what the old app went on.
 describe("setup finished", () => {
   const STATE = "/fake-home/.mattstack/rt/setup-state.json";
 

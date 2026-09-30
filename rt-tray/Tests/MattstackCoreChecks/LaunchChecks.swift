@@ -22,32 +22,44 @@ let launchChecks: [Check] = [
         c.expectEqual(again, ["--x", "--resume-setup", "checklist"])
         c.expectEqual(SetupResume.relaunchArguments(passthrough: ["--resume-setup", "team"], resumeAt: nil), [])
     },
-    // Parity with isSetupFinished/readSetupState in lib/setup/state.ts: the
-    // daemon starts during setup, so its daemon.json is no evidence of Finish.
-    Check("SetupCompletion: finished only once Finish is on record, or a v1 file's Install ran") { c in
-        func finished(_ json: String?) -> Bool { SetupCompletion.isFinished(stateJSON: json.map { Data($0.utf8) }) }
-        c.expect(!finished(nil))
-        c.expect(!finished("not json"))
-        c.expect(!finished(#"{"v":2,"lastApplyAt":"2026-09-30T00:00:00.000Z"}"#))
-        c.expect(finished(#"{"v":2,"finishedAt":"2026-09-30T12:00:00.000Z"}"#))
-        c.expect(!finished(#"{"v":2,"finishedAt":""}"#))
-        c.expect(finished(#"{"v":1,"lastApplyAt":"2026-09-01T00:00:00.000Z"}"#))
-        c.expect(finished(#"{"lastApplyAt":"2026-09-01T00:00:00.000Z"}"#))
-        c.expect(!finished(#"{"v":1,"marketplaces":["core"]}"#))
+    // Parity with parseSetupState/isSetupFinished in lib/setup/state.ts, which
+    // reads the same fixture. The daemon starts during setup, so daemon.json
+    // alone is no evidence of Finish.
+    Check("SetupCompletion: finished agrees with lib/setup/fixtures/setup-finished.json") { c in
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let url = repo.appendingPathComponent("lib/setup/fixtures/setup-finished.json")
+        struct Case: Decodable { let why: String; let state: String?; let daemonInstalled: Bool; let intent: Bool; let finished: Bool }
+        let cases = try JSONDecoder().decode([Case].self, from: Data(contentsOf: url))
+        c.expect(cases.count >= 10)
+        for k in cases {
+            let finished = SetupCompletion.isFinished(stateJSON: k.state.map { Data($0.utf8) }, daemonInstalled: k.daemonInstalled, intentExists: k.intent)
+            c.expectEqual(finished, k.finished, k.why)
+        }
         c.expectEqual(SetupCompletion.statePath(home: "/Users/u"), "/Users/u/.mattstack/rt/setup-state.json")
     },
-    Check("SetupCompletion: an unfinished setup that has begun reopens at the checklist") { c in
-        let home = "/Users/u"
-        c.expect(!SetupCompletion.hasBegun(home: home) { _ in false })
-        c.expect(SetupCompletion.hasBegun(home: home) { $0 == "/Users/u/.mattstack/rt/setup-intent.json" })
-        c.expect(SetupCompletion.hasBegun(home: home) { $0 == "/Users/u/.mattstack/rt/setup-state.json" })
+    Check("SetupCompletion: reads the three files under the home it is given") { c in
+        let files: [String: String] = ["/Users/u/.mattstack/rt/daemon.json": "{}"]
+        c.expect(SetupCompletion.isFinished(home: "/Users/u", readFile: { files[$0].map { Data($0.utf8) } }, fileExists: { files[$0] != nil }))
+        c.expect(!SetupCompletion.isFinished(home: "/Users/v", readFile: { files[$0].map { Data($0.utf8) } }, fileExists: { files[$0] != nil }))
+    },
+    // Quitting at Done must never cost a re-Install.
+    Check("SetupCompletion: an unfinished setup reopens at Done after an Install, the checklist while one is chosen, Welcome otherwise") { c in
+        let installed = Data(#"{"v":2,"lastApplyAt":"2026-09-30T00:00:00.000Z"}"#.utf8)
+        let untouched = Data(#"{"v":2,"links":["gh"]}"#.utf8)
+        c.expectEqual(SetupCompletion.resumeStep(stateJSON: installed, intentExists: false), .done)
+        c.expectEqual(SetupCompletion.resumeStep(stateJSON: installed, intentExists: true), .checklist)
+        c.expectEqual(SetupCompletion.resumeStep(stateJSON: nil, intentExists: true), .checklist)
+        c.expectEqual(SetupCompletion.resumeStep(stateJSON: untouched, intentExists: false), .checklist)
+        c.expectEqual(SetupCompletion.resumeStep(stateJSON: nil, intentExists: false), nil)
 
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: true, begun: true), .none)
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, begun: true), .show(.checklist))
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, begun: false), .show(nil))
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: true, resume: .done), .none)
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, resume: .done), .show(.done))
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: nil, finished: false, resume: nil), .show(nil))
         // --resume-setup is honored whatever the state reads.
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .team, finished: true, begun: true), .show(.team))
-        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .checklist, finished: false, begun: false), .show(.checklist))
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .team, finished: true, resume: .done), .show(.team))
+        c.expectEqual(SetupCompletion.onLaunch(resumeFlag: .checklist, finished: false, resume: nil), .show(.checklist))
     },
     Check("SetupCompletion: only closing the wizard at an open Done records Finish") { c in
         c.expect(SetupCompletion.closeRecordsFinish(step: .done, finishEnabled: true, readOnly: false))

@@ -1,4 +1,5 @@
 import Foundation
+import MattstackCore
 
 /// Process-wide "setup is in progress" flag: the updater's idle gate reads
 /// `isRunning`. Owner-keyed rather than a single bool — the onboarding Setup
@@ -22,5 +23,26 @@ enum SetupSession {
     static func setRunning(_ running: Bool, for owner: ObjectIdentifier) {
         lock.lock(); defer { lock.unlock() }
         if running { owners.insert(owner) } else { owners.remove(owner) }
+    }
+
+    /// Set at Finish, before `rt setup finish` has written it to disk, so
+    /// the rest of this launch treats setup as finished at once.
+    private static var finishedThisLaunch = false
+    static func markFinished() {
+        lock.lock(); defer { lock.unlock() }
+        finishedThisLaunch = true
+    }
+    static var isFinished: Bool {
+        lock.lock()
+        let marked = finishedThisLaunch
+        lock.unlock()
+        return marked || SetupCompletion.isFinished(home: AppHome.current,
+                                                    readFile: { FileManager.default.contents(atPath: $0) },
+                                                    fileExists: { FileManager.default.fileExists(atPath: $0) })
+    }
+    static var resumeStep: SetupStep? {
+        SetupCompletion.resumeStep(home: AppHome.current,
+                                   readFile: { FileManager.default.contents(atPath: $0) },
+                                   fileExists: { FileManager.default.fileExists(atPath: $0) })
     }
 }

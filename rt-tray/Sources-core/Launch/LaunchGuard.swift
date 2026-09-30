@@ -8,32 +8,49 @@ public enum LaunchGuard {
     }
 }
 
-/// Whether this Mac finished setup, read straight from rt's
-/// ~/.mattstack/rt/setup-state.json. Parity anchor: `isSetupFinished` and
-/// `readSetupState` in lib/setup/state.ts must answer the same way.
+/// Whether this Mac finished setup, read straight from rt's files under
+/// ~/.mattstack/rt. Parity anchor: `parseSetupState` and `isSetupFinished`
+/// in lib/setup/state.ts, checked against lib/setup/fixtures/setup-finished.json.
 public enum SetupCompletion {
     public static let finishArguments = ["setup", "finish", "--json"]
 
     public static func statePath(home: String) -> String { "\(home)/.mattstack/rt/setup-state.json" }
+    static func intentPath(home: String) -> String { "\(home)/.mattstack/rt/setup-intent.json" }
+    static func daemonPath(home: String) -> String { "\(home)/.mattstack/rt/daemon.json" }
 
-    /// A v1 file predates `finishedAt`; one whose Install ran reads finished so
-    /// an upgrade never sends a working Mac back through setup.
-    public static func isFinished(stateJSON: Data?) -> Bool {
-        guard let stateJSON,
-              let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any] else { return false }
+    /// A file from before `finishedAt` (v1, or none at all) carries no Finish,
+    /// so it is judged by what the old app went on: a v1 file whose Install
+    /// ran, or a daemon installed with no setup in flight.
+    public static func isFinished(stateJSON: Data?, daemonInstalled: Bool, intentExists: Bool) -> Bool {
+        let legacyDaemon = daemonInstalled && !intentExists
+        guard let stateJSON else { return legacyDaemon }
+        guard let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any] else { return false }
         if let finishedAt = state["finishedAt"] as? String, !finishedAt.isEmpty { return true }
         let version = (state["v"] as? NSNumber)?.intValue ?? 1
-        guard version < 2, let lastApplyAt = state["lastApplyAt"] as? String else { return false }
-        return !lastApplyAt.isEmpty
+        guard version < 2 else { return false }
+        if let lastApplyAt = state["lastApplyAt"] as? String, !lastApplyAt.isEmpty { return true }
+        return legacyDaemon
     }
 
-    public static func isFinished(home: String, readFile: (String) -> Data?) -> Bool {
-        isFinished(stateJSON: readFile(statePath(home: home)))
+    public static func isFinished(home: String, readFile: (String) -> Data?, fileExists: (String) -> Bool) -> Bool {
+        isFinished(stateJSON: readFile(statePath(home: home)),
+                   daemonInstalled: fileExists(daemonPath(home: home)),
+                   intentExists: fileExists(intentPath(home: home)))
     }
 
-    /// A team choice (the setup intent) or an Install (the state file) is on disk.
-    public static func hasBegun(home: String, fileExists: (String) -> Bool) -> Bool {
-        fileExists("\(home)/.mattstack/rt/setup-intent.json") || fileExists(statePath(home: home))
+    /// Where an unfinished setup reopens. An Install with no team choice
+    /// pending lands on Done, so quitting there never costs a re-Install.
+    public static func resumeStep(stateJSON: Data?, intentExists: Bool) -> SetupStep? {
+        if !intentExists, let stateJSON,
+           let state = (try? JSONSerialization.jsonObject(with: stateJSON)) as? [String: Any],
+           let lastApplyAt = state["lastApplyAt"] as? String, !lastApplyAt.isEmpty {
+            return .done
+        }
+        return intentExists || stateJSON != nil ? .checklist : nil
+    }
+
+    public static func resumeStep(home: String, readFile: (String) -> Data?, fileExists: (String) -> Bool) -> SetupStep? {
+        resumeStep(stateJSON: readFile(statePath(home: home)), intentExists: fileExists(intentPath(home: home)))
     }
 
     public enum Launch: Equatable, Sendable {
@@ -42,10 +59,10 @@ public enum SetupCompletion {
         case show(SetupStep?)
     }
 
-    public static func onLaunch(resumeFlag: SetupStep?, finished: Bool, begun: Bool) -> Launch {
+    public static func onLaunch(resumeFlag: SetupStep?, finished: Bool, resume: SetupStep?) -> Launch {
         if let resumeFlag { return .show(resumeFlag) }
         if finished { return .none }
-        return .show(begun ? .checklist : nil)
+        return .show(resume)
     }
 
     /// Finish and the titlebar close at Done share one gate; the read-only
