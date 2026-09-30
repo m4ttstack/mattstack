@@ -214,7 +214,7 @@ import {
   writePeerReview,
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
-import { makePeering } from './peer/runtime.ts';
+import { makePeering, startPeeringWhenTokenLoads } from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachResponds,
@@ -470,15 +470,17 @@ const peering = makePeering({
   makeClient: makeSwitchboardClient,
   deps: peerDeps,
 });
-// Fire-and-forget: the daemon round trip must not hold up Bun.serve below.
+// Fire-and-forget: the daemon round trips must not hold up Bun.serve below.
 // Writer only: the runtime's tick publishes this board's state and writes
 // back what it polls, both of which belong to one process per state root.
 // /peer/join's own start path is a human joining a switchboard and stays.
-void (async () => {
-  const token = await getSwitchboardToken();
-  if (writer && config.switchboard.url && token)
-    peering.start(config.switchboard.url, token);
-})();
+if (config.switchboard.url)
+  void startPeeringWhenTokenLoads({
+    peering,
+    url: config.switchboard.url,
+    wanted: () => writer,
+    loadToken: getSwitchboardToken,
+  });
 
 /** Send what's queued without making the caller wait on the relay. Anything
     still queued goes out on the next tick, so a failure here only costs
