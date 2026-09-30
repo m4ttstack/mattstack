@@ -34,6 +34,7 @@ import { GateCard } from './GateCard';
 import { LivenessChip, livenessSpec } from './LivenessChip';
 import { mrRef } from './mrRef';
 import { repoLabel } from './repoLabel';
+import classes from './RunDetail.module.css';
 import { fieldsByKey, RunContext, Timeline } from './Timeline';
 import { activeGatesForRun, useGates } from './useGates';
 import {
@@ -334,6 +335,7 @@ function SummaryCard({
               fw={700}
               fz={18}
               underline="always"
+              className={classes.keep}
               data-testid="ticket-link"
             >
               <Group gap={4} wrap="nowrap" component="span">
@@ -342,11 +344,18 @@ function SummaryCard({
               </Group>
             </Anchor>
           ) : (
-            <Text fw={700} fz={18} c={text.highContrast('accent')}>
+            <Text
+              fw={700}
+              fz={18}
+              c={text.highContrast('accent')}
+              className={classes.keep}
+            >
               {ticketValue ?? run.id}
             </Text>
           )}
-          <Kbd size="xs">t</Kbd>
+          <Kbd size="xs" className={classes.keep}>
+            t
+          </Kbd>
           {title && (
             <Text fz={16} fw={500} truncate style={{ minWidth: 0 }}>
               {title}
