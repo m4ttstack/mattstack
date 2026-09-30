@@ -2263,23 +2263,21 @@ export class GitLabProvider implements GitProvider {
     }
   }
 
-  /**
-   * Failed jobs of a pipeline and of every same-project downstream pipeline its
-   * bridges trigger, nested children included. A child pipeline's failure never
-   * appears among the parent's own jobs, and the parent stays running until the
-   * child settles, so without the walk a CI watch reads a red child as clean.
-   * Cross-project downstreams are skipped: their job ids cannot be traced
-   * through this project.
-   */
   async fetchPipelineFailedJobs(projectPath: string, pipelineId: number): Promise<PipelineJob[]> {
     try {
-      return await this.collectFailedJobs(projectPath, pipelineId, new Set());
+      return await this.collectFailedJobs(projectPath, pipelineId, new Set(), false);
     } catch (err) {
       throw this.legacyError('fetchPipelineFailedJobs', err);
     }
   }
 
-  private async collectFailedJobs(projectPath: string, pipelineId: number, seen: Set<number>): Promise<PipelineJob[]> {
+  /**
+   * A child row blocks only when every bridge above it does: an allow_failure
+   * bridge, or a bridge already `success` while its child failed (a trigger
+   * without `strategy: depend`), cannot fail the parent, so the rows under it
+   * are marked allowFailure.
+   */
+  private async collectFailedJobs(projectPath: string, pipelineId: number, seen: Set<number>, underOptionalBridge: boolean): Promise<PipelineJob[]> {
     if (seen.has(pipelineId)) return [];
     seen.add(pipelineId);
     const jobs: any[] = await this.gb.Jobs.all(projectPath, { pipelineId, scope: ['failed'] } as any);
@@ -2288,15 +2286,27 @@ export class GitLabProvider implements GitProvider {
       name: String(j.name),
       stage: String(j.stage),
       status: String(j.status).toLowerCase(),
-      allowFailure: Boolean(j.allow_failure),
+      allowFailure: underOptionalBridge || Boolean(j.allow_failure),
       duration: typeof j.duration === 'number' ? Math.round(j.duration) : null,
       webUrl: typeof j.web_url === 'string' ? j.web_url : null,
     }));
     const bridges = (await this.gb.Jobs.allPipelineBridges(projectPath, pipelineId)) as unknown as any[];
-    const children: number[] = bridges
-      .filter((b) => b?.downstream_pipeline?.id && b.downstream_pipeline.project_id === b.pipeline?.project_id)
-      .map((b) => Number(b.downstream_pipeline.id));
-    const nested = await Promise.all(children.map((id) => this.collectFailedJobs(projectPath, id, seen)));
+    const children = bridges.filter(
+      (b) =>
+        b?.downstream_pipeline?.id &&
+        b.downstream_pipeline.project_id === b.pipeline?.project_id &&
+        String(b.downstream_pipeline.status).toLowerCase() !== 'success',
+    );
+    const nested = await Promise.all(
+      children.map((b) =>
+        this.collectFailedJobs(
+          projectPath,
+          Number(b.downstream_pipeline.id),
+          seen,
+          underOptionalBridge || Boolean(b.allow_failure) || String(b.status).toLowerCase() === 'success',
+        ),
+      ),
+    );
     return [...own, ...nested.flat()];
   }
 

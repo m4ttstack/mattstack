@@ -247,6 +247,38 @@ describe('GitLabProvider.fetchPipelineFailedJobs', () => {
     expect(jobs[1]!.allowFailure).toBe(true);
   });
 
+  test('a child under an allow_failure bridge, or a bridge that does not depend on it, never blocks', async () => {
+    const provider = new GitLabProvider('https://gitlab.example.com', 'tok');
+    const failed = (id: number) => [{ id, name: `j${id}`, stage: 'test', status: 'failed', allow_failure: false, duration: 1, web_url: null }];
+    const failedByPipeline: Record<number, any[]> = { 9: [], 20: failed(21), 30: failed(31), 40: failed(41) };
+    const bridgesByPipeline: Record<number, any[]> = {
+      9: [
+        { id: 12, status: 'failed', allow_failure: true, pipeline: { project_id: 42 }, downstream_pipeline: { id: 20, project_id: 42, status: 'failed' } },
+        { id: 13, status: 'success', allow_failure: false, pipeline: { project_id: 42 }, downstream_pipeline: { id: 30, project_id: 42, status: 'failed' } },
+      ],
+      20: [{ id: 22, status: 'failed', allow_failure: false, pipeline: { project_id: 42 }, downstream_pipeline: { id: 40, project_id: 42, status: 'failed' } }],
+    };
+    (provider as any).gb.Jobs.all = async (_p: string, options: any) => failedByPipeline[options.pipelineId] ?? [];
+    (provider as any).gb.Jobs.allPipelineBridges = async (_p: string, pipelineId: number) => bridgesByPipeline[pipelineId] ?? [];
+    const jobs = await provider.fetchPipelineFailedJobs('grp/proj', 9);
+    expect(jobs.map((j) => [j.id, j.allowFailure])).toEqual([
+      ['gitlab:job:21', true],
+      ['gitlab:job:41', true],
+      ['gitlab:job:31', true],
+    ]);
+  });
+
+  test('a green downstream pipeline is not walked', async () => {
+    const provider = new GitLabProvider('https://gitlab.example.com', 'tok');
+    const listed: number[] = [];
+    (provider as any).gb.Jobs.all = async (_p: string, options: any) => { listed.push(options.pipelineId); return []; };
+    (provider as any).gb.Jobs.allPipelineBridges = async () => [
+      { id: 12, status: 'success', allow_failure: false, pipeline: { project_id: 42 }, downstream_pipeline: { id: 50, project_id: 42, status: 'success' } },
+    ];
+    await provider.fetchPipelineFailedJobs('grp/proj', 9);
+    expect(listed).toEqual([9]);
+  });
+
   test('skips a downstream pipeline in another project', async () => {
     const provider = new GitLabProvider('https://gitlab.example.com', 'tok');
     const listed: number[] = [];
