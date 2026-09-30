@@ -1,5 +1,5 @@
 import { dirname, join } from "path";
-import { findInstalledPluginDir } from "./installed-plugins.ts";
+import { findInstalledPluginDir, PLUGIN_REF_RE } from "./installed-plugins.ts";
 import { parseRemote, readZonesFrom, type InitFs, type ZoneInfo } from "./init.ts";
 import { FragmentError, mergeLayers, parseFragment, renderManifest, type Fragment, type Layer } from "./manifest-merge.ts";
 import { legacyManifestPath, packManifestPath } from "./manifest-paths.ts";
@@ -23,8 +23,6 @@ export type MaterializeDeps = {
   installedPluginDir?: (ref: string) => string | null;
 };
 
-const EXTENDS_RE = /^[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9-]*$/i;
-
 function readFragment(fs: MaterializeFs, path: string): Fragment | null {
   const text = fs.readFile(path);
   return text === null ? null : parseFragment(text, path);
@@ -36,7 +34,7 @@ function packsIn(fs: MaterializeFs, zone: ZoneInfo): string[] {
 }
 
 function baseLayer(deps: MaterializeDeps, pack: string, ref: string): Layer | { error: string } {
-  if (!EXTENDS_RE.test(ref)) return { error: `${pack} extends "${ref}", which is not a <plugin>@<marketplace> reference` };
+  if (!PLUGIN_REF_RE.test(ref)) return { error: `${pack} extends "${ref}", which is not a <plugin>@<marketplace> reference` };
   const lookup = deps.installedPluginDir ?? ((r: string) => findInstalledPluginDir(deps.fs, deps.claudeHome, r));
   const dir = lookup(ref);
   if (!dir) return { error: `${pack} extends ${ref}, which is not installed; add it to the team's claude.plugins` };
@@ -115,7 +113,7 @@ export function materializeRepo(deps: MaterializeDeps, remote: string | null): M
 
   let migrated: string | null = null;
   const legacy = legacyManifestPath(deps.mattstackRoot, ref.slug);
-  if (deps.fs.exists(legacy)) {
+  if (packs.some((p) => p.ok) && deps.fs.exists(legacy)) {
     migrated = `${legacy}.migrated`;
     deps.fs.rename(legacy, migrated);
   }

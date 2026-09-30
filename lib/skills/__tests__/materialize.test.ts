@@ -149,6 +149,18 @@ describe("materializeRepo", () => {
     expect(readFileSync(join(root, "repos", SLUG, "skills.jsonc.migrated"), "utf8")).toBe("{}");
   });
 
+  test("the old merged file stays in place when every pack failed", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: { extends: "acme-base@acme" } } });
+    write(join(root, "repos", SLUG, "skills.jsonc"), "{}");
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    expect(out.packs.every((p) => !p.ok)).toBe(true);
+    expect(out.migrated).toBeNull();
+    expect(readFileSync(join(root, "repos", SLUG, "skills.jsonc"), "utf8")).toBe("{}");
+    expect(existsSync(join(root, "repos", SLUG, "skills.jsonc.migrated"))).toBe(false);
+  });
+
   test("the file is rewritten in place on a second run (no stray tmp file)", () => {
     const { root, engine, home } = makeWorld();
     zone(root, "acme", { projects: ["acme/widgets"], packs: { widgets: {} } });

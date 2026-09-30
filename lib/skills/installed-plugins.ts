@@ -4,7 +4,7 @@ export type PluginFs = { exists(p: string): boolean; readDir(p: string): string[
 
 export const ENGINE_PACK_REF = "mattstack@mattstack";
 
-const REF_RE = /^([a-z0-9][a-z0-9-]*)@([a-z0-9][a-z0-9-]*)$/i;
+export const PLUGIN_REF_RE = /^([a-z0-9][a-z0-9-]*)@([a-z0-9][a-z0-9-]*)$/i;
 
 /** Dotted-numeric compare, missing segments treated as 0; version dirs here are plain "x.y.z". */
 export function compareVersions(a: string, b: string): number {
@@ -20,7 +20,7 @@ export function compareVersions(a: string, b: string): number {
 
 /** Claude Code installs every plugin, dev marketplaces included, under ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/. */
 export function findInstalledPluginDir(fs: PluginFs, home: string, ref: string): string | null {
-  const m = REF_RE.exec(ref);
+  const m = PLUGIN_REF_RE.exec(ref);
   if (!m) return null;
   const root = join(home, ".claude", "plugins", "cache", m[2]!, m[1]!);
   let best: string | null = null;
