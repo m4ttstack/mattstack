@@ -28,6 +28,7 @@ SKILLS_DIR="${HOME}/.claude/skills"
 PLUGIN_LIST_CMD="claude plugin list --json"
 MANIFEST=""
 PACK_MANIFEST_MISSING=""
+PACK_WITHOUT_REMOTE=0
 
 fail_env() { # $1=code $2=message (fixed strings, JSON-safe by construction)
   printf '{"ok":false,"skill":"%s","errors":[{"slot":null,"code":"%s","message":"%s"}]}\n' \
@@ -105,6 +106,9 @@ if [ -z "$MANIFEST" ]; then
     # the pack the launcher named. Known limitation: an explicit port
     # (ssh://host:2222/path) stays in the slug; writer and readers agree.
     REPO_REMOTE=$(git remote get-url origin 2> /dev/null || true)
+    if [ -z "$REPO_REMOTE" ] && [ -n "${MATTSTACK_PACK:-}" ]; then
+      PACK_WITHOUT_REMOTE=1
+    fi
     if [ -n "$REPO_REMOTE" ] && [ -n "${MATTSTACK_PACK:-}" ]; then
       u=${REPO_REMOTE%.git}
       u=${u#ssh://}; u=${u#https://}; u=${u#http://}; u=${u#git://}
@@ -129,6 +133,8 @@ fi
 BINDINGS_JSON='{}'
 if [ -n "$PACK_MANIFEST_MISSING" ]; then
   MANIFEST_NOTE="no manifest: MATTSTACK_PACK=$MATTSTACK_PACK but $PACK_MANIFEST_MISSING does not exist (run rt skills materialize)"
+elif [ "$PACK_WITHOUT_REMOTE" -eq 1 ]; then
+  MANIFEST_NOTE="no manifest: MATTSTACK_PACK=$MATTSTACK_PACK is set but $PWD has no git remote, so no bindings file could be looked up"
 else
   MANIFEST_NOTE="no manifest: not in an upward .mattstack/skills.jsonc from $PWD (stopping before \$HOME), MATTSTACK_PACK unset so no \$HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc was read, not in \$HOME/.mattstack/skills.jsonc"
 fi

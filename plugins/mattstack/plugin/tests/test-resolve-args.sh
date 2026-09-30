@@ -260,6 +260,13 @@ OUT=$(cd "$PACK_REPO" && HOME="$PACK_HOME" env -u MATTSTACK_PACK "$RESOLVE" --sk
 STATUS=$?
 check no_pack 1 '.ok == false and .errors[0].code == "unbound" and (.errors[0].message | contains("MATTSTACK_PACK"))'
 
+# --- case: pack-no-remote -- MATTSTACK_PACK set in a checkout with no origin remote ---
+NOREMOTE_REPO="$WORK/noremote-repo"
+git init -q "$NOREMOTE_REPO"
+OUT=$(cd "$NOREMOTE_REPO" && HOME="$PACK_HOME" MATTSTACK_PACK=widgets "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check pack_no_remote 1 '.ok == false and .errors[0].code == "unbound" and (.errors[0].message | contains("MATTSTACK_PACK=widgets is set but")) and (.errors[0].message | contains("has no git remote"))'
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0
