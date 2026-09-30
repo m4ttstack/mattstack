@@ -449,6 +449,30 @@ describe('W4 rendering', () => {
     expect(body.querySelector('code')).toHaveTextContent('a.ts:14');
   });
 
+  it('lays open context beside the form of an open gate', async () => {
+    const user = userEvent.setup();
+    renderCard(gateRow({ context: 'why this matters' }));
+    expect(screen.queryByTestId('gate-split')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('gate-context-toggle'));
+    const split = screen.getByTestId('gate-split');
+    expect(split).toContainElement(screen.getByTestId('gate-context-body'));
+    expect(split).toContainElement(screen.getByTestId('gate-form-column'));
+  });
+
+  it('keeps an answered gate stacked with no form column', async () => {
+    const user = userEvent.setup();
+    renderCard(
+      gateRow({
+        context: 'why this matters',
+        status: 'answered',
+        answer: { answers: { outcome: 'pass' }, by: 'pane', answeredAt: 1 },
+      })
+    );
+    await user.click(screen.getByTestId('gate-context-toggle'));
+    expect(screen.getByTestId('gate-context-body')).toBeInTheDocument();
+    expect(screen.queryByTestId('gate-split')).not.toBeInTheDocument();
+  });
+
   it('shows a context image as its alt text and never loads it', async () => {
     const user = userEvent.setup();
     renderCard(

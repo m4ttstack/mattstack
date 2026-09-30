@@ -1,0 +1,5 @@
+/* The title truncates; the ticket id and its hotkey keep their width. */
+.keep {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
