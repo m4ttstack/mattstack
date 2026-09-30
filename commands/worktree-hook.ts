@@ -12,7 +12,7 @@ import { daemonQuery } from "../lib/daemon-client.ts";
 import { currentRepoIdentityFor } from "../lib/repo-arg.ts";
 import { isRepoRegistered } from "../lib/repo-index.ts";
 import { claudeWorktreeHookStatus, HOOK_TIMEOUT_SECONDS, installClaudeWorktreeHooks, uninstallClaudeWorktreeHooks } from "../lib/claude-settings.ts";
-import { explainSetting, getSetting } from "../lib/settings/resolve.ts";
+import { explainSetting } from "../lib/settings/resolve.ts";
 import { setSetting } from "../lib/settings/write.ts";
 import { decideCreate, decideRemove, stockWorktreeAdd } from "../lib/worktree/claude-hook.ts";
 import { loadWorktreeAppConfig } from "../lib/worktree/config.ts";
@@ -74,20 +74,13 @@ export function priorClaudeHookAnswer(): string | undefined {
 }
 
 /**
- * Merges into the machine-scope value so sibling fields (`enabled`,
- * `killProcesses`) are never clobbered. When no store owns the key yet, it is
- * seeded from the currently-EFFECTIVE config (`loadWorktreeAppConfig()`, which
- * falls through to the legacy file / the unowned-machine default per
- * lib/worktree/config.ts's header) so the first-time-owns-the-key write pins
- * the behavior that was already true, rather than picking up the store
- * branch's own `enabled !== false` default. When a store already owns it, only
- * the machine value is carried: copying a team's fields into the machine store
- * would pin them there and outvote the team's later changes.
+ * Merges `claudeHook` into the machine-scope value only, so sibling fields
+ * are kept but nothing else is pinned: a copied `enabled` would outvote the
+ * team's value forever, and a legacy worktrees.json keeps applying on its own
+ * while the machine store sets neither field (lib/worktree/config.ts).
  */
 export function recordClaudeHookAnswer(answer: "installed" | "declined"): void {
-  const owned = getSetting<Record<string, unknown> | undefined>(WORKTREE_APP_SETTING_KEY).value !== undefined;
-  const seed = owned ? {} : loadWorktreeAppConfig();
-  setSetting(WORKTREE_APP_SETTING_KEY, { ...seed, ...(machineWorktreeAppValue() ?? {}), claudeHook: answer }, "machine");
+  setSetting(WORKTREE_APP_SETTING_KEY, { ...(machineWorktreeAppValue() ?? {}), claudeHook: answer }, "machine");
 }
 
 /**

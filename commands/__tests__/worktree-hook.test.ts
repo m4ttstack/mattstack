@@ -98,7 +98,16 @@ describe("recordClaudeHookAnswer", () => {
 
     expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     const stored = getSetting<Record<string, unknown> | undefined>("rt.worktreeApp").value;
-    expect(stored?.claudeHook).toBe("declined");
+    expect(stored).toEqual({ claudeHook: "declined" });
+  });
+
+  test("an unowned machine that answered the offer still follows a later team opt-in", () => {
+    recordClaudeHookAnswer("declined");
+    const team = teamSettingsPath("acme");
+    mkdirSync(dirname(team), { recursive: true });
+    writeFileSync(team, JSON.stringify({ "rt.worktreeApp": { enabled: true } }));
+
+    expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
   });
 
   test("a team-owned key: the machine store gets only claudeHook, never a copy of the team's fields", () => {

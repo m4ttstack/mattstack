@@ -605,10 +605,16 @@ describe("worktree config", () => {
       expect(second).toEqual({ enabled: true, killProcesses: false });
     });
 
-    test("store only: store field-bag wins, per-field defaults applied", () => {
+    test("store only: store field-bag wins, a missing enabled stays off", () => {
       writeStore(machineSettingsPath(), { "rt.worktreeApp": { killProcesses: false } });
 
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: false });
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
+    });
+
+    test("a team value without enabled never turns the pool on", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { killProcesses: false } });
+
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
     test("store and file both present: store wins per-field, file is never consulted", () => {
@@ -632,12 +638,42 @@ describe("worktree config", () => {
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
-    test("a team value owns the key, so the machine's legacy file is no longer read", () => {
+    test("a legacy file enabled:false still beats the team's enabled:true", () => {
       mkdirSync(rtDir(), { recursive: true });
-      writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: true });
+      writeJson(join(rtDir(), "worktrees.json"), { enabled: false });
       writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
 
-      expect(loadWorktreeAppConfig().enabled).toBe(true);
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
+    });
+
+    test("a legacy file killProcesses:false beats the team, while the team's enabled applies", () => {
+      mkdirSync(rtDir(), { recursive: true });
+      writeJson(join(rtDir(), "worktrees.json"), { killProcesses: false });
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true, killProcesses: true } });
+
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: false });
+    });
+
+    test("the legacy file stops applying once the machine store sets a field", () => {
+      mkdirSync(rtDir(), { recursive: true });
+      writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: false });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: true } });
+
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
+    });
+
+    test("the old hook-offer seed does not outvote a team opt-in", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false, killProcesses: true, claudeHook: "declined" } });
+
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
+    });
+
+    test("a machine enabled:false with any other field set is honored over the team", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false, killProcesses: false, claudeHook: "declined" } });
+
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
     test("malformed store probe (unregistered/invalid value) degrades to unowned — file stays authoritative", () => {
