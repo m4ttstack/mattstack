@@ -117,6 +117,25 @@ describe("checkStackMembership", () => {
     expect(verdict).toEqual({ verdict: "clear" });
   });
 
+  test("the default branch is clear even though every open MR targets it", async () => {
+    const verdict = await checkStackMembership({
+      cwd: "/repo",
+      branch: "master",
+      defaultBranch: "master",
+      runners: runners({
+        forgeOpenMrs: async () => ({
+          ok: true,
+          mrs: [
+            { iid: 9, source: "feat-a", target: "master", url: "https://forge/mr/9" },
+            { iid: 10, source: "feat-b", target: "master", url: "https://forge/mr/10" },
+          ],
+        }),
+      }),
+    });
+
+    expect(verdict).toEqual({ verdict: "clear" });
+  });
+
   test("gitq knows the repo but not this branch: falls through to the forge", async () => {
     const store = gitqStore([{ stackName: "other", root: "master", nodes: [{ branch: "x", parent: "master" }] }]);
     const verdict = await checkStackMembership({
