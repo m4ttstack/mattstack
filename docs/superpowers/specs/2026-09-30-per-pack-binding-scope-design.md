@@ -75,8 +75,10 @@ published from whichever team repo owns it.
   installs it for every member; members do not join the base's team.
 - Materialize reads the base's fragment from the installed plugin's
   `pack/skills.jsonc`.
-- When the base changes, the extending pack's compile reports drift and
-  `rt skills sync --pack <pack>` recompiles it.
+- When the base changes, the extending pack's file is stale until the next
+  materialize. `rt skills sync --pack <pack>` materializes before its drift
+  check, so a sync of the extending pack sees the change and recompiles;
+  `check` alone reports drift only after a materialize has run.
 
 ### 3. Authoring tools and the console
 

@@ -362,14 +362,14 @@ Add to `lib/skills/__tests__/init.test.ts` (find the existing `readZones` descri
 
 ```ts
 test("readZonesFrom reads zones under an explicit teams dir", () => {
-  const home = makeHome();                       // the file's existing tmp-home helper
-  writeZone(home, "acme", { host: "gitlab.example.com", projects: ["acme/widgets"] });  // the file's existing zone helper
-  const zones = readZonesFrom(realFs, join(home, ".mattstack", "teams"));
+  const fs = memFs(zoneFiles("acme", {}));      // the file's own in-memory fs and zone fixture (init.test.ts:6, :52)
+  const zones = readZonesFrom(fs, "/home/.mattstack/teams");
   expect(zones.map((z) => z.slug)).toEqual(["acme"]);
+  expect(readZones(fs, "/home")).toEqual(zones);
 });
 ```
 
-(Use whatever helpers `init.test.ts` already has for a fake home and zone; match its imports. If it has none, write the zone files inline: `mattstack/mattstack.jsonc` with `{"role":"team","namespace":"acme"}` and `mattstack/team.jsonc` with `{"gitlabHost":"https://gitlab.example.com","projects":["acme/widgets"]}`.)
+(`zoneFiles` writes its zone under `/home/.mattstack/teams/<slug>/mattstack/`; check its root path at `init.test.ts:52` and use that root in place of `/home` if it differs.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -786,6 +786,10 @@ git commit -m "skills: materialize one bindings file per repo and pack in TypeSc
 - Modify: `lib/setup/__tests__/apply.test.ts` and `contract.test.ts` where they reference `merge-manifests` (grep)
 - Modify: `commands/skills.ts:1456-1478` (`skillsMaterialize`: `--dir`)
 - Modify: `commands/skills-init.ts:141-146` (row shape unchanged; verify it compiles)
+- Modify: `lib/skills/init.ts:160-200` (generated fragment and team.jsonc header text), `:376-380` (`initPack` expects the per-pack file)
+- Modify: `lib/skills/__tests__/init.test.ts:244,271,303,444,495` (the legacy path pins)
+- Modify: `lib/skills/sync.ts:163-330` (`SyncDeps.materialize`, a `materialize` step before `check`), `commands/skills-sync.ts` (wires the real seam)
+- Modify: `lib/skills/__tests__/sync.test.ts` (fake deps gain `materialize`; step order asserted)
 - Modify: `lib/command-tree-def.ts:2313-2321` (description, `--dir`)
 - Modify: `plugins/mattstack/attachments/parameterized-skills/scripts/merge-manifests.sh` (whole file)
 - Delete: `plugins/mattstack/plugin/tests/test-merge-manifests.sh`
@@ -1048,9 +1052,75 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
 - [ ] **Step 4: Fix the other setup tests and callers**
 
 - `lib/setup/__tests__/steps-c.test.ts:13`: import `ENGINE_PACK_MISSING_CODE` instead of `MERGE_MANIFESTS_MISSING_CODE`; update every use.
-- `lib/setup/__tests__/steps-b.test.ts`: find the `skills.materialize` cases (grep `merge-manifests`, `RT_MERGE_MANIFESTS`, `bash`). Rewrite each to seed `RT_ENGINE_PACK_DIR` in the fake env pointing at a fake dir whose `pack/skills.jsonc` is `"{}"`, and to expect the step's detail (`materialized N, failed M` unchanged). A case that asserted the `bash <script> --repo` exec now asserts `calls.exec` contains a `git ... remote get-url origin` call instead.
+- `lib/setup/__tests__/steps-b.test.ts`: find the `skills.materialize` cases (grep `merge-manifests`, `RT_MERGE_MANIFESTS`, `bash`). The fake `Probes` is the whole world now, so each case seeds it; add this helper to the file and use it in every materialize case:
+
+```ts
+/** A fake world where one zone ("acme", pack "widgets") declares acme/widgets and the engine fragment is empty. `exec` answers `git remote get-url origin` with the widgets remote; every other exec is the file's default. */
+function materializeWorld(home: string, opts: { fragment?: string; remote?: string } = {}) {
+  const zone = `${home}/.mattstack/teams/acme/mattstack`;
+  const engine = `${home}/engine`;
+  return {
+    env: { RT_ENGINE_PACK_DIR: engine },
+    dirs: {
+      [`${home}/.mattstack/teams`]: ["acme"],
+      [`${zone}/packs`]: ["widgets"],
+    },
+    files: {
+      [`${engine}/pack/skills.jsonc`]: "{}",
+      [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
+      [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
+      [`${zone}/packs/widgets/pack/skills.jsonc`]: opts.fragment ?? "{}",
+    },
+    exec: async (argv: string[]) =>
+      argv[0] === "git" && argv.includes("get-url")
+        ? { code: 0, stdout: `${opts.remote ?? "https://gitlab.example.com/acme/widgets.git"}\n`, stderr: "" }
+        : { code: 0, stdout: "", stderr: "" },
+  };
+}
+```
+
+  `fakeProbes.readDir` lists only `dirs`, and `exists` answers for `files` keys and `dirs` keys (check `fakes.ts`; if `exists` does not answer for a file's parent directories, add the `.../packs/widgets/pack` dir entries too). Expected details: a registered repo with the world above reports `materialized 1, failed 0`; a world with `fragment: "{ nope"` reports `materialized 0, failed 1` and logs `<name>: widgets: fragment is not valid JSONC: <zone>/packs/widgets/pack/skills.jsonc`; a world whose `exec` returns `code: 1` for get-url reports `no skills declared 1`. A case that asserted the `bash <script> --repo` exec now asserts `calls.exec` contains a `git -C <path> remote get-url origin` call. Task 5 reuses `materializeWorld` in `pack.test.ts`.
 - `grep -rn "merge-manifests\|MERGE_MANIFESTS" lib commands scripts --include='*.ts'` and fix every remaining reference (apply.test/contract.test mention only the step id, which is unchanged).
 - `commands/skills-init.ts:141-146` compiles unchanged (row shape kept).
+
+- [ ] **Step 4b: `rt skills init` expects the per-pack file**
+
+`lib/skills/init.ts:376-380` builds `join(deps.home, ".mattstack", "repos", repo.slug, "skills.jsonc")` after `deps.materialize` and hands it to `deps.compile`/`deps.check`. Change it to `packManifestPath(join(deps.home, ".mattstack"), repo.slug, pack)` (import from `./manifest-paths.ts`), keep the "expected <path>" failure text, and set the outcome's `repo.manifest` field (grep `manifest:` in the success outcome) to the same path. Update the five pins in `lib/skills/__tests__/init.test.ts` (lines 244, 271, 303, 444, 495: `repos/<slug>/skills.jsonc` becomes `repos/<slug>/packs/<pack>/skills.jsonc`; the `memFs` fixtures that pre-seed the manifest seed it at the new path). Rewrite the two header strings at `init.ts:165` and `:196`: the fragment header reads `// <pack> bindings fragment. rt skills materialize layers it under mattstack's defaults and over any base pack into the per-pack file at ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc.` and the team.jsonc header reads `// Team declaration read by rt skills materialize: which forge host and which projects this zone's pack binds.` (keep the existing line wrapping style). Run `bun test lib/skills/__tests__/init.test.ts`: PASS.
+
+- [ ] **Step 4c: `rt skills sync` materializes before it checks drift**
+
+A base pack updated through `claude plugin update` or its own sync leaves every extending pack's file stale until something materializes, and `check` compares against that file. Add to `SyncDeps` in `lib/skills/sync.ts`:
+
+```ts
+/** Regenerates every registered repo's per-pack files; a base pack the pack extends may have moved since the last install. */
+materialize(): Promise<{ ok: boolean; detail: string }>;
+```
+
+In `syncPack`, after the `update-engine` step and before `check`:
+
+```ts
+const materialize = await tryStep(async () => {
+  const result = await deps.materialize();
+  return result.ok ? ran(result.detail) : failed(result.detail);
+});
+steps.push({ name: "materialize", ...materialize });
+if (stops(materialize)) return finish();
+```
+
+`commands/skills-sync.ts` wires the real seam:
+
+```ts
+materialize: async () => {
+  const r = await materializeSkills(createRealProbes(), {});
+  if (r.skipped) return { ok: true, detail: `skipped: ${r.reason}` };
+  const failed = r.repos.filter((x) => !x.ok && !x.noManifest);
+  return failed.length === 0
+    ? { ok: true, detail: `materialized ${r.repos.filter((x) => x.ok).length}` }
+    : { ok: false, detail: failed.map((x) => `${x.name}: ${x.detail}`).join("; ") };
+},
+```
+
+In `lib/skills/__tests__/sync.test.ts` the fake deps gain `materialize: async () => ({ ok: true, detail: "materialized 1" })`; add one test that the step list carries `materialize` between `update-engine` and `check`, and one where `materialize` returns `ok: false` and the report stops at that step with `status: "failed"`. Run `bun test lib/skills/__tests__/sync.test.ts`: PASS.
 
 - [ ] **Step 5: `rt skills materialize --dir`**
 
@@ -1147,33 +1217,34 @@ git commit -m "skills: materialize runs the TypeScript merge; merge-manifests.sh
 
 - [ ] **Step 1: Rewrite the pack tests' fixtures**
 
-The manifest shape becomes the real one: `pipelines[workType]` is `string[]` and `bindings` is keyed `mattstack:<stage>` with slot objects. A stage is unresolved when its binding entry has an empty slot value. Materialize is driven through `RT_ENGINE_PACK_DIR` and a seeded zone exactly like Task 4's test (copy `seedZone`, `engine`, `write` helpers; register the repo with a real `git init` and an `acme/widgets` remote).
+The manifest shape becomes the real one: `pipelines[workType]` is `string[]` and `bindings` is keyed `mattstack:<stage>` with slot objects. A stage is unresolved when its binding entry has an empty slot value. The tests stay on `fakeProbes` (real probes would find the machine's `claude` and run a real plugin install inside `installPlugins`): the registered repo comes from the file's existing `registerRepo(home)`, and the world is the `materializeWorld` helper from Task 4's steps-b work, copied into this file. `materializeRepo` runs entirely on the Probes seam, so the written pack file lands in the fake's `calls.writes` and `readFile` answers from it.
 
 ```ts
+const fragment = (bindings: object) => JSON.stringify({ pipelines: { feature: ["stage-plan", "stage-gates"] }, bindings });
+
 test("every stage's slots bound -> ok", async () => {
-  seedRepoWithRemote(home, "https://gitlab.example.com/acme/widgets.git");
-  seedZone(home, { pipelines: { feature: ["stage-plan", "stage-gates"] }, bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } });
-  const p = fakeProbesOverReal(home);   // createRealProbes() with env RT_ENGINE_PACK_DIR = engine(home)
+  registerRepo(home);
+  const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "widgets:gates" } }) }) });
   const reqs: PackRequirements[] = [{ pack: "widgets", tools: [], integrations: [], workType: "feature" }];
   expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: true, detail: `2 stage(s) resolved for "feature"` });
 });
 
 test("a stage with an empty slot value -> stage-unresolved", async () => {
-  seedRepoWithRemote(home, "https://gitlab.example.com/acme/widgets.git");
-  seedZone(home, { pipelines: { feature: ["stage-plan", "stage-gates"] }, bindings: { "mattstack:stage-gates": { domain: "" } } });
+  registerRepo(home);
+  const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({ "mattstack:stage-gates": { domain: "" } }) }) });
   const reqs: PackRequirements[] = [{ pack: "widgets", tools: [], integrations: [], workType: "feature" }];
-  expect(await setupPackFlow(makeCtx(fakeProbesOverReal(home), { reqs }))).toEqual({ ok: false, stage: "stage-gates", detail: `stage "stage-gates" is unresolved` });
+  expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, stage: "stage-gates", detail: `stage "stage-gates" is unresolved` });
 });
 
 test("no pack file for the requirements' pack -> NO_MANIFEST_DETAIL", async () => {
-  seedRepoWithRemote(home, "https://gitlab.example.com/acme/widgets.git");
-  seedZone(home, {});                                     // pack "widgets"
+  registerRepo(home);
+  const p = fakeProbes({ home, ...materializeWorld(home) });
   const reqs: PackRequirements[] = [{ pack: "gadgets", tools: [], integrations: [], workType: "feature" }];
-  expect(await setupPackFlow(makeCtx(fakeProbesOverReal(home), { reqs }))).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
+  expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
 });
 ```
 
-Keep the file's existing `installPlugins` neutralisation (nonInteractive ctx) and its packError case.
+If `fakeProbes`' `readFile` does not read back what `writeFile` wrote in the same fake (check `fakes.ts`), route the flow's read through the materialize result instead of re-reading: `materializeRepo` returns the rendered text on each ok `PackOutcome` (`text: string`), and `setupPackFlow` parses that. Keep the file's existing `installPlugins` neutralisation (nonInteractive ctx) and its packError case.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1406,7 +1477,7 @@ function findDefaultManifest(mattstackRoot: string, team: string, packDir: strin
 }
 ```
 
-`realInitFs` is a module-level `InitFs` over node `fs` (`exists: existsSync`, `readFile` returning null when absent, `readDir` returning `[]` when absent, `writeFile`, `mkdirp`); put it next to `listSubdirs`. Remove `leadingCommentBlock` if nothing else uses it (grep first).
+`realInitFs` is a module-level `InitFs` over node `fs` (`exists: existsSync`, `readFile` returning null when absent, `readDir` returning `[]` when absent, `writeFile`, `mkdirp`); put it next to `listSubdirs`. `leadingCommentBlock` stays (`commands/skills.ts:1626` reads `surface.jsonc` with it); `statSync` may become unused here, so drop it from the import if the typecheck says so.
 
 In `resolve()`: `flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo)` and `const repoKey = manifestPath ? manifestRepoKey(manifestPath) : "";`. Update the stage-roster lookup at `:1566-1590` to pass `flags.repo`.
 
@@ -1510,15 +1581,15 @@ git commit -m "skills composition: report each slot's layer"
 
 **Files:**
 - Modify: `commands/skills.ts:2200-2335` (`skillsBind` write path)
-- Test: `commands/__tests__/skills.test.ts` (bind cases: grep `skillsBind`)
+- Test: `commands/__tests__/skills-bind.test.ts` (the bind suite; `skills-bind.test.ts:561-601` pins the fixture-mode dual write and stays green)
 
 **Interfaces:**
-- Consumes: Task 4 `materializeSkills`, Task 1 `manifestPack`, `readManifestProvenance`, `readManifestBindings`.
-- Produces: same CLI. In fixture mode (`--mattstack-dir`) or for a standalone pack, bind writes the manifest directly as today; otherwise it writes the fragment and runs `materializeSkills`, then re-reads the pack file and warns when another layer shadows the new binding.
+- Consumes: Task 4 `materializeSkills`, Task 1 `readManifestProvenance`, `readManifestBindings`.
+- Produces: same CLI. Fixture mode (`--mattstack-dir`) keeps today's behavior exactly: the fragment (when it exists and is not the manifest) and the manifest are both written, nothing regenerates. Real mode writes the fragment and runs `materializeSkills` over every registered repo (cheap: one `git remote get-url` per repo, no installs), then re-reads the pack file and warns when another layer shadows the new binding. A standalone pack, whose fragment is the manifest, is one write in both modes.
 
 - [ ] **Step 1: Write the failing test**
 
-The existing bind tests run in fixture mode (`--mattstack-dir`) and keep passing. Add one that exercises the real path through a fake HOME (the pattern of Task 4's setup test: `process.env.HOME` swapped to a tmp dir, a `git init` repo registered with `updateRepoIndex`, a zone seeded, `RT_ENGINE_PACK_DIR` set to a dir with an empty engine fragment). The pack dir is the zone's `mattstack/packs/widgets` (so bind's fragment write lands in the zone); write `pack/stubs.jsonc` there as `makePackDir` does, and point `--mattstack-dir` at nothing (real mode) but set `RT_ENGINE_PACK_DIR` to the fixture engine dir from `makeMattstackDir()` so plugin roots resolve... Real mode resolves plugin roots through `claude plugin list`, which the test cannot run. So test the seam, not the CLI: extract the write-and-regenerate step into an exported function and test that:
+The existing `skills-bind.test.ts` cases all run in fixture mode and keep passing unchanged. Real mode resolves plugin roots through `claude plugin list`, which a test cannot run, so test the seam, not the CLI: extract the write-and-regenerate step into an exported function and test that in `skills-bind.test.ts`:
 
 ```ts
 // in commands/skills.ts
@@ -1552,14 +1623,24 @@ describe("applyBind", () => {
     expect(result.shadowedBy).toBe("override");
   });
 
-  test("fixture mode: writes the manifest directly and never regenerates", async () => {
+  test("fixture mode: writes the fragment and the manifest, never regenerates", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
     const packDir = join(root, "pack");
+    writeFile(join(packDir, "pack", "skills.jsonc"), `// acme fragment\n{ "bindings": {} }`);
     const manifestPath = join(root, "skills.jsonc");
     writeFile(manifestPath, `{ "bindings": {} }`);
     const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
-    expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
+    expect(result).toEqual({ fragmentUpdated: join(packDir, "pack", "skills.jsonc"), shadowedBy: null });
     expect(JSON.parse(readFileSync(manifestPath, "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toContain("// acme fragment");
+  });
+
+  test("fixture mode with no fragment: the manifest alone is written", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const manifestPath = join(root, "skills.jsonc");
+    writeFile(manifestPath, `{ "bindings": {} }`);
+    const result = await applyBind({ manifestPath, packDir: join(root, "pack"), engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
+    expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
   });
 
   test("standalone pack (fragment is the manifest): one write, no regenerate", async () => {
@@ -1575,7 +1656,7 @@ describe("applyBind", () => {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `bun test commands/__tests__/skills.test.ts -t applyBind`
+Run: `bun test commands/__tests__/skills-bind.test.ts -t applyBind`
 Expected: FAIL (`applyBind` not exported).
 
 - [ ] **Step 3: Implement**
@@ -1590,7 +1671,7 @@ export async function applyBind(opts: {
 
   const fragmentPath = join(opts.packDir, "pack", "skills.jsonc");
   const fragmentIsManifest = existsSync(fragmentPath) && realpathSync(fragmentPath) === realpathSync(opts.manifestPath);
-  if (opts.fixtureMode || fragmentIsManifest || !existsSync(fragmentPath)) {
+  if (fragmentIsManifest || !existsSync(fragmentPath)) {
     writeFileSync(opts.manifestPath, edit(readFileSync(opts.manifestPath, "utf8")));
     return { fragmentUpdated: null, shadowedBy: null };
   }
@@ -1598,9 +1679,19 @@ export async function applyBind(opts: {
   const fragmentReal = realpathSync(fragmentPath);
   const packDirReal = realpathSync(opts.packDir);
   if (fragmentReal !== packDirReal && !fragmentReal.startsWith(packDirReal + sep)) {
-    throw new SkillsUsageError(`${fragmentPath} resolves outside the pack; refusing to write it`);
+    // A symlinked-out fragment is skipped with a warning and the manifest still written (skills-bind.test.ts pins this).
+    console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
+    writeFileSync(opts.manifestPath, edit(readFileSync(opts.manifestPath, "utf8")));
+    return { fragmentUpdated: null, shadowedBy: null };
   }
-  writeFileSync(fragmentPath, edit(readFileSync(fragmentPath, "utf8")));
+  const fragmentAfter = edit(readFileSync(fragmentPath, "utf8"));
+  if (opts.fixtureMode) {
+    const manifestAfter = edit(readFileSync(opts.manifestPath, "utf8"));
+    writeFileSync(fragmentPath, fragmentAfter);
+    writeFileSync(opts.manifestPath, manifestAfter);
+    return { fragmentUpdated: fragmentPath, shadowedBy: null };
+  }
+  writeFileSync(fragmentPath, fragmentAfter);
   await opts.materialize();
 
   const text = readFileSync(opts.manifestPath, "utf8");
@@ -1625,13 +1716,13 @@ and use `fragmentUpdated` where `fragmentWrite?.path` was used (JSON `fragmentUp
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `bun test commands/__tests__/skills.test.ts && bun run typecheck`
-Expected: PASS.
+Run: `bun test commands/__tests__/skills-bind.test.ts commands/__tests__/skills.test.ts && bun run typecheck`
+Expected: PASS, including the four pre-existing "bind writes the team pack fragment" cases untouched.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add commands/skills.ts commands/__tests__/skills.test.ts
+git add commands/skills.ts commands/__tests__/skills-bind.test.ts
 git commit -m "skills bind: write the fragment and regenerate the pack file"
 ```
 
@@ -1680,7 +1771,7 @@ test("two packs bound to one repo compile different domain fills with no merge e
 });
 ```
 
-`realInitFsForTests` is a small `MaterializeFs` over node `fs` (copy the `realFs` object from Task 3's test into this file). The dry-run `--json` payload's shape (whether `files[].content` is present) must be checked against `skillsCompile`; if dry-run JSON lists only paths, compile for real into the pack dirs and read the written `skills/watch-ci/SKILL.md` instead. `DOMAIN_SKILL_MD` for the gadgets copy must keep `provides: watch-ci-domain@1` and be reachable as `gadgets:watch-ci-domain` (plugin dir name `gadgets`).
+`realInitFsForTests` is a small `MaterializeFs` over node `fs` (copy the `realFs` object from Task 3's test into this file). The compile `--json` payload is `{ pack, packDir, written, verbs: rows, misplaced }` with `rows[].files[].path` only (`commands/skills.ts:893-904`), so the two compiles above run for real (drop `--dry-run` and `--json`) into the zone pack dirs, and the assertions read `join(widgetsDir, "skills", "watch-ci", "SKILL.md")` and the gadgets twin with `readFileSync`. The gadgets plugin's domain skill is a verbatim copy of `DOMAIN_SKILL_MD` (its `provides: watch-ci-domain@1` is what makes the slot accept it); it is reachable as `gadgets:watch-ci-domain` because the plugin dir is named `gadgets`, so drop the no-op `.replace`. The spec's testing list names `stage-gates`; this test uses `watch-ci`'s `domain` slot because that is the engine the fixture world already carries, and the collision shape (one slot, two packs, two fills) is identical.
 
 - [ ] **Step 2: Run to verify pass**
 
@@ -1707,9 +1798,9 @@ git commit -m "skills: e2e, two packs on one repo compile their own fills"
 **Interfaces:**
 - Produces: with `MATTSTACK_PACK=<pack>` set and no `--manifest`, the resolver reads `$HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`; the old `repos/<slug>/skills.jsonc` is never read.
 
-- [ ] **Step 1: Add the failing shell cases**
+- [ ] **Step 1: Rewrite the per-repo cases and add the pack cases**
 
-Append before the summary in `test-resolve-args.sh`:
+Three existing cases read `repos/<slug>/skills.jsonc` and must move to the pack file: `per_repo_manifest` (lines 185-195), `cwd_up_beats_per_repo` (197-207) and `per_repo_wins_under_home` (222-241). In each, change the seeded path from `.mattstack/repos/gitlab.example.com-acme-widgets/skills.jsonc` to `.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc` (and the `mkdir -p` to the `packs/widgets` dir), and add `MATTSTACK_PACK=widgets` beside `HOME=...` on each `OUT=$(...)` line. Their assertions stay as they are. Then append before the summary:
 
 ```sh
 # --- case: pack-file -- MATTSTACK_PACK selects repos/<slug>/packs/<pack>/skills.jsonc ---
@@ -1836,7 +1927,9 @@ git commit -m "resolve-args: read the per-pack bindings file under MATTSTACK_PAC
 - Modify: `apps/board/src/server.ts:637-651` (`resolveLaunchSkill` takes a pack), `:1585-1595`, `:1657-1667`, `:3456-3460` and the respond/doctor launch sites (grep `launchRespond(`, `launchDoctor(`) to pass `pack`
 - Modify: `apps/board/src/herdr.ts:334-395` (`LaunchPaneOpts.pack?`), `:449-570` (`launchReview/Respond/Doctor` pass `env`)
 - Modify: `apps/board/src/agent-launch.ts:21-50` (`env?` option onto the payload)
-- Test: `apps/board/src/__tests__/manifest-bindings.test.ts`, `apps/board/src/__tests__/config.test.ts`, the herdr launch tests (grep `launchReview` under `apps/board/src/__tests__`)
+- Modify: `apps/board/bin/triage.ts:221-240,272-280` (three `resolveLaunchSkill` calls and the launch ctx objects gain the pack)
+- Modify: `apps/board/src/review-launch.ts:29-50` (`ReReviewCtx` and the respond-ask ctx gain `pack?`, forwarded to `io.launchReview`/`io.launchRespond`)
+- Test: `apps/board/src/__tests__/manifest-bindings.test.ts`, `apps/board/src/__tests__/config.test.ts`, the herdr launch tests (grep `launchReview` under `apps/board/src/__tests__`), the review-launch tests (grep `launchReReview` under `apps/board/src/__tests__`)
 
 **Interfaces:**
 - Produces:
@@ -1959,6 +2052,8 @@ export function resolveLaunchSkill(kind, mrUrl, cfg, pack: string | null, mattst
 
 `herdr.ts`: `LaunchPaneOpts.pack?: string` (doc: `/** Team pack the launched wrapper resolves bindings with; rides the pane as MATTSTACK_PACK. */`); each `startAgentPane(...)` call adds `...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {})`. `agent-launch.ts`: `env?: Record<string, string>` on opts, spread into the payload as `...(opts.env !== undefined ? { env: opts.env } : {})`.
 
+`review-launch.ts`: `ReReviewCtx` and the respond-ask ctx each gain `pack?: string` with the same doc line, forwarded as `pack: ctx.pack` into the `io.launchReview(...)` / `io.launchRespond(...)` calls (`:180`, `:243`). `bin/triage.ts`: the three `resolveLaunchSkill(kind, mrUrl, boardConfig)` calls become `resolveLaunchSkill(kind, mrUrl, boardConfig, packForLaunch(boardConfig, undefined))`, and each launch ctx literal there gains `pack: packForLaunch(boardConfig, undefined) ?? undefined`. Triage launches have no tab, so the default pack is the only pack they can carry. Add one review-launch test: a ctx with `pack: 'widgets'` reaches the fake `io.launchReview` with `pack: 'widgets'`.
+
 - [ ] **Step 5: Run to verify pass**
 
 Run: `bun run board:test && bun run typecheck`
@@ -2069,10 +2164,12 @@ git commit -m "console wiring: show each slot's layer and the real bindings key"
 - Modify: `plugins/mattstack/docs/your-first-pack.md:120-155`
 - Modify: `plugins/mattstack/plugin/skills/extending-a-pack/SKILL.md:210-215`, `:284-292`, `:307-312`
 - Modify: `plugins/mattstack/README.md:120-130`, `:375-385`
-- Modify: `docs/settings-architecture.md` (the merge-manifests retirement note; grep `merge-manifests`)
-- Modify: `plugins/mattstack/plugin/schemas/skills-manifest.schema.json` (`extends`)
-- Modify: `skills/rt-settings/SKILL.md` (grep `merge-manifests`; only if it states the mechanics)
+- Modify: `plugins/mattstack/plugin/schemas/skills-manifest.schema.json` (`extends`) and `plugins/mattstack/plugin/schemas/skills-manifest.md` (the prose twin)
+- Modify: `plugins/mattstack/pack/skills.jsonc:1-4` (header comment names merge-manifests.sh)
+- Modify: `lib/settings/identity.ts:10` (comment names the per-repo manifest path)
+- Modify: `apps/board/src/manifest-bindings.ts` (doc comments on `stripJsonc` and `boardRepoSlug` name merge-manifests.sh; Task 11 changes the code, this task the comments if Task 11 left them)
 - Modify: `website/docs/reference/skills/index.mdx` (regenerated by `docs:gen` if generated; else the one sentence naming merge-manifests)
+- Verify with `rg -n "merge-manifests|repos/<slug>/skills.jsonc|per-repo manifest" --glob '!node_modules' --glob '!docs/superpowers/**' .` that nothing outside the wrapper script, its own comments and git history still describes the old shape; `docs/settings-architecture.md` and `skills/rt-settings/SKILL.md` carry no such text today, so they need nothing unless that grep says otherwise
 
 **Interfaces:** none; text only.
 
