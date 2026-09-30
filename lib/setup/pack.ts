@@ -8,7 +8,7 @@
  */
 
 import { join } from "path";
-import { getKnownRepos } from "../repo-index.ts";
+import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { stripJsonc } from "../jsonc.ts";
 import type { ApplyContext } from "./apply.ts";
 import { installPlugins } from "./steps/plugins.ts";
@@ -18,13 +18,16 @@ const DEFAULT_WORK_TYPE = "feature";
 
 export const NO_MANIFEST_DETAIL = "no per-repo manifest yet";
 
+/** No repo is registered yet, so the pipeline check has nothing to read: an expected first-run state, not a failure. */
+export const AWAITING_CLONE_DETAIL = "plugins installed; waiting on a repo clone to check the pipeline";
+
 interface PipelineManifest {
   pipelines?: Record<string, { stages?: string[] } | undefined>;
   bindings?: Record<string, unknown>;
 }
 
-function firstRegisteredRepo(): string | null {
-  return getKnownRepos().find((r) => r.registered !== false)?.repoName ?? null;
+function firstRegisteredRepo(): KnownRepo | null {
+  return getKnownRepos().find((r) => r.registered !== false) ?? null;
 }
 
 /** A manifest that fails to parse reads as empty — the same "nothing declared yet" shape as a missing pipeline, never a crash. */
@@ -58,10 +61,14 @@ export async function setupPackFlow(ctx: ApplyContext): Promise<{ ok: boolean; s
     }
   }
 
-  const repoName = firstRegisteredRepo();
-  const manifestPath = repoName ? join(ctx.p.home, ".mattstack", "repos", repoName, "skills.jsonc") : null;
-  const text = manifestPath ? ctx.p.readFile(manifestPath) : null;
-  if (text === null) return { ok: false, detail: NO_MANIFEST_DETAIL };
+  const repo = firstRegisteredRepo();
+  if (!repo) return { ok: true, detail: AWAITING_CLONE_DETAIL };
+  const text = ctx.p.readFile(join(ctx.p.home, ".mattstack", "repos", repo.repoName, "skills.jsonc"));
+  if (text === null) {
+    const undeclared = !materialized.skipped && materialized.repos.some((r) => r.noManifest && r.path === repo.worktrees[0]?.path);
+    if (undeclared) return { ok: true, detail: `no team pack declares ${repo.repoName}; no pipeline to check` };
+    return { ok: false, detail: NO_MANIFEST_DETAIL };
+  }
 
   const workType = ctx.reqs[0]?.workType ?? DEFAULT_WORK_TYPE;
   const manifest = parseManifest(text);

@@ -10,7 +10,7 @@ import type { PackRequirements } from "../requirements.ts";
 import { fakeProbes } from "./fakes.ts";
 import type { Probes } from "../probes.ts";
 
-import { NO_MANIFEST_DETAIL, setupPackFlow } from "../pack.ts";
+import { AWAITING_CLONE_DETAIL, NO_MANIFEST_DETAIL, setupPackFlow } from "../pack.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -126,11 +126,26 @@ describe("setupPackFlow", () => {
     expect(result).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
   });
 
-  test("no registered repo at all -> same honest no-manifest result", async () => {
+  test("no registered repo at all -> not a failure, the check waits on a repo clone", async () => {
     const p = fakeProbes({ home, env: {} });
 
     const result = await setupPackFlow(makeCtx(p));
-    expect(result).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
+    expect(result).toEqual({ ok: true, detail: AWAITING_CLONE_DETAIL });
+  });
+
+  test("the first repo no team pack declares -> not a failure, nothing to check", async () => {
+    const repoName = registerRepo(home);
+    const p = fakeProbes({
+      home,
+      env: { RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
+      exec: async (argv) =>
+        argv.includes("--repo")
+          ? { code: 2, stdout: "", stderr: "merge-manifests: no team pack declares gitlab.com/acme/tools; nothing to materialize" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+
+    const result = await setupPackFlow(makeCtx(p));
+    expect(result).toEqual({ ok: true, detail: `no team pack declares ${repoName}; no pipeline to check` });
   });
 
   test("defaults workType to feature when the pack declares none", async () => {
