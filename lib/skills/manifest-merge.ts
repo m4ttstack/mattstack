@@ -19,6 +19,38 @@ export type MergedManifest = {
 
 export class FragmentError extends Error {}
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
+function shapeError(doc: Record<string, unknown>): string | null {
+  if (doc.extends !== undefined && typeof doc.extends !== "string") return "extends is not a string";
+  if (doc.skills !== undefined) {
+    if (!isObject(doc.skills)) return "skills is not an object";
+    if (doc.skills.enabled !== undefined && !isStringArray(doc.skills.enabled)) return "skills.enabled is not an array of strings";
+  }
+  if (doc.pipelines !== undefined) {
+    if (!isObject(doc.pipelines)) return "pipelines is not an object";
+    for (const [type, stages] of Object.entries(doc.pipelines)) {
+      if (!isStringArray(stages)) return `pipelines.${type} is not an array of strings`;
+    }
+  }
+  if (doc.bindings !== undefined) {
+    if (!isObject(doc.bindings)) return "bindings is not an object";
+    for (const [engineRef, slots] of Object.entries(doc.bindings)) {
+      if (!isObject(slots)) return `bindings.${engineRef} is not an object`;
+      for (const [slot, fill] of Object.entries(slots)) {
+        if (typeof fill !== "string" || fill === "") return `bindings.${engineRef}.${slot} is not a non-empty string`;
+      }
+    }
+  }
+  return null;
+}
+
 export function parseFragment(text: string, path: string): Fragment {
   let parsed: unknown;
   try {
@@ -26,9 +58,11 @@ export function parseFragment(text: string, path: string): Fragment {
   } catch {
     throw new FragmentError(`fragment is not valid JSONC: ${path}`);
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+  if (!isObject(parsed)) {
     throw new FragmentError(`fragment is not a JSON object: ${path}`);
   }
+  const problem = shapeError(parsed);
+  if (problem) throw new FragmentError(`fragment ${problem}: ${path}`);
   return parsed as Fragment;
 }
 

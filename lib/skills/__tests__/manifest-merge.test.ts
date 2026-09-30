@@ -60,6 +60,17 @@ describe("parseFragment", () => {
   test("throws FragmentError when the document is not an object", () => {
     expect(() => parseFragment("[]", "/f.jsonc")).toThrow(FragmentError);
   });
+  test.each([
+    ["a null binding value", '{ "bindings": { "mattstack:stage-gates": null } }'],
+    ["an empty binding fill", '{ "bindings": { "mattstack:stage-gates": { "domain": "" } } }'],
+    ["a string skills.enabled", '{ "skills": { "enabled": "widgets:work" } }'],
+    ["a non-array pipeline", '{ "pipelines": { "feature": "stage-plan" } }'],
+    ["a non-string extends", '{ "extends": 1 }'],
+  ])("throws FragmentError naming the path on %s", (_label, text) => {
+    const path = "/zone/packs/gadgets/pack/skills.jsonc";
+    expect(() => parseFragment(text, path)).toThrow(FragmentError);
+    expect(() => parseFragment(text, path)).toThrow(/gadgets\/pack\/skills\.jsonc/);
+  });
 });
 
 describe("renderManifest + readManifestProvenance", () => {

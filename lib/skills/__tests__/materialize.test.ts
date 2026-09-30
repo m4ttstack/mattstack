@@ -108,6 +108,19 @@ describe("materializeRepo", () => {
     expect(existsSync(join(root, "repos", SLUG, "packs", "gadgets", "skills.jsonc"))).toBe(false);
   });
 
+  test("a type-invalid fragment fails only its own pack", () => {
+    const { root, engine, home } = makeWorld();
+    zone(root, "acme-w", { projects: ["acme/widgets"], packs: { widgets: { bindings: { "mattstack:stage-gates": { domain: "widgets:gates" } } } } });
+    zone(root, "acme-g", { projects: ["acme/widgets"], packs: { gadgets: { bindings: { "mattstack:stage-gates": null } } } });
+    const out = materializeRepo({ fs: realFs, mattstackRoot: root, claudeHome: home, enginePackDir: engine }, REMOTE);
+    if (out.kind !== "written") throw new Error(out.kind);
+    const gadgets = out.packs.find((p) => p.pack === "gadgets")!;
+    expect(gadgets.ok).toBe(false);
+    if (!gadgets.ok) expect(gadgets.detail).toContain(join(root, "teams", "acme-g", "mattstack", "packs", "gadgets", "pack", "skills.jsonc"));
+    expect(out.packs.find((p) => p.pack === "widgets")!.ok).toBe(true);
+    expect(body(join(root, "repos", SLUG, "packs", "widgets", "skills.jsonc")).bindings["mattstack:stage-gates"]!.domain).toBe("widgets:gates");
+  });
+
   test("a base that itself extends is refused", () => {
     const { root, engine, home } = makeWorld();
     installBase(home, { extends: "deeper@acme" });
