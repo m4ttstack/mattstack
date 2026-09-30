@@ -83,8 +83,9 @@ published from whichever team repo owns it.
 - `rt skills compile`, `check` and `composition --pack P` read
   `repos/<repo>/packs/P/skills.jsonc` by path. `findDefaultManifest`'s header
   grep and newest-mtime pick go away. A pack that binds several repos
-  compiles against the first repo its fragment lists; `--repo` picks another
-  and `--manifest` still overrides.
+  compiles against the first repo its team zone declares (`team.jsonc`'s
+  `projects`, in order); `--repo <slug or host/path>` picks another and
+  `--manifest` still overrides.
 - `rt skills bind --pack P` writes P's fragment and regenerates P's file.
   Binding a slot the base fills is an override, never an error.
 - `composition` reports each slot's layer. `binders` lists only this pack's
