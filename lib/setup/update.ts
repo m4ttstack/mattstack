@@ -22,7 +22,7 @@ export function rtVersion(): string {
 export type UpdateDecision = { kind: "not-set-up" } | { kind: "current"; version: string } | { kind: "run" };
 
 /** daemon.json is the same file the tray's first-run detector keys on: without it, Install never finished, and an update run has nothing to re-apply. A `dev` version never counts as current, so a source build re-applies every launch. */
-export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile">, version: string, force: boolean): UpdateDecision {
+export function decideUpdate(p: Pick<Probes, "exists" | "home" | "readFile" | "now">, version: string, force: boolean): UpdateDecision {
   if (!p.exists(join(p.home, ".mattstack", "rt", "daemon.json"))) return { kind: "not-set-up" };
   if (force || version === DEV_VERSION) return { kind: "run" };
   const last = readSetupState(p).lastUpdate;

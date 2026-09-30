@@ -20,7 +20,7 @@ import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
 import { STEPS } from "./steps/index.ts";
 import { MIGRATIONS, migrationEventId, type MigrationDef } from "./migrations/index.ts";
-import { readSetupState, updateSetupState } from "./state.ts";
+import { readSetupState, setupStatePath, updateSetupState } from "./state.ts";
 import { discoverTeams, readTeamSnapshot, type TeamSnapshot } from "./team-settings.ts";
 import type { SecretPresence } from "./validators/accounts.ts";
 
@@ -220,6 +220,20 @@ function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: EventId
 }
 
 /**
+ * A Mac with a daemon and no setup files reads as a pre-app install that
+ * finished (parseSetupState). That is written down before any step runs,
+ * while a daemon on disk can only be one this run did not install.
+ */
+function settleLegacyFinish(ctx: ApplyContext): void {
+  if (ctx.p.exists(setupStatePath(ctx.p.home))) return;
+  try {
+    updateSetupState(ctx.p, (s) => s);
+  } catch {
+    // persistTerminalState makes the same write at the end and reports it.
+  }
+}
+
+/**
  * Runs an explicit step list against a context — the seam `runApply` closes
  * over `STEPS` for. `plan` lists every applicable step for this run, even
  * ones before `--from`: the app merges `plan` by id and drops `step` events
@@ -241,6 +255,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
   }
 
   ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.titleFor?.(ctx) ?? s.title, kind: s.kind })) });
+  settleLegacyFinish(ctx);
 
   let lastRanId: StepId | undefined;
   let result: { ok: boolean; failedStep?: StepId } = { ok: true };

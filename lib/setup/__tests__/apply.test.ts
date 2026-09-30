@@ -8,7 +8,6 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
 import { createApplyContext, outcomeFromNeed, runApplyWith, runUpdateWith } from "../apply.ts";
 import type { MigrationDef } from "../migrations/index.ts";
-import { readSetupState } from "../state.ts";
 import { createNdjsonEmitter, type Emit } from "../emit.ts";
 import type { ApplyEvent, StepId } from "../contract.ts";
 import { STEP_IDS } from "../contract.ts";
@@ -17,6 +16,7 @@ import type { Probes } from "../probes.ts";
 import { STEPS } from "../steps/index.ts";
 import { fakeProbes, fakeTray } from "./fakes.ts";
 import { needOutcome } from "../steps/step-utils.ts";
+import { isSetupFinished, readSetupState, updateSetupState } from "../state.ts";
 
 const fakeSecrets: SecretsSeams = {
   ageKeySeam: { run: async () => ({ code: 0, stdout: "", stderr: "" }) },
@@ -137,6 +137,39 @@ describe("runApplyWith — team reload", () => {
     ctx.reloadTeam = () => { reloads++; };
     await runApplyWith([{ ...fakeStep("team.join", { state: "partial", detail: "joined, board not peered" }), reloadsTeam: true }], ctx, {});
     expect(reloads).toBe(1);
+  });
+});
+
+// A Mac with a daemon and no setup files reads as a pre-app install that
+// finished. The run's own services.register must not make it look like one.
+describe("runApplyWith: the legacy finish is judged before the run installs anything", () => {
+  const DAEMON = "/fake-home/.mattstack/rt/daemon.json";
+  function steps(probes: ReturnType<typeof fakeProbes>): StepDef[] {
+    return [
+      fakeStep("services.register", async () => {
+        probes.writeFile(DAEMON, "{}");
+        return { state: "done" };
+      }),
+      fakeStep("plugins.install", async () => {
+        updateSetupState(probes, (s) => ({ ...s, plugins: ["x"] }));
+        return { state: "done" };
+      }),
+    ];
+  }
+
+  test("a fresh Mac stays unfinished after a run installs the daemon", async () => {
+    const { ctx } = testCtx();
+    const probes = ctx.p as ReturnType<typeof fakeProbes>;
+    await runApplyWith(steps(probes), ctx);
+    expect(isSetupFinished(readSetupState(probes))).toBe(false);
+  });
+
+  test("a Mac whose daemon predates the run keeps its legacy finish", async () => {
+    const { ctx } = testCtx();
+    const probes = ctx.p as ReturnType<typeof fakeProbes>;
+    probes.writeFile(DAEMON, "{}");
+    await runApplyWith(steps(probes), ctx);
+    expect(isSetupFinished(readSetupState(probes))).toBe(true);
   });
 });
 

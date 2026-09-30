@@ -1,6 +1,8 @@
 import { describe, test, expect } from "bun:test";
 import { fakeProbes } from "./fakes.ts";
-import { isSetupFinished, markSetupFinished, readSetupState, updateSetupState } from "../state.ts";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { isSetupFinished, markSetupFinished, parseSetupState, readSetupState, updateSetupState } from "../state.ts";
 
 describe("readSetupState", () => {
   test("defaults to empty arrays when the state file is absent", () => {
@@ -105,5 +107,54 @@ describe("setup finished", () => {
     const written = JSON.parse(p.readFile(STATE)!);
     expect(written.v).toBe(2);
     expect(written.finishedAt).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  test("a daemon installed from the terminal before the app, with no setup files, reads finished and stays so", () => {
+    const p = fakeProbes({ files: { "/fake-home/.mattstack/rt/daemon.json": "{}" }, now: new Date("2026-09-30T12:00:00.000Z") });
+    expect(isSetupFinished(readSetupState(p))).toBe(true);
+    updateSetupState(p, (s) => ({ ...s, links: ["gh"] }));
+    expect(JSON.parse(p.readFile(STATE)!).finishedAt).toBe("2026-09-30T12:00:00.000Z");
+  });
+
+  test("a daemon mid-setup, with the team choice on disk, is not finished", () => {
+    const p = fakeProbes({ files: { "/fake-home/.mattstack/rt/daemon.json": "{}", "/fake-home/.mattstack/rt/setup-intent.json": "{}" } });
+    expect(isSetupFinished(readSetupState(p))).toBe(false);
+  });
+
+  test("a v2 file never falls back to the daemon rule", () => {
+    const p = fakeProbes({ files: { "/fake-home/.mattstack/rt/daemon.json": "{}", [STATE]: JSON.stringify({ v: 2, lastApplyAt: "2026-09-30T00:00:00.000Z" }) } });
+    expect(isSetupFinished(readSetupState(p))).toBe(false);
+  });
+
+  test("a state file that is not an object reads as empty", () => {
+    for (const raw of ["null", "[]", "42", '"x"']) {
+      const p = fakeProbes({ files: { [STATE]: raw } });
+      expect(readSetupState(p)).toEqual({ v: 2, marketplaces: [], plugins: [], links: [], extensionEditors: [], forcedLinks: [], migrations: [] });
+    }
+  });
+
+  test("writes land through a temp file and a rename, so a crash never leaves half a file", () => {
+    const p = fakeProbes();
+    updateSetupState(p, (s) => ({ ...s, links: ["gh"] }));
+    expect(p.calls.renames).toHaveLength(1);
+    expect(p.calls.renames[0]![1]).toBe(STATE);
+    expect(p.exists(p.calls.renames[0]![0])).toBe(false);
+    expect(JSON.parse(p.readFile(STATE)!).links).toEqual(["gh"]);
+  });
+
+  // Shared with rt-tray's SetupCompletion check, which reads the same file.
+  test("agrees with the shared fixture mattstack.app is checked against", () => {
+    const cases = JSON.parse(readFileSync(join(import.meta.dir, "..", "fixtures", "setup-finished.json"), "utf8")) as {
+      why: string;
+      state: string | null;
+      daemonInstalled: boolean;
+      intent: boolean;
+      finished: boolean;
+    }[];
+    expect(cases.length).toBeGreaterThanOrEqual(10);
+    for (const k of cases) {
+      const state = parseSetupState(k.state, { daemonInstalled: k.daemonInstalled, intentExists: k.intent, now: () => new Date("2026-09-30T12:00:00.000Z") });
+      expect({ why: k.why, finished: isSetupFinished(state) }).toEqual({ why: k.why, finished: k.finished });
+    }
   });
 });

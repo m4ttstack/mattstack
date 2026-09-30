@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { personalSkillsDir } from "../../../lib/skills/writing-style-sources.ts";
@@ -190,11 +190,13 @@ test("finish-gate: the extension row blocks Finish, waive moves it to waived, un
   expect(extensionRow(third.lines[0])!.waived).toBe(false);
 });
 
-test("setup finish answers the way rt does, so the wizard's Finish records cleanly", async () => {
-  const res = await run("finish-gate", ["setup", "finish", "--json"]);
+test("setup finish records finishedAt where the app reads it, the way rt does", async () => {
+  const home = mkdtempSync(join(tmpdir(), "stub-home-"));
+  const res = await run("finish-gate", ["setup", "finish", "--json"], "", undefined, { HOME: home });
   expect(res.code).toBe(0);
   expect(res.lines[0]).toMatchObject({ contract: 1, ok: true });
-  expect(typeof res.lines[0].finishedAt).toBe("string");
+  const state = JSON.parse(readFileSync(join(home, ".mattstack", "rt", "setup-state.json"), "utf8"));
+  expect(state).toMatchObject({ v: 2, finishedAt: res.lines[0].finishedAt });
 });
 
 test("finish-gate: waive refuses a row that is not finish-gated with the contract's exit-2 envelope", async () => {
