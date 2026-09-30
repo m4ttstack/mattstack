@@ -410,7 +410,8 @@ describe("syncPack", () => {
     const order = calls.map((c) => (c.cmd === "checkPack" ? "check" : c.args.slice(0, 3).join(" ")));
     const refresh = order.indexOf("plugin marketplace update");
     const update = order.indexOf(`plugin update ${pluginId(engine)}`);
-    expect(calls[refresh]!.args[3]).toBe("mattstack");
+    expect(calls[refresh]!.args).toEqual(["plugin", "marketplace", "update", "mattstack"]);
+    expect(calls[update]!.args).toEqual(["plugin", "update", pluginId(engine), "-y"]);
     expect(refresh).toBeGreaterThanOrEqual(0);
     expect(update).toBeGreaterThan(refresh);
     expect(order.indexOf("check")).toBeGreaterThan(update);
@@ -433,7 +434,7 @@ describe("syncPack", () => {
 
     const marketUpdate = calls.find((c) => c.args[1] === "marketplace" && c.args[2] === "update")!;
     const engineUpdate = calls.find((c) => c.args[1] === "update" && c.args[2] === pluginId(engine))!;
-    expect(marketUpdate.args).toContain("-y");
+    expect(marketUpdate.args).toEqual(["plugin", "marketplace", "update", "mattstack"]);
     expect(engineUpdate.args).toEqual(["plugin", "update", pluginId(engine), "--scope", "project", "-y"]);
     expect(report.versions.engine).toEqual({ before: "2.0.0", after: "2.1.0" });
     expect(report.steps.find((s) => s.name === "update-engine")!.detail).toContain("2.0.0 -> 2.1.0");

@@ -331,7 +331,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   async function refreshCachedEngine(): Promise<Outcome> {
     const id = pluginId(engine);
     const stale = "sync stopped before compiling the pack against a stale engine";
-    const market = await deps.run(deps.claudeBin!, ["plugin", "marketplace", "update", engine.marketplace!, "-y"]);
+    const market = await deps.run(deps.claudeBin!, ["plugin", "marketplace", "update", engine.marketplace!]);
     if (market.code !== 0) {
       return refused(`claude plugin marketplace update ${engine.marketplace} failed: ${market.stderr.trim()}; ${stale}`);
     }
