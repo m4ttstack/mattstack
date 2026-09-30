@@ -617,12 +617,12 @@ describe("worktree config", () => {
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
-    test("store and file both present: store wins per-field, file is never consulted", () => {
+    test("store and file both present: store wins per field, the file fills the rest", () => {
       mkdirSync(rtDir(), { recursive: true });
       writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: false });
       writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false } });
 
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
     test("team turns the pool on for a machine with no value of its own", () => {
@@ -654,12 +654,29 @@ describe("worktree config", () => {
       expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: false });
     });
 
-    test("the legacy file stops applying once the machine store sets a field", () => {
+    test("the machine store beats the legacy file per field, not wholesale", () => {
       mkdirSync(rtDir(), { recursive: true });
-      writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: false });
-      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: true } });
+      writeJson(join(rtDir(), "worktrees.json"), { enabled: true });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { killProcesses: false } });
 
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: false });
+    });
+
+    test("a refused team value warns once, naming the key and scope but not the value", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": ["secret-ish"] });
+      const warnings: string[] = [];
+      const orig = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      };
+      try {
+        expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
+      } finally {
+        console.warn = orig;
+      }
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('"rt.worktreeApp" from the team scope');
+      expect(warnings[0]).not.toContain("secret-ish");
     });
 
     test("the old hook-offer seed does not outvote a team opt-in", () => {

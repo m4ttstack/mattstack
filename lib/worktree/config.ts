@@ -48,10 +48,9 @@
  * `rt.worktreeApp` (a DIFFERENT key from `rt.worktrees` above: same file
  * family, unrelated shape and scope; `rt.worktrees` is per-repo and
  * repoScoped, this one is a single on/off switch). A team can set it for every
- * member; this machine's own say comes from the machine store or, while the
- * machine store sets neither field, the pre-store
- * `~/.mattstack/rt/worktrees.json` (seeded once from `parking-lot.json`). The
- * machine's say wins per field. With no layer setting a field, `enabled` is
+ * member; this machine's own say comes from the machine store, falling back
+ * per field to the pre-store `~/.mattstack/rt/worktrees.json` (seeded once
+ * from `parking-lot.json`). The machine's say wins per field. With no layer setting a field, `enabled` is
  * `false` (S077) and `killProcesses` is `true`.
  */
 
@@ -479,7 +478,11 @@ function asLayer(value: unknown): AppLayer | undefined {
  */
 function appConfigRungs(): { teams: AppLayer[]; machine: AppLayer | undefined } {
   try {
-    const rows = explainSetting(APP_SETTING_KEY).filter((r) => r.present && r.invalid === undefined);
+    const all = explainSetting(APP_SETTING_KEY);
+    for (const r of all) {
+      if (r.present && r.invalid !== undefined) console.warn(`rt: ignoring "${APP_SETTING_KEY}" from the ${r.scope} scope (${r.file ?? "no file"}): refused value`);
+    }
+    const rows = all.filter((r) => r.present && r.invalid === undefined);
     return {
       teams: rows.filter((r) => r.scope === "team").flatMap((r) => asLayer(r.value) ?? []),
       machine: asLayer(rows.find((r) => r.scope === "machine")?.value),
@@ -533,15 +536,14 @@ function readLegacyAppFile(): AppLayer | undefined {
 
 /**
  * `rt.worktreeApp`, applied per field weakest first: the defaults, each team
- * store, then this machine's say: the machine store, or the legacy file while
- * the machine store sets neither field. A field counts only when it is a
- * boolean, so `enabled` is on only when some layer says `true` outright.
+ * store, the legacy file, then the machine store. A field counts only when it
+ * is a boolean, so `enabled` is on only when some layer says `true` outright.
  */
 export function loadWorktreeAppConfig(): WorktreeAppConfig {
   const { teams, machine } = appConfigRungs();
-  const machineFields = machineAppFields(machine) ?? readLegacyAppFile() ?? {};
+  const layers = [...teams, readLegacyAppFile() ?? {}, machineAppFields(machine) ?? {}];
   const config: WorktreeAppConfig = { ...APP_CONFIG_DEFAULTS };
-  for (const layer of [...teams, machineFields]) {
+  for (const layer of layers) {
     if (typeof layer.enabled === "boolean") config.enabled = layer.enabled;
     if (typeof layer.killProcesses === "boolean") config.killProcesses = layer.killProcesses;
   }
