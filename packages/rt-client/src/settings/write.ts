@@ -92,10 +92,10 @@
  * through `JSON.stringify` — that's what keeps comments alive.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { applyEdits, modify, parse, parseTree, type JSONPath, type Node, type ParseError } from "jsonc-parser";
 import { randomBytes } from "crypto";
-import { basename, dirname, join } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { isDeepStrictEqual } from "util";
 import { assertNotRealStoreInTest } from "../test-isolation.ts";
 import { baselinesOf, baselinesToRecord, currentStoreName, MIGRATED_PROP, olderStoreNames, readSection } from "./migrate.ts";
@@ -202,7 +202,8 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
  * prints only when that sync cannot happen: the repo has no origin, or
  * rt.homeSnapshot / rt.teamSnapshot is disabled (a read failure counts as
  * enabled, as the daemon treats it). A pull-only (joined) team clone never
- * gets here: resolveStorePath refuses the write.
+ * gets here: resolveStorePath refuses the write. It assumes the daemon is
+ * running; nothing here checks.
  */
 function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, storePath: string): void {
   if (scope === "machine") return;
@@ -226,9 +227,29 @@ function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, s
   }
 }
 
+/**
+ * Mirrors parseOriginUrl in lib/setup/team-settings.ts, which the team
+ * snapshot uses to decide whether a clone has a remote at all. A `.git` file
+ * (a linked worktree or submodule) is followed one hop; anything it cannot
+ * resolve answers true, so an unreadable layout never prints a wrong tip.
+ */
 function hasOrigin(repo: string): boolean {
+  const dotGit = join(repo, ".git");
+  let gitDir = dotGit;
   try {
-    return /^\s*\[remote "origin"\]/m.test(readFileSync(join(repo, ".git", "config"), "utf8"));
+    if (statSync(dotGit).isFile()) {
+      const pointer = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+      if (!pointer) return true;
+      gitDir = resolve(repo, pointer);
+      const common = join(gitDir, "commondir");
+      if (existsSync(common)) gitDir = resolve(gitDir, readFileSync(common, "utf8").trim());
+      if (!existsSync(join(gitDir, "config"))) return true;
+    }
+  } catch {
+    return false;
+  }
+  try {
+    return /\[remote "origin"\][^[]*?(?:^|\n)\s*url\s*=\s*(\S+)/m.test(readFileSync(join(gitDir, "config"), "utf8"));
   } catch {
     return false;
   }

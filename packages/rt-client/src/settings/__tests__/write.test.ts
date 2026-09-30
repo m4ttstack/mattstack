@@ -309,6 +309,32 @@ describe("settings/write", () => {
       ]);
     });
 
+    test("an origin section with no url counts as no remote", () => {
+      mkdirSync(join(homeRepo(), ".git"), { recursive: true });
+      writeFileSync(join(homeRepo(), ".git", "config"), `[remote "origin"]\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[core]\n\turl = nope\n`);
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toHaveLength(1);
+    });
+
+    test("a .git file is followed to its gitdir, including a linked worktree's commondir", () => {
+      const main = join(dirname(homeRepo()), "home-main");
+      mkdirSync(join(main, ".git"), { recursive: true });
+      writeFileSync(join(main, ".git", "config"), "[core]\n\tbare = false\n");
+      const linked = join(main, ".git", "worktrees", "user");
+      mkdirSync(linked, { recursive: true });
+      writeFileSync(join(linked, "commondir"), "../..\n");
+      mkdirSync(homeRepo(), { recursive: true });
+      writeFileSync(join(homeRepo(), ".git"), `gitdir: ${linked}\n`);
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toHaveLength(1);
+      giveOrigin(main);
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 4 }, "user", { repoIdentity: IDENTITY }))).toEqual([]);
+    });
+
+    test("a .git file it cannot follow prints no tip", () => {
+      mkdirSync(homeRepo(), { recursive: true });
+      writeFileSync(join(homeRepo(), ".git"), "gitdir: ../nowhere\n");
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }))).toEqual([]);
+    });
+
     test("a user write with home sync off says to commit and push", () => {
       giveOrigin(homeRepo());
       setSetting("rt.homeSnapshot", { enabled: false }, "machine");
