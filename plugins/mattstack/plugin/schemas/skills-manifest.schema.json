@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://mattstack.dev/schemas/skills-manifest.schema.json",
-  "title": "mattstack bindings manifest (.mattstack/skills.jsonc)",
+  "title": "mattstack bindings manifest (pack/skills.jsonc fragment or generated packs/<pack>/skills.jsonc)",
   "description": "Consumer-repo manifest: enabled stack skills, the pipeline stage roster, and slot bindings for parameterized skills. JSONC: JSON plus full-line // comments; no trailing commas.",
   "type": "object",
   "required": ["version"],

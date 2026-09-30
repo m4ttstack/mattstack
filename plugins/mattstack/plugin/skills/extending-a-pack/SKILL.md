@@ -291,6 +291,9 @@ again at zero. Takes over: the author finishes the rule.
   (`~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc`) is regenerated on
   every materialize. That is why the fragment, not the generated file, is
   checked for the new `bindings` entry.
+- Two packs on one repo never conflict: each gets its own bindings file.
+  Two packs in one zone that both claim a repo are refused, and a base pack
+  named by `extends` belongs in a zone that declares no projects.
 - When the ask has both a stage level and a verb level (`mattstack:stage-ship`
   and `mattstack:ship`), bind both, one bind call each.
 - A `shepherdr` door compiles only with its two required slots bound:

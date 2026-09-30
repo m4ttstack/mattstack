@@ -121,7 +121,8 @@ you will see, in order:
 3. **Bind, certify, check.**
    `rt skills bind stage-ship domain acme:ship-lint` writes the binding into
    `pack/skills.jsonc` (the file teammates receive), regenerates the pack's
-   bindings file for your repo and recompiles; `tests/certify.sh` and `rt skills check` pass.
+   bindings file for your repo and recompiles; `tests/certify.sh` and
+   `rt skills check` pass.
 4. **GREEN.** The same task again, in a session started with
    `claude --plugin-dir <pack dir>` so it loads the pack source instead of
    the installed copy: lint runs, a failure blocks the push.
@@ -141,7 +142,8 @@ publish.
   hand: `rt skills materialize` regenerates it; `pack/skills.jsonc` is the
   source. A pack that builds on another declares
   `"extends": "<plugin>@<marketplace>"` there, and its own fills override the
-  base pack's slot by slot.
+  base pack's slot by slot. The team installs the base by listing it in
+  `claude.plugins`; members do not join the base's team.
 - Do not copy another team's pack: its fills carry that team's rules.
 - Do not write a fill "to have something there": an unbound slot renders as
   nothing, and that is the correct state until a rule exists.
