@@ -123,7 +123,7 @@ describe("materializeSkills", () => {
 
     const result = await materializeSkills(p, { repo: repoName });
 
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, detail: "merge-manifests: no git remote in /x -- no per-repo manifest" }] });
+    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, noRemote: true, detail: "merge-manifests: no git remote in /x -- no per-repo manifest" }] });
   });
 
   test("exit 2 in the current script's wording (no team pack declares the repo) is marked as no manifest", async () => {

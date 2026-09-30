@@ -545,7 +545,8 @@ function readHiddenVerbs({ getSetting }: SettingsResolver): string[] {
 
 /**
  * Read only on the listing paths, and imported lazily, so dispatching a verb
- * by name never pays for the settings resolver.
+ * by name never loads the resolver from here. A human TTY run loads it
+ * anyway before dispatch, through cli.ts's settings notice routing.
  */
 async function verbFilter(): Promise<VerbFilter> {
   const resolver: SettingsResolver = await import("./settings/resolve.ts");

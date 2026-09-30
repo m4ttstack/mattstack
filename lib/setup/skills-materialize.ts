@@ -66,6 +66,8 @@ export interface MaterializeRepoResult {
   ok: boolean;
   /** The script found nothing to materialize for this repo (no remote, or no team declares it): not a merge error. */
   noManifest?: true;
+  /** The no-manifest case is the repo having no git remote, rather than no team pack declaring it. Both script wordings say "no git remote". */
+  noRemote?: true;
   detail: string;
 }
 
@@ -131,6 +133,7 @@ export async function materializeSkills(p: Probes, opts: { repo?: string }): Pro
 
   for (const target of targets) {
     const res = await p.exec(["bash", script, "--repo", target.path], { env: { MATTSTACK_HOME: mattstackHome }, timeoutMs: MATERIALIZE_TIMEOUT_MS });
+    const noManifest = res.code === NO_MANIFEST_EXIT && NO_MANIFEST_MARKERS.some((m) => res.stderr.includes(m));
     repos.push(
       res.code === 0
         ? { name: target.name, path: target.path, ok: true, detail: res.stdout.trim() || "materialized" }
@@ -139,7 +142,8 @@ export async function materializeSkills(p: Probes, opts: { repo?: string }): Pro
             name: target.name,
             path: target.path,
             ok: false,
-            ...(res.code === NO_MANIFEST_EXIT && NO_MANIFEST_MARKERS.some((m) => res.stderr.includes(m)) ? { noManifest: true as const } : {}),
+            ...(noManifest ? { noManifest: true as const } : {}),
+            ...(noManifest && res.stderr.includes("no git remote") ? { noRemote: true as const } : {}),
             detail: res.stderr.trim() || `merge-manifests.sh exited ${res.code}`,
           },
     );
