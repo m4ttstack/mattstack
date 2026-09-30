@@ -122,6 +122,7 @@ export function SlotRow({
         </Text>
         <Icons.arrowRight size={12} color={text.muted} />
         <FillLink slot={slot} onShowSites={onShowSites} />
+        {slot.layer && <QuietBadge>{slot.layer}</QuietBadge>}
         {unbound && slot.required === false && (
           <QuietBadge>optional</QuietBadge>
         )}

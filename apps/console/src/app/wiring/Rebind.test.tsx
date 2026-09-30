@@ -281,9 +281,54 @@ describe('Rebind: the staged Apply', () => {
     await userEvent.click(screen.getByRole('button', { name: /rebind/i }));
 
     const panel = screen.getByTestId('rebind-apply');
-    expect(panel).toHaveTextContent('bindings.watch-ci.domain');
+    expect(panel).toHaveTextContent('bindings["mattstack:watch-ci"].domain');
     expect(panel).toHaveTextContent(
       '/repos/gitlab.com-acme-acme-dev/skills.jsonc'
+    );
+  });
+
+  test('keys the caption by the engine ref, the key the bindings file really holds', async () => {
+    const composition: SkillsComposition = {
+      pack: 'widgets',
+      packDir: '/repos/widgets',
+      manifestPath: '/x/skills.jsonc',
+      verbs: [
+        verb('work', {
+          engineRef: 'mattstack:stage-gates',
+          slots: [boundSlot('gates', 'widgets:gates')],
+        }),
+      ],
+      fills: [
+        fill('widgets:gates', { provides: 'gates@1' }),
+        fill('widgets:other-gates', { provides: 'gates@1' }),
+      ],
+      binders: [],
+    };
+    renderRebind({ pack: 'widgets', verb: 'work', slot: 'gates', composition });
+
+    await userEvent.click(screen.getByRole('button', { name: /rebind/i }));
+
+    expect(screen.getByTestId('rebind-apply')).toHaveTextContent(
+      'writes bindings["mattstack:stage-gates"].gates in /x/skills.jsonc, then recompiles work'
+    );
+  });
+
+  test('falls back to the verb name when the verb has no engine ref', async () => {
+    renderRebind({
+      verb: 'watch-ci',
+      slot: 'domain',
+      composition: {
+        ...SHARED,
+        verbs: SHARED.verbs.map(v =>
+          v.name === 'watch-ci' ? { ...v, engineRef: null } : v
+        ),
+      },
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /rebind/i }));
+
+    expect(screen.getByTestId('rebind-apply')).toHaveTextContent(
+      'writes bindings.watch-ci.domain in'
     );
   });
 
@@ -297,7 +342,7 @@ describe('Rebind: the staged Apply', () => {
     await userEvent.click(screen.getByRole('button', { name: /rebind/i }));
 
     const panel = screen.getByTestId('rebind-apply');
-    expect(panel).toHaveTextContent('bindings.watch-ci.domain');
+    expect(panel).toHaveTextContent('bindings["mattstack:watch-ci"].domain');
     expect(panel).not.toHaveTextContent('~/.mattstack');
     expect(panel).not.toHaveTextContent('demo/skills.jsonc');
   });
