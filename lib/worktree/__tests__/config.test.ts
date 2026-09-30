@@ -303,6 +303,25 @@ describe("worktree config", () => {
       expect(await worktreePoolDormant("dormant-only", repoPath)).toBe(false);
     });
 
+    test("declared pool, team turns the app on: not dormant", async () => {
+      const repoPath = tmpRepoWithRemote("rtcfg-dormant-teamon-", REMOTE);
+      writeStore(teamSettingsPath("acme"), {
+        "rt.worktreeApp": { enabled: true },
+        repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } },
+      });
+      expect(await worktreePoolDormant("dormant-only", repoPath)).toBe(false);
+    });
+
+    test("declared pool, team on but machine off: dormant", async () => {
+      const repoPath = tmpRepoWithRemote("rtcfg-dormant-machineoff-", REMOTE);
+      writeStore(teamSettingsPath("acme"), {
+        "rt.worktreeApp": { enabled: true },
+        repos: { [IDENTITY]: { "rt.worktrees": { onDeck: 2 } } },
+      });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false } });
+      expect(await worktreePoolDormant("dormant-only", repoPath)).toBe(true);
+    });
+
     test("nothing declared, unowned machine: not dormant (nothing to be dormant about)", async () => {
       const repoPath = tmpRepoWithRemote("rtcfg-dormant-none-", REMOTE);
       expect(await worktreePoolDormant("dormant-only", repoPath)).toBe(false);
@@ -598,6 +617,27 @@ describe("worktree config", () => {
       writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
+    });
+
+    test("team turns the pool on for a machine with no value of its own", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
+    });
+
+    test("a machine value beats the team's per field", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true, killProcesses: false } });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false } });
+
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
+    });
+
+    test("a team value owns the key, so the machine's legacy file is no longer read", () => {
+      mkdirSync(rtDir(), { recursive: true });
+      writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: true });
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+
+      expect(loadWorktreeAppConfig().enabled).toBe(true);
     });
 
     test("malformed store probe (unregistered/invalid value) degrades to unowned — file stays authoritative", () => {

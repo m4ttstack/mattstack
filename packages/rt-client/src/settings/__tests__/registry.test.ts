@@ -133,10 +133,10 @@ describe("settings/registry", () => {
       expect(setting!.default).toBe(def);
     });
 
-    test("rt.worktreeApp is a machine-only field-bag object with no default (ownership latch)", () => {
+    test("rt.worktreeApp is a team+machine field-bag object with no default (ownership latch)", () => {
       const def = getDef("rt.worktreeApp");
 
-      expect(def?.scopes).toEqual(["machine"]);
+      expect(def?.scopes).toEqual(["team", "machine"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("deep");
       expect(def?.default).toBeUndefined();

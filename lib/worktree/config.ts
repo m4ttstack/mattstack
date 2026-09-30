@@ -48,8 +48,9 @@
  * `~/.mattstack/rt/worktrees.json` — registry key `rt.worktreeApp` (a
  * DIFFERENT key from `rt.worktrees` above: same file family, unrelated shape
  * and scope — `rt.worktrees` is per-repo and repoScoped, this one is a single
- * machine-wide toggle). `getSetting("rt.worktreeApp").value === undefined`
- * means the store does not own the key yet: the file stays authoritative,
+ * on/off switch a team can set for every member and a machine can override
+ * per field). `getSetting("rt.worktreeApp").value === undefined`
+ * means no store owns the key yet: the file stays authoritative,
  * INCLUDING the one-time seed from the legacy `~/.mattstack/rt/parking-lot.json`
  * when the new file is absent and the old one exists. Once the store owns the
  * key it wins PER-FIELD (`rt.worktreeApp` is a field-bag object, not a map);
@@ -467,9 +468,9 @@ export async function worktreeReadyHeld(repoName: string, repoPath: string): Pro
 // ─── App-level config ────────────────────────────────────────────────────────
 
 // Unowned machines start disabled (S077): a team-declared pool must never build
-// multi-GB worktrees on a laptop that never opted in. A machine that explicitly
-// set rt.worktreeApp, or has a legacy parking-lot.json, keeps its own value via
-// the ownership latch below... this default only reaches the no-store-no-legacy case.
+// multi-GB worktrees on a laptop unless someone opted in, either the team (a
+// team-scope rt.worktreeApp) or the machine itself. A machine-scope value wins
+// per field over the team's. This default only reaches the no-store-no-legacy case.
 const APP_CONFIG_DEFAULTS: WorktreeAppConfig = { enabled: false, killProcesses: true };
 const APP_SETTING_KEY = "rt.worktreeApp";
 

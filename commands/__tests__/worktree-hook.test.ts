@@ -1,8 +1,9 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, realpathSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
-import { hookInstallCommand, hookRepoIdentity, parseHookStdin, recordClaudeHookAnswer, shouldOfferClaudeHook } from "../worktree-hook.ts";
+import { dirname, join } from "path";
+import { machineSettingsPath, teamSettingsPath } from "../../lib/rt-paths.ts";
+import { hookInstallCommand, hookRepoIdentity, parseHookStdin, priorClaudeHookAnswer, recordClaudeHookAnswer, shouldOfferClaudeHook } from "../worktree-hook.ts";
 import { loadWorktreeAppConfig } from "../../lib/worktree/config.ts";
 import { getSetting } from "../../lib/settings/resolve.ts";
 
@@ -98,6 +99,28 @@ describe("recordClaudeHookAnswer", () => {
     expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     const stored = getSetting<Record<string, unknown> | undefined>("rt.worktreeApp").value;
     expect(stored?.claudeHook).toBe("declined");
+  });
+
+  test("a team-owned key: the machine store gets only claudeHook, never a copy of the team's fields", () => {
+    const team = teamSettingsPath("acme");
+    mkdirSync(dirname(team), { recursive: true });
+    writeFileSync(team, JSON.stringify({ "rt.worktreeApp": { enabled: true, killProcesses: false } }));
+
+    recordClaudeHookAnswer("installed");
+
+    const machine = JSON.parse(readFileSync(machineSettingsPath(), "utf8").replace(/^\/\/.*\n/, ""));
+    expect(machine["rt.worktreeApp"]).toEqual({ claudeHook: "installed" });
+    expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: false });
+  });
+
+  test("a team-scope claudeHook is ignored: the offer answer is this machine's alone", () => {
+    const team = teamSettingsPath("acme");
+    mkdirSync(dirname(team), { recursive: true });
+    writeFileSync(team, JSON.stringify({ "rt.worktreeApp": { enabled: true, claudeHook: "declined" } }));
+
+    expect(priorClaudeHookAnswer()).toBeUndefined();
+    recordClaudeHookAnswer("installed");
+    expect(priorClaudeHookAnswer()).toBe("installed");
   });
 });
 

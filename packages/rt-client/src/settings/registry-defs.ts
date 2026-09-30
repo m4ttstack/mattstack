@@ -221,10 +221,10 @@ export const REGISTRY: readonly SettingDef[] = [
   {
     key: "rt.worktreeApp",
     type: "object",
-    scopes: ["machine"],
+    scopes: ["team", "machine"],
     merge: "deep",
     migrated: true,
-    description: "Machine-local worktree feature toggle (enabled, killProcesses); ownership-latch port of ~/.mattstack/rt/worktrees.json, store wins per field. A distinct key from rt.worktrees (the per-repo pool config above) on purpose — same file family, unrelated shape and scope.",
+    description: "Worktree pool on/off switch (enabled, killProcesses, claudeHook). A team can turn the pool on for every member; a machine value wins per field, so a machine that wants it off sets {\"enabled\":false} at machine scope. claudeHook is read from the machine store only. Ownership-latch port of ~/.mattstack/rt/worktrees.json: once any store has a value the file is no longer read. A distinct key from rt.worktrees (the per-repo pool config above): same file family, unrelated shape and scope.",
   },
   {
     key: "rt.sdmEnrichment",
