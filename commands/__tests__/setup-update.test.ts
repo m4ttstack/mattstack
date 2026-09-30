@@ -209,6 +209,16 @@ describe("rt setup update", () => {
     expect(["no-app", "app-unanswerable"]).toContain(reply as string);
   });
 
+  test("the context marks the run as an update, so steps leave alone what the member undid", async () => {
+    let update: unknown;
+    const deps = updateDeps({
+      probes: fakeProbes({ files: { [DAEMON]: "{}" } }),
+      steps: [{ ...updateStep("path.link", { state: "done" }), run: async (ctx) => { update = ctx.update; return { state: "done" }; } }],
+    });
+    await run(deps, []);
+    expect(update).toBe(true);
+  });
+
   test.each(["--from", "--only"])("%s is refused with the exit-2 envelope", async (flag) => {
     const deps = updateDeps({ probes: fakeProbes({ files: { [DAEMON]: "{}" } }) });
     await run(deps, [flag, "path.link", "--json"]);
