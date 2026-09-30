@@ -11,6 +11,11 @@
       "const": 1,
       "description": "Manifest format version. This schema describes version 1."
     },
+    "extends": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*@[a-z0-9][a-z0-9-]*$",
+      "description": "Fragment only: the base pack whose fragment layers under this one, as <plugin>@<marketplace>. One level; a base pack cannot extend. Never present in a generated file."
+    },
     "skills": {
       "type": "object",
       "additionalProperties": false,

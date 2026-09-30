@@ -120,8 +120,8 @@ you will see, in order:
    `bun run lint`, and on failure do not push.
 3. **Bind, certify, check.**
    `rt skills bind stage-ship domain acme:ship-lint` writes the binding into
-   the per-repo manifest and into `pack/skills.jsonc` (the file teammates
-   receive) and recompiles; `tests/certify.sh` and `rt skills check` pass.
+   `pack/skills.jsonc` (the file teammates receive), regenerates the pack's
+   bindings file for your repo and recompiles; `tests/certify.sh` and `rt skills check` pass.
 4. **GREEN.** The same task again, in a session started with
    `claude --plugin-dir <pack dir>` so it loads the pack source instead of
    the installed copy: lint runs, a failure blocks the push.
@@ -137,8 +137,11 @@ publish.
   overwritten on the next compile.
 - Do not edit the mattstack engine in the plugin cache: every team compiles
   from it, and the next update erases the edit.
-- Do not edit `~/.mattstack/repos/<slug>/skills.jsonc` by hand: it is
-  regenerated on every materialize; `pack/skills.jsonc` is the source.
+- Do not edit `~/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc` by
+  hand: `rt skills materialize` regenerates it; `pack/skills.jsonc` is the
+  source. A pack that builds on another declares
+  `"extends": "<plugin>@<marketplace>"` there, and its own fills override the
+  base pack's slot by slot.
 - Do not copy another team's pack: its fills carry that team's rules.
 - Do not write a fill "to have something there": an unbound slot renders as
   nothing, and that is the correct state until a rule exists.
@@ -149,5 +152,5 @@ publish.
 | --- | --- |
 | the zone (a git clone the daemon keeps in sync) | `~/.mattstack/teams/<slug>/` |
 | the pack | `~/.mattstack/teams/<slug>/mattstack/packs/<pack>/` |
-| the per-repo manifest (generated, never edited) | `~/.mattstack/repos/<host>-<path>/skills.jsonc` |
+| the bindings file per repo and pack (generated, never edited) | `~/.mattstack/repos/<host>-<path>/packs/<pack>/skills.jsonc` |
 | the installed copy sessions load | `~/.claude/plugins/cache/<marketplace>/<pack>/<version>/` |

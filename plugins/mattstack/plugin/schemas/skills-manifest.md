@@ -30,6 +30,7 @@ The repo manifest always wins over the home manifest; they do not merge.
 | key | type | consumed by |
 |---|---|---|
 | `version` | const `1` | everyone; the only required key |
+| `extends` | `<plugin>@<marketplace>` | `rt skills materialize`; fragment only (`pack/skills.jsonc`), never in a generated file. The base pack's fills layer under this pack's, one level, overridden slot by slot |
 | `skills.enabled` | array of skill names | documentation in phase 1 |
 | `pipelines` | work type -> the stage-skill names a pack rosters (all eight `stage-*` for `work`) | `rt skills compile` (stage roster); not resolved at run time |
 | `bindings` | wrapper name -> { slot -> inner skill name } | `resolve-args.sh` (phase 1) |
