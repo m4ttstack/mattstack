@@ -339,6 +339,8 @@ export interface LaunchPaneOpts {
   statePath: string;
   /** Domain skill the launched wrapper delegates to (resolveLaunchSkill's result). */
   skill?: string;
+  /** Team pack the launched wrapper resolves bindings with; rides the pane as MATTSTACK_PACK. */
+  pack?: string;
   /** cswap account, --model, and --effort forwarded to startAgentPane's typed
       rt agent daemon payload (the board.agent.* settings). Absent = the
       daemon's own default. Unused by launchLegacyResume's HerdrRunner path,
@@ -482,6 +484,7 @@ export async function launchReview(
       account: opts.account,
       model: opts.model,
       effort: opts.effort,
+      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
     },
     io
   );
@@ -518,6 +521,7 @@ export async function launchRespond(
       account: opts.account,
       model: opts.model,
       effort: opts.effort,
+      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
     },
     io
   );
@@ -555,6 +559,7 @@ export async function launchDoctor(
       account: opts.account,
       model: opts.model,
       effort: opts.effort,
+      ...(opts.pack ? { env: { MATTSTACK_PACK: opts.pack } } : {}),
     },
     io
   );

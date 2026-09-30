@@ -362,6 +362,17 @@ describe('launchReReview: nothing on file (arm iii -- fresh launchReview)', () =
     });
   });
 
+  test('threads the pack through to the fresh launch', async () => {
+    await launchReReview(
+      URL_A,
+      IID,
+      { ...CTX, pack: 'widgets' },
+      makeIo(),
+      noSkillPath
+    );
+    expect(reviewCalls[0]).toMatchObject({ pack: 'widgets' });
+  });
+
   test('writes a queued state carrying the MR identity, then stamps the tab and agent', async () => {
     await launchReReview(URL_A, IID, CTX, makeIo(), noSkillPath);
 
@@ -473,6 +484,17 @@ describe('launchRespondAsk (fresh respond for a peer ask)', () => {
       cwd: CTX.cwd,
       skill: CTX.skill,
     });
+  });
+
+  test('threads the pack through to the respond launch', async () => {
+    await launchRespondAsk(
+      URL_A,
+      IID,
+      { ...CTX, pack: 'widgets' },
+      makeRespondIo(),
+      noSkillPath
+    );
+    expect(respondCalls[0]).toMatchObject({ pack: 'widgets' });
   });
 
   test('a throwing launcher settles an error state and reports it', async () => {

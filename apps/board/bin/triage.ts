@@ -20,7 +20,7 @@ import {
 } from '../src/doctor-state.ts';
 import { launchDoctor, sendPaneText } from '../src/herdr.ts';
 import { latchGateway } from '../src/latch/gateway.ts';
-import { resolveLaunchSkill } from '../src/manifest-bindings.ts';
+import { packForLaunch, resolveLaunchSkill } from '../src/manifest-bindings.ts';
 import { makeSwitchboardClient } from '../src/peer/client.ts';
 import { makeEnvelope } from '../src/peer/envelope.ts';
 import { markNudgeHandled, readNudges } from '../src/peer/nudges.ts';
@@ -70,6 +70,8 @@ if (lockToken === false) {
 
 try {
   const boardConfig = loadConfig();
+  // Triage launches have no tab, so the default pack is the only one they carry.
+  const launchPack = packForLaunch(boardConfig, undefined);
   const memory = readMemory();
 
   // The same deck lookup the server's gate bridge rule uses, made at most
@@ -222,7 +224,13 @@ try {
               cwd: boardConfig.respondCwd || boardConfig.reviewCwd,
               repo: repoForMrUrl(mrUrl),
               workspaceLabel: boardConfig.respondsWorkspace,
-              skill: resolveLaunchSkill('respond', mrUrl, boardConfig),
+              skill: resolveLaunchSkill(
+                'respond',
+                mrUrl,
+                boardConfig,
+                launchPack
+              ),
+              pack: launchPack ?? undefined,
               ...loadAgentSettings(),
             })
           : launchReReview(mrUrl, iid, {
@@ -230,9 +238,13 @@ try {
               cwd: boardConfig.reviewCwd,
               repo: repoForMrUrl(mrUrl),
               workspaceLabel: boardConfig.reviewsWorkspace,
-              // BOARD-14: manifest binding when present, else "" (the generic wrapper) --
-              // same resolution the board's own HTTP re-review launches use.
-              skill: resolveLaunchSkill('review', mrUrl, boardConfig),
+              skill: resolveLaunchSkill(
+                'review',
+                mrUrl,
+                boardConfig,
+                launchPack
+              ),
+              pack: launchPack ?? undefined,
               ...loadAgentSettings(),
               claudeCommand: boardConfig.claudeCommand,
             }),
@@ -274,7 +286,8 @@ try {
             cwd: boardConfig.reviewCwd,
             repo: repoForMrUrl(mrUrl),
             workspaceLabel: boardConfig.reviewsWorkspace,
-            skill: resolveLaunchSkill('review', mrUrl, boardConfig),
+            skill: resolveLaunchSkill('review', mrUrl, boardConfig, launchPack),
+            pack: launchPack ?? undefined,
             ...loadAgentSettings(),
             claudeCommand: boardConfig.claudeCommand,
           }),

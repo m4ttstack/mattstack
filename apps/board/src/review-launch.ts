@@ -50,6 +50,8 @@ export interface ReReviewCtx {
   /** false launches a plain first review instead of the re-review framing
       (a peer's first-look ask). Absent means re-review. */
   reReview?: boolean;
+  /** Team pack the launched wrapper resolves bindings with; rides the pane as MATTSTACK_PACK. */
+  pack?: string;
 }
 
 /** Seams for the herdr launchers and the review state store, so tests can drive
@@ -192,6 +194,7 @@ export async function launchReReview(
       model: ctx.model,
       effort: ctx.effort,
       note: ctx.note,
+      pack: ctx.pack,
     });
     if (!result.focusedExisting) {
       io.writeReviewState(statePath, {
@@ -255,6 +258,7 @@ export async function launchRespondAsk(
         model: ctx.model,
         effort: ctx.effort,
         note: ctx.note,
+        pack: ctx.pack,
       },
       undefined,
       resolvePath

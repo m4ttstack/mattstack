@@ -302,6 +302,15 @@ describe('loadConfigFrom: store values get the same normalization/validation the
     expect(cfg.switchboard.url).toBe('https://sb.example.app');
   });
 
+  test('board.defaultPack reads from the store', () => {
+    const p = tmpConfig();
+    const cfg = loadConfigFrom(
+      p,
+      fakeResolve({ 'board.defaultPack': 'widgets' })
+    );
+    expect(cfg.defaultPack).toBe('widgets');
+  });
+
   test('a bad store defaultMember (not "all" or a known member) is rejected the same way a bad file one is', () => {
     const p = tmpConfig();
     expect(() =>
