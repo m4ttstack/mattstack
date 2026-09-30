@@ -200,6 +200,7 @@ export const homeInitStep: StepDef = {
 
 export const homeRestoreStep: StepDef = {
   id: "home.restore",
+  feedsIntercepts: true,
   title: "Restore your settings home repo",
   kind: "rt",
   applies: (ctx) => ctx.intent?.mode === "restore",

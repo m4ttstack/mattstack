@@ -98,7 +98,11 @@ export interface StepDef {
   run(ctx: ApplyContext): Promise<StepOutcome>;
   /** The step lands or changes the team clone (team.create, team.join): once it is done, `ctx.snapshot`/`ctx.reqs` are re-read so the steps after it see the team that now exists on disk rather than the one read at apply start. */
   reloadsTeam?: boolean;
+  /** The step writes what `intercepts.install` builds its rules from (the repo index or a settings store): an `--only` run of it that lands anything is followed by `intercepts.install`, so a late retry cannot leave the shims behind. */
+  feedsIntercepts?: boolean;
 }
+
+const INTERCEPTS_STEP: StepId = "intercepts.install";
 
 // Re-exported for backward compatibility (and so callers that already import
 // it from here, like apply.test.ts, keep working) — the implementation lives
@@ -180,7 +184,8 @@ function persistTerminalState(ctx: ApplyContext, ok: boolean, lastRanId: StepId 
  * for ids it never saw listed, so a full plan is the only safe choice. Steps
  * before `--from` get NO `step` event at all — the shipped app deliberately
  * preserves a retried run's earlier `done` rows, and a `skipped` event here
- * would overwrite them. `--only` runs exactly one step and is silent about
+ * would overwrite them. `--only` runs exactly one step (plus
+ * `intercepts.install` after a `feedsIntercepts` step) and is silent about
  * every other id for the same reason.
  */
 export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { from?: StepId; only?: StepId } = {}): Promise<{ ok: boolean; failedStep?: StepId }> {
@@ -190,14 +195,15 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
 
   ctx.emit({ event: "plan", steps: applicable.map((s) => ({ id: s.id, title: s.title, kind: s.kind })) });
 
+  const queue = applicable.slice(start, end);
   let lastRanId: StepId | undefined;
   let result: { ok: boolean; failedStep?: StepId } = { ok: true };
   let hasBug = false;
   let bug: unknown;
 
   try {
-    for (let i = start; i < end; i++) {
-      const step = applicable[i]!;
+    for (let i = 0; i < queue.length; i++) {
+      const step = queue[i]!;
       lastRanId = step.id;
       ctx.emit({ event: "step", id: step.id, state: "running" });
 
@@ -229,6 +235,10 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
         break;
       }
       if (step.reloadsTeam && outcome.state === "done") ctx.reloadTeam?.();
+      if (opts.only !== undefined && step.feedsIntercepts && (outcome.state === "done" || outcome.state === "partial")) {
+        const follow = applicable.find((s) => s.id === INTERCEPTS_STEP);
+        if (follow && !queue.includes(follow)) queue.push(follow);
+      }
       // Only "failed" stops the run.
     }
   } finally {

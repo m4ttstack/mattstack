@@ -436,6 +436,92 @@ describe("runApplyWith — --from resume", () => {
   });
 });
 
+describe("runApplyWith: intercepts.install follows a late feeder", () => {
+  /** A clone step whose repo lands only once `reachable` flips, and an intercepts step that records what it saw. */
+  function lateCloneHarness() {
+    const world = { reachable: false, landed: false, installedFor: [] as boolean[] };
+    const clone: StepDef = {
+      ...fakeStep("repos.clone", async () => {
+        world.landed = world.reachable;
+        return world.landed ? { state: "done" } : { state: "partial", detail: "cloned 0, present 0, failed 1 (widgets)" };
+      }),
+      feedsIntercepts: true,
+    };
+    const intercepts = fakeStep("intercepts.install", async () => {
+      world.installedFor.push(world.landed);
+      return { state: "done" };
+    });
+    return { world, steps: [fakeStep("settings.seed", { state: "done" }), clone, fakeStep("cron.triage", { state: "done" }), intercepts, fakeStep("verify", { state: "done" })] };
+  }
+
+  test("a clone that lands on a later --only retry reinstalls the intercepts against it", async () => {
+    const { world, steps } = lateCloneHarness();
+
+    await runApplyWith(steps, testCtx().ctx);
+    expect(world.installedFor).toEqual([false]);
+
+    world.reachable = true;
+    const { ctx, events } = testCtx();
+    expect(await runApplyWith(steps, ctx, { only: "repos.clone" })).toEqual({ ok: true });
+
+    expect(world.installedFor).toEqual([false, true]);
+    expect(events.filter((e) => e.event === "step").map((e) => `${e.id}:${(e as { state: string }).state}`)).toEqual([
+      "repos.clone:running",
+      "repos.clone:done",
+      "intercepts.install:running",
+      "intercepts.install:done",
+    ]);
+  });
+
+  test("a partial feeder still hands what it landed to intercepts.install", async () => {
+    const { world, steps } = lateCloneHarness();
+
+    await runApplyWith(steps, testCtx().ctx, { only: "repos.clone" });
+
+    expect(world.installedFor).toEqual([false]);
+  });
+
+  test("a failed feeder does not run intercepts.install", async () => {
+    let ran = false;
+    const steps: StepDef[] = [
+      { ...fakeStep("repos.clone", { state: "failed", detail: "no" }), feedsIntercepts: true },
+      fakeStep("intercepts.install", async () => { ran = true; return { state: "done" }; }),
+    ];
+
+    expect(await runApplyWith(steps, testCtx().ctx, { only: "repos.clone" })).toEqual({ ok: false, failedStep: "repos.clone" });
+    expect(ran).toBe(false);
+  });
+
+  test("an --only of a step that feeds nothing runs nothing after it", async () => {
+    let ran = false;
+    const steps: StepDef[] = [
+      fakeStep("proxy.install", { state: "done" }),
+      fakeStep("intercepts.install", async () => { ran = true; return { state: "done" }; }),
+    ];
+
+    await runApplyWith(steps, testCtx().ctx, { only: "proxy.install" });
+
+    expect(ran).toBe(false);
+  });
+
+  test("a failing follow-up intercepts.install fails the run under its own id", async () => {
+    const steps: StepDef[] = [
+      { ...fakeStep("repos.clone", { state: "done" }), feedsIntercepts: true },
+      fakeStep("intercepts.install", { state: "failed", detail: "boom" }),
+    ];
+
+    expect(await runApplyWith(steps, testCtx().ctx, { only: "repos.clone" })).toEqual({ ok: false, failedStep: "intercepts.install" });
+  });
+
+  test("in the real registry, intercepts.install runs after every step that feeds it", () => {
+    const at = (id: StepId) => STEPS.findIndex((s) => s.id === id);
+    const feeders = STEPS.filter((s) => s.feedsIntercepts).map((s) => s.id);
+    expect(feeders).toEqual(expect.arrayContaining(["team.join", "team.create", "settings.seed", "repos.clone"]));
+    for (const id of feeders) expect(at(id)).toBeLessThan(at("intercepts.install"));
+  });
+});
+
+
 // The checklist's own row remedies run one step, not "this step and the
 // fourteen after it": a `tool.proxy` button labelled "Trust certificate" used
 // to reach `snapshot.push`.

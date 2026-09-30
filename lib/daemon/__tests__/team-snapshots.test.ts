@@ -305,6 +305,27 @@ describe("startTeamSnapshots", () => {
     h.cleanup();
   });
 
+  test("afterPull runs after the converge, and still runs when the converge throws", async () => {
+    const order: string[] = [];
+    const h = harness({
+      converge: async () => {
+        order.push("converge");
+        throw new Error("converge broke");
+      },
+      afterPull: async (slug: string) => { order.push(`after:${slug}`); },
+    });
+    clone(h.root, "acme");
+    const handle = startTeamSnapshots(h.deps);
+    await handle.ready;
+
+    const spec = h.started[0]!.spec;
+    await expect(spec.pull!.onPulled!("fast-forwarded")).rejects.toThrow("converge broke");
+    expect(order).toEqual(["converge", "after:acme"]);
+
+    handle.stop();
+    h.cleanup();
+  });
+
   describe("pull-only mode", () => {
     test("a joined clone starts pull-only", async () => {
       const h = harness();

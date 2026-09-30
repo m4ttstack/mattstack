@@ -266,6 +266,7 @@ async function reposCloneRunUnsafe(ctx: ApplyContext): Promise<StepOutcome> {
 
 export const reposCloneStep: StepDef = {
   id: "repos.clone",
+  feedsIntercepts: true,
   title: "Clone your repos",
   kind: "rt",
   applies: () => true,

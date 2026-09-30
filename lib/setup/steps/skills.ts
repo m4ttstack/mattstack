@@ -217,6 +217,7 @@ async function boardKeysRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
 
 export const boardKeysStep: StepDef = {
   id: "board.keys",
+  feedsIntercepts: true,
   title: "Generate board keys",
   kind: "rt",
   applies: () => true,
@@ -253,6 +254,7 @@ async function cronTriageRunSafe(ctx: ApplyContext): Promise<StepOutcome> {
 
 export const cronTriageStep: StepDef = {
   id: "cron.triage",
+  feedsIntercepts: true,
   title: "Install triage cron",
   kind: "rt",
   applies: () => true,

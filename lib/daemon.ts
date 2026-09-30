@@ -135,6 +135,7 @@ import {
   type BootPhase,
 } from "./daemon/supervision-state.ts";
 import { safeInterval, safeTimeout, scheduleSweep } from "./daemon/safe-timers.ts";
+import { createInterceptPullHook } from "./daemon/intercept-pull-hook.ts";
 import { BOOT_DELAY_MS as CD_CACHE_BOOT_DELAY_MS, REFRESH_MS as CD_CACHE_REFRESH_MS, refreshCdCache } from "./daemon/cd-cache-refresh.ts";
 import { maybeSendTriageSummary, localDay, TRIAGE_CATEGORY } from "./daemon/triage-summary.ts";
 import { getKvValue, setKvValue } from "./state/kv-blob.ts";
@@ -1149,6 +1150,7 @@ export function buildUnits(ctx: BootContext): DaemonUnit[] {
         teamSnapshots = startTeamSnapshots({
           log: loggerHandle.childLogger("team-snapshots"),
           broadcast: emit,
+          afterPull: createInterceptPullHook({ log: loggerHandle.childLogger("intercepts") }),
         });
 
         // Herdr agent-status transitions write no run event, so the mirror on
