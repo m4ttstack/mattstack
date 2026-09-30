@@ -1381,6 +1381,23 @@ export function Board() {
         )}
         {windowMismatch && <div className="tui-banner">⚠ {windowMismatch}</div>}
 
+        {data.switchboardTokenMissing && (
+          <div className="tui-banner" data-intent="bad" role="alert">
+            ⚠ no switchboard token, so peer asks can't reach this board · ask
+            the team owner to re-invite it from their members panel (
+            <code>rt team invite</code>)
+            {data.local && (
+              <button
+                type="button"
+                className="tui-banner-btn"
+                onClick={openSettings}
+              >
+                paste an invite
+              </button>
+            )}
+          </div>
+        )}
+
         {activeTab.source.kind === 'codeowners' && activeSection?.unknown && (
           <div className="tui-banner" data-intent="bad" role="alert">
             ⚠ no CODEOWNERS section "{activeTab.source.section}"

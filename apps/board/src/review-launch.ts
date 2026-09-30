@@ -8,6 +8,7 @@ import {
   statusBinPath,
   type SkillPathResolver,
 } from './herdr.ts';
+import { launchErrorMessage } from './launch-error.ts';
 import { respondFilePath, writeRespondState } from './respond-state.ts';
 import {
   readReviewStates,
@@ -135,7 +136,7 @@ export async function launchReReview(
       console.error(`re-review resume failed: ${message}`);
       io.writeReviewState(statePath, {
         status: 'error',
-        message: 'failed to launch re-review pane',
+        message: launchErrorMessage('re-review', err),
       });
       return { kind: 'error', message };
     }
@@ -169,7 +170,7 @@ export async function launchReReview(
       console.error(`re-review resume failed: ${message}`);
       io.writeReviewState(statePath, {
         status: 'error',
-        message: 'failed to launch re-review pane',
+        message: launchErrorMessage('re-review', err),
       });
       return { kind: 'error', message };
     }
@@ -207,7 +208,7 @@ export async function launchReReview(
     console.error(`re-review launch failed: ${message}`);
     io.writeReviewState(statePath, {
       status: 'error',
-      message: 'failed to launch re-review pane',
+      message: launchErrorMessage('re-review', err),
     });
     return { kind: 'error', message };
   }
@@ -273,7 +274,7 @@ export async function launchRespondAsk(
     console.error(`respond ask launch failed: ${message}`);
     io.writeRespondState(statePath, {
       status: 'error',
-      message: 'failed to launch respond pane',
+      message: launchErrorMessage('respond', err),
     });
     return { kind: 'error', message };
   }

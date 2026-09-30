@@ -1123,6 +1123,28 @@ describe('rowStatus: social lanes', () => {
     expect(line!.verbs[0]).toEqual({ kind: 'launch-review', label: 'review' });
   });
 
+  test('an ask that waits for a click says which verb starts it', () => {
+    const [line] = candidateLines(
+      mr({
+        nudges: [
+          {
+            from: 'jo',
+            receivedAt: NOW - 30 * 60_000,
+            kind: 'review',
+            awaitsClick: true,
+          },
+        ],
+      }),
+      NOW,
+      NONE,
+      ME
+    );
+    expect(line).toMatchObject({
+      word: 'jo asked for a review',
+      detail: '30m ago · click review to start',
+    });
+  });
+
   test('a sent first-look ask words review in every phase', () => {
     const [asked] = candidateLines(
       mr({
