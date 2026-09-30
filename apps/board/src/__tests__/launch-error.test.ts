@@ -33,6 +33,28 @@ describe('launchErrorMessage', () => {
     expect(message.endsWith('…')).toBe(true);
   });
 
+  test('a herdr failure leads with its verb and cause, not the command it echoed', () => {
+    const err = new Error(
+      `agent:start failed: herdr pane run w1:p1 cd '/r' && ACME_TOKEN=x claude --settings '{"hooks":{}}' '${'review this MR '.repeat(20)}' failed (127): claude: command not found`
+    );
+    expect(launchErrorMessage('review', err, '/Users/ada')).toBe(
+      'herdr pane run failed (127): claude: command not found'
+    );
+  });
+
+  test('shortens the home dir only at a path boundary', () => {
+    expect(
+      launchErrorMessage(
+        'review',
+        new Error(`no such file /Users/ada/x or /Users/adam/y in '/Users/ada'`),
+        '/Users/ada'
+      )
+    ).toBe(`no such file ~/x or /Users/adam/y in '~'`);
+    expect(
+      launchErrorMessage('review', new Error('cwd is /Users/ada'), '/Users/ada')
+    ).toBe('cwd is ~');
+  });
+
   test('falls back to the lane phrase when the cause says nothing', () => {
     expect(launchErrorMessage('re-review', new Error('  '), '/Users/ada')).toBe(
       'failed to launch re-review pane'

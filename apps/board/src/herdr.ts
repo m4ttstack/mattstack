@@ -33,7 +33,9 @@ export const defaultRunner: HerdrRunner = async args => {
     proc.exited,
   ]);
   if (code !== 0)
-    throw new Error(`herdr ${args.join(' ')} failed (${code}): ${err || out}`);
+    throw new Error(
+      `herdr ${args.slice(0, 2).join(' ')} failed (${code}): ${err || out}`
+    );
   return out;
 };
 
