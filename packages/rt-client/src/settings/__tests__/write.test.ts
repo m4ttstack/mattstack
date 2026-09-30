@@ -13,7 +13,7 @@ import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { machineSettingsPath, teamLocalPath, teamSettingsPath, teamsDir, userSettingsPath } from "../paths.ts";
-import { setSetting, unsetSetting } from "../write.ts";
+import { setSetting, setSettingsNoticeSink, unsetSetting } from "../write.ts";
 import * as isolation from "../../test-isolation.ts";
 import { withSchema } from "./with-schema.ts";
 import { suspendRepoOnly } from "./without-repo-only.ts";
@@ -363,6 +363,22 @@ describe("settings/write", () => {
       expect(captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }))).toEqual([
         `rt: saved "rt.roles" in the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${TEAM}\` to share it with the team`,
       ]);
+    });
+
+    test("a notice sink receives the tip instead of stderr, and the previous sink comes back on restore", () => {
+      const seen: string[] = [];
+      const previous = setSettingsNoticeSink((line) => seen.push(line));
+      let stderr: string[];
+      try {
+        stderr = captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }));
+      } finally {
+        setSettingsNoticeSink(previous);
+      }
+      expect(stderr).toEqual([]);
+      expect(seen).toEqual([
+        `rt: saved "rt.worktrees" in your user store on this machine only; ${homeRepo()} has no remote, so it will not reach your other machines`,
+      ]);
+      expect(captureStderr(() => setSetting("rt.worktrees", { onDeck: 4 }, "user", { repoIdentity: IDENTITY }))).toHaveLength(1);
     });
 
     test("a machine-scope write prints nothing", () => {
