@@ -277,53 +277,54 @@ describe("settings/write", () => {
       expect(readTeam(TEAM)).toBe(`// ${TEAM} team store\n{}\n`);
     });
 
-    test("prints a commit+push reminder to stderr on a team write", () => {
+    function captureStderr(run: () => void): string[] {
+      const lines: string[] = [];
+      const orig = console.error;
+      console.error = (...args: unknown[]) => {
+        lines.push(args.map(String).join(" "));
+      };
+      try {
+        run();
+      } finally {
+        console.error = orig;
+      }
+      return lines;
+    }
+
+    test("a team write prints a tip naming the team repo to push", () => {
       seedTeam(TEAM);
-      const stderrWrites: string[] = [];
-      const orig = console.error;
-      console.error = (...args: unknown[]) => {
-        stderrWrites.push(args.map(String).join(" "));
-      };
-      try {
-        setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY });
-      } finally {
-        console.error = orig;
-      }
-      expect(stderrWrites.some((line) => /commit|push/i.test(line))).toBe(true);
+      const lines = captureStderr(() => setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY }));
+      expect(lines).toEqual([
+        `rt: saved "rt.roles" in the team store; commit and push ${join(teamsDir(), TEAM)} to share it with the team`,
+      ]);
     });
 
-    // Every scope is a tracked repo with nothing auto-committing a write
-    // (H2, the snapshot daemon, is unbuilt) — user and machine writes get
-    // the same local-only reminder team writes always have, naming their
-    // own store path.
-    test("a user-scope write also prints the local-only reminder, naming the user store", () => {
-      const stderrWrites: string[] = [];
-      const orig = console.error;
-      console.error = (...args: unknown[]) => {
-        stderrWrites.push(args.map(String).join(" "));
-      };
-      try {
-        setSetting("rt.worktrees", { onDeck: 3 }, "user");
-      } finally {
-        console.error = orig;
-      }
-      expect(stderrWrites.some((line) => /commit|push/i.test(line))).toBe(true);
-      expect(stderrWrites.some((line) => line.includes(userSettingsPath()))).toBe(true);
+    test("a user-scope write prints a tip naming the personal repo to push", () => {
+      const lines = captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "user", { repoIdentity: IDENTITY }));
+      expect(lines).toEqual([
+        `rt: saved "rt.worktrees" in your user store; commit and push ${dirname(userSettingsPath())} to share it with your other machines`,
+      ]);
     });
 
-    test("a machine-scope write also prints the local-only reminder, naming the machine store", () => {
-      const stderrWrites: string[] = [];
-      const orig = console.error;
-      console.error = (...args: unknown[]) => {
-        stderrWrites.push(args.map(String).join(" "));
-      };
-      try {
-        setSetting("rt.worktrees", { onDeck: 3 }, "machine");
-      } finally {
-        console.error = orig;
-      }
-      expect(stderrWrites.some((line) => /commit|push/i.test(line))).toBe(true);
-      expect(stderrWrites.some((line) => line.includes(machineSettingsPath()))).toBe(true);
+    test("a machine-scope write prints nothing", () => {
+      const lines = captureStderr(() => setSetting("rt.worktrees", { onDeck: 3 }, "machine", { repoIdentity: IDENTITY }));
+      expect(lines).toEqual([]);
+      expect(existsSync(machineSettingsPath())).toBe(true);
+    });
+
+    test("removals print the same tip per scope, and nothing for machine", () => {
+      seedTeam(TEAM);
+      setSetting("rt.roles", { backend: {} }, "team", { repoIdentity: IDENTITY });
+      setSetting("rt.roles", { backend: {} }, "user", { repoIdentity: IDENTITY });
+      setSetting("rt.roles", { backend: {} }, "machine", { repoIdentity: IDENTITY });
+
+      expect(captureStderr(() => unsetSetting("rt.roles", "team", { repoIdentity: IDENTITY }))).toEqual([
+        `rt: removed "rt.roles" from the team store; commit and push ${join(teamsDir(), TEAM)} to share the change with the team`,
+      ]);
+      expect(captureStderr(() => unsetSetting("rt.roles", "user", { repoIdentity: IDENTITY }))).toEqual([
+        `rt: removed "rt.roles" from your user store; commit and push ${dirname(userSettingsPath())} to share the change with your other machines`,
+      ]);
+      expect(captureStderr(() => unsetSetting("rt.roles", "machine", { repoIdentity: IDENTITY }))).toEqual([]);
     });
   });
 

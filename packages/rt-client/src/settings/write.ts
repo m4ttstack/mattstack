@@ -66,10 +66,9 @@
  * commit+push to reach teammates; conjuring one here would produce an
  * uncommitted, unshared file masquerading as team state.
  *
- * Every successful `scope: "team"` write prints one reminder line to
- * stderr: the edit only exists in this local clone until it is committed
- * and pushed. No such reminder for `user`/`machine` (nothing to push there
- * in wave 1).
+ * A successful user or team write or removal prints one tip line to stderr
+ * naming the repo to commit and push to share it (`shareTip`); a machine
+ * write prints nothing, since the caller's own confirmation covers it.
  *
  * ── Malformed stores refuse rather than edit around the damage ─────────
  * An existing store's on-disk text is parsed and checked (`assertEditableJsonc`)
@@ -193,12 +192,22 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
     /* createIfMissing */ scope !== "team",
   );
 
-  // All three stores are tracked repos with nothing auto-committing a write
-  // (H2, the snapshot daemon, is unbuilt) — every scope gets the reminder,
-  // not just team.
-  console.error(
-    `rt: wrote "${key}" to the local ${scope} store (${storePath}) — this is local only until you commit and push it.`,
-  );
+  shareTip("saved", key, scope, storePath);
+}
+
+/**
+ * The user store is the personal repo's root file; a team store sits at
+ * `<team repo>/mattstack/settings.team.jsonc`, so its repo is two levels up.
+ */
+function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, storePath: string): void {
+  if (scope === "machine") return;
+  const where = verb === "saved" ? "in" : "from";
+  const what = verb === "saved" ? "it" : "the change";
+  if (scope === "user") {
+    console.error(`rt: ${verb} "${key}" ${where} your user store; commit and push ${dirname(storePath)} to share ${what} with your other machines`);
+  } else {
+    console.error(`rt: ${verb} "${key}" ${where} the team store; commit and push ${dirname(dirname(storePath))} to share ${what} with the team`);
+  }
 }
 
 /**
@@ -210,7 +219,7 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
  * clean no-op rather than a refusal (an explicit `opts.team` naming a team
  * with no local store included — nothing to remove is success, not an error),
  * and a key not present in the store is a no-op. Returns whether anything was
- * actually removed; the local-only reminder prints only on a real removal.
+ * actually removed; the share tip prints only on a real removal.
  * A retired key is not in the registry but may linger in a store, so it can
  * still be removed from any scope.
  */
@@ -261,11 +270,7 @@ function removeKeyFromScope(key: string, scope: SettingScope, opts: SetSettingOp
 
   const removed = removeFromStore(storePath, planPaths);
 
-  if (removed) {
-    console.error(
-      `rt: removed "${key}" from the local ${scope} store (${storePath}) — this is local only until you commit and push it.`,
-    );
-  }
+  if (removed) shareTip("removed", key, scope, storePath);
   return removed;
 }
 
@@ -532,7 +537,7 @@ export function pruneStoreName(key: string, storeName: string, scope: SettingSco
     return [[...sectionPath, storeName], ...(baselinesOf(section)[storeName] !== undefined ? [[...sectionPath, MIGRATED_PROP, storeName]] : [])];
   });
   if (!removed) return { removed };
-  console.error(`rt: removed "${storeName}" from the local ${scope} store (${storePath}); this is local only until you commit and push it.`);
+  shareTip("removed", storeName, scope, storePath);
   return { removed, authored };
 }
 
