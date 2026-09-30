@@ -2265,19 +2265,49 @@ export class GitLabProvider implements GitProvider {
 
   async fetchPipelineFailedJobs(projectPath: string, pipelineId: number): Promise<PipelineJob[]> {
     try {
-      const jobs: any[] = await this.gb.Jobs.all(projectPath, { pipelineId, scope: ['failed'] } as any);
-      return jobs.map((j) => ({
-        id: domainId('job', j.id),
-        name: String(j.name),
-        stage: String(j.stage),
-        status: String(j.status).toLowerCase(),
-        allowFailure: Boolean(j.allow_failure),
-        duration: typeof j.duration === 'number' ? Math.round(j.duration) : null,
-        webUrl: typeof j.web_url === 'string' ? j.web_url : null,
-      }));
+      return await this.collectFailedJobs(projectPath, pipelineId, new Set(), false);
     } catch (err) {
       throw this.legacyError('fetchPipelineFailedJobs', err);
     }
+  }
+
+  /**
+   * A child row blocks only when every bridge above it does: an allow_failure
+   * bridge, or a bridge already `success` while its child failed (a trigger
+   * without `strategy: depend`), cannot fail the parent, so the rows under it
+   * are marked allowFailure.
+   */
+  private async collectFailedJobs(projectPath: string, pipelineId: number, seen: Set<number>, underOptionalBridge: boolean): Promise<PipelineJob[]> {
+    if (seen.has(pipelineId)) return [];
+    seen.add(pipelineId);
+    const jobs: any[] = await this.gb.Jobs.all(projectPath, { pipelineId, scope: ['failed'] } as any);
+    const own: PipelineJob[] = jobs.map((j) => ({
+      id: domainId('job', j.id),
+      name: String(j.name),
+      stage: String(j.stage),
+      status: String(j.status).toLowerCase(),
+      allowFailure: underOptionalBridge || Boolean(j.allow_failure),
+      duration: typeof j.duration === 'number' ? Math.round(j.duration) : null,
+      webUrl: typeof j.web_url === 'string' ? j.web_url : null,
+    }));
+    const bridges = (await this.gb.Jobs.allPipelineBridges(projectPath, pipelineId)) as unknown as any[];
+    const children = bridges.filter(
+      (b) =>
+        b?.downstream_pipeline?.id &&
+        b.downstream_pipeline.project_id === b.pipeline?.project_id &&
+        String(b.downstream_pipeline.status).toLowerCase() !== 'success',
+    );
+    const nested = await Promise.all(
+      children.map((b) =>
+        this.collectFailedJobs(
+          projectPath,
+          Number(b.downstream_pipeline.id),
+          seen,
+          underOptionalBridge || Boolean(b.allow_failure) || String(b.status).toLowerCase() === 'success',
+        ),
+      ),
+    );
+    return [...own, ...nested.flat()];
   }
 
   // ── Review mutations ────────────────────────────────────────────────────

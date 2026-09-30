@@ -20,6 +20,10 @@
 
 ### Patch Changes
 
+- `fetchPipelineFailedJobs` also returns failed jobs from same-project
+  downstream (child) pipelines, nested ones included. Rows under an
+  `allow_failure` bridge, or a bridge that does not depend on its child, come
+  back `allowFailure: true`; green and cross-project downstreams are not walked.
 - The single-MR dashboard's `connection` follows the cable instead of staying
   `connecting` forever.
 - The realtime watcher reports `disconnected` after a connected push channel
