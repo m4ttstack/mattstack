@@ -47,6 +47,8 @@ export interface TeamSnapshotsDeps {
   db?: Database;
   /** Injectable so tests never shell out to a real claude. */
   converge?: typeof convergePackCache;
+  /** Runs after every pull that moved a clone, even when the converge threw. */
+  afterPull?: (slug: string) => Promise<void>;
 }
 
 export interface TeamSnapshotsHandle {
@@ -173,7 +175,11 @@ export function startTeamSnapshots(rawDeps: TeamSnapshotsDeps): TeamSnapshotsHan
           probes,
           pullOnly,
           onPulled: async () => {
-            await converge(probes, slug, rawDeps.log.child({ team: slug }));
+            try {
+              await converge(probes, slug, rawDeps.log.child({ team: slug }));
+            } finally {
+              await rawDeps.afterPull?.(slug);
+            }
           },
         });
         const handle = start(spec, {
