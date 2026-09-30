@@ -175,7 +175,7 @@ fallback, muted by the prefs registry):
   "Setup after an update: when a re-applied setup step needs you".
 - `title: "Setup needs you after the update to <version>"`.
 - `message`: the needs-you and failed items, `<id>: <detail>`, joined on
-  ` · `, clipped to the notifier's existing length limit.
+  ` · `.
 - `id: "setup_update:<version>"`, so a `--force` rerun replaces the
   banner rather than stacking one.
 
