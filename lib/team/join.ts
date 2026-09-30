@@ -56,7 +56,7 @@ export interface JoinResult {
 /** Raised only after the clone and the relay redeem have already succeeded — the join is real, but the local age key could not be read. Deliberately NOT a `UserActionableError`: the CLI reports it and exits 1 (a machine/environment problem), never 2 (a dead invite). */
 export class JoinKeyExchangeError extends Error {}
 
-/** Raised after the redeem when a board token rt holds could not be stored. The reply is not sent and the intent is kept, so a plain `rt team join` rerun stores the same token and finishes: the sealed token lives nowhere else. */
+/** Raised after the redeem when a board token rt holds could not be stored. The reply is not sent and the intent is kept, so a plain `rt team join` rerun finishes: a sealed token lives nowhere else, and a minted one is minted again. */
 export class JoinPeeringStoreError extends Error {}
 
 const NO_TEAM: JoinResult["team"] = { slug: "", name: "", owner: "" };
@@ -258,7 +258,7 @@ export interface JoinRedeemSeams {
   forgeLogin: typeof forgeLogin;
   /** The forge token rt holds for `remote`'s host, or null: a fresh machine's git and gh/glab have nothing of their own to offer a private team repo. */
   forgeToken: (p: Probes, remote: string) => Promise<string | null>;
-  /** Whether `writeLocalSecret` can succeed now (the home repo's recipients file and the age key both exist). Checked before the redeem whenever a board token may need storing. */
+  /** Whether `writeLocalSecret` can succeed now (the home repo's recipients file and the age key both exist). Checked before the redeem whenever the invite carries a board token for the team's switchboard. */
   localStoreReady: () => Promise<boolean>;
   /** Stores a per-member secret in the LOCAL rt domain (never the team store): the switchboard board token belongs to this machine's member alone. */
   writeLocalSecret: (key: string, value: string) => Promise<void>;
@@ -351,7 +351,7 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Stores a board token rt now holds and points the board at it. A failed store throws the resumable error: this token exists nowhere else once the intent is cleared. */
+/** Stores a board token rt now holds and points the board at it. A failed store throws the resumable error rather than finishing without it. */
 async function storeBoardToken(seams: JoinRedeemSeams, pointer: InvitePointer, url: string, token: string): Promise<PeeringOutcome> {
   try {
     await seams.writeLocalSecret("switchboardToken", token);
@@ -383,7 +383,7 @@ async function peerBoard(
 ): Promise<PeeringOutcome> {
   const reinvite: PeeringOutcome = {
     peering: "unavailable",
-    peeringFix: `ask ${pointer.owner} for a new invite (\`rt team invite --handle ${handle}\`) and run \`rt team join\` with it, or to re-invite your board from the board's members panel`,
+    peeringFix: `ask ${pointer.owner} for a new invite (\`rt team invite --handle ${handle}\`) and run \`rt team join\` with it, or ask them to re-invite your board from the board's members panel`,
   };
 
   // Team-declared, so unverified: a non-https URL would carry the admin token
@@ -563,13 +563,14 @@ export async function joinRedeem(
   // would be the exact half-state R-T18-b exists to prevent.
   const snapshot = readTeamSnapshot(p, pointer.team, { read: seams.read, warn: seams.warn });
   const declaredUrl = snapshot.integrations.switchboard?.url;
-  // A board token (sealed in the pointer, or minted below) is stored only in
-  // the personal secrets store, and once the redeem runs this code can never
-  // be fetched again: refuse while the store cannot take it.
-  if (declaredUrl && isValidHttpsUrl(declaredUrl) && !(await seams.localStoreReady())) {
+  // A sealed board token is stored only in the personal secrets store, and
+  // once the redeem runs this code can never be fetched again: refuse while
+  // the store cannot take it.
+  const sealedToken = declaredUrl && isValidHttpsUrl(declaredUrl) && pointer.switchboard?.token && pointer.switchboard.url === declaredUrl;
+  if (sealedToken && !(await seams.localStoreReady())) {
     throw new UserActionableError(
       "secrets-store-not-ready",
-      `the team is cloned at ${dir}, but this machine's secrets store is not set up yet, so your board's switchboard token would have nowhere to go: run \`rt home init\`, then \`rt team join\` again (the invite has not been used yet)`,
+      `the team is cloned at ${dir}, but this machine's secrets store is not set up yet, so your board's switchboard token would have nowhere to go: run \`rt home init\`, then \`rt team join\` again (no new code needed)`,
     );
   }
   const forge = snapshot.integrations.forge ?? forgeFromRemote(pointer.remote) ?? undefined;

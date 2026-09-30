@@ -8,7 +8,9 @@
 import { createTeam, type CreateTeamOpts } from "../../team/create.ts";
 import { forgeLogin } from "../../team/forge.ts";
 import { JoinKeyExchangeError, JoinPeeringStoreError, joinRedeem, realJoinRedeemSeams, type JoinResult } from "../../team/join.ts";
-import { personalStoreReady, writeSecret } from "../../secrets/store.ts";
+import { personalStoreReady, readSecret, writeSecret } from "../../secrets/store.ts";
+import { readTeamLocal } from "../../team/team-local.ts";
+import { isValidHttpsUrl } from "../host-validate.ts";
 import { publishTeam } from "../../team/publish.ts";
 import { forgeTokenFor } from "./forge-token.ts";
 import type { ApplyContext } from "../apply.ts";
@@ -110,14 +112,46 @@ export function outcomeFromJoinError(err: unknown): StepOutcome {
     };
   }
   if (err instanceof UserActionableError && err.code === "secrets-store-not-ready") {
-    return { state: "failed", detail: err.message, remedy: "Retry from home.init (or run `rt home init`), then Retry: the invite has not been used yet" };
+    return { state: "failed", detail: err.message, remedy: "Retry from home.init (or run `rt home init`), then Retry: no new code needed" };
   }
   if (err instanceof UserActionableError) return { state: "failed", detail: err.message };
   return toFailedOutcome(err);
 }
 
+function declaredSwitchboard(ctx: ApplyContext): string | undefined {
+  const url = ctx.snapshot?.integrations.switchboard?.url;
+  return url && isValidHttpsUrl(url) ? url : undefined;
+}
+
+/** A finished join clears its intent, so this is what keeps the step in a Retry's plan while the board may still lack its token. */
+function joinedSwitchboardMember(ctx: ApplyContext): boolean {
+  if (!ctx.team.slug || !declaredSwitchboard(ctx)) return false;
+  try {
+    return readTeamLocal(ctx.p, ctx.team.slug).joinedByRt;
+  } catch {
+    return false;
+  }
+}
+
+async function boardTokenStored(ctx: ApplyContext): Promise<boolean> {
+  try {
+    const token = await readSecret("rt", "switchboardToken", ctx.secrets);
+    if (token === null) return false;
+    ctx.redact(token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const REINVITE_FIX =
+  "ask the team's owner for a new invite (`rt team invite --handle <your forge username>`) and run `rt team join` with it, or ask them to re-invite your board from the board's members panel";
+
 async function teamJoinRun(ctx: ApplyContext): Promise<StepOutcome> {
   if (noJoinIntentOnDisk(ctx)) {
+    if (declaredSwitchboard(ctx) && !(await boardTokenStored(ctx))) {
+      return { state: "partial", detail: `joined ${ctx.team.name}, but this machine's board has no switchboard token, so it does not peer`, remedy: REINVITE_FIX };
+    }
     return { state: "skipped", detail: "already joined — no invite in progress" };
   }
 
@@ -157,6 +191,6 @@ export const teamJoinStep: StepDef = {
   feedsIntercepts: true,
   title: "Join your team",
   kind: "rt",
-  applies: (ctx) => ctx.intent?.mode === "join",
+  applies: (ctx) => ctx.intent?.mode === "join" || joinedSwitchboardMember(ctx),
   run: teamJoinRun,
 };

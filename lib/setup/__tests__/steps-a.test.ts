@@ -14,7 +14,7 @@ import { linkPath } from "../../deps/links.ts";
 import { DEV_MODE_TAG } from "../../dev-mode.ts";
 import { createRealProbes } from "../probes.ts";
 import type { ExecResult, Probes } from "../probes.ts";
-import type { SecretsExecResult, SecretsExecSeam, SecretsSeams } from "../../secrets/store.ts";
+import { secretsFilePath, type SecretsExecResult, type SecretsExecSeam, type SecretsSeams } from "../../secrets/store.ts";
 import { readTeamSecret, teamSopsYamlPath } from "../../secrets/team-store.ts";
 import { teamLocalPath, writeTeamLocal } from "../../team/team-local.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
@@ -580,9 +580,46 @@ describe("team.join outcomes", () => {
     );
   });
 
-  test("a secrets store that is not ready before the redeem fails with a home.init remedy", () => {
+  test("a secrets store that is not ready before the redeem fails with a home.init remedy that holds on a resumed run too", () => {
     const outcome = outcomeFromJoinError(new UserActionableError("secrets-store-not-ready", "not set up yet"));
-    expect(outcome).toEqual({ state: "failed", detail: "not set up yet", remedy: "Retry from home.init (or run `rt home init`), then Retry: the invite has not been used yet" });
+    expect(outcome).toEqual({ state: "failed", detail: "not set up yet", remedy: "Retry from home.init (or run `rt home init`), then Retry: no new code needed" });
+  });
+});
+
+describe("team.join after the join itself finished", () => {
+  const SB = "https://sb.test";
+
+  function joinedCtx(opts: { switchboard?: string; joinedByRt?: boolean; storedToken?: string } = {}): ApplyContext {
+    const p = fakeProbes({ home: "/fake-home" });
+    writeTeamLocal(p, "acme", { createdByRt: false, joinedByRt: opts.joinedByRt ?? true, rtMayManageMembership: false });
+    const secrets = fakeSecrets();
+    if (opts.storedToken !== undefined) (secrets.execSeam as FakeSecretsExecSeam).files.set(secretsFilePath("rt"), JSON.stringify({ switchboardToken: opts.storedToken }));
+    const switchboard = "switchboard" in opts ? opts.switchboard : SB;
+    const { ctx } = makeCtx(p, {
+      team: { slug: "acme", name: "acme", mode: "none" },
+      snapshot: { slug: "acme", integrations: switchboard ? { switchboard: { url: switchboard } } : {}, trackingIdentities: [], marketplaces: [], plugins: [], remote: null },
+      secrets,
+    });
+    return ctx;
+  }
+
+  test("a joined member of a switchboard team keeps the step in the plan with no intent, so a Retry reaches it", () => {
+    expect(teamJoinStep.applies(joinedCtx())).toBe(true);
+    expect(teamJoinStep.applies(joinedCtx({ joinedByRt: false }))).toBe(false);
+    expect(teamJoinStep.applies(joinedCtx({ switchboard: undefined }))).toBe(false);
+    expect(teamJoinStep.applies(joinedCtx({ switchboard: "http://sb.lan" }))).toBe(false);
+  });
+
+  test("rerun after a partial join stays partial while the board token is missing", async () => {
+    const outcome = await teamJoinStep.run(joinedCtx());
+    expect(outcome.state).toBe("partial");
+    expect((outcome as { remedy?: string }).remedy).toContain("rt team invite --handle");
+    expect((outcome as { remedy?: string }).remedy).toContain("or ask them to re-invite your board from the board's members panel");
+  });
+
+  test("a stored board token reads as already joined", async () => {
+    const outcome = await teamJoinStep.run(joinedCtx({ storedToken: "tok-1" }));
+    expect(outcome).toEqual({ state: "skipped", detail: "already joined — no invite in progress" });
   });
 });
 

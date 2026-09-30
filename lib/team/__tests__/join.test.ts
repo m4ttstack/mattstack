@@ -987,7 +987,8 @@ describe("joinRedeem", () => {
       expect(caught).toBeInstanceOf(UserActionableError);
       expect((caught as UserActionableError).code).toBe("secrets-store-not-ready");
       expect((caught as Error).message).toContain("rt home init");
-      expect((caught as Error).message).toContain("the invite has not been used yet");
+      expect((caught as Error).message).toContain("no new code needed");
+      expect((caught as Error).message).not.toContain("has not been used");
       expect(relay.redeemCalls).toEqual([]);
       expect(calls.secretWrites).toEqual([]);
       expect(readIntent(p)?.join?.pointer.switchboard?.token).toBe("tok-emb");
@@ -1008,6 +1009,43 @@ describe("joinRedeem", () => {
 
       expect(result.access).toBe("ok");
       expect(result.peering).toBe("idle");
+      expect(consulted).toBe(false);
+    });
+
+    test("a declared switchboard whose invite carried no token never consults the store: there is nothing sealed to lose", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay();
+      let consulted = false;
+      const { seams } = baseJoinRedeemSeams({
+        read: fakeRead(DECLARED),
+        localStoreReady: async () => {
+          consulted = true;
+          return false;
+        },
+      });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.access).toBe("ok");
+      expect(result.peering).toBe("unavailable");
+      expect(consulted).toBe(false);
+    });
+
+    test("an embedded token for a different switchboard never consults the store: it is refused anyway", async () => {
+      const p = redeemProbes();
+      const relay = fakeRelay({ fetch: relayServing({ ...POINTER, switchboard: { url: "https://evil.test", token: "tok-x" } }) });
+      let consulted = false;
+      const { seams } = baseJoinRedeemSeams({
+        read: fakeRead(DECLARED),
+        localStoreReady: async () => {
+          consulted = true;
+          return false;
+        },
+      });
+
+      const result = await joinRedeem(p, relay.client, () => NO_SECRETS, { code: CODE }, seams);
+
+      expect(result.peering).toBe("unavailable");
       expect(consulted).toBe(false);
     });
 
@@ -1068,6 +1106,7 @@ describe("joinRedeem", () => {
       expect(result.access).toBe("ok");
       expect(result.peering).toBe("unavailable");
       expect(result.peeringFix).toContain("rt team invite --handle zaphod");
+      expect(result.peeringFix).toContain("or ask them to re-invite your board from the board's members panel");
       expect(result.message).toContain(result.peeringFix!);
     });
 

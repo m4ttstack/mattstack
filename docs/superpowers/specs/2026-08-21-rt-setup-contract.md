@@ -191,7 +191,11 @@ verifies the clone and the Keychain key.
 `secrets-store-not-ready` (refused before the redeem) and
 `peering-store-failed` (after it; rerun `rt team join` with no code).
 `peeringFix` is present exactly when `peering` is `unavailable`, and the
-`team.join` step then ends `partial` with it as the remedy.
+`team.join` step then ends `partial` with it as the remedy, and stays
+`partial` on a later run while a joined member of a switchboard team has
+no stored `switchboardToken`. A secrets store that keeps failing blocks the
+join outright, with no bypass, by design: finishing without the token
+would lose it.
 
 ## `rt team invite --handle <h> [--require-peering] --json`
 
