@@ -13,7 +13,7 @@ import { STEP_IDS, type EventId, type NeedRequest, type StepId, type StepKind, t
 import type { Emit } from "./emit.ts";
 import { UserActionableError } from "./errors.ts";
 import { readIntent, teamRefFromIntent, clearIntent, type SetupIntent } from "./intent.ts";
-import { awaitNeed, type NeedReply } from "./need.ts";
+import { askAppDirectly, awaitNeed, hasDirectRoute, type NeedReply } from "./need.ts";
 import type { Probes } from "./probes.ts";
 import { realSecretPresence } from "./plan.ts";
 import { readPackRequirements, type PackRequirements } from "./requirements.ts";
@@ -81,9 +81,10 @@ export interface ApplyContext {
    */
   redact(value: string): void;
   /**
-   * "no-app" is an rt-side judgment (not the app's), made only when
-   * nonInteractive AND a quick pre-check finds no live tray.sock — otherwise
-   * the real app-gone/timeout dance in `awaitNeed` decides. Typed over
+   * "no-app" is an rt-side judgment (not the app's), made when a quick
+   * pre-check finds no live tray.sock on a run the app did not spawn (a
+   * nonInteractive one, or any request the app serves as a plain route);
+   * otherwise the real app-gone/timeout dance in `awaitNeed` decides. Typed over
    * `EventId` (not `StepId`) so `rt uninstall`'s action ids — which share
    * this same need protocol and this same context type — typecheck too.
    */
@@ -380,6 +381,17 @@ export async function createApplyContext(deps: CreateApplyContextDeps): Promise<
     secretPresence: deps.secretPresence ?? realSecretPresence(),
     redact: redactor.redact,
     async need(id: EventId, request: NeedRequest): Promise<NeedReply | "timeout" | "app-gone" | "no-app" | "app-unanswerable"> {
+      // The app pumps needs only for the rt it spawned, which it marks with
+      // RT_APP_SOCKET. Any other run asks the app's plain route for the same
+      // work, failing fast when no app is there to take it. An admin prompt
+      // is left to the path below when no one is at the keyboard for it.
+      const prompts = request.type === "app-privileged";
+      if (!p.env.RT_APP_SOCKET && hasDirectRoute(request) && !(flags.nonInteractive && prompts)) {
+        if (!(await trayReachable(p))) return "no-app";
+        if (prompts) emit({ event: "log", id, line: "approve the admin prompt mattstack.app shows" });
+        const direct = await askAppDirectly(p.tray, request);
+        if (direct !== null) return direct;
+      }
       // Reachability is checked BEFORE the `need` event goes out: a
       // nonInteractive run with no live tray.sock has nobody to answer it,
       // so emitting first would strand an unanswerable `need` on the stream.

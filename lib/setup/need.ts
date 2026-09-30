@@ -19,7 +19,7 @@
 import type { TrayClient } from "../daemon-client.ts";
 import { bundledToolPath } from "../deps/resolve.ts";
 import type { StepOutcome } from "./apply.ts";
-import type { EventId } from "./contract.ts";
+import type { EventId, NeedRequest } from "./contract.ts";
 import type { Probes } from "./probes.ts";
 
 /** The prod-flavor plist names; dev mode inserts ".dev" before ".plist" (see servicePlists). */
@@ -109,6 +109,49 @@ export async function awaitNeed(
     if (now() >= deadline) return "timeout";
     await sleep(pollMs);
   }
+}
+
+interface ServiceRegisterResult {
+  plist: string;
+  ok: boolean;
+  status: string;
+  error?: string;
+}
+
+/** Mirrors NeedBroker's own detail for app-register-services (rt-tray Sources-core/Needs/NeedBroker.swift), so a step reads the same text either way. */
+function registerReply(json: { ok?: boolean; results?: ServiceRegisterResult[] } | null): NeedReply {
+  const results = Array.isArray(json?.results) ? json.results : [];
+  const failed = results.filter((r) => !r.ok);
+  if (json?.ok === true && failed.length === 0) return { ok: true, detail: results.map((r) => `${r.plist}: ${r.status}`).join(", ") };
+  return { ok: false, detail: failed.map((r) => `${r.plist}: ${r.error ?? r.status}`).join("; ") || "mattstack.app reported failure" };
+}
+
+function directRoute(request: NeedRequest): { path: string; body?: unknown } | null {
+  if (request.type === "app-register-services") return { path: "/services/register", body: { plists: request.plists } };
+  if (request.type === "app-privileged" && (request.op === "proxy-install" || request.op === "proxy-trust")) return { path: `/privileged/${request.op}` };
+  return null;
+}
+
+/** Whether the app serves `request` as a plain tray.sock route (rt-tray Sources-core/Routes/TrayRoutes.swift) as well as a need. */
+export function hasDirectRoute(request: NeedRequest): boolean {
+  return directRoute(request) !== null;
+}
+
+/**
+ * Performs `request` through its plain route, for a run no app is pumping
+ * needs for. null means the app has no such route. The route holds the
+ * connection until the work is done, an admin prompt included, so it gets
+ * the need protocol's own deadline.
+ */
+export async function askAppDirectly(tray: TrayClient, request: NeedRequest): Promise<NeedReply | "app-gone" | null> {
+  const route = directRoute(request);
+  if (route === null) return null;
+  const { path, body } = route;
+  const res = await tray<{ ok?: boolean; detail?: string; results?: ServiceRegisterResult[] }>(path, { method: "POST", body, timeoutMs: DEFAULT_TIMEOUT_MS });
+  if (res.status === 0) return "app-gone";
+  if (res.status !== 200) return { ok: false, detail: `mattstack.app answered ${path} with status ${res.status}` };
+  if (request.type === "app-register-services") return registerReply(res.json);
+  return { ok: res.json?.ok === true, ...(typeof res.json?.detail === "string" ? { detail: res.json.detail } : {}) };
 }
 
 /**

@@ -1037,13 +1037,13 @@ describe("createApplyContext", () => {
       flags: { nonInteractive: true, teamOfOne: false, ci: false },
     });
 
-    const result = await ctx.need("services.register", { type: "app-register-services", plists: [] });
+    const result = await ctx.need("services.unregister", { type: "app-unregister-services", plists: [] });
 
     expect(result).toBe("app-unanswerable");
     expect(events).toEqual([]); // refused before emitting — only an app-driven apply services needs
   });
 
-  test("ctx.need emits the need event and threads the injected clock into awaitNeed's poll loop when reachable", async () => {
+  test("ctx.need emits the need event and threads the injected clock into awaitNeed's poll loop when the app drives the run", async () => {
     let calls = 0;
     const tray = fakeTray({
       "GET /version": () => ({ status: 200, json: { version: "1.0.0" } }),
@@ -1052,7 +1052,7 @@ describe("createApplyContext", () => {
         return calls < 2 ? { status: 200, json: { state: "pending" } } : { status: 200, json: { state: "done", detail: "registered" } };
       },
     });
-    const p = fakeProbes({ tray });
+    const p = fakeProbes({ tray, env: { RT_APP_SOCKET: "/fake-home/.mattstack/rt/tray.sock" } });
     const events: ApplyEvent[] = [];
     let elapsedMs = 0;
     const ctx = await createApplyContext({
@@ -1076,6 +1076,96 @@ describe("createApplyContext", () => {
     expect(result).toEqual({ ok: true, detail: "registered" });
     expect(calls).toBe(2);
     expect(events).toContainEqual({ event: "need", id: "services.register", request: { type: "app-register-services", plists: ["x"] } });
+  });
+});
+
+// The app performs needs only for the rt it spawned (RT_APP_SOCKET set); a
+// terminal run used to emit a need nobody read and poll for ten minutes.
+describe("createApplyContext: a terminal run asks the app's routes directly", () => {
+  const reachable = { "GET /version": () => ({ status: 200, json: { version: "1.0.0" } }) };
+
+  async function terminalCtx(tray: ReturnType<typeof fakeTray>, opts: { nonInteractive?: boolean; env?: Record<string, string> } = {}) {
+    const events: ApplyEvent[] = [];
+    const ctx = await createApplyContext({
+      probes: fakeProbes({ tray, env: opts.env ?? {} }),
+      emit: (ev) => events.push(ev),
+      secrets: fakeSecrets,
+      relay: fakeRelay,
+      flags: { nonInteractive: opts.nonInteractive ?? false, teamOfOne: false, ci: false },
+      needOpts: { timeoutMs: 0, sleep: async () => {} },
+    });
+    return { ctx, events };
+  }
+
+  test("services.register goes to /services/register and never emits a need", async () => {
+    const tray = fakeTray({
+      ...reachable,
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [{ plist: "d.plist", ok: true, status: "enabled" }] } }),
+    });
+    const { ctx, events } = await terminalCtx(tray);
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "d.plist: enabled" });
+    expect(events.some((e) => e.event === "need")).toBe(false);
+  });
+
+  test("the proxy install goes to its privileged route", async () => {
+    const tray = fakeTray({ ...reachable, "POST /privileged/proxy-install": () => ({ status: 200, json: { ok: true, detail: "installed" } }) });
+    const { ctx } = await terminalCtx(tray);
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" })).toEqual({ ok: true, detail: "installed" });
+  });
+
+  test("with no app running it answers no-app at once, which the step turns into open mattstack.app and retry", async () => {
+    const noTray: ReturnType<typeof fakeTray> = async () => ({ status: 0, json: null });
+    const { ctx, events } = await terminalCtx(noTray);
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toBe("no-app");
+    expect(events).toEqual([]);
+
+    const outcome = await STEPS.find((s) => s.id === "services.register")!.run(ctx);
+    expect(outcome).toMatchObject({ state: "failed", remedy: "Open mattstack.app, then Retry" });
+  });
+
+  test("a non-interactive terminal run still registers services directly", async () => {
+    const tray = fakeTray({
+      ...reachable,
+      "POST /services/register": () => ({ status: 200, json: { ok: true, results: [{ plist: "d.plist", ok: true, status: "enabled" }] } }),
+    });
+    const { ctx } = await terminalCtx(tray, { nonInteractive: true });
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "d.plist: enabled" });
+  });
+
+  test("a non-interactive terminal run never raises an admin prompt nobody is there to answer", async () => {
+    let asked = false;
+    const tray = fakeTray({
+      ...reachable,
+      "POST /privileged/proxy-install": () => {
+        asked = true;
+        return { status: 200, json: { ok: true, detail: "installed" } };
+      },
+    });
+    const { ctx } = await terminalCtx(tray, { nonInteractive: true });
+
+    expect(await ctx.need("proxy.install", { type: "app-privileged", op: "proxy-install" })).toBe("app-unanswerable");
+    expect(asked).toBe(false);
+  });
+
+  test("a run the app spawned keeps the need protocol, since the app pumps it", async () => {
+    let direct = false;
+    const tray = fakeTray({
+      ...reachable,
+      "POST /services/register": () => {
+        direct = true;
+        return { status: 200, json: { ok: true, results: [] } };
+      },
+      "GET /setup/need/services.register": () => ({ status: 200, json: { state: "done", detail: "pumped" } }),
+    });
+    const { ctx, events } = await terminalCtx(tray, { env: { RT_APP_SOCKET: "/fake-home/.mattstack/rt/tray.sock" } });
+
+    expect(await ctx.need("services.register", { type: "app-register-services", plists: ["d.plist"] })).toEqual({ ok: true, detail: "pumped" });
+    expect(direct).toBe(false);
+    expect(events.some((e) => e.event === "need")).toBe(true);
   });
 });
 
