@@ -294,6 +294,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
         let report = await registrar.settleLaunch(probes, latch: spawnHealLatch)
         registrar.recordAfterSettle(LaunchRecording.plan(registration: registration, progress: progress, report: report),
                                     progress: progress, current: version, store: UserDefaults.standard)
+        Task { @MainActor [weak self] in await self?.runSetupUpdateAfterLaunch() }
         if LaunchRecording.restartsServedApps(progress: progress, report: report,
                                               deckLabel: registrar.deckLabel(daemonLabel: lifecycle.label)) {
             // Off the launch Task, which holds the first refreshStatus: the
@@ -651,6 +652,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
             }
         } catch {
             TrayLog.warn("mattstack.appPath write failed to start", ["err": (error as? RtClientError)?.copy ?? "rt settings set failed to start."])
+        }
+    }
+
+    /// rt decides whether anything happens (never set up, already applied
+    /// for this version, or a run); the tray only spawns the verb once the
+    /// agents have settled and logs the done line.
+    @MainActor
+    private func runSetupUpdateAfterLaunch() async {
+        guard let rt = rtClient, let coordinator, coordinator.setupIsComplete else { return }
+        do {
+            let r = try await rt.run(["setup", "update", "--json"], stdin: nil)
+            let outcome = SetupUpdateOutcome.parse(stdout: r.stdout)
+            TrayLog.info("setup update after launch",
+                         ["exit": Int(r.exitCode), "ok": outcome.ok, "skipped": outcome.skipped ?? "",
+                          "failedSteps": outcome.failedSteps.joined(separator: ",")])
+        } catch {
+            TrayLog.warn("setup update failed to start", ["err": (error as? RtClientError)?.copy ?? "rt setup update failed to start."])
         }
     }
 
