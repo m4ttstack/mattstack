@@ -104,10 +104,14 @@ if (parsed.local) {
           mkdirSync(dirname(path), { recursive: true });
           writeFileSync(path, content);
         },
-        // The deps fetch and the build stream, so a terminal or the tray's build
-        // log shows progress for the minutes they run; their errors are already on screen.
+        // The long steps stream, so a terminal or the tray's build log shows
+        // progress for the minutes they run and keeps their errors in full.
         exec: async (argv, opts) => {
-          const streamed = argv.includes("rt-tray/build.sh") || argv.includes("scripts/fetch-deps.sh");
+          const streamed =
+            argv.includes("rt-tray/build.sh") ||
+            argv.includes("scripts/fetch-deps.sh") ||
+            argv.includes("scripts/build-apps.ts") ||
+            (argv[0] === "bun" && argv[1] === "install");
           if (!streamed) return runCapture(argv, { stderr: "pipe", timeoutMs: 600_000, ...opts });
           const proc = Bun.spawn(argv, { cwd: opts?.cwd, stdout: "inherit", stderr: "inherit" });
           // A hung step would otherwise leave the tray showing building… forever.
