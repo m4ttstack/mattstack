@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import type { PickRequest, PickResult } from "../../lib/ui/protocol.ts";
 import { readManifestBindings, stripJsonc } from "../../lib/skills/sources.ts";
-import { skillsBind, skillsCompile } from "../skills.ts";
+import { applyBind, skillsBind, skillsCompile } from "../skills.ts";
 
 /**
  * pickBindArgs opens a separate runPick session per omitted positional
@@ -270,6 +270,7 @@ describe("skillsBind", () => {
       from: "acme:watch-ci-domain-v1",
       to: "acme:watch-ci-domain-v2",
       fragmentUpdated: null,
+      shadowedBy: null,
       compileErrors: [],
     });
 
@@ -639,5 +640,56 @@ describe("bind writes the team pack fragment", () => {
     ).rejects.toThrow();
 
     expect(readFileSync(manifest, "utf8")).toBe(manifestBefore);
+  });
+});
+
+describe("applyBind", () => {
+  test("team pack: writes the fragment, regenerates, and reports a shadowing override", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const packDir = join(root, "teams", "acme", "mattstack", "packs", "widgets");
+    writeFile(join(packDir, "pack", "skills.jsonc"), `{\n  "bindings": {}\n}\n`);
+    const manifestPath = join(root, "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+    writeFile(manifestPath, "{}");
+    let regenerated = 0;
+    const result = await applyBind({
+      manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: false,
+      materialize: async () => {
+        regenerated++;
+        writeFile(manifestPath, `//   mattstack:watch-ci domain <- override\n{ "bindings": { "mattstack:watch-ci": { "domain": "me:ci" } } }`);
+      },
+    });
+    expect(regenerated).toBe(1);
+    expect(result.fragmentUpdated).toBe(join(packDir, "pack", "skills.jsonc"));
+    expect(JSON.parse(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+    expect(result.shadowedBy).toBe("override");
+  });
+
+  test("fixture mode: writes the fragment and the manifest, never regenerates", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const packDir = join(root, "pack");
+    writeFile(join(packDir, "pack", "skills.jsonc"), `// acme fragment\n{ "bindings": {} }`);
+    const manifestPath = join(root, "skills.jsonc");
+    writeFile(manifestPath, `{ "bindings": {} }`);
+    const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
+    expect(result).toEqual({ fragmentUpdated: join(packDir, "pack", "skills.jsonc"), shadowedBy: null });
+    expect(JSON.parse(readFileSync(manifestPath, "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+    expect(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).toContain("// acme fragment");
+  });
+
+  test("fixture mode with no fragment: the manifest alone is written", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const manifestPath = join(root, "skills.jsonc");
+    writeFile(manifestPath, `{ "bindings": {} }`);
+    const result = await applyBind({ manifestPath, packDir: join(root, "pack"), engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: true, materialize: async () => { throw new Error("must not run"); } });
+    expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
+  });
+
+  test("standalone pack (fragment is the manifest): one write, no regenerate", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+    const packDir = join(root, "mattstack");
+    const manifestPath = join(packDir, "pack", "skills.jsonc");
+    writeFile(manifestPath, `{ "bindings": {} }`);
+    const result = await applyBind({ manifestPath, packDir, engineRef: "mattstack:shepherdr", slotName: "tiering", fill: "mattstack:model-tiering", fixtureMode: false, materialize: async () => { throw new Error("must not run"); } });
+    expect(result).toEqual({ fragmentUpdated: null, shadowedBy: null });
   });
 });

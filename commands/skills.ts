@@ -2222,6 +2222,58 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
   return { verbName, slotName, fill, flagArgs };
 }
 
+/**
+ * A team pack's pack/skills.jsonc is the fragment materialize layers into the
+ * per-pack manifest, so a manifest-only write is undone by the next materialize
+ * and never reaches a teammate. A standalone pack's fragment IS its manifest.
+ * Every edit is computed before any write lands, so a fragment read or edit
+ * failure leaves the manifest untouched.
+ */
+export async function applyBind(opts: {
+  manifestPath: string;
+  packDir: string;
+  engineRef: string;
+  slotName: string;
+  fill: string;
+  fixtureMode: boolean;
+  materialize: () => Promise<void>;
+}): Promise<{ fragmentUpdated: string | null; shadowedBy: string | null }> {
+  const edit = (text: string) =>
+    applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, {
+      formattingOptions: { insertSpaces: true, tabSize: 2 },
+    }));
+  const writeManifestOnly = (): { fragmentUpdated: null; shadowedBy: null } => {
+    writeFileSync(opts.manifestPath, edit(readFileSync(opts.manifestPath, "utf8")));
+    return { fragmentUpdated: null, shadowedBy: null };
+  };
+
+  const fragmentPath = join(opts.packDir, "pack", "skills.jsonc");
+  if (!existsSync(fragmentPath)) return writeManifestOnly();
+  const fragmentReal = realpathSync(fragmentPath);
+  const packDirReal = realpathSync(opts.packDir);
+  if (fragmentReal !== packDirReal && !fragmentReal.startsWith(packDirReal + sep)) {
+    console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
+    return writeManifestOnly();
+  }
+  if (fragmentReal === realpathSync(opts.manifestPath)) return writeManifestOnly();
+
+  const fragmentAfter = edit(readFileSync(fragmentPath, "utf8"));
+  if (opts.fixtureMode) {
+    const manifestAfter = edit(readFileSync(opts.manifestPath, "utf8"));
+    writeFileSync(fragmentPath, fragmentAfter);
+    writeFileSync(opts.manifestPath, manifestAfter);
+    return { fragmentUpdated: fragmentPath, shadowedBy: null };
+  }
+  writeFileSync(fragmentPath, fragmentAfter);
+  await opts.materialize();
+
+  if (readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName] === opts.fill) {
+    return { fragmentUpdated: fragmentPath, shadowedBy: null };
+  }
+  const provenance = readManifestProvenance(readFileSync(opts.manifestPath, "utf8"));
+  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[`${opts.engineRef} ${opts.slotName}`] ?? "another layer" };
+}
+
 export async function skillsBind(args: string[]): Promise<void> {
   await withCleanErrors(async () => {
     // Positionals, not raw args, so an interleaved flag (bind verb --pack x slot
@@ -2313,36 +2365,20 @@ export async function skillsBind(args: string[]): Promise<void> {
       return;
     }
 
-    // Both edits are computed before either write lands: a fragment read or edit
-    // failure must not leave the manifest changed with the fragment untouched.
-    const text = readFileSync(resolved.manifestPath, "utf8");
-    const manifestEdits = modify(text, ["bindings", engineRef, slotName], fill, {
-      formattingOptions: { insertSpaces: true, tabSize: 2 },
+    const { fragmentUpdated, shadowedBy } = await applyBind({
+      manifestPath: resolved.manifestPath,
+      packDir: resolved.packDir,
+      engineRef,
+      slotName,
+      fill,
+      fixtureMode: bindFlags.mattstackDir !== null,
+      materialize: async () => {
+        await materializeSkills(createRealProbes(), {});
+      },
     });
-    const manifestAfter = applyEdits(text, manifestEdits);
-
-    // A team pack's pack/skills.jsonc is the fragment rt skills materialize layers into
-    // the per-pack manifest; the manifest write alone is undone by the next materialize and
-    // never reaches a teammate. A standalone pack's fragment IS its manifest (written above).
-    const fragmentPath = join(resolved.packDir, "pack", "skills.jsonc");
-    let fragmentWrite: { path: string; text: string } | null = null;
-    if (existsSync(fragmentPath)) {
-      const fragmentReal = realpathSync(fragmentPath);
-      const packDirReal = realpathSync(resolved.packDir);
-      const inPack = fragmentReal === packDirReal || fragmentReal.startsWith(packDirReal + sep);
-      if (!inPack) {
-        console.error(`rt skills bind: ${fragmentPath} resolves outside the pack; skipping fragment write`);
-      } else if (fragmentReal !== realpathSync(resolved.manifestPath)) {
-        const fragmentText = readFileSync(fragmentPath, "utf8");
-        const fragmentEdits = modify(fragmentText, ["bindings", engineRef, slotName], fill, {
-          formattingOptions: { insertSpaces: true, tabSize: 2 },
-        });
-        fragmentWrite = { path: fragmentPath, text: applyEdits(fragmentText, fragmentEdits) };
-      }
+    if (shadowedBy) {
+      console.error(`rt skills bind: ${engineRef}.${slotName} is bound to ${fill} in the fragment, but the ${shadowedBy} layer still wins in ${resolved.manifestPath}`);
     }
-
-    if (fragmentWrite) writeFileSync(fragmentWrite.path, fragmentWrite.text);
-    writeFileSync(resolved.manifestPath, manifestAfter);
 
     // A stage's bound fills feed every orchestrator's compiled allowed-tools union
     // (stageAllowedToolsFor) -- scoping to `--verb <stage>` would leave every
@@ -2367,13 +2403,14 @@ export async function skillsBind(args: string[]): Promise<void> {
         slot: slotName,
         from: oldValue,
         to: fill,
-        fragmentUpdated: fragmentWrite?.path ?? null,
+        fragmentUpdated,
+        shadowedBy,
         compileErrors: compileResult.errors,
       }));
       return;
     }
 
-    console.log(fragmentWrite ? `${summary} (fragment updated: ${fragmentWrite.path})` : summary);
+    console.log(fragmentUpdated ? `${summary} (fragment updated: ${fragmentUpdated})` : summary);
     const surfaceFlags: SurfaceFlags = {
       team: resolved.team,
       dryRun: false,
