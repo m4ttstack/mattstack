@@ -22,7 +22,7 @@ describe("renderInitOutcome", () => {
   const okOutcome: InitOutcome = {
     ok: true,
     pack: { name: "acme", dir: "/z/mattstack/packs/acme", zone: "acme", marketplace: "acme" },
-    repo: { slug: "gitlab.com-acme-api", manifest: "/h/.mattstack/repos/gitlab.com-acme-api/skills.jsonc" },
+    repo: { slug: "gitlab.com-acme-api", manifest: "/h/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc" },
     wrote: ["/z/mattstack/packs/acme/pack/stubs.jsonc"],
     installed: { plugin: "acme@acme", version: "0.1.0" },
     restartNeeded: true,
@@ -183,7 +183,7 @@ describe("skillsInit", () => {
       claude: async () => ({ code: 0, stdout: "", stderr: "" }),
       registerRepo: async () => "gitlab.com/acme/api",
       materialize: async () => {
-        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/skills.jsonc`, "{}");
+        fs.writeFile(`${HOME}/.mattstack/repos/gitlab.com-acme-api/packs/acme/skills.jsonc`, "{}");
         return { ok: true, detail: "merged" };
       },
       compile: async () => ({ ok: false, errors: ["boom"] }),
