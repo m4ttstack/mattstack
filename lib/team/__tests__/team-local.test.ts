@@ -49,6 +49,19 @@ describe("team-local record", () => {
     expect(readTeamLocal(p, SLUG)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
   });
 
+  test("peeringPending is absent until a join stamps it, and clearing it leaves the record as before", () => {
+    const p = fakeProbes({ home: HOME });
+    updateTeamLocal(p, SLUG, { joinedByRt: true, peeringPending: true });
+    expect(readTeamLocal(p, SLUG).peeringPending).toBe(true);
+    updateTeamLocal(p, SLUG, { peeringPending: false });
+    expect(readTeamLocal(p, SLUG)).toEqual({ createdByRt: false, joinedByRt: true, rtMayManageMembership: false });
+  });
+
+  test("a non-boolean peeringPending is not truthy-coerced", () => {
+    const p = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ peeringPending: "yes" }) } });
+    expect(readTeamLocal(p, SLUG).peeringPending).toBeUndefined();
+  });
+
   test("a non-boolean joinedByRt is not truthy-coerced", () => {
     const p = fakeProbes({ home: HOME, files: { [teamLocalPath(HOME, SLUG)]: JSON.stringify({ joinedByRt: "yes" }) } });
     expect(readTeamLocal(p, SLUG).joinedByRt).toBe(false);

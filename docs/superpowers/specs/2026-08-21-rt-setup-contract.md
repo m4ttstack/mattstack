@@ -185,13 +185,34 @@ verifies the clone and the Keychain key.
 
 ## `rt team join --json` (stdin: `{"code": "..."}`) / `--dry-run`
 
-→ `{ "contract":1, "team": {"slug","name","owner"}, "access": "ok"|"denied"|"unreachable", "peering": "applied"|"idle"|"unavailable", "message": "..." }`
-(exit 0 even when `access` is `denied`/`unreachable`; exit 2 only for
-`invite-unknown`/`invite-malformed`).
+→ `{ "contract":1, "team": {"slug","name","owner"}, "access": "ok"|"denied"|"unreachable", "peering": "applied"|"idle"|"unavailable", "peeringFix"?: "...", "message": "..." }`
+(exit 0 even when `access` is `denied`/`unreachable`; exit 2 for
+`invite-unknown`/`invite-malformed`, and for the resumable
+`secrets-store-not-ready` (refused before the redeem) and
+`peering-store-failed` (after it; rerun `rt team join` with no code).
+`peeringFix` is present exactly when `peering` is `unavailable`, and the
+`team.join` step then ends `partial` with it as the remedy. Such a join
+stamps `peeringPending` on the team's local record
+(`~/.mattstack/rt/teams/<slug>.json`); while any team carries the stamp,
+later runs keep the step (titled "Team membership" with no invite in
+progress) and end it `partial` until a token turns up in either source the
+board reads (its own `.env` `SWITCHBOARD_TOKEN`, or rt's `switchboardToken`),
+which clears the stamp. A team that no longer declares an https switchboard
+has its stamp cleared, and a join against a non-https declaration never
+stamps (only the owner can fix the URL). An unreadable secrets store is
+`partial` with a keychain remedy, never read as absent. A secrets store that keeps failing blocks the
+join outright, with no bypass, by design: finishing without the token
+would lose it.
 
-## `rt team invite --handle <h> --json`
+## `rt team invite --handle <h> [--require-peering] --json`
 
-→ `{ "contract":1, "code": "...", "expiresAt": "...", "pasteBlock": "Install mattstack from … then open mattstack://join/… or paste …", "forgeAccess": "granted"|"manual"|"skipped", "manualSteps": [...] }`
+→ `{ "contract":1, "code": "...", "expiresAt": "...", "pasteBlock": "Install mattstack from … then open mattstack://join/… or paste …", "forgeAccess": "granted"|"manual"|"skipped", "manualSteps": [...], "peering": "embedded"|"missing"|"none", "peeringWarning"?: "..." }`
+
+`peering` is `none` when the team declares no switchboard, and `missing`
+when it does but no board token could be sealed into the invite;
+`peeringWarning` (the same sentence warned on stderr) is present exactly
+then. `--require-peering` refuses a `missing` invite before anything is
+minted (exit 2 `peering-not-embedded`).
 
 ## `rt uninstall --json [--keep-data|--delete-data] [--yes] [--dry-run]`
 

@@ -41,6 +41,12 @@ export interface TeamLocalRecord {
    * team that predates this file is therefore off, with no migration.
    */
   rtMayManageMembership: boolean;
+  /**
+   * The last join on this machine ended without a stored board token. Only a
+   * stamped team keeps `team.join` in a later Install's plan; it clears once
+   * either token source (rt's secret or the board's .env) holds one.
+   */
+  peeringPending?: boolean;
 }
 
 const RECORD_MODE = 0o600;
@@ -62,6 +68,7 @@ export function readTeamLocal(p: Pick<Probes, "readFile" | "home">, slug: string
       createdByRt: parsed.createdByRt === true,
       joinedByRt: parsed.joinedByRt === true,
       rtMayManageMembership: parsed.rtMayManageMembership === true,
+      ...(parsed.peeringPending === true ? { peeringPending: true } : {}),
     };
   } catch {
     return { ...EMPTY };

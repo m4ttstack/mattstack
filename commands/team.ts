@@ -4,7 +4,7 @@
  *
  *   rt team create <name> (--remote <url> | --create-repo <owner>) [--others] [--json]
  *   rt team publish [--team <slug>] --remote <url> [--json]
- *   rt team invite --handle <h> [--team <slug>] [--json]
+ *   rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]
  *   rt team join [--dry-run] [--json]   (code on stdin as {"code":"..."}, or a prompt on a TTY)
  *   rt team members sync [--team <slug>] [--json]
  *   rt team members remove <handle> [--key <age1...>] [--team <slug>] [--json]
@@ -34,7 +34,7 @@ import { createTeam } from "../lib/team/create.ts";
 import { extractInviteCode } from "../lib/team/invite-crypto.ts";
 import { mintInvite } from "../lib/team/invite.ts";
 import { readTeamLocal, updateTeamLocal } from "../lib/team/team-local.ts";
-import { JoinKeyExchangeError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
+import { JoinKeyExchangeError, JoinPeeringStoreError, joinDryRun, joinRedeem, realJoinRedeemSeams, type JoinRedeemSeams, type JoinResult } from "../lib/team/join.ts";
 import { membersRemove, membersSync, preferredRoster, teamRemote } from "../lib/team/members.ts";
 import { publishTeam } from "../lib/team/publish.ts";
 import { storedForgeToken } from "../lib/team/stored-forge-token.ts";
@@ -227,7 +227,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
   const handle = flagValue(args, "--handle");
 
   if (!handle) {
-    usageError(deps, json, "team invite", "rt team invite --handle <h> [--team <slug>] [--json]");
+    usageError(deps, json, "team invite", "rt team invite --handle <h> [--team <slug>] [--require-peering] [--json]");
   }
 
   try {
@@ -253,7 +253,7 @@ export async function teamInvite(args: string[], _ctx: CommandContext = {}, deps
     }
 
     const relay = createRelayClient(deps.probes.fetch, inviteRelayUrl(deps.probes.env));
-    const result = await mintInvite(deps.probes, relay, { slug, handle, now: deps.probes.now() });
+    const result = await mintInvite(deps.probes, relay, { slug, handle, now: deps.probes.now(), requirePeering: args.includes("--require-peering") });
 
     if (json) {
       deps.print(JSON.stringify(envelope(result)));
@@ -353,6 +353,9 @@ export async function teamJoin(args: string[], _ctx: CommandContext = {}, deps: 
     // app's envelope decoder (exit 2 only) never sees this message at all.
     if (err instanceof JoinKeyExchangeError) {
       return exitUserError(new UserActionableError("age-key-unavailable", err.message), json, "team join", deps.print);
+    }
+    if (err instanceof JoinPeeringStoreError) {
+      return exitUserError(new UserActionableError("peering-store-failed", err.message), json, "team join", deps.print);
     }
     if (err instanceof UserActionableError) exitUserError(err, json, "team join", deps.print);
     throw err;

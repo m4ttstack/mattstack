@@ -45,9 +45,13 @@ public struct InviteResult: Codable, Equatable, Sendable {
     public var forgeAccess: String    // granted | manual | skipped
     public var manualSteps: [String]?
     public var link: String?
-    public init(code: String, expiresAt: String, pasteBlock: String, forgeAccess: String, manualSteps: [String]? = nil, link: String? = nil) {
+    public var peering: String?       // embedded | missing | none; nil means an older CLI
+    public var peeringWarning: String?
+    public init(code: String, expiresAt: String, pasteBlock: String, forgeAccess: String, manualSteps: [String]? = nil, link: String? = nil,
+                peering: String? = nil, peeringWarning: String? = nil) {
         self.code = code; self.expiresAt = expiresAt; self.pasteBlock = pasteBlock
         self.forgeAccess = forgeAccess; self.manualSteps = manualSteps; self.link = link
+        self.peering = peering; self.peeringWarning = peeringWarning
     }
 }
 

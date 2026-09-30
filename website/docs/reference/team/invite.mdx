@@ -21,6 +21,7 @@ rt team invite [flags]
 | --- | --- | --- | --- |
 | `--handle` | text |  | The invitee's forge username |
 | `--team` | text |  | Which cloned team to invite into; omit when only one is cloned |
+| `--require-peering` | boolean | `false` | Refuse to mint an invite that cannot carry the invitee's board token |
 | [`--json`](/guides/common-flags) | boolean | `false` | Machine-readable result |
 
 _See code: [commands/team.ts › teamInvite](https://github.com/m4ttstack/mattstack/blob/main/commands/team.ts)_

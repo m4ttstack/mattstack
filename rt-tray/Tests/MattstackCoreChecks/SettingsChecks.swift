@@ -172,6 +172,20 @@ let settingsChecks: [Check] = [
         c.expectEqual(proxy.state, "done")
         c.expect(!unreg.detail.contains("stale-need"), "the pre-run ledger entry must be forgotten, not replayed as this run's outcome")
     },
+    Check("an invite that could not carry board peering decodes its warning, and an older CLI's reply still decodes without one") { c in
+        let rt = ScriptedRt()
+        rt.answers["team invite --handle bob"] = (0, #"{"contract":1,"code":"ABCD","expiresAt":"2026-08-28T00:00:00Z","pasteBlock":"p","forgeAccess":"skipped","manualSteps":[],"peering":"missing","peeringWarning":"board peering was not embedded in this invite (no admin token)"}"#)
+        rt.answers["team invite --handle carol"] = (0, #"{"contract":1,"code":"EFGH","expiresAt":"2026-08-28T00:00:00Z","pasteBlock":"p","forgeAccess":"skipped","manualSteps":[]}"#)
+        let m = await MainActor.run { makeTeamSettings(rt).0 }
+
+        await m.mintInvite(handle: "bob")
+        c.expectEqual(await MainActor.run { m.invite?.peering }, "missing")
+        c.expectEqual(await MainActor.run { m.invite?.peeringWarning }, "board peering was not embedded in this invite (no admin token)")
+
+        await m.mintInvite(handle: "carol")
+        c.expectEqual(await MainActor.run { m.invite?.code }, "EFGH")
+        c.expect(await MainActor.run { m.invite?.peeringWarning == nil }, "an older CLI's reply carries no warning")
+    },
     Check("TeamSettingsModel reads mode solo from team status") { c in
         let rt = ScriptedRt()
         rt.answers["team status"] = (0, #"{"contract":1,"mode":"solo","slug":null,"name":null,"remote":null,"lastPush":null,"members":[]}"#)

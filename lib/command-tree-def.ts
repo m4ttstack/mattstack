@@ -2799,6 +2799,7 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Handle", flag: "--handle", type: "text", placeholder: "octocat", hint: "The invitee's forge username" },
           { name: "Team", flag: "--team", type: "text", placeholder: "acme", hint: "Which cloned team to invite into; omit when only one is cloned" },
+          { name: "Require peering", flag: "--require-peering", type: "boolean", default: false, hint: "Refuse to mint an invite that cannot carry the invitee's board token" },
           SETUP_JSON_ARG,
         ],
       },

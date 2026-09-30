@@ -60,6 +60,7 @@ function fakeJoinRedeemSeams(overrides: Partial<JoinRedeemSeams> = {}): JoinRede
     readTeamSecret: async () => null,
     forgeLogin: async () => "zaphod",
     forgeToken: async () => null,
+    localStoreReady: async () => true,
     writeLocalSecret: async () => {},
     writeMachineSetting: () => {},
     writeUserSetting: () => {},
@@ -322,6 +323,34 @@ describe("teamJoin", () => {
     const body = JSON.parse(deps.lines[0]!);
     expect(body.error.code).toBe("age-key-unavailable");
     expect(body.error.message).toContain("redeemed the invite");
+  });
+
+  test("a board token that cannot be stored after the redeem exits 2 with its own code, telling the user a plain rerun finishes", async () => {
+    const probes = fakeProbes({
+      home: HOME,
+      fetch: async (url, init) => {
+        if (url.endsWith("/boards")) return { status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-1" }), headers: {} };
+        return relayFetch()(url, init);
+      },
+      exec: () => ({ code: 0, stdout: "", stderr: "" }),
+    });
+    const deps = baseDeps({
+      probes,
+      joinRedeemSeams: fakeJoinRedeemSeams({
+        read: fakeRead({ "mattstack.integrations": { switchboard: { url: "https://sb.test" } } }),
+        readTeamSecret: async () => "admin-token",
+        writeLocalSecret: async () => {
+          throw new Error("sops: no matching creation rules");
+        },
+      }),
+    });
+
+    const code = await runExpectingProcessExit(() => teamJoin(["--json"], {}, deps));
+
+    expect(code).toBe(2);
+    const body = JSON.parse(deps.lines[0]!);
+    expect(body.error.code).toBe("peering-store-failed");
+    expect(body.error.message).toContain("no new code needed");
   });
 
   test("a keychain failure in human mode prints a clean one-liner, not a raw stack", async () => {

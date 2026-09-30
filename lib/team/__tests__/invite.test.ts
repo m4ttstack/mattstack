@@ -425,6 +425,66 @@ describe("mintInvite", () => {
     expect(warnings.some((w) => w.includes("board peering"))).toBe(true);
   });
 
+  describe("the result says whether board peering rode the invite", () => {
+    const WITH_SWITCHBOARD = {
+      "mattstack.integrations": { forge: { host: "github.com", provider: "github" }, switchboard: { url: "https://sb.test" } },
+    };
+
+    test("an embedded board token reports peering embedded, with no warning", async () => {
+      const p = fakeProbes({
+        home: HOME,
+        files: { [GIT_CONFIG_PATH]: gitConfigWithRemote(REMOTE) },
+        fetch: async () => ({ status: 201, body: JSON.stringify({ username: "zaphod", token: "tok-9" }), headers: {} }),
+      });
+      const { seams } = baseSeams({ read: fakeRead(WITH_SWITCHBOARD), readLocalSecret: async () => "admin-1" });
+
+      const result = await mintInvite(p, fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+
+      expect(result.peering).toBe("embedded");
+      expect(result.peeringWarning).toBeUndefined();
+    });
+
+    test("a team with no switchboard reports peering none", async () => {
+      const { seams } = baseSeams();
+
+      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+
+      expect(result.peering).toBe("none");
+      expect(result.peeringWarning).toBeUndefined();
+    });
+
+    test("a token that could not be minted reports peering missing, and the warning in the result is the one printed on stderr", async () => {
+      const { seams, warnings } = baseSeams({ read: fakeRead(WITH_SWITCHBOARD), readLocalSecret: async () => null });
+
+      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW }, seams);
+
+      expect(result.peering).toBe("missing");
+      expect(result.peeringWarning).toContain("no readable switchboardAdminToken secret in the local rt domain");
+      expect(warnings).toContain(result.peeringWarning!);
+    });
+
+    test("requirePeering refuses a missing token before anything reaches the relay or the roster", async () => {
+      const { seams, writeCalls } = baseSeams({ read: fakeRead(WITH_SWITCHBOARD), readLocalSecret: async () => null });
+      const relay = fakeRelayClient();
+
+      const caught = await mintInvite(probesWithRemote(REMOTE), relay.client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams).catch((err: unknown) => err);
+
+      expect(caught).toBeInstanceOf(UserActionableError);
+      expect((caught as UserActionableError).code).toBe("peering-not-embedded");
+      expect((caught as Error).message).toContain("no readable switchboardAdminToken");
+      expect(relay.createCalls).toEqual([]);
+      expect(writeCalls).toEqual([]);
+    });
+
+    test("requirePeering is satisfied by a team with no switchboard", async () => {
+      const { seams } = baseSeams();
+
+      const result = await mintInvite(probesWithRemote(REMOTE), fakeRelayClient().client, { slug: SLUG, handle: "zaphod", now: NOW, requirePeering: true }, seams);
+
+      expect(result.peering).toBe("none");
+    });
+  });
+
   test("derives forge host/provider from the remote when mattstack.integrations is unset", async () => {
     const p = probesWithRemote(REMOTE);
     const { seams } = baseSeams({ read: fakeRead({ "board.title": "Acme Team" }) });

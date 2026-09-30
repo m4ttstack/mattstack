@@ -58,6 +58,11 @@ struct TeamPane: View {
                                 Text("expires \(inv.expiresAt) · forge access: \(inv.forgeAccess)").font(.caption).foregroundStyle(.secondary)
                             }
                             if let steps = inv.manualSteps, !steps.isEmpty { ForEach(steps, id: \.self) { Text("• \($0)").font(.caption) } }
+                            if let warning = inv.peeringWarning {
+                                Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                                    .font(.caption)
+                                    .accessibilityIdentifier(AXID.settingsTeamInvitePeeringWarning)
+                            }
                         }
                     }
                 }

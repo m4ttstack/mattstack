@@ -89,12 +89,18 @@ export interface InviteResult {
   pasteBlock: string;
   forgeAccess: ForgeAccess;
   manualSteps: string[];
+  /** "none" when the team declares no switchboard; "missing" means the joiner's board will not peer from this invite. */
+  peering: "embedded" | "missing" | "none";
+  /** Present exactly when `peering` is "missing": the reason and the repair, the same sentence the mint warns on stderr. */
+  peeringWarning?: string;
 }
 
 export interface MintInviteOpts {
   slug: string;
   handle: string;
   now: Date;
+  /** Refuse, before anything is minted, an invite for a switchboard team that would carry no board token. */
+  requirePeering?: boolean;
 }
 
 export interface MintInviteSeams {
@@ -238,6 +244,7 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   // into the pointer. Every failure degrades to an invite without peering
   // plus a warning; the board panel's re-invite remains the repair.
   const switchboardUrl = snapshot.integrations.switchboard?.url;
+  let peeringWarning: string | undefined;
   if (switchboardUrl) {
     let embedFailure: string | null = null;
     try {
@@ -270,9 +277,12 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
       embedFailure = err instanceof Error ? err.message : String(err);
     }
     if (embedFailure) {
-      seams.warn(`board peering was not embedded in this invite (${embedFailure}); after they join, re-invite their board from the board's members panel`);
+      peeringWarning = `board peering was not embedded in this invite (${embedFailure}); after they join, re-invite their board from the board's members panel`;
+      if (opts.requirePeering) throw new UserActionableError("peering-not-embedded", `refusing to mint: ${peeringWarning}`);
+      seams.warn(peeringWarning);
     }
   }
+  const peering: InviteResult["peering"] = !switchboardUrl ? "none" : pointer.switchboard ? "embedded" : "missing";
 
   // Captured before this handle's new record is minted — replace-on-mint's revoke of THIS value runs last, after the new invite is safely live (finding: create-before-destroy).
   const priorRecord = readInviteRecords(p, opts.slug)[opts.handle];
@@ -323,5 +333,14 @@ export async function mintInvite(p: Probes, relay: RelayClient, opts: MintInvite
   }
 
   const link = joinLink(joinLinkBase(p.env), code);
-  return { code, link, expiresAt, pasteBlock: pasteBlock(code, { link, teamName: pointer.name }), forgeAccess, manualSteps };
+  return {
+    code,
+    link,
+    expiresAt,
+    pasteBlock: pasteBlock(code, { link, teamName: pointer.name }),
+    forgeAccess,
+    manualSteps,
+    peering,
+    ...(peeringWarning !== undefined ? { peeringWarning } : {}),
+  };
 }
