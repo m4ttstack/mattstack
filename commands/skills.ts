@@ -38,6 +38,8 @@ import { materializeSkills, type MaterializeSkillsResult } from "../lib/setup/sk
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
+import { readZonesFrom, type InitFs } from "../lib/skills/init.ts";
+import { manifestRepoKey, packManifestPath } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -98,6 +100,7 @@ type Flags = {
   team: string | null;
   verbs: string[] | null;
   manifest: string | null;
+  repo: string | null;
   dryRun: boolean;
   preview: boolean;
   packDir: string | null;
@@ -110,6 +113,7 @@ function parseFlags(args: string[]): Flags {
   const verbs: string[] = [];
   let team: string | null = null;
   let manifest: string | null = null;
+  let repo: string | null = null;
   let dryRun = false;
   let preview = false;
   let packDir: string | null = null;
@@ -124,6 +128,7 @@ function parseFlags(args: string[]): Flags {
       case "--team": team = args[++i] ?? team; break;
       case "--verb": { const v = args[++i]; if (v) verbs.push(v); break; }
       case "--manifest": manifest = args[++i] ?? null; break;
+      case "--repo": repo = args[++i] ?? null; break;
       case "--dry-run": dryRun = true; break;
       case "--preview": preview = true; break;
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
@@ -135,7 +140,7 @@ function parseFlags(args: string[]): Flags {
     }
   }
 
-  return { team, verbs: verbs.length ? verbs : null, manifest, dryRun, preview, packDir, mattstackDir, json, strict };
+  return { team, verbs: verbs.length ? verbs : null, manifest, repo, dryRun, preview, packDir, mattstackDir, json, strict };
 }
 
 function packRootDir(mattstackRoot: string, team: string): string {
@@ -252,6 +257,14 @@ function listSubdirs(dir: string): string[] {
     .sort();
 }
 
+const realInitFs: InitFs = {
+  exists: existsSync,
+  readFile: (p) => (existsSync(p) ? readFileSync(p, "utf8") : null),
+  readDir: (p) => (existsSync(p) ? readdirSync(p) : []),
+  writeFile: (p, text) => writeFileSync(p, text),
+  mkdirp: (p) => mkdirSync(p, { recursive: true }),
+};
+
 type SkillEntry = { name: string; group: string | null; dir: string };
 
 /**
@@ -366,55 +379,57 @@ function isUnder(parent: string, child: string): boolean {
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolutePath(rel);
 }
 
+function repoSlugArg(repo: string): string {
+  return repo.includes("/") ? `${repo.split("/")[0]!.toLowerCase()}-${repo.split("/").slice(1).join("-")}` : repo;
+}
+
 /**
- * A team-zone pack is compiled against its repo's merged manifest, never its
- * own pack/skills.jsonc: that file is one layer rt skills materialize merges
- * with mattstack's defaults, any base pack and the user's overrides, so compiling from it alone
- * would commit an artifact that check flags as drift on every registered
- * machine. A standalone pack (the mattstack plugin) has no repo and no merge;
- * its pack/skills.jsonc IS its manifest.
+ * A team pack is compiled against its own per-pack file for one repo: the
+ * only one, `--repo`, or the first project its zone declares. A standalone
+ * pack (the mattstack plugin) has no repo; its pack/skills.jsonc IS its
+ * manifest.
  */
-function findDefaultManifest(mattstackRoot: string, team: string, packDir: string): string {
+function findDefaultManifest(mattstackRoot: string, team: string, packDir: string, repo: string | null): string {
   const reposRoot = join(mattstackRoot, "repos");
-  const candidates: { path: string; mtimeMs: number }[] = [];
+  const candidates = listSubdirs(reposRoot)
+    .map((slug) => ({ slug, path: packManifestPath(mattstackRoot, slug, team) }))
+    .filter((c) => existsSync(c.path));
 
-  for (const repoName of listSubdirs(reposRoot)) {
-    const manifestPath = join(reposRoot, repoName, "skills.jsonc");
-    if (!existsSync(manifestPath)) continue;
-    const header = leadingCommentBlock(readFileSync(manifestPath, "utf8"));
-    // Each provenance line reads `<engine-plugin>:<engine> <slot> <- <pack>@<marketplace>`.
-    // Only the source half names the pack; the key half names the engine's plugin,
-    // which is "mattstack" in every team's manifest.
-    if (!header.includes(`<- ${team}@`)) continue;
-    candidates.push({ path: manifestPath, mtimeMs: statSync(manifestPath).mtimeMs });
-  }
-
-  if (candidates.length === 0) {
-    const ownManifest = join(packDir, "pack", "skills.jsonc");
-    // Team packs sit at <repo>/mattstack/packs/<team>; that path shape
-    // survives worktrees, unlike the teams-zone location -- and a team
-    // pack's pack/skills.jsonc is a merge fragment, never its manifest.
-    const parts = resolvePath(packDir).split(sep);
-    const teamShaped = parts.at(-2) === "packs" && parts.at(-3) === "mattstack";
-    const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
-    if (standalone && existsSync(ownManifest)) return ownManifest;
+  if (repo) {
+    const wanted = repoSlugArg(repo);
+    const hit = candidates.find((c) => c.slug === wanted);
+    if (hit) return hit.path;
     throw new SkillsUsageError(
-      `no skills.jsonc under ${reposRoot}/*/ names team "${team}" in its provenance header (<- ${team}@...)` +
-        (standalone ? ` and ${ownManifest} is absent` : "") +
-        `; pass --manifest explicitly`,
+      `no ${team} bindings file for repo "${repo}" under ${reposRoot} (have: ${candidates.map((c) => c.slug).join(", ") || "none"}); run rt skills materialize`,
+    );
+  }
+  if (candidates.length === 1) return candidates[0]!.path;
+
+  if (candidates.length > 1) {
+    const zones = readZonesFrom(realInitFs, join(mattstackRoot, "teams"));
+    const zone = zones.find((z) => existsSync(join(z.dir, "mattstack", "packs", team)));
+    for (const project of zone?.projects ?? []) {
+      const hit = candidates.find((c) => c.slug === `${zone!.host}-${project.replaceAll("/", "-")}`);
+      if (hit) return hit.path;
+    }
+    throw new SkillsUsageError(
+      `pack "${team}" binds ${candidates.length} repos (${candidates.map((c) => c.slug).join(", ")}); pass --repo <slug or host/path>`,
     );
   }
 
-  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  const newest = candidates[0]!;
-  const tied = candidates.filter((c) => c.mtimeMs === newest.mtimeMs);
-  if (tied.length > 1) {
-    throw new SkillsUsageError(
-      `ambiguous manifest for team "${team}" -- candidates tie for newest:\n${tied.map((c) => c.path).join("\n")}\npass --manifest explicitly`,
-    );
-  }
-
-  return newest.path;
+  const ownManifest = join(packDir, "pack", "skills.jsonc");
+  // Team packs sit at <repo>/mattstack/packs/<team>; that path shape
+  // survives worktrees, unlike the teams-zone location, and a team pack's
+  // pack/skills.jsonc is a merge fragment, never its manifest.
+  const parts = resolvePath(packDir).split(sep);
+  const teamShaped = parts.at(-2) === "packs" && parts.at(-3) === "mattstack";
+  const standalone = !isUnder(join(mattstackRoot, "teams"), packDir) && !teamShaped;
+  if (standalone && existsSync(ownManifest)) return ownManifest;
+  throw new SkillsUsageError(
+    `no repos/*/packs/${team}/skills.jsonc under ${reposRoot}` +
+      (standalone ? ` and ${ownManifest} is absent` : "") +
+      `; run rt skills materialize, or pass --manifest explicitly`,
+  );
 }
 
 type Resolved = {
@@ -480,7 +495,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
 
   const fullRoster = readVerbRoster(packDir);
   // A pack with no verb roster needs no manifest: bindings only feed compile targets.
-  const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir));
+  const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo));
   const bindings = manifestPath ? readManifestBindings(manifestPath) : {};
   // No compile targets means nothing needs plugin roots or the invocable roster;
   // skipping the `claude plugin list` subprocess keeps rosterless packs usable
@@ -507,9 +522,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   } catch (err) {
     throw new SkillsUsageError((err as Error).message);
   }
-  // The manifest's parent directory name is the registry repo key `run-start
-  // --repo` expects -- the same key `~/.mattstack/runs/<repo>/` is named by.
-  const repoKey = manifestPath ? basename(dirname(manifestPath)) : "";
+  const repoKey = manifestPath ? manifestRepoKey(manifestPath) : "";
   const { sha: mattstackSha, dirty: mattstackDirty } = mattstackProvenance(pipelines, pluginRoots.byName.mattstack);
   const packSha = computePackSha(pipelines, self, packDir);
   let stageEntries: Record<string, StageEntry[]>;
@@ -901,7 +914,7 @@ export async function skillsCompile(args: string[]): Promise<void> {
       // non-JSON path's exits. `written` stays honest on an empty target set.
       if (failures.length > 0 || misplaced.length > 0) process.exitCode = 1;
       const written = writing && outcomes.length > 0;
-      console.log(JSON.stringify({ pack: resolved.team, packDir: resolved.packDir, written, verbs: rows, misplaced }));
+      console.log(JSON.stringify({ pack: resolved.team, packDir: resolved.packDir, manifestPath: resolved.manifestPath, repoKey: resolved.repoKey, written, verbs: rows, misplaced }));
       return;
     }
 
@@ -922,11 +935,12 @@ export async function skillsCompile(args: string[]): Promise<void> {
  * verbs -- each named in `errors` -- with no partial write on failure,
  * exactly as the handler behaves today.
  */
-export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] }> {
+export async function compilePackAll(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string; verbs?: string[] | null; write?: boolean }): Promise<{ ok: boolean; errors: string[] }> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
   if (opts.manifest) args.push("--manifest", opts.manifest);
+  if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   const resolved = await resolve(parseFlags(args));
   const chainErrors = pipelineChainErrors(resolved);
@@ -1077,11 +1091,12 @@ async function computeCheck(flags: Flags): Promise<CheckPayload> {
   return { pack: resolved.team, packDir: resolved.packDir, verbs: rows, chainErrors, installed, drift: anyStale, mcpLint, scriptLint, strictLint };
 }
 
-export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; mattstackDir?: string }): Promise<CheckPayload> {
+export async function checkPack(opts: { pack?: string; packDir?: string; manifest?: string; repo?: string; mattstackDir?: string }): Promise<CheckPayload> {
   const args: string[] = [];
   if (opts.pack) args.push("--pack", opts.pack);
   if (opts.packDir) args.push("--pack-dir", opts.packDir);
   if (opts.manifest) args.push("--manifest", opts.manifest);
+  if (opts.repo) args.push("--repo", opts.repo);
   if (opts.mattstackDir) args.push("--mattstack-dir", opts.mattstackDir);
   return computeCheck(parseFlags(args));
 }
@@ -1498,6 +1513,7 @@ type SurfaceFlags = {
   packDir: string | null;
   mattstackDir: string | null;
   manifest: string | null;
+  repo: string | null;
   json: boolean;
 };
 
@@ -1513,6 +1529,7 @@ function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[
   let packDir: string | null = null;
   let mattstackDir: string | null = null;
   let manifest: string | null = null;
+  let repo: string | null = null;
   let json = false;
   const rest: string[] = [];
 
@@ -1525,12 +1542,13 @@ function parseSurfaceFlags(args: string[]): { flags: SurfaceFlags; rest: string[
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
       case "--manifest": manifest = args[++i] ?? null; break;
+      case "--repo": repo = args[++i] ?? null; break;
       case "--json": json = true; break;
       default: rest.push(a);
     }
   }
 
-  return { flags: { team, dryRun, packDir, mattstackDir, manifest, json }, rest };
+  return { flags: { team, dryRun, packDir, mattstackDir, manifest, repo, json }, rest };
 }
 
 /** Pins the pack on the flags so the compile delegation and the printed header name the same pack the user picked. */
@@ -1588,7 +1606,7 @@ function stageNamesFor(flags: SurfaceFlags, packDir: string): Set<string> {
     manifest = flags.manifest;
   } else {
     try {
-      manifest = findDefaultManifest(mattstackRoot, team, packDir);
+      manifest = findDefaultManifest(mattstackRoot, team, packDir, flags.repo);
     } catch (err) {
       if (err instanceof SkillsUsageError) return new Set();
       throw err;
@@ -1645,6 +1663,7 @@ function compileArgs(flags: SurfaceFlags, packDir: string): string[] {
   const args = ["--pack", flags.team ?? packNameFor(packDir), "--pack-dir", packDir];
   if (flags.mattstackDir) args.push("--mattstack-dir", flags.mattstackDir);
   if (flags.manifest) args.push("--manifest", flags.manifest);
+  if (flags.repo) args.push("--repo", flags.repo);
   if (flags.dryRun) args.push("--dry-run");
   return args;
 }
@@ -1793,6 +1812,7 @@ async function runApply(flags: SurfaceFlags): Promise<ApplyResult> {
       pack: flags.team ?? undefined,
       packDir,
       manifest: flags.manifest ?? undefined,
+      repo: flags.repo ?? undefined,
       mattstackDir: flags.mattstackDir ?? undefined,
       write: !flags.dryRun,
     });
@@ -2045,6 +2065,7 @@ export async function skillsSurface(args: string[]): Promise<void> {
 type BindFlags = {
   team: string | null;
   manifest: string | null;
+  repo: string | null;
   dryRun: boolean;
   packDir: string | null;
   mattstackDir: string | null;
@@ -2054,6 +2075,7 @@ type BindFlags = {
 function parseBindFlags(args: string[]): BindFlags {
   let team: string | null = null;
   let manifest: string | null = null;
+  let repo: string | null = null;
   let dryRun = false;
   let packDir: string | null = null;
   let mattstackDir: string | null = null;
@@ -2065,6 +2087,7 @@ function parseBindFlags(args: string[]): BindFlags {
       case "--pack":
       case "--team": team = args[++i] ?? team; break;
       case "--manifest": manifest = args[++i] ?? null; break;
+      case "--repo": repo = args[++i] ?? null; break;
       case "--dry-run": dryRun = true; break;
       case "--pack-dir": packDir = requireFlagValue("--pack-dir", args[++i]); break;
       case "--mattstack-dir": mattstackDir = args[++i] ?? null; break;
@@ -2074,7 +2097,7 @@ function parseBindFlags(args: string[]): BindFlags {
     }
   }
 
-  return { team, manifest, dryRun, packDir, mattstackDir, json };
+  return { team, manifest, repo, dryRun, packDir, mattstackDir, json };
 }
 
 type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: string[] };
@@ -2086,9 +2109,9 @@ type PickedBind = { verbName: string; slotName: string; fill: string; flagArgs: 
  * skillsBind falls through to its existing error -- the non-TTY / --json paths
  * never call this and stay byte-for-byte unchanged.
  */
-/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--pack-dir/--mattstack-dir). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
+/** Split `skills bind` args into positionals and flag args (bind's flags: --dry-run/--json boolean, plus the value-taking --pack/--team/--manifest/--repo/--pack-dir/--mattstack-dir). Keeps the &lt;verb&gt; &lt;slot&gt; &lt;fill&gt; count right even when flags are interleaved. */
 function separateBindArgs(args: string[]): { positionals: string[]; flagArgs: string[] } {
-  const valued = new Set(["--pack", "--team", "--manifest", "--pack-dir", "--mattstack-dir"]);
+  const valued = new Set(["--pack", "--team", "--manifest", "--repo", "--pack-dir", "--mattstack-dir"]);
   const positionals: string[] = [];
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -2114,6 +2137,7 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
     team: bindFlags.team,
     verbs: null,
     manifest: bindFlags.manifest,
+    repo: bindFlags.repo,
     dryRun: bindFlags.dryRun,
     preview: false,
     packDir: bindFlags.packDir,
@@ -2207,6 +2231,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       team: bindFlags.team,
       verbs: null,
       manifest: bindFlags.manifest,
+      repo: bindFlags.repo,
       dryRun: bindFlags.dryRun,
       preview: false,
       packDir: bindFlags.packDir,
@@ -2339,6 +2364,7 @@ export async function skillsBind(args: string[]): Promise<void> {
       packDir: resolved.packDir,
       mattstackDir: bindFlags.mattstackDir,
       manifest: resolved.manifestPath,
+      repo: null,
       json: false,
     };
     const recompileArgs = verbFilter ? [...compileArgs(surfaceFlags, resolved.packDir), "--verb", verbName] : compileArgs(surfaceFlags, resolved.packDir);

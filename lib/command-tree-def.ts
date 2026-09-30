@@ -2331,7 +2331,8 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to compile that tree" },
           { name: "Verb", flag: "--verb", type: "text", placeholder: "watch-ci", hint: "Compile only this verb (repeatable); omit for every verb in the roster" },
-          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to auto-find the newest ~/.mattstack/repos/*/skills.jsonc naming this pack" },
+          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Pack dir", flag: "--pack-dir", type: "text", placeholder: "/path/to/pack", hint: "Compile this pack directory's sources (a worktree, say) instead of resolving --pack through the registry" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would be written without touching disk" },
           { name: "Preview", flag: "--preview", type: "boolean", default: false, hint: "Print the compiled SKILL.md to stdout and write nothing (needs a single --verb)" },
@@ -2347,7 +2348,8 @@ export const TREE: Record<string, CommandNode> = {
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to check that tree" },
           { name: "Verb", flag: "--verb", type: "text", placeholder: "watch-ci", hint: "Check only this verb (repeatable); omit for every compiled verb" },
-          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to auto-find the newest ~/.mattstack/repos/*/skills.jsonc naming this pack" },
+          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Pack dir", flag: "--pack-dir", type: "text", placeholder: "/path/to/pack", hint: "Check this pack directory's sources (a worktree, say) instead of resolving --pack through the registry" },
           { name: "Strict", flag: "--strict", type: "boolean", default: false, hint: "Fail the exit code on mcp lint hits (the plugin-mattstack CI job uses this; rt skills sync applies it to a pack whose plugin.json sets strictLint)" },
           SETUP_JSON_ARG,
@@ -2373,7 +2375,7 @@ export const TREE: Record<string, CommandNode> = {
         agentTimeoutMs: 600_000,
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack to sync; auto-selects when only one pack exists" },
-          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to auto-find the newest ~/.mattstack/repos/*/skills.jsonc naming this pack" },
+          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2420,7 +2422,8 @@ export const TREE: Record<string, CommandNode> = {
         fn: "skillsComposition",
         args: [
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
-          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to auto-find the newest ~/.mattstack/repos/*/skills.jsonc naming this pack" },
+          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           SETUP_JSON_ARG,
         ],
       },
@@ -2437,7 +2440,8 @@ export const TREE: Record<string, CommandNode> = {
           { name: "Slot", type: "text", placeholder: "domain", hint: "Slot declared on the verb's step" },
           { name: "Fill", type: "text", placeholder: "acme:watch-ci-domain-v2", hint: "<plugin>:<skill> binding string; must provide the slot's declared contract" },
           { name: "Pack", flag: "--pack", type: "text", placeholder: "acme", hint: "Pack name (--team still accepted); omit to pick from the discovered packs, or run from inside a pack tree to act on that tree" },
-          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to auto-find the newest ~/.mattstack/repos/*/skills.jsonc naming this pack" },
+          { name: "Manifest", flag: "--manifest", type: "text", placeholder: "/path/to/skills.jsonc", hint: "Manifest path; omit to read ~/.mattstack/repos/<repo>/packs/<pack>/skills.jsonc" },
+          { name: "Repo", flag: "--repo", type: "text", placeholder: "gitlab.example.com/acme/widgets", hint: "Which repo's bindings file to read when this pack binds several; omit for the first repo the team declares" },
           { name: "Dry run", flag: "--dry-run", type: "boolean", default: false, hint: "Print what would change without writing" },
           { name: "JSON", flag: "--json", type: "boolean", default: false, hint: "Print the result as JSON instead of a plain summary line" },
         ],
