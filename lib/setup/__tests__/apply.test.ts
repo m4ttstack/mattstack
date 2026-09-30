@@ -1433,15 +1433,37 @@ describe("runUpdateWith", () => {
     expect(result.failedSteps).toEqual(["path.link", "claude.permissions"]);
   });
 
-  test("a migration throwing a plain Error is reported failed, recorded nowhere, and rethrown after exactly one done", async () => {
+  test("a migration throwing a plain Error fails alone: logged, recorded nowhere, and every later item still runs", async () => {
     const { ctx, events } = testCtx();
     const migrations = [fakeMigration("bad", async () => { throw new Error("kaboom"); }), fakeMigration("after", { state: "done" })];
+    const steps: StepDef[] = [updateStep("path.link", { state: "done" }), updateStep("verify", { state: "done" })];
 
-    await expect(runUpdateWith([], migrations, ctx)).rejects.toThrow("kaboom");
+    const result = await runUpdateWith(steps, migrations, ctx);
 
     expect(events.filter((e) => e.event === "done").length).toBe(1);
-    expect(events.find((e) => e.event === "step" && e.id === "migration.bad" && e.state === "failed")).toBeDefined();
-    expect(readSetupState(ctx.p).migrations).toEqual([]);
+    expect(events.filter((e) => e.event === "step" && e.id === "migration.bad" && e.state === "failed")).toEqual([
+      { event: "step", id: "migration.bad", state: "failed", detail: "bug: kaboom" },
+    ]);
+    expect(events).toContainEqual({ event: "log", id: "migration.bad", line: "warn: bug: kaboom" });
+    expect(readSetupState(ctx.p).migrations).toEqual(["after"]);
+    expect(result.outcomes.map((o) => `${o.id}:${o.state}`)).toEqual(["migration.bad:failed", "migration.after:done", "path.link:done", "verify:done"]);
+    expect(result.failedSteps).toEqual(["migration.bad"]);
+    expect(events.at(-1)).toEqual({ event: "done", ok: false, failedStep: "migration.bad", failedSteps: ["migration.bad"] });
+  });
+
+  test("a step throwing a plain Error is a bug: reported failed, later items skipped, rethrown after exactly one done", async () => {
+    const { ctx, events } = testCtx();
+    const ran: string[] = [];
+    const steps: StepDef[] = [
+      { ...updateStep("path.link", { state: "done" }), run: async () => { throw new Error("kaboom"); } },
+      { ...updateStep("verify", { state: "done" }), run: async () => { ran.push("verify"); return { state: "done" }; } },
+    ];
+
+    await expect(runUpdateWith(steps, [], ctx)).rejects.toThrow("kaboom");
+
+    expect(ran).toEqual([]);
+    expect(events.filter((e) => e.event === "done")).toEqual([{ event: "done", ok: false, failedStep: "path.link", failedSteps: ["path.link"] }]);
+    expect(events).toContainEqual({ event: "step", id: "path.link", state: "failed", detail: "bug: kaboom" });
   });
 
   test("a step throwing UserActionableError becomes a failed item with its remedy and the run goes on", async () => {

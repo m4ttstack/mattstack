@@ -339,11 +339,13 @@ function updateItems(steps: StepDef[], migrations: MigrationDef[], applied: read
 
 /**
  * The update run: pending migrations, then every update-safe step in
- * contract order, then verify. Nothing stops the run; every item's outcome
- * is collected and `done` names every failure. Migrations that end done or
- * skipped are recorded one at a time, so a crash mid-run loses nothing
- * already recorded. The setup intent is never cleared: an update is not an
- * install.
+ * contract order, then verify. No failed outcome stops the run; every
+ * item's outcome is collected and `done` names every failure. A migration
+ * that throws a plain Error is one more failed outcome, but a step that does
+ * is a bug: the run stops there and rethrows after `done`. Migrations that
+ * end done or skipped are recorded one at a time, so a crash mid-run loses
+ * nothing already recorded. The setup intent is never cleared: an update is
+ * not an install.
  */
 export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[], ctx: ApplyContext): Promise<UpdateRunResult> {
   const items = updateItems(steps, migrations, readSetupState(ctx.p).migrations);
@@ -362,11 +364,16 @@ export async function runUpdateWith(steps: StepDef[], migrations: MigrationDef[]
       try {
         outcome = await item.run(ctx);
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         if (err instanceof UserActionableError) {
           const remedy = typeof err.extra.remedy === "string" ? err.extra.remedy : undefined;
           outcome = { state: "failed", detail: err.message, ...(remedy !== undefined ? { remedy } : {}) };
+        } else if (item.migrationId !== undefined) {
+          // Migrations run first, so rethrowing here would skip every step and
+          // verify; a buggy one fails alone and stays unrecorded instead.
+          ctx.log(item.id, `warn: bug: ${message}`);
+          outcome = { state: "failed", detail: `bug: ${message}` };
         } else {
-          const message = err instanceof Error ? err.message : String(err);
           ctx.emit({ event: "step", id: item.id, state: "failed", detail: `bug: ${message}` });
           outcomes.push({ id: item.id, state: "failed", detail: `bug: ${message}` });
           failedSteps.push(item.id);
