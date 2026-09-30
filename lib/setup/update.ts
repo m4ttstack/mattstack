@@ -13,7 +13,7 @@ declare const RT_VERSION: string | undefined;
 
 export const DEV_VERSION = "dev";
 
-/** The compile-time define, else the env override the dev wrapper may set, else `dev`. */
+/** The compile-time `RT_VERSION` define, else the `RT_VERSION` env var, else `dev`. */
 export function rtVersion(): string {
   if (typeof RT_VERSION !== "undefined" && RT_VERSION) return RT_VERSION;
   return process.env.RT_VERSION ?? DEV_VERSION;
