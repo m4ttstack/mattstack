@@ -1,16 +1,15 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { execSync } from "child_process";
 import { mkdtempSync, realpathSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { writeJson } from "../../json-store.ts";
 import {
   machineSettingsPath,
-  rtDir,
   teamSettingsPath,
   userSettingsPath,
   worktreePoolRoot,
 } from "../../rt-paths.ts";
+import { settingsGet } from "../../../commands/settings-keys.ts";
 import { deriveRepoIdentity, serializeIdentity } from "../../settings/identity.ts";
 import {
   DEFAULT_JUNK_GLOBS,
@@ -585,30 +584,24 @@ describe("worktree config", () => {
   });
 
   describe("loadWorktreeAppConfig", () => {
-    test("neither file nor store: an unowned machine defaults to disabled (S077)", () => {
+    async function settingsGetValue(): Promise<unknown> {
+      const logSpy = spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await settingsGet(["rt.worktreeApp", "--json"]);
+        return JSON.parse(String(logSpy.mock.calls[0]![0])).value;
+      } finally {
+        logSpy.mockRestore();
+      }
+    }
+
+    test("nothing set: off, killProcesses on (S077)", () => {
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     });
 
-    test("file only (store unowned): seeds from parking-lot.json once, then reads the new file thereafter", () => {
-      mkdirSync(rtDir(), { recursive: true });
-      writeFileSync(
-        join(rtDir(), "parking-lot.json"),
-        JSON.stringify({ enabled: false })
-      );
+    test("team turns the pool on for a member with no value of its own", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
 
-      const first = loadWorktreeAppConfig();
-      expect(first).toEqual({ enabled: false, killProcesses: true });
-
-      // Prove it's now reading the new file, not re-seeding from the legacy one.
-      writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
-      const second = loadWorktreeAppConfig();
-      expect(second).toEqual({ enabled: true, killProcesses: false });
-    });
-
-    test("store only: store field-bag wins, a missing enabled stays off", () => {
-      writeStore(machineSettingsPath(), { "rt.worktreeApp": { killProcesses: false } });
-
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
     });
 
     test("a team value without enabled never turns the pool on", () => {
@@ -617,49 +610,50 @@ describe("worktree config", () => {
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
-    test("store and file both present: store wins per field, the file fills the rest", () => {
-      mkdirSync(rtDir(), { recursive: true });
-      writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: false });
-      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false } });
+    test("user off beats team on", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(userSettingsPath(), { "rt.worktreeApp": { enabled: false } });
 
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     });
 
-    test("team turns the pool on for a machine with no value of its own", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+    test("machine beats user", () => {
+      writeStore(userSettingsPath(), { "rt.worktreeApp": { enabled: false } });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: true } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
     });
 
-    test("a machine value beats the team's per field", () => {
+    test("fields merge across scopes: each one comes from the strongest scope that sets it", () => {
       writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true, killProcesses: false } });
       writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
     });
 
-    test("a legacy file enabled:false still beats the team's enabled:true", () => {
-      mkdirSync(rtDir(), { recursive: true });
-      writeJson(join(rtDir(), "worktrees.json"), { enabled: false });
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+    test("killProcesses defaults on and any scope can turn it off", () => {
+      writeStore(userSettingsPath(), { "rt.worktreeApp": { enabled: true } });
+      expect(loadWorktreeAppConfig().killProcesses).toBe(true);
+
+      writeStore(userSettingsPath(), { "rt.worktreeApp": { enabled: true, killProcesses: false } });
+      expect(loadWorktreeAppConfig().killProcesses).toBe(false);
+
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { killProcesses: true } });
+      expect(loadWorktreeAppConfig().killProcesses).toBe(true);
+    });
+
+    test("a claudeHook at team or user scope changes nothing", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { claudeHook: "declined" } });
+      writeStore(userSettingsPath(), { "rt.worktreeApp": { claudeHook: "installed" } });
 
       expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     });
 
-    test("a legacy file killProcesses:false beats the team, while the team's enabled applies", () => {
-      mkdirSync(rtDir(), { recursive: true });
-      writeJson(join(rtDir(), "worktrees.json"), { killProcesses: false });
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true, killProcesses: true } });
+    test("a machine value carrying claudeHook is honored like any other", () => {
+      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
+      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false, killProcesses: true, claudeHook: "declined" } });
 
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: false });
-    });
-
-    test("the machine store beats the legacy file per field, not wholesale", () => {
-      mkdirSync(rtDir(), { recursive: true });
-      writeJson(join(rtDir(), "worktrees.json"), { enabled: true });
-      writeStore(machineSettingsPath(), { "rt.worktreeApp": { killProcesses: false } });
-
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: false });
+      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
     });
 
     test("a refused team value warns once, naming the key and scope but not the value", () => {
@@ -679,28 +673,30 @@ describe("worktree config", () => {
       expect(warnings[0]).not.toContain("secret-ish");
     });
 
-    test("the old hook-offer seed does not outvote a team opt-in", () => {
+    test("a refused machine value falls through to the scopes below it", () => {
       writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
-      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false, killProcesses: true, claudeHook: "declined" } });
-
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
-    });
-
-    test("a machine enabled:false with any other field set is honored over the team", () => {
-      writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": { enabled: true } });
-      writeStore(machineSettingsPath(), { "rt.worktreeApp": { enabled: false, killProcesses: false, claudeHook: "declined" } });
-
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: false });
-    });
-
-    test("malformed store probe (unregistered/invalid value) degrades to unowned — file stays authoritative", () => {
-      mkdirSync(rtDir(), { recursive: true });
-      writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: true });
-      // An array is the wrong top-level type for an "object" key — the resolver
-      // rejects this scope's value, so the key resolves as unowned.
       writeStore(machineSettingsPath(), { "rt.worktreeApp": ["nope"] });
+      const orig = console.warn;
+      console.warn = () => {};
+      try {
+        expect(loadWorktreeAppConfig()).toEqual({ enabled: true, killProcesses: true });
+      } finally {
+        console.warn = orig;
+      }
+    });
 
-      expect(loadWorktreeAppConfig()).toEqual({ enabled: false, killProcesses: true });
+    test.each([
+      ["nothing set", {}],
+      ["team on", { team: { enabled: true } }],
+      ["team on, user off", { team: { enabled: true }, user: { enabled: false } }],
+      ["user off, machine on and no kill", { user: { enabled: false }, machine: { enabled: true, killProcesses: false } }],
+    ] as const)("rt settings get agrees with the reader: %s", async (_label, layers) => {
+      const set = layers as { team?: object; user?: object; machine?: object };
+      if (set.team) writeStore(teamSettingsPath("acme"), { "rt.worktreeApp": set.team });
+      if (set.user) writeStore(userSettingsPath(), { "rt.worktreeApp": set.user });
+      if (set.machine) writeStore(machineSettingsPath(), { "rt.worktreeApp": set.machine });
+
+      expect(await settingsGetValue()).toEqual(loadWorktreeAppConfig());
     });
   });
 });

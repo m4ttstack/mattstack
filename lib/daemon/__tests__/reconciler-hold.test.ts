@@ -11,6 +11,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
 import { writeJson } from "../../json-store.ts";
+import { setSetting } from "../../settings/write.ts";
 import { repoDataDir, rtDir } from "../../rt-paths.ts";
 import { closeStateDb } from "../../state/index.ts";
 import { loadRegistry, saveRegistry, type TreeRecord } from "../../worktree/registry.ts";
@@ -137,7 +138,7 @@ describe("worktree:adopt and worktree:freshen under the reconciler hold", () => 
     home = realpathSync(mkdtempSync(join(tmpdir(), "rt-hold-wt-home-")));
     process.env.HOME = home;
     closeStateDb();
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: false }, "machine");
   });
 
   afterEach(async () => {

@@ -12,7 +12,7 @@ import { mkdtempSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Logger } from "pino";
-import { writeJson } from "../../json-store.ts";
+import { setSetting } from "../../settings/write.ts";
 import { rtDir } from "../../rt-paths.ts";
 import { closeStateDb, getStateDb } from "../../state/index.ts";
 import { setKvValueCritical } from "../../state/kv-blob.ts";
@@ -136,7 +136,7 @@ describe("provision claim: a dropped write is refused, not silently accepted", (
   beforeEach(() => {
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rtcrit-prov-")));
     closeStateDb();
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: false }, "machine");
   });
 
   test("a claim write that stays busy through the full retry budget refuses the provision, leaves the tree on-deck, fires no worktree:claimed, and never touches an unrelated already-claimed tree in the same registry", async () => {
@@ -193,7 +193,7 @@ describe("reconcile and an in-flight create's registry flip", () => {
   beforeEach(() => {
     process.env.HOME = realpathSync(mkdtempSync(join(tmpdir(), "rtcrit-recon-")));
     closeStateDb();
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    setSetting("rt.worktreeApp", { enabled: true, killProcesses: false }, "machine");
   });
 
   test("a completed build stuck in 'creating' (its flip write dropped) survives reconcile while the create's own tree lock is still held; only once that lock releases does the orphaned row get scrapped", async () => {
