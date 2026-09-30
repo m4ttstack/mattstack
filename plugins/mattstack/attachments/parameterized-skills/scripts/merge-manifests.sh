@@ -11,4 +11,11 @@ fi
 REPO=$PWD
 if [ "${1:-}" = "--repo" ]; then REPO=$(cd "${2:?--repo needs a path}" && pwd); fi
 command -v rt > /dev/null 2>&1 || { echo "merge-manifests: rt is not on PATH; install mattstack.app" >&2; exit 1; }
+# An rt older than this plugin ignores --dir and runs this wrapper again for
+# every registered repo, so a second entry is refused rather than recursed.
+if [ -n "${MATTSTACK_MERGE_WRAPPER:-}" ]; then
+  echo "merge-manifests: rt on PATH is older than this plugin and re-entered the wrapper; update mattstack.app" >&2
+  exit 1
+fi
+export MATTSTACK_MERGE_WRAPPER=1
 exec rt skills materialize --dir "$REPO"
