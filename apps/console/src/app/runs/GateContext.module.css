@@ -1,5 +1,9 @@
 .prose {
   max-width: 100ch;
+  padding: var(--mantine-spacing-xxl);
+  margin-bottom: var(--mantine-spacing-xxl);
+  border: 1px solid var(--tk-border-soft);
+  border-radius: var(--mantine-radius-md);
   font-size: var(--mantine-font-size-md);
   line-height: 1.6;
   color: var(--tk-text-1);
