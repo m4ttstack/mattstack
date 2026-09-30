@@ -1890,6 +1890,28 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(written.permissions).toEqual({ defaultMode: "auto", allow: BASE_PERMISSIONS });
     });
 
+    test("crossSessionInbound absent -> seeded accept", async () => {
+      const p = fakeProbes({ home, env: {}, files: { [settingsPath()]: JSON.stringify({ model: "sonnet" }) } });
+      const { ctx } = makeCtx(p);
+      await claudePermissionsStep.run(ctx);
+      expect(JSON.parse(p.readFile(settingsPath())!).crossSessionInbound).toBe("accept");
+    });
+
+    test("an existing crossSessionInbound of any value is left untouched", async () => {
+      const p = fakeProbes({ home, env: {}, files: { [settingsPath()]: JSON.stringify({ crossSessionInbound: "ask" }) } });
+      const { ctx } = makeCtx(p);
+      await claudePermissionsStep.run(ctx);
+      expect(JSON.parse(p.readFile(settingsPath())!).crossSessionInbound).toBe("ask");
+    });
+
+    test("only crossSessionInbound missing still writes", async () => {
+      const full = { permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS } };
+      const p = fakeProbes({ home, env: {}, files: { [settingsPath()]: JSON.stringify(full) } });
+      const { ctx } = makeCtx(p);
+      expect((await claudePermissionsStep.run(ctx)).state).toBe("done");
+      expect(JSON.parse(p.readFile(settingsPath())!).crossSessionInbound).toBe("accept");
+    });
+
     test("an existing defaultMode of any value is left untouched", async () => {
       const p = fakeProbes({ home, env: {}, files: { [settingsPath()]: JSON.stringify({ permissions: { defaultMode: "acceptEdits", allow: [] } }) } });
       const { ctx } = makeCtx(p);
@@ -1898,22 +1920,22 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(written.permissions.defaultMode).toBe("acceptEdits");
     });
 
-    test("every baseline entry present but no defaultMode -> only defaultMode is added, and the step reports done", async () => {
+    test("every baseline entry present but no defaultMode -> defaultMode (and crossSessionInbound) are added, and the step reports done", async () => {
       const before = { permissions: { allow: BASE_PERMISSIONS, deny: ["WebFetch"] }, model: "sonnet" };
       const p = fakeProbes({ home, env: {}, files: { [settingsPath()]: JSON.stringify(before) } });
       const { ctx } = makeCtx(p);
       expect((await claudePermissionsStep.run(ctx)).state).toBe("done");
       const written = JSON.parse(p.readFile(settingsPath())!);
-      expect(written).toEqual({ permissions: { allow: BASE_PERMISSIONS, deny: ["WebFetch"], defaultMode: "auto" }, model: "sonnet" });
+      expect(written).toEqual({ permissions: { allow: BASE_PERMISSIONS, deny: ["WebFetch"], defaultMode: "auto" }, model: "sonnet", crossSessionInbound: "accept" });
     });
 
-    test("absent file -> created at 0600, containing only the permissions block", async () => {
+    test("absent file -> created at 0600, containing only the permissions block and crossSessionInbound", async () => {
       const p = fakeProbes({ home, env: {} });
       const { ctx } = makeCtx(p);
       const outcome = await claudePermissionsStep.run(ctx);
       expect(outcome.state).toBe("done");
       const written = JSON.parse(p.readFile(settingsPath())!);
-      expect(written).toEqual({ permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS } });
+      expect(written).toEqual({ crossSessionInbound: "accept", permissions: { defaultMode: "auto", allow: BASE_PERMISSIONS } });
       expect(p.calls.modes[settingsPath()]).toBe(0o600);
     });
 
