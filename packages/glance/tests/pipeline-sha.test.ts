@@ -221,9 +221,40 @@ describe('GitLabProvider.fetchPipelineFailedJobs', () => {
         { id: 5, name: 'unit', stage: 'test', status: 'failed', allow_failure: false, duration: 3, web_url: 'u' },
       ];
     };
+    (provider as any).gb.Jobs.allPipelineBridges = async () => [];
     const jobs = await provider.fetchPipelineFailedJobs('grp/proj', 9);
     expect(jobs).toEqual([
       { id: 'gitlab:job:5', name: 'unit', stage: 'test', status: 'failed', allowFailure: false, duration: 3, webUrl: 'u' },
     ]);
+  });
+
+  test('includes failed jobs from bridge downstream pipelines, nested children included', async () => {
+    const provider = new GitLabProvider('https://gitlab.example.com', 'tok');
+    const failedByPipeline: Record<number, any[]> = {
+      9: [],
+      20: [{ id: 21, name: 'integration', stage: 'test', status: 'failed', allow_failure: false, duration: 5, web_url: 'c' }],
+      30: [{ id: 31, name: 'e2e', stage: 'test', status: 'failed', allow_failure: true, duration: 7, web_url: 'g' }],
+    };
+    const bridgesByPipeline: Record<number, any[]> = {
+      9: [{ id: 12, pipeline: { project_id: 42 }, downstream_pipeline: { id: 20, project_id: 42 } }],
+      20: [{ id: 22, pipeline: { project_id: 42 }, downstream_pipeline: { id: 30, project_id: 42 } }],
+      30: [{ id: 32, pipeline: { project_id: 42 }, downstream_pipeline: null }],
+    };
+    (provider as any).gb.Jobs.all = async (_p: string, options: any) => failedByPipeline[options.pipelineId] ?? [];
+    (provider as any).gb.Jobs.allPipelineBridges = async (_p: string, pipelineId: number) => bridgesByPipeline[pipelineId] ?? [];
+    const jobs = await provider.fetchPipelineFailedJobs('grp/proj', 9);
+    expect(jobs.map((j) => j.id)).toEqual(['gitlab:job:21', 'gitlab:job:31']);
+    expect(jobs[1]!.allowFailure).toBe(true);
+  });
+
+  test('skips a downstream pipeline in another project', async () => {
+    const provider = new GitLabProvider('https://gitlab.example.com', 'tok');
+    const listed: number[] = [];
+    (provider as any).gb.Jobs.all = async (_p: string, options: any) => { listed.push(options.pipelineId); return []; };
+    (provider as any).gb.Jobs.allPipelineBridges = async () => [
+      { id: 12, pipeline: { project_id: 42 }, downstream_pipeline: { id: 50, project_id: 77 } },
+    ];
+    await provider.fetchPipelineFailedJobs('grp/proj', 9);
+    expect(listed).toEqual([9]);
   });
 });
