@@ -13,7 +13,7 @@ import { readTeamLocal, updateTeamLocal } from "../../team/team-local.ts";
 import { boardEnvHasSwitchboardToken } from "../../team/board-token.ts";
 import { parse } from "jsonc-parser";
 import { join } from "path";
-import { discoverTeams, readTeamSnapshot } from "../team-settings.ts";
+import { discoverTeams, parseOriginUrl, readTeamSnapshot } from "../team-settings.ts";
 import { isValidHttpsUrl } from "../host-validate.ts";
 import type { Probes } from "../probes.ts";
 import { publishTeam } from "../../team/publish.ts";
@@ -23,7 +23,6 @@ import type { StepDef, StepOutcome } from "../apply.ts";
 import type { StepId } from "../contract.ts";
 import { UserActionableError } from "../errors.ts";
 import { readIntent } from "../intent.ts";
-import { discoverTeams, parseOriginUrl } from "../team-settings.ts";
 import { toFailedOutcome } from "./step-utils.ts";
 
 /**

@@ -269,7 +269,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       }
 
       if (outcome.state === "failed" && opts.only !== undefined && step.id !== opts.only && step.id !== INTERCEPTS_STEP) {
-        outcome = { ...outcome, detail: `${step.title}: ${outcome.detail}` };
+        outcome = { ...outcome, detail: `${step.titleFor?.(ctx) ?? step.title}: ${outcome.detail}` };
       }
       ctx.emit({ event: "step", id: step.id, state: outcome.state, ...stepEventFields(outcome) });
 
