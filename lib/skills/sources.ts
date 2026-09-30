@@ -32,7 +32,7 @@ export function stripFrontmatter(
   return { body, frontmatter, bodyStartLine };
 }
 
-export type PluginListEntry = { id: string; installPath: string };
+export type PluginListEntry = { id: string; installPath: string; enabled?: boolean; scope?: string; version?: string };
 
 export type PluginRoots = { byName: Record<string, { dir: string; version: string }>; list: PluginListEntry[] };
 

@@ -23,7 +23,7 @@ if [ -z "$REMOTE" ]; then
   FIRST=$(git -C "$REPO" remote 2>/dev/null | head -1 || true)
   [ -n "$FIRST" ] && REMOTE=$(git -C "$REPO" remote get-url "$FIRST" 2>/dev/null || true)
 fi
-[ -n "$REMOTE" ] || { echo "merge-manifests: no git remote in $REPO -- no per-repo manifest" >&2; exit 2; }
+[ -n "$REMOTE" ] || { echo "merge-manifests: $REPO has no git remote; nothing to materialize" >&2; exit 2; }
 # Known limitation: an explicit port (ssh://host:2222/path) stays in the
 # slug; both writer and readers share this, so they agree.
 NORM=$(norm_url "$REMOTE"); HOST=${NORM%%/*}; RPATH=${NORM#*/}
@@ -62,7 +62,7 @@ for CLONE in "$MS_HOME"/teams/*/; do
 done
 
 DECLARED=$(jq 'length' "$FRAGS_JSON")
-[ "$DECLARED" -gt 0 ] || { echo "merge-manifests: no team declares $NORM -- no per-repo manifest" >&2; exit 2; }
+[ "$DECLARED" -gt 0 ] || { echo "merge-manifests: no team pack declares $NORM; nothing to materialize" >&2; exit 2; }
 
 OVR="$MS_HOME/user/skills/overrides.jsonc"
 [ -f "$OVR" ] && add_frag "user-override" "$OVR"

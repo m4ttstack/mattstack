@@ -160,6 +160,9 @@ if (args[0] === "--version" || args[0] === "-V") {
   }
 
   // ── Command dispatch ────────────────────────────────────────────────────
+  const { routeSettingsNotices } = await import("./lib/settings/notice-channel.ts");
+  await routeSettingsNotices(args);
+
   // User plugins merge into the tree at the root; built-ins always win.
   // ExecFailure propagates a plugin exec target's exit code as rt's own
   // (dispatch has already logged the error outcome by the time it rethrows).

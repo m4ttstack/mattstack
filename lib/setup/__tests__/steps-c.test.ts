@@ -346,6 +346,28 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(detailOf(outcome)).toContain("materialized 1, failed 0");
     });
 
+    test("a repo no team pack declares is tallied as nothing to do, never as a failed materialize", async () => {
+      const repoDir = mkdtempSync(join(home, "repo-"));
+      updateRepoIndex(basename(repoDir), repoDir);
+
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin", RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) =>
+          argv[2] === "list"
+            ? ok("[]")
+            : argv.includes("--repo")
+              ? { code: 2, stdout: "", stderr: "merge-manifests: no team pack declares gitlab.com/acme/tools; nothing to materialize" }
+              : ok(""),
+      });
+      const { ctx } = makeCtx(p);
+
+      const outcome = await pluginsInstallStep.run(ctx);
+      expect(outcome.state).toBe("done");
+      expect(detailOf(outcome)).toContain("materialized 0, failed 0, no skills declared 1");
+    });
+
     test("marketplace add exits non-zero (not 'already') -> failed with claude's own first line and the contract remedy, install never reached", async () => {
       const p = fakeProbes({
         home,

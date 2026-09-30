@@ -13,9 +13,11 @@
 
 import { homedir } from "os";
 import { join } from "path";
-import { discoverPacks, type PackInfo } from "../lib/skills/packs.ts";
+import { discoverPacks, packFromDir, type PackInfo } from "../lib/skills/packs.ts";
+import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
+import { realpathSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
-import { syncPack, type SyncDeps, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
+import { syncPack, type SyncDeps, type SyncEngine, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
 import { childEnv } from "../lib/subprocess.ts";
 import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
@@ -24,15 +26,44 @@ import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
  * The mattstack pack is the only valid sync engine: falling back to the pack
  * itself when no mattstack pack is discovered would silently point
  * update-engine's version compare and loadStepSource's lookups at the wrong
- * plugin, so an absent engine refuses instead of guessing.
+ * plugin, so an absent engine refuses instead of guessing. A directory
+ * checkout wins; otherwise an engine installed from any other marketplace is
+ * read from its installed cache, chosen as compile chooses it from `claude plugin
+ * list` (the last enabled `mattstack@` entry).
  */
-export function deriveEngine(packs: PackInfo[], pack: PackInfo): { engine: PackInfo } | { error: string } {
+export function deriveEngine(packs: PackInfo[], pack: PackInfo, installed: PluginListEntry[] = []): { engine: SyncEngine } | { error: string } {
   const mattstack = packs.find((p) => p.name === "mattstack");
   if (mattstack) return { engine: mattstack };
   if (pack.name === "mattstack") return { engine: pack };
+  const candidates = installed.filter((e) => e.id.startsWith("mattstack@") && e.enabled !== false);
+  const root = buildPluginRoots(candidates).byName.mattstack;
+  const entry = root ? candidates.findLast((e) => realDir(e.installPath) === root.dir) : undefined;
+  const cached = entry ? packFromDir("mattstack", entry.installPath, entry.id.slice("mattstack@".length)) : null;
+  if (cached) return { engine: { ...cached, installedCache: true, ...(entry?.scope ? { scope: entry.scope } : {}) } };
   return {
-    error: `no "mattstack" engine pack discovered alongside "${pack.name}" (looked for a plugin named "mattstack" registered via extraKnownMarketplaces in Claude's settings.json); register the mattstack marketplace and re-run`,
+    error: `no "mattstack" engine found for "${pack.name}" (looked for a directory checkout registered via extraKnownMarketplaces in Claude's settings.json, then an installed mattstack plugin in claude plugin list); install the mattstack plugin and re-run`,
   };
+}
+
+function realDir(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** An unreadable listing reads as nothing installed, so deriveEngine refuses with its own message rather than this one's. */
+async function installedPlugins(deps: SyncDeps): Promise<PluginListEntry[]> {
+  if (!deps.claudeBin) return [];
+  const res = await deps.run(deps.claudeBin, ["plugin", "list", "--json"]);
+  if (res.code !== 0) return [];
+  try {
+    const parsed: unknown = JSON.parse(res.stdout);
+    return Array.isArray(parsed) ? (parsed as PluginListEntry[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -90,13 +121,6 @@ export async function skillsSync(args: string[]): Promise<void> {
         : `which pack? pass --pack <name> (discovered: ${packs.map((p) => p.name).join(", ")})`,
     );
   }
-  const engineResult = deriveEngine(packs, pack!);
-  if ("error" in engineResult) {
-    fail(engineResult.error);
-    return;
-  }
-  const engine = engineResult.engine;
-
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
   const deps: SyncDeps = {
     run: async (cmd, cmdArgs, opts) => {
@@ -114,6 +138,14 @@ export async function skillsSync(args: string[]): Promise<void> {
     cswapSessionsDir: join(homedir(), ".claude-swap-backup", "sessions"),
     inTreeRoot: resolveSharedCheckout(homedir()),
   };
+
+  const needsInstalled = !packs.some((p) => p.name === "mattstack") && pack!.name !== "mattstack";
+  const engineResult = deriveEngine(packs, pack!, needsInstalled ? await installedPlugins(deps) : []);
+  if ("error" in engineResult) {
+    fail(engineResult.error);
+    return;
+  }
+  const engine = engineResult.engine;
 
   let report: SyncReport;
   try {

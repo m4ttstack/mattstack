@@ -123,7 +123,21 @@ describe("materializeSkills", () => {
 
     const result = await materializeSkills(p, { repo: repoName });
 
-    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, detail: "merge-manifests: no git remote in /x -- no per-repo manifest" }] });
+    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, noRemote: true, detail: "merge-manifests: no git remote in /x -- no per-repo manifest" }] });
+  });
+
+  test("exit 2 in the current script's wording (no team pack declares the repo) is marked as no manifest", async () => {
+    seedRepo();
+    const stderr = "merge-manifests: no team pack declares gitlab.com/acme/tools; nothing to materialize";
+    const p = fakeProbes({
+      home: "/fake-home",
+      env: { RT_MERGE_MANIFESTS: "/fake-home/merge-manifests.sh" },
+      exec: async () => ({ code: 2, stdout: "", stderr }),
+    });
+
+    const result = await materializeSkills(p, { repo: repoName });
+
+    expect(result).toEqual({ skipped: false, repos: [{ name: repoName, path: repoDir, ok: false, noManifest: true, detail: stderr }] });
   });
 
   test("skips honestly (never throws) when the script can't be found — the ordinary fresh-machine case", async () => {

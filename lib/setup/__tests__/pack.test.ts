@@ -126,11 +126,54 @@ describe("setupPackFlow", () => {
     expect(result).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
   });
 
-  test("no registered repo at all -> same honest no-manifest result", async () => {
+  test("no registered repo, plugins installed -> not a failure, the check waits on a repo clone", async () => {
+    const p = fakeProbes({
+      home,
+      env: { PATH: "/usr/local/bin" },
+      files: { "/usr/local/bin/claude": "bin" },
+      exec: async (argv) => ({ code: 0, stdout: argv.includes("list") ? "[]" : "", stderr: "" }),
+    });
+
+    const result = await setupPackFlow(makeCtx(p));
+    expect(result).toEqual({ ok: true, detail: "plugins installed; waiting on a repo clone to check the pipeline" });
+  });
+
+  test("no registered repo, plugin install skipped -> passes the step's own detail through, never claims plugins installed", async () => {
     const p = fakeProbes({ home, env: {} });
 
     const result = await setupPackFlow(makeCtx(p));
-    expect(result).toEqual({ ok: false, detail: NO_MANIFEST_DETAIL });
+    expect(result.ok).toBe(true);
+    expect(result.detail).toBe("claude not found (not bundled, no user copy on PATH); waiting on a repo clone to check the pipeline");
+  });
+
+  test("the first repo has no git remote -> says so, never that no team pack declares it", async () => {
+    const repoName = registerRepo(home);
+    const p = fakeProbes({
+      home,
+      env: { RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
+      exec: async (argv) =>
+        argv.includes("--repo")
+          ? { code: 2, stdout: "", stderr: "merge-manifests: /x has no git remote; nothing to materialize" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+
+    const result = await setupPackFlow(makeCtx(p));
+    expect(result).toEqual({ ok: true, detail: `${repoName} has no git remote; no pipeline to check` });
+  });
+
+  test("the first repo no team pack declares -> not a failure, nothing to check", async () => {
+    const repoName = registerRepo(home);
+    const p = fakeProbes({
+      home,
+      env: { RT_MERGE_MANIFESTS: "/fake/merge-manifests.sh" },
+      exec: async (argv) =>
+        argv.includes("--repo")
+          ? { code: 2, stdout: "", stderr: "merge-manifests: no team pack declares gitlab.com/acme/tools; nothing to materialize" }
+          : { code: 0, stdout: "", stderr: "" },
+    });
+
+    const result = await setupPackFlow(makeCtx(p));
+    expect(result).toEqual({ ok: true, detail: `no team pack declares ${repoName}; no pipeline to check` });
   });
 
   test("defaults workType to feature when the pack declares none", async () => {

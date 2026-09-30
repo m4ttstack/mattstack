@@ -23,7 +23,7 @@ import { getSetting } from "../../settings/resolve.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { StepDef, StepOutcome } from "../apply.ts";
 import { BASE_PLUGINS, resolveBasePlugin } from "../base-plugins.ts";
-import { materializeSkills } from "../skills-materialize.ts";
+import { materializeSkills, materializeTally } from "../skills-materialize.ts";
 import type { ExecResult, Probes } from "../probes.ts";
 import { isAlready, isNotFound, parsePluginList, settlePack, PACK_EXEC_TIMEOUT_MS, type ClaudeRunner } from "../pack-cache.ts";
 import { updateSetupState } from "../state.ts";
@@ -215,10 +215,8 @@ async function runMaterializeAfterInstall(ctx: ApplyContext): Promise<string> {
     ctx.log("plugins.install", `materialize: ${result.reason}`);
     return `materialize skipped: ${result.reason}`;
   }
-  const failed = result.repos.filter((r) => !r.ok);
-  for (const r of failed) ctx.log("plugins.install", `materialize ${r.name}: ${r.detail}`);
-  const ok = result.repos.length - failed.length;
-  return `materialized ${ok}, failed ${failed.length}`;
+  for (const r of result.repos.filter((r) => !r.ok)) ctx.log("plugins.install", `materialize ${r.name}: ${r.detail}`);
+  return materializeTally(result.repos);
 }
 
 async function pluginsInstallRun(ctx: ApplyContext): Promise<StepOutcome> {
