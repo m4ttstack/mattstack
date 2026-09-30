@@ -20,7 +20,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import pino from "pino";
-import { wellKnownBinDirs } from "./bundled-tool.ts";
+import { whichWithWellKnownDirs } from "./bundled-tool.ts";
 import { resolveUserPath } from "./daemon/user-path.ts";
 import { runCapture } from "./subprocess.ts";
 
@@ -28,23 +28,21 @@ export interface HerdrResult { stdout: string; exitCode: number }
 export type HerdrRunner = (args: string[]) => Promise<HerdrResult>;
 
 /**
- * HERDR_BIN, then `env.PATH`, then the brew prefixes and ~/.local/bin (where
- * herdr's own installer puts it). The PATH is passed to Bun.which explicitly:
- * a bare Bun.which reads the PATH the process started with, which under
- * launchd is the minimal system PATH, never the login PATH the daemon
+ * HERDR_BIN, then `env.PATH`, then ~/.local/bin (where herdr's own installer
+ * puts it), then the brew prefixes. The search PATH is passed to Bun.which
+ * explicitly: a bare Bun.which reads the PATH the process started with, which
+ * under launchd is the minimal system PATH, never the login PATH the daemon
  * overlays onto process.env at boot.
  */
 export function resolveHerdrBin(
   env: NodeJS.ProcessEnv = process.env,
   which?: (cmd: string) => string | null,
-  extraDirs: (home: string) => string[] = wellKnownBinDirs,
 ): string {
   if (env.HERDR_BIN) return env.HERDR_BIN;
   const home = env.HOME ?? homedir();
-  const search = [...(env.PATH ?? "").split(":").filter(Boolean), ...extraDirs(home)].join(":");
-  const found = (which ?? ((cmd: string) => Bun.which(cmd, { PATH: search })))("herdr");
-  if (found) return found;
-  return join(home, ".local", "bin", "herdr");
+  const local = join(home, ".local", "bin");
+  const search = which ?? whichWithWellKnownDirs(home, [env.PATH, local].filter(Boolean).join(":"));
+  return search("herdr") ?? join(local, "herdr");
 }
 
 const LOGIN_PATH_TTL_MS = 60_000;
@@ -63,18 +61,34 @@ async function currentLoginPath(): Promise<string | null> {
   return loginPathMemo.path;
 }
 
+/** Finds herdr on the login PATH and keeps what it found for as long as the
+ * binary is still there, so only a miss ever costs a login shell. */
+export function loginPathHerdrProbe(loginPath: () => Promise<string | null>): () => Promise<string | null> {
+  let found: string | null = null;
+  return async () => {
+    if (found && existsSync(found)) return found;
+    const path = await loginPath();
+    found = path ? Bun.which("herdr", { PATH: path }) : null;
+    return found;
+  };
+}
+
+const probeLoginPathForHerdr = loginPathHerdrProbe(currentLoginPath);
+
 export function defaultHerdrRunner(
   env: NodeJS.ProcessEnv = process.env,
-  loginPath: () => Promise<string | null> = currentLoginPath,
+  seams: {
+    resolve?: (env: NodeJS.ProcessEnv) => string;
+    probe?: () => Promise<string | null>;
+  } = {},
 ): HerdrRunner {
   const home = env.HOME ?? homedir();
   const socket = env.HERDR_SOCKET_PATH ?? join(home, ".config", "herdr", "herdr.sock");
+  const resolve = seams.resolve ?? resolveHerdrBin;
+  const probe = seams.probe ?? probeLoginPathForHerdr;
   return async (args) => {
-    let bin = resolveHerdrBin(env);
-    if (!existsSync(bin) && !env.HERDR_BIN) {
-      const path = await loginPath();
-      bin = (path ? Bun.which("herdr", { PATH: path }) : null) ?? bin;
-    }
+    let bin = resolve(env);
+    if (!existsSync(bin) && !env.HERDR_BIN) bin = (await probe()) ?? bin;
     if (!existsSync(bin)) {
       throw new Error(`herdr not found at ${bin} (install via \`rt setup\` / brew)`);
     }
@@ -90,7 +104,9 @@ export function defaultHerdrRunner(
 /** Every herdr invocation in this module goes through here: a non-zero exit must fail the launch, never look like a quiet no-op. */
 async function runHerdr(runner: HerdrRunner, args: string[]): Promise<HerdrResult> {
   const r = await runner(args);
-  if (r.exitCode !== 0) throw new Error(`herdr ${args.join(" ")} failed (${r.exitCode}): ${r.stdout.slice(0, 400)}`);
+  // The verb only: a pane run's last arg is the whole agent command line
+  // (env, settings JSON, prompt), which buries the cause and can carry secrets.
+  if (r.exitCode !== 0) throw new Error(`herdr ${args.slice(0, 2).join(" ")} failed (${r.exitCode}): ${r.stdout.slice(0, 400)}`);
   return r;
 }
 
