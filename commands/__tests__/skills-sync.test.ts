@@ -41,6 +41,28 @@ describe("deriveEngine", () => {
     }
   });
 
+  test("picks the installed engine the way compile does (last entry wins) and skips a disabled one", () => {
+    const cacheAt = (version: string) => {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), "rt-sync-engine-cache-")));
+      mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+      writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "mattstack", version }));
+      writeFileSync(join(dir, "surface.jsonc"), `{ "public": [] }\n`);
+      return dir;
+    };
+    const userScope = cacheAt("0.28.8");
+    const projectScope = cacheAt("0.28.9");
+    const disabled = cacheAt("0.29.0");
+    const acme = pack("acme");
+
+    const result = deriveEngine([acme], acme, [
+      { id: "mattstack@mattstack", installPath: userScope, enabled: true, scope: "user" },
+      { id: "mattstack@mirror", installPath: projectScope, enabled: true, scope: "project" },
+      { id: "mattstack@other", installPath: disabled, enabled: false, scope: "local" },
+    ]);
+
+    expect("engine" in result && result.engine).toMatchObject({ dir: projectScope, marketplace: "mirror", installedCache: true });
+  });
+
   test("a directory-marketplace engine wins over the installed cache", () => {
     const mattstack = pack("mattstack");
     const acme = pack("acme");

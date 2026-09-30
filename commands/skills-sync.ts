@@ -14,7 +14,8 @@
 import { homedir } from "os";
 import { join } from "path";
 import { discoverPacks, packFromDir, type PackInfo } from "../lib/skills/packs.ts";
-import type { PluginListEntry } from "../lib/skills/sources.ts";
+import { buildPluginRoots, type PluginListEntry } from "../lib/skills/sources.ts";
+import { realpathSync } from "fs";
 import { resolveClaudeBin } from "../lib/claude-bin.ts";
 import { syncPack, type SyncDeps, type SyncEngine, type SyncReport, type SyncStep } from "../lib/skills/sync.ts";
 import { checkPack, compilePackAll } from "./skills.ts";
@@ -27,19 +28,29 @@ import { resolveSharedCheckout } from "../lib/release/shared-checkout.ts";
  * update-engine's version compare and loadStepSource's lookups at the wrong
  * plugin, so an absent engine refuses instead of guessing. A directory
  * checkout wins; otherwise an engine installed from any other marketplace is
- * read from its installed cache, which compile already resolves through
- * `claude plugin list`.
+ * read from its installed cache, chosen as compile chooses it from `claude plugin
+ * list` (the last enabled `mattstack@` entry).
  */
 export function deriveEngine(packs: PackInfo[], pack: PackInfo, installed: PluginListEntry[] = []): { engine: SyncEngine } | { error: string } {
   const mattstack = packs.find((p) => p.name === "mattstack");
   if (mattstack) return { engine: mattstack };
   if (pack.name === "mattstack") return { engine: pack };
-  const entry = installed.find((e) => e.id.startsWith("mattstack@"));
+  const candidates = installed.filter((e) => e.id.startsWith("mattstack@") && e.enabled !== false);
+  const root = buildPluginRoots(candidates).byName.mattstack;
+  const entry = root ? candidates.findLast((e) => realDir(e.installPath) === root.dir) : undefined;
   const cached = entry ? packFromDir("mattstack", entry.installPath, entry.id.slice("mattstack@".length)) : null;
   if (cached) return { engine: { ...cached, installedCache: true } };
   return {
     error: `no "mattstack" engine found for "${pack.name}" (looked for a directory checkout registered via extraKnownMarketplaces in Claude's settings.json, then an installed mattstack plugin in claude plugin list); install the mattstack plugin and re-run`,
   };
+}
+
+function realDir(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
 }
 
 /** An unreadable listing reads as nothing installed, so deriveEngine refuses with its own message rather than this one's. */

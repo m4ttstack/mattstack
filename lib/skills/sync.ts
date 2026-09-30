@@ -150,7 +150,7 @@ async function inTreeBranchNote(deps: SyncDeps, root: string): Promise<string> {
 function guardSummary(engineInTree: boolean, packInTree: boolean, engineCache: string | null): string {
   if (engineCache !== null) {
     const packPart = packInTree ? "pack is in-tree, its git checks skipped" : "pack checkout clean on main";
-    return `${packPart}; engine is the installed cache at ${engineCache}, read-only`;
+    return `${packPart}; engine is the installed cache at ${engineCache}, never touched by git`;
   }
   if (engineInTree && packInTree) return "engine and pack are in-tree; git checks skipped";
   if (engineInTree) return "pack checkout clean on main; engine is in-tree, its git checks skipped";
@@ -167,7 +167,7 @@ async function listInstalled(deps: SyncDeps): Promise<PluginListEntry[]> {
 /**
  * The engine as sync sees it. `installedCache` marks an engine installed from
  * a non-directory marketplace: its dir is Claude Code's own plugin cache, so
- * sync compiles against it as it stands and never runs git in it or updates it.
+ * sync never runs git in it; Claude Code refreshes it before the pack compiles.
  */
 export type SyncEngine = PackInfo & { installedCache?: boolean };
 
@@ -283,7 +283,7 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
     : await tryStep(async () => {
         if (engineCached) {
           engineSourceVersion = readManifestVersion(engine.dir);
-          return skipped(`engine is the installed cache at ${engine.dir} (from the ${engine.marketplace} marketplace); read-only, never pulled`);
+          return skipped(`engine is the installed cache at ${engine.dir} (from the ${engine.marketplace} marketplace); never git-pulled, update-engine refreshes it`);
         }
         if (engineInTree) {
           engineSourceVersion = await readInTreeVersion(deps, inTreeRoot!, engine.dir);
@@ -312,9 +312,32 @@ export async function syncPack(pack: PackInfo, engine: SyncEngine, deps: SyncDep
   steps.push({ name: "pull-pack", ...pullPack });
   if (stops(pullPack)) return finish();
 
+  /**
+   * A cached engine older than the one the pack was last compiled against
+   * would compile, recheck clean and push a downgrade, so the cache is brought
+   * current through Claude Code (which owns it) before check ever runs, and a
+   * refresh that fails stops the chain here. The update installs into a new
+   * version folder, so the version is re-read from a fresh listing.
+   */
+  async function refreshCachedEngine(): Promise<Outcome> {
+    const id = pluginId(engine);
+    const stale = "sync stopped before compiling the pack against a stale engine";
+    const market = await deps.run(deps.claudeBin!, ["plugin", "marketplace", "update", engine.marketplace!]);
+    if (market.code !== 0) {
+      return refused(`claude plugin marketplace update ${engine.marketplace} failed: ${market.stderr.trim()}; ${stale}`);
+    }
+    const update = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
+    if (update.code !== 0) return refused(`claude plugin update ${id} failed: ${update.stderr.trim()}; ${stale}`);
+    installedEngineAfter = installedVersionFor(await listInstalled(deps), id);
+    if (installedEngineAfter === null) return refused(`${id} is not in claude plugin list after its update; ${stale}`);
+    engineSourceVersion = installedEngineAfter;
+    if (installedEngineAfter === installedEngineBefore) return skipped(`engine already current at ${installedEngineAfter} in the ${engine.marketplace} marketplace`);
+    return ran(`refreshed ${id} from the ${engine.marketplace} marketplace: ${installedEngineBefore ?? "unknown"} -> ${installedEngineAfter}`);
+  }
+
   const updateEngine = await tryStep(async () => {
     if (sameCheckout) return skipped("engine and pack share a checkout; update handled as update-pack");
-    if (engineCached) return skipped(`engine is the installed cache; claude plugin update from the ${engine.marketplace} marketplace moves it, never sync`);
+    if (engineCached) return refreshCachedEngine();
     if (installedEngineBefore === engineSourceVersion) return skipped(`engine already at ${engineSourceVersion}`);
     const id = pluginId(engine);
     const res = await deps.run(deps.claudeBin!, ["plugin", "update", id]);
