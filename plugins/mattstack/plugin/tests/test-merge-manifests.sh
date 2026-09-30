@@ -165,6 +165,19 @@ run_tool "$HOME5" "$REPO5"
 REASON=""
 [ "$STATUS" -eq 2 ] || REASON="exit $STATUS, wanted 2 ($OUT)"
 [ -n "$REASON" ] || [ ! -d "$HOME5/.mattstack/repos" ] || REASON="repos dir was created despite no declaring team"
+case "$OUT" in *"no team pack declares gitlab.example.com/acme/other; nothing to materialize"*) ;; *) REASON="${REASON:-message does not read as expected state: $OUT}" ;; esac
+if [ -z "$REASON" ]; then ok "$NAME"; else bad "$NAME" "$REASON"; fi
+
+# --- case: no_remote -- a repo with no git remote has nothing to materialize ---
+NAME=no_remote
+HOME8=$(new_home)
+REPO8="$HOME8/repo"
+mkdir -p "$REPO8"
+git init -q "$REPO8"
+run_tool "$HOME8" "$REPO8"
+REASON=""
+[ "$STATUS" -eq 2 ] || REASON="exit $STATUS, wanted 2 ($OUT)"
+case "$OUT" in *"has no git remote; nothing to materialize"*) ;; *) REASON="${REASON:-message does not read as expected state: $OUT}" ;; esac
 if [ -z "$REASON" ]; then ok "$NAME"; else bad "$NAME" "$REASON"; fi
 
 # --- case: ssh_https_same_slug -- ssh and https remotes normalize to one slug ---

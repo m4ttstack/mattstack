@@ -6,6 +6,7 @@
 
 import { appBundlePath } from "../deps/resolve.ts";
 import type { SecretsSeams } from "../secrets/store.ts";
+import { setSettingsNoticeSink } from "../settings/write.ts";
 import { createRealTeamSecretsSeams } from "../secrets/team-store.ts";
 import type { SecretsSeamsFactory } from "../team/join.ts";
 import type { RelayClient } from "../team/relay-client.ts";
@@ -248,6 +249,7 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
       ctx.emit({ event: "step", id: step.id, state: "running" });
 
       let outcome: StepOutcome;
+      const outerSink = setSettingsNoticeSink((line) => ctx.log(step.id, line));
       try {
         outcome = await step.run(ctx);
       } catch (err) {
@@ -266,6 +268,8 @@ export async function runApplyWith(steps: StepDef[], ctx: ApplyContext, opts: { 
           bug = err;
           break;
         }
+      } finally {
+        setSettingsNoticeSink(outerSink);
       }
 
       if (outcome.state === "failed" && opts.only !== undefined && step.id !== opts.only && step.id !== INTERCEPTS_STEP) {

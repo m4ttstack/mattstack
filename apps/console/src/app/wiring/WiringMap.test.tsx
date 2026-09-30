@@ -1090,6 +1090,31 @@ describe('WiringMap: the header row', () => {
     ).toBeTruthy();
   });
 
+  it('names the only pack as plain text where the pack picker would sit', async () => {
+    mockHappyPath();
+    renderWiring();
+
+    const name = await screen.findByTestId('pack-name');
+    expect(name).toHaveTextContent('demo');
+    expect(screen.queryByTestId('pack-select')).not.toBeInTheDocument();
+  });
+
+  it('shows the picker, not the plain name, when there is more than one pack', async () => {
+    mockHappyPath();
+    packsGet.mockResolvedValue(
+      ok({
+        packs: [
+          { name: 'demo', dir: '/p', layout: 'flat' },
+          { name: 'acme', dir: '/a', layout: 'flat' },
+        ],
+      })
+    );
+    renderWiring();
+
+    await screen.findByTestId('pack-select');
+    expect(screen.queryByTestId('pack-name')).not.toBeInTheDocument();
+  });
+
   it('keeps the title on screen when no packs are found', async () => {
     packsGet.mockResolvedValue(ok({ packs: [] }));
     renderWiring();

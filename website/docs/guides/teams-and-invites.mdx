@@ -76,7 +76,7 @@ rt team pull
 
 Asks the daemon to pull the team clone immediately instead of waiting for its periodic pull. When the pull moves HEAD, the pack cache converges exactly as above.
 
-`rt skills sync` is for a pack's author: it pulls the pack and engine checkouts, recompiles and pushes a new version when the compiled skills have drifted, and updates the installed plugins.
+`rt skills sync` is for a pack's author: it pulls the pack and engine checkouts, recompiles and pushes a new version when the compiled skills have drifted, and updates the installed plugins. When the mattstack engine is installed from its marketplace rather than a local checkout, sync first updates that installed copy from its marketplace, stops if the update fails, and compiles the pack against it.
 
 ## Quick reference
 

@@ -196,6 +196,24 @@ export function setSetting(key: string, value: unknown, scope: SettingScope, opt
   shareTip("saved", key, scope, storePath);
 }
 
+export type SettingsNoticeSink = (line: string) => void;
+
+const stderrSink: SettingsNoticeSink = (line) => console.error(line);
+let noticeSink: SettingsNoticeSink = stderrSink;
+
+/**
+ * Where a write's share tip goes, returning the sink it replaces so a caller
+ * can restore it; null restores the default. The default is stderr because a
+ * library caller may own stdout as a JSON channel. A tip is informational, so
+ * a caller that has a neutral channel (a TTY's stdout, a setup step's log)
+ * routes it there instead of letting it read as an error.
+ */
+export function setSettingsNoticeSink(sink: SettingsNoticeSink | null): SettingsNoticeSink {
+  const previous = noticeSink;
+  noticeSink = sink ?? stderrSink;
+  return previous;
+}
+
 /**
  * The daemon's snapshot engines commit and push the user and team repos on
  * their own, so a write normally needs no follow-up and prints nothing. A tip
@@ -212,18 +230,18 @@ function shareTip(verb: "saved" | "removed", key: string, scope: SettingScope, s
   if (scope === "user") {
     const repo = dirname(storePath);
     if (!hasOrigin(repo)) {
-      console.error(`${lead} your user store on this machine only; ${repo} has no remote, so ${what} will not reach your other machines`);
+      noticeSink(`${lead} your user store on this machine only; ${repo} has no remote, so ${what} will not reach your other machines`);
     } else if (!snapshotEnabled("rt.homeSnapshot")) {
-      console.error(`${lead} your user store, but automatic sync is off (rt.homeSnapshot); commit and push ${repo} to share ${what} with your other machines`);
+      noticeSink(`${lead} your user store, but automatic sync is off (rt.homeSnapshot); commit and push ${repo} to share ${what} with your other machines`);
     }
     return;
   }
   const repo = dirname(dirname(storePath));
   const team = basename(repo);
   if (!hasOrigin(repo)) {
-    console.error(`${lead} the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${team} --remote <url>\` to share ${what} with the team`);
+    noticeSink(`${lead} the team store on this machine only; the team repo has no remote yet, so run \`rt team publish --team ${team} --remote <url>\` to share ${what} with the team`);
   } else if (!snapshotEnabled("rt.teamSnapshot")) {
-    console.error(`${lead} the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${team}\` to share ${what} with the team`);
+    noticeSink(`${lead} the team store, but automatic team sync is off (rt.teamSnapshot); run \`rt team publish --team ${team}\` to share ${what} with the team`);
   }
 }
 

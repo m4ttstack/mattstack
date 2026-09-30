@@ -48,6 +48,11 @@ type World = {
   configDir?: string;
   claudeBinOverride?: string | null;
   mainVersions?: Record<string, string>;
+  marketplaceUpdateFail?: Record<string, string>;
+  cacheUpdateTo?: Record<string, string>;
+  /** Listed ahead of the installed entries: the same plugin id at another scope. */
+  shadowEntries?: { id: string; scope: string; version: string }[];
+  scopeOf?: Record<string, string>;
 };
 
 /**
@@ -127,13 +132,35 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
 
     if (cmd === claudeBin) {
       if (args[0] === "plugin" && args[1] === "list") {
-        const list = [...installedVersions.keys()].map((id) => ({ id, installPath: installDirFor(id) }));
+        const shadows = (world.shadowEntries ?? []).map((e) => {
+          const dir = tmp("rt-sync-shadow-");
+          mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+          writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name: e.id.split("@")[0], version: e.version }));
+          return { id: e.id, installPath: dir, scope: e.scope, enabled: true };
+        });
+        const list = [
+          ...shadows,
+          ...[...installedVersions.keys()].map((id) => ({ id, installPath: installDirFor(id), enabled: true, ...(world.scopeOf?.[id] ? { scope: world.scopeOf[id] } : {}) })),
+        ];
         return { code: 0, stdout: JSON.stringify(list), stderr: "" };
+      }
+      if (args[0] === "plugin" && args[1] === "marketplace" && args[2] === "update") {
+        const stderr = world.marketplaceUpdateFail?.[args[3]!];
+        if (stderr) return { code: 1, stdout: "", stderr };
+        return { code: 0, stdout: "", stderr: "" };
       }
       if (args[0] === "plugin" && args[1] === "update") {
         const id = args[2]!;
         const stderr = world.updateFail?.[id];
         if (stderr) return { code: 2, stdout: "", stderr };
+        const movedTo = world.cacheUpdateTo?.[id];
+        if (movedTo) {
+          // Claude Code installs a new version into a new cache folder.
+          installedVersions.set(id, movedTo);
+          installDirs.delete(id);
+          installDirFor(id);
+          return { code: 0, stdout: "", stderr: "" };
+        }
         const sourceDir = sourceDirFor(id);
         if (sourceDir) {
           installedVersions.set(id, readVersion(sourceDir));
@@ -150,6 +177,7 @@ function makeDeps(pack: PackInfo, engine: PackInfo, world: World): SyncDeps {
     run,
     claudeBin,
     checkPack: async () => {
+      world.calls.push({ cmd: "checkPack", args: [] });
       if (world.checkThrows) throw new Error("checkPack: manifest discovery found nothing");
       const next = driftAnswers.shift();
       if (next === undefined) throw new Error("checkPack: fixture ran out of configured drift answers");
@@ -353,6 +381,137 @@ describe("syncPack", () => {
     expect(byName["update-pack"]).toBe("ran");
     expect(calls.filter((c) => c.args[0] === "pull").length).toBe(1);
     expect(calls.filter((c) => c.args[0] === "plugin" && c.args[1] === "update").length).toBe(1);
+  });
+
+  test("10b: an installed-cache engine is refreshed through Claude Code before check, never git-checked or pulled", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "0.9.0", [pluginId(engine)]: "2.0.0" },
+      cacheUpdateTo: { [pluginId(engine)]: "2.1.0" },
+      drift: [false],
+      gitStatus: { [engine.dir]: " M would-refuse-if-checked" },
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const byName = Object.fromEntries(report.steps.map((s) => [s.name, s]));
+    expect(report.ok).toBe(true);
+    expect(byName.guards!.detail).toContain("installed cache");
+    expect(byName["pull-engine"]!.status).toBe("skipped");
+    expect(byName["update-engine"]!.status).toBe("ran");
+    expect(byName["update-engine"]!.detail).toContain("2.0.0 -> 2.1.0");
+    expect(byName["update-pack"]!.status).toBe("ran");
+    expect(report.versions.engine).toEqual({ before: "2.0.0", after: "2.1.0" });
+    expect(calls.some((c) => c.cwd === engine.dir)).toBe(false);
+
+    const order = calls.map((c) => (c.cmd === "checkPack" ? "check" : c.args.slice(0, 3).join(" ")));
+    const refresh = order.indexOf("plugin marketplace update");
+    const update = order.indexOf(`plugin update ${pluginId(engine)}`);
+    expect(calls[refresh]!.args).toEqual(["plugin", "marketplace", "update", "mattstack"]);
+    expect(calls[update]!.args).toEqual(["plugin", "update", pluginId(engine), "-y"]);
+    expect(refresh).toBeGreaterThanOrEqual(0);
+    expect(update).toBeGreaterThan(refresh);
+    expect(order.indexOf("check")).toBeGreaterThan(update);
+  });
+
+  test("10g: a project-scope cached engine is updated at its own scope and its version read back from that entry", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true, scope: "project" };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      scopeOf: { [pluginId(engine)]: "project" },
+      shadowEntries: [{ id: pluginId(engine), scope: "user", version: "1.5.0" }],
+      cacheUpdateTo: { [pluginId(engine)]: "2.1.0" },
+      drift: [false],
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const marketUpdate = calls.find((c) => c.args[1] === "marketplace" && c.args[2] === "update")!;
+    const engineUpdate = calls.find((c) => c.args[1] === "update" && c.args[2] === pluginId(engine))!;
+    expect(marketUpdate.args).toEqual(["plugin", "marketplace", "update", "mattstack"]);
+    expect(engineUpdate.args).toEqual(["plugin", "update", pluginId(engine), "--scope", "project", "-y"]);
+    expect(report.versions.engine).toEqual({ before: "2.0.0", after: "2.1.0" });
+    expect(report.steps.find((s) => s.name === "update-engine")!.detail).toContain("2.0.0 -> 2.1.0");
+  });
+
+  test("10d: an installed-cache engine whose marketplace cannot refresh refuses before check, compile or commit", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      marketplaceUpdateFail: { mattstack: "network unreachable" },
+      drift: [true, false],
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const last = report.steps.at(-1)!;
+    expect(last.name).toBe("update-engine");
+    expect(last.status).toBe("refused");
+    expect(last.detail).toContain("network unreachable");
+    expect(last.detail).toContain("stale engine");
+    expect(report.ok).toBe(false);
+    expect(calls.some((c) => c.cmd === "checkPack")).toBe(false);
+    expect(calls.some((c) => c.args[0] === "push")).toBe(false);
+  });
+
+  test("10e: an installed-cache engine whose plugin update fails refuses before check", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      updateFail: { [pluginId(engine)]: "cache locked" },
+      drift: [true, false],
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    const last = report.steps.at(-1)!;
+    expect(last.name).toBe("update-engine");
+    expect(last.status).toBe("refused");
+    expect(last.detail).toContain("cache locked");
+    expect(calls.some((c) => c.cmd === "checkPack")).toBe(false);
+  });
+
+  test("10f: an installed-cache engine already current is refreshed but needs no restart", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, {
+      calls,
+      installed: { [pluginId(pack)]: "1.0.0", [pluginId(engine)]: "2.0.0" },
+      drift: [false],
+    });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(report.steps.find((s) => s.name === "update-engine")!.status).toBe("skipped");
+    expect(calls.some((c) => c.args[1] === "marketplace" && c.args[2] === "update")).toBe(true);
+    expect(report.restartNeeded).toBe(false);
+    expect(report.ok).toBe(true);
+  });
+
+  test("10c: an installed-cache engine keeps every check on the pack checkout", async () => {
+    const pack = fixturePack("acme", "local", "1.0.0");
+    const engine = { ...fixturePack("mattstack", "mattstack", "2.0.0"), installedCache: true };
+    const calls: Call[] = [];
+    const deps = makeDeps(pack, engine, { calls, gitStatus: { [pack.dir]: " M x.ts" } });
+
+    const report = await syncPack(pack, engine, deps);
+
+    expect(stepNames(report.steps)).toEqual(["guards"]);
+    expect(report.steps[0]!.status).toBe("refused");
+    expect(report.steps[0]!.detail).toContain("pack checkout dirty");
   });
 
   test("11: cswap sweep warns about exactly the divergent session", async () => {

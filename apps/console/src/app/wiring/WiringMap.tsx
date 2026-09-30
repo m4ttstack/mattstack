@@ -564,6 +564,23 @@ export function WiringMap() {
                   data-testid="pack-select"
                 />
               )}
+              {packs.length === 1 && pack && (
+                <Group gap={6} wrap="nowrap">
+                  <Text size="xs" c={text.dimmed}>
+                    pack
+                  </Text>
+                  <Text
+                    size="sm"
+                    fw={500}
+                    maw={168}
+                    truncate
+                    title={pack}
+                    data-testid="pack-name"
+                  >
+                    {pack}
+                  </Text>
+                </Group>
+              )}
               {workTypes.length > 1 && workType && (
                 <Select
                   size="xs"

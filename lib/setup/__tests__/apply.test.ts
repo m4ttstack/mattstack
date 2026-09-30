@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { setSetting } from "../../settings/write.ts";
 import type { SecretsSeams } from "../../secrets/store.ts";
 import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext, StepDef, StepOutcome } from "../apply.ts";
@@ -292,6 +296,38 @@ describe("runApplyWith — thrown errors", () => {
     expect(caught).toBeUndefined();
     expect(events.at(-2)).toEqual({ event: "step", id: "home.init", state: "failed", detail: "bug: undefined" });
     expect(events.filter((e) => e.event === "done")).toHaveLength(1);
+  });
+});
+
+describe("runApplyWith: a settings share tip is the step's own log line", () => {
+  test("a step's setSetting tip lands as a log event under that step, never on stderr", async () => {
+    const origHome = process.env.HOME;
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "rt-apply-notice-")));
+    process.env.HOME = home;
+    const stderr: string[] = [];
+    const origError = console.error;
+    console.error = (...args: unknown[]) => void stderr.push(args.map(String).join(" "));
+    try {
+      const { ctx, events } = testCtx();
+      const steps: StepDef[] = [
+        fakeStep("board.keys", async () => {
+          setSetting("chat.humanHandle", "acme-dev", "user");
+          return { state: "done" };
+        }),
+      ];
+
+      await runApplyWith(steps, ctx, {});
+
+      const logs = events.filter((e) => e.event === "log");
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ event: "log", id: "board.keys" });
+      expect((logs[0] as { line: string }).line).toContain(`saved "chat.humanHandle"`);
+      expect(stderr).toEqual([]);
+    } finally {
+      console.error = origError;
+      process.env.HOME = origHome;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

@@ -52,7 +52,7 @@ export function detectLayout(dir: string): PackLayout {
     : "flat";
 }
 
-function packFromDir(name: string, dir: string, marketplace: string | null = null): PackInfo | null {
+export function packFromDir(name: string, dir: string, marketplace: string | null = null): PackInfo | null {
   let real: string;
   try {
     real = realpathSync(dir);
