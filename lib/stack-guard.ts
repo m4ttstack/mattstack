@@ -98,6 +98,8 @@ export async function checkStackMembership(opts: {
   defaultBranch: string | null;
   runners: StackGuardRunners;
 }): Promise<StackVerdict> {
+  // The default branch is every stack's root, never a member: MRs targeting it are ordinary, not dependents.
+  if (opts.branch === opts.defaultBranch) return { verdict: "clear" };
   const gitqOut = await opts.runners.gitqStacks(opts.cwd);
   const membership = gitqOut === null ? null : gitqMembership(parseGitqStacks(gitqOut), opts.branch);
   if (membership) {
