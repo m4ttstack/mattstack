@@ -39,6 +39,7 @@ import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { readZonesFrom, type InitFs } from "../lib/skills/init.ts";
+import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
 import { manifestRepoKey, packManifestPath } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
@@ -452,6 +453,7 @@ type Resolved = {
   surface: SurfaceConfig | null;
   internalRoster: Set<string>;
   manifestPath: string | null;
+  provenance: Record<string, string>;
   pipelines: Record<string, string[]>;
   stages: VerbDef[];
   stageEntries: Record<string, StageEntry[]>;
@@ -503,6 +505,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   // A pack with no verb roster needs no manifest: bindings only feed compile targets.
   const manifestPath = fullRoster.length === 0 ? null : (flags.manifest ?? findDefaultManifest(mattstackRoot, team, packDir, flags.repo));
   const bindings = manifestPath ? readManifestBindings(manifestPath) : {};
+  const provenance = manifestPath ? readManifestProvenance(readFileSync(manifestPath, "utf8")) : {};
   // No compile targets means nothing needs plugin roots or the invocable roster;
   // skipping the `claude plugin list` subprocess keeps rosterless packs usable
   // even where the Claude CLI is absent.
@@ -539,7 +542,7 @@ async function resolve(flags: Flags): Promise<Resolved> {
   }
 
   return {
-    packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath,
+    packDir, team, fullRoster, bindings, pluginRoots, invocable, surface, internalRoster, manifestPath, provenance,
     pipelines, stages, stageEntries, repoKey, mattstackSha, mattstackDirty, packSha,
   };
 }
@@ -1193,6 +1196,7 @@ type CompositionSlot = {
   contract: string;
   required: boolean;
   boundTo: string | null;
+  layer: string | null;
   // Fill fields (registered/inlined/fillVersion/fillSourcePath) are the
   // PLUGIN's version, not the fill's own -- AttachmentSource.version is
   // assigned pluginRoot.version, so every fill from one plugin reports an
@@ -1296,7 +1300,13 @@ function buildCompositionVerb(verb: VerbDef, resolved: Resolved, publicSet: Set<
     const boundTo = slotBindings[slotName] ?? null;
     // required is optional on SlotSpec; default it explicitly so JSON carries
     // "not required" rather than silently dropping the key.
-    const base = { name: slotName, contract: spec.contract, required: spec.required ?? false, boundTo };
+    const base = {
+      name: slotName,
+      contract: spec.contract,
+      required: spec.required ?? false,
+      boundTo,
+      layer: boundTo ? resolved.provenance[`${engineRef} ${slotName}`] ?? null : null,
+    };
 
     if (!boundTo) {
       return { ...base, fillSourcePath: null, fillVersion: null, registered: null, inlined: null };
@@ -1467,7 +1477,7 @@ export async function skillsComposition(args: string[]): Promise<void> {
         const status = slot.resolveError
           ? `ERROR -- ${slot.resolveError}`
           : slot.boundTo ?? "(unbound)";
-        console.log(`    ${slot.name}: ${status}`);
+        console.log(`    ${slot.name}: ${status}${slot.layer ? ` [${slot.layer}]` : ""}`);
       }
     }
     console.log(`  ${payload.fills.length} fills, ${payload.binders.length} binders`);
