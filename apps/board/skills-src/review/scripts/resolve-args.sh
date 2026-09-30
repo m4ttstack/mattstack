@@ -7,7 +7,9 @@
 #   Options:
 #     --manifest <path>         bindings manifest; default: nearest
 #                               .mattstack/skills.jsonc walking up from PWD,
-#                               then $HOME/.mattstack/skills.jsonc
+#                               then $HOME/.mattstack/repos/<slug>/packs/$MATTSTACK_PACK/skills.jsonc
+#                               when MATTSTACK_PACK is set, then
+#                               $HOME/.mattstack/skills.jsonc
 #     --skills-dir <path>       installed-skills dir; default ~/.claude/skills
 #     --plugin-list-cmd <cmd>   space-splittable command printing
 #                               `claude plugin list --json` output
@@ -25,6 +27,7 @@ SKILL_MD="$SKILL_DIR/SKILL.md"
 SKILLS_DIR="${HOME}/.claude/skills"
 PLUGIN_LIST_CMD="claude plugin list --json"
 MANIFEST=""
+PACK_MANIFEST_MISSING=""
 
 fail_env() { # $1=code $2=message (fixed strings, JSON-safe by construction)
   printf '{"ok":false,"skill":"%s","errors":[{"slot":null,"code":"%s","message":"%s"}]}\n' \
@@ -98,19 +101,22 @@ if [ -z "$MANIFEST" ]; then
     d=$(dirname "$d")
   done
   if [ -z "$MANIFEST" ]; then
-    # Per-repo manifest, keyed by the normalized origin remote.
-    # Known limitation: an explicit port (ssh://host:2222/path) stays in
-    # the slug; both writer and readers share this, so they agree.
+    # Per-repo, per-pack manifest, keyed by the normalized origin remote and
+    # the pack the launcher named. Known limitation: an explicit port
+    # (ssh://host:2222/path) stays in the slug; writer and readers agree.
     REPO_REMOTE=$(git remote get-url origin 2> /dev/null || true)
-    if [ -n "$REPO_REMOTE" ]; then
+    if [ -n "$REPO_REMOTE" ] && [ -n "${MATTSTACK_PACK:-}" ]; then
       u=${REPO_REMOTE%.git}
       u=${u#ssh://}; u=${u#https://}; u=${u#http://}; u=${u#git://}
       u=${u#*@}
       u=$(printf %s "$u" | sed 's|:|/|')
       _host=${u%%/*}; _path=${u#*/}
       REPO_SLUG="$(printf %s "$_host" | tr 'A-Z' 'a-z')-$(printf %s "$_path" | tr '/' '-')"
-      if [ -f "$HOME/.mattstack/repos/$REPO_SLUG/skills.jsonc" ]; then
-        MANIFEST="$HOME/.mattstack/repos/$REPO_SLUG/skills.jsonc"
+      PACK_MANIFEST="$HOME/.mattstack/repos/$REPO_SLUG/packs/$MATTSTACK_PACK/skills.jsonc"
+      if [ -f "$PACK_MANIFEST" ]; then
+        MANIFEST="$PACK_MANIFEST"
+      else
+        PACK_MANIFEST_MISSING="$PACK_MANIFEST"
       fi
     fi
   fi
@@ -121,7 +127,11 @@ fi
 
 # Missing manifest = empty bindings; required slots then fail as unbound.
 BINDINGS_JSON='{}'
-MANIFEST_NOTE="no manifest: not in an upward .mattstack/skills.jsonc from $PWD (stopping before \$HOME), not in \$HOME/.mattstack/repos/<slug>/skills.jsonc for this repo's remote, not in \$HOME/.mattstack/skills.jsonc"
+if [ -n "$PACK_MANIFEST_MISSING" ]; then
+  MANIFEST_NOTE="no manifest: MATTSTACK_PACK=$MATTSTACK_PACK but $PACK_MANIFEST_MISSING does not exist (run rt skills materialize)"
+else
+  MANIFEST_NOTE="no manifest: not in an upward .mattstack/skills.jsonc from $PWD (stopping before \$HOME), MATTSTACK_PACK unset so no \$HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc was read, not in \$HOME/.mattstack/skills.jsonc"
+fi
 MANIFEST_INVALID=0
 if [ -n "$MANIFEST" ] && [ -f "$MANIFEST" ]; then
   MANIFEST_NOTE=$MANIFEST

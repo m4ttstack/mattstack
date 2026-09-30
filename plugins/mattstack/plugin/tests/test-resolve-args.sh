@@ -182,13 +182,13 @@ for f in ci-triage.sh; do
   fi
 done
 
-# --- case: per-repo manifest -- matching $HOME/.mattstack/repos/<slug>/skills.jsonc,
+# --- case: per-repo manifest -- matching $HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc,
 # no committed cwd-up file -> binding resolves from the per-repo file ---
 mkdir -p "$WORK/repo-per-repo"
 (cd "$WORK/repo-per-repo" && git init -q && git remote add origin "https://gitlab.example.com/acme/widgets.git")
-mkdir -p "$WORK/fakehome-per-repo/.mattstack/repos/gitlab.example.com-acme-widgets"
-cp "$FIX/manifests/bound.jsonc" "$WORK/fakehome-per-repo/.mattstack/repos/gitlab.example.com-acme-widgets/skills.jsonc"
-OUT=$(cd "$WORK/repo-per-repo" && HOME="$WORK/fakehome-per-repo" "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+mkdir -p "$WORK/fakehome-per-repo/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets"
+cp "$FIX/manifests/bound.jsonc" "$WORK/fakehome-per-repo/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc"
+OUT=$(cd "$WORK/repo-per-repo" && HOME="$WORK/fakehome-per-repo" MATTSTACK_PACK=widgets "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
 STATUS=$?
 check per_repo_manifest 0 '
   .ok == true
@@ -199,9 +199,9 @@ check per_repo_manifest 0 '
 mkdir -p "$WORK/repo-cwd-wins/.mattstack"
 (cd "$WORK/repo-cwd-wins" && git init -q && git remote add origin "https://gitlab.example.com/acme/widgets.git")
 cp "$FIX/manifests/bound.jsonc" "$WORK/repo-cwd-wins/.mattstack/skills.jsonc"
-mkdir -p "$WORK/fakehome-cwd-wins/.mattstack/repos/gitlab.example.com-acme-widgets"
-cp "$FIX/manifests/mismatch.jsonc" "$WORK/fakehome-cwd-wins/.mattstack/repos/gitlab.example.com-acme-widgets/skills.jsonc"
-OUT=$(cd "$WORK/repo-cwd-wins" && HOME="$WORK/fakehome-cwd-wins" "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+mkdir -p "$WORK/fakehome-cwd-wins/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets"
+cp "$FIX/manifests/mismatch.jsonc" "$WORK/fakehome-cwd-wins/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc"
+OUT=$(cd "$WORK/repo-cwd-wins" && HOME="$WORK/fakehome-cwd-wins" MATTSTACK_PACK=widgets "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
 STATUS=$?
 check cwd_up_beats_per_repo 0 '
   .ok == true
@@ -223,9 +223,9 @@ check no_remote_falls_back_global 0 '
 # $HOME -- regression: the cwd-up walk must stop before it reaches $HOME
 # itself, or $HOME/.mattstack/skills.jsonc gets matched as a "committed"
 # in-repo file and the per-repo lookup never runs ---
-mkdir -p "$WORK/fakehome-under-home/.mattstack/repos/gitlab.example.com-acme-widgets"
+mkdir -p "$WORK/fakehome-under-home/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets"
 cp "$FIX/manifests/mismatch.jsonc" "$WORK/fakehome-under-home/.mattstack/skills.jsonc"
-cp "$FIX/manifests/bound.jsonc" "$WORK/fakehome-under-home/.mattstack/repos/gitlab.example.com-acme-widgets/skills.jsonc"
+cp "$FIX/manifests/bound.jsonc" "$WORK/fakehome-under-home/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc"
 mkdir -p "$WORK/fakehome-under-home/src/repo"
 (cd "$WORK/fakehome-under-home/src/repo" && git init -q && git remote add origin "https://gitlab.example.com/acme/widgets.git")
 # Canonicalize: $WORK can carry a double slash when $TMPDIR itself ends in
@@ -233,11 +233,32 @@ mkdir -p "$WORK/fakehome-under-home/src/repo"
 # up -- so a raw string concat here would never string-equal the walk's $d
 # even though both name the same directory. Match what the walk sees.
 FAKE_HOME_UNDER=$(CDPATH= cd -- "$WORK/fakehome-under-home" && pwd)
-OUT=$(cd "$FAKE_HOME_UNDER/src/repo" && HOME="$FAKE_HOME_UNDER" "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+OUT=$(cd "$FAKE_HOME_UNDER/src/repo" && HOME="$FAKE_HOME_UNDER" MATTSTACK_PACK=widgets "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
 STATUS=$?
 check per_repo_wins_under_home 0 '
   .ok == true
   and .resolved.tiering.binding == "fake:tiering-good"'
+
+# --- case: pack-file -- MATTSTACK_PACK selects repos/<slug>/packs/<pack>/skills.jsonc ---
+PACK_HOME="$WORK/pack-home"
+PACK_REPO="$WORK/pack-repo"
+mkdir -p "$PACK_HOME/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets" "$PACK_REPO"
+cp "$FIX/manifests/bound.jsonc" "$PACK_HOME/.mattstack/repos/gitlab.example.com-acme-widgets/packs/widgets/skills.jsonc"
+git init -q "$PACK_REPO" && git -C "$PACK_REPO" remote add origin "https://gitlab.example.com/acme/widgets.git"
+OUT=$(cd "$PACK_REPO" && HOME="$PACK_HOME" MATTSTACK_PACK=widgets "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check pack_file 0 '.ok == true and .resolved.tiering.binding == "fake:tiering-good"'
+
+# --- case: pack-file-missing -- MATTSTACK_PACK names a pack with no file here ---
+OUT=$(cd "$PACK_REPO" && HOME="$PACK_HOME" MATTSTACK_PACK=gadgets "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check pack_file_missing 1 '.ok == false and .errors[0].code == "unbound" and (.errors[0].message | contains("packs/gadgets/skills.jsonc"))'
+
+# --- case: no-pack -- the old repos/<slug>/skills.jsonc is never read ---
+cp "$FIX/manifests/bound.jsonc" "$PACK_HOME/.mattstack/repos/gitlab.example.com-acme-widgets/skills.jsonc"
+OUT=$(cd "$PACK_REPO" && HOME="$PACK_HOME" env -u MATTSTACK_PACK "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check no_pack 1 '.ok == false and .errors[0].code == "unbound" and (.errors[0].message | contains("MATTSTACK_PACK"))'
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
