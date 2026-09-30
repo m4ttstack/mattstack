@@ -362,14 +362,12 @@ Add to `lib/skills/__tests__/init.test.ts` (find the existing `readZones` descri
 
 ```ts
 test("readZonesFrom reads zones under an explicit teams dir", () => {
-  const fs = memFs(zoneFiles("acme", {}));      // the file's own in-memory fs and zone fixture (init.test.ts:6, :52)
-  const zones = readZonesFrom(fs, "/home/.mattstack/teams");
+  const fs = memFs(zoneFiles("acme", {}));      // the file's own in-memory fs and zone fixture (init.test.ts:6, :52; HOME is "/h")
+  const zones = readZonesFrom(fs, "/h/.mattstack/teams");
   expect(zones.map((z) => z.slug)).toEqual(["acme"]);
-  expect(readZones(fs, "/home")).toEqual(zones);
+  expect(readZones(fs, "/h")).toEqual(zones);
 });
 ```
-
-(`zoneFiles` writes its zone under `/home/.mattstack/teams/<slug>/mattstack/`; check its root path at `init.test.ts:52` and use that root in place of `/home` if it differs.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1079,7 +1077,7 @@ function materializeWorld(home: string, opts: { fragment?: string; remote?: stri
 }
 ```
 
-  `fakeProbes.readDir` lists only `dirs`, and `exists` answers for `files` keys and `dirs` keys (check `fakes.ts`; if `exists` does not answer for a file's parent directories, add the `.../packs/widgets/pack` dir entries too). Expected details: a registered repo with the world above reports `materialized 1, failed 0`; a world with `fragment: "{ nope"` reports `materialized 0, failed 1` and logs `<name>: widgets: fragment is not valid JSONC: <zone>/packs/widgets/pack/skills.jsonc`; a world whose `exec` returns `code: 1` for get-url reports `no skills declared 1`. A case that asserted the `bash <script> --repo` exec now asserts `calls.exec` contains a `git -C <path> remote get-url origin` call. Task 5 reuses `materializeWorld` in `pack.test.ts`.
+  `fakeProbes.readDir` lists only `dirs`; `exists` answers for `files` keys and `dirs` keys directly, so `packsIn`'s `exists(.../pack/skills.jsonc)` check needs no extra dir entries, and `writeFile` stores into `files` where `readFile` and `rename` see it. Expected details: a registered repo with the world above reports `materialized 1, failed 0`; a world with `fragment: "{ nope"` reports `materialized 0, failed 1` and logs `<name>: widgets: fragment is not valid JSONC: <zone>/packs/widgets/pack/skills.jsonc`; a world whose `exec` returns `code: 1` for get-url reports `no skills declared 1`. A case that asserted the `bash <script> --repo` exec now asserts `calls.exec` contains a `git -C <path> remote get-url origin` call. Task 5 reuses `materializeWorld` in `pack.test.ts`.
 - `grep -rn "merge-manifests\|MERGE_MANIFESTS" lib commands scripts --include='*.ts'` and fix every remaining reference (apply.test/contract.test mention only the step id, which is unchanged).
 - `commands/skills-init.ts:141-146` compiles unchanged (row shape kept).
 
@@ -1120,7 +1118,7 @@ materialize: async () => {
 },
 ```
 
-In `lib/skills/__tests__/sync.test.ts` the fake deps gain `materialize: async () => ({ ok: true, detail: "materialized 1" })`; add one test that the step list carries `materialize` between `update-engine` and `check`, and one where `materialize` returns `ok: false` and the report stops at that step with `status: "failed"`. Run `bun test lib/skills/__tests__/sync.test.ts`: PASS.
+In `lib/skills/__tests__/sync.test.ts` the fake deps gain `materialize: async () => ({ ok: true, detail: "materialized 1" })`; the two exact step-list pins at `sync.test.ts:182` and `:246` (grep `stepNames(`) gain `"materialize"` between `"update-engine"` and `"check"`; add one test that the step list carries `materialize` there, and one where `materialize` returns `ok: false` and the report stops at that step with `status: "failed"`. Run `bun test lib/skills/__tests__/sync.test.ts`: PASS.
 
 - [ ] **Step 5: `rt skills materialize --dir`**
 
