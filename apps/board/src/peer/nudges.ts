@@ -45,6 +45,36 @@ export function readNudges(db: Database = getStateDb()): NudgeState[] {
   return out;
 }
 
+export interface PendingNudge {
+  from: string;
+  receivedAt: number;
+  kind?: AskKind;
+  /** Triage is off, so nothing starts this ask until someone clicks. */
+  awaitsClick?: true;
+}
+
+/** The asks still awaiting a decision, keyed by MR. Handled ones stay on
+    disk for the outcome trail but are off the board. */
+export function pendingNudgesByMr(
+  nudges: NudgeState[],
+  triageEnabled: boolean
+): Map<string, PendingNudge[]> {
+  const byMr = new Map<string, PendingNudge[]>();
+  for (const n of nudges) {
+    if (n.handled) continue;
+    const entry: PendingNudge = {
+      from: n.from,
+      receivedAt: n.receivedAt,
+      kind: n.kind,
+      ...(triageEnabled ? {} : { awaitsClick: true as const }),
+    };
+    const list = byMr.get(n.mrUrl);
+    if (list) list.push(entry);
+    else byMr.set(n.mrUrl, [entry]);
+  }
+  return byMr;
+}
+
 /** Read-merge-write a nudge's handled outcome. No-op if no row exists for
     this id. */
 export function markNudgeHandled(

@@ -134,6 +134,8 @@ export interface InboundNudgeInfo {
   receivedAt: number;
   /** Absent means re-review. */
   kind?: 'review' | 're-review' | 'respond';
+  /** Triage is off, so nothing starts this ask until someone clicks. */
+  awaitsClick?: boolean;
 }
 export type BoardMRWithReview = BoardMR & {
   review?: ReviewInfo;

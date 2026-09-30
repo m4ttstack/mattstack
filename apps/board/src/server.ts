@@ -191,6 +191,7 @@ import {
 } from './peer/envelope.ts';
 import { type MaterializeDeps } from './peer/inbox.ts';
 import {
+  pendingNudgesByMr,
   pruneNudges,
   pruneSentNudges,
   readNudges,
@@ -200,6 +201,7 @@ import {
   sentNudgeDisplay,
   writeNudge,
   writeSentNudge,
+  type PendingNudge,
   type SentNudgeDisplay,
 } from './peer/nudges.ts';
 import {
@@ -514,7 +516,17 @@ interface PeerAttachments {
     reason?: string;
     kind?: AskKind;
   };
-  nudges?: Array<{ from: string; receivedAt: number; kind?: AskKind }>;
+  nudges?: PendingNudge[];
+}
+
+/** A config that fails to parse also stops the triage pass, so its asks
+    wait for a click like triage being off. */
+function triageEnabled(): boolean {
+  try {
+    return loadTriageConfig().enabled;
+  } catch {
+    return false;
+  }
 }
 
 /** Fold every peer field onto the MRs, non-mutating. Read from disk per call
@@ -525,19 +537,7 @@ function attachPeerState<T extends { webUrl?: string | null }>(
   now: number = Date.now()
 ): Array<T & PeerAttachments> {
   const sent = readSentNudges();
-  const inbound = new Map<
-    string,
-    Array<{ from: string; receivedAt: number; kind?: AskKind }>
-  >();
-  for (const n of readNudges()) {
-    // Handled nudges stay on disk for the outcome trail; only the ones still
-    // awaiting a decision belong on the board.
-    if (n.handled) continue;
-    const entry = { from: n.from, receivedAt: n.receivedAt, kind: n.kind };
-    const list = inbound.get(n.mrUrl);
-    if (list) list.push(entry);
-    else inbound.set(n.mrUrl, [entry]);
-  }
+  const inbound = pendingNudgesByMr(readNudges(), triageEnabled());
   return attachPeerReviews(mrs, readPeerReviews()).map(mr => {
     if (!mr.webUrl) return mr;
     const s = sent.get(mr.webUrl);
