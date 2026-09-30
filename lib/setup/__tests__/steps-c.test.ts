@@ -193,6 +193,24 @@ describe("apply steps C: plugins, git.identity, fast-browser, herdr, extension, 
       expect(execCalls.some((a) => a[2] === "enable" && a.at(-1) === "superpowers@claude-plugins-official")).toBe(true);
     });
 
+    test("a team that is not cloned yet adds no team marketplace", async () => {
+      const execCalls: string[][] = [];
+      const p = fakeProbes({
+        home,
+        env: { PATH: "/usr/local/bin" },
+        files: { "/usr/local/bin/claude": "bin" },
+        exec: async (argv) => {
+          execCalls.push(argv);
+          return argv[2] === "list" ? ok("[]") : ok("");
+        },
+      });
+      const { ctx } = makeCtx(p, { team: { slug: "acme", name: "Acme", mode: "none" } });
+
+      expect((await pluginsInstallStep.run(ctx)).state).toBe("done");
+      const marketSrcs = execCalls.filter((a) => a.includes("marketplace") && a.includes("add")).map((a) => a.at(-1));
+      expect(marketSrcs).not.toContain(join(home, ".mattstack", "teams", "acme"));
+    });
+
     // Replies captured from the real CLI (2.1.280): a repeat add exits 0 and
     // reports on stdout, never stderr.
     const ALREADY_ON_DISK = "Adding marketplace…✔ Marketplace 'claude-plugins-official' already on disk — declared in user settings";
