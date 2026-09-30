@@ -286,15 +286,6 @@ function AppShell() {
             }
           />
         )}
-        {data && Object.keys(data.metricNotes).length > 0 && (
-          <Stack gap={2}>
-            {Object.entries(data.metricNotes).map(([k, v]) => (
-              <Text key={k} size="xs" c="var(--tk-text-3)">
-                {k}: {v}
-              </Text>
-            ))}
-          </Stack>
-        )}
       </>
     );
   }
