@@ -1,0 +1,35 @@
+/* Wide cards put context beside the form; narrow ones stack them with a
+   hairline between. The query reads the card body, not the viewport. */
+.body {
+  container-type: inline-size;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-xxxl);
+}
+
+.formColumn {
+  min-width: 0;
+  padding-top: var(--mantine-spacing-xxxl);
+  border-top: 1px solid var(--tk-line-1);
+}
+
+@container (min-width: 56rem) {
+  .split {
+    grid-template-columns: minmax(0, 1fr) 26rem;
+  }
+
+  .formColumn {
+    padding-top: 0;
+    padding-left: var(--mantine-spacing-xxxl);
+    border-top: 0;
+    border-left: 1px solid var(--tk-line-1);
+  }
+
+  .pin {
+    position: sticky;
+    top: var(--mantine-spacing-xl);
+  }
+}
