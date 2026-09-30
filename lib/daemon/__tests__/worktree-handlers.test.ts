@@ -176,7 +176,7 @@ beforeEach(() => {
   closeStateDb();
   // killProcesses off: the process killer shells out to ps/lsof and has
   // nothing to find in a fixture.
-  writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+  writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: true, killProcesses: false } });
 });
 
 describe("worktree:provision", () => {
@@ -902,7 +902,7 @@ describe("worktree:list", () => {
   test("S077: a declared pool on a dormant (app-disabled) machine surfaces dormant + the enable command", async () => {
     const repo = makeRepo();
     await declareWorktrees(repo, repoName, { onDeck: 1 });
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: false, killProcesses: false });
+    writeMachineStore({ ...readMachineStore(), "rt.worktreeApp": { enabled: false, killProcesses: false } });
     const { h } = makeHandlers({ [repoName]: repo });
 
     const res: any = await h["worktree:list"]!({ repoName });

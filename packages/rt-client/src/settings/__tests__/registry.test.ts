@@ -133,13 +133,13 @@ describe("settings/registry", () => {
       expect(setting!.default).toBe(def);
     });
 
-    test("rt.worktreeApp is a team+machine field-bag object with no default (ownership latch)", () => {
+    test("rt.worktreeApp is a team+user+machine field-bag object defaulting to off", () => {
       const def = getDef("rt.worktreeApp");
 
-      expect(def?.scopes).toEqual(["team", "machine"]);
+      expect(def?.scopes).toEqual(["team", "user", "machine"]);
       expect(def?.type).toBe("object");
       expect(def?.merge).toBe("deep");
-      expect(def?.default).toBeUndefined();
+      expect(def?.default).toEqual({ enabled: false, killProcesses: true });
     });
 
     test("rt.sdmEnrichment is a TEAM-ONLY map with no default (ownership latch, employer-resource invariant)", () => {

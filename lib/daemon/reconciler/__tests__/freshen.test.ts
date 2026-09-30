@@ -4,8 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFi
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import type { Logger } from "pino";
-import { writeJson } from "../../../json-store.ts";
-import { machineSettingsPath, rtDir } from "../../../rt-paths.ts";
+import { machineSettingsPath } from "../../../rt-paths.ts";
 import { deriveRepoIdentity } from "../../../settings/identity.ts";
 import { closeStateDb } from "../../../state/index.ts";
 import { createTree } from "../../../worktree/create.ts";
@@ -97,7 +96,7 @@ describe("freshen.ts: freshenRepo", () => {
     closeStateDb();
     repo = makeRepo();
     addBareOrigin(repo);
-    writeJson(join(rtDir(), "worktrees.json"), { enabled: true, killProcesses: false });
+    writeMachineStore({ "rt.worktreeApp": { enabled: true, killProcesses: false } });
   });
 
   test("idle main behind origin gets ff'd; worktree:freshened emitted", async () => {
