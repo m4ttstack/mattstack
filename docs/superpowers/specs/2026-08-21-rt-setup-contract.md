@@ -147,11 +147,25 @@ Team-scope secrets layout (in the home repo): `teams/<slug>/.sops.yaml` and
 ## Step ids (v1, in rt's order)
 
 `home.init` | `home.restore` · `team.create` | `team.join` · `secrets.write` ·
-`git.identity` · `path.link` · `intercepts.install` · `settings.seed` · `repos.clone` ·
+`git.identity` · `path.link` · `settings.seed` · `repos.clone` ·
 `services.register` (app) · `proxy.install` (privileged) · `deck.managed` ·
-`skills.materialize` · `skills.link` · `board.keys` · `cron.triage` · `plugins.install` ·
-`linear.mcp` · `fastbrowser.setup` · `herdr.integration` · `extension.install` ·
+`skills.materialize` · `skills.link` · `board.keys` · `cron.triage` ·
+`intercepts.install` · `plugins.install` · `linear.mcp` · `claude.permissions` ·
+`fastbrowser.setup` · `herdr.integration` · `extension.install` ·
 `services.start` · `snapshot.push` · `verify`
+
+## `rt setup update [--force] --json` → NDJSON stream
+
+The app runs this at every launch after its services settle; by hand it
+re-applies setup after an update. Three outcomes, decided by rt:
+
+- `~/.mattstack/rt/daemon.json` absent: `{ "event": "done", "ok": true, "skipped": "not-set-up" }`, exit 0.
+- `setup-state.json`'s `lastUpdate.version` equals the running rt version and no `--force`: `{ "event": "done", "ok": true, "skipped": "current" }`, exit 0. A `dev` build never counts as current.
+- Otherwise the same `plan` / `step` / `log` events as apply, over: pending migrations (`id: "migration.<id>"`, recorded in `setup-state.json`'s `migrations` when `done` or `skipped`), then every update-safe step in contract order, then `verify`. A `failed` item never stops the run. `done` carries `failedStep` (the first) and `failedSteps` (all). `need` never occurs. The version is stamped in `lastUpdate` whatever the outcome; exit 2 when any item is `failed` or `needs-you`, and one `setup_update` notification is posted through the tray (`id: "setup_update:<version>"`).
+
+`--from` and `--only` are refused (`unknown-flag`).
+
+`setup-state.json` gains `migrations: string[]` and `lastUpdate: { version, at }`.
 
 ## tray.sock (app → rt callbacks and app-side truth)
 
