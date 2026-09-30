@@ -107,6 +107,7 @@ function materializeWorld(home: string, opts: { fragment?: string; remote?: stri
   return {
     env: { RT_ENGINE_PACK_DIR: engine },
     dirs: {
+      [engine]: ["pack"],
       [`${home}/.mattstack/teams`]: ["acme"],
       [`${zone}/packs`]: ["widgets"],
     },

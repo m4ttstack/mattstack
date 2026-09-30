@@ -7,12 +7,12 @@
  * `{skipped: true, reason}`; callers rerun once the plugin is on disk.
  */
 
-import { basename, join } from "path";
+import { basename, join, resolve } from "path";
 import { getKnownRepos, type KnownRepo } from "../repo-index.ts";
 import { repoLabel } from "../repo-label.ts";
 import { tryResolveRepoArg } from "../repo-arg.ts";
 import { ENGINE_PACK_REF, findInstalledPluginDir } from "../skills/installed-plugins.ts";
-import { materializeRepo, type PackOutcome } from "../skills/materialize.ts";
+import { materializeRepo, type MaterializeRepoOutcome, type PackOutcome } from "../skills/materialize.ts";
 import { UserActionableError } from "./errors.ts";
 import type { Probes } from "./probes.ts";
 
@@ -20,10 +20,10 @@ export const ENGINE_PACK_MISSING_CODE = "engine-pack-missing";
 
 const GIT_TIMEOUT_MS = 10_000;
 
-/** RT_ENGINE_PACK_DIR (a checkout's plugins/mattstack, for development) wins; else the installed mattstack plugin; null before plugins.install has run. */
+/** RT_ENGINE_PACK_DIR (a checkout's plugins/mattstack, for development) wins when it exists; else the installed mattstack plugin; null before plugins.install has run. */
 export function findEnginePackDir(p: Pick<Probes, "readDir" | "exists" | "home" | "env">): string | null {
   const override = p.env.RT_ENGINE_PACK_DIR;
-  if (override) return override;
+  if (override && p.exists(override)) return override;
   return findInstalledPluginDir(p, p.home, ENGINE_PACK_REF);
 }
 
@@ -67,7 +67,10 @@ async function originRemote(p: Probes, dir: string): Promise<string | null> {
 }
 
 async function resolveTargets(opts: { repo?: string; dir?: string }): Promise<{ name: string; path: string }[]> {
-  if (opts.dir) return [{ name: basename(opts.dir), path: opts.dir }];
+  if (opts.dir) {
+    const dir = resolve(opts.dir);
+    return [{ name: basename(dir), path: dir }];
+  }
   const known = registeredKnownRepos();
   if (!opts.repo) return known.map((r) => ({ name: repoLabel(r.repoName), path: r.worktrees[0]!.path }));
   // Rows are keyed by serialized identity, so a typed name resolves to one
@@ -92,6 +95,7 @@ function describe(packs: PackOutcome[]): string {
 }
 
 export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: string }): Promise<MaterializeSkillsResult> {
+  if (opts.repo && opts.dir) throw new UserActionableError("flags-conflict", "pass --repo or --dir, not both");
   const enginePackDir = findEnginePackDir(p);
   if (!enginePackDir) {
     return { skipped: true, reason: `${ENGINE_PACK_MISSING_CODE}: install the mattstack plugin first (plugins.install), then rerun`, repos: [] };
@@ -99,7 +103,13 @@ export async function materializeSkills(p: Probes, opts: { repo?: string; dir?: 
   const deps = { fs: p, mattstackRoot: join(p.home, ".mattstack"), claudeHome: p.home, enginePackDir };
   const repos: MaterializeRepoResult[] = [];
   for (const target of await resolveTargets(opts)) {
-    const outcome = materializeRepo(deps, await originRemote(p, target.path));
+    let outcome: MaterializeRepoOutcome;
+    try {
+      outcome = materializeRepo(deps, await originRemote(p, target.path));
+    } catch (err) {
+      repos.push({ ...target, ok: false, detail: err instanceof Error ? err.message : String(err) });
+      continue;
+    }
     if (outcome.kind === "no-remote") {
       repos.push({ ...target, ok: false, noManifest: true, noRemote: true, detail: `no git remote in ${target.path}` });
     } else if (outcome.kind === "undeclared") {

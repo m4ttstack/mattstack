@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { compilePackAll, installedCacheLine, installedInfoFor, skillsCheck, skillsCompile, skillsComposition, skillsPacks } from "../skills.ts";
+import { compilePackAll, installedCacheLine, installedInfoFor, skillsCheck, skillsCompile, skillsComposition, skillsMaterialize, skillsPacks } from "../skills.ts";
 import { compileSkill } from "../../lib/skills/compile.ts";
 import { invocableRoster, loadAttachment, loadStepSource } from "../../lib/skills/sources.ts";
 import type { PluginRoots } from "../../lib/skills/sources.ts";
@@ -2084,5 +2084,61 @@ describe("skillsPacks --json", () => {
     await skillsPacks(["--settings-path", "/nonexistent/settings.json", "--json"]);
 
     expect(() => JSON.parse(logs.join("\n"))).not.toThrow();
+  });
+});
+
+describe("skillsMaterialize --dir exit codes", () => {
+  const ENGINE = join(import.meta.dir, "..", "..", "plugins", "mattstack");
+  const saved = { HOME: process.env.HOME, RT_ENGINE_PACK_DIR: process.env.RT_ENGINE_PACK_DIR };
+  let home: string;
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "rt-materialize-cli-")));
+    process.env.HOME = home;
+    delete process.env.RT_ENGINE_PACK_DIR;
+  });
+  afterEach(() => {
+    process.env.HOME = saved.HOME;
+    if (saved.RT_ENGINE_PACK_DIR === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+    else process.env.RT_ENGINE_PACK_DIR = saved.RT_ENGINE_PACK_DIR;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  function checkout(remote: string): string {
+    const dir = mkdtempSync(join(home, "widgets-"));
+    execFileSync("git", ["init", "-q", dir]);
+    execFileSync("git", ["-C", dir, "remote", "add", "origin", remote]);
+    return dir;
+  }
+
+  function declareWidgets(): void {
+    const zone = join(home, ".mattstack", "teams", "acme", "mattstack");
+    writeFile(join(zone, "mattstack.jsonc"), JSON.stringify({ role: "team", namespace: "acme" }));
+    writeFile(join(zone, "team.jsonc"), JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }));
+    writeFile(join(zone, "packs", "widgets", "pack", "skills.jsonc"), "{}");
+  }
+
+  test("a checkout no team declares exits 2", async () => {
+    process.env.RT_ENGINE_PACK_DIR = ENGINE;
+    await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/gadgets.git")]);
+    expect(process.exitCode).toBe(2);
+    expect(logs.join("\n")).toContain("no team declares gitlab.example.com/acme/gadgets");
+  });
+
+  test("no engine pack installed exits 1: nothing was written", async () => {
+    await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
+    expect(process.exitCode).toBe(1);
+    expect(logs.join("\n")).toContain("skipped: engine-pack-missing");
+  });
+
+  test("a declared checkout exits 0 and reports the migrated legacy file", async () => {
+    process.env.RT_ENGINE_PACK_DIR = ENGINE;
+    declareWidgets();
+    const legacy = join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "skills.jsonc");
+    writeFile(legacy, "{}");
+    await skillsMaterialize(["--dir", checkout("https://gitlab.example.com/acme/widgets.git")]);
+    expect(process.exitCode).toBe(0);
+    expect(logs).toContain(`  renamed the old merged file to ${legacy}.migrated`);
+    expect(existsSync(join(home, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc"))).toBe(true);
   });
 });

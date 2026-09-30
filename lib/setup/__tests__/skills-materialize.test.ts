@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import { updateRepoIndex } from "../../repo-index.ts";
 import { setSetting } from "../../settings/write.ts";
@@ -13,8 +13,16 @@ import { fakeProbes } from "./fakes.ts";
 const CACHE = "/fake-home/.claude/plugins/cache/mattstack/mattstack";
 
 describe("findEnginePackDir", () => {
-  test("RT_ENGINE_PACK_DIR wins outright", () => {
-    expect(findEnginePackDir(fakeProbes({ env: { RT_ENGINE_PACK_DIR: "/src/plugins/mattstack" } }))).toBe("/src/plugins/mattstack");
+  test("RT_ENGINE_PACK_DIR wins when it exists", () => {
+    const p = fakeProbes({ home: "/fake-home", env: { RT_ENGINE_PACK_DIR: "/src/plugins/mattstack" }, dirs: { "/src/plugins/mattstack": [], [CACHE]: ["0.29.0"], [`${CACHE}/0.29.0`]: [] } });
+    expect(findEnginePackDir(p)).toBe("/src/plugins/mattstack");
+  });
+  test("a missing RT_ENGINE_PACK_DIR falls through to the installed plugin", () => {
+    const p = fakeProbes({ home: "/fake-home", env: { RT_ENGINE_PACK_DIR: "/gone" }, dirs: { [CACHE]: ["0.29.0"], [`${CACHE}/0.29.0`]: [] } });
+    expect(findEnginePackDir(p)).toBe(`${CACHE}/0.29.0`);
+  });
+  test("a missing RT_ENGINE_PACK_DIR with nothing installed is null", () => {
+    expect(findEnginePackDir(fakeProbes({ home: "/fake-home", env: { RT_ENGINE_PACK_DIR: "/gone" } }))).toBeNull();
   });
   test("else the highest installed mattstack version", () => {
     const p = fakeProbes({ home: "/fake-home", dirs: { [CACHE]: ["0.28.0", "0.29.0"], [`${CACHE}/0.28.0`]: [], [`${CACHE}/0.29.0`]: [] } });
@@ -119,7 +127,8 @@ describe("materializeSkills", () => {
   });
 
   test("--repo naming no registered repo throws repo-not-registered", async () => {
-    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: engine() } });
+    const eng = engine();
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: eng }, dirs: { [eng]: [] } });
     const err = await materializeSkills(p, { repo: "no-such-widgets" }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UserActionableError);
     expect((err as UserActionableError).code).toBe("repo-not-registered");
@@ -132,7 +141,8 @@ describe("materializeSkills", () => {
     mkdirSync(second, { recursive: true });
     updateRepoIndex("remote:gitlab.example.com%2Facme%2Fwidgets", first);
     updateRepoIndex("remote:gitlab.example.com%2Facme%2Fgadgets%2Fwidgets", second);
-    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: engine() } });
+    const eng = engine();
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: eng }, dirs: { [eng]: [] } });
     const err = await materializeSkills(p, { repo: "widgets" }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UserActionableError);
     expect((err as UserActionableError).code).toBe("repo-ambiguous");
@@ -151,6 +161,41 @@ describe("materializeSkills", () => {
     const result = await materializeSkills(p, {});
     if (result.skipped) throw new Error("skipped");
     expect(result.repos.map((r) => r.name)).toEqual([name]);
+  });
+
+  test("--repo and --dir together are refused", async () => {
+    const p = fakeProbes({ home, env: { RT_ENGINE_PACK_DIR: engine() } });
+    const err = await materializeSkills(p, { repo: "widgets", dir: home }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UserActionableError);
+    expect((err as UserActionableError).code).toBe("flags-conflict");
+    expect((err as Error).message).toBe("pass --repo or --dir, not both");
+  });
+
+  test("a relative --dir resolves to an absolute row path and name", async () => {
+    const dir = mkdtempSync(join(home, "loose-"));
+    execFileSync("git", ["init", "-q", dir]);
+    execFileSync("git", ["-C", dir, "remote", "add", "origin", "https://gitlab.example.com/acme/widgets.git"]);
+    seedZone();
+    const p = { ...createRealProbes(), env: { ...process.env, RT_ENGINE_PACK_DIR: engine() } };
+    const result = await materializeSkills(p, { dir: relative(process.cwd(), dir) });
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos[0]).toMatchObject({ name: basename(dir), path: dir, ok: true });
+  });
+
+  test("a write that throws fails only its own repo; the others still run", async () => {
+    const declared = seedRepo("https://gitlab.example.com/acme/widgets.git");
+    const other = seedRepo("https://gitlab.example.com/acme/other.git");
+    seedZone();
+    const real = createRealProbes();
+    const p = {
+      ...real,
+      env: { ...process.env, RT_ENGINE_PACK_DIR: engine() },
+      writeFile: () => { throw new Error("EACCES: permission denied"); },
+    };
+    const result = await materializeSkills(p, {});
+    if (result.skipped) throw new Error("skipped");
+    expect(result.repos.find((r) => r.name === declared.name)).toMatchObject({ ok: false, detail: "EACCES: permission denied" });
+    expect(result.repos.find((r) => r.name === other.name)).toMatchObject({ ok: false, noManifest: true });
   });
 
   test("--dir materializes an unregistered checkout by path", async () => {

@@ -5,7 +5,7 @@
  *
  *   rt skills compile [--team <name>] [--verb <name> ...] [--manifest <path>] [--dry-run]
  *   rt skills check [--team <name>] [--verb <name> ...] [--manifest <path>]
- *   rt skills materialize [--repo <name>] [--json]
+ *   rt skills materialize [--repo <name> | --dir <path>] [--json]
  *
  * --pack-dir names the pack directory to act on directly, bypassing registry
  * discovery -- the way to target a worktree's sources from outside its tree
@@ -34,7 +34,7 @@ import { mattstackHome } from "../lib/rt-paths.ts";
 import { envelope } from "../lib/setup/contract.ts";
 import { UserActionableError, exitUserError } from "../lib/setup/errors.ts";
 import { createRealProbes } from "../lib/setup/probes.ts";
-import { materializeSkills } from "../lib/setup/skills-materialize.ts";
+import { materializeSkills, type MaterializeSkillsResult } from "../lib/setup/skills-materialize.ts";
 import { validateChain } from "../lib/skills/chain.ts";
 import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.ts";
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
@@ -1453,6 +1453,18 @@ export async function skillsComposition(args: string[]): Promise<void> {
   });
 }
 
+/**
+ * A registered-repo sweep treats a skip (mattstack plugin not installed yet)
+ * as the normal fresh-machine outcome and exits 0. A single --dir checkout
+ * keeps merge-manifests.sh's contract, which its wrapper relays: 0 written,
+ * 2 nothing declared for it, 1 failed or nothing could be written.
+ */
+function materializeExitCode(result: MaterializeSkillsResult, single: boolean): number {
+  if (result.skipped) return single ? 1 : 0;
+  if (single && result.repos[0]?.noManifest) return 2;
+  return result.repos.some((r) => !r.ok && !r.noManifest) ? 1 : 0;
+}
+
 export async function skillsMaterialize(args: string[]): Promise<void> {
   const json = args.includes("--json");
   const repo = skillsFlagValue(args, "--repo");
@@ -1462,19 +1474,16 @@ export async function skillsMaterialize(args: string[]): Promise<void> {
     const result = await materializeSkills(createRealProbes(), { repo, dir });
     if (json) {
       console.log(JSON.stringify(envelope(result)));
-      return;
-    }
-    // A top-level skip (mattstack plugin not installed yet) is the normal
-    // fresh-machine outcome, not a failure -- exit 0, never exit 2.
-    if (result.skipped) {
+    } else if (result.skipped) {
       console.log(`skipped: ${result.reason}`);
-      return;
+    } else {
+      for (const r of result.repos) {
+        console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
+        if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
+      }
     }
-    for (const r of result.repos) {
-      console.log(`${r.ok ? "materialized" : r.noManifest ? "no skills declared for" : "failed"} ${r.name}: ${r.detail}`);
-      if (r.migrated) console.log(`  renamed the old merged file to ${r.migrated}`);
-    }
-    if (result.repos.some((r) => !r.ok && !r.noManifest)) process.exitCode = 1;
+    const code = materializeExitCode(result, dir !== undefined);
+    if (code !== 0) process.exitCode = code;
   } catch (err) {
     if (err instanceof UserActionableError) exitUserError(err, json, "skills materialize", console.log);
     throw err;
