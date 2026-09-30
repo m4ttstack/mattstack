@@ -8,6 +8,7 @@ import type { RelayClient } from "../../team/relay-client.ts";
 import type { ApplyContext } from "../apply.ts";
 import type { PackRequirements } from "../requirements.ts";
 import { fakeProbes } from "./fakes.ts";
+import { materializeWorld } from "./materialize-world.ts";
 import type { Probes } from "../probes.ts";
 
 import { NO_MANIFEST_DETAIL, setupPackFlow } from "../pack.ts";
@@ -60,29 +61,6 @@ function makeCtx(p: Probes, overrides: Partial<ApplyContext> = {}): ApplyContext
       return "no-app";
     },
     ...overrides,
-  };
-}
-
-function materializeWorld(home: string, opts: { fragment?: string } = {}) {
-  const zone = `${home}/.mattstack/teams/acme/mattstack`;
-  const engine = `${home}/engine`;
-  return {
-    env: { RT_ENGINE_PACK_DIR: engine },
-    dirs: {
-      [engine]: ["pack"],
-      [`${home}/.mattstack/teams`]: ["acme"],
-      [`${zone}/packs`]: ["widgets"],
-    },
-    files: {
-      [`${engine}/pack/skills.jsonc`]: "{}",
-      [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-      [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-      [`${zone}/packs/widgets/pack/skills.jsonc`]: opts.fragment ?? "{}",
-    },
-    exec: async (argv: string[]) =>
-      argv[0] === "git" && argv.includes("get-url")
-        ? { code: 0, stdout: "https://gitlab.example.com/acme/widgets.git\n", stderr: "" }
-        : { code: 0, stdout: "", stderr: "" },
   };
 }
 
@@ -195,8 +173,7 @@ describe("setupPackFlow", () => {
   });
 
   test("a malformed pack requirements file surfaces its own error, never a misleading stage failure", async () => {
-    registerRepo(home);
-    const p = fakeProbes({ home, ...materializeWorld(home, { fragment: fragment({}) }) });
+    const p = fakeProbes({ home });
     const reqs: PackRequirements[] = [{ pack: "widgets", tools: [], integrations: [], error: "invalid JSON: Unexpected token" }];
     expect(await setupPackFlow(makeCtx(p, { reqs }))).toEqual({ ok: false, detail: "invalid JSON: Unexpected token" });
   });

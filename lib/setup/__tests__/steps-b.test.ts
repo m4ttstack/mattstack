@@ -18,6 +18,7 @@ import type { SetupIntent } from "../intent.ts";
 import { awaitNeed, SERVICE_PLISTS } from "../need.ts";
 import { ENGINE_PACK_MISSING_CODE } from "../skills-materialize.ts";
 import { fakeProbes, fakeTray, ok } from "./fakes.ts";
+import { materializeWorld } from "./materialize-world.ts";
 import type { Probes } from "../probes.ts";
 
 import { servicesRegisterStep, proxyInstallStep, PORTLESS_LAUNCHD_PLIST, PROXY_VERSION_PATH } from "../steps/services.ts";
@@ -98,30 +99,6 @@ function detailOf(outcome: StepOutcome): string | undefined {
 
 function lockTool(name: string, sha: string) {
   return { name, version: "0.1.0", license: "MIT", url: `https://x/${name}.tgz`, sha256: sha.repeat(64), archive: "raw", extract: "", bundlePath: `${HELPERS_DIR}/${name}`, exec: [`${HELPERS_DIR}/${name}`], exposeByDefault: true, entitlements: "none", status: "bundled", kind: "helper" };
-}
-
-/** A fake world where one zone ("acme", pack "widgets") declares acme/widgets and the engine fragment is empty. `exec` answers `git remote get-url origin` with the widgets remote; every other exec is the file's default. */
-function materializeWorld(home: string, opts: { fragment?: string; remote?: string } = {}) {
-  const zone = `${home}/.mattstack/teams/acme/mattstack`;
-  const engine = `${home}/engine`;
-  return {
-    env: { RT_ENGINE_PACK_DIR: engine },
-    dirs: {
-      [engine]: ["pack"],
-      [`${home}/.mattstack/teams`]: ["acme"],
-      [`${zone}/packs`]: ["widgets"],
-    },
-    files: {
-      [`${engine}/pack/skills.jsonc`]: "{}",
-      [`${zone}/mattstack.jsonc`]: JSON.stringify({ role: "team", namespace: "acme" }),
-      [`${zone}/team.jsonc`]: JSON.stringify({ gitlabHost: "https://gitlab.example.com", projects: ["acme/widgets"] }),
-      [`${zone}/packs/widgets/pack/skills.jsonc`]: opts.fragment ?? "{}",
-    },
-    exec: async (argv: string[]) =>
-      argv[0] === "git" && argv.includes("get-url")
-        ? { code: 0, stdout: `${opts.remote ?? "https://gitlab.example.com/acme/widgets.git"}\n`, stderr: "" }
-        : { code: 0, stdout: "", stderr: "" },
-  };
 }
 
 describe("services B: services.register, proxy.install, deck.managed, skills.materialize, board.keys, cron.triage", () => {
