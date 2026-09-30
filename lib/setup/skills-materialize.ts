@@ -69,13 +69,26 @@ export interface MaterializeRepoResult {
   detail: string;
 }
 
-/** merge-manifests.sh's exit code and stderr marker for "no per-repo manifest" (no git remote, or no team declares the repo); exit 2 alone is not specific enough. */
+/**
+ * merge-manifests.sh's exit code and stderr markers for "nothing to
+ * materialize" (no git remote, or no team pack declares the repo); exit 2
+ * alone is not specific enough. The older marker is what plugin versions
+ * before the rewording print, and the highest installed cache may be one.
+ */
 const NO_MANIFEST_EXIT = 2;
-const NO_MANIFEST_MARKER = "no per-repo manifest";
+const NO_MANIFEST_MARKERS = ["nothing to materialize", "no per-repo manifest"];
 
 export type MaterializeSkillsResult =
   | { skipped: true; reason: string; repos: [] }
   | { skipped: false; repos: MaterializeRepoResult[] };
+
+/** One wording for every step that reports a materialize run: a repo nothing declares is its own count, never a failure. */
+export function materializeTally(repos: MaterializeRepoResult[]): string {
+  const ok = repos.filter((r) => r.ok).length;
+  const undeclared = repos.filter((r) => r.noManifest).length;
+  const failed = repos.length - ok - undeclared;
+  return `materialized ${ok}, failed ${failed}${undeclared > 0 ? `, no skills declared ${undeclared}` : ""}`;
+}
 
 function registeredKnownRepos(): Pick<KnownRepo, "repoName" | "worktrees">[] {
   return getKnownRepos().filter((r) => r.registered !== false);
@@ -126,7 +139,7 @@ export async function materializeSkills(p: Probes, opts: { repo?: string }): Pro
             name: target.name,
             path: target.path,
             ok: false,
-            ...(res.code === NO_MANIFEST_EXIT && res.stderr.includes(NO_MANIFEST_MARKER) ? { noManifest: true as const } : {}),
+            ...(res.code === NO_MANIFEST_EXIT && NO_MANIFEST_MARKERS.some((m) => res.stderr.includes(m)) ? { noManifest: true as const } : {}),
             detail: res.stderr.trim() || `merge-manifests.sh exited ${res.code}`,
           },
     );
