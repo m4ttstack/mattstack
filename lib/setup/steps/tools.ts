@@ -63,6 +63,7 @@ export const fastbrowserSetupStep: StepDef = {
   id: "fastbrowser.setup",
   title: "Set up Fast Browser",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: fastbrowserSetupRunSafe,
 };
@@ -91,6 +92,7 @@ export const herdrIntegrationStep: StepDef = {
   id: "herdr.integration",
   title: "Set up herdr integration",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: herdrIntegrationRunSafe,
 };
@@ -118,6 +120,7 @@ export const extensionInstallStep: StepDef = {
   id: "extension.install",
   title: "Install the browser extension",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: extensionInstallRunSafe,
 };

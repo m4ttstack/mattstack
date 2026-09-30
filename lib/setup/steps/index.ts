@@ -44,6 +44,7 @@ export const interceptsInstallStep: StepDef = {
   id: "intercepts.install",
   title: "Install shell intercepts",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: interceptsInstallRun,
 };

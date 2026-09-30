@@ -66,6 +66,7 @@ export const settingsSeedStep: StepDef = {
   feedsIntercepts: true,
   title: "Seed your settings",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: settingsSeedRunSafe,
 };

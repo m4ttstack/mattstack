@@ -104,6 +104,7 @@ export const pathLinkStep: StepDef = {
   id: "path.link",
   title: "Link rt onto your PATH",
   kind: "rt",
+  updateSafe: true,
   applies: () => true,
   run: pathLinkRunSafe,
 };
