@@ -142,11 +142,12 @@ export async function watchPipeline(input: WatchInput, deps: WatchDeps): Promise
     const pid = idNumber(p.id);
     let fetchFailed = false;
     // The cached job list never holds a downstream pipeline's jobs, so the fetch runs even when it is non-empty.
+    // Fetched rows lead so a child job's log gets a trace slot before a cached bridge row, which has none.
     if (pid !== null && p.status !== "success") {
       const fetched = await deps.failedJobs(pid);
       fetchFailed = fetched === null;
-      const cached = new Set(jobs.map((j) => j.id));
-      jobs = [...jobs, ...(fetched ?? []).filter((j) => !cached.has(j.id))];
+      const fetchedIds = new Set((fetched ?? []).map((j) => j.id));
+      jobs = [...(fetched ?? []), ...jobs.filter((j) => !fetchedIds.has(j.id))];
     }
     const failed = jobs.filter((j) => j.status === "failed");
     const out: WatchResult["failedJobs"] = [];
