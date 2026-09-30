@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, chmodSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { defaultHerdrRunner, herdrAgentSessionId, herdrAgentWait, launchInWorkspace, resolveHerdrBin, type HerdrRunner } from "../agent-herdr.ts";
@@ -149,4 +149,52 @@ test("defaultHerdrRunner passes the supplied env through to the child (C9: it mu
   const runner = defaultHerdrRunner({ HERDR_BIN: fakeHerdr, HOME: dir, SENTINEL_VAR: "from-supplied-env" });
   const result = await runner(["workspace", "list"]);
   expect(result.stdout.trim()).toBe("from-supplied-env");
+});
+
+function fakeHerdrIn(dir: string): string {
+  const bin = join(dir, "herdr");
+  writeFileSync(bin, "#!/bin/sh\necho found-me\n");
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
+test("resolveHerdrBin finds herdr in a well-known dir the live PATH does not carry", () => {
+  const home = mkdtempSync(join(tmpdir(), "agent-herdr-home-"));
+  const dirs = () => ["/nowhere", join(home, "brew")];
+  expect(resolveHerdrBin({ HOME: home, PATH: "/usr/bin:/bin" }, undefined, dirs)).toBe(join(home, ".local", "bin", "herdr"));
+  mkdirSync(join(home, "brew"));
+  const brewBin = fakeHerdrIn(join(home, "brew"));
+  expect(resolveHerdrBin({ HOME: home, PATH: "/usr/bin:/bin" }, undefined, dirs)).toBe(brewBin);
+});
+
+test("resolveHerdrBin searches the PATH passed in, not the PATH the process started with", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-herdr-path-"));
+  const bin = fakeHerdrIn(dir);
+  expect(resolveHerdrBin({ HOME: "/home/x", PATH: `/usr/bin:${dir}` }, undefined, () => [])).toBe(bin);
+});
+
+test("defaultHerdrRunner re-reads the login PATH on a miss, so a herdr installed after boot is found", async () => {
+  const home = mkdtempSync(join(tmpdir(), "agent-herdr-late-"));
+  const lateDir = join(home, "late-bin");
+  let probes = 0;
+  const runner = defaultHerdrRunner({ HOME: home, PATH: "/usr/bin:/bin" }, async () => {
+    probes++;
+    return `/usr/bin:${lateDir}`;
+  });
+  await expect(runner(["workspace", "list"])).rejects.toThrow(/herdr not found/);
+  mkdirSync(lateDir);
+  fakeHerdrIn(lateDir);
+  const result = await runner(["workspace", "list"]);
+  expect(result.stdout.trim()).toBe("found-me");
+  expect(probes).toBe(2);
+});
+
+test("defaultHerdrRunner never probes the login PATH when HERDR_BIN names the binary", async () => {
+  let probes = 0;
+  const runner = defaultHerdrRunner({ HERDR_BIN: "/nonexistent/herdr", HOME: "/home/x" }, async () => {
+    probes++;
+    return null;
+  });
+  await expect(runner(["workspace", "list"])).rejects.toThrow(/herdr not found at \/nonexistent\/herdr/);
+  expect(probes).toBe(0);
 });

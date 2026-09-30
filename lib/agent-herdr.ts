@@ -19,34 +19,62 @@
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import pino from "pino";
+import { wellKnownBinDirs } from "./bundled-tool.ts";
+import { resolveUserPath } from "./daemon/user-path.ts";
 import { runCapture } from "./subprocess.ts";
 
 export interface HerdrResult { stdout: string; exitCode: number }
 export type HerdrRunner = (args: string[]) => Promise<HerdrResult>;
 
 /**
- * Mirrors lib/cswap.ts's cswapBin(): Bun.which reads process.env.PATH at
- * call time, and the daemon overlays the user's full login PATH onto
- * process.env.PATH at boot (lib/daemon.ts resolveUserPath), so this resolves
- * a brew-installed herdr even though the daemon's start-env PATH does not
- * carry it. The ~/.local/bin fallback preserves the vendor-script install.
+ * HERDR_BIN, then `env.PATH`, then the brew prefixes and ~/.local/bin (where
+ * herdr's own installer puts it). The PATH is passed to Bun.which explicitly:
+ * a bare Bun.which reads the PATH the process started with, which under
+ * launchd is the minimal system PATH, never the login PATH the daemon
+ * overlays onto process.env at boot.
  */
 export function resolveHerdrBin(
   env: NodeJS.ProcessEnv = process.env,
-  which: (cmd: string) => string | null = (cmd) => Bun.which(cmd),
+  which?: (cmd: string) => string | null,
+  extraDirs: (home: string) => string[] = wellKnownBinDirs,
 ): string {
   if (env.HERDR_BIN) return env.HERDR_BIN;
-  const onPath = which("herdr");
-  if (onPath) return onPath;
   const home = env.HOME ?? homedir();
+  const search = [...(env.PATH ?? "").split(":").filter(Boolean), ...extraDirs(home)].join(":");
+  const found = (which ?? ((cmd: string) => Bun.which(cmd, { PATH: search })))("herdr");
+  if (found) return found;
   return join(home, ".local", "bin", "herdr");
 }
 
-export function defaultHerdrRunner(env: NodeJS.ProcessEnv = process.env): HerdrRunner {
+const LOGIN_PATH_TTL_MS = 60_000;
+let loginPathMemo: { at: number; path: Promise<string | null> } | null = null;
+
+/** The login shell's PATH as it is now, not as it was at daemon boot, so a
+ * tool whose installer edited the shell profile afterwards is visible. At
+ * most one probe a minute: a machine with no herdr must not spawn a login
+ * shell on every launch attempt. */
+async function currentLoginPath(): Promise<string | null> {
+  const now = Date.now();
+  if (!loginPathMemo || now - loginPathMemo.at > LOGIN_PATH_TTL_MS) {
+    const path = resolveUserPath(pino({ level: "silent" })).catch(() => null);
+    loginPathMemo = { at: now, path };
+  }
+  return loginPathMemo.path;
+}
+
+export function defaultHerdrRunner(
+  env: NodeJS.ProcessEnv = process.env,
+  loginPath: () => Promise<string | null> = currentLoginPath,
+): HerdrRunner {
   const home = env.HOME ?? homedir();
-  const bin = resolveHerdrBin(env);
   const socket = env.HERDR_SOCKET_PATH ?? join(home, ".config", "herdr", "herdr.sock");
   return async (args) => {
+    let bin = resolveHerdrBin(env);
+    if (!existsSync(bin) && !env.HERDR_BIN) {
+      const path = await loginPath();
+      bin = (path ? Bun.which("herdr", { PATH: path }) : null) ?? bin;
+    }
     if (!existsSync(bin)) {
       throw new Error(`herdr not found at ${bin} (install via \`rt setup\` / brew)`);
     }
