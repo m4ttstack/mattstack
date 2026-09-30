@@ -59,7 +59,8 @@ struct TeamPane: View {
                             }
                             if let steps = inv.manualSteps, !steps.isEmpty { ForEach(steps, id: \.self) { Text("• \($0)").font(.caption) } }
                             if let warning = inv.peeringWarning {
-                                Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                                Label { Text(warning) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                                    .font(.caption)
                                     .accessibilityIdentifier(AXID.settingsTeamInvitePeeringWarning)
                             }
                         }
