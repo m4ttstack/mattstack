@@ -7,6 +7,7 @@ import {
   loadSlackToken,
   loadSwitchboardAdminToken,
   loadSwitchboardToken,
+  readSwitchboardToken,
 } from '../config.ts';
 
 const ENV_KEYS = [
@@ -134,5 +135,30 @@ describe('config.ts board secrets loaders', () => {
     delete process.env.SWITCHBOARD_TOKEN;
     const token = await loadSwitchboardToken(refusedDeps('bad-scope'));
     expect(token).toBeNull();
+  });
+});
+
+describe('readSwitchboardToken', () => {
+  test('a daemon that answers without a token reads as missing', async () => {
+    delete process.env.SWITCHBOARD_TOKEN;
+    expect(await readSwitchboardToken(daemonDeps({}))).toEqual({
+      token: null,
+      missing: true,
+    });
+  });
+
+  test('an unreachable daemon is not missing, only unread', async () => {
+    delete process.env.SWITCHBOARD_TOKEN;
+    const read = await readSwitchboardToken(
+      refusedDeps('rt daemon unreachable at /x/rt.sock: ENOENT')
+    );
+    expect(read).toEqual({ token: null, missing: false });
+  });
+
+  test('a stored token is returned and not missing', async () => {
+    delete process.env.SWITCHBOARD_TOKEN;
+    expect(
+      await readSwitchboardToken(daemonDeps({ switchboardToken: 'daemon-sb' }))
+    ).toEqual({ token: 'daemon-sb', missing: false });
   });
 });

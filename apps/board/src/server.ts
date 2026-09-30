@@ -59,14 +59,15 @@ import {
   loadGitLabToken,
   loadSlackToken,
   loadSwitchboardAdminToken,
-  loadSwitchboardToken,
   parseConfig,
+  readSwitchboardToken,
   repoIdentityField,
   resolveLaunchRepo,
   saveMemberHidden,
   saveRosterMembers,
   saveSwitchboardUrl,
   saveTabs,
+  type SwitchboardTokenRead,
 } from './config.ts';
 import {
   aggregateSyncScope,
@@ -215,7 +216,11 @@ import {
   writePeerReview,
   type PeerReviewState,
 } from './peer/peer-reviews.ts';
-import { makePeering, startPeeringWhenTokenLoads } from './peer/runtime.ts';
+import {
+  makePeering,
+  startPeeringWhenTokenLoads,
+  tokenMissingNotice,
+} from './peer/runtime.ts';
 import { launchReopen, type ReopenIo } from './reopen-launch.ts';
 import {
   attachResponds,
@@ -383,10 +388,14 @@ const getSlackToken = memoizeAsync<string | null>(
   isTokenFailure
 );
 // Optional peer relay token -- see the peering-start block below.
-const getSwitchboardToken = memoizeAsync<string | null>(
-  () => (FIXTURE_DIR ? Promise.resolve(null) : loadSwitchboardToken()),
-  isTokenFailure
+const getSwitchboardToken = memoizeAsync<SwitchboardTokenRead>(
+  () =>
+    FIXTURE_DIR
+      ? Promise.resolve({ token: null, missing: false })
+      : readSwitchboardToken(),
+  read => read.token === null
 );
+const switchboardToken = tokenMissingNotice(line => console.error(line));
 // Operator-only secret: its presence is what turns on this board's invite
 // affordances. Absent, /peer/invite and /peer/boards answer 400 and the UI
 // never offers them.
@@ -480,7 +489,7 @@ if (config.switchboard.url)
     peering,
     url: config.switchboard.url,
     wanted: () => writer,
-    loadToken: getSwitchboardToken,
+    loadToken: async () => switchboardToken.note(await getSwitchboardToken()),
   });
 
 /** Send what's queued without making the caller wait on the relay. Anything
@@ -1247,6 +1256,10 @@ const httpServer = Bun.serve({
               !!switchboardAdminToken &&
               !!config.switchboard.url,
             peering: peering.current() ? peering.current()!.health() : null,
+            switchboardTokenMissing:
+              !!config.switchboard.url &&
+              !peering.current() &&
+              switchboardToken.missing(),
             slackEnabled: !!slackToken,
             slackEmoji: config.slack.emoji,
             slackTemplates: {

@@ -5,7 +5,11 @@ import type { Database } from 'bun:sqlite';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { SwitchboardClient } from '../peer/client.ts';
-import { makePeering, startPeeringWhenTokenLoads } from '../peer/runtime.ts';
+import {
+  makePeering,
+  startPeeringWhenTokenLoads,
+  tokenMissingNotice,
+} from '../peer/runtime.ts';
 import { openStateDb } from '../state/db.ts';
 
 /** Every peering built here pins its own outbox db. Without this the runtime
@@ -223,5 +227,32 @@ describe('startPeeringWhenTokenLoads', () => {
     });
     expect(made).toEqual([]);
     peering.stop();
+  });
+});
+
+describe('tokenMissingNotice', () => {
+  test('a daemon that answers without a token flags it and logs once', () => {
+    const lines: string[] = [];
+    const notice = tokenMissingNotice(line => lines.push(line));
+    expect(notice.note({ token: null, missing: true })).toBeNull();
+    expect(notice.note({ token: null, missing: true })).toBeNull();
+    expect(notice.missing()).toBe(true);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('rt team invite');
+  });
+
+  test('an unreachable daemon is not a missing token', () => {
+    const lines: string[] = [];
+    const notice = tokenMissingNotice(line => lines.push(line));
+    notice.note({ token: null, missing: false });
+    expect(notice.missing()).toBe(false);
+    expect(lines).toEqual([]);
+  });
+
+  test('a token that arrives later clears the flag and passes through', () => {
+    const notice = tokenMissingNotice(() => {});
+    notice.note({ token: null, missing: true });
+    expect(notice.note({ token: 'tok', missing: false })).toBe('tok');
+    expect(notice.missing()).toBe(false);
   });
 });
