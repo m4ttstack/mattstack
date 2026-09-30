@@ -40,7 +40,7 @@ import { compileSkill, HEADER_COMMENT, isInlined } from "../lib/skills/compile.t
 import { skillMdDriftCauses, type DriftCause } from "../lib/skills/drift.ts";
 import { readZonesFrom, type InitFs } from "../lib/skills/init.ts";
 import { readManifestProvenance } from "../lib/skills/manifest-merge.ts";
-import { manifestRepoKey, packManifestPath } from "../lib/skills/manifest-paths.ts";
+import { manifestPack, manifestRepoKey, packManifestPath } from "../lib/skills/manifest-paths.ts";
 import { discoverPacks, findEnclosingPack, surfaceFileFor, type PackInfo } from "../lib/skills/packs.ts";
 import { mcpTools } from "../lib/mcp/tools.ts";
 import { deriveRules, formatHit, lintPackDir, lintPackScripts, type LintHit } from "../lib/skills/mcp-lint.ts";
@@ -2222,6 +2222,16 @@ async function pickBindArgs(args: string[]): Promise<PickedBind | null> {
   return { verbName, slotName, fill, flagArgs };
 }
 
+export type RegenerateOutcome = { ok: true } | { ok: false; detail: string };
+
+/** `regenerated` is absent when no regenerate was attempted (fixture mode, or a single manifest write). */
+export type BindOutcome = {
+  fragmentUpdated: string | null;
+  shadowedBy: string | null;
+  regenerated?: boolean;
+  regenerateDetail?: string;
+};
+
 /**
  * A team pack's pack/skills.jsonc is the fragment materialize layers into the
  * per-pack manifest, so a manifest-only write is undone by the next materialize
@@ -2236,8 +2246,8 @@ export async function applyBind(opts: {
   slotName: string;
   fill: string;
   fixtureMode: boolean;
-  materialize: () => Promise<void>;
-}): Promise<{ fragmentUpdated: string | null; shadowedBy: string | null }> {
+  materialize: () => Promise<RegenerateOutcome>;
+}): Promise<BindOutcome> {
   const edit = (text: string) =>
     applyEdits(text, modify(text, ["bindings", opts.engineRef, opts.slotName], opts.fill, {
       formattingOptions: { insertSpaces: true, tabSize: 2 },
@@ -2265,13 +2275,38 @@ export async function applyBind(opts: {
     return { fragmentUpdated: fragmentPath, shadowedBy: null };
   }
   writeFileSync(fragmentPath, fragmentAfter);
-  await opts.materialize();
+  const regen = await opts.materialize();
+  if (!regen.ok) {
+    return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: false, regenerateDetail: regen.detail };
+  }
 
   if (readManifestBindings(opts.manifestPath)[opts.engineRef]?.[opts.slotName] === opts.fill) {
-    return { fragmentUpdated: fragmentPath, shadowedBy: null };
+    return { fragmentUpdated: fragmentPath, shadowedBy: null, regenerated: true };
   }
   const provenance = readManifestProvenance(readFileSync(opts.manifestPath, "utf8"));
-  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[`${opts.engineRef} ${opts.slotName}`] ?? "another layer" };
+  return { fragmentUpdated: fragmentPath, shadowedBy: provenance[`${opts.engineRef} ${opts.slotName}`] ?? "another layer", regenerated: true };
+}
+
+function samePath(a: string, b: string): boolean {
+  const real = (p: string) => (existsSync(p) ? realpathSync(p) : resolvePath(p));
+  return real(a) === real(b);
+}
+
+/** Judged by this pack file's own PackOutcome: a sibling pack failing in the same repo leaves this file regenerated. */
+export function regenerateOutcomeFor(result: MaterializeSkillsResult, manifestPath: string): RegenerateOutcome {
+  if (result.skipped) return { ok: false, detail: result.reason };
+  const outcomes = result.repos.flatMap((row) => row.packs ?? []);
+  if (outcomes.some((o) => o.ok && samePath(o.path, manifestPath))) return { ok: true };
+  const pack = manifestPack(manifestPath);
+  const failed = outcomes.find((o) => !o.ok && o.pack === pack);
+  if (failed && !failed.ok) return { ok: false, detail: `${failed.pack}: ${failed.detail}` };
+  const rowErrors = result.repos.filter((row) => !row.ok && !row.noManifest && !row.packs);
+  if (rowErrors.length > 0) return { ok: false, detail: rowErrors.map((row) => `${row.name}: ${row.detail}`).join("; ") };
+  return { ok: false, detail: `no registered repo wrote ${manifestPath}` };
+}
+
+export async function regeneratePackFile(manifestPath: string): Promise<RegenerateOutcome> {
+  return regenerateOutcomeFor(await materializeSkills(createRealProbes(), {}), manifestPath);
 }
 
 export async function skillsBind(args: string[]): Promise<void> {
@@ -2365,17 +2400,19 @@ export async function skillsBind(args: string[]): Promise<void> {
       return;
     }
 
-    const { fragmentUpdated, shadowedBy } = await applyBind({
-      manifestPath: resolved.manifestPath,
+    const manifestPath = resolved.manifestPath;
+    const { fragmentUpdated, shadowedBy, regenerated, regenerateDetail } = await applyBind({
+      manifestPath,
       packDir: resolved.packDir,
       engineRef,
       slotName,
       fill,
       fixtureMode: bindFlags.mattstackDir !== null,
-      materialize: async () => {
-        await materializeSkills(createRealProbes(), {});
-      },
+      materialize: () => regeneratePackFile(manifestPath),
     });
+    if (regenerated === false && !bindFlags.json) {
+      console.error(`rt skills bind: bindings file not regenerated: ${regenerateDetail}`);
+    }
     if (shadowedBy) {
       console.error(`rt skills bind: ${engineRef}.${slotName} is bound to ${fill} in the fragment, but the ${shadowedBy} layer still wins in ${resolved.manifestPath}`);
     }
@@ -2405,6 +2442,8 @@ export async function skillsBind(args: string[]): Promise<void> {
         to: fill,
         fragmentUpdated,
         shadowedBy,
+        ...(regenerated === undefined ? {} : { regenerated }),
+        ...(regenerateDetail === undefined ? {} : { regenerateDetail }),
         compileErrors: compileResult.errors,
       }));
       return;

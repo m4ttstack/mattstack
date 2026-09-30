@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import { __test__ as pickImplTest, type PickImpl } from "../../lib/ui/pick.ts";
 import type { PickRequest, PickResult } from "../../lib/ui/protocol.ts";
 import { readManifestBindings, stripJsonc } from "../../lib/skills/sources.ts";
-import { applyBind, skillsBind, skillsCompile } from "../skills.ts";
+import { applyBind, regenerateOutcomeFor, regeneratePackFile, skillsBind, skillsCompile } from "../skills.ts";
 
 /**
  * pickBindArgs opens a separate runPick session per omitted positional
@@ -656,12 +656,66 @@ describe("applyBind", () => {
       materialize: async () => {
         regenerated++;
         writeFile(manifestPath, `//   mattstack:watch-ci domain <- override\n{ "bindings": { "mattstack:watch-ci": { "domain": "me:ci" } } }`);
+        return { ok: true };
       },
     });
     expect(regenerated).toBe(1);
     expect(result.fragmentUpdated).toBe(join(packDir, "pack", "skills.jsonc"));
     expect(JSON.parse(readFileSync(join(packDir, "pack", "skills.jsonc"), "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
     expect(result.shadowedBy).toBe("override");
+    expect(result.regenerated).toBe(true);
+    expect("regenerateDetail" in result).toBe(false);
+  });
+
+  describe("when materialize skips", () => {
+    let savedHome: string | undefined;
+    let savedEnginePackDir: string | undefined;
+    beforeEach(() => {
+      savedHome = process.env.HOME;
+      savedEnginePackDir = process.env.RT_ENGINE_PACK_DIR;
+    });
+    afterEach(() => {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedEnginePackDir === undefined) delete process.env.RT_ENGINE_PACK_DIR;
+      else process.env.RT_ENGINE_PACK_DIR = savedEnginePackDir;
+    });
+
+    test("no engine pack: the fragment is written, nothing is read for shadowing, and the skip reason is reported", async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "rt-bind-")));
+      process.env.HOME = join(root, "home");
+      mkdirSync(process.env.HOME, { recursive: true });
+      process.env.RT_ENGINE_PACK_DIR = join(root, "missing-engine-pack");
+      const packDir = join(root, "teams", "acme", "mattstack", "packs", "widgets");
+      const fragmentPath = join(packDir, "pack", "skills.jsonc");
+      writeFile(fragmentPath, `{\n  "bindings": {}\n}\n`);
+      const manifestPath = join(process.env.HOME, ".mattstack", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+      writeFile(manifestPath, `//   mattstack:watch-ci domain <- default\n{ "bindings": { "mattstack:watch-ci": { "domain": "mattstack:ci" } } }`);
+
+      const result = await applyBind({
+        manifestPath, packDir, engineRef: "mattstack:watch-ci", slotName: "domain", fill: "widgets:ci", fixtureMode: false,
+        materialize: () => regeneratePackFile(manifestPath),
+      });
+
+      expect(JSON.parse(readFileSync(fragmentPath, "utf8")).bindings["mattstack:watch-ci"].domain).toBe("widgets:ci");
+      expect(result.fragmentUpdated).toBe(fragmentPath);
+      expect(result.shadowedBy).toBeNull();
+      expect(result.regenerated).toBe(false);
+      expect(result.regenerateDetail).toContain("engine-pack-missing");
+      expect(result.regenerateDetail).toContain("mattstack plugin");
+    });
+  });
+
+  test("regenerateOutcomeFor judges by this pack file's own outcome", () => {
+    const manifestPath = join(tmpdir(), "rt-bind-none", "repos", "gitlab.example.com-acme-widgets", "packs", "widgets", "skills.jsonc");
+    const row = { name: "widgets", path: "/src/widgets", detail: "", ok: false };
+    expect(regenerateOutcomeFor({ skipped: false, repos: [{ ...row, packs: [
+      { pack: "widgets", zone: "acme", ok: true, path: manifestPath, layers: [] },
+      { pack: "gadgets", zone: "acme", ok: false, detail: "gadgets fragment is missing" },
+    ] }] }, manifestPath)).toEqual({ ok: true });
+    expect(regenerateOutcomeFor({ skipped: false, repos: [{ ...row, packs: [
+      { pack: "widgets", zone: "acme", ok: false, detail: "fragment is missing" },
+    ] }] }, manifestPath)).toEqual({ ok: false, detail: "widgets: fragment is missing" });
   });
 
   test("fixture mode: writes the fragment and the manifest, never regenerates", async () => {
