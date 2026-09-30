@@ -208,6 +208,31 @@ describe('packForLaunch', () => {
       )
     ).toBeNull();
   });
+
+  test('a pack outside the pack-name grammar counts as no pack', () => {
+    for (const pack of ['Widgets', 'widgets.v2', '-widgets', 'wid gets']) {
+      const cfg = parseConfig(
+        JSON.stringify({
+          ...base,
+          defaultPack: 'gadgets',
+          tabs: [{ id: 'w', label: 'W', source: { kind: 'authors' }, pack }],
+        })
+      );
+      expect(packForLaunch(cfg, 'w')).toBeNull();
+    }
+    expect(
+      packForLaunch(
+        parseConfig(JSON.stringify({ ...base, defaultPack: 'Gadgets' })),
+        undefined
+      )
+    ).toBeNull();
+    expect(
+      packForLaunch(
+        parseConfig(JSON.stringify({ ...base, defaultPack: 'gadgets-2' })),
+        undefined
+      )
+    ).toBe('gadgets-2');
+  });
 });
 
 describe('resolveLaunchSkill', () => {

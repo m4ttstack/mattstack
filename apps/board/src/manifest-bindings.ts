@@ -45,16 +45,19 @@ export function boardRepoSlug(gitlabHost: string, project: string): string {
   return `${host}-${project.replace(/\//g, '-')}`;
 }
 
+/** Same grammar the wrapper's resolve-args.sh enforces on MATTSTACK_PACK. */
+const PACK_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
 /** The pack a launch resolves bindings with: the launching tab's pack, else
     the board's default pack, else none. A pack becomes a path segment, so
-    one that could climb out of `packs/` counts as none. */
+    one outside the pack-name grammar counts as none. */
 export function packForLaunch(
   cfg: BoardConfig,
   tabId: string | undefined
 ): string | null {
   const tab = tabId ? cfg.tabs.find(t => t.id === tabId) : undefined;
   const pack = tab?.pack || cfg.defaultPack;
-  if (!pack || /[/\\]/.test(pack) || pack.includes('..')) return null;
+  if (!pack || !PACK_NAME_RE.test(pack)) return null;
   return pack;
 }
 

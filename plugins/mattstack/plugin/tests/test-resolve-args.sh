@@ -267,6 +267,14 @@ OUT=$(cd "$NOREMOTE_REPO" && HOME="$PACK_HOME" MATTSTACK_PACK=widgets "$RESOLVE"
 STATUS=$?
 check pack_no_remote 1 '.ok == false and .errors[0].code == "unbound" and (.errors[0].message | contains("MATTSTACK_PACK=widgets is set but")) and (.errors[0].message | contains("has no git remote"))'
 
+# --- case: pack-invalid -- a MATTSTACK_PACK outside the pack-name grammar never
+# reaches the filesystem, even when the path it spells would resolve ---
+mkdir -p "$PACK_HOME/.mattstack/repos/gitlab.example.com-acme-widgets/escaped"
+cp "$FIX/manifests/bound.jsonc" "$PACK_HOME/.mattstack/repos/gitlab.example.com-acme-widgets/escaped/skills.jsonc"
+OUT=$(cd "$PACK_REPO" && HOME="$PACK_HOME" MATTSTACK_PACK=../escaped "$RESOLVE" --skills-dir "$FIX/skills-dir" --plugin-list-cmd "$PLUGIN_LIST")
+STATUS=$?
+check pack_invalid 1 '.ok == false and .errors[0].code == "unbound" and (.errors[0].message | contains("MATTSTACK_PACK=../escaped is not a pack name"))'
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
 exit 0

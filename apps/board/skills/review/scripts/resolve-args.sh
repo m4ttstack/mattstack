@@ -30,6 +30,18 @@ MANIFEST=""
 PACK_MANIFEST_MISSING=""
 PACK_WITHOUT_REMOTE=0
 
+# The pack name becomes a path segment, so only the pack-name grammar
+# [a-z0-9][a-z0-9-]* is honored. The class is spelled out because a range
+# like a-z can match uppercase in some locales.
+PACK=""
+PACK_NAME_INVALID=0
+if [ -n "${MATTSTACK_PACK:-}" ]; then
+  case "$MATTSTACK_PACK" in
+    -* | *[!abcdefghijklmnopqrstuvwxyz0123456789-]*) PACK_NAME_INVALID=1 ;;
+    *) PACK=$MATTSTACK_PACK ;;
+  esac
+fi
+
 fail_env() { # $1=code $2=message (fixed strings, JSON-safe by construction)
   printf '{"ok":false,"skill":"%s","errors":[{"slot":null,"code":"%s","message":"%s"}]}\n' \
     "${WRAPPER_NAME:-}" "$1" "$2"
@@ -106,17 +118,17 @@ if [ -z "$MANIFEST" ]; then
     # the pack the launcher named. Known limitation: an explicit port
     # (ssh://host:2222/path) stays in the slug; writer and readers agree.
     REPO_REMOTE=$(git remote get-url origin 2> /dev/null || true)
-    if [ -z "$REPO_REMOTE" ] && [ -n "${MATTSTACK_PACK:-}" ]; then
+    if [ -z "$REPO_REMOTE" ] && [ -n "$PACK" ]; then
       PACK_WITHOUT_REMOTE=1
     fi
-    if [ -n "$REPO_REMOTE" ] && [ -n "${MATTSTACK_PACK:-}" ]; then
+    if [ -n "$REPO_REMOTE" ] && [ -n "$PACK" ]; then
       u=${REPO_REMOTE%.git}
       u=${u#ssh://}; u=${u#https://}; u=${u#http://}; u=${u#git://}
       u=${u#*@}
       u=$(printf %s "$u" | sed 's|:|/|')
       _host=${u%%/*}; _path=${u#*/}
       REPO_SLUG="$(printf %s "$_host" | tr 'A-Z' 'a-z')-$(printf %s "$_path" | tr '/' '-')"
-      PACK_MANIFEST="$HOME/.mattstack/repos/$REPO_SLUG/packs/$MATTSTACK_PACK/skills.jsonc"
+      PACK_MANIFEST="$HOME/.mattstack/repos/$REPO_SLUG/packs/$PACK/skills.jsonc"
       if [ -f "$PACK_MANIFEST" ]; then
         MANIFEST="$PACK_MANIFEST"
       else
@@ -135,6 +147,8 @@ if [ -n "$PACK_MANIFEST_MISSING" ]; then
   MANIFEST_NOTE="no manifest: MATTSTACK_PACK=$MATTSTACK_PACK but $PACK_MANIFEST_MISSING does not exist (run rt skills materialize)"
 elif [ "$PACK_WITHOUT_REMOTE" -eq 1 ]; then
   MANIFEST_NOTE="no manifest: MATTSTACK_PACK=$MATTSTACK_PACK is set but $PWD has no git remote, so no bindings file could be looked up"
+elif [ "$PACK_NAME_INVALID" -eq 1 ]; then
+  MANIFEST_NOTE="no manifest: MATTSTACK_PACK=$MATTSTACK_PACK is not a pack name, so no \$HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc was read, and \$HOME/.mattstack/skills.jsonc does not exist"
 else
   MANIFEST_NOTE="no manifest: not in an upward .mattstack/skills.jsonc from $PWD (stopping before \$HOME), MATTSTACK_PACK unset so no \$HOME/.mattstack/repos/<slug>/packs/<pack>/skills.jsonc was read, not in \$HOME/.mattstack/skills.jsonc"
 fi
